@@ -1,0 +1,33 @@
+REVIEWED_TREE: 9b3272eda1111e3bb2c5ff470806da5492f169a1 /home/user/.capy/work/cap36/wt
+
+I found five problems and none of them blocks. The one that matters most for security: code from the train head runs inside the train gate's `test` job before the base-owned cases run, so the claim that "a pull request in the train cannot change how the train is judged" doesn't hold.
+
+**Scope.** Range 1b68e637..HEAD (3396b02, 42ff510). I read every non-test source file in full: ci.yml, sealed.yml, train-gate.yml, gate/manifest.json, scripts/gate.ts, package.json and README. I reviewed the test files in summary mode only, so coverage is reduced:
+- tests/ci/gate.test.ts (+283) covers manifest parsing, route refusals, trainBase, JUnit parsing, publish binding and the gate surface, including the NUL-separated path regression.
+- tests/ci/sealed-workflow.test.ts (±19) covers the push trigger and the checksummed Bun download.
+- tests/ci/workflow-hygiene.test.ts (+85) covers action pins, permissions, secrets, the Bun digest, the gstack pin and ci.yml parity.
+
+`bun test tests/ci` passes 34 of 34. The Bun 1.4.4 digest matches upstream SHASUMS256.txt for bun-linux-x64.zip. The missing `.gstack/ship-policy.json` is the plan's U19b, so I didn't count it. I didn't run the workflows on GitHub Actions. This was a plain read-only review: I didn't run the gstack install check or any gstack workflow on this machine.
+
+1. **Train-head code can change the judgment in `test` and `bisect`** (train-gate.yml, gate/manifest.json). The base worktree, `$RUNNER_TEMP/gstack/bin`, `$RUNNER_TEMP/record` and `$GITHUB_PATH` are all writable by head code that runs earlier in the same job:
+   - `bun install --frozen-lockfile` runs the head's root `postinstall`. I confirmed Bun runs it even with `--frozen-lockfile`.
+   - The `unit` case (`bun test`) runs every head test file before the `sealed` and `hygiene` cases.
+
+   So a test file under tests/ (outside tests/ci, which isn't in the gate surface) in one PR of a two-PR train can do three things. It can replace the pinned `gstack-pregate` binary, rewrite `tests/ci/workflow-hygiene.test.ts` in the working tree, or overwrite the record before upload. `publish` re-checks only nonce, head, tree and panel shape, all of which the head can supply. Separately, `bunfig.toml` and `tsconfig.json` change what the m0 commands do but aren't in `gate_surface`.
+
+   This is defense in depth only, because sealed.yml scans every PR and every push to main independently without running PR code. Fix: run the `sealed` and `hygiene` judgments in a job that runs no head code, and add `bunfig.toml` and `tsconfig.json` to `gate_surface`. INVESTIGATE. Severity: Medium. Blocks: no
+
+2. **The backstop nonce is refused** (scripts/gate.ts:214). When a post-merge verify fails, gstack's `freezeQueue` (lib/ship-queue-train-verify.ts at the pinned 61e201ec) dispatches `gate_workflow` on main with a `gate.backstop-…` nonce. gstack's own `routeDispatch` lets that through as `dispatch`; this one returns "is not a train or bisect nonce". I reproduced the refusal by calling `routeDispatch` directly. The result is that every freeze records a backstop run that failed at route and never ran the gate, which misleads the recovery. Fix: route `backstop` to `dispatch` mode and add a test. FIXABLE. Severity: Medium. Blocks: no
+
+3. **`trainBase` errors when the train's base is itself a `train T…` merge** (scripts/gate.ts:126-141). The loop keeps going after T1 instead of stopping, so a base whose tip is an earlier train's T1 returns "train T1 follows T1". I reproduced this in a scratch repo. With squash merges to main it won't happen; it does if a scratch base or main ever carries T commits. It fails closed. Fix: `break` once T1 is reached. FIXABLE. Severity: Low. Blocks: no
+
+4. **`passingTests` matches by name only** (scripts/gate.ts:224). Two tests with the same name, one failing and one passing, count as passing. I confirmed this with a probe. Fix: collect failing names too and subtract them. FIXABLE. Severity: Low. Blocks: no
+
+5. **Small local-run and record-binding gaps** (scripts/gate.ts:330-339, 346). This bullet has three parts:
+   - `run` uses the stderr text of a failed `git` call as the root or base. The error messages are misleading but it fails closed.
+   - When `merge-base` finds no common ancestor it exits 1 with empty stderr, so `run` falls back to `base=head`. That makes the `sealed` range empty and lets it pass vacuously for a local `bun run gate`. CI isn't affected because it always passes `--base`.
+   - The bisect record sets `prefix_sha` to the checked-out HEAD instead of the requested `$PREFIX`, which drops the explicit check that gstack's own runner makes. gstack's reader still rejects a mismatch, so this fails closed too.
+
+   FIXABLE. Severity: Low. Blocks: no
+
+Recommendation: Ship with follow-ups because the strongest finding, head test code in train-gate's `test` job rewriting the pinned gstack-pregate or the hygiene test before those cases run, is defense in depth that sealed.yml already covers without running PR code.

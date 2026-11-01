@@ -1,0 +1,22 @@
+REVIEWED_TREE: 634acd14e729e1ba94fada625d148cb1b50d79a5 /workspace/gstack
+
+NO FINDINGS at the blocking floor. Nothing here would fail a test, break production, or lose data or secrets.
+
+**Scope.** I reviewed the range `4eff47c5..HEAD` (4 commits, GST-691). That covers three files:
+- `lib/ship-preflight.ts`, +2 lines. I read it in full, along with the surrounding `merge()` and `integrate()` and the `git()` helper in `lib/ship-bin-common.ts`.
+- `changelog.d/gst-691-preflight-merge-noop.md`, a new fragment. I read it in full.
+- `test/ship-preflight-base-ancestor.test.ts`, +63 lines. **I reviewed fixtures and tests in summary mode only:** the diff stat and the test names, not the raw bodies. The three tests cover a base already in HEAD (no `git merge` runs), a moved base (it still merges), and an unfinished merge (conflicted, or resolved and staged) that still stops. I ran the file locally and got 3 pass, 0 fail.
+
+**How the change behaves.** The new branch reports `MERGE: up to date` only when three conditions all hold: no unmerged index entries, none of MERGE_HEAD, CHERRY_PICK_HEAD or REVERT_HEAD present, and `merge-base --is-ancestor` exiting with 0 (exactly 0). If any probe errors out (a null spawn status, or exit 128), the code falls through to the old `git merge` path. So a failure leads to the previous behavior, never to a false "up to date". The arguments are passed as a list with no shell, so `base` can't inject anything.
+
+**Non-blocking notes:**
+
+1. **Tests don't cover the cherry-pick and revert checks.** Commit 1a47ffa added the CHERRY_PICK_HEAD and REVERT_HEAD checks, but the test names cover only an unfinished merge. A regression that dropped those two refs would pass CI. The fix is to add a resolved, uncommitted cherry-pick (or revert) case to the existing "unfinished merge" test. FIXABLE. Severity: Low. Blocks: no.
+
+2. **Some unfinished operations aren't checked.** The shortcut doesn't look at `.git/sequencer`, which stays behind between the steps of a multi-commit cherry-pick, or at `rebase-apply` from `git am`. In those states it reports up to date. The old code would also have reported "Already up to date" there, because `git merge` doesn't refuse in those states, so this isn't a regression. A rebase leaves HEAD detached, and the existing detached-HEAD check stops it earlier. INVESTIGATE whether Step 3 should refuse any unfinished sequencer state. Severity: Low. Blocks: no.
+
+3. **A stale `origin/<base>` can produce a false "up to date".** In a single-branch clone, or one with a custom refspec, `git fetch origin <base>` may update only FETCH_HEAD. Then the ancestor check compares against an old `origin/<base>` and reports up to date. The old merge path read the same stale ref, so this is also not a regression. INVESTIGATE: fetching with an explicit `+refs/heads/<base>:refs/remotes/origin/<base>` refspec would close it. Severity: Low. Blocks: no.
+
+4. **The stop message got less helpful on guarded machines.** On a shared machine whose guard refuses `git merge`, an unfinished merge now stops with the guard's refusal text instead of git's "You have not concluded your merge". It still stops, but the message no longer names the cause. FIXABLE: detect MERGE_HEAD first and stop with a specific message. Severity: Low. Blocks: no.
+
+Recommendation: Ship as-is because the strongest finding is the missing cherry-pick/revert test (note 1), which is a coverage gap; the shortcut itself falls back to the old `git merge` path whenever a probe fails, so it can't skip a real merge.

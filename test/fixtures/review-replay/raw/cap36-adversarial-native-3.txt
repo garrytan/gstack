@@ -1,0 +1,33 @@
+REVIEWED_TREE: 9b3272eda1111e3bb2c5ff470806da5492f169a1 /home/user/.capy/work/cap36/wt
+
+I found no blocking defects in this range (base 1b68e637, head 42ff510). Five findings are below; none would fail a test, break production, or lose data or secrets. I read the full source diff: `ci.yml`, `sealed.yml`, the new `train-gate.yml`, `scripts/gate.ts`, `gate/manifest.json`, `package.json` and `README.md`.
+
+**Fixtures and tests were reviewed in summary mode only.** That covers `tests/ci/gate.test.ts` (+283), `tests/ci/sealed-workflow.test.ts` (+19/−6) and `tests/ci/workflow-hygiene.test.ts` (+85). Between them they test trainBase, routeDispatch, the case runner and JUnit parsing, the census and publishable checks, the gate.ts CLI (including the non-ASCII `-z` path fix), manifest validation, sealed.yml's triggers and range, and workflow hygiene (SHA pins, read-only tokens, one checksummed Bun, one gstack pin, parity with ci.yml). I did not reason over their payload bytes.
+
+**Checks I ran to rule things out:**
+- `bun test tests/ci` passes 34 of 34, and `bun run typecheck` is clean.
+- The Bun SHA-256 `bf8ccbfb…395c` matches line 30 of the live `bun-v1.4.4/SHASUMS256.txt`.
+- The sealed-case regex expands to `policy=origin/main( |$)`, which matches the output of pinned gstack-pregate 61e201e: `policy=` is the last field on the last stdout line, labels are joined with " + ".
+- Bun.Glob does match dotfiles under `.gstack/**` and `.github/workflows/**`.
+
+**Findings**
+
+1. **The gate surface misses files that decide what the cases check.** `gate_surface` leaves out `tsconfig.json` (its `include` decides what `bun run typecheck` checks), `bun.lock`, `scripts/wiki.ts` (behind `wiki:check`) and `src/errors/doc.ts` (behind `errors:check`). So a PR in a train of two or more can change how the train is judged and still get the green check, which contradicts the header of train-gate.yml. FIXABLE: add those paths, plus `bunfig.toml` in case one is added later. Severity: Medium. Blocks: no.
+
+2. **The `gstack/full-gate` check can be forged by a PR's own workflow.** When gstack pushes `train/<nonce>`, any `on: push` workflow that a PR in the train adds runs from that tree. It can request `checks: write` and post `gstack/full-gate` as success on the train head itself, without going through publish or the surface rule, even in a one-PR train. Check runs posted with GITHUB_TOKEN all come from the GitHub Actions app, so requiring a specific app does not tell them apart. INVESTIGATE: the merge lane should check that the check run belongs to a train-gate.yml run (its check suite or workflow path), or should refuse a train whose diff adds or changes workflows. Severity: Medium. Blocks: no.
+
+3. **Publish trusts a record built on a runner where head code ran.** The `test` job runs head-controlled code (`bun test`, package.json scripts). That code can read NONCE from the environment, compute the head and tree, and leave a background process that rewrites `$RUNNER_TEMP/record/train-record.json` after gate.ts writes it and before upload. Every binding that publishable checks can be satisfied by that forgery. INVESTIGATE: the design only resists accidental changes, not a hostile PR, so the comment should say that or the threat model needs another anchor. Severity: Medium. Blocks: no.
+
+4. **A push scan judges a merge by the policy that merge just set.** On `push` to main, sealed.yml checks out a fresh clone, so `origin/main` is the new head, and the scan runs under the merged policy joined with itself. If a PR merged while its scan was red both loosened `.gstack/pregate.json` and added content, the push scan judges it under the loosened policy. Removing the sealed key entirely still fails, because the verdict requires `policy=origin/main`. FIXABLE: on push, run `git update-ref refs/remotes/origin/$POLICY_BRANCH "$BASE_SHA"` before the scan. Severity: Low. Blocks: no.
+
+5. **Two small integrity problems in gate.ts.**
+   - The bisect record sets `prefix_sha` and `checked_out_sha` to the same `HEAD` (gate.ts ~L420), so they can never disagree. FIXABLE: pass `--prefix "$PREFIX"` and record the requested SHA.
+   - `runCases` marks any signal death as INFRA. A single-command case like `bun test` is exec'd, so a real crash or a test that kills itself is reported as INFRA, not as a verdict red.
+   - A case that times out kills only bash, and a pipeline's orphans keep the runner busy.
+   - Six cases at 20 minutes each can exceed the 30-minute job limit, and a job that times out uploads no record.
+
+   Severity: Low. Blocks: no.
+
+Also noted, not a defect in this range: this repo has no `.gstack/ship-policy.json` train block, so every train or bisect route is refused until a later unit adds one. The first train that includes this PR also can't run on a base that lacks `scripts/gate.ts`.
+
+Recommendation: Ship as-is because the strongest finding, the forgeable `gstack/full-gate` from a push-triggered workflow on `train/<nonce>`, needs an approved hostile PR and is best closed in the merge lane rather than here; adding tsconfig.json, bun.lock and the two check scripts to `gate_surface` (finding 1) is a cheap follow-up.

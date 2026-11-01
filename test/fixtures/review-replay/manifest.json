@@ -1,0 +1,2166 @@
+{
+  "schema": 1,
+  "baseline_commit": "6e6685f634b11046b2209ecbc72c0d0164b16393",
+  "entries": [
+    {
+      "id": "gsta-196-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-ledger/gsta-196-native.txt",
+      "sha256": "1a2a011c5ab4b054d1de379742c24a68a559141d3e71e727f2285b0e6b552525",
+      "group": "saved",
+      "source": "GSTA-196 Step 11 (gstack-evals #36)",
+      "baseline": [
+        {
+          "label": "High",
+          "raw_sha256": "460238e154a35086b99442be968e1deb9fb781aff833dc33bf72fe63c7606155"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "2c0886732908acb7a75676ae682c371540d318c66dfd0dfaf50d3b0af310e286"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "b6db4118b54608b1c6cb42f83f833f9543738b7e9e106b0c97f3fe6df2bed337"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "8a133650091de021ec85c3f3fff23264218a8b264f03bc8e4f1bf8a8d34dc72c"
+        }
+      ]
+    },
+    {
+      "id": "harn15-ship2-p2-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-ledger/harn15-ship2-p2-adversarial-native.txt",
+      "sha256": "814c7067db8d58020eafd962ffb5cab54ad988cc0a9338ab0809851668f56fc0",
+      "group": "saved",
+      "source": "HARN-15 ship2 pass 2 (#3803 fixture)",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "901d0307896711887e90b19d9927e617599b653f70b48fc7dbe6cb604b008e57"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "d4b46b2afc810136d01b8f9b382573dfe3fbadf3f2bf8e56aec068103aece395"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "39460811a371b9adb5526211d389039e9d5fcbcf4c1fefdd3e2d0bf30126dff7"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "0d3aa8b55a6c70c563d91d369ef5f75a3d9cfe590d0623a17ee0c88ef564a19a"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "a53b89893956331e2d4aaef9a8c3eb5614375e54d833a37a368daa93f72d2e75"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "0e0f57759a91c8816eab585ed64f16d201215a7a8f14f0dff898610493175fb1"
+        }
+      ]
+    },
+    {
+      "id": "harn15-152-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-ledger/harn15-152-p1-adversarial-native.txt",
+      "sha256": "2e706ba8da9d635ca1a405869b08aaed2c3901acc4d9a8390307b7a5cb22fb19",
+      "group": "saved",
+      "source": "HARN-15 harness-evals #152 pass 1 (#3803 fixture)",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "fc37f5af8d45c8b00ae63af7a173cec71c7373e282eabe4365761c0467570554"
+        },
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "7f9326bfee8e865ec0cb73c455364194456d6a984bdbd0a76afb524b6c834e7b"
+        },
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "43f454262803346773bc97a7ec4c00fd8529a43a930ec64a87caec9a6128f0a0"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "b49c8c6e53c21a306f61fb9eb969b9c1db6978f854d8d908a8c1824dc018b115"
+        },
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "f43d6417758b3804bdd66559ea5b71615f01717eb86d4581ba0f1266bee96f4c"
+        },
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "9336794d911bc41e111419984f3d2cea45e0efce1aca55e04197dfd303883ff7"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "2825636e7ea37ac581986ee205646e093229fd53534189ffcc273e80d38375d3"
+        }
+      ]
+    },
+    {
+      "id": "harn15-ship2-red-team",
+      "role": "red-team",
+      "file": "test/fixtures/review-ledger/harn15-ship2-red-team.txt",
+      "sha256": "541b4cb587fa0c852fcb6fa70791a93a53cff783faec3450e4881d7f202c3991",
+      "group": "negated-fixture",
+      "source": "#3803 fixture",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "7747a616ff3489688ec4a00f8a78df5c27d2b45f725d1349d7ffd374fdd2a9b7"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "ece9f5864620d77245d5018a4edfe8e27fbed086b3af4c2585e305af3b1a5ef4"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "f09e2ed5b36f639ba0e5752da1c96baeaf862948bb388edebc7ad9dbae594dd0"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "81cdfb6745760f6b06a4ef33deb47765d87aa4c1b7ca491a2f04341882108363"
+        }
+      ]
+    },
+    {
+      "id": "harn15-ship2-p2-red-team",
+      "role": "red-team",
+      "file": "test/fixtures/review-ledger/harn15-ship2-p2-red-team.txt",
+      "sha256": "fb0c4063f1b2489ccf525ae1a1044235f2fe0c92d2216d0bcfce7d29714fdd37",
+      "group": "negated-fixture",
+      "source": "#3803 fixture",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "3703bf16b4bc4cd6706524dd7705f03c541e3c5dd762b7a0522c89d53f9e190d"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "a9fa425434b17ad563a38be21215c5811fe96516cc704e6b11b2b957954ed754"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "7b0fc45c87e4d540867cf0c14f2d29e34dd3200427c62ead68eeccae2d212bb7"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "cb2b513c55ed39b49c9038e6d1cba5bbfe7d9915fd8fedb88f8788e9d2e9d697"
+        }
+      ]
+    },
+    {
+      "id": "harn15-ship2-p2-fix-check",
+      "role": "fix-check",
+      "file": "test/fixtures/review-ledger/harn15-ship2-p2-fix-check.txt",
+      "sha256": "4b393152ff2fa31303d9ed9f6169c2a245bcc6610e3493a33da3995cb9f7ba86",
+      "group": "negated-fixture",
+      "source": "#3803 fixture",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "a8143d7898276a347dd6c37ce42090fa733e1be46c3d47af738990bc62765615"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "3fc4ca0ee46c64816b8af1851ac1ee3387b7fd32e45a91c265a668fe52447705"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "edbf479fedda8867a7476f7ff7ddeccf61f305b390d2848a2091fd1e942fd74d"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "267252688a123e899178872b097789974de4a29fa2fbfd40c06f585a2144a87a"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "5364d8402aa0200b1e2c8d822b6f274294452623309c08dbdb3acbe661fea8ac"
+        }
+      ]
+    },
+    {
+      "id": "harn15-152-p2-fix-check",
+      "role": "fix-check",
+      "file": "test/fixtures/review-ledger/harn15-152-p2-fix-check.txt",
+      "sha256": "35cfcc078674e50f4e24f0e73138ad50f855ab159c6634a27108d2e534383f41",
+      "group": "negated-fixture",
+      "source": "#3803 fixture",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "edff6c20c5736926780f9923fc547fdf9974d2b66f93de1f627c8f9ccf15a25d"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "8696f83860e07eafb908618a6586901d064f1350e0049e9cd31cd9942f533c01"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "98f37b4e146922ad4f302208e07165990b22ab918496eee13fab04383c1ba959"
+        }
+      ]
+    },
+    {
+      "id": "geva-77-fix-check",
+      "role": "fix-check",
+      "file": "test/fixtures/review-ledger/geva-77-fix-check.txt",
+      "sha256": "b48eaded96e0e846fee31539c8f6fdfff148c0c072cceac7ad1cd2a010759508",
+      "group": "negated-fixture",
+      "source": "#3803 fixture",
+      "baseline": [
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "f697bbdb95507a37d43a590357941aba7e86b5ef18319f191d601c2e8e0eb38e"
+        },
+        {
+          "label": "INFORMATIONAL",
+          "raw_sha256": "e57e1141cd11ed5f37085006dfbdd53cdb29cddabe76584201d248b8c3afd673"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "1a242354cb5ef3afef031e71b9d764ff5dd876c6b88c9e2ccae701c123d31003"
+        }
+      ]
+    },
+    {
+      "id": "gsta-189-s11-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gsta-189-s11-native.txt",
+      "sha256": "75d589dd909464ad9e4021d7a5079efcd98ff29e9ec73cfbf20bb9eb9ef52be1",
+      "group": "saved",
+      "source": "GSTA-189 Step 11 (gstack-evals #36)",
+      "baseline": [
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "0f0e696d712258a60bef36a4294e2fb9e9c973e863792cce4a02d74677f4b065"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "ab1a7d842bf7936dbeaabae69c992ebffdd0b2ccaf532f3e1158b4d8c695ea9b"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "a95280675caffa243f03bfb85cdfa456357b476f582b0198ca931e9c1168bcae"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "6c6b6a5b9536a8ca35be651d857257a20169251dd58ed44a923a8e7680a7a7d6"
+        },
+        {
+          "label": "INVESTIGATE",
+          "raw_sha256": "7c6282b5f25e263edf1b8100df7cf3c6d1937a69febfdfb251159c74be46c855"
+        }
+      ]
+    },
+    {
+      "id": "gsta-189-s11-outside",
+      "role": "outside-voice",
+      "file": "test/fixtures/review-replay/raw/gsta-189-s11-outside.txt",
+      "sha256": "626f3bbc8c1210b739cf70779cc9fd4a75d66e8c90d6905b9c287ef9101a4f9d",
+      "group": "saved",
+      "source": "GSTA-189 Step 11 (gstack-evals #36), confinement control",
+      "baseline": []
+    },
+    {
+      "id": "gst-691-p2-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-691-p2-native.txt",
+      "sha256": "911342e7094adca3979071ae79fa29a2afb689f6da7918a4e6000023ce99d878",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-691 pass p2",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "19ff29a96498e7725252ec8aa4e660d5e2599322d2233c394758deec981dca43"
+        }
+      ]
+    },
+    {
+      "id": "gst-691-p3-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-691-p3-native.txt",
+      "sha256": "dea7a6b3f385eab0f0a512e719c64f577fd175740408a6299ec3ba9cc4bdd589",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-691 pass p3",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "6daabc270ef4ae2e20ca12edc635a31cc3dde505741ba8dfa317d5dbe429c2a5"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "65646653459df72ff92f16082cf038803351b69c16a2b2ee80f718d6a531eedf"
+        }
+      ]
+    },
+    {
+      "id": "gst-691-p4-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-691-p4-native.txt",
+      "sha256": "3692f0cbcbfba9df416d815ea052390c67c5e87fdfb9397d3245ee12df7941b5",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-691 pass p4",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "bd8a6d4742222a1359f8f7c26d14bcb39ba506d30a04d7a358937aba219c3e36"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "dbab2a5d2ed097c036ce0d0fcd33a536f8750f52afcab3ba8671fd4efcf2e69e"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "42ec7f549d1bb7c9769dd7b414ccb52e4707ccc5d67fe7c2f9b34d9f0bf6c1b9"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "1b86cbf1cddcb364549ccfde75086e441eee9ef1725aeef600018dee8f42e9d6"
+        }
+      ]
+    },
+    {
+      "id": "gst-713-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-713-p1-native.txt",
+      "sha256": "7e92de4c605d729006764982d924ae2c59b1dde573e7bdb02f224182119b9e6f",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-713 pass p1",
+      "baseline": [
+        {
+          "label": "Low",
+          "raw_sha256": "82dee92fd2f6840036041962813f6bd626ab395e9217b2375a33c4bf7bbc3fca"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "89e5126bf4107c4ab99a1f446938dd0531b32b70515c7f02993c1650959b3a92"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "ee26479399cd000f0eae6deaf0517352a3228aeb5e40fe3e6c0ac317ba24cbd0"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "9a8ca8a865de35a2f6ae4d4512e2c9c391773f194aa50d91e4ac825b36bcacb3"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "bb051dc068e14442eb84efa1cb12cb48d083a636e5197d3cdb6f8c8896ba697f"
+        }
+      ]
+    },
+    {
+      "id": "gst-716-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-716-p1-native.txt",
+      "sha256": "b406a8978c7fb70ace5a7781d8816b2a85491b0f459054a19a6eee48f85cec41",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-716 pass p1",
+      "baseline": [
+        {
+          "label": "Low",
+          "raw_sha256": "571759cc3970715025ae656f931efa16e2ec646a417a0896431f57a412276271"
+        }
+      ]
+    },
+    {
+      "id": "gst-732-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-732-p1-native.txt",
+      "sha256": "1e66f6a6f051d67ee0de8252cec327646ef1cd5702b2439ae62f24c481b6090a",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-732 pass p1",
+      "baseline": [
+        {
+          "label": "Low",
+          "raw_sha256": "6173bc085ac315b763a15d619258ab3a8e2549f597854a0e281a4b5ee0dab620"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "a4177a12586255be5e42ad8bc1488da4cc27ff5c4a8a4a3d12b64205dd225692"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "0d0ed3697732fb75ff13347cfac7c4836b3f8b70c582e592dcf9322dce13ee7a"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "0f3307639d7c5b07c29d3f345b752f101e0f677afcef643120d4bda79315993b"
+        }
+      ]
+    },
+    {
+      "id": "gst-732-p2-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-732-p2-native.txt",
+      "sha256": "487afcbcbdfbac5e6ac04e33135ad5a2963718fb83dcdfaad2e06671409f9847",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-732 pass p2",
+      "baseline": [
+        {
+          "label": "Low",
+          "raw_sha256": "cedaf51db08c7e02badf166e73baf11105947a35f0d8514dfa93c0f5131bf8cc"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "27454614db62935669fa3a8d76a24431508cca8a0fe248940cd7970b0c7ad7ee"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "86a28f326b564281a78a7dd3710848c9c6b7690a340a22e74198111bee1b7567"
+        }
+      ]
+    },
+    {
+      "id": "gst-743-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-743-p1-native.txt",
+      "sha256": "415148255ce0962451487518936fc808cd84c97f1c646758e12b7675907bc022",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-743 pass p1",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "8fa2f64684077bc29d3fd43ae1e12e251d6f22aae2ee910fd3b9e8578509f623"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "f94ad7e696b8d4220ba36aae9ba4b5cbe5cb485d59f8fe960349e11d7ac6c6ae"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "041e23afa4b774ae7bfc739d53c59bd3cba63478fa67ae2dc5613b86545b493c"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "2628685e10d4dda6dcada0fc91160509452d4a152c0e3d73bdc07da86efb85ed"
+        }
+      ]
+    },
+    {
+      "id": "gst-766-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-766-p1-native.txt",
+      "sha256": "40cd93362b9a77c43b134681efe0cc9334b41006b94c3894d044deac570c1662",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-766 pass p1",
+      "baseline": [
+        {
+          "label": "HIGH",
+          "raw_sha256": "dbd0c832d51bfaad6e4f9e7390f8b45df7f10cc7c8e990581fcd6904060ea2c5"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "bba021cb0c82ac7a0b4267d4cc6e25d45b060797a5d32ffe4ab271f25cfbe584"
+        },
+        {
+          "label": "Critical",
+          "raw_sha256": "b0f2af2ef94c296132d85d5fe935ba1076b132d28ea36b710a2a5bd85a2b7f14"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "9a9ed14415a496b24b701d74aa89e4aae43c425c9f9bb5f86cde8c8631c569d9"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "25a25be18cb23a03fc4774377be92b42d43160a9837a69cd6447d16cc4a2a9d3"
+        }
+      ]
+    },
+    {
+      "id": "gst-766-p2-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-766-p2-native.txt",
+      "sha256": "8de1f3d61f9657d58e6292f23604d48ae82d0439ebbd9786b387ed6c4577861a",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-766 pass p2",
+      "baseline": [
+        {
+          "label": "Low",
+          "raw_sha256": "3c9b526cb554e72eb3e75cafa6051ce3c28d4b5a334fba38b8a7f824c608edd5"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "61b10bbdd5521ca4f14a804dade820b7af62f86bed85512c9421774cef55a908"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "646ad750c2bc828b5d57da2c00d14767757c737e48fbaedf268c502ae3928579"
+        },
+        {
+          "label": "High",
+          "raw_sha256": "616bba03482f0d6472ceef5ebe2ebd7d96db493655a01c265401eddf7fdab8c4"
+        },
+        {
+          "label": "High",
+          "raw_sha256": "d5c3c24e6ede9b07d8da88a05dcd9ed7073d42154cf2658f4284c7c1c74ab8d5"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "000f2b1563b3c83d8fb9df8fa8170d5bf97273ca6ef0992df41511140ab801dd"
+        },
+        {
+          "label": "Critical",
+          "raw_sha256": "95f61c09f39a0b04bdc238ea495e767e08b88f805fb26a4fffb3bca985ba6dbf"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "d5ce1a165dfd78969a4b16a591a2bf53b9b6b73f6b0176376402b8343c5c142a"
+        },
+        {
+          "label": "High",
+          "raw_sha256": "549af787d71d970d7eff80f7f4d09d96d8de151b553759a938bf7354dc949fd9"
+        }
+      ]
+    },
+    {
+      "id": "gst-770-p1-native",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gst-770-p1-native.txt",
+      "sha256": "5e7e808b9e1665d8f64b2642ecec578024cb3b9206daafeffbda865b86bca005",
+      "group": "saved",
+      "source": "GSTA-234 /ship of GST-770 pass p1",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "4f48ba38570fe926c236ffe124f3c4891440c60ac42793ab47b7c0a83753ef0c"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "95de87baf6c9343de524221913771145fd6cde3882663d0c9e4ba7f05d07f484"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "c077479265effc351c3888b74f13691e35ce769a714dbea225919cce9e2664ee"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "3bacd220b5bf1ab4713b55bf303516acf445355910d9bc6eeb5f6ab300ccb5d2"
+        }
+      ]
+    },
+    {
+      "id": "gsta-197-p2-merged",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gsta-197-p2-merged.jsonl",
+      "sha256": "692e577cf245a9ffb28a4f66fe20c3082a27f74c606e8795339c11963158d042",
+      "kind": "merged",
+      "group": "saved-merged",
+      "source": "GSTA-197 run2 pass 2 merged.jsonl (no raw output)",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "1e24ef4c86c0c787f359da17d0cb0e0aa4d866313a0287a349775e797f8bab80"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "783363f9cc0886dee26a5792c909021309fb31888f0868be9218cd79cc66c635"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "d1f602936b0adfed4d0029dbfb18c2bd35c7d73bf172488195dda3f0e61a0a5e"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "0f1a4a58c43c2e3c3c5b515b407c849bd0882d2fdbe1372896ca656ce2db91b5"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "8d30e50f48396ff20306cc1acf9ece25fc69650deac16c4b51888a0604c78e0a"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "0f0ba888a4296e8a304bb2ad2eca4ac270b6e3a3791fc7389cab096be6ef44b5"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "18d3a0110ffedf9fe2de5b12705b8a53a2b8233f8dd70cd52757c702ed09cc71"
+        }
+      ]
+    },
+    {
+      "id": "gsta-198-p2-merged",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/gsta-198-p2-merged.jsonl",
+      "sha256": "24a49c1829d1a45737b6bfd045e474346b8218a91229f560cf964e55527ceb0d",
+      "kind": "merged",
+      "group": "saved-merged",
+      "source": "GSTA-198 pass 2 merged.jsonl (no raw output)",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "8858ccce1ec161f8bdd1c92628aab1380580bc91b5014abc08d0f191dda9091a"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "d5b4dccc2f5b7d7b8af18e995fa71b28e19cd79915e886fe2c60f62ee460f7eb"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "4c1108ec7f64302b79095593d718456f9f44480dd34e9fbcc52bdd02a7c31364"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "081f183819c978c81ecb93f713318fb93834328633c5375b98eb1f590a0a272f"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "e0252bfca02a861bcd164a669006b7a7f66d4901ff5b0482a21afdfba434227a"
+        }
+      ]
+    },
+    {
+      "id": "cap36-adversarial-native-1",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/cap36-adversarial-native-1.txt",
+      "sha256": "b82218f9ba57b910d3a07c8aa4b4ced36471cae08188c72b884e0e3164c56800",
+      "group": "fresh",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (adversarial-native-1.txt)",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "6040123a143d782cb6ac945868b9634fae54c0ffe6ceb2a0df4dc10a52f315ec"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "9e85e8e7785aba800e1a0943d543f7089b963870aa3ddfb7efe8c73cb86d8fee"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "705fdd60f228fd1a7d25f09f3a9b1dc704f171b1d97eb7fca0492ae03c8e7924"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "921cd8f9cae15c67b3949d1b402da193244d1c5043268a98fcfc7c6d1cb649d3"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "fb291b610ff9081266d493ff34984a5e4055d2e1e8ee2406070887a454337438"
+        }
+      ]
+    },
+    {
+      "id": "cap36-adversarial-native-2",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/cap36-adversarial-native-2.txt",
+      "sha256": "c4270a58c06317463f4efd1196a71dd5e630adb1db93c8e439648fba7f30804a",
+      "group": "fresh",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (adversarial-native-2.txt)",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "a323ea1020834a4605096ea56e23004e2c041586a290b6ee85e08229ee2aa383"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "35f3504daed93e1cd355493c81920bdbc931ef5f1b0fb8642da82e41e75cf8a2"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "6df8efc5d2a3502239ca33b5f814c10d9e3d11d31d9a7996413b6db6c5dcdd5b"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "c6356934482c79bb8a06cf9ed3a5cc3ca1645469fd24c23a07bd7bc947a79a10"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "c6356934482c79bb8a06cf9ed3a5cc3ca1645469fd24c23a07bd7bc947a79a10"
+        }
+      ]
+    },
+    {
+      "id": "cap36-adversarial-native-3",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/cap36-adversarial-native-3.txt",
+      "sha256": "a224fcc435c0885b4528271cabe61982c5e3f9126d69ccb7e4f561e3276c7c70",
+      "group": "fresh",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (adversarial-native-3.txt)",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "23de920ba439ab23415c11ff2961b6d7c615f5283851f893cada6762cff84504"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "06dff94a65ddb61f4afb74e43dca55e79de01d0e1dc00386a62b522f4d0646c5"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "b2a25cff82ff862425232e70be7c44a59be182f7d181a269eef99e62bdc48a0e"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "1f6e90bdeb73ce1d603d205decc8a5eabe82c6476f8e5c497d938395177ab532"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "693ecdc769107e0a4e78dacdd5ce0ad5e66cef5c37911271c7dbbd854b5be3a9"
+        }
+      ]
+    },
+    {
+      "id": "cap36-adversarial-native-4",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/cap36-adversarial-native-4.txt",
+      "sha256": "d828688f8af907dca559391a4e8639fbbb3d42c412eee8fc45a55a19b3fb82b0",
+      "group": "fresh",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (adversarial-native-4.txt)",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "d3990ca4dd84851df993a751fc2cfad3238604daf136549f9c13b429256d411b"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "0539802711367526660384e38c7a1d7422b31adb7157558042dc35638e99b917"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "fb48964901460f621aeb094d4870cc34f7357be57fb1ecfa8b5d8153fcdba367"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "fcb74bc6b47a073e4b79fcd31204252b68c5ba9371215d17421a84c09c2474ba"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "57fa222bd414f41a0357fa66c64f4ef8472cc1cd4453d2b4f46911dab820d3de"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "8f6cc5e1225bda904ff17ac6a067f0a934397f27db6ec00af04b5be4d9d8326d"
+        }
+      ]
+    },
+    {
+      "id": "cap36-no-gstack-opus",
+      "role": "adversarial-native",
+      "file": "test/fixtures/review-replay/raw/cap36-no-gstack-opus.txt",
+      "sha256": "c667cc0b4f62f222a02ee314c1d08c5ab1b08a6c0737657efacc462238d16f75",
+      "group": "no-gstack",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (no-gstack-opus.txt)",
+      "baseline": [
+        {
+          "label": "Medium",
+          "raw_sha256": "5828afde9a63d6c6fd04b1f8ccce07d2b40305e7bc25ab769ed0c985ea32c4e6"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "e8c0bad73e39f1ebc8195904ffcf980672295dfa472fc9d3d088d4f89fdebf29"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "1e8c34eb4c0e5351ee379ddac60743e8473d75d71768bbbaf1d58d9d7fec213e"
+        },
+        {
+          "label": "Low",
+          "raw_sha256": "33bb4e5b32a83b125d03862af47e8f022bdb6a235a8d07d56918879cf08ab4e0"
+        }
+      ]
+    },
+    {
+      "id": "cap36-no-gstack-sol",
+      "role": "outside-voice",
+      "file": "test/fixtures/review-replay/raw/cap36-no-gstack-sol.txt",
+      "sha256": "980ab18723c8250c4734f4c4a185e8e6e4c310092cb4b85b409109dc8d573fbf",
+      "group": "no-gstack",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (no-gstack-sol.txt)",
+      "baseline": [
+        {
+          "label": "High",
+          "raw_sha256": "3974fa933a57a266ae6d5d263e05b018133896cc66e6a718d5181c67b4b68854"
+        },
+        {
+          "label": "Medium",
+          "raw_sha256": "95be794b72b7b3cc2bb4de2af3e6cfb556a22b1c9406b7bd27977c0e86140ae7"
+        }
+      ]
+    },
+    {
+      "id": "cap36-outside-voice-1",
+      "role": "outside-voice",
+      "file": "test/fixtures/review-replay/raw/cap36-outside-voice-1.txt",
+      "sha256": "7cb749f247d4454fa499d6d94b513fb537abf2c2060ad3980a29484ce0ecb1b2",
+      "group": "fresh",
+      "source": "fresh capture on gstack-evals #36 @42ff510 (outside-voice-1.txt)",
+      "baseline": [
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "010802b685bc4ef46c00104d04dfbde331e76ecc548fa10b13d230921d294b03"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "9cc40cf088a47ad81fdd4cbebf92ebb185f6ae4d5d2ce0b99585bf425393b719"
+        },
+        {
+          "label": "CRITICAL",
+          "raw_sha256": "f08eac30a45282b53de4d8c4cd0cc8f468ad7a1448fac80357c77132e79a1f85"
+        }
+      ]
+    }
+  ],
+  "negated": [
+    {
+      "reader": "outside-voice",
+      "text": "No CRITICAL issues except the token leak in log.ts:3",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL issues except the token leak in log.ts:3",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "No CRITICAL issues except the token leak in log.ts:3",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "No CRITICAL issues except the token leak in log.ts:3",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "There is no CRITICAL issue other than the SQL injection at db.ts:12",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "There is no CRITICAL issue other than the SQL injection at db.ts:12",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "There is no CRITICAL issue other than the SQL injection at db.ts:12",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "There is no CRITICAL issue other than the SQL injection at db.ts:12",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing CRITICAL apart from the auth bypass (auth.ts:9).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Nothing CRITICAL apart from the auth bypass (auth.ts:9).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "Nothing CRITICAL apart from the auth bypass (auth.ts:9).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "Nothing CRITICAL apart from the auth bypass (auth.ts:9).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No new CRITICAL findings, but the token leak in log.ts:3 still blocks.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No new CRITICAL findings, but the token leak in log.ts:3 still blocks.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "No new CRITICAL findings, but the token leak in log.ts:3 still blocks.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "No new CRITICAL findings, but the token leak in log.ts:3 still blocks.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "None CRITICAL besides the race in queue.ts:40, which loses writes.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "None CRITICAL besides the race in queue.ts:40, which loses writes.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "None CRITICAL besides the race in queue.ts:40, which loses writes.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "None CRITICAL besides the race in queue.ts:40, which loses writes.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "red-team",
+      "text": "- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "adversarial-native",
+      "text": "- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Found no CRITICAL issues in the fix range.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Nothing CRITICAL or HIGH remains.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "This is not CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "I found zero Critical findings, and none High.",
+      "labels": [
+        "Critical"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "The retry path is safe; without CRITICAL impact.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No new CRITICAL issues introduced by the fix.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No remaining CRITICAL or HIGH findings.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "**No** CRITICAL issues found.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No **CRITICAL** issues found.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No `CRITICAL` issue.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No [P1] issues remain.",
+      "labels": [
+        "P1"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Nothing at CRITICAL severity remains.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL regressions introduced by the fix.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Nothing CRITICAL to report.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "There is nothing CRITICAL in the fix range.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL — the fix is sound.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Found no CRITICAL or HIGH regressions.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No HIGH-risk changes.",
+      "labels": [
+        "HIGH"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL/HIGH findings.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No P0/P1 issues.",
+      "labels": [
+        "P0"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL, HIGH or MEDIUM issues.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "fix-check",
+      "text": "No CRITICAL issues; served on localhost:3000.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "r",
+      "text": "Not CRITICAL, but High: the cache drops a row (c.ts:4)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "r",
+      "text": "No CRITICAL, High: the cache drops a row (c.ts:4)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "r",
+      "text": "Nothing CRITICAL / HIGH: race in q.ts:7",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "r",
+      "text": "1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL",
+      "labels": [
+        "LOW",
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "r",
+      "text": "1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.",
+      "labels": [
+        "LOW",
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "| 1 | `CRITICAL` | High | token leak in log.ts:3 |",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "| log.ts:3 | `CRITICAL` | High | token leak |",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing guards the write path the failure of which is CRITICAL",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "| a.ts:3 | race | not CRITICAL, Low |",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "| a.ts:3 | maps `FIXABLE` to `CRITICAL` in a comment | Low |",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Neither path checks auth so this is CRITICAL (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "None of the inputs are sanitized so this is CRITICAL (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing checks the token which is CRITICAL (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No bounds check lets CRITICAL data leak (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No defects in parsing but the upload handler is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "1. Without auth this is CRITICAL (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High",
+      "labels": [
+        "High"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The lock isn't released on error (pool.ts:12): High",
+      "labels": [
+        "High"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "A retry storm could escalate up to CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No input validation is CRITICAL (upload.ts:4)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No CSRF token is a CRITICAL gap at form.ts:12",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing escaped here is CRITICAL: stored XSS at view.ts:8",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No timeout here is High (fetch.ts:3)",
+      "labels": [
+        "High"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Upgraded: not High, CRITICAL (a.ts:3)",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Severity: not Medium, CRITICAL",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing else is CRITICAL except the token leak in log.ts:3.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No other issue is CRITICAL besides the auth bypass in auth.ts:9.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "None of the other findings are CRITICAL, but the SQL injection in db.ts:12 is.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing here is CRITICAL apart from the unescaped query (db.ts:12).",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing else is CRITICAL except the token leak.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Fix the token leak in log.ts:3 first; nothing else is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The token leak in log.ts:3 blocks the merge. Nothing else is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The token leak blocks the merge.\nNo other issue is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The token leak in log.ts:3 blocks the merge. None of the other findings are CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The token leak in log.ts:3 must block the merge. The other two are nits. Neither finding is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Apart from the token leak in log.ts:3, I found two nits. Neither finding is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Besides the auth bypass at auth.ts:9 there are three nits. None of the three findings are CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "The token leak in log.ts:3 must block the merge. Nothing here is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No auth check guards the admin route, so nothing CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "There are no CRITICAL findings.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "No CRITICAL or High findings to report.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "I found nothing CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "So there's nothing at CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Neither finding is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing here is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Neither fix is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Nothing in this diff is CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "This is not CRITICAL.",
+      "labels": [
+        "CRITICAL"
+      ]
+    },
+    {
+      "reader": "outside-voice",
+      "text": "Severity: Low (not High)",
+      "labels": [
+        "High"
+      ]
+    }
+  ],
+  "controls": [
+    "gsta-196-native#2",
+    "gsta-196-native#3",
+    "gst-766-p1-native#4",
+    "gst-766-p1-native#5"
+  ],
+  "gold": {
+    "gst-713-p1-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "ee26479399cd000f0eae6deaf0517352a3228aeb5e40fe3e6c0ac317ba24cbd0",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J001"
+    },
+    "gst-691-p4-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "1b86cbf1cddcb364549ccfde75086e441eee9ef1725aeef600018dee8f42e9d6",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J002"
+    },
+    "cap36-no-gstack-sol#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "3974fa933a57a266ae6d5d263e05b018133896cc66e6a718d5181c67b4b68854",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J003"
+    },
+    "gst-743-p1-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "041e23afa4b774ae7bfc739d53c59bd3cba63478fa67ae2dc5613b86545b493c",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J004"
+    },
+    "cap36-adversarial-native-2#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "6df8efc5d2a3502239ca33b5f814c10d9e3d11d31d9a7996413b6db6c5dcdd5b",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J005"
+    },
+    "gsta-197-p2-merged#3": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "d1f602936b0adfed4d0029dbfb18c2bd35c7d73bf172488195dda3f0e61a0a5e",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J006"
+    },
+    "gst-732-p1-native#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "a4177a12586255be5e42ad8bc1488da4cc27ff5c4a8a4a3d12b64205dd225692",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J007"
+    },
+    "cap36-adversarial-native-4#4": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "fcb74bc6b47a073e4b79fcd31204252b68c5ba9371215d17421a84c09c2474ba",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J008"
+    },
+    "harn15-152-p1-native#7": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "2825636e7ea37ac581986ee205646e093229fd53534189ffcc273e80d38375d3",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J009"
+    },
+    "harn15-152-p1-native#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "fc37f5af8d45c8b00ae63af7a173cec71c7373e282eabe4365761c0467570554",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J010"
+    },
+    "gst-766-p1-native#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "25a25be18cb23a03fc4774377be92b42d43160a9837a69cd6447d16cc4a2a9d3",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J011"
+    },
+    "cap36-adversarial-native-1#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "9e85e8e7785aba800e1a0943d543f7089b963870aa3ddfb7efe8c73cb86d8fee",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "BLOCKING"
+      },
+      "judge_item": "J012"
+    },
+    "cap36-outside-voice-1#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "010802b685bc4ef46c00104d04dfbde331e76ecc548fa10b13d230921d294b03",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J013"
+    },
+    "harn15-152-p1-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "b49c8c6e53c21a306f61fb9eb969b9c1db6978f854d8d908a8c1824dc018b115",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J014"
+    },
+    "cap36-no-gstack-opus#3": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "1e8c34eb4c0e5351ee379ddac60743e8473d75d71768bbbaf1d58d9d7fec213e",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J015"
+    },
+    "gst-766-p2-native#6": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "000f2b1563b3c83d8fb9df8fa8170d5bf97273ca6ef0992df41511140ab801dd",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J016"
+    },
+    "gst-743-p1-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "f94ad7e696b8d4220ba36aae9ba4b5cbe5cb485d59f8fe960349e11d7ac6c6ae",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J017"
+    },
+    "cap36-adversarial-native-1#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "921cd8f9cae15c67b3949d1b402da193244d1c5043268a98fcfc7c6d1cb649d3",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J018"
+    },
+    "gsta-196-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "2c0886732908acb7a75676ae682c371540d318c66dfd0dfaf50d3b0af310e286",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J019"
+    },
+    "harn15-ship2-p2-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "d4b46b2afc810136d01b8f9b382573dfe3fbadf3f2bf8e56aec068103aece395",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J020"
+    },
+    "cap36-adversarial-native-2#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "a323ea1020834a4605096ea56e23004e2c041586a290b6ee85e08229ee2aa383",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J021"
+    },
+    "harn15-ship2-p2-native#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "a53b89893956331e2d4aaef9a8c3eb5614375e54d833a37a368daa93f72d2e75",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J022"
+    },
+    "cap36-adversarial-native-2#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "c6356934482c79bb8a06cf9ed3a5cc3ca1645469fd24c23a07bd7bc947a79a10",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J023"
+    },
+    "cap36-adversarial-native-4#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "57fa222bd414f41a0357fa66c64f4ef8472cc1cd4453d2b4f46911dab820d3de",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J024"
+    },
+    "gsta-189-s11-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "6c6b6a5b9536a8ca35be651d857257a20169251dd58ed44a923a8e7680a7a7d6",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J025"
+    },
+    "gsta-198-p2-merged#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "081f183819c978c81ecb93f713318fb93834328633c5375b98eb1f590a0a272f",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J026"
+    },
+    "gst-691-p3-native#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "6daabc270ef4ae2e20ca12edc635a31cc3dde505741ba8dfa317d5dbe429c2a5",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J027"
+    },
+    "cap36-adversarial-native-3#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "b2a25cff82ff862425232e70be7c44a59be182f7d181a269eef99e62bdc48a0e",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J028"
+    },
+    "cap36-adversarial-native-4#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "0539802711367526660384e38c7a1d7422b31adb7157558042dc35638e99b917",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J029"
+    },
+    "cap36-adversarial-native-4#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "d3990ca4dd84851df993a751fc2cfad3238604daf136549f9c13b429256d411b",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J030"
+    },
+    "cap36-adversarial-native-3#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "23de920ba439ab23415c11ff2961b6d7c615f5283851f893cada6762cff84504",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J031"
+    },
+    "gst-766-p1-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "9a9ed14415a496b24b701d74aa89e4aae43c425c9f9bb5f86cde8c8631c569d9",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J032"
+    },
+    "gst-770-p1-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "c077479265effc351c3888b74f13691e35ce769a714dbea225919cce9e2664ee",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J033"
+    },
+    "gsta-197-p2-merged#4": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "0f1a4a58c43c2e3c3c5b515b407c849bd0882d2fdbe1372896ca656ce2db91b5",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J034"
+    },
+    "gsta-197-p2-merged#6": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "0f0ba888a4296e8a304bb2ad2eca4ac270b6e3a3791fc7389cab096be6ef44b5",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J035"
+    },
+    "gsta-189-s11-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "a95280675caffa243f03bfb85cdfa456357b476f582b0198ca931e9c1168bcae",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J036"
+    },
+    "gst-770-p1-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "3bacd220b5bf1ab4713b55bf303516acf445355910d9bc6eeb5f6ab300ccb5d2",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J037"
+    },
+    "gsta-197-p2-merged#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "8d30e50f48396ff20306cc1acf9ece25fc69650deac16c4b51888a0604c78e0a",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J038"
+    },
+    "cap36-adversarial-native-2#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "c6356934482c79bb8a06cf9ed3a5cc3ca1645469fd24c23a07bd7bc947a79a10",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J039"
+    },
+    "cap36-adversarial-native-4#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "fb48964901460f621aeb094d4870cc34f7357be57fb1ecfa8b5d8153fcdba367",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J040"
+    },
+    "cap36-adversarial-native-1#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "fb291b610ff9081266d493ff34984a5e4055d2e1e8ee2406070887a454337438",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J041"
+    },
+    "gst-713-p1-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "89e5126bf4107c4ab99a1f446938dd0531b32b70515c7f02993c1650959b3a92",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J042"
+    },
+    "cap36-adversarial-native-3#4": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "1f6e90bdeb73ce1d603d205decc8a5eabe82c6476f8e5c497d938395177ab532",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J043"
+    },
+    "cap36-no-gstack-sol#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "95be794b72b7b3cc2bb4de2af3e6cfb556a22b1c9406b7bd27977c0e86140ae7",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "BLOCKING"
+      },
+      "judge_item": "J044"
+    },
+    "gst-691-p4-native#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "bd8a6d4742222a1359f8f7c26d14bcb39ba506d30a04d7a358937aba219c3e36",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J045"
+    },
+    "cap36-outside-voice-1#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "9cc40cf088a47ad81fdd4cbebf92ebb185f6ae4d5d2ce0b99585bf425393b719",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J046"
+    },
+    "gst-732-p2-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "27454614db62935669fa3a8d76a24431508cca8a0fe248940cd7970b0c7ad7ee",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J047"
+    },
+    "harn15-ship2-p2-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "0d3aa8b55a6c70c563d91d369ef5f75a3d9cfe590d0623a17ee0c88ef564a19a",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J048"
+    },
+    "cap36-no-gstack-opus#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "33bb4e5b32a83b125d03862af47e8f022bdb6a235a8d07d56918879cf08ab4e0",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J049"
+    },
+    "gst-732-p1-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "0f3307639d7c5b07c29d3f345b752f101e0f677afcef643120d4bda79315993b",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J050"
+    },
+    "cap36-no-gstack-opus#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "5828afde9a63d6c6fd04b1f8ccce07d2b40305e7bc25ab769ed0c985ea32c4e6",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J051"
+    },
+    "cap36-adversarial-native-2#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "35f3504daed93e1cd355493c81920bdbc931ef5f1b0fb8642da82e41e75cf8a2",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J052"
+    },
+    "harn15-ship2-p2-native#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "901d0307896711887e90b19d9927e617599b653f70b48fc7dbe6cb604b008e57",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J053"
+    },
+    "gsta-196-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "b6db4118b54608b1c6cb42f83f833f9543738b7e9e106b0c97f3fe6df2bed337",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J054"
+    },
+    "gst-743-p1-native#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "8fa2f64684077bc29d3fd43ae1e12e251d6f22aae2ee910fd3b9e8578509f623",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J055"
+    },
+    "cap36-adversarial-native-1#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "6040123a143d782cb6ac945868b9634fae54c0ffe6ceb2a0df4dc10a52f315ec",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J056"
+    },
+    "gsta-198-p2-merged#1": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "8858ccce1ec161f8bdd1c92628aab1380580bc91b5014abc08d0f191dda9091a",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J057"
+    },
+    "cap36-adversarial-native-3#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "06dff94a65ddb61f4afb74e43dca55e79de01d0e1dc00386a62b522f4d0646c5",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J058"
+    },
+    "gst-713-p1-native#4": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "9a8ca8a865de35a2f6ae4d4512e2c9c391773f194aa50d91e4ac825b36bcacb3",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J059"
+    },
+    "harn15-ship2-p2-native#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "39460811a371b9adb5526211d389039e9d5fcbcf4c1fefdd3e2d0bf30126dff7",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J060"
+    },
+    "cap36-adversarial-native-4#6": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "8f6cc5e1225bda904ff17ac6a067f0a934397f27db6ec00af04b5be4d9d8326d",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J061"
+    },
+    "cap36-adversarial-native-3#5": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "693ecdc769107e0a4e78dacdd5ce0ad5e66cef5c37911271c7dbbd854b5be3a9",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J062"
+    },
+    "gsta-189-s11-native#2": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "ab1a7d842bf7936dbeaabae69c992ebffdd0b2ccaf532f3e1158b4d8c695ea9b",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J063"
+    },
+    "gst-691-p2-native#1": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "19ff29a96498e7725252ec8aa4e660d5e2599322d2233c394758deec981dca43",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J064"
+    },
+    "cap36-adversarial-native-1#3": {
+      "verdict": "NOT_BLOCKING",
+      "raw_sha256": "705fdd60f228fd1a7d25f09f3a9b1dc704f171b1d97eb7fca0492ae03c8e7924",
+      "judges": {
+        "openai/gpt-6.1-sol": "NOT_BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J065"
+    },
+    "cap36-no-gstack-opus#2": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "e8c0bad73e39f1ebc8195904ffcf980672295dfa472fc9d3d088d4f89fdebf29",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "BLOCKING"
+      },
+      "judge_item": "J066"
+    },
+    "cap36-outside-voice-1#3": {
+      "verdict": "BLOCKING",
+      "raw_sha256": "f08eac30a45282b53de4d8c4cd0cc8f468ad7a1448fac80357c77132e79a1f85",
+      "judges": {
+        "openai/gpt-6.1-sol": "BLOCKING",
+        "google/gemini-4-argon": "NOT_BLOCKING"
+      },
+      "judge_item": "J067"
+    }
+  },
+  "candidates": [
+    "gsta-196-native#2",
+    "gsta-196-native#3",
+    "harn15-ship2-p2-native#1",
+    "harn15-ship2-p2-native#2",
+    "harn15-ship2-p2-native#3",
+    "harn15-ship2-p2-native#4",
+    "harn15-ship2-p2-native#5",
+    "harn15-152-p1-native#1",
+    "harn15-152-p1-native#4",
+    "harn15-152-p1-native#7",
+    "gsta-189-s11-native#2",
+    "gsta-189-s11-native#3",
+    "gsta-189-s11-native#4",
+    "gst-691-p2-native#1",
+    "gst-691-p3-native#1",
+    "gst-691-p4-native#1",
+    "gst-691-p4-native#4",
+    "gst-713-p1-native#2",
+    "gst-713-p1-native#3",
+    "gst-713-p1-native#4",
+    "gst-732-p1-native#2",
+    "gst-732-p1-native#4",
+    "gst-732-p2-native#2",
+    "gst-743-p1-native#1",
+    "gst-743-p1-native#2",
+    "gst-743-p1-native#3",
+    "gst-766-p1-native#4",
+    "gst-766-p1-native#5",
+    "gst-766-p2-native#6",
+    "gst-770-p1-native#3",
+    "gst-770-p1-native#4",
+    "gsta-197-p2-merged#3",
+    "gsta-197-p2-merged#4",
+    "gsta-197-p2-merged#5",
+    "gsta-197-p2-merged#6",
+    "gsta-198-p2-merged#1",
+    "gsta-198-p2-merged#4",
+    "cap36-adversarial-native-1#2",
+    "cap36-adversarial-native-1#3",
+    "cap36-adversarial-native-1#4",
+    "cap36-adversarial-native-1#5",
+    "cap36-adversarial-native-2#2",
+    "cap36-adversarial-native-2#4",
+    "cap36-adversarial-native-2#5",
+    "cap36-adversarial-native-3#1",
+    "cap36-adversarial-native-3#4",
+    "cap36-adversarial-native-3#5",
+    "cap36-adversarial-native-4#3",
+    "cap36-adversarial-native-4#4"
+  ]
+}

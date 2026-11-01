@@ -1,0 +1,28 @@
+REVIEWED_TREE: e02f00e6ebfede0a83f0c2b74e33893b1a573c7d /home/user/.capy/work/wt-713
+
+I found nothing at the blocking floor. All four findings are Low and fail closed somewhere later in the flow.
+
+**Scope.** Base b6a5bd10, commits 2c684f0 and 89987bf. I read the non-fixture source in full: `bin/gstack-docs-candidate`, `lib/ship-release.ts` (`docsFresh`), `ship/sections/documentation.md` and its `.tmpl`, and the changelog fragment. I reviewed the fixtures and tests in summary mode only:
+- `test/ship-release-docs-exception.test.ts` is new, 103 lines, 8 cases. It covers the happy path (the exception appears on the DOCS line), a blocked audit with no exception, an exception later removed from docs-audit.json, a mismatched exception, and four `--exception` refusals: status not blocked, blank scope, a non-ISO date, and bad JSON.
+- `test/size-ledger/ship/gst-713-docs-exception-finish.json` records 208 bytes of growth in documentation.md.
+
+**Checks I ran in wt-713.**
+- The new test plus `test/size-ledger.test.ts`: 21 pass, 0 fail.
+- `test/ship-release.test.ts` plus `test/ship-driver.test.ts`: 35 pass, 0 fail.
+- `gen:skill-docs --dry-run`: exit 0, all generated files fresh.
+
+**Findings**
+
+1. **The snapshot validates the exception more loosely than the receipt does** (`bin/gstack-docs-candidate`, `acceptedException`). It only requires non-blank strings. `parseReceiptDocs` in `lib/ship-receipt-docs.ts` also rejects control characters and unknown keys, and trims values. So an exception with a newline in `accepted_by` or `via` is accepted by the snapshot and printed raw into the `EXCEPTION:` line and finish's `DOCS:` line. That lets it forge extra lines in output the agent reads. The run then fails late, at `gstack-ship-receipt write --docs` in Step 19, after finish has already made the release commit. FIXABLE: validate with `parseReceiptDocs` (status must be blocked and an exception must be present) instead of a second validator. Severity: Low. Blocks: no.
+
+2. **Finish compares only four of the exception's fields** (`lib/ship-release.ts:230`). It matches `accepted_by`, `date`, `via` and `reason`, but not `scope`, and nothing ties the exception to `audit_id`. A docs-audit.json rewritten with the same exception but a wider scope still passes finish. The PR-body verbatim check in the receipt is the real backstop. FIXABLE: also compare `record.exception.scope === docsAudit.scope`. Severity: Low. Blocks: no.
+
+3. **A malformed docs-audit.json counts as "no audit"** (`lib/ship-release.ts:227`). The bare `catch` sets `docsAudit = null`, so a corrupt record next to a plain post snapshot skips the new blocked check and finish passes. The receipt write later refuses it, so this is fail-open only at Step 16. FIXABLE: treat only a missing file (ENOENT) as absent and stop on a parse error. Severity: Low. Blocks: no.
+
+4. **The exception path can waive a docs-cap overflow** (`ship/sections/documentation.md`, Blocked recovery step 3). The prose says a cap overflow is a blocked audit "repaired by trimming that file, never by raising the cap". The new path lets the owner accept any blocked audit, and neither snapshot nor finish runs `docs-caps` on it. Whether a cap breach should be waivable, or whether the queue or CI enforces caps on its own, needs a human call. INVESTIGATE. Severity: Low. Blocks: no.
+
+There's no race or leak in the diff. Stale blocked records can't carry over between runs, because Prepare runs `rm -f .gstack/tmp/docs-audit.json` (documentation.md line 17). Finish reads the record from `process.cwd()`, but finish already assumes it runs at the repo root, for VERSION and other files.
+
+Recommendation: Ship as-is because the strongest finding, the looser validator in `acceptedException` that lets a newline forge lines on finish's DOCS output, is fed only by the agent's own docs-audit.json, and the receipt write refuses that exception at Step 19.
+
+gstack: ok 1.92.2.0 for=review (behind=3 (latest: 1.92.5.0); fix: bash /home/user/.capy/drive/user-garry-tan/skills/gstack/scripts/install.sh --for review)

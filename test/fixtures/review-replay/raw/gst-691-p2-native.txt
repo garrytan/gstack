@@ -1,0 +1,26 @@
+REVIEWED_TREE: f8796f9f85b8f69618315826a30cace58ff73f2b /workspace/gstack
+
+The range has no blocking findings. The one real defect is low severity: it only shows up when a checkout already has an unfinished merge of some other branch in progress.
+
+**Scope.** I reviewed the range from 4eff47c5 to HEAD (eb75309). It has two commits and three files:
+- `lib/ship-preflight.ts` (modified, +1 line): I read it in full, along with the surrounding `integrate()` and `merge()` code and the `git()` helper in `lib/ship-bin-common.ts`.
+- `changelog.d/gst-691-preflight-merge-noop.md` (added): read in full.
+- `test/ship-preflight-base-ancestor.test.ts` (added, +46): reviewed in summary mode only, as the brief asked. I didn't pull its payload bytes into the adversarial reasoning. It covers two cases. When the base is already in HEAD, no `git merge` runs and the output says `MERGE: up to date`. When the base has moved, `git merge` still runs, and a PATH shim stands in for a guard that refuses merges.
+
+**Checks I ran on this tree.**
+- `bun test test/ship-preflight-base-ancestor.test.ts`: 2 pass, 0 fail.
+- `bun test test/ship-preflight.test.ts test/spawnsync-timeout-tripwire.test.ts`: 21 pass, 0 fail.
+- `detectWindowsFragility()` flags the new test as "spawns bin/ shebang script", so it stays out of the Windows subset, the same as the existing `ship-preflight.test.ts`.
+- gstack: ok 1.92.2.0 for=review (behind=2, latest 1.92.4.0). I only ran the install check and no gstack workflow.
+
+**What I traced and found safe.**
+- `--is-ancestor` exits 1 when the base is not in HEAD and 128 when `origin/<base>` is missing or the history is shallow. A spawn timeout gives `status` null. All of those are non-zero, so they fall through to the old `git merge` path and behave exactly as before.
+- When the branch is behind the base, the check is false, so the fast-forward merge still happens.
+- The arguments are argv with no shell, so a branch name can't inject anything.
+- A stale `origin/<base>` (fetch refspec quirks) already affected the old merge path. This change didn't introduce it.
+
+**Findings**
+
+1. **The shortcut skips the unmerged-index STOP when another merge is in progress (`lib/ship-preflight.ts:71`).** Picture a checkout where `origin/<base>` is already in HEAD but someone has started merging a different branch and left it unfinished: `MERGE_HEAD` exists and paths show as `UU`. Before this change, `git merge origin/<base>` failed in that state and preflight stopped with "merge conflicts in …". Now `--is-ancestor` returns 0, preflight prints `MERGE: up to date`, and it goes on to DISTRIBUTION, POLICY, review-plan and, when lanes are set, the pregate and test lanes. All of that runs on a tree that may still hold conflict markers. I confirmed it in a scratch repo with `.git/MERGE_HEAD` present and `UU f`: `is-ancestor` gave 0, while `git merge origin/main --no-edit` exited 128 with "Merging is not possible because you have unmerged files". Preflight's own conflict STOP never sets up this state, because in that case HEAD doesn't contain the base and the merge still runs. So it takes a merge started by hand or by another tool. The STATUS line still shows the modified count, and pregate or the tests would probably fail on the markers, so no data is lost. FIXABLE: take the shortcut only when `git ls-files -u` is empty (or `MERGE_HEAD` is absent), and otherwise fall through to the existing merge and STOP path. Severity: Low. Blocks: no.
+
+Recommendation: Ship as-is because the strongest finding, the skipped unmerged-index STOP at lib/ship-preflight.ts:71, needs an unrelated merge left unfinished with the base already in HEAD, and later pregate and tests would still trip on the markers.

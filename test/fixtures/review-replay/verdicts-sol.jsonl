@@ -1,0 +1,67 @@
+{"id":"J001","verdict":"NOT_BLOCKING","reason":"lib/ship-release.ts explicitly compares record.exception.scope with docsAudit.scope as well as all four exception fields."}
+{"id":"J002","verdict":"NOT_BLOCKING","reason":"lib/ship-preflight.ts still stops when git merge fails, so the less specific refusal text does not bypass the guard."}
+{"id":"J003","verdict":"BLOCKING","reason":"train-gate.yml runs head-controlled bun install after creating the writable base worktree, allowing lifecycle scripts to replace manifest commands that publishable validates only by case ID and PASS status."}
+{"id":"J004","verdict":"NOT_BLOCKING","reason":"gstack-capy-install exits 2 before setup or verdict creation for an invalid project, and the preceding clone and missing trailer do not establish a production or data-loss failure."}
+{"id":"J005","verdict":"NOT_BLOCKING","reason":"The finding contains no allegation about train-gate.yml or scripts/gate.ts to verify."}
+{"id":"J006","verdict":"BLOCKING","reason":"gate/manifest.json pipes sealed through grep while runCases labels every ordinary nonzero exit FAIL/VERDICT, so checker errors become attributable code failures instead of infrastructure failures."}
+{"id":"J007","verdict":"BLOCKING","reason":"lib/ship-preflight.ts uses rev-parse --verify on pseudoref names and now hard-stops on success, so an ordinary matching branch or tag wrongly prevents shipping."}
+{"id":"J008","verdict":"BLOCKING","reason":"sealed.yml leaves origin/main at the pushed head, so its push scan uses the same commit's potentially relaxed policy instead of the pre-push policy."}
+{"id":"J009","verdict":"NOT_BLOCKING","reason":"qmDelivery uses an empty string for null structuredContent, and the model-call tagged branch records returned_by_gbrain rather than delivery character counts."}
+{"id":"J010","verdict":"NOT_BLOCKING","reason":"handleGbrainRequest requires !!bearer before matching provider tokens and otherwise calls resolveActor, so a whitespace-only bearer does not authenticate as the provider."}
+{"id":"J011","verdict":"NOT_BLOCKING","reason":"The GST-766 changelog does not enumerate those optional words, and the diff's NEGATED regex does not accept them."}
+{"id":"J012","verdict":"BLOCKING","reason":"routeDispatch rejects every nonempty nonce except train or bisect, while freezeQueue dispatches gate.backstop nonces, so the recovery gate cannot run."}
+{"id":"J013","verdict":"BLOCKING","reason":"train-gate.yml is dispatched on the candidate train ref and grants its publish job checks: write, letting candidate YAML bypass the base-code validation and publish success."}
+{"id":"J014","verdict":"NOT_BLOCKING","reason":"qmDelivery reads c?.type in its content filter, so null content entries do not throw."}
+{"id":"J015","verdict":"BLOCKING","reason":"gate/manifest.json omits tsconfig.json, bunfig.toml and the wiki/error checker implementations from gate_surface while running their head-controlled checks, allowing multi-PR trains to weaken their own judgments."}
+{"id":"J016","verdict":"NOT_BLOCKING","reason":"The proposed parseFindings changes identify no concrete input or demonstrated lost finding, and the diff only changes severity-label selection."}
+{"id":"J017","verdict":"NOT_BLOCKING","reason":"gstack-capy-install already resolved PROJECT with cd before this diff, so the added empty-result guard does not introduce the CDPATH pin-resolution problem."}
+{"id":"J018","verdict":"NOT_BLOCKING","reason":"runCases checks passingTests only after a zero command exit, so a duplicate-named failing Bun test still makes the hygiene case fail."}
+{"id":"J019","verdict":"NOT_BLOCKING","reason":"runCases marks a timeout INFRA and publish requires a successful test job, so the described timeout and missing record fail closed rather than establish a false green or data loss."}
+{"id":"J020","verdict":"NOT_BLOCKING","reason":"qm-stack.ts adoptNew filters names with SANDBOX_NAME without calling own, and down runs compose down before adoption and sandbox removal."}
+{"id":"J021","verdict":"BLOCKING","reason":"sealed.yml scans push ranges with origin/main still pointing at the merged head, allowing that merge's weakened policy to hide content the new backstop is meant to detect."}
+{"id":"J022","verdict":"NOT_BLOCKING","reason":"s1-stage.ts writes routerOut only after computing the run evidence, defaults out to the work directory, and contains no claimed failure-only receipt redirection."}
+{"id":"J023","verdict":"NOT_BLOCKING","reason":"The finding contains no allegation about the evals diff to verify."}
+{"id":"J024","verdict":"NOT_BLOCKING","reason":"The empty finding identifies no defect in scripts/gate.ts or its workflows."}
+{"id":"J025","verdict":"NOT_BLOCKING","reason":"The gate commands can load .env files, but the finding supplies no verified variable or mechanism that changes a case verdict or exposes data."}
+{"id":"J026","verdict":"NOT_BLOCKING","reason":"scripts/gate.ts can fall back to head locally, but CI supplies --base and the finding establishes no failing supported run or actual sealed-content leak from the unrelated-history scenario."}
+{"id":"J027","verdict":"BLOCKING","reason":"The GST-691 ancestor shortcut checks neither MERGE_HEAD nor resolved merge state, so it continues preflight on an unfinished staged merge that the previous git merge call rejected."}
+{"id":"J028","verdict":"NOT_BLOCKING","reason":"train-gate.yml publishes only when needs.test.result is success, so rewriting a record after a red gate exits cannot by itself obtain a published green check."}
+{"id":"J029","verdict":"NOT_BLOCKING","reason":"The proposed dispatch arrangement names no independently verifiable defect beyond a design option for train-gate.yml."}
+{"id":"J030","verdict":"NOT_BLOCKING","reason":"The finding identifies no particular code path or concrete trust-boundary failure to verify in train-gate.yml."}
+{"id":"J031","verdict":"BLOCKING","reason":"gate_surface omits tsconfig.json, bun.lock and the wiki/error checker sources even though the head supplies those inputs to the trusted base's cases, allowing the train to weaken its own checks."}
+{"id":"J032","verdict":"NOT_BLOCKING","reason":"asserted repeatedly slices label prefixes, but the cited subsecond timings on abnormally large lines establish no test failure, production breakage or data loss."}
+{"id":"J033","verdict":"NOT_BLOCKING","reason":"wavePlan deliberately returns QUEUE_PROOF_MISSING for unreadable CI instead of producing a plan from an unverified partial queue."}
+{"id":"J034","verdict":"BLOCKING","reason":"Although sealed.yml has no claimed update-ref step, its push trigger executes the pushed revision's workflow, so a merge can remove its own newly added post-merge sealed backstop."}
+{"id":"J035","verdict":"NOT_BLOCKING","reason":"train-gate.yml cancels overlong jobs and scripts/gate.ts cannot publish an incomplete census, while the artifact-name claim supplies no shipped invalid policy value."}
+{"id":"J036","verdict":"NOT_BLOCKING","reason":"The supplied train-gate.yml sets test and bisect timeouts to 30 minutes, not the claimed 130 minutes."}
+{"id":"J037","verdict":"NOT_BLOCKING","reason":"wavePlan uses merge-tree --write-tree only to inspect conflicts, and the resulting unreachable Git objects neither change refs nor lose repository data."}
+{"id":"J038","verdict":"NOT_BLOCKING","reason":"The supplied runCases uses spawnSync without a process-group kill or the quoted leftover-process guarantee, so the finding describes a different implementation."}
+{"id":"J039","verdict":"NOT_BLOCKING","reason":"The finding contains no allegation about scripts/gate.ts to verify."}
+{"id":"J040","verdict":"NOT_BLOCKING","reason":"The paragraph proposes isolating the sealed case but supplies no standalone failure mechanism beyond the difference between sealed.yml and the gate job."}
+{"id":"J041","verdict":"NOT_BLOCKING","reason":"The finding contains no allegation about the supplied diff to verify."}
+{"id":"J042","verdict":"NOT_BLOCKING","reason":"gstack-docs-candidate acceptedException already uses parseReceiptDocs, which rejects the control characters and malformed fields described."}
+{"id":"J043","verdict":"BLOCKING","reason":"sealed.yml does not reset origin/main to BASE_SHA on push, so its post-merge scan judges new content under the policy that the same merge changed."}
+{"id":"J044","verdict":"BLOCKING","reason":"routeDispatch rejects backstop nonces even though freezeQueue dispatches them on main, disabling the post-merge recovery gate."}
+{"id":"J045","verdict":"NOT_BLOCKING","reason":"Missing cherry-pick and revert test cases do not demonstrate incorrect behavior in lib/ship-preflight.ts or a failing existing test."}
+{"id":"J046","verdict":"BLOCKING","reason":"train-gate.yml runs candidate lifecycle scripts with write access to the base gate script before invoking it, permitting a fabricated successful gate and record."}
+{"id":"J047","verdict":"NOT_BLOCKING","reason":"The GST-732 diff probes pending operations with rev-parse --verify and status checks, not the unchecked --git-path implementation alleged."}
+{"id":"J048","verdict":"NOT_BLOCKING","reason":"qm-stack.ts lockHost already creates lock files with flag wx, checks a live holder, retries stale locks and releases only locks containing its own PID."}
+{"id":"J049","verdict":"NOT_BLOCKING","reason":"runCases treats timeout or signal termination as INFRA and the train stays incomplete, which prevents publication rather than misattributing an uncertain failure."}
+{"id":"J050","verdict":"NOT_BLOCKING","reason":"The unmerged-index error branch in lib/ship-preflight.ts is unchanged by GST-732 and still stops rather than continuing or losing data."}
+{"id":"J051","verdict":"BLOCKING","reason":"The workflow_dispatch train ref supplies train-gate.yml itself, so candidate YAML can remove validation or use the publish job's write permission regardless of the base gate_surface check."}
+{"id":"J052","verdict":"NOT_BLOCKING","reason":"The finding contains no allegation about the evals diff to verify."}
+{"id":"J053","verdict":"NOT_BLOCKING","reason":"qm-stack.ts sandboxNames already filters by ancestor=sandboxImage, so failed creation does not adopt every other stack's labelled sandbox."}
+{"id":"J054","verdict":"NOT_BLOCKING","reason":"scripts/gate.ts supplies explicit bases in CI and the finding demonstrates no incorrect verdict from its local malformed-train fallback."}
+{"id":"J055","verdict":"NOT_BLOCKING","reason":"gstack-capy-install already keyed explicit projects by their directory realpath before this diff, so the new nonexistent-directory guard does not introduce the subdirectory mismatch."}
+{"id":"J056","verdict":"NOT_BLOCKING","reason":"The paragraph proposes defense-in-depth changes but identifies no standalone failing case or concrete exploit of the supplied gate code."}
+{"id":"J057","verdict":"NOT_BLOCKING","reason":"tests/ci/workflow-hygiene.test.ts contains no test with the quoted title, and train-gate.yml does not add the claimed ignore-scripts guarantee."}
+{"id":"J058","verdict":"BLOCKING","reason":"train-gate verification accepts a successful full_gate_check by name without binding its workflow, so a candidate push workflow with checks: write can forge the required check."}
+{"id":"J059","verdict":"NOT_BLOCKING","reason":"lib/ship-release.ts parses an existing docs-audit.json with parseReceiptDocs and stops on malformed JSON instead of treating it as absent."}
+{"id":"J060","verdict":"NOT_BLOCKING","reason":"qm-stack.ts retains the pre-create baseline when no machineId returns and adopts new sandboxes during down after stopping core."}
+{"id":"J061","verdict":"NOT_BLOCKING","reason":"The empty finding identifies no defect in scripts/gate.ts or its workflows."}
+{"id":"J062","verdict":"NOT_BLOCKING","reason":"The queue's prefixResults independently compares both recorded SHAs to the requested prefix SHA, so recording actual HEAD in both fields does not permit a mismatched checkout."}
+{"id":"J063","verdict":"NOT_BLOCKING","reason":"The supplied sealed.yml contains no git update-ref push step, so the claimed failure at that step cannot occur in this diff."}
+{"id":"J064","verdict":"BLOCKING","reason":"The GST-691 merge-base ancestor shortcut runs before any unmerged-index check, so it skips the previous conflict STOP and allows preflight to continue over unresolved merge files."}
+{"id":"J065","verdict":"NOT_BLOCKING","reason":"trainBase can reject consecutive train chains, but the finding's main-history scenario is excluded by the configured squash merges and no supported failing run is demonstrated."}
+{"id":"J066","verdict":"BLOCKING","reason":"routeDispatch rejects gate.backstop nonces before dispatch mode, while freezeQueue uses exactly those nonces for the recovery gate on main."}
+{"id":"J067","verdict":"BLOCKING","reason":"routeDispatch requires trainPolicy at the train base, but the supplied checkout and diff contain no .gstack/ship-policy.json, so shipped train and bisect dispatches cannot route."}

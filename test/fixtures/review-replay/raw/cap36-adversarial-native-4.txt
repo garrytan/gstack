@@ -1,0 +1,38 @@
+REVIEWED_TREE: 9b3272eda1111e3bb2c5ff470806da5492f169a1 /home/user/.capy/work/cap36/wt
+
+gstack: ok 1.92.19.0 for=review (15 versions behind 1.92.34.0; this was a read-only review, so I ran no gstack workflow)
+
+I found no blocking findings: no test fails and nothing breaks in production. The three Medium findings are trust-boundary gaps. Each one needs a hostile PR or a merge while the check is red.
+
+**Scope.** I reviewed the range from 1b68e637 to HEAD (3396b02 and 42ff510). I read the non-test files in full: `ci.yml`, `sealed.yml`, the new `train-gate.yml`, `scripts/gate.ts`, `gate/manifest.json`, `package.json` and `README.md`. **I reviewed the test files in summary mode only**, from `--stat`, without reading their contents. They are `tests/ci/gate.test.ts` (+283, covering manifest parsing, `trainBase`, `routeDispatch`, census and `publishable`), `tests/ci/workflow-hygiene.test.ts` (+85, checking action pins, token scopes, no secrets, the checksummed Bun and the pinned gstack) and `tests/ci/sealed-workflow.test.ts` (+19/−6). Those files got less scrutiny than the code.
+
+What I checked:
+- `bun test tests/ci`: 34 pass, 0 fail.
+- The Bun digest `bf8ccbfb…395c` matches `bun-linux-x64.zip` in the official v1.4.4 SHASUMS256.txt.
+- The manifest's sealed `grep` pattern still matches end of line after JSON and bash unescaping.
+- `Bun.Glob` matches dotfiles under each `gate_surface` glob.
+- An empty `--base` (what `ci.yml` passes on a manual dispatch) falls back to origin/HEAD.
+
+**1. A PR in the train supplies the `train-gate.yml` that judges it.** A manually dispatched workflow runs the workflow file from the ref it is dispatched on, here `train/<nonce>`. That ref's tree includes every train PR's edits. So a PR that edits `.github/workflows/train-gate.yml` controls all of it: the step that checks out the base's gate code, the `test` cases, and the `publish` job that holds `checks: write`. Such a PR can post `full_gate_check` green without ever calling the base's `gate.ts publish`.
+
+The header's claim that "a pull request in the train cannot change how the train is judged" only holds while the workflow file itself is unchanged. The `gate_surface` refusal doesn't close this. A lone gate-surface PR (one slot) is never refused, and in a multi-PR train the refusal itself runs inside the head's workflow. The run also gets repository secrets, though any train push already gives that to a PR-added workflow with an `on: push` trigger.
+
+Classification: INVESTIGATE. One option is to dispatch on `main` with the train head as an input and check it out explicitly. That changes how gstack's ship-queue finds the run, so it needs a decision. Severity: Medium. Blocks: no.
+
+**2. Head code runs before the sealed case in the same job and can overwrite the checker it trusts.** In the `test` job, the head's `bun install --frozen-lockfile` runs first, including its lifecycle scripts. Then the `typecheck` and `unit` cases run head code. All of it runs as the runner user, which can write to `$RUNNER_TEMP/gstack/bin/gstack-pregate`, to the Bun binary on PATH, and to `$RUNNER_TEMP/base/scripts/gate.ts`. After that, the `sealed` case runs whatever is at those paths and greps its stdout for `SEALED: clear … policy=origin/main`. So a hostile head can turn the sealed verdict clear.
+
+`sealed.yml` guards against exactly this by deleting the checkout and running no PR code; the gate's sealed case doesn't. Classification: FIXABLE. Run the sealed check in its own job, or in a step before `bun install` in a job that runs no head code, and record its result into the census. Severity: Medium. Blocks: no.
+
+**3. The new push-to-main scan in `sealed.yml` uses the policy as it stands after the push.** `gstack-pregate sealed --base main` reads the base policy from `refs/remotes/origin/main` (`cmdSealed` in `bin/gstack-pregate` at the pinned 61e201ec). On a push event, that ref already points at the pushed commit. The push trigger exists to catch content that reached main without a clear PR scan. But a merge that both leaks content and relaxes `.gstack/pregate.json` or `sealed-allow.tsv` gets a `clear` verdict. Deleting the sealed key outright still goes red, because the `policy=origin/main` grep fails.
+
+Classification: FIXABLE. On push events, run `git update-ref refs/remotes/origin/main "$BASE_SHA"` before the checker, so the push scan judges under the pre-push policy, the same way the PR scan does. Severity: Medium. Blocks: no.
+
+**4. The train gate can't run in train mode at this tree.** Neither the base nor HEAD has `.gstack/ship-policy.json`. So `trainPolicy` returns null, and every train or bisect dispatch fails in `route` with "needs a train block". Separately, the first train containing this PR runs `scripts/gate.ts` from a base that doesn't have the file yet, so `route` fails there too. Both fail loudly, not silently, but the workflow publishes nothing until a policy lands and a later base carries `gate.ts`.
+
+Classification: INVESTIGATE (is this a deliberate follow-up unit?). Severity: Low. Blocks: no.
+
+**5. The `hygiene` junit case pins test names, not test bodies.** The base manifest lists the required test names. The test bodies run from the head's `tests/ci/workflow-hygiene.test.ts`, so a head can keep the names and weaken the assertions. The case then passes for a workflow that names a secret or drops a pin. `tests/ci/**` is in `gate_surface`, so this only matters for a PR that rides alone, which is finding 1's gap again.
+
+Classification: INVESTIGATE. Severity: Low. Blocks: no.
+
+Recommendation: Ship with a tracked follow-up for the train-gate trust boundary because the strongest finding (a train PR runs its own train-gate.yml, including the checks:write publish job) needs a hostile PR a maintainer put in a train, and no finding fails a test or breaks production.

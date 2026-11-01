@@ -1,0 +1,20 @@
+REVIEWED_TREE: 23d588014ea407cea884e9cfe17fb1372dcb542f /home/user/.capy/work/wt-732
+
+I found one Low finding and nothing that blocks. The range from 7987dd04 is two commits (0fa6162, ac2fbab) touching three files:
+
+- `lib/ship-preflight.ts`: I read the whole `merge()` function and its `integrate()` caller.
+- `changelog.d/gst-732-preflight-unfinished-op.md`: I read it in full. It matches what the code does.
+- `test/ship-preflight-base-ancestor.test.ts` (+18/−1): **I reviewed this in summary mode only**, from the diff stat and test names, without reading its payload bytes into adversarial reasoning. It adds one test. That test makes a branch named `REVERT_HEAD` and a tag named `CHERRY_PICK_HEAD`, then leaves a conflicted `git stash pop`, and expects the stop to name the files instead of reporting an unfinished operation. I ran the file: 4 pass, 0 fail, 18 expect() calls.
+
+**What I checked and found sound**
+- **How the state file is found.** `git rev-parse --git-path X` can print three shapes. At the repo root it prints `.git/MERGE_HEAD`, in a subdirectory `../.git/MERGE_HEAD`, and in a linked worktree an absolute `…/.git/worktrees/wt/MERGE_HEAD`. `path.resolve(cwd, …)` handles all three correctly. I confirmed this in a scratch repo, which I then deleted. A branch or tag with the same name no longer counts as an operation in progress, so the old `rev-parse --verify` false positive is fixed.
+- **The new conflicted-files stop.** It only runs outside `stamp-at-merge`, which matches what the old `ls-files -u` guard covered. Before this change, a tree with conflicts that was already up to date fell through to `git merge`, which then failed. Now it stops with the files named. `git diff --name-only` never invokes an external diff driver, so a repo's diff config can't run code through this call.
+- **Rebase and bisect states.** These aren't covered by the three-ref list. A rebase stopped on a conflict leaves HEAD detached, though, so `integrate()` stops earlier at line 35 (`!branch`) before `merge()` runs.
+
+**Findings**
+
+1. **A failed git call reads as an unfinished merge** (`lib/ship-preflight.ts:71`). The `--git-path` probe never checks the exit status. `done()` turns a spawn error, timeout or nonzero exit into `stdout: ''` (`ship-bin-common.ts:15-16`). Then `path.resolve(cwd, '')` returns `cwd`, which exists, so `pending` becomes `'MERGE_HEAD'`. The result is a false `STOP: an unfinished merge is in progress (MERGE_HEAD)` that tells the agent to abort a merge that doesn't exist. Running `--git-path` outside a repo exits 128 with empty output, which I confirmed. In practice it's hard to reach, because the earlier git calls in `integrate()` would already have failed and stopped the run. It also fails closed: nothing merges, nothing is lost. FIXABLE: keep the ref only when `status === 0` and the trimmed stdout isn't empty, for example `const p = git(...); return p.status === 0 && p.stdout.trim() !== '' && fs.existsSync(path.resolve(cwd, p.stdout.trim()));`. Severity: Low. Blocks: no.
+
+2. **Conflict paths in STOP text are relative to the repo root** (`lib/ship-preflight.ts:72`). This is informational only. `git diff --name-only` prints paths from the repo root, and with the default `core.quotePath` it quotes non-ASCII names. Those strings only go into the STOP message and are never passed back to a command or used as file paths, so nothing goes wrong. No fix needed. Severity: Low. Blocks: no.
+
+Recommendation: Ship as-is because the strongest finding is the unchecked `--git-path` exit status at ship-preflight.ts:71, which only shows a misleading STOP when git itself fails, never merges anything, and is a one-line fix that can follow later.

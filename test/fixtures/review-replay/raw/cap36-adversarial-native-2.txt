@@ -1,0 +1,46 @@
+REVIEWED_TREE: 9b3272eda1111e3bb2c5ff470806da5492f169a1 /home/user/.capy/work/cap36/wt
+
+I found two Medium issues and two Low ones, and none of them blocks. The most exploitable: the new push-to-main sealed scan judges a merge using the policy that the same merge brought in.
+
+**Scope and coverage.** I read the full diff (base 1b68e637) for `ci.yml`, `sealed.yml`, `train-gate.yml`, `scripts/gate.ts`, `gate/manifest.json`, `package.json` and `README.md`. I reviewed the test files in summary mode only and did not reason over their payload bytes, so that part of the review covers less:
+- `tests/ci/gate.test.ts` is new (+283) and covers manifest parsing, routing, JUnit parsing, the census, `publishable` and `trainBase`.
+- `tests/ci/sealed-workflow.test.ts` (+19/−6) covers the shape of the new push trigger.
+- `tests/ci/workflow-hygiene.test.ts` is new (+85) and covers action pins, read-only tokens, secrets, the checksummed Bun install, the gstack pin, and whether `ci.yml` runs the gate's cases.
+
+**What I checked.**
+- `bun test tests/ci` gives 34 pass and 0 fail.
+- `gate.ts bisect --cases hygiene,errors-doc` passes at 42ff510, so the test names in the JUnit report match the manifest.
+- `BUN_SHA256` matches `bun-linux-x64.zip` in the v1.4.4 `SHASUMS256.txt`.
+- The record and bisect-record fields, the train commit subject (`train T<i>: merge #<pr> at <sha12>`) and the dispatch inputs (`evals_all`, `expected_sha`, `nonce`, `cases`, `prefix_shas`) all match what gstack's `lib/ship-queue-train*.ts` writes and reads.
+- `ci.yml` started by workflow_dispatch passes `--base ""` to `wiki:check`, which falls back to the merge base with origin/main. That's fine.
+
+**Findings**
+
+1. **The push scan in `sealed.yml` uses the pushed commit's own policy.** On a push, `--base "$POLICY_BRANCH"` resolves `origin/main` to the commit that was just pushed. gstack's sealed-guard reads deny lists and `allow_paths` from that ref, so the effective policy is the post-merge `.gstack/pregate.json`.
+   - The push trigger exists to catch content that reached main after a red PR check. But if the PR that got merged while red also removed a deny entry or added an `allow_paths` exception, the push scan applies the relaxed policy and reports it clear.
+   - That's exactly the bypass this backstop is meant to catch, and it could let held-out items leak with no failing run.
+   - Fix: on push events only, after checkout, run `git update-ref "refs/remotes/origin/$POLICY_BRANCH" "$BASE_SHA"` (the `before` commit). The policy then comes from pre-push main while the range stays `before..after`.
+   - FIXABLE. Severity: Medium. Blocks: no.
+
+2. **Code from the train head shares the runner with the base's judge, so "a pull request in the train cannot change how the train is judged" only holds for the case list.**
+   - In the `test` and `bisect` jobs, head code runs before the base's checks, as the same user. That includes the lifecycle scripts run by `bun install --frozen-lockfile` and every case, `bun test` among them.
+   - That code can overwrite `$RUNNER_TEMP/gstack/bin/gstack-pregate` and `$RUNNER_TEMP/bun-linux-x64/bun`. Both are on PATH, and the `sealed` and `hygiene` cases run after `unit`.
+   - The `hygiene` case also runs the head's own copy of `tests/ci/workflow-hygiene.test.ts` and checks only test names. So a PR riding alone can edit that test to accept what it adds, as long as the names stay the same.
+   - `gate_surface` leaves out `tsconfig.json`, `bunfig.toml`, `bun.lock`, `scripts/wiki.ts` and `src/errors/doc.ts`. In a train of two or more PRs, one PR could change any of these and quietly weaken `typecheck`, `unit`, `wiki` or `errors-doc` for the other PRs. I checked with `Bun.Glob` that all five fall outside the surface.
+   - `sealed.yml` and each PR's own CI back this up, so I don't see a direct loss. But a green train gate proves less than its comments say.
+   - Options for whoever decides: run `sealed` and `hygiene` in a job that never runs head code (both only read git objects and workflow text), use `--ignore-scripts` on install, widen `gate_surface`, or reword the claim.
+   - INVESTIGATE. Severity: Medium. Blocks: no.
+
+3. **`trainPolicy` accepts a `/` in `record_artifact` (`/^[A-Za-z0-9._/-]{1,100}$/`), but upload-artifact rejects `/` in artifact names.**
+   - The pattern is shared with `full_gate_check`, which needs the slash for `gstack/full-gate`.
+   - A policy like `train-gate/record` would pass `route`, and then every train would fail at upload with no record. gstack would report that as INCOMPLETE instead of a clear route refusal.
+   - Fix: give `record_artifact` its own pattern without `/`.
+   - FIXABLE. Severity: Low. Blocks: no.
+
+4. **A wrong error message in `gate.ts run` and `bisect`.** `gitIn(...)(["rev-parse","--show-toplevel"]).out || fail(...)` never calls `fail`, because a failed git call returns its stderr in `out`. The script then uses that stderr as the repo root and dies with "cannot resolve HEAD" instead of "not inside a git work tree". It still stops either way.
+   - Fix: check `.ok` instead.
+   - FIXABLE. Severity: Low. Blocks: no.
+
+One note that isn't a defect: `.gstack/ship-policy.json` doesn't exist at the base, so every train or bisect dispatch is refused until a follow-up adds the `train` block.
+
+Recommendation: Fix the policy ref in the `sealed.yml` push scan because a merge that relaxes `.gstack/pregate.json` gets judged by its own relaxed policy, which defeats the backstop the push trigger was added for.

@@ -1,0 +1,27 @@
+Five findings on `42ff510c..cf8310e` (one commit, branch replay-36, worktree /home/user/.capy/work/r36/wt). The most serious one is that the train gate can still judge itself. This diff writes that hole down instead of closing it. The two changed CI test files pass (28 pass, 0 fail).
+
+**Coverage:** I read all non-fixture source in full: `sealed.yml`, `train-gate.yml` and `gate/manifest.json`, plus the context they depend on (`scripts/gate.ts` and the pregate `sealed` command at the pinned gstack commit `61e201ec`). The test files were reviewed in summary mode only, by diff stat and changed assertion lines. `tests/ci/gate.test.ts` changed one line, the expected `gate_surface` list. `tests/ci/sealed-workflow.test.ts` added 11 lines: one test checking that the new policy step sits after checkout and before the scan. No test covers the timeout change or the push edge cases below.
+
+1. **INVESTIGATE (high): `train-gate.yml` is still self-judging. The new comment (lines 8–11) admits it; nothing enforces the workaround.** `workflow_dispatch` runs the YAML at the train head. So a train pull request that edits this file can drop the `test` job, skip `gate.ts publish` and still post `gstack/full-gate` success with `gh api`. Its `permissions:` block can also ask for a stronger token than `checks: write`.
+   - The one mechanical guard, publish's gate-surface rule (`gate.ts:320-322`), runs inside that same YAML.
+   - It also only fires for trains of two or more pull requests. A gate-surface pull request "rides alone", so the single-PR train is exactly the one that edits this file and gets a green from its own copy.
+   - "The merge lane must not trust gstack/full-gate" is prose only, and nothing in gstack-ship-queue reads it.
+   - Possible fixes: post the check from a `workflow_run` verifier on the default branch that refuses when `.github/workflows/` differs between base and head, or have train build refuse such trains.
+
+2. **FIXABLE: the new push step in `sealed.yml` (line 74) fails with no verdict line when `before` is missing.** After a force-push, the old head usually isn't fetched (checkout fetches refs, not orphaned SHAs). In that case `git update-ref` exits 128 ("nonexistent object"; I reproduced this).
+   - The header (lines 19–20) still says a force-push gives an `error` verdict, and that a red run with no verdict line is an infrastructure failure to rerun. A rerun fails the same way every time, and the pushed range is never scanned.
+   - With an all-zero `before` (the branch being created), `update-ref` silently deletes `origin/main`. I reproduced that too. This fails closed (no `policy=origin/main`), but with a misleading message.
+   - Fix: guard with `git cat-file -e "$BEFORE_SHA^{commit}"` and a named error, fix the header, and add a test for both cases.
+
+3. **FIXABLE: the new 130-minute job timeout is longer than gstack's train watch.** 130 min covers 6 cases × `CASE_TIMEOUT_MS` (20 min) plus setup. But the current gstack checkout defaults `train watch --timeout` to 7200 s (`lib/ship-queue-train-cli.ts:119`).
+   - A slow but legitimate run can be declared timed out, and the train rebuilt, while the old run later posts green on the old head.
+   - Nothing ties the 130 to the number of cases on the base. A seventh case would get the job killed before upload (`!cancelled()` is false), leaving no record.
+   - Fix: pass `--timeout` ≥ 8400 in the watch call, or derive and test the budget against the manifest.
+
+4. **FIXABLE: `gate_surface` still leaves out `.env*`.** I confirmed Bun 1.4.4 auto-loads `.env` for `bun test`, and the gate cases don't pass `--no-env-file`. Existing process variables win, but a train pull request can add new variables to every case. For example, `NODE_OPTIONS` could reach `tsc` if it runs under node; I haven't verified that. That is the same "change how the gate judges others" class as `tsconfig` and `bunfig`. Fix: add `.env*`, or better, run the cases with `--no-env-file`.
+
+5. **INVESTIGATE (adjacent, already on main): any test file can turn the `unit` case into a pass.** A test file that calls `process.exit(0)` at load time makes `bun test` exit 0 even when another test fails (reproduced: one failing test, exit 0). So a train pull request can make `unit` pass for everyone without touching the gate surface. The denylist approach can't close this; a JUnit census with expected counts for `unit` could.
+
+Recommendation: Fix before merge because the train-gate self-judging hole (finding 1) lets one train pull request forge `gstack/full-gate` on its own train, and the push-path failure in `sealed.yml:74` (finding 2) silently leaves force-pushed ranges unscanned.
+
+gstack: ok 1.91.333.0 for=review

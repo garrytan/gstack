@@ -1,0 +1,9 @@
+Found two issues at `42ff510`:
+
+- **High — `.github/workflows/train-gate.yml:123–136`: the supposedly trusted gate remains writable by candidate code.** The base worktree is created before `bun install` runs the head’s lifecycle scripts, under the same runner user. A root `postinstall` can rewrite `$RUNNER_TEMP/base/gate/manifest.json`, retain the six case IDs, and replace their commands with `true`. The runner then produces a GREEN record without running the checks. `publishable()` validates IDs and PASS statuses, not which commands actually ran, so the separate publish job accepts it. Isolate candidate execution from the trusted gate files and supervisor.
+
+- **Medium — `scripts/gate.ts:214`: merge-train backstops are rejected.** `noncePurpose()` recognizes `backstop`, but routing accepts only train, bisect, or an empty nonce. gstack’s freeze recovery dispatches the configured gate workflow on main with `gate.backstop-…`, `evals_all=true`, and `expected_sha`. That dispatch always fails routing instead of checking main, disabling the recovery safety check precisely when a merge’s tree verification fails. Support backstop dispatches without requiring a train head or publishing a train check.
+
+Reviewed statically; no candidate scripts or tests were executed.
+
+gstack: ok not-needed for=none (checkout 1.92.19.0 at /home/user/.local/share/gstack, not certified; latest: 1.92.34.0; before the first workflow run: bash /home/user/.capy/drive/user-garry-tan/skills/gstack/scripts/install.sh --for <skill>)

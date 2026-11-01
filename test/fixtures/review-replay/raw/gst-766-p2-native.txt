@@ -1,0 +1,32 @@
+REVIEWED_TREE: a4f3b0b21d7b50e6196b457b54acd26244b4714e /home/user/.capy/work/wt-766
+
+I found nothing at the blocking floor, and two low-impact attribution defects in the new negated-label path. I read every non-fixture source change in full: `lib/review-ledger.ts`, `lib/review-scope.ts`, `ship/sections/review-army.md` with its `.tmpl`, and the changelog fragment.
+
+**Fixtures were reviewed in summary mode only.** The three files are `test/review-dispatch.test.ts` (+45, negated labels and collecting the reviewer's stated severity/Blocks), `test/review-scope.test.ts` (+7, the deferred issue showing `stated`) and `test/size-ledger/ship/gst-766-collector-negated-labels.json` (+4). I checked the guard logic only through my own probes, not by reading those payloads. Both touched test files pass at this tree: 76 pass, 0 fail. I deleted my scratch probes afterwards and the worktree is clean.
+
+**Findings**
+
+1. **A finding can be filed under the previous finding's text and Blocks value** (`lib/review-ledger.ts`, the new close branch `if (!label && !blocks && …) { current = null; if (!indented) head = t; continue; }`). When an indented line's only label is negated, the open finding closes but `head` keeps the previous finding's line. A following `Severity:` line then starts a new finding whose raw text begins with that old line. I ran this input:
+   ```
+   - a.ts:3 race. Severity: Low. Blocks: no
+     Separately, nothing CRITICAL about b.ts:9, but it leaks fds.
+     Severity: High
+   ```
+   - **At base (dcc1c51):** the second finding is `"Separately, nothing CRITICAL about b.ts:9, … | Severity: High"`.
+   - **At head:** it is `{label: "High", stated: {severity: "High", blocks: "no"}, raw: "- a.ts:3 race. Severity: Low. Blocks: no | Severity: High"}`.
+
+   So the b.ts:9 locus is lost, and the reviewer never wrote that `Blocks: no` for this finding: it comes from the a.ts:3 line through `stated()`'s last match. The High label still reaches merged.jsonl, but the lead could fold it into the a.ts:3 Low finding as a duplicate, and a deferred issue would show a Blocks value nobody wrote. The bad input needs an indented line with a negated label that names a different locus.
+   - **Fix (FIXABLE):** on that branch, keep the line's own text, for example `head = indented && head ? \`${head} | ${t}\` : t`. Also compute `stated` from the finding's own lines rather than from a `raw` that starts with `head`, for example by recording the field text in `Finding` inside `parseFindings`.
+   - Severity: Medium. Blocks: no
+
+2. **A field line whose stated value follows a negated label gets dropped.** `NEGATION_LIST` carries the negation across a comma, so `Severity: not Critical, High` yields no label. When no finding is open, the META branch then runs `current = null` and nothing is collected. At base this line produced a finding. Real reviewers rarely word it this way. FIXABLE: inside the META branch, take the label straight after `Severity:` and don't apply negation to it. Severity: Low. Blocks: no
+
+3. **By design, a prose finding whose only label is negated and that has no Severity or Blocks field is dropped.** For example, `auth.ts:9 has no CRITICAL guard path and leaks tokens` collects nothing for either prose voice. This only matters for a voice that ignores its brief. Every JSON reader (fix-check, the specialists, red-team) takes the JSON branch before the new rule. The only prose readers are the two Step 11 voices, and their briefs in `ship/sections/adversarial.md` require `Severity:`/`Blocks:`. INVESTIGATE: someone needs to decide whether dropping a finding from a non-compliant voice is acceptable, given the file's own rule that "losing a finding costs more than keeping a phantom". Severity: Low. Blocks: no
+
+I also checked these and they hold up:
+- A word like "piano" cut at the 60-character window edge can't fake a negation, because the negation word must sit within about 16 characters of the label.
+- `by zero` and `--no` are excluded.
+- A label that opens a field (`High:`) is kept.
+- `renderDeferredIssue` type-guards `stated` and passes it through `oneLine`.
+
+Recommendation: Ship as-is because the strongest finding is the stale-head misattribution in parseFindings' new close branch, which keeps the High label in merged.jsonl and only shows up when an indented line with a negated label names a different file:line.

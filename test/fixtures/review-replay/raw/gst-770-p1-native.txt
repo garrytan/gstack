@@ -1,0 +1,40 @@
+REVIEWED_TREE: 5d6c6ef99d60615fa573b1b769f6658f8e17aa7c /home/user/.capy/work/wt-wave
+
+I found nothing that blocks: four findings, none at the blocking floor. The review covered `f739756..HEAD` (e3f14bd89 and dd2a7bd8f). I read the full diffs of `lib/ship-queue-wave.ts` and `docs/ship-policy.md`, plus the code they call: `ciAtHead`, the `git()` helper, `changed()`, and the train's `mergeStep` and `mergeCommit`.
+
+**Fixtures and tests were reviewed in summary mode only.** `test/ship-queue-wave.test.ts` gained 58 lines and lost 1, in two new tests. One is a `groupWaves` unit test: PRs link through a shared code file or skill template only when the merge actually conflicts there, and never through a hub file. The other is an end-to-end `wave plan` test showing that docs and ledgers don't chain areas together and that a READY head with pending or red CI is left out with a `NOT_GREEN` line. I didn't read their payload bytes. I ran `bun test test/ship-queue-wave.test.ts` on this tree: 15 pass, 0 fail, 107 expects. I also checked `git merge-tree --name-only --no-messages` by hand on git 2.55: exit 1, the tree id on the first line, then one name per conflicted file. It quotes non-ASCII names the same way `diff --numstat` does, so `hit.includes(f)` matches.
+
+**Findings**
+
+1. **Hub-file conflicts now stop trains, and the code comment and the doc say otherwise (INVESTIGATE).** The comment at `lib/ship-queue-wave.ts:82-86` and the new text in `docs/ship-policy.md` say hub-file conflicts are "kept-both-sides edits that any train slot resolves". But `mergeStep` in `lib/ship-queue-train.ts:159-200` resolves only the CHANGELOG and the stamp files. Every other conflicted path goes into `conflicts`, and the train stops at that PR (`ship-queue-train.ts:262-269`).
+   - Two PRs that append at the end of the same JSONL ledger, or edit the same paragraph under `docs/`, do conflict in git.
+   - Before this change they shared a wave and the integrator resolved the conflict once. Now they ride as separate slots, and the second one stops the train, which means eviction or a rule 19 base merge.
+   - `isHubFile` (`/\.(md|jsonl?)$/`) also covers config JSON such as `.gstack/ship-policy.json`, `tsconfig.json` and test golden files, which is wider than the "ledgers and registries" the doc describes.
+   - The pairwise merge-tree result already lists hub conflicts and the code throws them away. A `HUB_CONFLICT: #a #b <file>` advisory line would cost nothing. The other option is to correct the comment and doc to say these conflicts surface at train build.
+   - Not chaining 55 PRs through prose is a reasonable trade, so whether to fix this is a product call.
+   - Severity: Medium. Blocks: no.
+
+2. **The conflict check isn't the merge the train does (INVESTIGATE).** The callback at `ship-queue-wave.ts:279-281` merges `a.head` with `b.head` at their own merge base. The train merges each head onto main plus the earlier slots.
+   - When the two PRs forked from different main commits, b's side brings in main's newer changes. A PR that is stale against main can then report a conflict on a file both PRs touch even though their own edits don't clash. That over-links, which is harmless.
+   - In the other direction, three PRs that merge cleanly in pairs can still conflict as a set, which a pairwise check can't see.
+   - Severity: Low. Blocks: no.
+
+3. **One unreadable CI result fails the whole plan (FIXABLE).** `ciAtHead` makes at least two paginated API calls per READY PR. A single `unknown` result, such as a secondary rate limit across a 55-PR queue, returns `QUEUE_PROOF_MISSING` for the whole plan (`ship-queue-wave.ts:268`).
+   - That matches the existing "no plan from a partial queue" rule, so it is conservative rather than wrong.
+   - Neither new test exercises the `unknown` branch. Adding one would pin the behavior.
+   - Severity: Low. Blocks: no.
+
+4. **`wave plan` is no longer strictly read-only (FIXABLE).** The header and the docs call it read-only, but `merge-tree --write-tree` writes unreachable loose objects into the repo's object store. That can be one merge per conflicting pair, so up to n²/2 on a large queue. It loses no data, and `gc` removes them later.
+   - Either soften the "read-only" wording or reuse `withIndex` with a temporary object directory.
+   - Severity: Low. Blocks: no.
+
+**Ruled out:**
+- Clean merges count as "no conflict", and failures fall back to linking. A merge-tree timeout, spawn error or old-git usage error returns `null`, which links as before, so it fails safe.
+- The pair cache key is order-stable, because pairs are walked in PR-number order.
+- Union-find is correct.
+- `ship-queue.ts` doesn't import `ship-queue-wave.ts`, so the new `ciAtHead` import adds no import cycle.
+- Fork PRs are skipped before any CI or git call.
+- Paths from merge-tree are only compared, never executed.
+- `ship-queue-wave.ts` is 644 lines, under the 800-line module-size ratchet.
+
+Recommendation: Ship as-is because the strongest finding is the hub-file comment and doc in `lib/ship-queue-wave.ts:82-86` claiming train slots resolve those conflicts, when `mergeStep` stops the train on them; that costs throughput and doc accuracy but breaks no test and loses no data, and a `HUB_CONFLICT` advisory line or a corrected comment and doc can follow.

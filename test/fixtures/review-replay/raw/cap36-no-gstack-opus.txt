@@ -1,0 +1,21 @@
+I found two problems worth fixing and two smaller risks. The biggest one: the train gate's main safety promise doesn't hold, because the workflow file that runs comes from the train head, which the PRs control. I did a plain review with no gstack workflow. The repo's `tests/ci` suite passes (34/34), and I checked the new code against gstack at 61e201ec, the commit the workflows pin.
+
+**1. A PR in the train can rewrite its own gate. Medium-high.** `.github/workflows/train-gate.yml:6-12` says a PR cannot change how its train is judged, because `gate.ts` and the manifest come from the train's base. But a manual run (`workflow_dispatch`) always uses the workflow file from the ref it was started on, which here is `train/<nonce>`. So any PR in the train can edit `train-gate.yml` and its edited copy runs. It could make the publish job (`train-gate.yml:~214-250`) post `full_gate_check` with no check at all, or skip the test job. It could also raise its own `permissions:`, and runs on a branch of this repo can read the repo's secrets. The publish job's own guard, which refuses a multi-PR train that touches `.github/workflows/**` (`gate.ts:319-323`), is useless here: the head's YAML decides whether that step runs at all. The "read-only tokens" hygiene test runs from the head too. Today only review and gstack's admission of trusted PRs stand in the way. A fix has to sit outside the head's YAML, for example:
+- Move publishing into a workflow triggered by `workflow_run`, which always runs the default branch's file, and have it check the artifact there.
+- Or have gstack refuse a multi-PR train that touches `.github/workflows/**` when it builds the train.
+
+**2. gstack's backstop run on main is always refused. Medium.** When a train's publication goes wrong, gstack's `freezeQueue` (`lib/ship-queue-train-verify.ts:141-143`) starts this workflow on main with a backstop nonce (`gate.backstop-…`). `routeDispatch` handles only train and bisect nonces; anything else hits `gate.ts:214` (`nonce … is not a train or bisect nonce`), so the route job fails and no record is produced. The freeze record still says "backstop dispatched", but that run can never come back green. gstack's own `routeDispatch` runs a backstop nonce as a plain dispatch. The fix is to treat the `backstop` purpose like a no-nonce dispatch, keeping the `expected_sha === head` check.
+
+**3. The gate-surface list misses files that change how cases judge. Low-medium.** `gate/manifest.json:44-51` doesn't list `tsconfig.json`, `bunfig.toml`, or the code behind the checks (`scripts/wiki.ts`, `src/errors/doc.ts`). Every case runs against the head's files without Bun's isolation flags (`gate.ts:248`). So one PR in a multi-PR train could narrow tsconfig's `include`, or add a `bunfig.toml` that changes what `bun test` runs, and the train still gets the green check.
+
+**4. Hangs and crashes are labelled INFRA, not failures. Low.** At `gate.ts:257-259`, a timeout or a crash by signal counts as INFRA. gstack reads INFRA as an incomplete run: one re-dispatch, then the train stays incomplete. So a PR that causes a hang or a crash is never pinned on that PR by bisect. Separately, when a timeout fires, only the `bash` process gets killed. Processes in a pipeline (the `sealed` case) can outlive it and overlap the next case.
+
+**Nit.** The shell step that finds the base (`train-gate.yml:77-79`) accepts any `T1` within 8 first parents. `trainBase` needs an unbroken chain starting at HEAD. For a plain dispatch on a commit built on top of a train, the two disagree and route refuses instead of running in dispatch mode. It only ever refuses, so it fails safe.
+
+**Things I checked that are fine:**
+- The Bun SHA-256 matches the 1.4.4 release's `SHASUMS256.txt`.
+- Record shapes and artifact names (`<record_artifact>`, `-bisect-<sha12>`) match what gstack's verdict and bisect code reads.
+- The `sealed` case's grep pattern is right. The `SEALED:` verdict is the last line on stdout, so `tee | grep -q` can't break the pipe early.
+- `passingTests` reads Bun's real JUnit output correctly; all six named hygiene tests are found.
+- Gate-surface globs match hidden files.
+- The missing `.gstack/ship-policy.json` is planned for U19b, not a bug.
