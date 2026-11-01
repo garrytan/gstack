@@ -29,15 +29,23 @@
  *   omits (bun files that fail to load), the run is red and nothing is rerun.
  *   The first report is restored at the --junit path when the run ends; each
  *   rerun's report is kept beside it as <name>.rerun-<n>.xml.
+ * - Quarantine (lib/quarantine.ts) is a larger attempt budget, never a skip:
+ *   a live quarantined test is listed and ledgered on every run and never
+ *   counts as a pass. When every test a whole-command attempt failed is
+ *   quarantined and nothing else is wrong, the command may run again, up to
+ *   QUARANTINE_ATTEMPTS in total; the run is green only on an attempt with the
+ *   runner's full green verdict, so a quarantined failure never turns a red
+ *   attempt green. One that fails every attempt is a hard break. A quarantined
+ *   id missing from a run that included its file is red.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn as spawnChild, spawnSync } from 'child_process';
-import { finalAttempt, JunitError, readJunit, type JunitReport, type JunitRunner, type JunitTest } from './junit';
+import { finalAttempt, JunitError, parseTestId, readJunit, type Attempt, type JunitReport, type JunitRunner, type JunitTest } from './junit';
 import { redactFindingSpans } from './redact-engine';
 import { resolveStateRoot } from './state-root';
 
-export type LedgerKind = 'flaky-pass' | 'rerun-fail';
+export type LedgerKind = 'flaky-pass' | 'rerun-fail' | 'quarantined-pass' | 'quarantined-fail' | 'hard-break';
 
 export interface LedgerLine {
   ts: string;
@@ -64,6 +72,8 @@ export interface RunOptions {
   maxReruns: number;
   /** 'command' (default): rerun the whole command. 'test': rerun the failed test alone when the first run is proven complete. */
   rerunScope?: 'command' | 'test';
+  /** Live quarantined test ids (lib/quarantine.ts liveQuarantine): up to QUARANTINE_ATTEMPTS attempts, never a skip. */
+  quarantined?: ReadonlySet<string>;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   /** Runs one attempt; resolves with its exit status and the tail of its combined output. */
@@ -73,7 +83,7 @@ export interface RunOptions {
 
 export interface TestOutcome {
   test: JunitTest;
-  status: 'flaky-pass' | 'fail' | 'rerun-fail';
+  status: 'flaky-pass' | 'fail' | 'rerun-fail' | 'quarantined-pass' | 'quarantined-fail' | 'hard-break';
   attempts: string[];
   reason?: string;
 }
@@ -88,6 +98,8 @@ export interface RunResult {
   commandExit: number;
   outcomes: TestOutcome[];
   reruns: number;
+  /** Outcomes of quarantined tests (listed, never counted as passes). */
+  quarantined: number;
   /** Why the rerun was the whole command (the default, or why a requested targeted rerun was refused); absent for targeted reruns. */
   wholeRerun?: string;
   ledger: LedgerLine[];
@@ -243,7 +255,7 @@ function rerunProblem(again: Attempted & { report?: JunitReport }, first: JunitR
 }
 
 /** A rerun clears a test only when its command exited 0 and the test ran once and passed on its first attempt. */
-function rerunVerdict(again: Attempted & { report?: JunitReport; error?: JunitError }, t: JunitTest, problem?: string): { status: 'flaky-pass' | 'rerun-fail'; attempts: string[]; reason?: string } {
+function rerunVerdict(again: Attempted & { report?: JunitReport; error?: JunitError }, t: JunitTest, problem?: string): { status: 'flaky-pass' | 'rerun-fail'; attempts: Attempt[]; reason?: string } {
   const match = again.report?.tests.find(x => x.id === t.id);
   if (!match) return { status: 'rerun-fail', attempts: [...t.attempts, 'fail'], reason: again.error ? `rerun: ${again.error.message}` : 'rerun: the report does not contain this test' };
   const attempts = [...t.attempts, ...match.attempts];
@@ -254,11 +266,47 @@ function rerunVerdict(again: Attempted & { report?: JunitReport; error?: JunitEr
   return { status: 'flaky-pass', attempts };
 }
 
+export const QUARANTINE_ATTEMPTS = 3;
+
+const PASSING: ReadonlySet<TestOutcome['status']> = new Set(['flaky-pass', 'quarantined-pass']);
+
+type Ran = Attempted & { report?: JunitReport; error?: JunitError };
+
+/** The runner's own full green verdict for a whole-command attempt: exit 0, no failed or missing test, nothing counted outside the report. */
+function fullGreen(again: Ran, first: JunitReport): boolean {
+  return !!again.report && !again.signal && again.exit === 0 && !rerunProblem(again, first, true);
+}
+
+/**
+ * Whether a red whole-command attempt may be followed by another: only within
+ * the quarantine budget, and only when every test it failed is a live
+ * quarantined test that ran once and nothing else is wrong (a kill, a missing
+ * report, failures outside the report, a first-run test missing).
+ */
+function mayRunAgain(again: Ran, first: JunitReport, quarantined: ReadonlySet<string>, attemptsSoFar: number): boolean {
+  if (attemptsSoFar >= QUARANTINE_ATTEMPTS || again.signal || !again.report) return false;
+  const failedNow = again.report.tests.filter(x => finalAttempt(x) === 'fail');
+  if (!failedNow.length || !failedNow.every(x => quarantined.has(x.id) && x.executions === 1 && x.attempts.length === 1)) return false;
+  if (unreportedFailures(first.runner, again.output, failedNow.length)) return false;
+  const seen = new Set(again.report.tests.map(x => x.id));
+  return first.tests.every(x => seen.has(x.id));
+}
+
+/** A test's attempts over the first run and the given whole-command reruns; a rerun that did not report it counts as a failure. */
+const history = (t: JunitTest, runs: Ran[]): Attempt[] =>
+  [...t.attempts, ...runs.flatMap(r => r.report?.tests.find(x => x.id === t.id)?.attempts ?? ['fail' as const])];
+
+/** A quarantined test passes only when it never failed or an attempt with the runner's full verdict cleared it. */
+const quarantinedStatus = (attempts: string[], cleared: boolean): 'quarantined-pass' | 'quarantined-fail' | 'hard-break' =>
+  cleared || !attempts.includes('fail') ? 'quarantined-pass'
+    : attempts.length >= QUARANTINE_ATTEMPTS && attempts.every(a => a === 'fail') ? 'hard-break' : 'quarantined-fail';
+
 export async function runFlaky(opts: RunOptions): Promise<RunResult> {
   const cwd = opts.cwd ?? process.cwd();
   const env = { ...(opts.env ?? process.env), PLAYWRIGHT_JUNIT_INCLUDE_RETRIES: '1' };
   const now = opts.now ?? (() => new Date());
-  const empty = { tests: 0, outcomes: [], reruns: 0, ledger: [] };
+  const quarantined = opts.quarantined ?? new Set<string>();
+  const empty = { tests: 0, outcomes: [], reruns: 0, quarantined: 0, ledger: [] };
   const first = await attempt(opts, opts.command, cwd, env);
   if (first.signal) return { exitCode: 3, code: 'FLAKY_COMMAND_KILLED', message: `the command was killed by ${first.signal}`, commandExit: first.exit, ...empty };
   if (!first.report) return { exitCode: 3, code: first.error!.code, message: first.error!.message, commandExit: first.exit, ...empty };
@@ -282,15 +330,39 @@ export async function runFlaky(opts: RunOptions): Promise<RunResult> {
   const prov = provenance(cwd, env);
   const line = (t: JunitTest, kind: LedgerKind, by: LedgerLine['rerun_by'], attempts: string[], scope?: LedgerLine['rerun_scope']): LedgerLine =>
     ({ ts: now().toISOString(), runner: 'junit', kind, id: safeText(t.id), file: safeText(t.file), rerun_by: by, ...(scope ? { rerun_scope: scope } : {}), attempts, ...prov, excerpt: safeExcerpt(t.excerpt) });
-  const ledger: LedgerLine[] = runnerFlaky.map(t => line(t, 'flaky-pass', 'runner', t.attempts));
-  const outcomes: TestOutcome[] = runnerFlaky.map(t => ({ test: t, status: 'flaky-pass' as const, attempts: t.attempts }));
+  const isQ = (t: JunitTest) => quarantined.has(t.id);
+  const outcomes: TestOutcome[] = [];
+  const ledger: LedgerLine[] = [];
+  for (const t of runnerFlaky.filter(x => !isQ(x))) {
+    outcomes.push({ test: t, status: 'flaky-pass', attempts: t.attempts });
+    ledger.push(line(t, 'flaky-pass', 'runner', t.attempts));
+  }
+  const settleQ = (t: JunitTest, attempts: string[], cleared: boolean, reason?: string, scope?: LedgerLine['rerun_scope']) => {
+    const status = quarantinedStatus(attempts, cleared);
+    const why = status === 'hard-break' ? `failed all ${attempts.length} attempts: a hard break, not a flake` : status === 'quarantined-fail' ? reason : undefined;
+    outcomes.push({ test: t, status, attempts, ...(why ? { reason: why } : {}) });
+    ledger.push(line(t, status, 'gstack-flaky', attempts, scope));
+  };
+  const settle = (t: JunitTest, attempts: string[], reason: string) => isQ(t) ? settleQ(t, attempts, false, reason) : outcomes.push({ test: t, status: 'fail', attempts, reason });
+  const present = new Set(report.tests.map(t => t.id));
+  const included = new Set(report.tests.map(t => `${t.file}::${t.project}`));
+  for (const id of quarantined) {
+    const p = parseTestId(id);
+    if (!p || present.has(id) || !included.has(`${p.file}::${p.project}`)) continue;
+    const t: JunitTest = { id, file: p.file, project: p.project, path: p.title.split(' > '), attempts: [], executions: 0, excerpt: [] };
+    outcomes.push({ test: t, status: 'quarantined-fail', attempts: [], reason: 'quarantined, and missing from a run that included its file' });
+    ledger.push(line(t, 'quarantined-fail', 'gstack-flaky', []));
+  }
+  const others = failed.filter(t => !isQ(t)).length;
   const eligible: JunitTest[] = [];
   for (const t of failed) {
-    if (t.executions > 1) outcomes.push({ test: t, status: 'fail', attempts: t.attempts, reason: `it ran ${t.executions} times in this report and one failed; not rerun` });
-    else if (t.attempts.length > 1) outcomes.push({ test: t, status: 'fail', attempts: t.attempts, reason: `the runner already retried (${t.attempts.length} attempts)` });
-    else if (failed.length > opts.maxReruns) outcomes.push({ test: t, status: 'fail', attempts: t.attempts, reason: `${failed.length} tests failed, more than --max-reruns ${opts.maxReruns}; not rerun` });
+    const why = t.executions > 1 ? `it ran ${t.executions} times in this report and one failed; not rerun`
+      : t.attempts.length > 1 ? `the runner already retried (${t.attempts.length} attempts)`
+      : !isQ(t) && others > opts.maxReruns ? `${others} tests failed, more than --max-reruns ${opts.maxReruns}; not rerun` : undefined;
+    if (why) settle(t, t.attempts, why);
     else eligible.push(t);
   }
+  const passedQ = report.tests.filter(t => isQ(t) && finalAttempt(t) !== 'fail' && t.attempts.some(a => a !== 'skip'));
   const wholeRerun = !eligible.length ? undefined
     : opts.rerunScope !== 'test' ? 'the default; --rerun-scope test reruns the failed test alone'
     : incompleteRun(report.runner, first.output, first.exit, opts.command, runnerFlaky.length) ?? undefined;
@@ -304,30 +376,42 @@ export async function runFlaky(opts: RunOptions): Promise<RunResult> {
     return again;
   };
   const record = (t: JunitTest, v: ReturnType<typeof rerunVerdict>, scope: 'test' | 'command') => {
+    if (isQ(t)) return settleQ(t, v.attempts, v.status === 'flaky-pass', v.reason, scope);
     outcomes.push({ test: t, status: v.status, attempts: v.attempts, ...(v.reason ? { reason: v.reason } : {}) });
     ledger.push(line(t, v.status, 'gstack-flaky', v.attempts, scope));
   };
+  const runs: Ran[] = [];
   try {
-    if (wholeRerun && outcomes.some(o => o.status === 'fail')) {
-      for (const t of eligible) outcomes.push({ test: t, status: 'fail', attempts: t.attempts, reason: `not rerun: the run is already red, and a rerun would repeat the whole command (${wholeRerun})` });
+    if (wholeRerun && outcomes.some(o => !PASSING.has(o.status))) {
+      for (const t of eligible) settle(t, t.attempts, `not rerun: the run is already red, and a rerun would repeat the whole command (${wholeRerun})`);
     } else if (wholeRerun) {
-      const again = await rerun(opts.command);
-      const problem = rerunProblem(again, report, true);
-      for (const t of eligible) record(t, rerunVerdict(again, t, problem), 'command');
+      do {
+        runs.push(await rerun(opts.command));
+      } while (!fullGreen(runs.at(-1)!, report) && mayRunAgain(runs.at(-1)!, report, quarantined, 1 + runs.length));
+      const decider = runs.at(-1)!;
+      const problem = rerunProblem(decider, report, true);
+      for (const t of eligible) record(t, rerunVerdict(decider, { ...t, attempts: history(t, runs.slice(0, -1)) }, problem), 'command');
     } else if (eligible.length) {
       let interrupted = false;
       for (const t of eligible) {
-        if (interrupted) { outcomes.push({ test: t, status: 'fail', attempts: t.attempts, reason: 'not rerun: an earlier rerun was killed' }); continue; }
-        const again = await rerun([...opts.command, ...rerunSelection(report.runner as 'playwright' | 'bun', t)]);
-        interrupted = !!again.signal;
-        record(t, rerunVerdict(again, t, rerunProblem(again, report, false)), 'test');
+        if (interrupted) { settle(t, t.attempts, 'not rerun: an earlier rerun was killed'); continue; }
+        let v: ReturnType<typeof rerunVerdict> = { status: 'rerun-fail', attempts: t.attempts };
+        for (let budget = isQ(t) ? QUARANTINE_ATTEMPTS - t.attempts.length : 1; budget > 0 && v.status !== 'flaky-pass' && !interrupted; budget--) {
+          const again = await rerun([...opts.command, ...rerunSelection(report.runner as 'playwright' | 'bun', t)]);
+          interrupted = !!again.signal;
+          v = rerunVerdict(again, { ...t, attempts: v.attempts }, rerunProblem(again, report, false));
+        }
+        record(t, v, 'test');
       }
     }
   } finally {
     if (reruns) fs.writeFileSync(junit, firstXml);
   }
-  const red = outcomes.some(o => o.status !== 'flaky-pass');
-  return { exitCode: red ? 1 : 0, tests: report.tests.length, commandExit: first.exit, outcomes, reruns, ...(wholeRerun && reruns ? { wholeRerun } : {}), ledger };
+  const green = runs.length ? fullGreen(runs.at(-1)!, report) : reruns > 0 || first.exit === 0;
+  for (const t of passedQ) settleQ(t, history(t, runs), green, 'the attempt that decided the run was not a full green run', runs.length ? 'command' : undefined);
+  const red = !green || outcomes.some(o => !PASSING.has(o.status));
+  const q = outcomes.filter(o => o.status === 'quarantined-pass' || o.status === 'quarantined-fail' || o.status === 'hard-break').length;
+  return { exitCode: red ? 1 : 0, tests: report.tests.length, commandExit: first.exit, outcomes, reruns, quarantined: q, ...(wholeRerun && reruns ? { wholeRerun } : {}), ledger };
 }
 
 export function ledgerPath(flag: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
@@ -352,9 +436,9 @@ export function renderResult(r: RunResult, ledger: string): string[] {
   const out: string[] = [];
   for (const o of r.outcomes) out.push(`FLAKY: ${o.status} ${safeText(o.test.id)} attempts=${o.attempts.join(',')}${o.reason ? ` (${o.reason})` : ''}`);
   const flaky = r.outcomes.filter(o => o.status === 'flaky-pass').length;
-  const failed = r.outcomes.length - flaky;
+  const failed = r.outcomes.filter(o => !PASSING.has(o.status)).length;
   if (r.wholeRerun) out.push(`FLAKY_RERUN: scope=command (${r.wholeRerun})`);
-  out.push(`FLAKY_RESULT: tests=${r.tests} failed=${failed} flaky=${flaky} reruns=${r.reruns} command_exit=${r.commandExit} verdict=${r.exitCode === 0 ? 'pass' : 'fail'} ledger=${r.ledger.length ? ledger : 'none'}`);
+  out.push(`FLAKY_RESULT: tests=${r.tests} failed=${failed} flaky=${flaky} quarantined=${r.quarantined} reruns=${r.reruns} command_exit=${r.commandExit} verdict=${r.exitCode === 0 ? 'pass' : 'fail'} ledger=${r.ledger.length ? ledger : 'none'}`);
   return out;
 }
 

@@ -16,6 +16,13 @@ ledger's Open section:
    in-run rerun turned green (date, case, tier, PR and head, failing attempt, passing
    attempt, one-line symptom from the failure log).
 2. The free suites' retried cases in the same window, from the runners' retry output.
+3. For repositories that run `gstack-flaky`: download the window's `flaky-junit-ledger-*`
+   artifacts (`gh run download <run-id> --pattern 'flaky-junit-ledger-*' --dir ledgers/<run-id>`)
+   and run `gstack-flaky quarantine report --ledger ledgers`. Fix its expired and EXPIRING
+   entries first: fix the test, or renew once with new evidence and the owner named, never
+   a second time. Release each READY_TO_RELEASE entry with
+   `gstack-flaky quarantine release <id> --reason <why> --pr <url>` in a PR of its own.
+   A hard-break line is a real red, not a flake: fix it like any failing test.
 
 Never add a case that failed twice (that is a real failure, not a flake), and never a
 harness, infra or incomplete red. Then group the Open section by case, worst repeat
@@ -33,5 +40,5 @@ spend of every paid run you made.
 ```
 
 What it reads: the ledger, the gate runs' flake-records artifacts, the free suites'
-retry output, the crew rules file. What it starts: one fix PR per cause, each READY'd to
+retry output, the `gstack-flaky` ledgers and quarantine report, the crew rules file. What it starts: one fix PR per cause, each READY'd to
 the controller. What it never does: rerun a gate, change a threshold, or merge.

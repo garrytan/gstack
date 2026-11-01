@@ -433,7 +433,9 @@ A scheduled automation starts one lane a day with the
 runs' flake-records artifacts and the free suites' retried cases, writes one ledger line
 per event, groups by case, and fixes the worst repeat first with a PR that shows the
 failure red before green. It never reruns a gate and never touches a threshold, trial
-count or case kind. On Capy, create it with the automation tool, scheduled in the owner's
+count or case kind. Where a repository runs `gstack-flaky`, the lane also reads
+`gstack-flaky quarantine report --ledger <downloaded ledgers>` and fixes expiring quarantine
+entries before anything else ([flaky.md](flaky.md#the-daily-flaky-pass)). On Capy, create it with the automation tool, scheduled in the owner's
 timezone, running as a thread in the crew so its report lands in `reports/`.
 
 The lane's side of the same rule: in CI the gate reruns a case that failed on its own
