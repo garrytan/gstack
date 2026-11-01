@@ -816,7 +816,7 @@ describe('ARTIFACTS_SYNC attention lines (sync status table)', () => {
       const held = runStart([], env);
       expect(held).toMatch(/^ARTIFACTS_SYNC: mode=full \| last_push=\S+ \| queue=\d+$/m);
       expect(attention(held)).toEqual([
-        `ARTIFACTS_SYNC: attention: status=held held=1. The secret scan is holding back 1 file(s); everything else still syncs. See which files and how to fix them: ${path.join(ROOT, 'bin', 'gstack-brain-sync')} --status`,
+        `ARTIFACTS_SYNC: attention: status=held held=1. Sync is holding back 1 file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: ${path.join(ROOT, 'bin', 'gstack-brain-sync')} --status`,
       ]);
       expect(held).not.toContain('ghp_');
       expect(remoteFiles()).toContain('projects/p/ceo-plans/clean.md');

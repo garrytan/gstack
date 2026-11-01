@@ -394,6 +394,18 @@ do_read() {
 # -----------------------------------------------------------------------
 do_profile() {
   ensure_profile
+  local PARSE_ERR
+  if ! PARSE_ERR=$(PROFILE_FILE_PATH="$PROFILE_FILE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+    const text = require('fs').readFileSync(process.env.PROFILE_FILE_PATH, 'utf-8');
+    try { JSON.parse(text); } catch (e) {
+      const markers = /^(<{7}|={7}|>{7})( |\$)/m.test(text) ? ' (it holds git conflict markers from a merge)' : '';
+      console.log(e.message + markers);
+      process.exit(1);
+    }
+  " 2>&1); then
+    echo "gstack-developer-profile: $PROFILE_FILE is not valid JSON: $PARSE_ERR; repair the file or restore it from git -C $GSTACK_HOME log -- developer-profile.json" >&2
+    return 1
+  fi
   cat "$PROFILE_FILE"
 }
 

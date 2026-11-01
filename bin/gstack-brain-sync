@@ -38,11 +38,11 @@
 # applies; `ok` and `idle` print none. <bin> is this script's absolute path
 # and <N> the held count. Rows are read by test/gstack-skill-start.test.ts.
 #
-#   held         trigger: status=held: the secret scan held back flagged files and synced the rest
-#                line:    ARTIFACTS_SYNC: attention: status=held held=<N>. The secret scan is holding back <N> file(s); everything else still syncs. See which files and how to fix them: <bin> --status
-#                fix:     edit the file so the scan no longer matches, or <bin> --skip-file <path> (permanent; undo with <bin> --unskip-file <path>)
+#   held         trigger: status=held: the secret scan or the JSON check held back flagged files and synced the rest
+#                line:    ARTIFACTS_SYNC: attention: status=held held=<N>. Sync is holding back <N> file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: <bin> --status
+#                fix:     edit the file so the scan no longer matches (or repair a file that is not valid JSON), or <bin> --skip-file <path> (permanent; undo with <bin> --unskip-file <path>)
 #   blocked      trigger: status=blocked: a re-scan still flagged after the hold, so nothing was committed
-#                line:    ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: <bin> --status
+#                line:    ARTIFACTS_SYNC: attention: status=blocked. Sync committed nothing: a flagged file could not be held back on its own, or held files are part of an unfinished git merge. See the fix: <bin> --status
 #                fix:     edit or skip the files named by <bin> --status, or clear the batch with <bin> --drop-queue --yes
 #   push_failed  trigger: status=push_failed: a commit is saved locally but the push failed
 #                line:    ARTIFACTS_SYNC: attention: status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: <bin> --status
@@ -144,7 +144,7 @@ remote_auth_hint() {
 # Status file schema (one JSON object; readers: --status, --attention, doctor):
 #   status        ok | idle | held | collision | blocked | push_failed | error
 #                 (collision: files were held only for case-colliding paths)
-#   held_count    files the secret scan held back this drain (hits + dependents)
+#   held_count    files the secret scan or the JSON check held back this drain (hits + dependents)
 #   case_held     queued files held because their path differs only by letter
 #                 case from another path in the repo or the batch
 #   case_names    the colliding path component names, comma-separated and
@@ -953,6 +953,8 @@ for rule, path in hits:
         "rule": rule,
         "dependents": deps,
         "fixes": [
+            f"{path} is not valid JSON (often git conflict markers from a merge); repair it and the next sync re-checks it"
+        ] if rule == "invalid-json" else [
             f"edit {path} so the secret scan no longer matches ({rule}); the next sync re-scans it",
             f"{self_bin} --skip-file {path}  (permanently excludes it{also} from future syncs; undo with {self_bin} --unskip-file {path})",
         ],
@@ -982,6 +984,52 @@ for path, rows in ((unstage_out, unstage), (wait_out, waiting)):
 PYEOF
 }
 
+# Append "invalid-json<TAB><path>" to the hits file $2 for every staged *.json
+# path in the NUL-separated names file $1 whose index blob does not parse
+# (#3763): a git merge can leave conflict markers in a synced JSON file, and
+# committing it spreads an unreadable file to every machine. A path the
+# secret scan already flagged is held for that reason alone. One
+# `git cat-file --batch` reads the index blobs; a staged deletion has none.
+append_invalid_json_hits() {
+  python3 - "$1" "$2" "$1.json" <<'PYEOF' || return 1
+import sys
+names_path, hits_path, out_path = sys.argv[1:4]
+with open(names_path, "rb") as f:
+    names = [p for p in f.read().decode("utf-8", "surrogateescape").split("\0") if p.endswith(".json") and "\n" not in p]
+with open(hits_path, encoding="utf-8", errors="surrogateescape") as f:
+    flagged = {l.rstrip("\r\n").split("\t", 1)[-1] for l in f if "\t" in l}
+with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
+    for p in names:
+        if p not in flagged:
+            out.write(":" + p + "\n")
+PYEOF
+  [ -s "$1.json" ] || return 0
+  git -C "$GSTACK_HOME" cat-file --batch < "$1.json" > "$1.json.blobs" 2>/dev/null || return 1
+  python3 - "$1.json" "$1.json.blobs" "$2" <<'PYEOF'
+import json, sys
+batch_path, blobs_path, hits_path = sys.argv[1:4]
+with open(batch_path, encoding="utf-8", errors="surrogateescape") as f:
+    names = [l[1:].rstrip("\n") for l in f if l.startswith(":")]
+with open(blobs_path, "rb") as f:
+    data = f.read()
+pos = 0
+with open(hits_path, "a", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
+    for p in names:
+        nl = data.index(b"\n", pos)
+        header = data[pos:nl].split(b" ")
+        pos = nl + 1
+        if header[-1] == b"missing":
+            continue
+        size = int(header[2])
+        blob = data[pos:pos + size]
+        pos += size + 1
+        try:
+            json.loads(blob.decode("utf-8"))
+        except ValueError:
+            out.write("invalid-json\t" + p + "\n")
+PYEOF
+}
+
 # Fail closed: unstage everything, keep the queue, status blocked.
 block_drain() {
   git -C "$GSTACK_HOME" reset -q HEAD -- . >/dev/null 2>&1 || true
@@ -994,7 +1042,9 @@ block_drain() {
 # one scanner pass attributes findings to staged paths, plan_holds decides
 # what is held or waits, those paths are unstaged and leave $1 (their records
 # stay queued), then the whole remaining staged diff must re-scan clean.
-# Sets ST_HELD and WAITING. Returns 1 after falling back to block_drain.
+# Sets ST_HELD and WAITING. Returns 1 after falling back to block_drain, or
+# when a path would be held during an unfinished merge (the merge commit
+# would silently keep only this side of it).
 hold_flagged_paths() {
   local paths_file="$1" groups_file="$2" scan="$1.scan" rc=0 gate_rc=0 gate_out
   WAITING=0
@@ -1003,6 +1053,7 @@ hold_flagged_paths() {
   git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
   [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  [ "$rc" -eq 0 ] && { append_invalid_json_hits "$scan.names" "$scan.hits" || rc=1; }
   # A successful add need not stage the requested spelling or current bytes
   # (case-insensitive indexes and assume-unchanged can both report success).
   # Reuse the scanner's name snapshot; refusal preserves the index and queue.
@@ -1023,6 +1074,12 @@ hold_flagged_paths() {
   ST_HELD=$(cat "$scan.held")
   WAITING=$(grep -c . "$scan.wait" 2>/dev/null || true)
   WAITING=${WAITING:-0}
+  if [ -s "$scan.unstage" ] && git -C "$GSTACK_HOME" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    ST_DRAINABLE=0
+    write_status "blocked" "a git merge in $GSTACK_HOME is unfinished and $(grep -c . "$scan.unstage") file(s) are held back or wait for their coupled group; committing the merge without them would drop the other side's changes. Repair the files held[] names (they stay queued and sync on the next run), or finish the merge yourself; --skip-file and --drop-queue do not clear this. Nothing was committed; the merge and the queue are kept"
+    echo "BRAIN_SYNC: blocked: unfinished merge with held files" >&2
+    return 1
+  fi
   if [ -s "$scan.unstage" ]; then
     if ! tr -d '\r' < "$scan.unstage" | git --literal-pathspecs -C "$GSTACK_HOME" reset -q HEAD --pathspec-from-file=- >/dev/null 2>&1; then
       block_drain "git could not unstage the held files"
@@ -1347,11 +1404,13 @@ subcmd_once() {
   hold_flagged_paths "$paths_file" "$groups_file" || exit 0
   ST_DRAINABLE=$(( ADD_FAILED + WAITING ))
   [ "$WAITING" -gt 0 ] && ST_NOTE="$ST_NOTE; $WAITING file(s) of a coupled group wait for a consistent generation (still queued)"
-  local held_n ok_code="ok"
+  local held_n json_n ok_code="ok"
   held_n=$(printf '%s' "$ST_HELD" | grep -o '"rule"' | wc -l | tr -d ' ')
+  json_n=$(printf '%s' "$ST_HELD" | grep -o '"rule": "invalid-json"' | wc -l | tr -d ' ')
   if [ "$held_n" -gt 0 ]; then
     ok_code="held"
-    ST_NOTE="$ST_NOTE; the secret scan held back $held_n flagged file(s) (and any coupled files), NOT synced; see held[] for each file's fixes"
+    [ "$held_n" -gt "$json_n" ] && ST_NOTE="$ST_NOTE; the secret scan held back $(( held_n - json_n )) flagged file(s) (and any coupled files), NOT synced; see held[] for each file's fixes"
+    [ "$json_n" -gt 0 ] && ST_NOTE="$ST_NOTE; $json_n synced file(s) are not valid JSON (often git conflict markers) and were held back (and any coupled files), NOT synced and still queued; see held[] for each file's fixes"
     echo "BRAIN_SYNC: held $held_n flagged file(s); see $SELF_BIN --status" >&2
   elif [ "$ST_CASE_HELD" -gt 0 ]; then
     ok_code="collision"
@@ -1552,8 +1611,8 @@ subcmd_attention() {
   case "$last_push" in $iso) ;; *) last_push="" ;; esac
 
   case "$code" in
-    held) echo "ARTIFACTS_SYNC: attention: status=held held=$held. The secret scan is holding back $held file(s); everything else still syncs. See which files and how to fix them: $bin --status" ;;
-    blocked) echo "ARTIFACTS_SYNC: attention: status=blocked. The secret scan flagged a file it could not hold back on its own, so nothing is syncing. See the fix: $bin --status" ;;
+    held) echo "ARTIFACTS_SYNC: attention: status=held held=$held. Sync is holding back $held file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: $bin --status" ;;
+    blocked) echo "ARTIFACTS_SYNC: attention: status=blocked. Sync committed nothing: a flagged file could not be held back on its own, or held files are part of an unfinished git merge. See the fix: $bin --status" ;;
     push_failed) echo "ARTIFACTS_SYNC: attention: status=push_failed. Synced files are committed locally but the push failed; it retries at skill start. See the cause: $bin --status" ;;
     error) echo "ARTIFACTS_SYNC: attention: status=error. The last sync stopped before committing; the queue is kept and retried. See the cause: $bin --status" ;;
     unknown) echo "ARTIFACTS_SYNC: attention: status=unknown. The sync status file is unreadable. See it: $bin --status" ;;
