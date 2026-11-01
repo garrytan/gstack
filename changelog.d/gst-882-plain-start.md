@@ -1,0 +1,8 @@
+**Hermes can start gstack skills again (GST-882).** On stock Hermes, the Tirith scanner flagged every gstack skill's first command as HIGH ("Nested executable body could not be resolved"), so `gstack-skill-start` was denied in 8 of 8 trials. Tirith-only findings can't go on Hermes's permanent allowlist, so there was no workaround. The start line Tirith couldn't follow was a grouped fallback that picked the script through a variable.
+
+### Fixed
+- **The skill-start line on Codex, Hermes and the other env-var hosts is plain shell.** A skill installed for one folder (Hermes, and the Codex install `./setup` writes) now checks for that folder's `bin/gstack-skill-start` and then runs it by its literal path. Tirith 0.4.2 allows that line where it blocked the old one. A checked-in render keeps the same lookup order (an exported `GSTACK_ROOT`, then the repo's own install, then the global one) as plain lines, without the `{ …; exit 1;}` group. When no install exists, both print the same "no install found" line with the setup command, and the start command then fails.
+- **An install-root render's first block no longer honors an exported `GSTACK_ROOT`.** Tirith blocks any start command picked through a variable. Later blocks still honor it. `docs/troubleshooting.md` names this exception.
+
+### Tests
+- `test/skill-start-plain.test.ts`: on every host and both render kinds, the start fence has no grouped fallback, and a missing install fails loudly under `bash -u`. The install-root start command is a literal path that runs, and a checked-in render finds the global install. On each env-var host, the start lookup picks the same root as later blocks for global, repo-local and exported installs.

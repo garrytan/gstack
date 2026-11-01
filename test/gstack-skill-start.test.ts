@@ -118,7 +118,8 @@ describe('gstack-skill-start contract', () => {
     // Worktree-isolated Claude Code sessions refuse a start command named by a
     // variable, a `[ -x ] ||` fallback, or a trailing `|| echo` (reproduced
     // with the pinned CLI). The Claude render is the literal install path;
-    // env-var hosts reach the script through $GSTACK_BIN. A missing helper is
+    // checked-in env-var host renders reach it through $GSTACK_ROOT/bin (an
+    // install-root render names the literal path, GST-882). A missing helper is
     // covered by the degraded-mode prose, not a shell fallback.
     const fence = (text: string) => {
       const at = text.search(/^## Preamble \((?:run first|after scope gate)\)/m);
@@ -130,7 +131,7 @@ describe('gstack-skill-start contract', () => {
     }
     for (const host of ['codex', 'gbrain']) {
       const lines = fence(generatePreamble({ skillName: 'ship', tmplPath: 'ship/SKILL.md.tmpl', host, paths: HOST_PATHS[host], preambleTier: 4 } as TemplateContext)).split('\n');
-      expect(lines.at(-1)).toMatch(/^"\$GSTACK_BIN\/gstack-skill-start" --skill "ship" --model "[^"]+"( --brain-health)?$/);
+      expect(lines.at(-1)).toMatch(/^"\$GSTACK_ROOT\/bin\/gstack-skill-start" --skill "ship" --model "[^"]+"( --brain-health)?$/);
       expect(lines.join('\n')).not.toMatch(/_SS|\$PPID|\|\| echo|\[ -x/);
     }
   });

@@ -3,8 +3,9 @@
  * bash finds gstack on Codex and every other `usesEnvVars` host.
  *
  * Those hosts run each fenced block in a fresh shell, so `GSTACK_ROOT`, `B`,
- * `D` and `P` set by an earlier block are gone. The preamble's root resolution and
- * the per-fence prelude come from `runtimeRootPrelude()`; `insertRuntimePreludes()`
+ * `D` and `P` set by an earlier block are gone. The preamble's skill-start fence
+ * comes from `skillStartLines()` and the per-fence prelude from
+ * `runtimeRootPrelude()`; `insertRuntimePreludes()`
  * is the single post-render pass (gen-skill-docs, before rewriteInstallRoot)
  * that puts it into every fence that uses these variables without assigning
  * them. Claude output is returned unchanged.
@@ -13,6 +14,9 @@
  * on a per-install render, the literal install root (no git call); otherwise the
  * repo-local install, then the host's global root (`CODEX_HOME` on Codex). No
  * root prints one line naming what was tried and the setup command, and exits.
+ * The skill-start fence differs (GST-882): an install-root render calls the
+ * literal install root's start script and ignores an exported `GSTACK_ROOT`, and
+ * with no root either render prints that line and lets the call fail.
  */
 import { getHostConfig } from '../../hosts/index';
 import { toShellPath, type TemplateContext } from './types';
@@ -37,13 +41,45 @@ const uses = (name: string) => new RegExp(`\\$\\{?${name}\\b`);
  */
 function resolveRoot(ctx: TemplateContext): string {
   const host = getHostConfig(ctx.host);
-  const fix = `Fix: ./setup --host ${host.name} from your gstack checkout; ./setup --status shows it.`;
+  const fix = installFix(ctx);
   const exported = '[ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||';
   if (ctx.installRoot) {
     return `${exported}{ GSTACK_ROOT="${ctx.installRoot.replace(/\/+$/, '')}";[ -d "$GSTACK_ROOT/bin" ]||{ echo "gstack: no install found (tried $GSTACK_ROOT). ${fix}">&2;exit 1;};}`;
   }
-  const global = host.name === 'codex' ? '${CODEX_HOME:-~/.codex}/skills/gstack' : `~/${host.globalRoot}`;
-  return `${exported}{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/${host.localSkillRoot};[ -d "$_r/bin" ]||_r=${global};[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). ${fix}">&2;exit 1;};GSTACK_ROOT=$_r;}`;
+  return `${exported}{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/${host.localSkillRoot};[ -d "$_r/bin" ]||_r=${globalRoot(ctx)};[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). ${fix}">&2;exit 1;};GSTACK_ROOT=$_r;}`;
+}
+
+const installFix = (ctx: TemplateContext) => `Fix: ./setup --host ${getHostConfig(ctx.host).name} from your gstack checkout; ./setup --status shows it.`;
+const globalRoot = (ctx: TemplateContext) => {
+  const host = getHostConfig(ctx.host);
+  return host.name === 'codex' ? '${CODEX_HOME:-~/.codex}/skills/gstack' : `~/${host.globalRoot}`;
+};
+
+/**
+ * The skill-start fence on env-var hosts (GST-882). Hermes's Tirith blocks a
+ * start command it cannot resolve statically, a grouped fallback or a
+ * variable-selected path alike, and no allowlist entry clears that finding. An
+ * install-root render therefore names the literal start path; a checked-in
+ * render keeps resolveRoot's lookup order as plain lines. Either way a missing
+ * install prints the fix, and the call then fails.
+ */
+export function skillStartLines(ctx: TemplateContext): { lookup: string; command: string } {
+  const fix = installFix(ctx);
+  if (ctx.installRoot) {
+    const root = ctx.installRoot.replace(/\/+$/, '');
+    return {
+      lookup: `[ -x "${root}/bin/gstack-skill-start" ]||echo "gstack: no install found (tried ${root}). ${fix}">&2`,
+      command: `"${root}/bin/gstack-skill-start"`,
+    };
+  }
+  return {
+    lookup: [
+      `[ -d "\${GSTACK_ROOT:-/-}/lib" ]&&[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/${getHostConfig(ctx.host).localSkillRoot}`,
+      `[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=${globalRoot(ctx)}`,
+      `[ -d "$GSTACK_ROOT/bin" ]||echo "gstack: no install found (tried $GSTACK_ROOT). ${fix}">&2`,
+    ].join('\n'),
+    command: '"$GSTACK_ROOT/bin/gstack-skill-start"',
+  };
 }
 
 const DERIVED: Record<string, string> = { BIN: 'bin', BROWSE: 'browse/dist', DESIGN: 'design/dist', MAKE_PDF: 'make-pdf/dist' };

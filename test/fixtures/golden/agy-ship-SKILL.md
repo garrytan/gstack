@@ -17,9 +17,10 @@ This skill follows gstack shared preamble `6872f1ec4eb9` (AskUserQuestion format
 ## Preamble (run first)
 
 ```bash
-[ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack;[ -d "$_r/bin" ]||_r=~/.gemini/antigravity-cli/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host agy from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
-GSTACK_BIN=$GSTACK_ROOT/bin
-"$GSTACK_BIN/gstack-skill-start" --skill "ship" --model "gemini"
+[ -d "${GSTACK_ROOT:-/-}/lib" ]&&[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=~/.gemini/antigravity-cli/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||echo "gstack: no install found (tried $GSTACK_ROOT). Fix: ./setup --host agy from your gstack checkout; ./setup --status shows it.">&2
+"$GSTACK_ROOT/bin/gstack-skill-start" --skill "ship" --model "gemini"
 ```
 
 **Antigravity tool names:** `AskUserQuestion` means your `ask_question` tool (options as choices); there is no `mcp__*__AskUserQuestion` variant. The Bash tool means `run_command`, the Read tool `view_file`, the Write tool `write_to_file`, the Edit tool `replace_file_content` (`multi_replace_file_content` for several edits in one file), Grep `grep_search`, Glob `find_by_name`, and the Agent tool `invoke_subagent`. There is no Skill tool: load a skill by reading its SKILL.md with `view_file`. If a step says to call `ExitPlanMode`, tell the user the plan is ready and wait. `view_file` can return only part of a long file: when a SKILL.md or a file it tells you to read ends before its last line, read the remaining line ranges before acting on it.
