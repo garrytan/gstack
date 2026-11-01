@@ -578,7 +578,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
   }
   // Value: protects=no reader is started where Capy will put it (the shared machine's start checkout) when /ship ships another checkout; fails_when=the program dispatches readers that start in the primary checkout while the pass ships a worktree (GBRA-218's outside voice ignored `cd <dir> &&` and reviewed the primary checkout, losing Step 11 outside coverage);
   //   why_new=GBRA-218 on gstack 1.92.25.0; Capy subagents take no working directory; seam=lib/capy-review-pass.js before any log start or create; no_claim=that Capy can start a reader in a chosen directory
-  test('a shared machine whose start checkout is not the worktree refuses before any start token or reader', async () => {
+  test('a shared machine whose start checkout is not the worktree refuses before any start token or reader; a start directory outside any checkout dispatches', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
     const h = host(dir, env);
@@ -592,6 +592,8 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const started = host(wt, env);
     expect(await runPass(started, { base: 'main', out: path.join(wt, '.state/run/p2'), pass: 'w0p2', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
     expect(started.creates.length).toBeGreaterThan(0);
+    const outside = host(path.dirname(wt), env);
+    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
   }, 240_000);
 
   // Value: protects=a reader that never left the machine's default checkout cannot hand /ship a review of another tree; fails_when=collect merges a reply whose REVIEWED_TREE names the primary checkout while the pass ships a worktree, or a reply with no such line;

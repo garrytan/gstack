@@ -530,7 +530,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    line and gives the command only as the way to get it; a `printed:` label before the line is still read, and its tree
    and toplevel are still compared exactly (GST-776). Capy cannot start a subagent in a chosen directory, so before it
    takes a start token or sends a reader, the Capy pass program compares the checkout with the one shared readers start
-   in (the thread's working directory) and stops on a mismatch. Step 11's voices take the `adversarial-review` start
+   in (the thread's working directory) and stops when that is another checkout; a start directory outside any checkout,
+   such as a multi-repo workspace root, holds no tree to review by mistake and dispatches. Step 11's voices take the `adversarial-review` start
    token by default, and a `logStart` list without it stops before anything runs.
 
 ## Where this is enforced
