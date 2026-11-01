@@ -139,6 +139,8 @@ describe("public-repo consent (ENG-20)", () => {
     expect(value(r.out, "GREPTILE_EARLY")).toBe("ask");
     expect(f.run("consent", "yes").out).toContain("GREPTILE_CONSENT: granted");
     expect(JSON.parse(fs.readFileSync(path.join(f.state, "projects/acme-widget/ship-greptile-early.json"), "utf8")).consent).toBe("yes");
+    expect(f.calls.filter(c => c.cmd.endsWith("gstack-slug")).map(c => c.args)).toContainEqual(["--get", "REPO_SLUG"]);
+    expect(f.calls.filter(c => c.cmd.endsWith("gstack-slug") && c.args.join(" ") !== "--get REPO_SLUG")).toEqual([]);
     r = f.run("detect");
     expect(value(r.out, "GREPTILE_CONSENT")).toBe("granted");
     expect(value(r.out, "GREPTILE_EARLY")).toBe("on");

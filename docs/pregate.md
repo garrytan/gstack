@@ -98,8 +98,8 @@ keeps `.gstack/` out of git (a shared repo where gstack is one contributor's
 tool) can hold the same file at `<state root>/projects/<slug>/pregate.json`. The
 state root is `GSTACK_STATE_ROOT`, else `GSTACK_HOME`, else `GSTACK_STATE_DIR`,
 else a gstack plugin's data directory, else `~/.gstack` ([docs/state-root.md](state-root.md)); `<slug>` is what
-`~/.claude/skills/gstack/bin/gstack-slug` prints as `SLUG=` in the repository
-(`GSTACK_PROJECT_SLUG` overrides it). It is read only when the base carries none
+`~/.claude/skills/gstack/bin/gstack-slug --get REPO_SLUG` prints in the repository
+(`GSTACK_PROJECT_SLUG` overrides it; a `.gstack-project` marker does not). It is read only when the base carries none
 (under `--policy-from head` it is the trusted policy the head file is compared with), it lives outside the repository so a PR still
 cannot reach it, and the record names it (`policy user <path>`) and fingerprints
 its bytes (`policy_digest`, and each check's `inputs.policy`); `verify` and the

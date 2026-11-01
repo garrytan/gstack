@@ -53,7 +53,8 @@ gstack-approvals render                                    # the ## Approvals se
 ```
 
 - **Where it lives.** `<state root>/projects/<slug>/approvals/<branch key>.jsonl`, one file per branch,
-  because one thread ships one branch. On Capy the state root is thrown away with the machine, so every write
+  because one thread ships one branch. `<slug>` is the repository's own slug (`gstack-slug --get
+  REPO_SLUG`); a `.gstack-project` marker never moves it. On Capy the state root is thrown away with the machine, so every write
   is also mirrored to `GSTACK_APPROVALS_DIR`, else to the `approvals/` directory in the mounted Captain
   drive (`<captain drive>/approvals/<slug>/`, readable by the whole crew), else to the private project-user
   Drive folder. `gstack-approvals path` prints the chosen mirror and `READ_ALSO:` roots, which reads still

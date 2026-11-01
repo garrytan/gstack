@@ -83,6 +83,7 @@ Review only. Do not change code or implement.
 * Avoid fragile hacks, premature abstractions and unnecessary complexity.
 * Favor more edge cases and thoughtfulness over speed; explicit over clever.
 * Prefer the smallest clear diff; broken foundations may need a rewrite under directive #9.
+* Data models follow their queries, integrity rules and update boundaries, not file count: fields queried, constrained or updated on their own get explicit columns or tables; JSON suits a document read and written whole.
 * New codepaths need logs, metrics or traces and threat modeling.
 * Plan partial deploys, rollbacks and feature flags.
 * Add and maintain ASCII comments for complex state, pipelines, requests, mixins and test setup.
