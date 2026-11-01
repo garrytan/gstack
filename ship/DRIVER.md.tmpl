@@ -26,7 +26,7 @@ file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` r
 small model at low effort; their findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
-section read or a fix-check, plus a keep-alive per 200 s waited. A fix repeats Phases 3-4.
+section read or a fix-check, plus a keep-alive per 200 s waited.
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
@@ -87,8 +87,8 @@ Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
 `scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5); `fix-check`: the
 pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done`: that program runs Step 11 from
-`sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (neither
-prints `ADVERSARIAL: skipped (review plan)`).
+`sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (none:
+`ADVERSARIAL: skipped (review plan)`).
 
 ## 5. Voices, bind and version: Steps 11, 11.5, 12
 
@@ -100,7 +100,7 @@ approvals; `VERSION: skipped|kept`: no write.
 
 ## 6. Notes and documentation: Steps 13, 14, 14.5
 
-Step 13: one user-facing entry from the commits file, where `NEXT:` says;
+Step 13: one user-facing entry from the commits file where `NEXT:` says;
 `gstack-prose-lint <it> --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and
 completions, edited from the todos file. Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as
 one program (above), then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`.
@@ -117,8 +117,8 @@ STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` an
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 
 - Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
-- Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
-- Step 20: the metrics row via `gstack-review-log`.
+- Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> [--review-targeted @.gstack/tmp/targeted.json] --body <body>`; `gstack-post pr-body` and `pr-title` (new PR: the host's PR tool; draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
+- Step 20: a metrics row via `gstack-review-log`.
 - Step 22: `gstack-ship-budget close --reading R --credits C` (report `BUDGET_FINAL:`, `BUDGET_TIMELINE:` (tokens, credits), any `METER:` line), then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 
 ## Where each STOP sends you (paths under `<root>/ship/`)

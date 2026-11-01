@@ -85,6 +85,52 @@ describe('gstack-ship-preflight', () => {
     expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
   });
 
+  // Value: protects=Step 1 refreshes origin/<base> itself, so a clone whose fetch refspec leaves out the base (a single-branch
+  //   clone) still diffs against the current base tip (GST-462, HARN-15); fails_when=preflight runs `git fetch origin <base>`,
+  //   which then updates only FETCH_HEAD; seam=remote.origin.fetch; no_claim=remotes other than origin
+  test('a single-branch clone: the fetch refreshes origin/<base>, so DIFF is the branch alone', () => {
+    const f = fx({ '.gstack/ship-policy.json': '{"queue_mode":"stamp-at-merge"}\n' });
+    f.git('config', 'remote.origin.fetch', '+refs/heads/feat:refs/remotes/origin/feat');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    f.git('fetch', '-q', f.origin, 'main');
+    f.git('merge', '-q', '--no-edit', 'FETCH_HEAD');
+    const stale = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(0);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).not.toBe(stale);
+    expect(lineOf(r.stdout, 'DIFF')).toMatch(/^DIFF: 1 file changed, 1 insertion\(\+\); commits=2$/);
+  });
+
+  // Value: protects=a diff far larger than the PR's own (a stale or wrong base: HARN-15 reviewed 17,000 files of main's history)
+  //   stops before any reader runs, naming the PR's base; fails_when=preflight never compares the diff with the PR's changed
+  //   files; seam=gh pr view (changedFiles, headRefOid, baseRefName); no_claim=GitHub's own count
+  test('a diff far beyond or short of the PR\'s changed files stops at the pushed head; another head or a matching size goes on', () => {
+    const files = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`src/f${i}.ts`, `export const f${i} = ${i};\n`]));
+    const f = fx({}, files);
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const stub = (changed: number, prHead: string, prBase = 'release') => f.gh(`case "$*" in *"pr list"*) echo 7 ;; *changedFiles*) echo "${changed} ${prHead} ${prBase}" ;; esac`);
+    stub(3, head);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is not the PR\'s base; rerun with --base release after git fetch origin +refs/heads/release:refs/remotes/origin/release');
+    stub(3, head, 'main');
+    const fork = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    expect(fork.stdout).not.toContain('rerun with --base');
+    stub(3, head, 'x;rm');
+    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain("rerun with --base 'x;rm' after git fetch origin +refs/heads/'x;rm':refs/remotes/origin/'x;rm'");
+    stub(61, head, 'main');
+    const fewer = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fewer.status).toBe(3);
+    expect(fewer.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 61 (its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [61, 'f'.repeat(40)], [60, head], [0, head]] as const) {
+      stub(changed, prHead);
+      const go = f.run(PREFLIGHT, ['--base', 'main']);
+      expect(go.stdout).not.toContain('lists 60 files');
+      expect(lineOf(go.stdout, 'PR')).toBe('PR: #7');
+    }
+  });
+
   // Value: protects=Step 1's scope check reads the fetched origin/<base>, so a clone without a local base branch still sees frontend files; fails_when=the preflight reports frontend=false because gstack-diff-scope could not resolve a local <base>;
   //   why_new=GSTA-167 dogfood on #3633: a Capy checkout has no local main and SCOPE printed false; seam=gstack-diff-scope; no_claim=design review itself
   test('no local base branch: SCOPE still reads the fetched base', () => {
