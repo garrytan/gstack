@@ -9,7 +9,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const BIN = path.join(import.meta.dir, '..', 'bin');
+const DISPATCH = path.join(import.meta.dir, '..', 'bin', 'gstack-review-dispatch');
+const BIN = path.dirname(DISPATCH);
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
@@ -37,7 +38,7 @@ describe('pass reads DIFF_BASE from origin/<base> (GST-716)', () => {
     const originBase = sh(work, 'git merge-base origin/main HEAD');
     expect(originBase).not.toBe(sh(work, 'git merge-base main HEAD'));
     const out = path.join(work, '.state-run');
-    const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['pass', '--base', 'main', '--out', out, '--pass', 'origin-p1'], { cwd: work, env, encoding: 'utf8', timeout: 180_000 });
+    const r = spawnSync(DISPATCH, ['pass', '--base', 'main', '--out', out, '--pass', 'origin-p1'], { cwd: work, env, encoding: 'utf8', timeout: 180_000 });
     expect(r.status, r.stdout + r.stderr).toBe(0);
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as { diff_base: string };
     expect(m.diff_base).toBe(originBase);
