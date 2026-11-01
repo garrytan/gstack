@@ -1,0 +1,7 @@
+### /ship review scales to risk, not size
+
+- **Review depth follows risk.** Code that touches security, user data, money, secrets, auth or the merge checks gets the full review panel. Other code goes to the light tier at any size: one batched reader plus the native adversarial pass. Docs, tests, UI or game text edits, and eval write-ups with a plain chart SVG get one reader; an SVG with a script, an event handler or an external link stays code. On a write-up, the batched reader now reads the text files too. A larger diff never raises the depth by itself.
+- **New risk classes.** `lib/review-risk.ts` holds the money, auth and secret matchers the targeted pass already used, plus new security (trust boundaries, shell and HTML sinks, `eval`) and user-data (persistence paths, `DELETE FROM`, `deleteMany`, `destroy_all`) signals.
+- **At most 2 review rounds.** A fix-check counts as a round. A blocker that is still open or fixed in round 2 stops for the owner, who may grant one scoped fix-check; there is no round 3. Below-floor fixes in round 2 finish, with the notes listed.
+- **Receipts record tier and rounds.** `review_loop.rounds` and `review_depth.risk` are on the receipt, and the summary line prints `rounds=`. `gstack-ship-queue ready` still refuses a receipt below its head's depth.
+- Replayed on the 26-unit no-loss panel, no historical blocker was lost. Over the last 100 main commits, 10 go from standard to light, 9 go up to full, and 0 risky commits go down.
