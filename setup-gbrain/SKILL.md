@@ -315,12 +315,14 @@ compatible MCP version.
 For Paths 1, 2a, 2b, 3, switch:
 
 ```bash
-doctor=$(gbrain doctor --json)
-status=$(echo "$doctor" | jq -r .status)
+DOCTOR=$(~/.claude/skills/gstack/bin/gstack-gbrain-detect --doctor)
+BRAIN_OK=$(echo "$DOCTOR" | jq -r .brain_ok)
 ```
 
-If status is `ok` or `warnings`, proceed. Anything else → surface the full
-doctor output and STOP.
+If `BRAIN_OK` is `true`, proceed; only brain checks count. Note any
+`skill_failures`: gbrain graded a skills dir it found, maybe another agent's
+(`~/.openclaw/workspace`). Never edit that workspace to pass. Otherwise show
+`echo "$DOCTOR" | jq .report` and STOP.
 
 ---
 

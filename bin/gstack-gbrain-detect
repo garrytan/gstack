@@ -27,13 +27,19 @@
  * gbrain_local_status. Key order may differ from the bash version's `jq -n`
  * output — downstream parsers must not depend on key order (none currently do).
  *
+ * Flags:
+ *   --is-ok   exit 0 iff the local engine is usable (see below).
+ *   --doctor  run `gbrain doctor --json --scope=brain` and print
+ *             {brain_ok, status, brain_failures, skill_failures, report};
+ *             exit 0 iff brain_ok. Skill checks never decide brain_ok (#3790).
+ *
  * Env:
  *   GSTACK_HOME      — override ~/.gstack for state lookups (used by tests).
  *   HOME             — effective user home (drives ~/.gbrain/config.json path).
  *   GSTACK_DETECT_NO_CACHE=1 — bypass the 60s local-status cache.
  */
 
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -118,21 +124,57 @@ function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
   return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
 }
 
-// --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
+// --- gbrain doctor health, judged from brain checks only (#3790) ---
 //
+// gbrain doctor's skill checks (category "skill": resolver_health,
+// skill_conformance, ...) grade whatever skills dir gbrain auto-detects, which
+// can be another agent's workspace such as ~/.openclaw/workspace. They say
+// nothing about the brain, so they never decide health here. `--scope=brain`
+// (gbrain v0.41.20+) skips that group; older gbrain ignores the flag, so
+// failed checks tagged "skill" are dropped as well. gbrain's status is
+// "healthy"/"warnings"/"unhealthy"; "ok" is kept for older reports. doctor
+// exits 1 when any check fails, so stdout is read whatever the exit code.
+interface DoctorVerdict {
+  brain_ok: boolean;
+  status: string | null;
+  brain_failures: string[];
+  skill_failures: string[];
+  report: unknown;
+}
+
+function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
+  const r = spawnSync("gbrain", ["doctor", "--json", ...extraArgs, "--scope=brain"], {
+    encoding: "utf-8",
+    timeout: timeoutMs,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  let report: { status?: string; checks?: { name?: string; status?: string; category?: string }[] } | null = null;
+  try {
+    report = JSON.parse(r.stdout || "null");
+  } catch {}
+  if (!report || typeof report !== "object") {
+    return { brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null };
+  }
+  const failed = (Array.isArray(report.checks) ? report.checks : []).filter((c) => c?.status === "fail");
+  const skill_failures = failed.filter((c) => c.category === "skill").map((c) => c.name ?? "unnamed");
+  const brain_failures = failed.filter((c) => c.category !== "skill").map((c) => c.name ?? "unnamed");
+  const status = report.status ?? null;
+  const statusOk = status === "healthy" || status === "ok" || status === "warnings";
+  return {
+    brain_ok: brain_failures.length === 0 && (statusOk || skill_failures.length > 0),
+    status,
+    brain_failures,
+    skill_failures,
+    report,
+  };
+}
+
 // Uses --fast to avoid hanging on a dead DB. Per the local-status classifier
 // (which probes DB directly via `gbrain sources list`), gbrain_doctor_ok is a
 // coarse health summary, not engine-reachability — that's gbrain_local_status.
 function detectDoctor(onPath: boolean): boolean {
   if (!onPath) return false;
-  const out = tryExec("gbrain", ["doctor", "--json", "--fast"], 3_000);
-  if (!out) return false;
-  try {
-    const parsed = JSON.parse(out) as { status?: string };
-    return parsed.status === "ok" || parsed.status === "warnings";
-  } catch {
-    return false;
-  }
+  return runDoctor(["--fast"], 3_000).brain_ok;
 }
 
 // --- artifacts sync mode ---
@@ -300,6 +342,14 @@ function main(): void {
 // callers — setup, bin/dev-setup, and `gstack-config gbrain-refresh` — can
 // decide whether to render the gbrain :user variant without duplicating the
 // JSON grep. Prints nothing on stdout.
+// --doctor: the full brain-health gate /setup-gbrain Step 5 runs. Prints the
+// DoctorVerdict as JSON and exits 0 iff brain_ok.
+if (process.argv.includes("--doctor")) {
+  const verdict = runDoctor([], 120_000);
+  process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
+  process.exit(verdict.brain_ok ? 0 : 1);
+}
+
 if (process.argv.includes("--is-ok")) {
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
   const status = localEngineStatus({ noCache });
