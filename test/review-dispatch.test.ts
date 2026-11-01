@@ -580,3 +580,41 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     expect(r.stderr).toContain('BRIEF_RENDER_FAILED: cannot read HEAD^{tree} and the toplevel of');
   });
 });
+
+describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => {
+  const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  const command = `cd '${top}' && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
+  // Value: protects=a reader that reviewed the right checkout is not failed for how it wrote its fingerprint; fails_when=the brief asks for "the line <command> prints" (two Sonnet 5.5 low readers then wrote `printed: REVIEWED_TREE: …` and were failed as reported="none"), or a `printed:` prefix lets a wrong tree through;
+  //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts workspaceParagraph and checkReviewedTree via gstack-review-dispatch collect; no_claim=that every model now writes the bare line
+  test('the brief asks for the bare line first and gives the command only as the way to get it', () => {
+    const p = workspaceParagraph(top);
+    expect(p).not.toContain('the line `cd');
+    const bare = p.indexOf('`REVIEWED_TREE: <tree> <toplevel>`');
+    expect(bare).toBeGreaterThan(0);
+    expect(p.indexOf(command)).toBeGreaterThan(bare);
+  });
+
+  test('the echoed command then a printed: line is read; the same shape with a wrong tree or checkout is still refused', () => {
+    const reply = (fingerprint: string) => `${command}\nprinted: REVIEWED_TREE: ${fingerprint}\nNO FINDINGS\n`;
+    expect(checkReviewedTree(reply(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
+    expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
+    expect(checkReviewedTree(`Note: REVIEWED_TREE: ${tree} ${top}\nNO FINDINGS`, `${tree} ${top}`).reported).toBe('none');
+
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const file = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA]).stdout, 'file');
+    run(['sent', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--sent', file]);
+    const collectReply = (text: string) => {
+      const f = path.join(out, 'reply.out');
+      fs.writeFileSync(f, text);
+      return spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    };
+    const wrong = collectReply(reply(`${'b'.repeat(40)} ${top}`));
+    expect([wrong.status, wrong.stdout.startsWith('COLLECT_TREE_MOVED: reader=specialist/testing')]).toEqual([1, true]);
+    const right = collectReply(reply(`${tree} ${top}`));
+    expect(right.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
+  });
+});
