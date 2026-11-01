@@ -59,6 +59,8 @@ function fixture(): Fixture {
   const gs = path.join(repo, '.gstack');
   fs.mkdirSync(path.join(gs, 'tmp'), { recursive: true });
   inRoot(root, gs);
+  fs.mkdirSync(path.join(root, 'quiet-ps'));
+  fs.writeFileSync(path.join(root, 'quiet-ps', 'ps'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   return { root, home, state, repo, gs };
 }
 
@@ -87,8 +89,13 @@ function deadPid(): number {
   return r.pid!;
 }
 
-function run(f: Fixture, args: string[], opts: { cwd?: string; env?: Record<string, string | undefined> } = {}) {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: f.home, GSTACK_HOME: f.state, ...opts.env };
+/** A ps that lists no process, so an unrelated codex elsewhere on the host cannot skip tmp/; realPs keeps the host's. */
+function quietPsPath(f: Fixture): string {
+  return path.join(f.root, 'quiet-ps') + path.delimiter + (process.env.PATH ?? '');
+}
+
+function run(f: Fixture, args: string[], opts: { cwd?: string; env?: Record<string, string | undefined>; realPs?: boolean } = {}) {
+  const env: Record<string, string | undefined> = { ...process.env, HOME: f.home, GSTACK_HOME: f.state, ...(opts.realPs ? {} : { PATH: quietPsPath(f) }), ...opts.env };
   for (const name of ['GSTACK_STATE_ROOT', 'GSTACK_STATE_DIR', 'CLAUDE_PLUGIN_DATA', 'BROWSE_STATE_FILE']) if (!(opts.env && name in opts.env)) delete env[name];
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   const r = spawnSync(process.execPath, [...bunIsolationArgs(), BIN, ...args], { cwd: opts.cwd ?? f.repo, env: env as NodeJS.ProcessEnv, encoding: 'utf8', timeout: 30_000 });
@@ -323,7 +330,7 @@ describe('gstack-clean', () => {
       const child = spawn(fake, [], { stdio: 'ignore' });
       try {
         await Bun.sleep(300);
-        const r = run(f, ['--apply']);
+        const r = run(f, ['--apply'], { realPs: true });
         expect(r.code).toBe(0);
         expect(r.out).toMatch(/skip +tmp\/codex-err-old: codex is running/);
         expect(fs.existsSync(path.join(f.gs, 'tmp', 'codex-err-old'))).toBe(true);
@@ -430,6 +437,23 @@ describe('gstack-clean', () => {
       expect(fs.existsSync(path.join(f.gs, 'tmp', 'codex-err-old'))).toBe(false);
     } finally {
       fs.chmodSync(log, 0o644);
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')('tmp removal is unaffected by a codex process elsewhere on the host', async () => {
+    const f = fixture();
+    put(path.join(f.gs, 'tmp', 'codex-err-old'), 'x', 30 * DAY);
+    const fake = path.join(f.root, 'fakebin', 'codex');
+    put(fake, '#!/bin/sh\nsleep 30\n', 0);
+    fs.chmodSync(fake, 0o755);
+    const child = spawn(fake, [], { stdio: 'ignore' });
+    try {
+      await Bun.sleep(300);
+      const r = run(f, ['--apply']);
+      expect(r.code).toBe(0);
+      expect(fs.existsSync(path.join(f.gs, 'tmp', 'codex-err-old'))).toBe(false);
+    } finally {
+      child.kill('SIGKILL');
     }
   });
 
