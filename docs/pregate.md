@@ -201,9 +201,10 @@ Two stages with separate clocks, both printed:
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
   searched for the old value in files that name the constant or its module
-  (the module's file name, or a path ending in its stem followed by a quote,
-  the line end, or its own or a JS/TS extension, so a sibling `<stem>.txt` is
-  not the module); a consumer the branch did not update fails with
+  (the module's file name, or a path ending in its stem followed by its own or
+  a JS/TS extension or by anything but a word character, `.` or `-`, so a
+  sibling `<stem>.txt` or `<stem>-v2.ts` is not the module); a consumer the
+  branch did not update fails with
   `file:line`. A version-history row, a line that starts a bracketed row with
   the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
   consecutive lines starting with `[`) also holds a row for the new value that

@@ -62,9 +62,10 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
 /**
  * Test files that still carry the old literal beside the constant's name or
  * its module. The module counts as its full file name (`install.sh`) or as a
- * path fragment (`/retry.js`, `/retry'`) that ends at a quote, the line end, or the
- * module's own or a JS/TS extension, so a sibling `/retry.txt` is not the module
- * (GST-820): a bare stem such as `install` or `retry` is an
+ * path fragment (`/retry.js`, `/retry'`, `/retry.d.ts`) whose stem is followed by
+ * the module's own or a JS/TS extension or by anything but a word character, `.`
+ * or `-` (a sentence-ending `.` counts), so a sibling `/retry.txt` or
+ * `/retry-v2.ts` is not the module (GST-820): a bare stem such as `install` or `retry` is an
  * English word in half the test tree, and a one-character old value (`2`)
  * sits in every test, so that value needs the constant's name (a wrapper
  * version 2 → 3 flagged 575 consumers through the stem alone).
@@ -86,7 +87,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const base = path.basename(change.file);
   const stem = base.replace(/\.[^.]+$/, '');
   const exts = [...new Set([base.slice(stem.length + 1), 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts'].filter(Boolean))].map(escape).join('|');
-  const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=['"\`]|$|\\.(?:${exts})(?![\\w.-]))|(?<![\\w-])${escape(base)}(?![\\w-])`, 'm');
+  const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=[^\\w.-]|$|\\.(?:d\\.)?(?:${exts})(?![\\w.-])|\\.(?!\\w))|(?<![\\w-])${escape(base)}(?![\\w-])`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
   const nameRequired = value.length < 2;
   const hits: string[] = [];

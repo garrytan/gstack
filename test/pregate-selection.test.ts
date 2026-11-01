@@ -203,7 +203,8 @@ describe('literals (pure)', () => {
   });
   // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
   //   module, so a test that only names it is not a consumer, while an extensionless import, a JS/TS import extension, the module's own
-  //   file name and a path ending at the stem still are; fails_when=`/<stem>` again accepts any following `.`
+  //   file name and a path ending at the stem (then a quote, space, bracket, sentence end or `.d.ts`) still are;
+  //   fails_when=`/<stem>` again accepts any following `.<word>`, or stops accepting a following space, bracket or sentence end
   //   (GST-820: 17 false files in gbrain #8372 on ARM_SHARDS 12 -> 18); why_new=no test had a same-stem sibling; seam=none;
   //   no_claim=name-gated hits (a file naming ARM_SHARDS still counts any 12)
   test('consumersOf: a sibling file sharing the module stem is not the module; real imports of it still are (GST-820)', () => {
@@ -217,10 +218,16 @@ describe('literals (pure)', () => {
       'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", 'expect(shards()).toBe(12);', ''].join(nl),
       'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", 'expect(out).toBe(12);', ''].join(nl),
       'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', 'expect(n).toBe(12);', ''].join(nl),
+      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', 'expect(n).toBe(12);', ''].join(nl),
+      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', 'expect(n).toBe(12);', ''].join(nl),
+      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', 'expect(n).toBe(12);', ''].join(nl),
+      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", 'expect(n).toBe(12);', ''].join(nl),
+      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", 'expect(n).toBe(12);', ''].join(nl),
     };
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
     expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '12', new: '18', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
       'test/import.test.ts:2', 'test/import-js.test.ts:2', 'test/own.test.ts:2', 'test/line-end.test.ts:2',
+      'test/prose.test.ts:2', 'test/paren.test.ts:2', 'test/sentence.test.ts:2', 'test/dts.test.ts:2',
     ]);
     fs.rmSync(root, { recursive: true, force: true });
   });
