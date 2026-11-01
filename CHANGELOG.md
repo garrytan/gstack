@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.92.5.0] - 2026-10-31
+
+**Updates no longer stall in silence when the project around your gstack install has committed gstack's files (#1022).** If gstack lives inside another git project (for example `<project>/.claude/skills/gstack`) and that project committed gstack's files as ordinary files, a stash, reset or branch switch in the project put the old files back. VERSION stayed frozen at an old release while updates reported success. Once this release is on disk, every update path stops before it changes anything and prints the exact fix. An install the project has already reverted is still running the project's old copies of these scripts, so it needs the one-time repair in `docs/troubleshooting.md#auto-update-tracked-by-project` first.
+
+### Fixed
+- **`bin/gstack-ff-update` checks before it moves.** It refuses with exit 6 and `tracked-by-project:` when the enclosing project tracks the install's files (a git submodule is fine), and with `version-reverted:` when VERSION's first line disagrees with HEAD's. The message spells out the repair. Untrack the install (`git rm --cached`, literal paths only), ignore it, commit on every branch, then `git stash push` in the install, which keeps every edit. `--preflight <install>` prints the same check on demand. An unmerged file still goes to the existing rescue, and a full update checks VERSION inside the install lock.
+- **`bin/gstack-upgrade`** runs that check before any fetch and refuses with `UPGRADE_REFUSED` (exit 3).
+- **The session auto-updater** holds the update on exit 6 and shows a banner that points to `--preflight` and the new troubleshooting section, `docs/troubleshooting.md#auto-update-tracked-by-project`.
+
 ## [1.92.4.0] - 2026-10-31
 
 **A merge train now carries up to five READY PRs instead of three.** That means fewer full gates for the same number of PRs. A short train still leaves one hour after its oldest READY.
