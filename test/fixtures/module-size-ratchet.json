@@ -103,6 +103,7 @@
     { "file": "lib/result-codes-capy.ts", "movedFrom": "lib/result-codes.ts (the Capy rows: approval record, Captain brief, PR screenshots; GSTA-61)" },
     { "file": "lib/result-codes-budget.ts", "movedFrom": "lib/result-codes.ts (the /ship token budget and handoff rows; GSTA-152)" },
     { "file": "lib/result-codes-eval.ts", "movedFrom": "lib/result-codes.ts (the /eval-plan preregistration rows and the no-gstack arm; GSTA-168)" },
+    { "file": "lib/result-codes-plan.ts", "movedFrom": "lib/result-codes.ts (the plan-review fact-check and task-list rows: REALITY receipts, the office-hours probe, gstack-tasks; GSTA-228)" },
     { "file": "lib/result-codes-autoplan.ts", "movedFrom": "lib/result-codes.ts (the CEO-only driver run rows; GST-537)" },
     { "file": "lib/ship-budget.ts", "movedFrom": "(new: /ship token budget ledger, meters and admission, GSTA-152)" },
     { "file": "lib/ship-budget-cli.ts", "movedFrom": "(new: bin/gstack-ship-budget start/check/settle/close/resume, GSTA-152)" },
