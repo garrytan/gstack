@@ -728,7 +728,7 @@ From the commit timestamps gathered in Step 3, group by date. For each date, cou
 
 From the discovery JSON, analyze tool usage patterns:
 - Which AI tool is used for which repos (exclusive vs. shared)
-- Session count per tool
+- Session count per tool (each discovery `tools` entry, by `label`)
 - Behavioral patterns (e.g., "Codex used exclusively for myapp, Claude Code for everything else")
 
 ### Global Step 7: Aggregate and draft narrative
@@ -757,7 +757,7 @@ pad names to the longest name and never truncate them.
 ║
 ║  [N] commits across [M] projects
 ║  +[X]k LOC added · [Y]k LOC deleted · [Z]k net
-║  [N] AI coding sessions (CC: X, Codex: Y, Gemini: Z)
+║  [N] AI coding sessions ([label]: X per tool)
 ║  [N]-day shipping streak 🔥
 ║
 ║  PROJECTS
@@ -804,7 +804,7 @@ Full team/project analysis follows the personal card.
 | Projects active | N |
 | Total commits (all repos, all contributors) | N |
 | Total LOC | +N / -N |
-| AI coding sessions | N (CC: X, Codex: Y, Gemini: Z) |
+| AI coding sessions | N ([label]: X per tool) |
 | Active days | N |
 | Global shipping streak (any contributor, any repo) | N consecutive days |
 | Context switches/day | N avg (max: M) |
@@ -844,9 +844,8 @@ Format:
 
 ### Tool Usage Analysis
 Per-tool breakdown with behavioral patterns:
-- Claude Code: N sessions across M repos — patterns observed
-- Codex: N sessions across M repos — patterns observed
-- Gemini: N sessions across M repos — patterns observed
+- [label]: N sessions across M repos — patterns observed
+- `unattributed` (Antigravity): sessions, no repos
 
 ### Ship of the Week (Global)
 Highest-impact PR across ALL projects. Identify by LOC and commit messages.
@@ -869,7 +868,7 @@ ls -t "$GSTACK_STATE_ROOT"/retros/global-*.json 2>/dev/null | head -5
 
 **Only compare against a prior retro with the same `window` value** (e.g., 7d vs 7d). If the most recent prior retro has a different window, skip comparison and note: "Prior global retro used a different window — skipping comparison."
 
-If a matching prior retro exists, load it with the Read tool. Show a **Trends vs Last Global Retro** table with deltas for key metrics: total commits, LOC, sessions, streak, context switches/day.
+If a matching prior retro exists, load it with the Read tool. Show a **Trends vs Last Global Retro** table with deltas for key metrics: total commits, LOC, sessions, streak, context switches/day. Missing tools count as 0.
 
 If no prior global retros exist, append: "First global retro recorded — run again next week to see trends."
 
@@ -913,7 +912,7 @@ Use the Write tool to save JSON to the printed `RETRO_FILE`:
     "deletions": 4200,
     "projects": 5,
     "active_days": 6,
-    "sessions": { "claude_code": 48, "codex": 8, "gemini": 3 },
+    "sessions": { "claude_code": 48, "codex": 8, "gemini": 3, "omp": 1 },
     "global_streak_days": 52,
     "avg_context_switches_per_day": 2.1
   },

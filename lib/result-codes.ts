@@ -14,6 +14,7 @@ import { RELEASE_RESULT_CODES } from './result-codes-release';
 import { CAPY_RESULT_CODES } from './result-codes-capy';
 import { BUDGET_RESULT_CODES } from './result-codes-budget';
 import { EVAL_RESULT_CODES } from './result-codes-eval';
+import { PLAN_RESULT_CODES } from './result-codes-plan';
 import { CLEAN_RESULT_CODES } from './result-codes-clean';
 
 export interface ResultCode {
@@ -764,6 +765,7 @@ export const RESULT_CODES = {
   ...CAPY_RESULT_CODES,
   ...BUDGET_RESULT_CODES,
   ...EVAL_RESULT_CODES,
+  ...PLAN_RESULT_CODES,
   ...CLEAN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 

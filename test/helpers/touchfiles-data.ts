@@ -685,6 +685,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Learnings
   'write-skill-add-lesson': ['write-skill/**', 'bin/gstack-skill-bill', 'lib/skill-bill.ts', 'lib/context-bill.ts', 'test/skill-e2e-write-skill.test.ts'],
   'learnings-show': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts', 'test/skill-e2e-learnings.test.ts'],
+  // GSTA-228 planning wave (test/skill-e2e-planning-wave.test.ts).
+  'planning-wave-planted-facts': ['lib/office-hours-review.ts', 'lib/office-hours-probe.ts', 'bin/gstack-office-hours-review', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
+  'planning-wave-schema': ['plan-eng-review/SKILL.md.tmpl', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
+  'planning-wave-tasks-rerun': ['scripts/resolvers/tasks-section.ts', 'bin/gstack-tasks', 'lib/tasks-prior.ts', 'bin/gstack-slug', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
+  'planning-wave-closing-signals': ['office-hours/sections/design-and-handoff.md.tmpl', 'office-hours/SKILL.md.tmpl', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
   // W1 safety-rule evals (test/helpers/safety-rules.ts registry; E3).
   'safety-design-risk-stop': ['design-review/**', 'scripts/resolvers/browse.ts', 'scripts/resolvers/testing.ts', 'lib/aside-render.ts', 'test/skill-e2e-safety-design-risk.test.ts', 'test/helpers/browser-available.ts', 'test/helpers/aside-available.ts', 'test/helpers/safety-rules.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/llm-judge.ts', 'test/helpers/safety-design-risk-task.ts', 'test/helpers/none-arm.ts'],
   'safety-codex-boundary': ['scripts/resolvers/outside-voice-steps.ts', 'review/**', 'scripts/resolvers/constants.ts', 'test/skill-e2e-safety-codex-boundary.test.ts', 'test/helpers/codex-boundary-evidence.ts', 'test/helpers/safety-rules.ts', 'test/helpers/pricing.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/safety-codex-boundary-task.ts', 'test/helpers/none-arm.ts'],
@@ -1512,6 +1517,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   // Learnings — gate (functional guardrail: seeded learnings must appear)
   'learnings-show': 'gate',
   'write-skill-add-lesson': 'periodic',
+  // GSTA-228 planning wave.
+  'planning-wave-planted-facts': 'periodic',
+  'planning-wave-schema': 'periodic',
+  'planning-wave-tasks-rerun': 'periodic',
+  'planning-wave-closing-signals': 'periodic',
   // W1 safety-rule evals.
   'safety-design-risk-stop': 'periodic',
   'safety-codex-boundary': 'periodic',
@@ -1939,6 +1949,11 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'cso-infra-scope': 'rule',
   'learnings-show': 'rule',
   'write-skill-add-lesson': 'rule',
+  // GSTA-228 planning wave.
+  'planning-wave-planted-facts': 'behavior',
+  'planning-wave-schema': 'behavior',
+  'planning-wave-tasks-rerun': 'rule',
+  'planning-wave-closing-signals': 'behavior',
   // W1 safety-rule evals.
   'safety-design-risk-stop': 'rule',
   'safety-codex-boundary': 'rule',
@@ -2053,6 +2068,12 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
  * E2E_KINDS; values are non-empty.
  */
 export const BEHAVIOR_WHY: Record<string, string> = {
+  'planning-wave-planted-facts':
+    "Which planted errors a live spec reviewer reaches, and how it words them, varies run to run; finding at least two of the four and never calling the correct claim wrong stay the contract.",
+  'planning-wave-schema':
+    "How the live model words its data-model advice varies run to run; recommending explicit structure for the queried tier fields and leaving the whole-document JSON alone stay the contract.",
+  'planning-wave-closing-signals':
+    "How the live model phrases the closing note varies run to run; naming at least one counted signal tied to a transcript moment and inventing none stay the contract.",
   'ship-frozen-scope-convergence':
     "How the live model words its fix of the in-diff defect and its review rows can vary run to run; never editing the pre-existing file, deferring its blocking finding, reviewing only the range on pass 2 and exiting through decision 4 stay the contract the verdict checks.",
   'ship-measure-seeded-flake':
