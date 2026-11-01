@@ -9,7 +9,7 @@ import { captureOverlayQueryAttempts } from './helpers/overlay-attempt';
 
 const terminal = { type: 'result', subtype: 'success', is_error: false, num_turns: 1, total_cost_usd: 0 };
 const assistant = { type: 'assistant', message: { id: 'owned', content: [{ type: 'text', text: 'owned fake result' }] } };
-const options = (directory: string, signal: AbortSignal, queryProvider: QueryProvider) => ({ workingDirectory: directory, signal, queryProvider, systemPrompt: '', userPrompt: 'owned free probe', settingSources: [], env: { ANTHROPIC_API_KEY: '', HOME: directory, GSTACK_HOME: path.join(directory, '.gstack') } });
+const options = (directory: string, signal: AbortSignal, queryProvider: QueryProvider) => ({ workingDirectory: directory, signal, queryProvider, systemPrompt: { type: 'sdk-default', reason: 'fake Claude Code child script: no model reads the prompt' } as const, userPrompt: 'owned free probe', settingSources: [], env: { ANTHROPIC_API_KEY: '', HOME: directory, GSTACK_HOME: path.join(directory, '.gstack') } });
 
 test('SDK cancellation after the terminal event but before EOF rejects and releases its permit', async () => {
   __resetSemaphoreForTests(1);

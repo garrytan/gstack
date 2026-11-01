@@ -208,6 +208,7 @@ const BASELINE = [
   'test/review-enum-lifecycle.test.ts',
   'test/review-n-plus-one-contract.test.ts',
   'test/review-quality-provenance.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/sdk-system-prompt-tripwire.test.ts', // the Agent SDK prompt tripwire: its subject is the eval harness (test/helpers/sdk-system-prompt.ts, agent-sdk-runner.ts) and every SDK caller under test/
   'test/session-runner-browse-errors.test.ts', // slices test/skill-e2e-review.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/session-runner-stream-lifecycle.test.ts',
   'test/session-runner-timeout.test.ts',

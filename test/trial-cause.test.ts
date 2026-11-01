@@ -227,7 +227,7 @@ describe('one fixture per runner writes the ledger the classifier reads', () => 
       setTimeout(() => args.options.abortController.abort(), 400);
       return Object.assign(iterator, { close: () => {} });
     }) as unknown as QueryProvider;
-    const run = (events: any[]) => withEvalDir(() => runAgentSdkTest({ systemPrompt: '', userPrompt: 'x', workingDirectory: os.tmpdir(), maxRetries: 0,
+    const run = (events: any[]) => withEvalDir(() => runAgentSdkTest({ systemPrompt: { type: 'sdk-default', reason: 'stub queryProvider: no model reads the prompt' }, userPrompt: 'x', workingDirectory: os.tmpdir(), maxRetries: 0,
       testName: 'sdk-fixture', sessionBudgetMs: 400, streamLiveness: true, queryProvider: hangingQuery(events) }).catch(error => error));
     const quiet = await run([{ type: 'system', subtype: 'init' }]);
     expect(quiet.rows).toEqual([expect.objectContaining({ key: 'agent-sdk:sdk-fixture#1', runner: 'agent-sdk', budget_ms: 400, end: 'session_timeout',
