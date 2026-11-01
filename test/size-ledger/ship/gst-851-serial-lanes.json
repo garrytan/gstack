@@ -1,0 +1,4 @@
+{
+  "bytes": 66,
+  "why": "GST-851: Step 5 prose says lanes run one at a time on 4 or fewer cores, names --lanes serial|parallel and the LANES line"
+}

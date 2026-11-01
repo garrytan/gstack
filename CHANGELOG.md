@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.92.47.0] - 2026-11-01
+
+- **`/ship` Step 5 runs its test lanes one at a time on machines with 4 or fewer cores, and `--lanes serial|parallel` picks the mode by hand** (`gstack-ship-preflight`, GST-851). Preflight used to start every `--lane` at once. On garrytan/gstack-evals#115 six lanes (a 1,451-test bun suite, tsc, a Docker tier and an arm tarball trial) started within 60 ms of each other on a 4-core, 16 GB machine, and running lanes together has taken machines down before (gstack-evals #101, #106, #107). Now, with no flag, preflight runs one lane at a time when `os.availableParallelism()` is 4 or less and all of them at once above that. `--lanes serial` or `--lanes parallel` overrides the default, and any other value, or `--lanes` with no value, is a usage error (exit 2). A new `LANES: serial|parallel (--lanes|<n> cores)` line before the `LANE` lines says which mode ran and why. Each lane still prints its own `LANE` line with its own `tests_ran` count, in the order the lanes were given. Serial runs take the sum of the lane times instead of the longest one. There is no ship-policy key for this: a new key needs key versioning and a `min_gstack_version` bump, and the core-count default already covers the 4-core case.
+
+### Tests
+- `test/ship-preflight.test.ts`: `--lanes serial` runs lanes one after another and keeps each lane's count; `--lanes parallel` keeps lane order when a later lane finishes first; an unflagged run names the core count; a bad or missing `--lanes` value is a usage error; and the core-count default is serial at 4 cores or fewer.
+
 ## [1.92.46.0] - 2026-11-01
 
 **brain-sync no longer publishes a synced JSON file that doesn't parse, and the profile and doctor now say when one is broken.** When two machines edit `developer-profile.json` before syncing, git's merge can leave conflict markers in it. brain-sync committed and pushed that file, so every machine got a profile that no longer parsed, while `gstack-developer-profile --profile` and `gstack-doctor` both reported everything ok (#3763).
