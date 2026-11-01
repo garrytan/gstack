@@ -30,7 +30,8 @@
  * Flags:
  *   --is-ok   exit 0 iff the local engine is usable (see below).
  *   --doctor  run `gbrain doctor --json --scope=brain` and print
- *             {brain_ok, status, brain_failures, skill_failures, report};
+ *             {brain_ok, status, brain_failures, skill_failures, report,
+ *             error?};
  *             exit 0 iff brain_ok. Skill checks never decide brain_ok (#3790).
  *
  * Env:
@@ -39,7 +40,7 @@
  *   GSTACK_DETECT_NO_CACHE=1 — bypass the 60s local-status cache.
  */
 
-import { execFileSync, spawnSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -50,7 +51,7 @@ import {
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
-import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
+import { gbrainConfigDir, isTransactionModePooler, spawnGbrain } from "../lib/gbrain-exec";
 import { resolveStateRoot } from "../lib/state-root";
 
 const STATE_DIR = resolveStateRoot();
@@ -140,20 +141,22 @@ interface DoctorVerdict {
   brain_failures: string[];
   skill_failures: string[];
   report: unknown;
+  error?: string;
 }
 
 function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
-  const r = spawnSync("gbrain", ["doctor", "--json", ...extraArgs, "--scope=brain"], {
-    encoding: "utf-8",
-    timeout: timeoutMs,
-    stdio: ["ignore", "pipe", "ignore"],
-  });
+  const r = spawnGbrain(["doctor", "--json", ...extraArgs, "--scope=brain"], { timeout: timeoutMs });
   let report: { status?: string; checks?: { name?: string; status?: string; category?: string }[] } | null = null;
   try {
     report = JSON.parse(r.stdout || "null");
   } catch {}
   if (!report || typeof report !== "object") {
-    return { brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null };
+    const cause = r.error ? r.error.message : r.signal ? `killed by ${r.signal}` : `exit ${r.status}`;
+    const stderr = (r.stderr || "").trim().split("\n").slice(-5).join("\n");
+    return {
+      brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null,
+      error: `gbrain doctor printed no JSON report (${cause})${stderr ? `: ${stderr}` : ""}`,
+    };
   }
   const failed = (Array.isArray(report.checks) ? report.checks : []).filter((c) => c?.status === "fail");
   const skill_failures = failed.filter((c) => c.category === "skill").map((c) => c.name ?? "unnamed");
@@ -161,7 +164,7 @@ function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
   const status = report.status ?? null;
   const statusOk = status === "healthy" || status === "ok" || status === "warnings";
   return {
-    brain_ok: brain_failures.length === 0 && (statusOk || skill_failures.length > 0),
+    brain_ok: brain_failures.length === 0 && (statusOk || (status === "unhealthy" && skill_failures.length > 0)),
     status,
     brain_failures,
     skill_failures,
@@ -345,7 +348,7 @@ function main(): void {
 // --doctor: the full brain-health gate /setup-gbrain Step 5 runs. Prints the
 // DoctorVerdict as JSON and exits 0 iff brain_ok.
 if (process.argv.includes("--doctor")) {
-  const verdict = runDoctor([], 120_000);
+  const verdict = runDoctor([], 300_000);
   process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
   process.exit(verdict.brain_ok ? 0 : 1);
 }

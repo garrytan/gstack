@@ -322,7 +322,7 @@ BRAIN_OK=$(echo "$DOCTOR" | jq -r .brain_ok)
 If `BRAIN_OK` is `true`, proceed; only brain checks count. Note any
 `skill_failures`: gbrain graded a skills dir it found, maybe another agent's
 (`~/.openclaw/workspace`). Never edit that workspace to pass. Otherwise show
-`echo "$DOCTOR" | jq .report` and STOP.
+`echo "$DOCTOR" | jq .` and STOP.
 
 ---
 

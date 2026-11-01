@@ -34,7 +34,7 @@ const report = (checks: ReturnType<typeof check>[]) => ({
 });
 const withFailure = (name: string) => BRAIN_OK.map((c) => (c.name === name ? { ...c, status: 'fail' } : c));
 
-type Case = { full: object; scoped: object };
+type Case = { full: object | string; scoped: object | string };
 const CASES: Record<string, Case> = {
   // gbrain >= v0.41.20: --scope=brain drops the skill group.
   'skill-only failure': {
@@ -53,6 +53,12 @@ const CASES: Record<string, Case> = {
   'pgvector failure, gbrain without --scope': {
     full: report([...withFailure('pgvector'), SKILL_FAIL]),
     scoped: report([...withFailure('pgvector'), SKILL_FAIL]),
+  },
+  'doctor prints no JSON': { full: 'Error: engine crashed\n', scoped: 'Error: engine crashed\n' },
+  'doctor prints nothing': { full: '', scoped: '' },
+  'unhealthy status with no failed check': {
+    full: { ...report(BRAIN_OK), status: 'unhealthy' },
+    scoped: { ...report(BRAIN_OK), status: 'unhealthy' },
   },
 };
 const HEALTHY = ['skill-only failure', 'skill-only failure, gbrain without --scope', 'all checks pass'];
@@ -75,6 +81,7 @@ f="$FAKE_DOCTOR_DIR/full.json"
 for a in "$@"; do [ "$a" = "--scope=brain" ] && f="$FAKE_DOCTOR_DIR/scoped.json"; done
 cat "$f"
 grep -q '"status":"unhealthy"' "$f" && exit 1
+grep -q '^{' "$f" || exit 1
 exit 0
 `, { mode: 0o755 });
 });
@@ -84,8 +91,9 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 function caseEnv(name: string) {
   const dir = path.join(tmp, name.replace(/[^a-z0-9]+/gi, '-'));
   fs.mkdirSync(path.join(dir, 'home'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'full.json'), JSON.stringify(CASES[name]!.full));
-  fs.writeFileSync(path.join(dir, 'scoped.json'), JSON.stringify(CASES[name]!.scoped));
+  const { full, scoped } = CASES[name]!;
+  fs.writeFileSync(path.join(dir, 'full.json'), typeof full === 'string' ? full : JSON.stringify(full));
+  fs.writeFileSync(path.join(dir, 'scoped.json'), typeof scoped === 'string' ? scoped : JSON.stringify(scoped));
   return {
     ...process.env,
     PATH: `${path.join(tmp, 'bin')}:${SAFE_PATH}`,
@@ -117,6 +125,29 @@ describe('/setup-gbrain Step 5 doctor gate', () => {
       expect(verdict).toStartWith(`BRAIN_OK=${healthy}`);
     });
   }
+});
+
+describe('gstack-gbrain-detect --doctor', () => {
+  test('exits 0 and names skill failures when only skill checks fail', () => {
+    const r = spawnSync(DETECT, ['--doctor'], { env: caseEnv('skill-only failure, gbrain without --scope'), encoding: 'utf-8', timeout: 30_000 });
+    expect(r.status).toBe(0);
+    const v = JSON.parse(r.stdout);
+    expect(v).toMatchObject({ brain_ok: true, brain_failures: [], skill_failures: ['resolver_health'] });
+  });
+
+  test('exits 1 and names the brain failure', () => {
+    const r = spawnSync(DETECT, ['--doctor'], { env: caseEnv('pgvector failure'), encoding: 'utf-8', timeout: 30_000 });
+    expect(r.status).toBe(1);
+    expect(JSON.parse(r.stdout)).toMatchObject({ brain_ok: false, brain_failures: ['pgvector'] });
+  });
+
+  test('exits 1 with the cause when doctor prints no JSON', () => {
+    const r = spawnSync(DETECT, ['--doctor'], { env: caseEnv('doctor prints no JSON'), encoding: 'utf-8', timeout: 30_000 });
+    expect(r.status).toBe(1);
+    const v = JSON.parse(r.stdout);
+    expect(v.brain_ok).toBe(false);
+    expect(v.error).toContain('exit 1');
+  });
 });
 
 describe('gstack-gbrain-detect gbrain_doctor_ok', () => {
