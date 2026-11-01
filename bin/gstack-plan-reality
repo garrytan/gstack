@@ -3,26 +3,30 @@
  * gstack-plan-reality — the reality rows of a plan review (plan D1).
  *
  *   gstack-plan-reality rows --phase <ceo|eng|dx|design> [--scope <csv>] [--deep] [--json]
- *   gstack-plan-reality check --phase <p> <review-file|-> [--scope <csv>] [--session-kind <kind>] [--plan <reviewed plan>] [--json]
+ *   gstack-plan-reality check --phase <p> <review-file|-> [--scope <csv>] [--session-kind <kind>] [--plan <reviewed plan>] [--root <dir>]... [--json]
  *
- * Logic: lib/plan-reality.ts. Codes: lib/result-codes.ts (REALITY_ROW_MISSING, REALITY_RECEIPT_MISSING).
+ * Logic: lib/plan-reality.ts, lib/plan-reality-receipts.ts. Codes: lib/result-codes.ts (REALITY_ROW_MISSING, REALITY_RECEIPT_MISSING, REALITY_RECEIPT_UNRESOLVED).
  */
 import * as fs from 'node:fs';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { checkRealityRows, parseScopes, REALITY_LINE_SHAPE, REALITY_SCOPES, renderRows, requiredRows } from '../lib/plan-reality';
+import { checkRealityRows, parseRealityLines, parseScopes, REALITY_LINE_SHAPE, REALITY_SCOPES, renderRows, requiredRows } from '../lib/plan-reality';
+import { defaultRoots, resolveReceipts } from '../lib/plan-reality-receipts';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-plan-reality — reality rows for plan reviews
 
   rows --phase <p> [--scope <csv>] [--deep] [--json]      the rows this review must carry (tier 1 always, tier 2 by scope)
-  check --phase <p> <file|-> [--scope <csv>] [--session-kind <kind>] [--plan <reviewed plan>] [--json]
+  check --phase <p> <file|-> [--scope <csv>] [--session-kind <kind>] [--plan <reviewed plan>] [--root <dir>]... [--json]
                                                           parse the review's REALITY: lines; exit 1 with the missing rows
                                                           --plan: a number inside a "quoted" span copied verbatim from it needs no receipt
+                                                          --root: where file:line receipts must exist (repeatable; default the git top level)
 
 Row line: \`${REALITY_LINE_SHAPE}\` (receipt: path:line, path:line-line or a commit sha).
 Scopes: ${REALITY_SCOPES.filter(s => s !== 'always').join(', ')}. Session kind unattended → verdict=incomplete; else verdict=repair.
-Prints \`PLAN_REALITY: phase=<p> rows=<n>/<m> missing=<ids|none> [unreceipted=<ids>] [unreceipted_numbers=<n>] [unquoted=<n>] [unverified=<n>] verdict=complete|incomplete|repair\`,
-then one \`NUMBER_UNRECEIPTED: <clause>\` per measured number (unit or measured/costs/took) without its own receipt.
+Prints \`PLAN_REALITY: phase=<p> rows=<n>/<m> missing=<ids|none> [unreceipted=<ids>] [unreceipted_numbers=<n>] [unquoted=<n>] [unverified=<n>] [unresolved=<ids>] verdict=complete|incomplete|repair\`,
+then one \`NUMBER_UNRECEIPTED: <clause>\` per measured number (unit or measured/costs/took) without its own receipt,
+one \`RECEIPT_UNRESOLVED: <row> <receipt> <reason>\` per receipt that is false in the roots (missing file, line past the end; blocks),
+and, on stderr, one \`RECEIPT_UNVERIFIABLE: <row> <receipt> <reason>\` per receipt the roots cannot judge (reported, never blocks).
 A line claiming a decision rule must quote it (\`"..."\`, a fenced or > block after it) or link it (file:line).
 ${exitTableHelp()}`;
 
@@ -50,7 +54,7 @@ function main(argv: string[]): number {
     return EXIT.ok;
   }
   if (cmd === 'check') {
-    const valueFlags = new Set(['--phase', '--scope', '--session-kind', '--plan']);
+    const valueFlags = new Set(['--phase', '--scope', '--session-kind', '--plan', '--root']);
     const file = rest.find((a, i) => !a.startsWith('--') && !(i > 0 && valueFlags.has(rest[i - 1]!)));
     if (!file) return usage('a review file (or - for stdin) is required');
     let text: string;
@@ -60,14 +64,23 @@ function main(argv: string[]): number {
     let planText: string | undefined;
     try { planText = planFile ? fs.readFileSync(planFile, 'utf8') : undefined; } catch (e: any) { process.stderr.write(`gstack-plan-reality: ${planFile}: ${e.message}\n`); return EXIT.fail; }
     const result = checkRealityRows(text, { phase, scopes, sessionKind, planText });
-    if (json) process.stdout.write(JSON.stringify(result) + '\n');
-    else process.stdout.write([result.line, ...result.numberLines].join('\n') + '\n');
+    const rootFlags = rest.flatMap((a, i) => (a === '--root' && rest[i + 1] ? [rest[i + 1]!] : []));
+    const receipts = resolveReceipts(parseRealityLines(text), { roots: rootFlags.length ? rootFlags : defaultRoots(process.cwd()) });
+    const unresolved = receipts.filter(r => r.outcome === 'unresolved');
+    const unverifiable = receipts.filter(r => r.outcome === 'unverifiable');
+    const unresolvedRows = [...new Set(unresolved.map(r => r.row))];
+    const verdict = result.verdict === 'complete' && unresolved.length ? (sessionKind === 'unattended' ? 'incomplete' : 'repair') : result.verdict;
+    const line = unresolvedRows.length ? result.line.replace(/ verdict=\S+$/, ` unresolved=${unresolvedRows.join(',')} verdict=${verdict}`) : result.line;
+    if (json) process.stdout.write(JSON.stringify({ ...result, verdict, line, receipts }) + '\n');
+    else process.stdout.write([line, ...result.numberLines, ...unresolved.map(r => `RECEIPT_UNRESOLVED: ${r.row} ${r.receipt} ${r.reason}`)].join('\n') + '\n');
+    for (const r of unverifiable) process.stderr.write(`RECEIPT_UNVERIFIABLE: ${r.row} ${r.receipt} ${r.reason}\n`);
     for (const id of result.unknownRows) process.stderr.write(`gstack-plan-reality: ${file}: REALITY row ${JSON.stringify(id)} is not a known row; it was ignored\n`);
     if (result.missing.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_ROW_MISSING', `phase ${phase}: ${result.missing.join(', ')}`) + '\n');
     if (result.unreceipted.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_RECEIPT_MISSING', `phase ${phase}: ${result.unreceipted.join(', ')}`) + '\n');
     if (result.unreceipted_numbers.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_RECEIPT_MISSING', `phase ${phase}: ${result.unreceipted_numbers.length} measured number(s) share or lack a receipt; give each clause its own file:line, script path or command`) + '\n');
     for (const claim of result.unquoted) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_RECEIPT_MISSING', `phase ${phase}: a decision rule is claimed without its text; quote it or link its file:line: ${claim}`) + '\n');
-    return result.verdict === 'complete' ? EXIT.ok : EXIT.fail;
+    if (unresolved.length) process.stderr.write(resultLine('gstack-plan-reality check', 'REALITY_RECEIPT_UNRESOLVED', `phase ${phase}: ${unresolved.map(r => `${r.row} ${r.receipt} (${r.reason})`).join('; ')}`) + '\n');
+    return verdict === 'complete' ? EXIT.ok : EXIT.fail;
   }
   return usage(`unknown command ${cmd}`);
 }

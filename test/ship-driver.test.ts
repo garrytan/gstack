@@ -189,12 +189,24 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b|duration_seconds: 240|at most 240 s/);
   });
 
+  // Value: protects=the driver and the Capy skill give diffBase to a full repeat pass only, so a scoped pass reaches GST-619's bases: its pending Step 11 voices read the merge base, not the fix range; fails_when=either text passes RANGE_BASE to every repeat pass again;
+  //   why_new=#3670 merge fix-check (row 454): an explicit --diff-base wins in pass() (GST-619), so the driver's scoped diffBase narrowed the voices; seam=none; no_claim=the parent's adherence
+  test('a scoped repeat pass passes no diffBase, in the driver and the Capy skill', () => {
+    const f = flat(doc);
+    const phase = f.slice(f.indexOf('`NEXT: stop` stops;'), f.indexOf('`fix-check`: the'));
+    expect(phase).toContain('(`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5)');
+    expect(phase).not.toMatch(/`diffBase`: RANGE_BASE;/);
+    const capy = flat(read('capy/skill/gstack/SKILL.md'));
+    expect(capy).toContain('a full repeat pass, `diffBase: "<RANGE_BASE>"`');
+    expect(capy).not.toContain('; a repeat pass, `diffBase');
+  });
+
   // Value: protects=a program's return fits the host's output cap, a fix runs as one gated program, Step 7's test-writing audit settles before the pass reads the tree, and an unattended push never stops on the one-time pre-push offer; fails_when=Phase 2 returns review-army.md + adversarial.md + documentation.md (97,750 B) at once (replays 8G: truncated reads cost extra calls), a fix walks test, fix, tests and dispatch call by call (GSTA-189: 16 calls), Step 7 writes tests while specialists read (GSTA-164: a pregate refused mid-run), or push stops unattended (all three variant G replays);
   //   why_new=GSTA-167 calls plan C5, C6, C7 and round-2 High 11; seam=none; no_claim=the parent's adherence, which the replays' CALLS: lines measure
   test('returns stay at or under 32 KB, a fix is one gated program, Step 7 settles first, and unattended push defers the pre-push offer', () => {
     const f = flat(doc);
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
-      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', 'Step 7 may write tests, so it settles first',
+      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5)', 'Step 7 may write tests, so it settles first',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
     expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
   });
@@ -233,7 +245,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(phase(4)).toContain('one program');
     expect(f).toContain('the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions**');
     const capy = flat(read('capy/skill/gstack/SKILL.md'));
-    expect(capy).toContain('Steps 7 and 8 go in `extras`');
+    expect(capy).toContain('Steps 7, 8 and 14.5 (`step: "14.5"`) use `extras`');
     expect(capy).not.toMatch(/9\.2\.1[^.]*`extras`/);
     expect(flat(read('ship/sections/review-army.md'))).toContain('### Step 9.2.1: Exploratory QA (before Fix-First) Only the parent runs report-only discovery.');
   });

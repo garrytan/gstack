@@ -27,6 +27,7 @@ import { git, sha256, withIndex, type QueueFailure } from './ship-queue-gate';
 import { recordVerdict, screenVerdict, verdictLines } from './ship-queue-screen';
 import { stackTestLine, stackTests } from './ship-queue-stack-tests';
 import { stampChain } from './ship-queue-train-stamp';
+import { WAVE_TRIGGER, checkWavePin } from './ship-queue-wave';
 import { advanceGeneric, baseRedAdmission, bindTrainReceipt, gatedChain, genericNext } from './ship-queue-train-gate';
 import { asRun, execFor, newestBranchRun, prInfo, remoteBranchSha, repoSlug, runView, checkRun } from './ship-queue-train-github';
 import {
@@ -377,11 +378,19 @@ function admitSlots(env: TrainEnv, pins: Array<{ pr: string; sha: string }>, dry
       return outRefused({ code: 'QUEUE_SCREEN_RED', message: `#${p.pr}'s screen run ${screen.run} is RED on ${read.red.join(', ') || 'its gate binding'} (${read.detail}); a red head is not seated` },
         [...lines, ...verdictLines(p.pr, screen.run!, read)], without ? `${Q} train build --prs ${without}` : 'none', 'none');
     }
+    const wave = checkWavePin(env, p.pr, info);
+    if (wave && 'failure' in wave) return outRefused(wave.failure, lines, without ? `${Q} train build --prs ${without} (or rebuild the wave: ${Q} wave status)` : `${Q} wave status`, 'none');
+    if (wave) lines.push(...wave.lines);
     if (read?.kind === 'not-run' || read?.kind === 'incomplete') { lines.push(`SCREEN: #${p.pr} ${read.detail}; counted as not-run, the slot rides unscreened`); screen = { ...screen, choice: 'no-screen' }; }
     else if (read?.kind === 'unknown') lines.push(`SCREEN: #${p.pr} ${read.detail}; counted as screened, unverified`);
     else if (read?.kind === 'green') lines.push(`SCREEN: #${p.pr} run ${screen.run} GREEN${read.flaky.length ? ` (flaky: ${read.flaky.join(', ')})` : ''}`);
     else if (read?.kind === 'pending') lines.push(`SCREEN: #${p.pr} run ${screen.run} still running; counted as screened`);
-    slots.push({ pr: p.pr, head: info.headRefOid, ready_at: ready.ready_at, screen, ...(ready.base_red ? { base_red: ready.base_red } : {}), ...(ready.fixes_base_red ? { fixes_base_red: ready.fixes_base_red } : {}) });
+    slots.push({ pr: p.pr, head: info.headRefOid, ready_at: ready.ready_at, screen, ...(ready.base_red ? { base_red: ready.base_red } : {}), ...(ready.fixes_base_red ? { fixes_base_red: ready.fixes_base_red } : {}), ...(wave ? { wave: { nonce: wave.wave.nonce, constituents: wave.wave.constituents.map(c => c.pr) } } : {}) });
+  }
+  const seen = new Map(slots.map(s => [s.pr, `its own slot`]));
+  for (const s of slots) for (const c of s.wave?.constituents ?? []) {
+    if (seen.has(c)) return outRefused({ code: 'QUEUE_WAVE_DUPLICATE', message: `#${c} would land twice: in wave #${s.pr} and in ${seen.get(c)}` }, lines, `${Q} train build --prs <pins with each PR once>`, 'none');
+    seen.set(c, `wave #${s.pr}`);
   }
   return { slots, lines };
 }
@@ -407,6 +416,7 @@ async function newTrain(env: TrainEnv, o: BuildOptions): Promise<{ t: TrainRecor
     ...admitted.lines, ...admission.lines,
     `ORDER: ${order.train.map((s, i) => `${i + 1}:#${s.pr}(${s.screen.choice === 'screen' ? 'screened' : 'unscreened'})`).join(' ')}${explicit ? ' (explicit --order)' : ''}`,
     ...(order.held.length ? [`HELD: ${order.held.map(s => '#' + s.pr).join(',')} (over the train size ${env.train.max_size})`] : []),
+    ...(pins.length > WAVE_TRIGGER ? [`WAVE_ADVISED: ${pins.length} READY PRs over the wave trigger ${WAVE_TRIGGER}; group same-area PRs into wave PRs: ${Q} wave plan`] : []),
   ];
   const baseSha = git(env.ctx.repoRoot, ['rev-parse', `${env.remote}/${env.ctx.base}`]).out;
   const key = sha256(JSON.stringify({ base: baseSha, slots: order.train.map(s => `${s.pr}@${s.head}`) }));

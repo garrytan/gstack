@@ -177,6 +177,42 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a train stopped partway through publication, so main holds a prefix no gate covered on its own; ordinary trains are refused until a repair lands',
     fix: 'admit one repair PR at its exact head (train build --repair --prs <n>@<sha>); the freeze clears when verify finds main’s tree after that merge in a green record',
   },
+  // Wave PRs (Garry R46, GST-574; docs/ship-policy.md#wave-prs): 3-6 same-area PRs in one train slot.
+  QUEUE_WAVE_CONFLICT: {
+    anchor: 'queue-wave-conflict',
+    summary: 'a constituent conflicts with the wave built so far beyond the CHANGELOG and the stamp files; nothing was pushed',
+    fix: 'resolve the merge in the printed worktree, commit it, then wave build --wave <nonce> --continue; or rebuild the wave without that PR',
+  },
+  QUEUE_WAVE_MOVED: {
+    anchor: 'queue-wave-moved',
+    summary: 'a constituent is no longer open at its pinned head or targets another branch, the wave branch no longer merges every pin unchanged, the wave was rebuilt or released, or its wave PR is still open for a drop or release',
+    fix: 'close the wave PR, rebuild without the moved PR (wave build --wave <nonce> --drop <pr>) and READY the new wave PR; the moved PR goes back to its owner',
+  },
+  QUEUE_WAVE_DUPLICATE: {
+    anchor: 'queue-wave-duplicate',
+    summary: 'a PR would land twice: it is already in another live wave, pinned as its own slot beside its wave, or is itself a wave PR',
+    fix: 'keep each PR in one place: drop the separate pin from the train, or rebuild one of the waves without it',
+  },
+  QUEUE_WAVE_SIZE: {
+    anchor: 'queue-wave-size',
+    summary: 'a wave carries 3 to 6 PRs by default (--min, --max), and this one has fewer or more',
+    fix: 'add or remove PRs (wave plan suggests area groups); fewer than the minimum ride as single slots',
+  },
+  QUEUE_WAVE_UNKNOWN: {
+    anchor: 'queue-wave-unknown',
+    summary: 'a wave/<nonce> branch or nonce has no wave record in local state or refs/notes/gstack-trains, so its constituents cannot be checked',
+    fix: 'run wave status to list known waves; rebuild the wave with wave build --prs when the record is gone',
+  },
+  QUEUE_WAVE_DEPENDENT: {
+    anchor: 'queue-wave-dependent',
+    summary: 'the PR to drop is contained in another constituent’s pin, so the rebuilt wave would still land its code',
+    fix: 'drop the containing PR too, or keep the PR in the wave',
+  },
+  QUEUE_WAVE_NOT_MERGED: {
+    anchor: 'queue-wave-not-merged',
+    summary: 'wave settle found no merged PR for the wave branch, or main’s merge does not carry the wave head',
+    fix: 'land the wave PR through its train (train land), then rerun wave settle --wave <nonce>',
+  },
   // CREW rule 22 (Garry, 2026-10-25): /ship runs before every READY; the queue refuses a PR whose body has no current receipt.
   QUEUE_RECEIPT_MISSING: {
     anchor: 'queue-receipt-missing',
@@ -267,8 +303,8 @@ export const RELEASE_RESULT_CODES = {
   // Lane D (GSTA-112): the no-policy warning and the environment-cause verdict.
   PREGATE_NO_POLICY: {
     anchor: 'pregate-no-policy',
-    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file) and a touched file maps to no test lane; a warn, with a starter policy printed',
-    fix: 'review the printed starter, write it with `gstack-pregate init`, edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
+    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file), or its policy declares no lanes (no dependencies, empty_lanes, selection or local key), and a touched file maps to no test lane; a warn, with a starter policy printed',
+    fix: 'review the printed starter, write it with `gstack-pregate init` (or add its dependencies to the existing policy), edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
   },
   PREGATE_ENVIRONMENT: {
     anchor: 'pregate-environment',
@@ -348,6 +384,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
     fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged',
+  },
+  RECEIPT_CARRY_SCOPED_REVIEW: {
+    anchor: 'receipt-carry-scoped-review',
+    summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
+    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
   },
   DOCS_AUDIT_BLOCKED: {
     anchor: 'docs-audit-blocked',
