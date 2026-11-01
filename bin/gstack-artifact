@@ -22,6 +22,7 @@ import {
 import { resultLine } from '../lib/result-codes';
 import { resolveStateRoot } from '../lib/state-root';
 import { validatePublic } from '../lib/autoplan-public';
+import { validateShadow } from '../lib/autoplan-shadow-reader';
 
 const HELP = `gstack-artifact — the unattended artifact contract (docs/unattended.md)
 
@@ -86,7 +87,9 @@ function main(argv: string[]): number {
       else { printErrors(errors); process.stdout.write(errors.length ? `ARTIFACT_INVALID: ${errors.length} error(s)\n` : `ARTIFACT_VALID: ${as} ${path.basename(file)}\n`); }
       return errors.length ? EXIT.fail : EXIT.ok;
     }
-    const result = validateRun(file);
+    const run = validateRun(file);
+    const shadow = validateShadow(run.runDir);
+    const result = { ...run, valid: run.valid && shadow.length === 0, errors: [...run.errors, ...shadow] };
     if (json) {
       process.stdout.write(JSON.stringify({ valid: result.valid, run: result.manifest?.run ?? null, status: result.manifest?.status ?? null, run_dir: result.runDir, attested: result.attested ?? 0, errors: result.errors }) + '\n');
     } else {

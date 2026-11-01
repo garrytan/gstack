@@ -376,6 +376,7 @@ gstack_result_anchor() {
     CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
     CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
+    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
     *) return 1 ;;
   esac
 }

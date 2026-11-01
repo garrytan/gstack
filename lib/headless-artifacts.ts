@@ -41,6 +41,8 @@ export interface DecisionRow {
   recommended_basis?: string; changes?: string; origin?: string; carried_from?: string; chosen_text?: string;
   /** An agent-relayed answer: the owner's verbatim words, and whether they parsed under the gate grammar. */
   owner_reply?: string; owner_reply_parsed?: boolean; recommended_by?: string;
+  /** How the owner's own words answered (lib/gate-list.ts replyShape): their mode, whether they named this item, the rec_hash answered against, and who typed the reply. */
+  owner_mode?: 'rec' | 'rec_except' | 'tokens' | 'as_is' | 'unparsed'; owner_named?: boolean; rec_hash?: string; answered_role?: 'human' | 'agent';
   /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision whose owner words this answer reuses, its gate_rev, why, who relayed them, items taken under "do it", and the delta check attempt. */
   carried_gate_from?: string; carried_gate_rev?: number; carry_reason?: string; carried_answered_by?: string; carried_under?: string; carry_check?: string;
 }
@@ -175,6 +177,7 @@ export const ARTIFACT_SCHEMAS = {
       kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected', 'auto_kept'] },
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
+      owner_mode: { enum: ['rec', 'rec_except', 'tokens', 'as_is', 'unparsed'] }, owner_named: { type: 'boolean' }, rec_hash: str, answered_role: { enum: ['human', 'agent'] },
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
       carried_gate_from: str, carried_gate_rev: { type: 'integer', minimum: 1 }, carry_reason: str, carried_answered_by: str, carried_under: str, carry_check: str,
     },

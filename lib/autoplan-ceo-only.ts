@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { buildGate, finishGate } from './autoplan-gate';
 import { carryLines } from './autoplan-carry';
 import { aggregateFindings, exportRun } from './autoplan-export';
-import { decisionRows, keepDirection, type GateItem } from './gate-list';
+import { decisionRows, ruleKept, type GateItem } from './gate-list';
 import { MARKER_RE } from './autoplan-scope';
 import { RunError, journal, voiceRows, writeDecisions, type RunState } from './autoplan-state';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -63,8 +63,7 @@ export function finishRun(state: RunState): string[] {
   if (plan) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path ${report}`, 3);
   const list = buildGate(state, 1);
   const items = list.items.filter(i => i.id !== 'p1');
-  const kept = (item: GateItem) => (item.cap && item.kind === 'approval' ? null : keepDirection(item));
-  const rows: DecisionRow[] = decisionRows({ ...list, items }).map((row, i) => ({ ...row, kind: 'auto', status: 'auto_kept', chosen: kept(items[i]!), default_if_unanswered: kept(items[i]!), source: 'ceo-only' }));
+  const rows: DecisionRow[] = decisionRows({ ...list, items }).map((row, i) => ({ ...row, kind: 'auto', status: 'auto_kept', chosen: ruleKept(items[i]!), default_if_unanswered: ruleKept(items[i]!), source: 'ceo-only' }));
   writeDecisions(state.out, rows);
   state.status = 'reviewed';
   exportRun(state);

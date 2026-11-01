@@ -221,6 +221,17 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /codex and /claude-code still run when you ask by name.
 #                           #   An unreadable config counts as disabled.
 #                           #   Invalid values preserve the old value.
+# autoplan_shadow: off      # Shadow mode for the CEO-only decider (gstack-autoplan
+#                           #   driver runs): on gives every gate one hidden model
+#                           #   prediction, recorded before the owner answers, for
+#                           #   taste-replay R2. Sends the reviewed plan and the gate
+#                           #   to that model on your own API key, about $0.07 per
+#                           #   gate, counted against --spend-cap. Read at the first
+#                           #   next of each run only. GSTACK_AUTOPLAN_SHADOW=1|0
+#                           #   overrides.
+#                           #   Invalid values are rejected, the old value kept.
+# autoplan_shadow_model: claude-opus-5-5  # The model the shadow decider runs on.
+#                           #   Docs: docs/unattended.md#shadow-mode
 # browse_extension_id:      # Forks and self-built extensions: the 32-letter (a-p)
 #                           #   Chrome extension ID the browse sidebar terminal accepts.
 #                           #   Empty = the gstack extension. "" clears it.
@@ -309,6 +320,8 @@ lookup_default() {
     explain_level) echo "default" ;;
     plan_mode_preamble) echo "on" ;; # on | off — off drops the plan-mode preamble on the next ./setup (#3168)
     codex_reviews) echo "enabled" ;;
+    autoplan_shadow) echo "off" ;; # on | off — autoplan shadow mode, fixed at each run's first next (lib/autoplan-shadow.ts)
+    autoplan_shadow_model) echo "claude-opus-5-5" ;; # the shadow decider's model; needs a lib/pricing.ts row and its family's API key
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
     design_detector_install_prompted) echo "false" ;; # true once the user answered the one-time engine install offer with "never ask again"
     gstack_contributor) echo "false" ;;
@@ -961,6 +974,12 @@ $_gstack_legacy_root"
       echo "Error: memorable_recall '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
+    # autoplan_shadow is a CONSENT key: `on` sends each gate's plan to a model
+    # API. Reject like memorable_recall -- a typo must never flip it.
+    if [ "$KEY" = "autoplan_shadow" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: autoplan_shadow '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
     # browse_extension_id (D1) decides which Chrome extension may reach the
     # browse daemon's token route and terminal socket. Reject anything that is
     # not a Chrome extension ID; "" clears the override.
@@ -1093,7 +1112,7 @@ $_gstack_legacy_root"
     report_root_disagreement
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
@@ -1118,7 +1137,7 @@ $_gstack_legacy_root"
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \

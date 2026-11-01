@@ -200,6 +200,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/review-design-lite-reports-ci-36633323521.json': ['test/review-finalization-budget.test.ts'],
   'test/fixtures/review-gate-integrity-opus-reports.json': ['test/gate-integrity-templates.test.ts'],
   'test/fixtures/session-update-heartbeat.sh': ['test/session-update-heartbeat.test.ts'],
+  'test/fixtures/shadow-fake-model.ts': ['test/autoplan-shadow-driver.test.ts', 'test/autoplan-shadow.test.ts'],
   'test/fixtures/shard-cli-parity/**': ['test/shard-cli-parity.test.ts'],
   'test/fixtures/shard-equivalence/**': ['test/shard-engine-equivalence.test.ts'],
   'test/fixtures/shared-libs-claude-version-probe.json': ['test/shared-libs-fixture.test.ts'],

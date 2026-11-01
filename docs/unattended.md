@@ -258,7 +258,8 @@ tree no review saw, so /ship runs again;
 | File | Schema | Contents |
 |------|--------|----------|
 | `run.json` | `run` v1 | The manifest: `run` id, `status`, `required_phases`, each phase's `native` and `outside` outcome (`status`, `model`, `provider`), input `snapshot` hashes, `counts`, every artifact's `path` (relative to the run directory) and `sha256`, `session_kind`, `gate_rev`, `deviations`, `consumed_by`. |
-| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`. |
+| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`, plus how the owner answered: `owner_mode` (`rec`, `rec_except`, `tokens`, `as_is` or `unparsed`, parsed from the owner's own words), `owner_named` (his words named this item), `rec_hash` (the recommendations answered against) and `answered_role` (`human`, or `agent` relaying his words). |
+| `shadow/` | private, not an artifact | [Shadow mode](#shadow-mode) only: `ceo-only.r<rev>.jsonl` (one hidden prediction per gate item, written before the answer), `r<rev>.prompt.md` and one `<call>.reply.txt` per model call, the audit `salt`, and `r<rev>.pending` while a call is in flight. Never in `export --public`, the gate render or the owner brief. |
 | `findings.jsonl` | `findings` v1 | One row per reviewer finding: `id`, `phase`, `voice` (`native`/`outside`), `model`, `severity`, `title`, `disposition`, `plan_items`, `native_counterpart` (string or null), `source`. Rows share the review-log row shape, so `gstack-review-log --findings` derives review status from this file. |
 | `tasks.jsonl` | `tasks` v2 | Implementation tasks with `id`, `title`, `status`, `depends_on`, `findings` (ids in `findings.jsonl`), `blocked_by`, `acceptance`, optional `pr`/`item`/`tier`. |
 | `timing.json` | `timing` v1 | Per-phase `started_at`, `ended_at`, `wall_s`, `outside_s`, `native_s`; `started_at` and `total_wall_s` for the run; the Phase 0 `estimate`. |
@@ -616,6 +617,89 @@ approves, so `gstack-artifact validate` accepts the run as it stands.
   nothing was approved. A run stopped by `--spend-cap` recovers as a full run
   does: `budget` then `resume`, or `close --phase ceo --deferred`, which ends
   it `reviewed`.
+
+### Shadow mode
+
+Shadow mode measures how often a model decider would pick what the owner
+picks, before the CEO-only mode is allowed to decide for him. In a driver run
+that turned it on, every gate the driver publishes gets one hidden prediction
+per question, written before anyone answers: `action` (`decide`,
+`send_back` or `hold`), `pick` (one of that item's options), `confidence`
+(0 to 1), `cites` (finding ids from that item) and `reason` (at most 400
+characters). The owner still gets the gate and answers it as usual; nothing
+routes differently. Taste-replay round 2 (R2, in gstack-evals) compares the
+predictions with his answers.
+
+- **Off by default.** A crew turns it on with `gstack-config set
+  autoplan_shadow on`; `GSTACK_AUTOPLAN_SHADOW=1` or `0` overrides it for one
+  run. It is read once, at the run's first `next`, and stored in `run.json`
+  (`shadow`), so a resumed run cannot flip it. The first `next` prints
+  `SHADOW: on model=<m> ...`, or `SHADOW: off (<reason>)` when it was asked for
+  but cannot run: no API key for the model's family, a model with no price in
+  `lib/pricing.ts`, `--no-outside`, or a CEO-only run. R2's collection window
+  starts at the first recorded row on a crew gate, not at this release: check
+  one `SHADOW: recorded` line on a real gate before counting days.
+- **The model and the cost.** `autoplan_shadow_model` (default
+  `claude-opus-5-5`) gets one call per gate: about $0.07 on your own API key.
+  The call sends the reviewed plan's Implementation plan section (cut to 40,000
+  characters) and the gate questions to that provider, with an egress receipt
+  of sink `autoplan-shadow` and consent `autoplan_shadow on`. Each call is
+  reserved against `--spend-cap` under its own ledger id labeled `shadow` and
+  shows as `shadow=<usd>` on `GATE_SPEND`; it never changes the per-voice price
+  on `GATE_REC_COST`. When the cap cannot cover a call and its retry, the
+  shadow is skipped (`SHADOW: failed budget`).
+- **The decider.** `autoplan/shadow-decider.md` is a frozen, hand-written
+  prediction prompt (it is not generated from the CEO-only section). It shows
+  the reviewers' recommendation as one labeled input and gives the six decision
+  principles as the owner's tendencies, not as rules, so the model can
+  disagree with the recommendation. Its sha256 and version are on every row;
+  an edit bumps both.
+- **The reply.** Exactly one JSON object per question. A duplicate, missing
+  or invalid object marks that item malformed and the page is asked once more;
+  items still malformed are recorded malformed with no pick. A reply cut at the
+  4,000-token output limit is asked once more at 8,000 instead. One 90-second
+  deadline covers both calls.
+- **When it runs.** Every driver command that prints a gate (`next`,
+  `submit`, `close`, `resume`, `revise`, `run` and `check`) runs the
+  shadow first, prints `SHADOW: recorded model=<m> usd=<x>` or `SHADOW: failed
+  <code>` (status only, never a pick), then the gate, then checkpoints, so a
+  checkpoint taken at a gate holds its record. A whole-gate carry asks nothing,
+  so it gets no shadow. Interactive `/autoplan` and CEO-only runs write none.
+  A shadow failure (`budget`, `no_key`, `timeout`, `http`, `network`,
+  `truncated`, `unsafe_dir`, `locked`) never blocks the gate or the answer.
+- **The lease.** The run lock is not held during the call: the command takes
+  a lease (`shadow/r<rev>.pending`, with its pid, host and deadline) under the
+  lock, calls the model, then retakes the lock (waiting up to 30 seconds) to
+  publish. Another writer that finds a live lease prints `SHADOW: pending` and
+  pays nothing, and `answer` waits for the record. A lease whose process died
+  or whose deadline passed is a crash: its sent calls settle `unknown` at
+  their reservation (they may have been billed), and `answer` records that
+  revision first with every row `retrospective: true`, which R2 excludes from
+  prospective evidence.
+- **The record.** `shadow/ceo-only.r<rev>.jsonl`, one row per gate item: the
+  frozen item, `item_class` (`challenge2`, `challenge1`, `disagree`, `agent`,
+  `cap_deferred`, `cap_blocker`, `cap_delta`, `p1`), `ceo_eligible`, the
+  prediction, `rule_pick` (the driver's keep-direction pick, the free
+  baseline), `rec_hash`, the plan and prompt hashes, the model, the gstack
+  version, the page's tokens and cost, and `audit`. It is written once per
+  revision with a link, so a second writer never overwrites it, and its sha256
+  is journaled (`shadow_recorded`). `gstack-artifact validate <run.json>`
+  checks each record against that hash and its schema.
+- **The 10% audit mark.** A `decide` row carries `audit: true` when
+  sha256(salt + decision id) mod 1000 < 100, with the salt drawn once per run
+  into `shadow/salt`. Nothing routes on it yet; the live switch that lets the
+  mode decide alone will send these items to the owner.
+- **The reader.** `gstack-autoplan shadow --out <dir> [--json]`, or `--runs
+  <file>` with one run directory per line, exports one row per item of each
+  answered gate revision: the shadow status (`recorded`, `malformed`,
+  `failed` with its code, `missing`, `retrospective`, or `off` when the run
+  never turned it on), the prediction, and the owner's answer with its
+  provenance. It prints counts by status, item class, `owner_mode` and
+  `ceo_eligible` and computes no agreement number. A revision whose plan
+  approval is unanswered or answered `c` (interrogate) refuses
+  `SHADOW_BEFORE_ANSWER`, and a CEO-only run `CEO_ONLY_NO_GATE`. The refusal is
+  a courtesy for honest tools, not access control: the journaled hash is the
+  tamper evidence.
 
 ## Owner brief
 

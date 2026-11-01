@@ -18,8 +18,10 @@ import { readLedger, summarize, type SpendSummary } from './spend-ledger';
 
 export interface GateCost {
   summary: SpendSummary;
-  /** Attempts the ledger has seen: settled plus still reserved. */
+  /** Reviewer attempts the ledger has seen: settled plus still reserved, shadow calls excluded. */
   attempts: number;
+  /** What shadow calls (ledger label `shadow`, lib/autoplan-shadow.ts) spent or hold: in summary and the cap, never in the per-voice price. */
+  shadow_usd: number;
   /** Phases a `rec` reply would reopen through its plan-changing recommendations, in run order; empty when none changes the plan. */
   reopens: string[];
   voices: number;
@@ -72,11 +74,14 @@ export function priorChoices(outDir: string, gateRev: number): Record<string, st
 export function gateCost(outDir: string, list: GateList, run: GateCostRun, o: { defaultPerVoiceUsd?: number } = {}): GateCost {
   const ledger = readLedger(path.join(outDir, 'spend.json'), run.spend_cap_usd);
   const summary = summarize(ledger);
-  const seen = [...ledger.settled.map(s => s.reserved_usd), ...ledger.reserved.map(r => r.estimate_usd)].filter(n => n > 0);
+  const voice = (r: { label?: string }) => r.label !== 'shadow';
+  const settled = ledger.settled.filter(voice), reserved = ledger.reserved.filter(voice);
+  const seen = [...settled.map(s => s.reserved_usd), ...reserved.map(r => r.estimate_usd)].filter(n => n > 0);
   const per_voice_usd = seen.length ? seen[seen.length - 1]! : o.defaultPerVoiceUsd ?? 0;
   const reopens = recReopens(list, run, priorChoices(outDir, list.gate_rev));
   const voices = reopens.length * (run.outside_enabled ? 2 : 1);
-  return { summary, attempts: ledger.settled.length + ledger.reserved.length, reopens, voices, per_voice_usd, rec_more_usd: Math.round(voices * per_voice_usd * 100) / 100 };
+  const shadow_usd = Math.round([...ledger.settled.filter(s => !voice(s)).map(s => (s.usd === 'unknown' ? s.reserved_usd : s.usd)), ...ledger.reserved.filter(r => !voice(r)).map(r => r.estimate_usd)].reduce((a, b) => a + b, 0) * 1e6) / 1e6;
+  return { summary, attempts: settled.length + reserved.length, shadow_usd, reopens, voices, per_voice_usd, rec_more_usd: Math.round(voices * per_voice_usd * 100) / 100 };
 }
 
 /** The two printed lines: the ledger at this gate, and the price of `rec`. */
@@ -87,7 +92,7 @@ export function renderGateCost(c: GateCost): string[] {
   const unknown = s.unknown_count ? `; ${s.unknown_count} host-subagent attempt(s) priced unknown, counted at their reservation (read the actual figure in the host's cost view)` : '';
   const after = s.headroom_usd === null ? '' : ` → headroom ${usd(s.headroom_usd - c.rec_more_usd)}${s.headroom_usd - c.rec_more_usd < 0 ? ' (over the cap: raise it with gstack-autoplan budget before answering rec)' : ''}`;
   return [
-    `GATE_SPEND: spent=${usd(s.spent_usd)} worst_case=${usd(s.worst_case_usd)} cap=${cap} headroom=${headroom} attempts=${c.attempts}${unknown}`,
+    `GATE_SPEND: spent=${usd(s.spent_usd)} worst_case=${usd(s.worst_case_usd)} cap=${cap} headroom=${headroom} attempts=${c.attempts}${c.shadow_usd ? ` shadow=${c.shadow_usd.toFixed(4)}` : ''}${unknown}`,
     c.reopens.length
       ? `GATE_REC_COST: rec reopens up to ${c.reopens.join(',')} ≈ ${c.voices} voice(s) × ${usd(c.per_voice_usd)} = +${usd(c.rec_more_usd)} at most (the run's per-voice reservation)${after}`
       : 'GATE_REC_COST: rec reopens nothing (no recommended option changes the plan): +0.00',
@@ -97,7 +102,7 @@ export function renderGateCost(c: GateCost): string[] {
 /** The JSON payload beside the printed lines. */
 export function gateCostPayload(c: GateCost): Record<string, unknown> {
   const s = c.summary;
-  return { spent_usd: s.spent_usd, worst_case_usd: s.worst_case_usd, cap_usd: s.cap_usd, headroom_usd: s.headroom_usd, attempts: c.attempts, unknown_count: s.unknown_count, rec_reopens: c.reopens, rec_voices: c.voices, per_voice_usd: c.per_voice_usd, rec_more_usd: c.rec_more_usd };
+  return { spent_usd: s.spent_usd, worst_case_usd: s.worst_case_usd, cap_usd: s.cap_usd, headroom_usd: s.headroom_usd, attempts: c.attempts, ...(c.shadow_usd ? { shadow_usd: c.shadow_usd } : {}), unknown_count: s.unknown_count, rec_reopens: c.reopens, rec_voices: c.voices, per_voice_usd: c.per_voice_usd, rec_more_usd: c.rec_more_usd };
 }
 
 /** One sentence for the owner brief. */

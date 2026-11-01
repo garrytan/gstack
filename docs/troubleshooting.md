@@ -3216,6 +3216,19 @@ work: they are how a budget-stopped CEO-only run recovers.)
 full review in a new directory: `gstack-autoplan next --out <new dir> --plan
 <file>` without `--ceo-only`.
 
+<a id="shadow-before-answer"></a>
+### `SHADOW_BEFORE_ANSWER`
+
+**Meaning.** `gstack-autoplan shadow` skipped a gate revision whose plan
+approval (`p1`) is unanswered or was answered `c` (interrogate). The export
+pairs each hidden prediction with the owner's answer, so a revision he has not
+answered has nothing to pair it with. Answered revisions of the same run still
+export; the command exits 3 only when nothing was exported.
+
+**Fix.** Answer the gate (`gstack-autoplan answer --out <dir> --gate-rev <n>
+...`), then run `gstack-autoplan shadow` again. See
+[Shadow mode](unattended.md#shadow-mode).
+
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`
 

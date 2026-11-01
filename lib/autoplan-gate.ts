@@ -28,8 +28,8 @@ import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry'
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { phaseClose } from './autoplan-timing';
-import { ANSWERED_BY_RE, applyReply, decisionId, decisionRows, keepDirection, parseReply, pendingHint, recHash, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
-import type { FindingRow } from './headless-artifacts';
+import { ANSWERED_BY_RE, applyReply, decisionId, decisionRows, keepDirection, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
+import type { DecisionRow, FindingRow } from './headless-artifacts';
 import { readJsonl, sha256File } from './headless-artifacts';
 import { closeDraftDirectionsFile, loadBriefInputs } from './owner-brief';
 import { vaguePlanTerms } from './plan-reality';
@@ -133,21 +133,21 @@ function capItems(state: RunState, next: { d: () => string; uc: () => string }):
     const rows: OpenRow[] = [...voiceRows(state, phase, 'native'), ...voiceRows(state, phase, 'outside'),
       ...(def.carried_file ? readJsonl(path.join(state.out, def.carried_file)).rows as unknown as OpenRow[] : [])];
     push({ id: next.d(), title: `${phase} closed accepted-with-findings at round ${def.round} (${def.reason}): ${def.open} open finding(s), ${severityText(def.counts)}, carried into tasks.jsonl`,
-      kind: 'auto', recommended: 'a', phase, cap: { phase, kind: 'deferred' }, why: `closed deferred by ${def.by}`, cost: `b grants ${phase} one more round`,
+      kind: 'auto', recommended: 'a', phase, cap: { phase, kind: 'deferred' }, item_class: 'cap_deferred', why: `closed deferred by ${def.by}`, cost: `b grants ${phase} one more round`,
       options: [{ key: 'a', text: 'accept with findings, deferred to the build', changes_plan: false }, reopen(phase)] }, `deferred-${phase}`);
     for (const id of def.blockers) {
       const f = rows.find(r => r.id === id);
       if (!f) continue;
       const risk = f.severity === 'Critical' || f.urgent;
       push({ id: next.uc(), title: `${f.severity}${f.urgent ? ' urgent' : ''}${f.user_challenge ? ' user challenge' : ''} left open when ${phase} closed deferred: ${f.title} [${id}]`,
-        kind: 'approval', recommended: risk ? 'b' : 'a', recommended_basis: risk ? 'an open Critical or urgent finding' : 'plan direction; a user challenge', phase, cap: { phase, kind: 'blocker', ref: id },
+        kind: 'approval', recommended: risk ? 'b' : 'a', recommended_basis: risk ? 'an open Critical or urgent finding' : 'plan direction; a user challenge', phase, cap: { phase, kind: 'blocker', ref: id }, item_class: 'cap_blocker',
         why: `${phase} closed deferred (${def.reason}) with this finding open; only you can accept it`,
         options: [{ key: 'a', text: 'carry it into the build as a blocking task (you accept the risk)', changes_plan: false }, reopen(phase)] }, id);
     }
   }
   for (const delta of pendingDeltas(state)) {
     push({ id: next.uc(), title: `plan changed after ${delta.phase} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
-      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(delta.k) },
+      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(delta.k) }, item_class: 'cap_delta',
       why: `revise v${delta.k} changed the plan after ${delta.phase} used round ${delta.round} of ${delta.cap}, so ${delta.phase} never reviewed it`,
       options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false }, reopen(delta.phase)] }, `delta-${delta.k}`);
   }
@@ -189,7 +189,7 @@ export function challengeDefault(row: ReconciliationRow, n: FindingRow | undefin
 
 /** A rerun challenge naming no scope, cost or direction: the agent's own decision, recorded, reopening nothing. */
 function agentDecision(id: string, title: string, phase: string, why: string): GateItem {
-  return { id, title, kind: 'auto', recommended: 'a', phase, reopens: false, why: `${why}; it names no scope, cost or direction change, so on a rerun it is the agent's decision`,
+  return { id, title, kind: 'auto', recommended: 'a', phase, reopens: false, item_class: 'agent', why: `${why}; it names no scope, cost or direction change, so on a rerun it is the agent's decision`,
     cost: 'agent decision; b is recorded, no phase reruns', options: [KEEP('keep your direction'), { key: 'b', text: 'accept the change (agent decision; no phase reruns)', changes_plan: false }] };
 }
 
@@ -217,13 +217,13 @@ export function buildGate(state: RunState, gateRev: number): GateList {
         const title = `${n.title} [${row.native_id} + ${row.outside_id}]`;
         if (reran && !n.changes && !o.changes) { push(agentDecision(`d${++d}`, title, phase, 'both voices recommend changing your stated direction'), ids); continue; }
         const def = challengeDefault(row, n, o);
-        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, ...(n.changes ?? o.changes ? { changes: n.changes ?? o.changes } : {}),
+        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, item_class: 'challenge2', ...(n.changes ?? o.changes ? { changes: n.changes ?? o.changes } : {}),
           why: `both voices recommend changing your stated direction; blind spot: ${o.title}; cost if wrong: ${o.resolution ?? n.resolution ?? 'unstated'}`,
           options: [KEEP('keep your direction (the plan as reviewed)'), { key: 'b', text: def.text, changes_plan: true }] }, ids);
         continue;
       }
       if (row.disposition === 'disagree') {
-        push({ id: `d${++d}`, title: `${n!.title} [${row.native_id} vs ${row.outside_id}]`, kind: 'auto', recommended: 'a', phase,
+        push({ id: `d${++d}`, title: `${n!.title} [${row.native_id} vs ${row.outside_id}]`, kind: 'auto', recommended: 'a', phase, item_class: 'disagree',
           why: `voices disagree: ${row.resolution}`, cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`,
           options: [{ key: 'a', text: `native position (${row.severity.native})`, changes_plan: false }, { key: 'b', text: `outside position (${row.severity.outside})`, changes_plan: true }] }, ids);
       }
@@ -232,7 +232,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
       if (!f.user_challenge || challenged.has(f.id) || f.settled_by) continue;
       const why = `one voice (${f.voice}) recommends changing your stated direction`;
       if (reran && !f.changes) { push(agentDecision(`d${++d}`, `${f.title} [${f.id}]`, phase, why), f.id); continue; }
-      push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, why, ...(f.changes ? { changes: f.changes } : {}),
+      push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', why, ...(f.changes ? { changes: f.changes } : {}),
         cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your direction'), { key: 'b', text: 'accept the change', changes_plan: true }] }, f.id);
     }
   }
@@ -250,7 +250,7 @@ function planApproval(state: RunState, items: GateItem[]): GateItem {
   const changes = items.filter(i => i.id !== 'p1' && i.options.find(o => o.key === i.recommended)?.changes_plan).map(i => `${i.id}${i.recommended}`);
   const planFile = fs.existsSync(state.plan_source) ? state.plan_source : state.active_plan;
   const flags = vaguePlanTerms(fs.readFileSync(planFile, 'utf8')).map(v => `PLAN_REALITY ${JSON.stringify(v.phrase)} has no number, arm list or rule body (${path.basename(state.plan_input ?? planFile)}:${v.line}: ${v.text.length > 120 ? `${v.text.slice(0, 117)}...` : v.text}) (report only)`);
-  return { id: 'p1', title: 'Plan approval', kind: 'approval', recommended: changes.length ? 'b' : 'a', ...(flags.length ? { flags } : {}),
+  return { id: 'p1', title: 'Plan approval', kind: 'approval', recommended: changes.length ? 'b' : 'a', item_class: 'p1', ...(flags.length ? { flags } : {}),
     options: [{ key: 'a', text: 'approve as-is' }, { key: 'b', text: changes.length ? `approve with the recommended changes: ${changes.join(', ')}` : 'approve with the overrides above' },
       { key: 'c', text: 'interrogate (ask questions; stays pending)' },
       { key: 'd', text: `rerun every phase on the current plan, Eng last (to review an edited plan instead: gstack-autoplan revise --out ${state.out} --plan <file>)` }, { key: 'e', text: 'reject' }] };
@@ -288,7 +288,7 @@ export function recommendGate(state: RunState, gateRev: number, itemId: string, 
 }
 
 /** The gate list the owner last answered: gate.json, or its archive (`gate.r<rev>[.v<k>].json`) once a reopen moved it. */
-function previousGate(out: string, rev: number): GateList | undefined {
+export function previousGate(out: string, rev: number): GateList | undefined {
   if (rev < 1) return undefined;
   const re = new RegExp(`^gate\\.r${rev}(?:\\.v(\\d+))?\\.json$`);
   const archived = fs.readdirSync(out).map(f => [f, re.exec(f)] as const).filter(([, m]) => m).sort((a, b) => Number(b[1]![1] ?? 1) - Number(a[1]![1] ?? 1)).map(([f]) => f);
@@ -362,15 +362,15 @@ export function amendmentSteps(state: RunState, out: string): string {
     edit.length ? `edit the plan, then gstack-autoplan revise --out ${out} --plan ${state.plan_input ?? state.plan_source} --incorporates ${edit.join(',')}` : ''].filter(Boolean).join('; then ');
 }
 
-/** The owner's words must not contradict the relayed tokens: when they parse, both must resolve to the same choices. */
-function checkOwnerReply(list: GateList, gateRev: number, prior: Record<string, string>, relayed: ParsedReply, ownerReply: string): boolean {
+/** The owner's words must not contradict the relayed tokens: when they parse, both must resolve to the same choices. Returns the owner's parse. */
+function checkOwnerReply(list: GateList, gateRev: number, prior: Record<string, string>, relayed: ParsedReply, ownerReply: string): ParsedReply {
   const owner = parseReply(ownerReply, list, gateRev, prior);
-  if (!owner.valid) return false;
+  if (!owner.valid) return owner;
   const choices = (p: ParsedReply) => JSON.stringify(p.choices.map(c => [c.id, c.chosen]).sort());
   if (choices(owner) !== choices(relayed) || owner.pending.join() !== relayed.pending.join()) {
     throw new RunError('GATE_OWNER_REPLY_MISMATCH', `the owner's reply ${JSON.stringify(ownerReply)} resolves to ${owner.choices.map(c => `${c.id}${c.chosen}`).join(' ')}${owner.pending.length ? ` (pending ${owner.pending.join(',')})` : ''}; the relayed reply resolves to ${relayed.choices.map(c => `${c.id}${c.chosen}`).join(' ')}${relayed.pending.length ? ` (pending ${relayed.pending.join(',')})` : ''}`, 3);
   }
-  return true;
+  return owner;
 }
 
 /**
@@ -399,15 +399,18 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   if (parsed.mode === 'rec' && (list.rec_rev ?? 0) > 0 && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `recommend changed this gate (rec_rev=${list.rec_rev}); pass --rec-hash from the render the owner saw (current rec_hash=${currentHash})`, 3);
   const ownerParsed = o.ownerReply !== undefined && !o.carry ? checkOwnerReply(list, gateRev, prior, parsed, o.ownerReply) : undefined;
   const provenance = o.carry ? { owner_reply: o.carry.words, carried_gate_from: o.carry.from, carried_gate_rev: o.carry.gate_rev, carry_reason: o.carry.reason, ...(o.carry.by ? { carried_answered_by: o.carry.by } : {}) }
-    : o.ownerReply !== undefined ? { owner_reply: o.ownerReply, owner_reply_parsed: ownerParsed } : {};
+    : o.ownerReply !== undefined ? { owner_reply: o.ownerReply, owner_reply_parsed: ownerParsed!.valid } : {};
+  const shape = o.carry ? undefined : replyShape(o.ownerReply ?? reply, list, ownerParsed ?? parsed);
   const itemOf = (id: string) => list.items.find(i => i.id === id)!;
   const optionOf = (c: GateChoice) => itemOf(c.id).options.find(o => o.key === c.chosen)!;
   const plan = parsed.choices.find(c => c.id === 'p1');
   const lines: string[] = o.carry ? [] : voidPendingCheck(state, `the owner answered gate_rev ${gateRev}`);
   const answeredAt = now();
+  const owner = (r: DecisionRow): Partial<DecisionRow> => (shape && r.gate_rev === list.gate_rev && r.answered_at === answeredAt
+    ? { owner_mode: shape.mode, owner_named: shape.named.has((r.label ?? '').toLowerCase()), rec_hash: currentHash, answered_role: answeredBy?.startsWith('agent:') ? 'agent' : 'human' } : {});
   const record = () => writeDecisions(state.out, applyReply(rows, parsed, answeredAt, answeredBy, provenance).map(r => {
     const c = r.gate_rev === list.gate_rev && r.chosen && !r.chosen_text ? itemOf((r.label ?? '').toLowerCase())?.options.find(o => o.key === r.chosen) : undefined;
-    return c ? { ...r, chosen_text: c.text } : r;
+    return { ...(c ? { ...r, chosen_text: c.text } : r), ...owner(r) };
   }));
   if (!plan || parsed.pending.length) {
     // Approvals unanswered: record what was answered, keep the gate pending; nothing reviewed changes.

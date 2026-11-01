@@ -143,10 +143,13 @@ export function changeBudget(state: RunState, o: BudgetChange): string[] {
   return lines;
 }
 
-/** Reservations with no dispatch journaled (a crash between reserve and journal) are proven never dispatched, so released. */
+/**
+ * Reservations with no dispatch journaled (a crash between reserve and journal) are proven never dispatched, so released.
+ * A shadow call journals `shadow_dispatched` before its send: it counts as dispatched and is never released here.
+ */
 export function releaseUndispatched(state: RunState): string[] {
   const file = path.join(state.out, FILES.spend);
-  const dispatched = new Set(readJournal(state.out).filter(r => r.event === 'dispatched').map(r => r.attempt));
+  const dispatched = new Set(readJournal(state.out).filter(r => r.event === 'dispatched' || r.event === 'shadow_dispatched').map(r => r.attempt));
   return readLedger(file).reserved.filter(r => !dispatched.has(r.attempt)).map(r => {
     release(file, r.attempt);
     journal(state.out, { event: 'released_undispatched', attempt: r.attempt, estimate_usd: r.estimate_usd });

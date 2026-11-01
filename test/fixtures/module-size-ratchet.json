@@ -128,6 +128,8 @@
     { "file": "lib/autoplan-run.ts", "movedFrom": "(new: next/submit/resume over lib/autoplan-state.ts, B2)" },
     { "file": "lib/autoplan-gate.ts", "movedFrom": "(new: phase close, gate build, answer and reopen, B2/B9)" },
     { "file": "lib/autoplan-ceo-only.ts", "movedFrom": "(new: the CEO-only driver run's finish, report and refusals, GST-537)" },
+    { "file": "lib/autoplan-shadow.ts", "movedFrom": "(new: shadow mode for the CEO-only decider: switch, lease, call and record, GST-537 PR 3)" },
+    { "file": "lib/autoplan-shadow-reader.ts", "movedFrom": "(new: the shadow-mode export for taste-replay R2 and its private validate check, GST-537 PR 3)" },
     { "file": "lib/autoplan-export.ts", "movedFrom": "(new: the unattended export file set, B2/B12)" },
     { "file": "lib/spec-review-cap.ts", "movedFrom": "(new: the spec-review loop at the cap: numbered gaps and deterministic fix verification, B8)" },
     { "file": "bin/gstack-autoplan", "movedFrom": "(new: thin entrypoint over lib/autoplan-run.ts, B2)" },
