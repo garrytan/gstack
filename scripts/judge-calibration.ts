@@ -322,9 +322,16 @@ function flag(args: string[], name: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-async function main(args: string[]): Promise<void> {
+/** The W2 per-judge table plus the arm benchmark's paired judge (run by --config only; the manifest prices the W2 table). */
+export async function loadCalibrationConfigs(): Promise<{ w2: CalibrationConfig[]; all: CalibrationConfig[] }> {
   // The per-judge table (builders, schemas, verdict rules) is committed separately from this harness.
   const { CALIBRATION_CONFIGS } = await import(path.join(import.meta.dir, 'judge-calibration-configs.ts')) as { CALIBRATION_CONFIGS: CalibrationConfig[] };
+  const { ARM_PAIR_CALIBRATION } = await import(path.join(import.meta.dir, '..', 'test', 'helpers', 'arm-pair-judge.ts')) as { ARM_PAIR_CALIBRATION: CalibrationConfig };
+  return { w2: CALIBRATION_CONFIGS, all: [...CALIBRATION_CONFIGS, ARM_PAIR_CALIBRATION] };
+}
+
+async function main(args: string[]): Promise<void> {
+  const { w2: CALIBRATION_CONFIGS, all: configs } = await loadCalibrationConfigs();
   const command = args[0];
   if (command === 'manifest') {
     const client = new Anthropic();
@@ -338,8 +345,8 @@ async function main(args: string[]): Promise<void> {
     console.table(manifest.entries);
     return;
   }
-  const config = CALIBRATION_CONFIGS.find(candidate => candidate.id === flag(args, 'config'));
-  if (!config) throw new Error(`unknown --config; expected one of ${CALIBRATION_CONFIGS.map(candidate => candidate.id).join(', ')}`);
+  const config = configs.find(candidate => candidate.id === flag(args, 'config'));
+  if (!config) throw new Error(`unknown --config; expected one of ${configs.map(candidate => candidate.id).join(', ')}`);
   const items = loadCorpus(config.id);
   const runsDir = path.join(CORPUS_ROOT, config.id, 'runs');
   const samplesPath = path.join(runsDir, 'comparison-1.samples.jsonl');

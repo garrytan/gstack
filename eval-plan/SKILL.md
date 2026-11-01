@@ -135,10 +135,12 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Section | What it holds |
 |---|---|
 | Bars | one line per metric: name, pass bar, direction, what a miss means for the decision |
-| Arms | one line per arm: model id (in the price table), settings, per-item cost from Step 1b |
+| Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
+| Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted` |
 | Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
+| No-gstack arm | required with `stack: loaded`: `arms:`, `inputs:`, `prompt:`, `panel:`, `report:` (below) |
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-eval-plan prereg --init <path>
@@ -148,6 +150,16 @@ Write (or open) the preregistration file. Each section is required and must be f
 `PREREG: ok` continues. `PREREG: incomplete` names the missing or empty sections
 (`PREREG_INCOMPLETE`, exit 1); fill them and rerun. Do not continue on an incomplete
 preregistration.
+
+**No-gstack arm.** A head-to-head where any arm loads gstack or another skill stack
+(review variants, preamble loadouts, skill diets, a model panel under a stack) also
+runs each model with no skill stack at all. Add `<model>#no-gstack` to Arms for every
+model, and fill `## No-gstack arm`: `arms:` lists those arms; `inputs:` the same rows
+and fixture; `prompt:` the task text only, with no SKILL.md, preamble, hooks or installed
+skills, and the same tools; `panel:` the same E2E kind, trials, judge and blinding labels;
+`report:` its row beside the variants in every results table and verdict.
+`PREREG_NO_GSTACK_ARM` (exit 1) names what is missing. The PREREG line shows
+`stack=loaded no_gstack_arm=ok` when it is complete, or `stack=none` for an opt-out.
 
 When the summarizer counts diagnostics, declare them before the freeze commit in a
 `## Diagnostics` section: `summarizer: <command naming {fixture}>`, `fixture: <synthetic
@@ -169,7 +181,9 @@ falling back to the repo's own policy document (`--policy-doc <path>`), or from
 `--arms <picked-models>` when the user named them. Each `ARM:` line carries its source
 and the per-item cost at the stated token estimate; `price=MISSING` (`EVAL_PRICE_MISSING`)
 means the model has no row in `lib/pricing.ts`: add the row from the provider's pricing
-page or drop the arm. Copy the priced arms into the Arms section.
+page or drop the arm. Copy the priced arms into the Arms section. An arm identity
+`<model>#<loadout>` (for example `claude-opus-5-5#no-gstack`) is priced by its model and
+gets its own pilot attempts; naming one identity twice is `EVAL_ARM_DUPLICATE`.
 
 When the repo commits `.gstack/eval-models.json` (allow, deny, per-scope lists, families
 newest first; `docs/eval-models.md` in gstack), `arms`, `dry-run`, `pilot start` and
@@ -292,6 +306,20 @@ Under `SESSION_KIND: unattended` write the question as an `approval` gate item t
 `gstack-gate` and end with `GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>`.
 The full run, when approved, keeps settling every attempt into the same ledger and reprints
 the spend table at each gate; `budget_exhausted` stops it.
+
+## Step 5: Results beside the no-gstack arm
+
+Write the run's results as one markdown table in a results file, one row per arm identity
+from the Arms section, each `<model>#no-gstack` row beside its variants. Before any number
+leaves the run (a report, a READY block, a PR body), check it:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path>
+```
+
+`RESULTS: ok` lets the numbers go out. `EVAL_REPORT_NO_GSTACK_ROW` (exit 1) names the arm
+whose filled row is missing from the table that holds the others; add it and rerun. A
+preregistration with `stack: none` needs no row.
 
 ## Tier 3, after P7 (not in this skill yet)
 

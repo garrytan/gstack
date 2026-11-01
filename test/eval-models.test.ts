@@ -142,6 +142,19 @@ describe('gstack-eval-plan lints every arm (bin, fixture repo with an origin)', 
     expect(head.err).toContain('(EVAL_MODEL_GENERATION_UNRESOLVED)');
   });
 
+  test('a <model>#<loadout> arm is linted as its model: a deny still refuses it and an exact allow accepts it', () => {
+    seed(GBRAIN_RULES);
+    const r = run(['arms', '--arms', 'claude-opus-5-5#no-gstack,gpt-5.4-mini#no-gstack']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('EVAL_MODEL: claude-opus-5-5 scope=full ok (allow claude-*; newest in families.claude-opus) where=flag:--arms (claude-opus-5-5#no-gstack)');
+    expect(r.out).toContain('EVAL_MODEL: gpt-5.4-mini scope=full denied (deny gpt-5.4-mini) where=flag:--arms (gpt-5.4-mini#no-gstack)');
+    expect(r.err).toContain('(EVAL_MODEL_DENIED)');
+    fs.writeFileSync(path.join(repo, '.gstack', 'eval-models.json'), JSON.stringify({ schema_version: 1, allow: ['claude-opus-5-5'], deny: [] }));
+    const exact = run(['arms', '--arms', 'claude-opus-5-5,claude-opus-5-5#no-gstack', '--models-from', 'head']);
+    expect(exact.code).toBe(0);
+    expect(exact.out).toContain('where=flag:--arms (claude-opus-5-5#no-gstack)');
+  });
+
   test('dry-run and pilot start: Fable fails the full scope (no reservation), passes --scope smoke; the dry-run record carries the check', () => {
     seed(GBRAIN_RULES);
     const out = path.join(host.base, 'out');

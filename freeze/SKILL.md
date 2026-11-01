@@ -76,9 +76,11 @@ operation (nested under `hookSpecificOutput` — Claude Code ignores a top-level
 Polarity is fail-closed: a tool payload the hook cannot parse is DENIED, not
 allowed — a boundary that fails open is not a boundary. A payload that parses
 but has neither path field (a non-file tool) is allowed. A deny names the
-tool, the path field, the boundary and `/unfreeze`. Symlinks are resolved
-through their FINAL component, so an in-boundary symlink pointing outside the
-boundary is checked against its target.
+tool, the path field, the boundary and `/unfreeze`. The path is resolved before
+the check: `~`, `..` and relative paths, and symlinks at every depth, even
+through folders that do not exist yet. A path the hook cannot place (a symlink
+loop, a line break, a Windows drive-relative path, over 4096 characters) is
+denied.
 
 The freeze boundary persists until explicitly removed via the state file. The hook
 script reads it on every Edit/Write/NotebookEdit invocation. Boundaries containing spaces

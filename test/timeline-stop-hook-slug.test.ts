@@ -33,6 +33,8 @@ const HOOK_FILES = [
   'lib/result-codes-release.ts',
   'lib/result-codes-capy.ts',
   'lib/result-codes-budget.ts',
+  'lib/result-codes-eval.ts',
+  'lib/result-codes-plan.ts',
 ];
 const SLUG = 'stop-hook-slug-test';
 const BUDGET_MS = 2000;

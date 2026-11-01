@@ -19,7 +19,7 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'review_targeted', 'carry',
+  'review_loop_exception', 'review_targeted', 'carry', 'base_red',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -54,7 +54,7 @@ export function extractReceipt(body: string): { found: boolean; receipt?: ShipRe
   }
 }
 
-export type ReceiptBindingCode = 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_STALE';
+export type ReceiptBindingCode = 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_STALE' | 'QUEUE_RECEIPT_CONDITIONAL';
 export type ReceiptBinding =
   | { ok: true; receipt: ShipReceipt; head: string; line: string }
   | { ok: false; code: ReceiptBindingCode; message: string; line: string };
@@ -67,8 +67,12 @@ export type ReceiptBinding =
  * head is the pin's stamp commit (the stamp changes only stamp files, so the
  * receipt written for the pin stays the binding one). `line` is the
  * informational `SHIP_RECEIPT:` line the READY block prints either way.
+ * A receipt with a `base_red` block (lib/base-red.ts) is conditional: its
+ * Step 5 did not pass, so it binds only for a caller that asks for it
+ * (`/ship`'s terminal line, which reports the pause) and is refused
+ * everywhere else.
  */
-export function bindReceipt(body: string, pr: string | undefined, accepted: readonly string[]): ReceiptBinding {
+export function bindReceipt(body: string, pr: string | undefined, accepted: readonly string[], opts: { conditional?: boolean } = {}): ReceiptBinding {
   const subject = pr === undefined ? "the receipt's" : `PR #${pr}'s`;
   const ex = extractReceipt(body);
   if (!ex.found) return { ok: false, code: 'QUEUE_RECEIPT_MISSING', message: `${subject} body carries no ship receipt`, line: 'SHIP_RECEIPT: none in the PR body' };
@@ -84,6 +88,7 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
     return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt is for ${oneLine(r.head.slice(0, 12))}, not the head ${want} being merged`, line };
   }
   if (pr !== undefined && r.pr !== undefined && String(r.pr) !== pr) return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt names pr=${r.pr}, not this PR`, line };
+  if (r.base_red && !opts.conditional) return { ok: false, code: 'QUEUE_RECEIPT_CONDITIONAL', message: `${subject} ship receipt is paused on a red base (${oneLine(r.base_red.cases.join(', ')).slice(0, 160)} fail at ${oneLine(r.base_red.base.slice(0, 12))}); /ship --resume rewrites it once the base passes them`, line };
   return { ok: true, receipt: r, head, line };
 }
 
@@ -126,6 +131,7 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   if (loop) parts.push(`passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred}`
     + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
   if (r.carry && typeof r.carry.from === 'string') parts.push(`carried_from=${r.carry.from.slice(0, 12)}`);
+  if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
 }
 
@@ -145,11 +151,11 @@ export function receiptSummaryLine(r: ShipReceipt): string {
  * such as `openapi.spec.yaml` is product.
  */
 const TEST_CODE_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts', 'rb', 'py', 'go', 'rs', 'java', 'kt', 'swift', 'dart', 'php', 'cs'];
-export const CARRY_TEST_GLOBS: readonly string[] = [
-  'test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**',
+export const CARRY_TEST_CODE_GLOBS: readonly string[] = [
   ...TEST_CODE_EXTENSIONS.flatMap(ext => [`**/*.test.${ext}`, `**/*.spec.${ext}`]),
   '**/*_test.go', '**/test_*.py', '**/*_test.py', '**/*_spec.rb', '**/*Test.java', '**/*Tests.swift',
 ];
+export const CARRY_TEST_GLOBS: readonly string[] = ['test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**', ...CARRY_TEST_CODE_GLOBS];
 export const CARRY_METADATA_GLOBS: readonly string[] = ['VERSION', 'CHANGELOG.md', 'package.json', 'agents-digest/**'];
 /** How many differing product paths a RECEIPT_CARRY_PRODUCT_CHANGED refusal names, and how far the per-path patch-id walk goes. */
 export const CARRY_NAMED_PATHS = 20;
@@ -170,6 +176,8 @@ export interface CarryPlanInput {
   rangeDiff: string;
   /** The base the receipt was reviewed against when it differs from the carry's (a stack parent that landed, #3570): productPatchId.from is then the recorded diff against it. */
   retargetedFrom?: string;
+  /** A clean scoped review of product paths whose only difference is base context next to unchanged hunks (lib/ship-patch.ts, GST-384): the carry reason it adds. */
+  scopedReview?: string;
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -231,15 +239,17 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * against the base has the same patch-id at both heads, which is what a
  * conflict-only base merge, a test-only fix or a release-metadata change
  * leaves behind. A product patch that differs is RECEIPT_CARRY_PRODUCT_CHANGED,
- * whatever else changed.
+ * whatever else changed, unless every difference is base context next to unchanged hunks
+ * and a scoped review of those hunks came back clean (`scopedReview`).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head) {
+  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || !input.scopedReview)) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
   const reasons: string[] = input.retargetedFrom ? [`stack parent ${input.retargetedFrom} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
+  if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');
   if (input.changed.some(c => c.class === 'generated')) reasons.push('regenerated outputs');

@@ -23,7 +23,7 @@ Usage: ./setup [options]
 Options:
   --host <name>     Install for one host. Default: claude. Hosts by tier:
                       full:             claude
-                      experimental:     codex, kiro, factory, opencode, cursor, copilot, agy, openclaw, hermes
+                      experimental:     codex, kiro, factory, opencode, cursor, copilot, agy, gemini, openclaw, hermes
                       instruction-only: slate, gbrain
                       auto:             every installed agent that setup detects
                     An explicit --host never changes another host's install.
@@ -212,7 +212,7 @@ _setup_unknown_option() {
 }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, copilot, agy, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; HOST_FLAG_SET=1; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, copilot, agy, gemini, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; HOST_FLAG_SET=1; shift 2 ;;
     --host=*) HOST="${1#--host=}"; HOST_FLAG_SET=1; shift ;;
     --model) [ -z "$2" ] && echo "Missing value for --model" >&2 && exit 1; MODEL_OVERRIDE="$2"; MODEL_OVERRIDE_SET=1; shift 2 ;;
     --model=*) MODEL_OVERRIDE="${1#--model=}"; MODEL_OVERRIDE_SET=1; shift ;;
@@ -239,8 +239,9 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$HOST" = "antigravity" ] && HOST="agy"  # Antigravity CLI is named after its binary
+[ "$HOST" = "gemini-cli" ] && HOST="gemini"
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|cursor|copilot|agy|openclaw|hermes|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|copilot|agy|gemini|openclaw|hermes|auto) ;;
   slate)
     echo ""
     echo "Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md —"
@@ -265,7 +266,7 @@ case "$HOST" in
     echo ""
     exit 0 ;;
   *)
-    echo "Unknown --host value: $HOST — nothing was installed or changed. Expected one of: claude (default), codex, kiro, factory, opencode, cursor, copilot, agy (alias antigravity), slate, openclaw, hermes, gbrain, or auto. Tiers: ./setup --help" >&2; exit 1 ;;
+    echo "Unknown --host value: $HOST — nothing was installed or changed. Expected one of: claude (default), codex, kiro, factory, opencode, cursor, copilot, agy (alias antigravity), gemini (alias gemini-cli), slate, openclaw, hermes, gbrain, or auto. Tiers: ./setup --help" >&2; exit 1 ;;
 esac
 
 # Bun versions come from one sourced file (floor and tested; E1).
@@ -518,7 +519,8 @@ $_RF_TARGETS
 EOF
   grep -q '	failed	' "$_RF_SUMMARY" && _RF_FAILED=1
   if [ "$HARNESS_AUTO" -eq 1 ] && [ -d "$GSTACK_STATE_ROOT/harness" ]; then
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || _RF_FAILED=1
+    # Exit 4: every registration refreshed; a start hook this run turned on is not active (printed above).
+    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || [ "$?" -eq 4 ] || _RF_FAILED=1
   fi
   echo ""
   if [ "$_RF_FAILED" -eq 1 ]; then
@@ -550,6 +552,8 @@ COPILOT_SKILLS="$HOME/.copilot/skills"
 COPILOT_GSTACK="$COPILOT_SKILLS/gstack"
 AGY_SKILLS="$HOME/.gemini/antigravity-cli/skills"
 AGY_GSTACK="$AGY_SKILLS/gstack"
+GEMINI_SKILLS="$HOME/.gemini/skills"
+GEMINI_GSTACK="$GEMINI_SKILLS/gstack"
 
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -1362,8 +1366,9 @@ _remove_disabled_host_entry() {
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
   echo "Warning: --local is deprecated. Use global install + --team instead." >&2
   echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
-  if [ "$HOST" = "codex" ] || [ "$HOST" = "copilot" ]; then
+  if [ "$HOST" = "codex" ] || [ "$HOST" = "copilot" ] || [ "$HOST" = "gemini" ]; then
     echo "Error: --local is only supported for Claude Code (not $HOST)." >&2
+    [ "$HOST" = "gemini" ] && echo "  Gemini CLI loads workspace skills (.gemini/skills) only in trusted folders (/trust); ./setup --host gemini installs to ~/.gemini/skills." >&2
     exit 1
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
@@ -1381,6 +1386,7 @@ INSTALL_OPENCODE=0
 INSTALL_CURSOR=0
 INSTALL_COPILOT=0
 INSTALL_AGY=0
+INSTALL_GEMINI=0
 INSTALL_HARNESS=""
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
@@ -1398,8 +1404,10 @@ if [ "$HOST" = "auto" ]; then
   # Gemini CLI's and never selects Antigravity.
   command -v agy >/dev/null 2>&1 && INSTALL_AGY=1
   [ -d "$HOME/.gemini/antigravity-cli" ] && INSTALL_AGY=1
+  # ~/.gemini also holds Antigravity's config, so only the binary selects Gemini CLI.
+  command -v gemini >/dev/null 2>&1 && INSTALL_GEMINI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -1418,6 +1426,8 @@ elif [ "$HOST" = "copilot" ]; then
   INSTALL_COPILOT=1
 elif [ "$HOST" = "agy" ]; then
   INSTALL_AGY=1
+elif [ "$HOST" = "gemini" ]; then
+  INSTALL_GEMINI=1
 elif [ "$HOST" = "openclaw" ] || [ "$HOST" = "hermes" ]; then
   INSTALL_HARNESS="$HOST"
 fi
@@ -1425,8 +1435,8 @@ fi
 # A host that passes --host validation but sets no INSTALL_* flag would
 # silently configure nothing and exit 0 (the #2361 slate failure class).
 # Fail loudly if a future host lands in the accept-list without a dispatch arm.
-if [ "$HOST" != "auto" ] && [ -z "$INSTALL_HARNESS" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ]; then
-  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, copilot, agy, openclaw, hermes (informational: slate, gbrain)." >&2
+if [ "$HOST" != "auto" ] && [ -z "$INSTALL_HARNESS" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_AGY" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
+  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, copilot, agy, gemini, openclaw, hermes (informational: slate, gbrain)." >&2
   exit 1
 fi
 
@@ -1450,7 +1460,8 @@ fi
 # contains, this checkout (#3084). _activate_runtime_root checks again; Kiro
 # writes into its root in place, so it is refused here too.
 for _rr in "$INSTALL_KIRO kiro $KIRO_SKILLS/gstack" "$INSTALL_FACTORY factory $FACTORY_GSTACK" "$INSTALL_OPENCODE opencode $OPENCODE_GSTACK" \
-  "$INSTALL_CURSOR cursor $CURSOR_GSTACK" "$INSTALL_COPILOT copilot $COPILOT_GSTACK" "$INSTALL_AGY agy $AGY_GSTACK"; do
+  "$INSTALL_CURSOR cursor $CURSOR_GSTACK" "$INSTALL_COPILOT copilot $COPILOT_GSTACK" "$INSTALL_AGY agy $AGY_GSTACK" \
+  "$INSTALL_GEMINI gemini $GEMINI_GSTACK"; do
   [ "${_rr%% *}" -eq 1 ] || continue
   _rr=${_rr#* }
   _runtime_root_refused "${_rr%% *}" "${_rr#* }" && exit 1
@@ -1682,18 +1693,112 @@ bun_cmd() {
   "$BUN_CMD" "$@"
 }
 
+# Who is a contributor is explicit (#3447): `git config gstack.contributor true`
+# in the checkout (bin/dev-setup writes it) or GSTACK_CONTRIBUTOR=1. A git error
+# (safe.directory, permissions) is "unknown", never "user", so it never prunes.
+# CI keeps whatever its own `bun install` put there.
+_deps_role() {
+  [ "${GSTACK_CONTRIBUTOR:-}" = "1" ] && { echo contributor; return; }
+  local value rc=0
+  value="$(git -C "$PWD" config --bool --get gstack.contributor 2>/dev/null)" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    [ "$value" = "true" ] && echo contributor || echo user
+    return
+  fi
+  [ "$rc" -ne 1 ] && { echo unknown; return; }
+  [ -n "${CI:-}" ] && { echo ci; return; }
+  echo user
+}
+
+_deps_has_dev() {
+  [ -d node_modules/typescript ] || [ -d node_modules/@anthropic-ai/claude-agent-sdk ]
+}
+
+# Every package.json "dependencies" entry resolves in node_modules.
+_deps_verified() {
+  [ -d node_modules ] || return 1
+  local name
+  for name in $(awk '/^  "dependencies": \{/{f=1;next} f&&/^  \}/{exit} f{gsub(/[",:]/," ");print $1}' package.json); do
+    [ -f "node_modules/$name/package.json" ] || return 1
+  done
+}
+
+# Checkout-local migration lock: a live holder means skip; a dead or missing
+# holder (killed setup) is reclaimed.
+_deps_lock() {
+  local lock="node_modules.gstack-migrate.lock" holder
+  if ! mkdir "$lock" 2>/dev/null; then
+    holder="$(cat "$lock/pid" 2>/dev/null || true)"
+    case "$holder" in
+      ''|*[!0-9]*|0) [ -z "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ] && [ -z "$holder" ] && return 1 ;;
+      *) kill -0 "$holder" 2>/dev/null && return 1 ;;
+    esac
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || return 1
+  fi
+  echo "$$" > "$lock/pid"
+}
+
+_deps_unlock() { rm -rf node_modules.gstack-migrate.lock; }
+
+# A backup left by an interrupted migration: keep whichever copy is usable.
+_deps_recover() {
+  [ -d node_modules.gstack-migrate ] || return 0
+  if _deps_verified; then
+    rm -rf node_modules.gstack-migrate
+  else
+    rm -rf node_modules && mv node_modules.gstack-migrate node_modules
+  fi
+}
+
+# Installs made before v1.91.231.0 carry the dev toolchain. Locks, recovers, and
+# moves node_modules aside; succeeds only when it moved, so the caller installs
+# production-only and calls _deps_migration_finish.
+_deps_migration_start() {
+  [ -d node_modules.gstack-migrate ] || _deps_has_dev || return 1
+  _deps_lock || return 1
+  _deps_recover
+  if _deps_has_dev; then
+    _DEPS_BEFORE_KB="$(du -sk node_modules 2>/dev/null | cut -f1)"
+    mv node_modules node_modules.gstack-migrate && return 0
+  fi
+  _deps_unlock
+  return 1
+}
+
+_deps_migration_finish() {
+  local rc="$1" out="$2" after
+  if [ "$rc" -eq 0 ]; then
+    rm -rf node_modules.gstack-migrate
+    after="$(du -sk node_modules 2>/dev/null | cut -f1)"
+    _deps_unlock
+    echo "gstack: moved this install to production dependencies: node_modules $(( ${_DEPS_BEFORE_KB:-0} / 1024 )) MB -> $(( ${after:-0} / 1024 )) MB. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
+    return 0
+  fi
+  rm -rf node_modules
+  mv node_modules.gstack-migrate node_modules
+  _deps_unlock
+  echo "gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#setup-deps-migrate-failed): $(printf '%s\n' "$out" | tail -1 | cut -c1-200). Nothing was removed; the next ./setup tries again." >&2
+  return 1
+}
+
 # Users get production dependencies only. devDependencies are the test and eval
 # toolchain (the Claude Agent SDK's native binaries alone are ~440 MB on Linux), and
 # nothing setup, the build or an installed skill runs needs them. Bun never
-# prunes packages that are already installed, so a contributor's full
-# `bun install` (CONTRIBUTING.md, bin/dev-setup, CI) survives a later ./setup.
+# prunes packages that are already installed, so a user install that predates
+# v1.91.231.0 migrates once (_deps_migration_start), while a contributor (or a
+# checkout of unknown role, or CI) that has the dev toolchain gets the full
+# install, which keeps its dev packages at bun.lock's versions.
 # Bun's --production implies a frozen lockfile, so when bun.lock is out of date
 # (a fork or a local edit) refresh it first, then install production-only again.
-# A checkout that already has the dev toolchain (node_modules/typescript) is a
-# contributor's: a production install would leave its dev packages at old
-# versions after bun.lock moves, so it gets the full install instead.
 install_runtime_deps() {
-  if [ -d node_modules/typescript ]; then
+  local role out rc=0
+  role="$(_deps_role)"
+  if [ "$role" = "user" ] && _deps_migration_start; then
+    out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
+    _deps_migration_finish "$rc" "$out" && return 0
+  fi
+  if [ "$role" = "contributor" ] || _deps_has_dev; then
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     return
   fi
@@ -1849,6 +1954,7 @@ _RENDER_HOSTS_SELECTED=""
 [ "$INSTALL_CURSOR" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED cursor"
 [ "$INSTALL_COPILOT" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED copilot"
 [ "$INSTALL_AGY" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED agy"
+[ "$INSTALL_GEMINI" -eq 1 ] && _RENDER_HOSTS_SELECTED="$_RENDER_HOSTS_SELECTED gemini"
 # shellcheck disable=SC2086 # the host list splits on purpose
 if ! gstack_render_hosts_add "$SOURCE_GSTACK_DIR" $_RENDER_HOSTS_SELECTED; then
   echo "  warning: could not write $(gstack_render_hosts_file "$SOURCE_GSTACK_DIR"); this build renders every host and nothing is pruned" >&2
@@ -2126,6 +2232,16 @@ if [ "$INSTALL_AGY" -eq 1 ] && { [ "$NEEDS_BUILD" -eq 0 ] || [ -n "$_PLAN_MODE_A
   )
 fi
 
+# 1h. Generate .gemini-cli/ Gemini CLI skill docs
+if [ "$INSTALL_GEMINI" -eq 1 ] && { [ "$NEEDS_BUILD" -eq 0 ] || [ -n "$_PLAN_MODE_ARG" ]; }; then
+  log "Generating .gemini-cli/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    install_runtime_deps
+    bun_cmd run gen:skill-docs --host gemini ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"}
+  )
+fi
+
 # 2. Ensure Playwright's Chromium is available
 _PLAYWRIGHT_PLATFORM_OVERRIDE=""
 _PLAYWRIGHT_UNSUPPORTED_ARCH=""
@@ -2327,11 +2443,16 @@ mkdir -p "$HOME/.gstack/projects"
 # OpenClaw and Hermes: gstack-harness copies this checkout's render for the
 # harness into the harness's own skills folder, records every file in a ledger
 # (bin/gstack-uninstall removes exactly those) and never edits harness config
-# (lib/harness-register.ts). Nothing else in this run applies to them.
+# unless the user opted into the start hook (GSTACK_HARNESS_START_HOOK or
+# gstack-config harness_start_hook; lib/harness-start-hook.ts). Exit 4 from
+# register means the skills are registered and the start hook is not active.
+# Nothing else in this run applies to them.
 _gstack_harness() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" "$@"; }
 if [ -n "$INSTALL_HARNESS" ]; then
   _setup_arm_begin "$INSTALL_HARNESS" global "$INSTALL_HARNESS"
-  if ! _HARNESS_JSON="$(_gstack_harness register "$INSTALL_HARNESS" --json --no-registry)"; then
+  _HARNESS_RC=0
+  _HARNESS_JSON="$(_gstack_harness register "$INSTALL_HARNESS" --json --no-registry)" || _HARNESS_RC=$?
+  if [ "$_HARNESS_RC" -ne 0 ] && [ "$_HARNESS_RC" -ne 4 ]; then
     _SETUP_REFUSED="gstack-harness could not register $INSTALL_HARNESS (reason above); nothing was changed for it"
     exit 1
   fi
@@ -2339,6 +2460,7 @@ if [ -n "$INSTALL_HARNESS" ]; then
   _setup_arm_publish "$INSTALL_HARNESS" global - "$_HARNESS_DEST" "$SOURCE_GSTACK_DIR" - -
   log "$(printf '%s\n' "$_HARNESS_JSON" | sed -n 's/.*"receipt":"\([^"]*\)".*/\1/p')"
   _setup_print_summary
+  [ "$_HARNESS_RC" -eq 4 ] && exit 4
   printf '%s' "$_SETUP_ROWS" | _setup_ready_line
   exit 0
 fi
@@ -3448,6 +3570,81 @@ link_agy_skill_dirs() {
   fi
 }
 
+# ─── Helper: ~/.gemini/skills/gstack runtime root ──────────────────────────
+# Same shape as the Antigravity root. ~/.gemini/skills is Gemini CLI's user
+# skills directory, shared with the user's own skills: setup writes only gstack
+# entries there. Built through _activate_runtime_root.
+create_gemini_runtime_root() {
+  local gstack_dir="$1"
+  local gemini_gstack="$2"
+  local gemini_dir="$gstack_dir/.gemini-cli/skills"
+  local asset f
+
+  mkdir -p "$gemini_gstack" "$gemini_gstack/browse" "$gemini_gstack/gstack-upgrade" "$gemini_gstack/review"
+  if [ -f "$gemini_dir/gstack/SKILL.md" ]; then
+    _copy_skill_md "$gemini_dir/gstack/SKILL.md" "$gemini_gstack/SKILL.md"
+  fi
+  for asset in bin lib browse/dist browse/bin; do
+    if [ -d "$gstack_dir/$asset" ]; then
+      _link_or_copy "$gstack_dir/$asset" "$gemini_gstack/$asset"
+    fi
+  done
+  _link_runtime_dists "$gstack_dir" "$gemini_gstack"
+  if [ -f "$gemini_dir/gstack-upgrade/SKILL.md" ]; then
+    _copy_skill_md "$gemini_dir/gstack-upgrade/SKILL.md" "$gemini_gstack/gstack-upgrade/SKILL.md"
+  fi
+  _copy_runtime_skill_refs "$gemini_dir" "$gemini_gstack"
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$gemini_gstack/ETHOS.md"
+  fi
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$gemini_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$gemini_gstack/supabase/config.sh"
+  fi
+}
+
+# Frontmatter names already equal the gstack-<skill> directories
+# (nameMatchesDirectory), so no name patching. Fails when nothing was linked.
+link_gemini_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local gemini_dir="$gstack_dir/.gemini-cli/skills"
+  local linked=()
+
+  if [ ! -d "$gemini_dir" ]; then
+    echo "  Generating .gemini-cli/ skill docs..."
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host gemini ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} )
+  fi
+  if [ ! -d "$gemini_dir" ]; then
+    echo "  warning: .gemini-cli/skills/ generation failed — run 'bun run gen:skill-docs --host gemini' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$gemini_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      case "${_DISABLED_SKILLS:- }" in *" ${skill_name#gstack-} "*) _remove_disabled_host_entry "$skills_dir/$skill_name"; continue ;; esac
+      target="$skills_dir/$skill_name"
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ] || [ ! -e "$target" ]; then
+        if _owned_for_windows_refresh "$target"; then
+          _link_or_copy "$skill_dir" "$target"
+          linked+=("$skill_name")
+        else
+          echo "  left in place (existing dir not gstack-managed — no generated banner): $target" >&2
+        fi
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+  if ! ls "$skills_dir"/gstack-*/SKILL.md >/dev/null 2>&1; then
+    echo "  error: no gstack skills are installed in $skills_dir" >&2
+    return 1
+  fi
+}
+
 # 4. Install for Claude (default)
 # _claude_scope SKILLS_DIR — "global" for the user's Claude skills dir, else
 # "project <root>".
@@ -3865,6 +4062,25 @@ if [ "$INSTALL_AGY" -eq 1 ]; then
     echo "  browse: $BROWSE_BIN"
     _browser_hint
     echo "  agy skills: $AGY_SKILLS (invoke as /gstack-<skill>)"
+  fi
+fi
+
+# 6g. Install for Gemini CLI
+if [ "$INSTALL_GEMINI" -eq 1 ]; then
+  if _sidecar_root_user_owned "$GEMINI_GSTACK"; then
+    echo "  left in place (existing dir not gstack-managed — no generated banner): $GEMINI_GSTACK" >&2
+    _setup_row gemini global "$GEMINI_SKILLS" - "$SETUP_VERSION" skipped "left alone: $GEMINI_GSTACK is not gstack-managed (no generated banner)"
+  else
+    _setup_arm_begin gemini global "$GEMINI_SKILLS"
+    mkdir -p "$GEMINI_SKILLS"
+    _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.gemini-cli/skills" "$GEMINI_SKILLS"
+    link_gemini_skill_dirs "$SOURCE_GSTACK_DIR" "$GEMINI_SKILLS"
+    _activate_runtime_root create_gemini_runtime_root "$SOURCE_GSTACK_DIR" "$GEMINI_GSTACK"
+    _setup_arm_publish gemini global - "$GEMINI_SKILLS" "$GEMINI_GSTACK" -
+    echo "gstack ready (gemini)."
+    echo "  browse: $BROWSE_BIN"
+    _browser_hint
+    echo "  gemini skills: $GEMINI_SKILLS (ask for gstack-<skill>; Gemini CLI activates it with activate_skill)"
   fi
 fi
 
