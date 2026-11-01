@@ -1121,6 +1121,28 @@ conflict yourself instead, finish or abort your merge (`git -C '<dir>' merge
 --abort`, `git -C '<dir>' checkout -- <file>`); gstack retries at the next
 check.
 
+<a id="auto-update-tracked-by-project"></a>
+### `gstack auto-update: update held (tracked-by-project: ...)` / `(version-reverted: ...)` / `gstack-upgrade: tracked-by-project: ... (UPGRADE_REFUSED)` / `gstack-upgrade: version-reverted: ... (UPGRADE_REFUSED)`
+
+**Meaning.** Your gstack install sits inside another git project, and that
+project has committed gstack's files as ordinary files. Every time you switch
+branches or check out files in that project, git puts its old copies of
+gstack's files back, so VERSION and other files fall behind the install's own
+HEAD while updates seem to succeed (#1022). `version-reverted` is the same
+symptom seen from the install: its VERSION disagrees with HEAD. Neither
+`gstack-upgrade`, `/gstack-upgrade` nor the auto-updater moves the install
+until it is fixed. A project that holds gstack as a git submodule is fine.
+`version-reverted` with no enclosing project means VERSION was edited by
+hand; only the `stash push` step below applies.
+
+**Fix.** Print the exact commands with
+`bash <install>/bin/gstack-ff-update --preflight <install>`. They do three
+things: untrack the install in the project (`git rm -r --cached`), add it to
+the project's `.gitignore`, and commit both on every branch you check out
+(or vendor gstack as a submodule instead). Then
+`git -C <install> stash push` puts the install's own files back and keeps
+any edit you made in the stash, and the next update proceeds.
+
 <a id="auto-update-autostash-unrecoverable"></a>
 ### `gstack auto-update: update held (autostash-unrecoverable: <reason>); your local edits are where they were and nothing was installed. Look first: git -C '<dir>' status --short. Fix now (...)` / `autostash-unrecoverable: <reason>`
 
@@ -1563,6 +1585,8 @@ directory is not a gstack checkout, HEAD is detached or on another branch (a
 pin), a tracked file is modified, a local commit is not on the remote branch,
 the incoming release's Bun floor is above the Bun on PATH, or another updater
 holds `<state root>/.setup-lock`. It never stashes, resets or discards.
+A `tracked-by-project` or `version-reverted` cause has its own section:
+[an enclosing project tracks the install](#auto-update-tracked-by-project).
 
 **Fix.** Resolve the named cause with the printed command (commit or move the
 listed changes, check out the default branch, move local commits to another
@@ -3696,6 +3720,21 @@ prompt with no skill text, the same panel and judge, and where the result row
 goes beside the variants. When no arm loads a skill stack, write
 `stack: none` with a `why:` line instead. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
+
+<a id="eval-report-no-gstack-row"></a>
+### `EVAL_REPORT_NO_GSTACK_ROW`
+
+**Meaning.** `gstack-eval-plan results --check <prereg> <results>` found no
+single markdown table in the results file with a filled row for every arm
+identity the preregistration's Arms section lists. Usually the
+`<model>#no-gstack` row is missing, sits in a separate table from its
+variants, or holds only placeholders (`-`, `n/a`, `tbd`). It also fires when
+the preregistration itself fails `prereg --check`.
+
+**Fix.** Put one row per arm identity, each no-gstack arm beside its variants,
+in one table, and rerun the check. Publish no number before it prints
+`RESULTS: ok`. A preregistration with `stack: none` needs no row. The rule is
+in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
 <a id="eval-arm-duplicate"></a>
 ### `EVAL_ARM_DUPLICATE`
