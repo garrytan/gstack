@@ -65,6 +65,16 @@ describe('a policy that declares no lanes keeps the no-policy lane verdicts (GST
     expect(r.ran).toContain('test/util.test.js');
   });
 
+  // Value: protects=a fully mapped change prints no empty "have no test lane" line under no policy or a lane-less one; fails_when=the
+  //   no-lane line is rendered for an empty list; why_new=the mode switch is new; seam=none; no_claim=none
+  test.each([['no policy', null], ['timeout-only', { $schema: SCHEMA, timeout_s: 1800 }]])('%s: a fully mapped change passes with no no-lane line', (_name, policy) => {
+    const repo = fixture({ pregate: policy, baseFiles: NO_PLATFORM_LANE });
+    commit(repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    const r = lanes(repo);
+    expect([r.status, r.row.status]).toEqual([EXIT.ok, 'pass']);
+    expect(r.lines.some(l => l.includes('have no test lane'))).toBe(false);
+  });
+
   // Value: protects=the starter names the policy that exists instead of claiming there is none; fails_when=the starter header says
   //   "no .gstack/pregate.json" while one is on the base; why_new=new wording; seam=none; no_claim=none
   test('the starter says the active policy declares no lanes, not that there is no policy', () => {

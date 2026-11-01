@@ -353,7 +353,8 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
 type NoLaneMode = 'no-policy' | 'warned' | 'strict';
 
 function describe(ctx: PregateContext, sel: Selection, mode: NoLaneMode): string[] {
-  const lines = mode === 'warned' ? sel.noLane.map(f => `WARN lanes — ${f} has no test lane (warn: ["lanes"] in ${ctx.configLabel}; the selected tests are still judged)`)
+  const lines = !sel.noLane.length ? []
+    : mode === 'warned' ? sel.noLane.map(f => `WARN lanes — ${f} has no test lane (warn: ["lanes"] in ${ctx.configLabel}; the selected tests are still judged)`)
     : mode === 'strict' ? sel.noLane.map(f => `FAIL lanes — ${f} has no test lane`)
     : ctx.configKind === 'none' ? [`no policy: ${sel.noLane.join(' ')} have no test lane (a warning under no policy; the starter below maps them)`]
     : [`no lane policy: ${sel.noLane.join(' ')} have no test lane (a warning while ${ctx.configLabel} declares no dependencies, empty_lanes, selection or local; the starter below maps them)`];

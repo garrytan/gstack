@@ -230,6 +230,7 @@ export function selectLanes(ctx: PregateContext): Selection {
     if (m.declaredNone) {
       const r = gone.includes(file) ? removedPath(ctx, graph, goneSet, file) : null;
       if (r && 'removed' in r) { waive(file, r); continue; }
+      if (r) provenance.push(`${file}: ${r.refused}; cleared by its [] declaration`);
       if (isDocsEmptyLane(file, ctx.config.empty_lanes ?? [])) emptyLane.push(file);
       continue;
     }
