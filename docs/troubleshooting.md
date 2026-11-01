@@ -2128,7 +2128,7 @@ touched. The line lists the three nearest names.
 **Fix.** `$B device --list` prints every name; quote names with spaces
 (`$B device "iPhone 15"`). Add `--landscape` for the rotated profile.
 
-**Fixed in.** The first release after v1.92.2.0 (#3058).
+**Fixed in.** The first release after v1.92.10.0 (#3058).
 
 <a id="browse-device-cdp-failed"></a>
 ### ``browse: Chromium refused a device emulation call on this tab (<method>: <error>; the tab is partly emulated); fix: $B device off (BROWSE_DEVICE_CDP_FAILED)``
@@ -2140,7 +2140,7 @@ calls before it already changed the tab.
 **Fix.** `$B device off` clears all three, then try the device again. If it
 keeps failing, the tab or browser is gone: `$B restart`.
 
-**Fixed in.** The first release after v1.92.2.0 (#3058).
+**Fixed in.** The first release after v1.92.10.0 (#3058).
 
 <a id="browse-touch-no-device"></a>
 ### ``browse: touch input needs a phone profile on this tab first ($B tap on this tab); fix: $B device "iPhone 15" (BROWSE_TOUCH_NO_DEVICE)``
@@ -2151,7 +2151,7 @@ which pages only see on a touch device. The current tab has no phone profile.
 **Fix.** `$B device "iPhone 15"` (or any name from `$B device --list`) on
 the same tab, then repeat the touch command.
 
-**Fixed in.** The first release after v1.92.2.0 (#3058).
+**Fixed in.** The first release after v1.92.10.0 (#3058).
 
 ---
 
