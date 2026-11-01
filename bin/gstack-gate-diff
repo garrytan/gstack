@@ -148,7 +148,7 @@ function main(argv: string[]): number {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
       return 2;
     }
-    if (base.local) console.error(`gstack-gate-diff: ${base.local === 'unrelated' ? `local ${baseRef} shares no history with HEAD` : `no local branch ${baseRef}`}; base is ${base.ref}`);
+    if (base.local) console.error(`gstack-gate-diff: ${base.local === 'unrelated' ? `local ${baseRef} shares no history with HEAD` : base.local === 'differs' ? `local ${baseRef} is not ${base.ref}` : `no local branch ${baseRef}`}; base is ${base.ref}`);
     const mb = mergeBase(base.sha, head, root);
     if (!mb) {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);

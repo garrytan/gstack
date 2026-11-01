@@ -85,22 +85,31 @@ export function isShallow(cwd: string): boolean {
 
 /**
  * The base as a ref that resolves here and, when `head` is given, shares
- * history with it: the ref itself, else its remote-tracking branch
- * (`origin/main` for `main`). A clone that checked out only the feature
- * branch has no local `main`, and the merge-base against `origin/main` is the
- * same commit; a stale local `main` that shares no history with HEAD (a
- * fetched-over clone) yields to the twin too, so the fix line's fetch into the
- * tracking ref is a fix and not a loop.
+ * history with it. For a bare branch name that is origin's tracking branch
+ * (`refs/remotes/origin/main` for `main`), the base /ship merges against,
+ * else the related local branch, else another remote's tracking branch. A
+ * local `main` that is behind (a linked worktree or a Capy clone never moves
+ * it, #3650), missing or unrelated to HEAD (a fetched-over clone) yields to the
+ * twin, so the fix line's fetch into the tracking ref is a fix and not a loop.
+ * A remote-qualified name (`upstream/main`) is taken as given, and the twin is
+ * read by its full ref, so a fork's branch or a tag cannot stand in for it.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'differs' } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
   const direct = resolvesToCommit(ref, cwd);
+  const remotes = remoteNames(cwd);
+  if (!isBranchName(ref) || remotes.some(remote => ref.startsWith(`${remote}/`))) return direct ? { ref, sha: direct } : null;
+  const twin = (remote: string) => {
+    const sha = resolvesToCommit(`refs/remotes/${remote}/${ref}`, cwd);
+    if (!sha || !related(sha)) return null;
+    return sha === direct ? { ref: `${remote}/${ref}`, sha } : { ref: `${remote}/${ref}`, sha, local: !direct ? 'missing' as const : related(direct) ? 'differs' as const : 'unrelated' as const };
+  };
+  const origin = remotes.includes('origin') ? twin('origin') : null;
+  if (origin) return origin;
   if (direct && related(direct)) return { ref, sha: direct };
-  if (!isBranchName(ref)) return direct ? { ref, sha: direct } : null;
-  for (const remote of remoteNames(cwd)) {
-    const tracking = `${remote}/${ref}`;
-    const sha = resolvesToCommit(tracking, cwd);
-    if (sha && related(sha)) return { ref: tracking, sha, local: direct ? 'unrelated' : 'missing' };
+  for (const remote of remotes) {
+    const other = twin(remote);
+    if (other) return other;
   }
   return direct ? { ref, sha: direct } : null;
 }
