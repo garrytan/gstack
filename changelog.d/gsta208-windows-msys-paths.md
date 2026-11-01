@@ -10,4 +10,4 @@
 - `test/gen-skill-docs-install-root-windows.test.ts`: a `C:/` root renders as `/c/...`, and a root with a space refuses.
 - `test/setup-install-root-windows.test.ts` (windows-latest): `_render_install` takes `/c/...` and `C:/...` roots past its guard to native Bun.
 - `test/gstack-wtree-windows-paths.test.ts` and `test/ff-update-windows-msys.test.ts` (windows-latest): both run with `MSYS_NO_PATHCONV=1`.
-- `test/gstack-doctor.test.ts`: the new warning.
+- `test/gstack-doctor-launch.test.ts`: the new warning.
