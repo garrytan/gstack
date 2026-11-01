@@ -1,0 +1,42 @@
+The range from 6c8fcfe to HEAD (8dc6584f5) has no blocking defect in today's code paths, because nothing sets `upstream.provider` yet. It does have one cheap authentication hole and two silent-miscount risks to deal with before the provider wiring lands.
+
+**Coverage:** I read the full source diff: `world/services/gbrain-tap.ts`, `world/services/server.ts`, `world/services/events.ts`, `scripts/v03/mechanism.ts`, the docs and the version files. I also read the helpers they depend on (`describeCall`, `savedFactsOf`, `grantFor`, `turnStarts`, `ingestedFacts`, `resolveActor`).
+
+**Fixtures were reviewed in summary mode only.** I read the stat and test names for the two new test files, `tests/gbrain-provider-off-identity.test.ts` (+145) and `tests/gbrain-tap-provider.test.ts` (+276), not their payloads:
+- the off-path identity test replays the v0.3 pilot events and the denied batches, and checks the mechanism output is byte-identical;
+- the provider test covers recall versus query, the cap, `isError`, timeout, forged `acting_user`, `x-qm-actor`, overlapping tokens, `qmDelivery` and the mechanism counts.
+
+Neither file tests an empty token or a malformed `content` entry.
+
+I checked docs line truncation with `wc -L` and grep on the paragraph tails; no paragraph lost its tail. No gstack workflow ran on this review voice.
+
+**Findings**
+
+1. **An empty provider token skips authentication (FIXABLE, medium).** At `gbrain-tap.ts` ~376-378, the bearer regex plus `.trim()` turns `Authorization: Bearer ` followed by any whitespace into `""`. I confirmed this with bun on `"Bearer  "` and `"Bearer \t"`.
+   - If `provider.tokens` ever contains `""`, for example when the wiring fills it from an unset env var, any client can send a blank bearer. It skips `resolveActor`, gets logged as QM's provider, and is attributed to `provider.actor`.
+   - The overlap guard at `server.ts:102` doesn't refuse empty, whitespace-only or padded tokens. Padded tokens can never match after the trim, so QM gets a 401.
+   - It also doesn't check the sidecar's own tokens (`upstream.token`, `tokens.members`, `ingest.tokens`).
+   - Fix: in `setGbrain`, require a non-empty list of non-empty tokens with no surrounding whitespace, and require `bearer` to be non-empty in the tap.
+
+2. **A token mismatch produces a silent zero (INVESTIGATE, medium).** A provider request whose bearer isn't in the static list falls through to `resolveActor` and gets a 401 at ~379, before any event is logged. That covers two cases: a client-credentials access token refreshed mid-trial, and a capture write credential nobody listed (the docs admit the second).
+   - QM swallows provider errors, so the trial goes on.
+   - `mechanism --provider-aware` never sees an event, so neither `MECH-CALLER-MISSING` nor `MECH-PROVIDER-OP-UNKNOWN` fires, and the table reports "provider recall 0 of N" as a real result.
+   - This needs a call when the wiring is designed: log a rejected-auth gbrain event in provider mode, and/or have the mechanism refuse a QM-provider trial whose consumer turn has no provider recall event.
+
+3. **Fact delivery is judged by substring (INVESTIGATE, medium).** `qmDelivery` marks a fact delivered when `delivered.includes(f.fact)`.
+   - In correction tasks, the needed and superseded facts are often near-duplicates. If the needed text is a prefix or substring of the superseded one ("Launch moved to Friday" inside "Launch moved to Friday at 3pm" returns true), the needed fact counts as delivered when the cap kept only the superseded row.
+   - Short facts also match unrelated text.
+   - This inflates `provider_delivered_needed`, `search delivered it` and `model read delivered it` silently, and the correction tasks are where this table matters most.
+   - Fix: match on row boundaries (the `Saved fact (...): <fact>` line or the row's end) rather than a bare substring.
+
+4. **A malformed result now crashes the request (FIXABLE, low).** `qmDelivery` reads `c.type` on each `result.content` entry. A `null` entry throws (confirmed: "null is not an object").
+   - `tagged` runs inside the logging loop after upstream has already answered. So in provider mode, a reply that used to pass through becomes an uncaught exception: the harness gets a 500 instead of gbrain's reply, and the rest of the batch goes unlogged.
+   - Fix: guard with `c && c.type === 'text'`.
+
+5. **Timeout drops lean towards "delivered" (INVESTIGATE, low).** `dropped: 'timeout'` compares the tap-side batch `latency_ms`, which is a lower bound on QM's session time, with `timeout_ms`. Calls just under the threshold at the tap but over it at QM count as delivered. The docs disclose this, but the bias only ever goes towards "delivered", so the report should state that direction.
+
+6. **The trust premise is unverified (INVESTIGATE, low).** The design depends on the model never seeing QM core's client credentials in `MEMORY_PROVIDER_CONFIG`. If QM gives the model any shell, file or env tool inside the container that holds that config, the model can present the provider token, and its own calls get tagged `provider`. This needs checking against QM b6786d67's tool set before a paid cell.
+
+7. **Nit (FIXABLE).** In the model-call branch, `JSON.stringify(structured ?? '')` records an empty result as `text_chars` and `delivered_chars` of 2 (the string `""`). The mechanism doesn't read it, but the event data is wrong.
+
+Recommendation: Fix the empty or whitespace provider-token acceptance at world/services/server.ts:102 and gbrain-tap.ts ~376 before merge, because a blank token in `provider.tokens` would let any client sending a blank bearer skip `resolveActor` and be recorded as QM's provider; the fix is a two-line validation, and findings 2 and 3 can be settled with the wiring since nothing turns provider mode on yet.

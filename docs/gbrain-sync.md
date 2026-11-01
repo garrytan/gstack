@@ -191,10 +191,20 @@ append commits. Git's default would conflict at the file tail, but the
 You shouldn't see conflict prompts. If you do (a real semantic conflict,
 like two machines editing the same plan), git will stop and prompt.
 
+When a push is rejected, brain-sync fetches and merges the other machine's
+commits itself. Local edits to files that merge would change are set aside
+and put back afterward, and a failed merge is aborted, so `~/.gstack` never
+holds conflict markers. If a local edit conflicts with the other machine's
+change, the other machine's version stays in the working tree and your edit
+is kept in a git stash; `gstack-brain-sync --status` names the stash and the
+`git -C ~/.gstack --literal-pathspecs restore --source=<stash> -- <path>`
+command that brings it back.
+
 JSON files such as `developer-profile.json` have no merge driver, so a
-merge can leave conflict markers in them. The sync parses every staged
-`.json` file and holds back one that does not parse (status `held`, rule
-`invalid-json`) until you repair it, and `gstack-doctor` warns when a synced profile or
+merge run by hand in `~/.gstack`, or one left by an older gstack, can leave
+conflict markers in them. The sync parses every staged `.json` file and
+holds back one that does not parse (status `held`, rule `invalid-json`)
+until you repair it, and `gstack-doctor` warns when a synced profile or
 decision snapshot holds conflict markers.
 
 ## Cross-machine pull cadence

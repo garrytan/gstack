@@ -75,10 +75,10 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | Key | Meaning |
 |---|---|
 | `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
-| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences) |
+| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
-| `warn` | check ids downgraded to warn; `secrets` and required lanes never |
+| `warn` | check ids downgraded to warn; `secrets` and required lanes never. `"lanes"` downgrades only a touched file with no lane: the selected tests still run, a red lane stays `fail` (`PREGATE_LANE_FAILED`) and an unfinished one `incomplete`; a green run is `warn` `PREGATE_NO_LANE` naming the unmapped files |
 | `strays.allow` | intentional root files or new top-level directories |
 | `local` | `workflow.yml/job` lanes a local run satisfies: a platform-agnostic toolchain (an `ubuntu-latest` suite that runs the same on a Mac), or a repo whose CI is off. Their tests run here instead of becoming `requires-remote`, except that on a machine under 8 cores with a `remote_gate` or a remote `test_backend` the small-machine rule still records the test tier as a `requires-remote` obligation. `--explain` notes an id that matches no workflow lane |
 | `guards` | `[{ id, when: [globs], command, fix?, timeout_s? }]`: repo commands a lane must pass when a touched file matches `when` (manifest checks, subprocess goldens the import graph cannot see); see [guards](#guards) |
@@ -140,6 +140,19 @@ Once any policy exists (committed on the base, or the user-owned file), an
 unmapped file is `PREGATE_NO_LANE` again: the warning is for the first /ship
 in a new repository (three Captains lost their first pass to it), never a way
 to hide missing coverage. `--policy-from head` with a head policy is strict too.
+
+<a id="lane-requirements"></a>
+**Lane requirements.** "Any policy" above means a policy that declares lanes:
+one with a `dependencies`, `empty_lanes`, `selection` or `local` key, even an
+empty one (`gstack-pregate init` writes the first three). A policy with none of
+them, such as
+`{"timeout_s": 1800}` to give long tests more time, keeps the no-policy lane
+verdicts: an unmapped file is the `warn` `PREGATE_NO_POLICY`, the selected
+tests run, a red lane is `fail`, and the starter says the active policy
+declares no lanes instead of claiming there is none. So raising
+`timeout_s` never needs a `"**": []` catch-all. Add `dependencies` when you
+want unmapped files to fail. The same rule applies to the user-owned file and to
+a `--policy-from head` bootstrap (gbrain-evals #272, GST-775).
 
 `gstack-pregate init` writes a draft built from the repo, not a fixed example.
 It prints the languages it found and the runner each language's tests would
@@ -266,9 +279,10 @@ Two stages with separate clocks, both printed:
   `.cjs`, `.mts`, `.cts`, then `index.ts`, `index.tsx`, `index.js`, `index.jsx`
   and `index.mjs` inside the directory; the first file that exists wins.
   A touched source file with no lane is `FAIL lanes — <file> has no test lane`
-  once any policy exists (the base copy, the user-owned file or `--policy-from
-  head`); with no policy anywhere it is the `warn` `PREGATE_NO_POLICY` with a
-  starter printed ([no policy](#no-policy)); never a pass. Markdown that no
+  once a policy that [declares lanes](#lane-requirements) exists (the base copy,
+  the user-owned file or `--policy-from head`); with no policy anywhere, or one
+  that declares no lanes, it is the `warn` `PREGATE_NO_POLICY` with a starter
+  printed ([no policy](#no-policy)); never a pass. Markdown that no
   test depends on is a docs/no-tests empty lane
   instead (`docs/no-tests: N documentation file(s)`), including when the base
   branch has no `.gstack/pregate.json`. The dependency is the same import graph

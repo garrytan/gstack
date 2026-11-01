@@ -825,6 +825,198 @@ describe('gstack-brain-sync per-file hold', () => {
     expect(remoteFiles()).not.toContain(CLEAN);
   });
 
+  describe('a rejected push merges the remote without wedging (#3704)', () => {
+    const SHARED = 'developer-profile.json';
+    const OTHER = 'projects/p/ceo-plans/other.md';
+    function peerCommit(p: string, body: string) {
+      const peer = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-peer-'));
+      try {
+        expect(git(['clone', '-q', bareRemote, peer]).status).toBe(0);
+        fs.mkdirSync(path.dirname(path.join(peer, p)), { recursive: true });
+        fs.writeFileSync(path.join(peer, p), body);
+        expect(git(['add', '-f', '--', p], peer).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', `peer ${p}`], peer).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], peer).status).toBe(0);
+      } finally {
+        fs.rmSync(peer, { recursive: true, force: true });
+      }
+    }
+    function setup() {
+      init();
+      write(SHARED, '# shared v1\n');
+      write(OTHER, '# other v1\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      // The retry merge commits with the ambient identity; a CI runner has none.
+      expect(git(['config', 'user.name', 'fixture']).status).toBe(0);
+      expect(git(['config', 'user.email', 'fixture@example.com']).status).toBe(0);
+    }
+    const unmerged = () => git(['ls-files', '--unmerged']).stdout.trim();
+    const mergeHead = () => fs.existsSync(path.join(tmpHome, '.git', 'MERGE_HEAD'));
+
+    test('a dirty tracked file the remote did not touch rides through the merge', () => {
+      setup();
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(OTHER, '# other, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+    });
+
+    /** The restore command the status names, run as printed. */
+    function recover(message: string) {
+      const m = /get them back: (git -C \S+ --literal-pathspecs restore --source=([0-9a-f]{40}) -- .+?)\)/.exec(message);
+      expect(m).not.toBeNull();
+      const r = spawnSync('bash', ['-c', m![1]], { encoding: 'utf-8', timeout: 30_000 });
+      expect(r.status).toBe(0);
+      return m![2];
+    }
+
+    test('a dirty tracked file the remote also changed no longer leaves the push failed', () => {
+      setup();
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      // The merged version stays in the working tree: no conflict markers,
+      // nothing staged, and nothing stale for a later sync to publish.
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+      expect(unmerged()).toBe('');
+      expect(staged()).toBe('');
+      expect(s.message).toContain(`local edits to ${SHARED} conflicted`);
+      const sha = /saved in stash ([0-9a-f]{40})/.exec(s.message)?.[1];
+      expect(sha).toBeTruthy();
+      // A second sync run (same file re-queued, plus another) keeps the peer's
+      // edit on the remote and the stashed local edit intact.
+      run(['gstack-brain-enqueue', SHARED]);
+      write(OTHER, '# other v2\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      expect(git(['show', `${sha}:${SHARED}`]).stdout).toBe('# shared, local edit not queued\n');
+      // The printed command brings the local edit back.
+      expect(recover(s.message)).toBe(sha!);
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a local deletion of a file the remote changed keeps the remote file and stashes the deletion', () => {
+      setup();
+      peerCommit(SHARED, '# shared from the peer\n');
+      fs.rmSync(path.join(tmpHome, SHARED));
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+      expect(unmerged()).toBe('');
+      expect(s.message).toContain(`local edits to ${SHARED} conflicted`);
+      recover(s.message);
+      expect(fs.existsSync(path.join(tmpHome, SHARED))).toBe(false);
+    });
+
+    test('a local edit of a file the remote deleted keeps the deletion and stashes the edit', () => {
+      setup();
+      const peer = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-peer-'));
+      try {
+        expect(git(['clone', '-q', bareRemote, peer]).status).toBe(0);
+        expect(git(['rm', '-q', '--', SHARED], peer).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'peer rm'], peer).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], peer).status).toBe(0);
+      } finally {
+        fs.rmSync(peer, { recursive: true, force: true });
+      }
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(remoteFiles()).not.toContain(SHARED);
+      expect(fs.existsSync(path.join(tmpHome, SHARED))).toBe(false);
+      expect(unmerged()).toBe('');
+      recover(s.message);
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a conflicting file whose name looks like a pattern resets only itself', () => {
+      setup();
+      const GLOB = '[d]eveloper-profile.json';
+      peerCommit(GLOB, '# glob v1\n');
+      expect(git(['fetch', '-q', 'origin']).status).toBe(0);
+      expect(git(['merge', '-q', '--ff-only', 'origin/main']).status).toBe(0);
+      peerCommit(GLOB, '# glob from the peer\n');
+      write(GLOB, '# glob, local edit not queued\n', false);
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('ok');
+      expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      recover(s.message);
+      expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a file that never checks out clean does not strand the other local edits', () => {
+      setup();
+      const CRLF = 'projects/p/ceo-plans/crlf.md';
+      write(CRLF, '# crlf\r\nline\r\n');
+      expect(drain().status).toBe(0);
+      fs.mkdirSync(path.join(tmpHome, '.git', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, '.git', 'info', 'attributes'), '*.md text eol=lf\n');
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(OTHER, '# other, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteFiles()).toContain(CLEAN);
+      expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other, local edit not queued\n');
+      expect(git(['stash', 'list']).stdout.trim()).toBe('');
+    });
+
+    test('a stash push that saves nothing never pops an older stash entry', () => {
+      setup();
+      write(OTHER, '# other, older stashed work\n', false);
+      expect(git(['stash', 'push', '-q', '-m', 'older work']).status).toBe(0);
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(SHARED, '# shared, local edit not queued\n', false);
+      write(CLEAN, '# a plan\n');
+      const shim = gitShim('case " $* " in *" stash push "*) exit 0;; esac');
+      expect(drain(shim.env).status).toBe(0);
+      expect(statusJson().status).toBe('push_failed');
+      expect(git(['stash', 'list']).stdout).toContain('older work');
+      expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other v1\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+    });
+
+    test('a conflicting merge is aborted and git\'s reason reaches the status', () => {
+      setup();
+      peerCommit(SHARED, '# shared from the peer\n');
+      write(SHARED, '# shared, local commit\n');
+      expect(drain().status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('push_failed');
+      expect(s.message).toContain(`Merge conflict in ${SHARED}`);
+      expect(mergeHead()).toBe(false);
+      expect(unmerged()).toBe('');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local commit\n');
+      // The next drain is not blocked by a half-finished merge.
+      write(OTHER, '# other v2\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().message).not.toContain('unmerged');
+      expect(statusJson().message).toContain(`Merge conflict in ${SHARED}`);
+    });
+  });
+
   test('a git add failure is reported, never swallowed', () => {
     if (!canRevokeWrites()) return; // chmod is advisory here (win32, root)
     init();

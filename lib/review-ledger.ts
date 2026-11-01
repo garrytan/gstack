@@ -64,7 +64,18 @@ const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
 const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\s+\\**(?:${LABELS}|yes|no)(?![A-Za-z0-9]))`, 'i');
 
-export interface MergedLine { id: string; reader: string; label: string; raw: string; output_sha256: string }
+/** The severity and Blocks a prose finding's own fields state (GST-766): recorded beside the collected label, never in its place. */
+export interface Stated { severity?: string; blocks?: string }
+const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
+const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
+function stated(raw: string): Stated | undefined {
+  if (raw.startsWith('{')) return undefined;
+  const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
+  const blocks = [...raw.matchAll(STATED_BLOCKS)].at(-1)?.[1]?.toLowerCase();
+  return severity || blocks ? { ...(severity ? { severity } : {}), ...(blocks ? { blocks } : {}) } : undefined;
+}
+
+export interface MergedLine { id: string; reader: string; label: string; stated?: Stated; raw: string; output_sha256: string }
 
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
@@ -164,7 +175,10 @@ export function collect(ledger: string, reader: string, output: string, mergedFi
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
   const wrongTree = !unavailable && tree !== undefined && !tree.ok;
-  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output).map((f, i) => ({ id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: sha }));
+  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output).map((f, i) => {
+    const s = stated(f.raw);
+    return { id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, ...(s ? { stated: s } : {}), raw: f.raw, output_sha256: sha };
+  });
   const review = !unavailable && !wrongTree && (lines.length > 0 || hasCleanMarker(reader, output));
   fs.appendFileSync(mergedFile, lines.map(l => JSON.stringify(l) + '\n').join(''), { mode: 0o600 });
   appendEvent(ledger, { event: 'output', reader, sha256: sha, file: outputFile ? path.resolve(outputFile) : null, merged: path.resolve(mergedFile), ids: lines.map(l => l.id), review, ...(unavailable ? { unavailable } : {}),
