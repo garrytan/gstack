@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { RESOLVERS } from '../scripts/resolvers';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
+import { applySessionGuards } from '../scripts/resolvers/unattended';
 import { qaProbeNames } from './helpers/qa-probe-names';
 
 const root = join(import.meta.dir, '..');
@@ -14,7 +15,7 @@ function context(host: string, skillName: string): TemplateContext {
 }
 
 function render(file: string, ctx: TemplateContext): string {
-  let body = readFileSync(join(root, file), 'utf8');
+  let body = applySessionGuards(readFileSync(join(root, file), 'utf8'), ctx);
   for (let pass = 0; pass < 10; pass++) {
     const next = body.replace(/\{\{([A-Z_]+)(?::([^}]+))?\}\}/g, (_match, name, args) => {
       if (!RESOLVERS[name]) throw new Error(`Unknown resolver ${name}`);
