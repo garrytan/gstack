@@ -156,6 +156,8 @@ const REQUIRED_KEYS = [
   'TODOS_FILE',
   'SKILL_USAGE_LOG',
   'EUREKA_LOG',
+  'FRICTION_SOURCES',
+  'FRICTION',
   'RETRO_METRICS_END',
 ] as const;
 
@@ -259,6 +261,63 @@ describe('gstack-retro-metrics behavior', () => {
     } finally {
       fs.rmSync(path.join(tmpGstackHome, 'greptile-history.md'), { force: true });
       fs.rmSync(path.join(tmpGstackHome, 'analytics'), { recursive: true, force: true });
+    }
+  });
+
+  test('friction lines count this project only, within the window', () => {
+    const slug = execFileSync(path.join(ROOT, 'bin', 'gstack-slug'), ['--get', 'SLUG'], {
+      encoding: 'utf-8', cwd: repoDir, env: hermeticEnv(), timeout: 10_000,
+    }).trim();
+    const projects = path.join(tmpGstackHome, 'projects');
+    const line = (o: Record<string, unknown>) => JSON.stringify(o) + '\n';
+    fs.mkdirSync(path.join(projects, slug), { recursive: true });
+    fs.mkdirSync(path.join(projects, 'other-project'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projects, slug, 'timeline.jsonl'),
+      line({ skill: 'ship', event: 'started', session: 's1', ts: '2026-03-10T12:00:00Z' }) +
+        line({ skill: 'ship', event: 'completed', outcome: 'abort', session: 's1', ts: '2026-03-10T12:30:00Z' }) +
+        line({ skill: 'ship', event: 'completed', outcome: 'error', ts: '2020-01-01T00:00:00Z' }),
+    );
+    fs.writeFileSync(
+      path.join(projects, slug, 'question-log.jsonl'),
+      line({ skill: 'ship', source: 'agent', session_id: 'A', question_id: 'ship-x', ts: '2026-03-10T12:10:00Z' }) +
+        line({ skill: 'unknown', source: 'hook', session_id: 'claude-uuid', tool_use_id: 't1', ts: '2026-03-10T12:10:00Z' }),
+    );
+    fs.writeFileSync(
+      path.join(projects, 'other-project', 'timeline.jsonl'),
+      line({ skill: 'qa', event: 'completed', outcome: 'error', ts: '2026-03-10T12:00:00Z' }),
+    );
+    try {
+      const untracked = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00']);
+      expect(untracked).toMatch(/^FRICTION_SOURCES: timeline=present questions=absent$/m);
+      expect(untracked).toMatch(/^FRICTION: \/ship score=1 runs=1 questions=0 typed=0 errors=0 aborts=1$/m);
+      execFileSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'question_tuning', 'true'], {
+        encoding: 'utf-8', cwd: repoDir, env: hermeticEnv(), timeout: 10_000,
+      });
+      const out = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00']);
+      expect(out).toMatch(/^FRICTION_SOURCES: timeline=present questions=present$/m);
+      expect(out).toMatch(/^FRICTION: \/ship score=2 runs=1 questions=1 typed=0 errors=0 aborts=1$/m);
+      expect(out).not.toMatch(/^FRICTION: \/qa /m);
+      expect(out).not.toMatch(/^FRICTION: \/unknown /m);
+      const prior = runMetrics(['--base', 'main', '--since', '2026-03-01T00:00:00', '--until', '2026-03-08T00:00:00']);
+      expect(prior).toMatch(/^FRICTION: none$/m);
+    } finally {
+      fs.rmSync(projects, { recursive: true, force: true });
+      fs.rmSync(path.join(tmpGstackHome, 'config.yaml'), { force: true });
+    }
+  });
+
+  test('a failing bun prints FRICTION: unavailable and the script still ends ok', () => {
+    const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-rm-fakebun-'));
+    fs.writeFileSync(path.join(fakeBin, 'bun'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    try {
+      const out = execFileSync(SCRIPT, ['--base', 'main', '--since', '2026-03-09T00:00:00'], {
+        encoding: 'utf-8', cwd: repoDir, env: { ...hermeticEnv(), PATH: `${fakeBin}:${process.env.PATH}` }, timeout: 30_000,
+      });
+      expect(out).toMatch(/^FRICTION: unavailable \(friction helper failed\)$/m);
+      expect(out).toMatch(/^RETRO_METRICS_END: ok$/m);
+    } finally {
+      fs.rmSync(fakeBin, { recursive: true, force: true });
     }
   });
 

@@ -2,28 +2,27 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 # /ship driver: run /ship from a parent agent
 
-Read this instead of `ship/SKILL.md` when a parent agent on any host runs /ship
+Read this, not `ship/SKILL.md`, when a parent agent on any host runs /ship
 (`SESSION_KIND: unattended`). Commands live in `<root>/bin/` (`<root>` holds `ship/`); run each with
-the `GSTACK_LAUNCH` assignments your installer printed (`. <the GSTACK_LAUNCH_FILE it printed>`), never
+the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FILE>`), never
 `export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.
 
 **Rules.** Each phase below is one call: one program (Capy: an execute program; else a
 script) that runs the bins, reads, dispatches and waits, returning only result lines and reader
-outputs; print them verbatim. The model keeps only lead judgment, fixes, CHANGELOG and PR prose, the
+outputs; print them verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
 gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
-there, come back. Unattended, a question with a recommended option takes it (log it); a gate
-disposition and every approval stay pending and end the run. Keep a private invocation record (the
-`--record` file): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
+there, come back. Unattended, take a question's recommended option (log it); gate
+dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Scope Check:`), **Decisions** (any
-phase: each answered or auto-taken question, in its words), **Reviews** (Phases 3-5: the plan line,
+phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
 
 **Reviewers are the sections' own.** Every audit, specialist, Red Team, QA, fix-check, adversarial,
-outside-voice and documentation brief, its severity and confidence rules and its gates come from its
-section verbatim, with only its placeholders filled; this file
+outside-voice and documentation brief, its severity and confidence rules and gates come from its
+section verbatim (placeholders filled); this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
 file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 9.2.1, 14.5) cannot block, so each runs on a
 small model at low effort; their findings go to the PR body.
@@ -33,20 +32,22 @@ section read or a fix-check, plus a keep-alive per 200 s waited. A fix repeats P
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
-(Capy: your jam's `cost.tokens`, `cost.credits`). No check per step, no reservation, no meter-only
+(Capy: `cost.tokens`, `cost.credits`). No check per step, no reservation, no meter-only
 call, no handoff; under `--token-cap` a note past the cap prints `verdict=stop`, the one stop check.
-A dispatching program takes `BEFORE` (R and C) as its readers start and passes
+A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
 call resumes the poll. Lanes, pregate and `finish` run in background. Never end the turn while
 readers run (each wakes it). A small waiting child saves nothing. Past 100 minutes, stop. Returns:
-≤32 KB per program; split longer reads at headings, each byte once, before first use.
+≤32 KB per program; split longer reads at headings, each byte once, before first use: phase programs
+end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - its output>`; on
+`NEXT: parts` run it alone.
 
 **One program per pass.** Each review pass, Step 11 and the Step 14.5 audit is one program, and the
 parent makes no other call while it runs: (1) `gstack-review-dispatch pass`: `gstack-review-plan --base <base>`
 with the pass's flags, then its staged manifest (Step 14.5 has one reader, `docs`); (2) `gstack-review-log --start
-<skill>` once per row the step logs (Step 14.5 takes none); (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
+<skill>` once per row the step logs; (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
 subagent per reader on its rendered file;
 (5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`
 has not run); (6) `note` with the reading pair; a later batch (the Red Team,
@@ -55,31 +56,29 @@ final output and status, via `collect`; it never walks the dispatch steps call b
 
 ## 1. Load: Step 0
 
-The install check and this file.
+Install check, this file.
 
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --lane <label>=<command>...` (the test commands AGENTS.md or
-CLAUDE.md names). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+`gstack-ship-preflight --base <base> --lane <label>=<command>...` (AGENTS.md or CLAUDE.md test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown`
 is `count unavailable`. In-branch failures stop; after a repair, rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
-record `evals: none affected`. Steps 6.5 and 10 run only if `gstack-greptile-early detect` finds
+record `evals: none affected`. Steps 6.5 and 10 run if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map, the
-plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read
-`sections/review-army.md`, `sections/adversarial.md`, `sections/documentation.md`, the todos and commits
-files, and `sections/test-coverage.md` or `sections/plan-completion.md` only when its reader is `needed`.
+plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read the todos and
+commits files and `sections/test-coverage.md` or `sections/plan-completion.md` only when its reader is
+`needed`.
 Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never replaces Step 9.
 
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
 
 One program: the audit readers `READER:` names (Step 7 from `sections/test-coverage.md`, Step 8 from
 `sections/plan-completion.md`, each run as written; Step 7 may write tests, so it settles first), Step 9.2.1's QA reader (that step of
-`sections/review-army.md` as its brief) and the pass (above): Step 9's plan and start, Step 9.1's
-specialists and Step 9.2's Red Team as written. `Coverage:` and Step 8's line come from `--audit` when no
+`sections/review-army.md` as its brief) and the pass (above): Steps 9-9.2 as written. `Coverage:` and Step 8's line come from `--audit` when no
 reader ran.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
@@ -88,7 +87,8 @@ Steps 8.1 and 8.2 (`Scope Check:`) on the todos and commits files, then the core
 9.3, 9.4 and the repeat decision as written (`gstack-review-plan` included;
 `JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
-`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated; `done`: the same program runs Step 11 from
+`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5); `fix-check`: the
+pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done`: that program runs Step 11 from
 `sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (neither
 prints `ADVERSARIAL: skipped (review plan)`).
 

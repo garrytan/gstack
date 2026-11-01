@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.92.30.0] - 2026-11-01
+
+**The free suite's shards finish closer together: slow test files are split and the packer plans from fresh timings.** The committed duration seed was missing more than a hundred free test files, so CI guessed the same time for every shard and the slowest shard ran far past the mean. No product code changed. Every split file runs the same tests as before.
+
+### Changed
+- **Split free test files.** Each of these went over the 60 s seed ceiling and is now two to five files, with test bodies moved unchanged and shared setup moved into `test/helpers/`: `test/host-renders-prune.test.ts`, `test/ship-queue-train.test.ts`, `test/claude-overlay-setup-lifecycle.test.ts`, `test/claude-overlay-setup-installs.test.ts`, `test/setup-codex-scope-namespaces.test.ts`, `test/setup-codex-scope-review-boundaries.test.ts`, `test/docsync-fault-interface.test.ts`, `test/shared-libs-checker-interface-evidence.test.ts` and `test/ubicloud-runner.test.ts`. The last one was 127 s and is now five files of 16 to 31 s, with its fake Ubicloud API and fake VM in `test/helpers/ubi-runner-fake-vm.ts`.
+- **Windows lane.** `test/gstack-doctor.test.ts`, the Windows lane's longest file, is now three files.
+- **Duration seeds.** `scripts/free-test-durations.json` (1,470 Linux files) and `scripts/free-test-durations-windows.json` (822 curated Windows files) were re-recorded at this branch by `free-durations-record.yml` run 41229924108. Linux files over 5 s recorded a median 1.26x slower than this branch's earlier recording on 2026-10-29 (run 40818261447). A second recording, run 41226501374, matched that at 1.29x, so the slowdown is the runner's current speed, not one noisy run.
+
+### Gate integrity
+- `scripts/free-test-seed-allowlist.json` is unchanged from main. `test/setup-codex-scope.test.ts` stays on it at 77 s. No entry was added.
+- `scripts/lib/windows-curation.ts` gives each new part the same Windows scope as the file it came from. `test/ubicloud-runner-tiers.test.ts` gets an explicit exclusion, because its shims now live in a helper the source scan doesn't read.
+- `test/test-of-test-ratchet.test.ts` lists the split files whose product reach now lives in a shared helper, each with its reason. `scripts/typecheck-test-baseline.json` moves one known diagnostic, with its code, into `test/helpers/shared-libs-checker-evidence.ts`.
+
+## [1.92.29.0] - 2026-11-01
+
+- `/ship`'s review collector no longer turns a severity word in a negation into a finding. A fix-check reader that closed with "found nothing CRITICAL" was recorded as a CRITICAL finding with no file or line, and the judge can't drop a finding, so the run carried a phantom blocker that could stop the review loop at its cap (GST-766, from GEVA-92 on gstack-evals #108). A label right after "no", "nothing", "not", "none", "zero", "without" or "never" (optionally followed by a word like "new" or "remaining", and through Markdown emphasis or brackets), and a label joined to it by a comma, a slash, "or", "nor" or "and", now counts as no finding. A label that opens a field ("High: …") is still collected, and a prose finding worded around a negated label still arrives through its Severity or Blocks field.
+- Each finding `/ship` collects now keeps the severity and Blocks its reviewer wrote (`stated` in merged.jsonl), and a deferred-review issue for a finding that carries them shows them next to the collected label, as in "CRITICAL (the reviewer wrote Severity: Low, Blocks: no)". Step 9.4 doesn't copy `stated` into its findings file yet, because that instruction lives in a reviewer brief that can change only after a no-loss replay. HARN-1 and GSTA-135 saw FIXABLE findings collected as CRITICAL while the reviewer's text said "Severity: Low. Blocks: no.", and nothing in the run showed the disagreement. What blocks a review pass is unchanged.
+
+## [1.92.28.0] - 2026-11-01
+
+**A PR reviewed before #3654 keeps its /ship receipt after it merges main and moves its entry into `changelog.d/` (GST-343, #3606).** #3656 taught carry that a fragment is release metadata, but the base merge also brought in `changelog.d/README.md`. Carry counted that README as a product change, dropped the fragment rule for the whole range, and refused with RECEIPT_CARRY_PRODUCT_CHANGED although the product patch-id was unchanged.
+
+### Fixed
+- **Only the branch's own changes turn release-metadata paths back into product** (`bin/gstack-ship-receipt`). A metadata path whose change is not a stamp still counts as product when the branch changed it against the base. A change a base merge brought in no longer does, because its patch against the base is the same at both heads. A README edit the PR makes itself is still refused. Replayed on #3606 (49666bc8 to e28bb62): carry now reports "base merge + release metadata".
+
+### Tests
+- `test/gstack-ship-receipt.test.ts`: the fragment carry case now adds `changelog.d/README.md` on main together with the policy, the way #3654 did. It failed before this fix with RECEIPT_CARRY_PRODUCT_CHANGED.
+
+## [1.92.27.0] - 2026-11-01
+
+**/ship on Capy no longer spends calls reading its review sections.** In the GSTA-193 replay of PR #34 (C1-34), 13 of 42 parent calls only read part of a section (review-army.md, the core checklist, Steps 8.1-8.2, adversarial.md, documentation.md) or ran a step that belonged in the next program. Each phase program now ends by returning the next phase's sections, unchanged and split at headings, in the space its own 32 KB return has left. What reviewers see, which reviewers run, their depth and the blocking floor are unchanged.
+
+### Added
+- **`gstack-ship-parts next --run <run dir> --phase <n> --room <bytes>`** returns the section parts the next phase uses, in run order, each byte once per run. A part due before that phase that did not fit is named, with `NEXT: parts` and the one call that fetches it. review-army.md, adversarial.md, documentation.md and review/checklist.md are covered whole, and Steps 8.1-8.2 of plan-completion.md exactly. A renamed split heading stops the run with the heading and file named.
+- **The Capy pass program** adds those parts to each poll and finished-pass return once Phase 2 has started them, so Phase 4's judgment and Step 11's synthesis need no read call of their own.
+
+### Fixed
+- **Step 14.5 runs through the pass program.** `gstack-review-dispatch pass --audit-only` makes the docs reader the whole pass, with no reviewer plan, and the program uses it when `step` is `14.5`. Before, the driver named a one-reader program the bin could not build (GSTA-196 replay of PR #36).
+- **Decision 3.5's fix-check runs through the pass program.** `gstack-review-dispatch pass` now builds a fix-check plan, rendering the reader from `--fix-list`, `--hunks`, `--tests` and `--callers`, byte for byte the brief `render --role fix-check` writes. The program takes them as `fixCheck` and runs the plan's voices in the same call. Before, the parent walked the fix-check by hand.
+- **Step 11's budget note counts only Step 11.** The voices stage keeps its own starting reading (`mark --before … --voices`). Before, it reused the pass's reading, so the GSTA-196 replay's Step 11 note showed 16.64M tokens against 4.17M of real growth.
+- **`gstack-ship-budget calls --events ~/…` finds the file.** A leading `~` or `~/` now means the home directory. Before, a literal `~` from a transcript path failed the read, so the run reported no `CALLS:` line (gstack-evals#94, GST-438).
+- **A repeat pass reads the range, as the sections say.** The pass program takes `diffBase` and passes it as `--diff-base`; the driver and the Capy loader set it to RANGE_BASE on pass 2 and later, so specialists, the Red Team and Step 11's voices get `DIFF_BASE=<RANGE_BASE>` byte for byte as `render` writes it. The targeted reader keeps the merge base. Before, every pass read the whole branch. The GSTA-197 replay's pass 2 re-sent pass 1's brief and its readers used 10.42M tokens against pass 1's 4.68M.
+- **Step 11 records a start for each row it logs.** Two `logStart` entries for one skill (the native and outside `adversarial-review` rows) now each take their own `gstack-review-log --start` token. Before, the second was dropped as a repeat.
+- **The pass finds its fork point against origin/<base>, as preflight does.** With no local `main`, or one behind origin/main, `gstack-review-dispatch pass` used to stop on "no merge base" or review from the stale branch. It now tries `origin/<base>` first, the way `render` and preflight already do (GSTA-198 replay).
+- **A section return that never reached the parent can be fetched again.** `gstack-ship-parts next` now marks what it returns as sent, the next call promotes it, and `next --resend` (the pass program's `resendParts`) sends it again. Its `PARTS:` and `NEXT: parts` lines count against `--room`, the run directory in the `NEXT: parts` command is shell-quoted, a corrupt `state.json` stops with its path, and Step 11's sections are due by Phase 4, where Step 11 runs. The pass program keeps its last `NEXT:` line when its return is capped and prints `PARTS: skipped (…)` when it finds no parts state. Before, a lost or capped return dropped section text or the next step without a trace (PR #3670 review).
+- **A scoped repeat pass leaves its fix-check to Step 3.5.** After main's GST-619, a scoped pass stages its readers on the fix range and names its fix-check outside the manifest; the pass program takes `fixCheck` files only on a `fix-check` step. The driver and the Capy skill pass `diffBase` on a full repeat pass only, so a scoped pass's pending Step 11 voices keep the merge base and only its Red Team reads the fix range.
+
+## [1.92.26.0] - 2026-11-01
+
+**/retro shows which skills fought you this week: a "Friction by skill" row lists the top three skills by questions asked, errors and aborts in this project.** Before, /retro counted skill runs but said nothing about which skills caused back-and-forth, so a skill that kept stopping to ask questions or kept failing never showed up in the report you use to decide what to fix next.
+
+### Added
+- **`gstack-retro-metrics` prints `FRICTION:` lines** (top three skills, with runs, questions, typed answers, errors and aborts) plus a `FRICTION_SOURCES:` line, computed by `lib/retro-friction.ts` for the exact retro window. Runs and outcomes come from this project's `timeline.jsonl`, which is written on every run whether or not telemetry is on, unattended sessions included. Questions come from this project's question log when question tuning is on; when it is off, the row says questions are not tracked instead of showing zero. Only outcomes actually recorded as error or abort count, machine-made answers are not counted as questions, and questions the Claude Code hook logs without knowing which skill asked are left out, so no question counts twice and no `/unknown` row appears. Another project's logs never count. If Bun is missing or the helper fails, the script prints `FRICTION: unavailable` and the rest of the metrics are unchanged.
+- **/retro shows a "Friction by skill" row** when any skill had friction in the window, for example `/ship 7 in 12 runs (4 questions, 3 aborts)`.
+
+### Changed
+- **/retro's optional-input notes are shorter**: each one says "Read the path it prints" instead of repeating the path, which keeps /retro's always-loaded prompt under its size cap with the new row.
+
+### Tests
+- `test/retro-friction.test.ts`: window edges, explicit outcomes only (the stop hook's `unknown` completions are ignored), hook rows taking precedence over agent rows, hook rows with no skill left out, repeated tool calls, machine answers, unsafe skill names, malformed lines, ties and the top three.
+- `test/gstack-retro-metrics.test.ts`: a project with both logs plus another project's timeline (not counted), an empty prior window, and a failing `bun` that still ends with `RETRO_METRICS_END: ok`.
+
+Thanks to @thesohamdatta for the idea in #3417. This is a new implementation; no code from that PR was used.
+
 ## [1.92.25.0] - 2026-11-01
 
 - In a repository that merges the base during `/ship` (any `queue_mode` but `stamp-at-merge`), Step 3 now stops by name when an earlier merge, cherry-pick or revert is still unfinished (`STOP: an unfinished cherry-pick is in progress (CHERRY_PICK_HEAD): …`), with any conflicted files listed, and runs no `git merge`. Conflicted files left with no operation in progress, as after a conflicted `git stash pop`, stop with those files named instead of a merge message. Before, both fell through to `git merge`, so on a machine whose shared-tree guard refuses `git merge`, the guard's refusal was the only message (GST-732). A branch or tag named `MERGE_HEAD`, `CHERRY_PICK_HEAD` or `REVERT_HEAD` is not mistaken for one. The ship skill's Step 3 now names the `MERGE: up to date` outcome.
