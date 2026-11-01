@@ -34,9 +34,10 @@ function seedMain(fx: TrainFixture, files: Record<string, string>, message = 'se
   fx.repo.git('fetch', '-q', 'origin');
 }
 
-/** A READY PR off main writing (or, for null, deleting) files, with green CI and a READY receipt at its head. */
-function readyPr(fx: TrainFixture, n: string, files: Record<string, string | null>): string {
-  fx.repo.git('checkout', '-q', 'origin/main', '-B', `pr-${n}`);
+/** A READY PR off main (or, orphan, with no history in common with main) writing (or, for null, deleting) files, with green CI and a READY receipt at its head. */
+function readyPr(fx: TrainFixture, n: string, files: Record<string, string | null>, orphan = false): string {
+  if (orphan) { fx.repo.git('checkout', '-q', '--orphan', `pr-${n}`); fx.repo.git('rm', '-rqf', '.'); }
+  else fx.repo.git('checkout', '-q', 'origin/main', '-B', `pr-${n}`);
   for (const [f, t] of Object.entries(files)) {
     if (t === null) { fs.rmSync(path.join(fx.repo.work, f)); continue; }
     fs.mkdirSync(path.dirname(path.join(fx.repo.work, f)), { recursive: true });
@@ -362,6 +363,10 @@ describe('ready and train build read the wave', () => {
       `NOT_MERGEABLE: #1 (conflicts with origin/main at ${conflicting.slice(0, 12)} in lib/ship-a.ts; left out until the head merges cleanly onto main)`,
     ]);
     expect(line(plan.out, 'QUEUE:')).toContain('1 live READY PR(s)');
+    readyPr(fx, '3', { 'lib/ship-c.ts': 'export const c = 3;\n' }, true);
+    const unread = queue(fx, ['wave', 'plan']);
+    expect([unread.status, unread.err]).toEqual([EXIT.fail, expect.stringContaining('(QUEUE_PROOF_MISSING')]);
+    expect(unread.err).toContain('#3 (merge onto main unreadable: (git merge-tree failed');
   }, 180_000);
 
   test('wave plan links a rename with an edit of the old path that conflicts with it, not with an edit that merges cleanly, and prints a cluster over --max as WAVE_OVERSIZE with no build command (GST-770 follow-up)', () => {
