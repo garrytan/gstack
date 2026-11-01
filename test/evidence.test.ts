@@ -74,6 +74,14 @@ describe('gstack-evidence run', () => {
     expect(fs.readFileSync(rec.log_path, 'utf-8')).toContain('ok');
   });
 
+  test('the lane command sees its own log path as GSTACK_EVIDENCE_LOG (the free runner\'s home tripwire excludes exactly that file)', () => {
+    const r = run(['run', '--label', 'focused', '--', 'printf "%s" "$GSTACK_EVIDENCE_LOG"']);
+    expect(r.status).toBe(0);
+    const rec = records().pop();
+    expect(path.isAbsolute(rec.log_path)).toBe(true);
+    expect(r.stdout).toBe(rec.log_path);
+  });
+
   test('propagates a failing exit code and records it', () => {
     const r = run(['run', '--label', 'tests', '--', 'exit 3']);
     expect(r.status).toBe(3);

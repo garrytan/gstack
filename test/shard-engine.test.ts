@@ -171,7 +171,10 @@ describe('shard engine: process lifecycle', () => {
     });
     expect(paid.status).toBe('timed-out');
     expect(summaryExitCode(summarize([paid]))).toBe(1);
-    expect(await waitDead(Number(fs.readFileSync(pidFile, 'utf8')))).toBe(true);
+    const paidChild = Number(fs.readFileSync(pidFile, 'utf8'));
+    const paidChildDead = await waitDead(paidChild);
+    const procStat = (pid: number) => { try { return fs.readFileSync(`/proc/${pid}/stat`, 'utf8').trim(); } catch { return 'no /proc entry'; } };
+    expect(paidChildDead, `paid grandchild ${paidChild} of group ${paid.groupPid} 2 s after the timeout kill: ${procStat(paidChild)}`).toBe(true);
   }, 30_000);
 
   test('win32 semantics: no process group and never a negative-pid kill', async () => {

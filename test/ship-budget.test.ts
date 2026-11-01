@@ -308,7 +308,7 @@ describe('Claude Code child launch', () => {
     const file = ho.out.match(/^HANDOFF: (\S+)/m)![1]!;
     const argsFile = path.join(h.root, 'claude-args.txt');
     const fake = path.join(h.root, 'fake-claude');
-    fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\n`, { mode: 0o755 });
+    fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}.tmp" && mv "${argsFile}.tmp" "${argsFile}"\n`, { mode: 0o755 });
     const r = h.sb(['launch', '--in', file], { GSTACK_CLAUDE_BIN: fake });
     expect(r.code).toBe(0);
     const session = h.field(r.out, 'CHILD', 'session');

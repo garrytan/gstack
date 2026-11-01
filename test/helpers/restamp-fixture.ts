@@ -32,6 +32,31 @@ export const BASE_POLICY = {
   stamp_sensitive_gates: ['digest'],
 };
 
+function fixtureGit(root: string) {
+  const home = path.join(root, 'home');
+  const work = path.join(root, 'work');
+  const env = { GSTACK_HOME: home, GSTACK_STATE_DIR: home, HOME: home, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (...args: string[]): string => {
+    const r = gitArgvIn(work, args, 30_000, { ...process.env, ...env });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr?.toString()}`);
+    return r.stdout?.toString().trim() ?? '';
+  };
+  return { env, git };
+}
+
+/**
+ * A private copy of a built fixture (origin, clone, home, and any files under its root), for a test file that
+ * would otherwise rebuild the same multi-second fixture in every test. Only the origin remote holds an absolute path.
+ */
+export function copyFixtureRepo(src: FixtureRepo, prefix = 'gstack-restamp-fx-'): FixtureRepo {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.cpSync(src.root, root, { recursive: true, preserveTimestamps: true });
+  const { env, git } = fixtureGit(root);
+  const origin = path.join(root, 'origin.git');
+  git('remote', 'set-url', 'origin', origin);
+  return { root, work: path.join(root, 'work'), origin, home: env.HOME, git, env };
+}
+
 export function makeFixtureRepo(opts: { policy?: Record<string, unknown> | null; version?: string; prefix?: string } = {}): FixtureRepo {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), opts.prefix ?? 'gstack-restamp-fx-'));
   const origin = path.join(root, 'origin.git');
@@ -39,13 +64,8 @@ export function makeFixtureRepo(opts: { policy?: Record<string, unknown> | null;
   const home = path.join(root, 'home');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(work, { recursive: true });
-  const env = { GSTACK_HOME: home, GSTACK_STATE_DIR: home, HOME: home, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const { env, git } = fixtureGit(root);
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n\temail = t@test\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n');
-  const git = (...args: string[]): string => {
-    const r = gitArgvIn(work, args, 30_000, { ...process.env, ...env });
-    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr?.toString()}`);
-    return r.stdout?.toString().trim() ?? '';
-  };
   spawnSync('git', ['init', '-q', '--bare', origin], { timeout: 30_000, env: { ...process.env, ...env } });
   git('init', '-q', '-b', 'main');
   const version = opts.version ?? '1.2.3.0';

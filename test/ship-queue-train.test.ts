@@ -35,13 +35,16 @@ const result = (out: string) => line(out, 'GSTACK_RESULT:');
 const next = (out: string) => line(out, 'NEXT:');
 const remoteRefs = (fx: TrainFixture) => fx.repo.git('ls-remote', 'origin');
 
-// fails_when=coordinatorClone copies origin.git/objects file by file again, so an entry that appears or vanishes there mid-copy (the detached maintenance.lock every push into the fixture origin leaves) fails the clone, as in two Free Tests reds on 2026-10-28 (GSTA-139 ledger); why_new=no other test clones while origin's objects directory changes; seam=a dangling symlink planted under objects/, which a local copy refuses on every run; no_claim=which process removed the loose object those runs named
+// fails_when=coordinatorClone copies origin.git/objects file by file again, so an entry that appears or vanishes there mid-copy (the detached maintenance.lock every push into the fixture origin leaves) fails the clone, as in two Free Tests reds on 2026-10-28 (GSTA-139 ledger); why_new=no other test clones while origin's objects directory changes; seam=a dangling symlink planted under objects/ beside a held maintenance.lock, which a local copy refuses on every run; the seam has its own name because the fixture push's own detached maintenance can hold objects/maintenance.lock at that moment (EEXIST in Free Tests 41288253305 and 41288417894, 2026-11-01); no_claim=which process removed the loose object those runs named
 test('the coordinator clone reads origin through git, never by copying its objects directory (GSTA-139)', () => {
   const fx = make();
-  fs.symlinkSync(path.join(fx.repo.root, 'gone'), path.join(fx.repo.origin, 'objects', 'maintenance.lock'));
+  const objects = path.join(fx.repo.origin, 'objects');
+  fs.writeFileSync(path.join(objects, 'maintenance.lock'), '');
+  fs.symlinkSync(path.join(fx.repo.root, 'gone'), path.join(objects, 'gstack-dangling-seam'));
   const coord = coordinatorClone(fx.repo);
   expect(spawnSync('git', ['-C', coord, 'rev-parse', 'origin/main'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...fx.repo.env } }).stdout.trim()).toBe(fx.repo.git('rev-parse', 'origin/main'));
   expect(fs.existsSync(path.join(coord, '.git', 'objects', 'maintenance.lock'))).toBe(false);
+  expect(fs.readdirSync(path.join(coord, '.git', 'objects'))).not.toContain('gstack-dangling-seam');
 });
 
 describe('the train command surface', () => {

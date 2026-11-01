@@ -6,11 +6,11 @@
  * the base branch and every other open PR, and a lookup that cannot finish is
  * `unknown`, which withholds `REGATE: not-needed`.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { BASE_POLICY, cleanup, makeFixtureRepo, makePr, recordAndBundle, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { BASE_POLICY, cleanup, copyFixtureRepo, makeFixtureRepo, makePr, recordAndBundle, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -39,10 +39,13 @@ console.error("gh shim: unsupported "+a.join(" ")); process.exit(1)' "${file}" "
 }
 const ghCalls = (repo: FixtureRepo) => fs.readFileSync(path.join(repo.root, 'gh-regate', 'calls.log'), 'utf8');
 
+type Lanes = Array<{ label: string; command: string }>;
+const TESTS_LANE: Lanes = [{ label: 'tests', command: 'true' }];
+const DIGEST_LANES: Lanes = [...TESTS_LANE, { label: 'digest', command: 'cat generated/digest.md' }];
+
 /** pr-a adds migration v240, is stamped 1.2.4.0 and gated (lanes recorded and bundled); then restamped to 1.2.5.0. */
-function gatedThenRestamped(lanes: Array<{ label: string; command: string }> = [{ label: 'tests', command: 'true' }]) {
+function buildGated(lanes: Lanes) {
   const repo = makeFixtureRepo({ prefix: 'pregate-regate-', policy: POLICY });
-  repos.push(repo);
   makePr(repo, 'pr-a', { expects: '1.2.4.0' });
   fs.mkdirSync(path.join(repo.work, 'migrations'), { recursive: true });
   fs.writeFileSync(path.join(repo.work, 'migrations', 'v240-add-index.sql'), 'create index a;\n');
@@ -54,7 +57,20 @@ function gatedThenRestamped(lanes: Array<{ label: string; command: string }> = [
   const head = repo.git('rev-parse', 'HEAD');
   expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
   repo.git('commit', '-qam', 'stamp 1.2.5.0');
-  return { repo, head, bundle, current: repo.git('rev-parse', 'HEAD') };
+  return { repo, head, current: repo.git('rev-parse', 'HEAD') };
+}
+
+// Each fixture costs four gstack bin runs (two restamps, an evidence run and a bundle); build each lane set once
+// and give every test its own copy instead of rebuilding it per test.
+const templates = new Map<Lanes, ReturnType<typeof buildGated>>();
+beforeAll(() => { for (const lanes of [TESTS_LANE, DIGEST_LANES]) templates.set(lanes, buildGated(lanes)); }, 60_000);
+afterAll(() => { for (const t of templates.values()) cleanup(t.repo); });
+
+function gatedThenRestamped(lanes: Lanes = TESTS_LANE) {
+  const { repo: template, head, current } = templates.get(lanes)!;
+  const repo = copyFixtureRepo(template, 'pregate-regate-');
+  repos.push(repo);
+  return { repo, head, bundle: path.join(repo.root, 'bundle.json'), current };
 }
 const regate = (repo: FixtureRepo, args: string[], env: Record<string, string>) => runBin(repo, 'gstack-pregate', ['regate', '--base', 'main', ...args], env);
 
@@ -97,7 +113,7 @@ describe('gstack-pregate regate: evidence, stamps and lane verdicts', () => {
   });
 
   test('a stamp-sensitive lane reruns, so a regate is needed; a code edit is not stamp-only and names the file and line', () => {
-    const { repo, head, bundle } = gatedThenRestamped([{ label: 'tests', command: 'true' }, { label: 'digest', command: 'cat generated/digest.md' }]);
+    const { repo, head, bundle } = gatedThenRestamped(DIGEST_LANES);
     const env = ghShim(repo, { list: [] });
     const r = regate(repo, ['--against', head, '--bundle', bundle], env);
     expect(r.status).toBe(EXIT.fail);
