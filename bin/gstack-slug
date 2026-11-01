@@ -422,6 +422,11 @@ if [[ -z "$SLUG" && ! ( "$MODE" == get && "$MODE_ARG" == REPO_SLUG ) ]]; then
     _find_project_marker "$_main"
     _UNDER_HOME=$_cwd_under
   fi
+  # A marker at a linked worktree's top folder stands for its main checkout.
+  if [[ -n "$MARKER_ROOT" && -f "$MARKER_ROOT/.git" ]]; then
+    _mc=$(_git_common_dir "$MARKER_ROOT")
+    [[ "$(basename "${_mc:-x}")" != .git ]] || MARKER_ROOT=$(dirname "$_mc")
+  fi
 fi
 _write_cache_entry() { # $1 file, $2 content; atomic, best-effort
   local tmp
@@ -974,7 +979,7 @@ case "$MODE" in
       if [[ -e "$dst" || -L "$dst" ]]; then echo "ALREADY $dst"; AU_HAVE=$((AU_HAVE + 1)); continue; fi
       AU_WANT=$((AU_WANT + 1))
       if [[ "$ADOPT_APPLY" -eq 0 ]]; then echo "WOULD_COPY $f"; continue; fi
-      AU_WT="$wt"; [[ "$AU_WT" != "$ID_ROOT" ]] || AU_WT=""
+      AU_WT="${wt:-$root}"; [[ "$AU_WT" != "$ID_ROOT" ]] || AU_WT=""
       mkdir -p "$AU_TO" && AU_TMP=$(mktemp "$AU_TO/.adopt-XXXXXX") || { echo "FAILED $f"; AU_RC=1; continue; }
       if GRI_REMOTE="$ID_REMOTE" GRI_ROOT="$ID_ROOT" GRI_WORKTREE="$AU_WT" awk '
         function ids() {

@@ -11,6 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { projectMarkerRoot, readVersionedSlugCache, slugFromEnvironment } from '../lib/bin-context';
 import { defaultUserConfigPath } from '../lib/pregate/context';
+import { reviewPaths } from '../lib/ship-budget';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SLUG = path.join(ROOT, 'bin', 'gstack-slug');
@@ -308,6 +309,52 @@ describe('gstack-slug: .gstack-project marker', () => {
     expect(r.stdout).toContain('REPO_MODE=solo');
     expect(fs.existsSync(path.join(state, 'projects', 'MyProduct', 'repo-mode.json'))).toBe(false);
     expect(fs.existsSync(path.join(state, 'projects', 'org-backend', 'repo-mode.json'))).toBe(true);
+  });
+
+  test('the ship-budget pointer and the review log stay with the repository when a marker appears mid-run', () => {
+    const { proj } = workspace();
+    git(['-C', proj, 'commit', '-q', '--allow-empty', '-m', 'init']);
+    const before = reviewPaths(proj, env());
+    expect(before.marker).toContain(path.join('projects', 'me-workspace') + path.sep);
+    mark(proj);
+    expect(slug(proj)).toBe('org-proj');
+    expect(reviewPaths(proj, env())).toEqual(before);
+    const branch = run(SLUG, proj, ['--get', 'BRANCH']).stdout.trim();
+    fs.mkdirSync(path.join(state, 'projects', 'me-workspace'), { recursive: true });
+    fs.writeFileSync(path.join(state, 'projects', 'me-workspace', `${branch}-reviews.jsonl`), '{"skill":"review","status":"clean"}\n');
+    expect(run(path.join(ROOT, 'bin', 'gstack-review-read'), proj).stdout).toContain('"skill":"review"');
+  });
+
+  test('sibling repos under an umbrella keep separate ship-budget pointers', () => {
+    const { top, backend, frontend } = umbrella();
+    mark(top);
+    expect(reviewPaths(backend, env()).marker).not.toBe(reviewPaths(frontend, env()).marker);
+    expect(reviewPaths(backend, env()).reviewLog).toContain(path.join('projects', 'org-backend') + path.sep);
+  });
+
+  test('recovered checkpoints keep the repository they were saved in', () => {
+    const { top, backend } = umbrella();
+    const old = path.join(state, 'projects', 'org-backend', 'checkpoints');
+    fs.mkdirSync(old, { recursive: true });
+    fs.writeFileSync(path.join(old, '20261001-120000-x.md'), `---\nremote: github.com/org/backend\nproject_root: ${backend}\nhead: abc123\n---\n## Working on: x\n`);
+    mark(top);
+    const apply = run(SLUG, backend, ['--adopt-legacy', '--from', 'org-backend', '--under-root', '--apply']);
+    expect(apply.stdout).toContain('COPIED');
+    const text = fs.readFileSync(path.join(state, 'projects', 'MyProduct', 'checkpoints', '20261001-120000-x.md'), 'utf8');
+    expect(text).toContain(`worktree: ${backend}`);
+    expect(text).toContain(`project_root: ${top}`);
+  });
+
+  test('a committed marker in a repo with no remote gives its linked worktrees the same slug', () => {
+    const solo = repo(path.join(home, 'solo'));
+    mark(solo);
+    git(['-C', solo, 'add', '.gstack-project']);
+    git(['-C', solo, 'commit', '-q', '-m', 'marker']);
+    const wt = path.join(home, 'elsewhere', 'feature-wt');
+    git(['-C', solo, 'worktree', 'add', '-q', wt]);
+    expect(slug(solo)).toBe('solo');
+    expect(slug(wt)).toBe('solo');
+    expect(slugFromEnvironment(state, wt)).toBe('solo');
   });
 
   test('marked folders whose paths differ only by / and _ keep separate slugs', () => {

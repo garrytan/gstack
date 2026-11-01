@@ -324,11 +324,17 @@ function markerCacheFile(stateRoot: string, root: string): string {
  * repeats from there, as bin/gstack-slug does.
  */
 export function projectMarkerRoot(cwd: string): string {
-  const root = findProjectMarker(cwd).root;
-  if (root) return root;
-  const common = gitCommonDir(cwd);
-  const main = common && basename(common) === ".git" ? dirname(common) : "";
-  return main && main !== cwd && !isUnder(cwd, main) ? findProjectMarker(main).root : "";
+  let root = findProjectMarker(cwd).root;
+  if (!root) {
+    const common = gitCommonDir(cwd);
+    const main = common && basename(common) === ".git" ? dirname(common) : "";
+    root = main && main !== cwd && !isUnder(cwd, main) ? findProjectMarker(main).root : "";
+  }
+  if (root && isFile(join(root, ".git"))) {
+    const common = gitCommonDir(root);
+    if (common && basename(common) === ".git") return dirname(common);
+  }
+  return root;
 }
 
 function writeCacheEntry(file: string, content: string): void {
