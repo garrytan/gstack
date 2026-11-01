@@ -3,7 +3,8 @@
  * when the queue is long, 3-6 PRs of one functional area travel as one wave PR
  * that takes one train slot, one /ship, one READY and one version.
  *
- *   wave plan     read-only: live READY PRs, WAVE_ADVISED over the trigger, suggested area groups
+ *   wave plan     read-only (git merge-tree leaves only unreferenced objects): live READY PRs with green
+ *                 CI, WAVE_ADVISED over the trigger, suggested area groups
  *   wave build    the integrator branch wave/<nonce>: main plus each constituent's pinned head merged
  *                 unchanged with the train's merge rules (a merge commit whose second parent is the
  *                 pin); a conflict stops in a worktree under the state root (--continue resumes);
@@ -226,7 +227,7 @@ function readyReceipts(env: TrainEnv): ReadyReceipt[] {
 
 function changed(env: TrainEnv, head: string): { files: string[]; lines: number } | null {
   const fork = git(env.ctx.repoRoot, ['merge-base', `${env.remote}/${env.ctx.base}`, head]);
-  const stat = fork.ok ? git(env.ctx.repoRoot, ['diff', '--numstat', fork.out, head]) : fork;
+  const stat = fork.ok ? git(env.ctx.repoRoot, ['diff', '--numstat', '--no-renames', fork.out, head]) : fork;
   if (!stat.ok) return null;
   let lines = 0;
   const files: string[] = [];
