@@ -414,8 +414,8 @@ and tell the user you are generating them.
 
 Skip mockups only when:
 - `DESIGN_NOT_AVAILABLE` was printed (designer binary not found)
-- The first `$D` generation command fails before producing an image (for
-  example `No OpenAI API key found`): treat it exactly as `DESIGN_NOT_AVAILABLE`
+- The first `$D` generation command fails before any image (e.g.
+  `No image API key found`): show its `Fix:` line and treat it as `DESIGN_NOT_AVAILABLE`
 - The plan has zero UI scope (pure backend/API/infrastructure)
 
 If the user explicitly says "skip mockups" or "text only", respect that. Otherwise, generate.
