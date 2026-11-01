@@ -228,6 +228,14 @@ credits outside coverage. A parent reads the rows with
 `gstack-review-read` and treats `outside_status: unavailable` as missing
 coverage, not as a clean outside review.
 
+The pass program (`lib/capy-review-pass.js`) picks the outside voice's model
+when `input.models['outside-voice']` is empty and the lane model is
+`anthropic/`: `openai/gpt-6.1-sol` at medium reasoning, the pairing the no-loss
+rounds ran. Any other lane must name a model. An outside voice from the same
+provider as the lane model or the native voice stops the pass (`STOP:`) before
+either voice is created, including on a rerun, and each outside voice prints an
+`OUTSIDE_VOICE:` line saying whether it is the certified configuration.
+
 ### The carry across a base merge or a test-only fix
 
 When the parent merges the base in or fixes a test after the receipt was
