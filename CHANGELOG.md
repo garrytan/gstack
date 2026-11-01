@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.92.6.0] - 2026-11-01
+
+**Choosing "core" now means core everywhere gstack routes, and the four core skills carry their plain-English trigger phrases where hosts read them.** Under the default `proactive: core`, the CLAUDE.md routing section gstack offered still listed all 13 routing rules, and 16 non-core skills still told Codex and the other hosts to "proactively suggest" them (#3446). Separately, phrases like "test the site" or "ship it" lived only in each skill's `triggers:` metadata, which no host reads, so they never reached the list the agent picks skills from (#2118). The always-loaded Claude catalog does not grow. It measures 5,682 bytes before and 5,678 after (1,421 → 1,420 token-equivalents against the unchanged 1,423 ceiling).
+
+### Changed
+- **The CLAUDE.md routing offer follows the setting.** Under `core`, `bin/gstack-skill-start` offers the four core rules (/office-hours, /qa, /review, /ship) and one line saying the other skills are not suggested: they run when you type them or when a running skill hands off to them (so /ship still dispatches /document-release). Under `all` it offers the same 13 rules as before. Sections already in a project's CLAUDE.md are left alone; docs/proactive.md says how to trim one.
+- **Only the core skills invite proactive suggestions.** The "Proactively suggest/invoke ..." sentence is gone from the descriptions of /autoplan, /design-consultation, /design-html, /design-review, /design-shotgun, /devex-review, /document-release, /investigate, /learn, /plan-ceo-review, /plan-design-review, /plan-devex-review, /plan-eng-review, /plan-tune, /qa-only and /retro. Their "Use when asked to ..." sentences stay. On Codex and the other hosts that keep full descriptions, `proactive: all` no longer gets that hint from those 16 skills.
+- **The core skills' descriptions carry their trigger phrases.** /qa's catalog entry is now "Test the site, API or CLI and fix the bugs it finds.", /review's "Review this PR's diff.", and /ship's "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR." Every `triggers:` phrase of the four core skills now appears in its full description.
+
+### Tests
+- `test/proactive-skill-start.test.ts`: runs `gstack-skill-start` under `core`, `all` and the legacy `true`; core offers exactly the four core rules plus the scoping line, and all offers the shipped 13-rule section.
+- `test/proactive-core-set.test.ts`: each core skill's full description carries every `triggers:` phrase, its catalog entry carries at least one, and no other skill's catalog entry carries that phrase.
+- `test/skill-validation.test.ts`: no non-core template description says "Proactively suggest/invoke"; the proactive-phrase check now covers the four core skills.
+- All five new cases fail on main at 2d1b55d (office-hours already passed there).
+- Size ratchets move down only: 46 generated-SKILL.md pins in `test/fixtures/skill-md-size-allowlist.json` drop by the removed sentences, and /ship's size ledger records -21 bytes. The four ship goldens are regenerated for the new description.
+
 ## [1.92.5.0] - 2026-10-31
 
 **Updates no longer stall in silence when the project around your gstack install has committed gstack's files (#1022).** If gstack lives inside another git project (for example `<project>/.claude/skills/gstack`) and that project committed gstack's files as ordinary files, a stash, reset or branch switch in the project put the old files back. VERSION stayed frozen at an old release while updates reported success. Once this release is on disk, every update path stops before it changes anything and prints the exact fix. An install the project has already reverted is still running the project's old copies of these scripts, so it needs the one-time repair in `docs/troubleshooting.md#auto-update-tracked-by-project` first.
