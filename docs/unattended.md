@@ -81,7 +81,10 @@ Terminal-Bench 2 exposure counts):
   later reviews reuse it), and every /ship step its receipt reads: review-log
   writes, Step 11.5, Step 20 and `gstack-ship-receipt write` and `result`.
 
-The render's rules also name the interactive sections it leaves out, so a step
+In a template, text only an interactive session uses sits inside
+`{{IF_SESSION:interactive}}…{{/IF_SESSION}}` (`{{IF_SESSION:unattended}}` for
+text only the unattended render keeps); an unpaired or nested guard fails
+generation. The render's rules also name the interactive sections it leaves out, so a step
 that still mentions one ("run Telemetry") skips that part. With `--render
 unattended`, `gstack-skill-start` prints `RENDER_KIND: unattended`. The session
 kind still comes from the environment alone, because every later helper
