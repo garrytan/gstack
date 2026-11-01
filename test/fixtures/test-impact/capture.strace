@@ -1,4 +1,4 @@
-# strace 6.8 capture (x86_64 Linux, bun 1.4.4) of test/cap.test.ts under env -i, made with scripts/test-impact.ts flags.
+# strace 6.8 capture (x86_64 Linux, bun 1.4.4) of test/cap.test.ts under env -i.
 # repo=/tmp/ti-capture/repo home=/tmp/ti-capture/home tmpdir=/tmp/ti-capture/run PATH=/usr/local/bin:/usr/bin:/bin
 # The test reads lib/data.txt by a computed path, lists test/data, spawns bin/tool2 (cd to bin, source ./tool2-lib.sh),
 # reads $HOME/.gitconfig, /tmp/ti-shared-state and .git/HEAD, probes lib/missing.txt, talks to its own loopback server,

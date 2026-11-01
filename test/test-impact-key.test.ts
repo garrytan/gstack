@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { ALWAYS_RUN_PATH } from '../lib/pregate/lane-selection';
 import { computeKeys, MAX_HOPS, type KeyResult } from '../lib/test-impact/key';
-import { TRACE_VERSION, parseStrace, readTrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
+import { TRACE_VERSION, envDigests, parseStrace, readTrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
 import { cleanup, commit, makeFixtureRepo, type FixtureRepo } from './helpers/pregate-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -28,7 +28,7 @@ function fixture(baseFiles: Record<string, string> = {}): FixtureRepo {
 }
 
 /** Write `test`'s trace from strace lines that open `reads`, list `lists` and add `extra` raw calls, through parseStrace. */
-function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; lists?: Record<string, string[]>; extra?: string[]; tracedAt?: string } = {}): string {
+function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; lists?: Record<string, string[]>; extra?: string[]; tracedAt?: string; env?: Record<string, string | undefined> } = {}): string {
   const w = repo.work;
   const lines = [test, ...(opts.reads ?? [])].map(p => `100 openat(AT_FDCWD<${w}>, "${w}/${p}", O_RDONLY|O_CLOEXEC) = 3<${w}/${p}>`);
   for (const [dir, names] of Object.entries(opts.lists ?? {})) lines.push(`100 getdents64(4<${w}/${dir}>, [${['.', '..', ...names].map(n => `{d_ino=1, d_off=1, d_reclen=24, d_type=DT_REG, d_name="${n}"}`).join(', ')}], 32768) = 96`);
@@ -36,13 +36,13 @@ function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; li
   const dir = path.join(repo.root, 'traces');
   fs.mkdirSync(dir, { recursive: true });
   const set = parseStrace(lines.join('\n'), { repoRoot: w, home: repo.home, tmpDir: path.join(repo.root, 'run'), sharedTmp: [] });
-  const record: TraceRecord = { version: TRACE_VERSION, test, tracedAt: opts.tracedAt ?? '2026-11-01T00:00:00Z', commit: null, exitCode: 0, runtime: RUNTIME, ...set };
+  const record: TraceRecord = { version: TRACE_VERSION, test, tracedAt: opts.tracedAt ?? '2026-11-01T00:00:00Z', commit: null, exitCode: 0, runtime: RUNTIME, env: envDigests(opts.env ?? {}), ...set };
   fs.writeFileSync(tracePath(dir, test), JSON.stringify(record));
   return dir;
 }
 
-function keyAt(repo: FixtureRepo, tree: string, test: string, base: string | null = 'main'): KeyResult {
-  return computeKeys({ repoRoot: repo.work, tree, base, tests: [test], traceDir: path.join(repo.root, 'traces'), now: NOW, runtime: RUNTIME, env: {} }).results[0]!;
+function keyAt(repo: FixtureRepo, tree: string, test: string, base: string | null = 'main', env: Record<string, string | undefined> = {}, now = NOW): KeyResult {
+  return computeKeys({ repoRoot: repo.work, tree, base, tests: [test], traceDir: path.join(repo.root, 'traces'), now, runtime: RUNTIME, env }).results[0]!;
 }
 
 function cli(repo: FixtureRepo, args: string[]) {
@@ -165,6 +165,18 @@ describe('test-impact key: ineligible', () => {
     expect(keyAt(repo, 'main', 'test/config-read.test.js').reasons).toEqual(['the traced run failed (exit 1)']);
   });
 
+  test('a future-dated trace, or one made under other allowlisted env values or another runtime, is ineligible', () => {
+    const repo = fixture();
+    traceFrom(repo, 'test/util.test.js', { tracedAt: '2026-11-02T00:00:00Z' });
+    traceFrom(repo, 'test/retry.test.js', { env: { NODE_ENV: 'development' } });
+    expect(keyAt(repo, 'main', 'test/util.test.js').reasons[0]).toStartWith('stale trace (traced 2026-11-02T00:00:00Z');
+    expect(keyAt(repo, 'main', 'test/util.test.js', 'main', {}, Date.parse('2026-11-02T00:01:00Z')).reasons).toEqual([]);
+    expect(keyAt(repo, 'main', 'test/retry.test.js', 'main', { NODE_ENV: 'production' }).reasons).toEqual(['traced under other values of NODE_ENV']);
+    expect(keyAt(repo, 'main', 'test/retry.test.js', 'main', { NODE_ENV: 'development' }).reasons).toEqual([]);
+    const other = computeKeys({ repoRoot: repo.work, tree: 'main', base: 'main', tests: ['test/retry.test.js'], traceDir: path.join(repo.root, 'traces'), now: NOW, runtime: { ...RUNTIME, bun: '1.5.0' }, env: { NODE_ENV: 'development' } }).results[0]!;
+    expect(other.reasons).toEqual(['traced on another runtime (bun 1.4.4 vs 1.5.0)']);
+  });
+
   test('a tree that edits key code makes every test ineligible', () => {
     const repo = fixture({ 'lib/test-impact/key.ts': 'export const v = 1;\n' });
     traceFrom(repo, 'test/util.test.js');
@@ -201,6 +213,7 @@ describe('scripts/test-impact.ts', () => {
     expect(trusted.out).toContain('key code from main:lib/test-impact/key.ts');
     expect(trusted.out).toContain('INELIGIBLE test/util.test.js: stub key code from the base ref');
 
+    traceFrom(repo, 'test/util.test.js', { env: { ...process.env, ...repo.env } });
     const local = cli(repo, ['explain', '--tree', 'HEAD', '--traces', path.join(repo.root, 'traces'), 'test/util.test.js']);
     expect(local.status).toBe(0);
     expect(local.out).toMatch(/KEY test\/util\.test\.js [0-9a-f]{12}/);
@@ -226,9 +239,12 @@ describe('scripts/test-impact.ts', () => {
     const rec = readTrace(traces, t)!;
     expect(rec.paths).toEqual(expect.arrayContaining([t, 'bin/tool2', 'bin/tool2-lib.sh']));
     expect(rec.ineligible).toEqual([]);
-    const before = keyAt(repo, 'HEAD', t);
-    expect(before.eligible).toBe(true);
+    const env = { ...process.env, ...repo.env };
+    const runtime = { platform: process.platform, arch: process.arch, bun: Bun.version };
+    const keyNow = (tree: string) => computeKeys({ repoRoot: repo.work, tree, base: 'main', tests: [t], traceDir: traces, runtime, env }).results[0]!;
+    const before = keyNow('HEAD');
+    expect(before.reasons).toEqual([]);
     commit(repo, { 'bin/tool2-lib.sh': 'greet() { echo hi; }\n# edited\n' });
-    expect(keyAt(repo, 'HEAD', t).key).not.toBe(before.key);
+    expect(keyNow('HEAD').key).not.toBe(before.key);
   });
 });

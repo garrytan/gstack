@@ -10,11 +10,11 @@ GST-167 is the plan to skip a free test on a pull request only when main already
 - `key --tree <ref> [--base <ref>] [--traces <dir>] [--json] <test-file>...` prints each file's key at `<ref>`, or why it has none.
 - `explain [--tree <ref>] [--base <ref>] [--traces <dir>] <test-file>` prints every input of one file's key and why it is or isn't eligible.
 
-With `--base`, the CLI loads `lib/test-impact/key.ts` from that ref and runs it over the tree, so a branch can't change the rules that decide what it skips. Without `--base`, it uses this checkout's code and says so. A base ref with no key code makes every file ineligible.
+With `--base`, the CLI loads `lib/test-impact/key.ts` from that ref and runs it over the tree, so a branch can't change the rules that decide what it skips. The CLI that does the loading comes from the checkout, so CI wiring (PR 3 and 4) has to run the base ref's copy of `scripts/test-impact.ts`, never the branch's. Without `--base`, it uses this checkout's code and says so. A base ref with no key code makes every file ineligible.
 
 ## What the trace records
 
-The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, getdents64, readlink, readlinkat, stat, lstat, newfstatat, statx, access, faccessat, faccessat2, chdir, fchdir, clone, clone3, fork, vfork, connect, bind, sendto, getsockname` (strace 6.8 on x86_64 Linux accepts the whole set) and gives the run a private TMPDIR. `lib/test-impact/trace.ts` keeps every repo path the test or any child process opened, ran, checked or probed. A failed open counts, because a file that shows up later changes what the test sees. For each repo directory it listed, the trace keeps the sorted names. Paths outside the repo, in /proc and /dev, under node_modules and in the private TMPDIR are dropped.
+The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, getdents64, readlink, readlinkat, stat, lstat, newfstatat, statx, access, faccessat, faccessat2, chdir, fchdir, clone, clone3, fork, vfork, connect, bind, sendto, sendmsg, sendmmsg, getsockname` (strace 6.8 on x86_64 Linux accepts the whole set) and gives the run a private TMPDIR. `lib/test-impact/trace.ts` keeps every repo path the test or any child process opened, ran, checked or probed. A failed open counts, because a file that shows up later changes what the test sees. For each repo directory it listed, the trace keeps the sorted names. Paths outside the repo, in /proc and /dev, under node_modules and in the private TMPDIR are dropped.
 
 ## What the key covers
 
@@ -33,9 +33,9 @@ The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, ge
 A file is ineligible, so it always runs, when:
 
 - it is on the always-run list in the base branch's `.gstack/always-run.json` or the tree's (the union, so a branch can add entries but never drop main's);
-- it has no trace, a trace older than 7 days, or a trace whose run failed;
-- its trace shows an inet connect or send to anything other than a loopback port the same run opened, any access under the real HOME other than a PATH tool lookup, shared /tmp state, or a read of the repository's own `.git`;
-- its trace read a repo path the tree doesn't track, such as a build output under `dist/`. A probe of a missing path and a file the run created itself don't count;
+- it has no trace, a trace older than 7 days or dated more than 5 minutes in the future, a trace whose run failed, or a trace made under other values of the allowlisted variables or on another runtime;
+- its trace shows an inet connect or send to anything other than a loopback endpoint a socket in the same run bound, a unix socket outside the repo and the private TMPDIR (or an abstract one), any access under the real HOME other than a PATH tool lookup or the tool itself, a listing of HOME, shared /tmp state, or a read of the repository's own `.git`;
+- its trace read a repo path the tree doesn't track, such as a build output under `dist/`. A probe of a missing path and a file the run created or truncated itself don't count;
 - its import-graph walk reaches the 12-hop cap. The walk fails closed: a deeper chain makes the test ineligible instead of cutting the closure short;
 - the tree changes any key-code file against the base. Then every file runs.
 

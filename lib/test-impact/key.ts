@@ -13,7 +13,8 @@
  *   - tool: the bytes of each executable outside the repo the trace ran (git, bash, tar…), read on this machine;
  *   - runtime and env: the runtime manifest and ENV_ALLOWLIST values.
  * A test is ineligible (always executed) when it is always_run in the base or the tree list,
- * has no trace or one older than TRACE_MAX_AGE_MS, its traced run failed or touched the
+ * has no trace, one older than TRACE_MAX_AGE_MS or dated in the future, one made under other
+ * allowlisted env values or another runtime, its traced run failed or touched the
  * network, the real HOME, shared /tmp or .git, it read a repo path the tree does not track (a build
  * output), or its graph walk hit the cap. A tree that
  * changes any KEY_CODE_FILES file against the base makes every test ineligible.
@@ -29,19 +30,21 @@ import { matchesAny } from '../ship-policy';
 import { PREGATE_CONFIG_PATH } from '../pregate/config';
 import { buildGraph, type Graph } from '../pregate/import-graph';
 import { ALWAYS_RUN_PATH, parseAlwaysRun } from '../pregate/lane-selection';
-import { readTrace } from './trace';
+import { ENV_ALLOWLIST, envDigests, readTrace } from './trace';
+
+export { ENV_ALLOWLIST };
 
 export const MAX_HOPS = 12;
 export const TRACE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** How far in the future a trace's timestamp may sit (clock skew) before it counts as stale. */
+export const TRACE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 /** Tracer, key, CLI, the runner/planner and every repo module it imports, and the graph and always-run code the key reads. PR 4 adds its verifier here. */
 export const KEY_CODE_FILES = [
   'lib/test-impact/trace.ts', 'lib/test-impact/key.ts', 'scripts/test-impact.ts',
   'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts',
-  'scripts/lib/windows-curation.ts', 'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'lib/state-root.ts',
+  'scripts/lib/windows-curation.ts', 'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'lib/state-root.ts',
   'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts',
 ];
-/** Environment variables whose values a free test may branch on; anything else a test reads is outside the key. */
-export const ENV_ALLOWLIST = ['CI', 'GITHUB_ACTIONS', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'EVALS', 'EVALS_TIER'];
 const TSCONFIG = /(?:^|\/)tsconfig[^/]*\.json$/;
 
 export interface TreeEntry { mode: string; type: string; oid: string }
@@ -181,13 +184,14 @@ export function computeKeys(opts: KeyOptions): KeyReport {
     const dir = materializeTree(repoRoot, tree);
     try { graph = buildGraph(dir, { declarations: dependencies }); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
-  const env = opts.env ?? process.env;
+  const envNow = envDigests(opts.env ?? process.env);
+  const runtime = opts.runtime ?? runtimeManifest();
   const shared: KeyInput[] = [
     ...[...treeIdx.entries.keys()].filter(p => p === 'bun.lock' || TSCONFIG.test(p)).map(p => ({ kind: 'global' as const, path: p, digest: '' })),
     { kind: 'global', path: `${PREGATE_CONFIG_PATH}#dependencies`, digest: sha(JSON.stringify(dependencies)) },
     ...KEY_CODE_FILES.map(p => ({ kind: 'code' as const, path: p, digest: '' })),
-    ...Object.entries(opts.runtime ?? runtimeManifest()).sort().map(([k, v]) => ({ kind: 'runtime' as const, path: k, digest: v })),
-    ...ENV_ALLOWLIST.map(k => ({ kind: 'env' as const, path: k, digest: env[k] === undefined ? 'unset' : sha(env[k]!) })),
+    ...Object.entries(runtime).sort().map(([k, v]) => ({ kind: 'runtime' as const, path: k, digest: v })),
+    ...Object.entries(envNow).map(([k, digest]) => ({ kind: 'env' as const, path: k, digest })),
   ];
   const pending = tests.map(test => {
     const reasons: string[] = [];
@@ -199,8 +203,12 @@ export function computeKeys(opts: KeyOptions): KeyReport {
     if (!trace) reasons.push('no trace');
     else {
       const age = now - Date.parse(trace.tracedAt);
-      if (!(age <= TRACE_MAX_AGE_MS)) reasons.push(`stale trace (traced ${trace.tracedAt}, limit ${TRACE_MAX_AGE_MS / 86_400_000} days)`);
+      if (!(age >= -TRACE_CLOCK_SKEW_MS && age <= TRACE_MAX_AGE_MS)) reasons.push(`stale trace (traced ${trace.tracedAt}, limit ${TRACE_MAX_AGE_MS / 86_400_000} days)`);
       if (trace.exitCode !== 0) reasons.push(`the traced run failed (exit ${trace.exitCode})`);
+      const envDiff = ENV_ALLOWLIST.filter(k => trace.env?.[k] !== envNow[k]);
+      if (envDiff.length) reasons.push(`traced under other values of ${envDiff.join(', ')}`);
+      const runtimeDiff = Object.keys(runtime).filter(k => trace.runtime?.[k] !== runtime[k]);
+      if (runtimeDiff.length) reasons.push(`traced on another runtime (${runtimeDiff.map(k => `${k} ${trace.runtime?.[k]} vs ${runtime[k]}`).join(', ')})`);
       reasons.push(...trace.ineligible);
       const untracked = (trace.present ?? []).filter(p => p !== '.' && !treeIdx.entries.has(p));
       if (untracked.length) reasons.push(`reads paths ${tree} does not track (${untracked.slice(0, 5).join(', ')}${untracked.length > 5 ? ` +${untracked.length - 5} more` : ''})`);

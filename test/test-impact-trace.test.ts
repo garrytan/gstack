@@ -57,3 +57,34 @@ describe('parseStrace on a captured bun test', () => {
     expect(r.paths).toEqual(['lib/a b.txt', 'sub', 'sub/x.json']);
   });
 });
+
+describe('parseStrace soundness edges (ship review, #3801)', () => {
+  const ctx = { repoRoot: '/r', home: '/h', tmpDir: '/t', pathDirs: ['/h/bin', '/usr/bin'] };
+  const parse = (...lines: string[]) => parseStrace(lines.join('\n'), ctx);
+
+  test('only an open that creates or truncates a file makes it the run\'s own; reading an existing file first, or plain O_CREAT, keeps it an input', () => {
+    expect(parse('1 openat(AT_FDCWD</r>, "/r/dist/x", O_RDONLY) = 3</r/dist/x>', '1 openat(AT_FDCWD</r>, "/r/dist/x", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3</r/dist/x>').present).toEqual(['dist/x']);
+    expect(parse('1 openat(AT_FDCWD</r>, "/r/dist/s.json", O_RDWR|O_CREAT, 0666) = 3</r/dist/s.json>').present).toEqual(['dist/s.json']);
+    expect(parse('1 openat(AT_FDCWD</r>, "/r/out.json", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3</r/out.json>', '1 openat(AT_FDCWD</r>, "/r/out.json", O_RDONLY) = 3</r/out.json>').present).toEqual([]);
+  });
+
+  test('a PATH directory under HOME exempts tool lookups and the tool itself, not other reads there; HOME itself may be stat\'ed but not listed', () => {
+    expect(parse('1 stat("/h/bin/git", 0x1) = -1 ENOENT (No such file or directory)', '1 execve("/h/bin/tool", ["tool"], []) = 0', '1 openat(AT_FDCWD</r>, "/h/bin/tool", O_RDONLY) = 3</h/bin/tool>', '1 newfstatat(AT_FDCWD</r>, "/h", {...}, 0) = 0').ineligible).toEqual([]);
+    expect(parse('1 openat(AT_FDCWD</r>, "/h/bin/settings.json", O_RDONLY) = 3</h/bin/settings.json>').ineligible).toEqual(['reads the real HOME (/h/bin/settings.json)']);
+    expect(parse('1 getdents64(3</h>, [{d_ino=1, d_off=1, d_reclen=24, d_type=DT_REG, d_name="x"}], 32768) = 24').ineligible).toEqual(['reads the real HOME (/h)']);
+  });
+
+  test('loopback counts as the run\'s own only for an endpoint a socket it bound reports; an outside service on a shared port number does not', () => {
+    const external = parse('1 connect(5<socket:[10]>, {sa_family=AF_INET, sin_port=htons(9000), sin_addr=inet_addr("127.0.0.1")}, 16) = 0', '1 getsockname(5<socket:[10]>, {sa_family=AF_INET, sin_port=htons(9000), sin_addr=inet_addr("127.0.0.2")}, [16]) = 0');
+    expect(external.ineligible).toEqual(['network: connect 127.0.0.1:9000']);
+    const own = parse('1 bind(4<socket:[11]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, 16) = 0', '1 getsockname(4<socket:[11]>, {sa_family=AF_INET, sin_port=htons(4100), sin_addr=inet_addr("0.0.0.0")}, [16]) = 0', '1 connect(6<socket:[12]>, {sa_family=AF_INET, sin_port=htons(4100), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)');
+    expect(own.ineligible).toEqual([]);
+    expect(parse('1 sendmsg(7<socket:[13]>, {msg_name={sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("8.8.8.8")}, msg_namelen=16}, 0) = 40').ineligible).toEqual(['network: sendmsg 8.8.8.8:53']);
+  });
+
+  test('a unix socket outside the repo and private TMPDIR, or an abstract one, is an external dependency; a failed lookup is not', () => {
+    expect(parse('1 connect(3<socket:[1]>, {sa_family=AF_UNIX, sun_path="/var/run/docker.sock"}, 110) = 0').ineligible).toEqual(['external socket: connect /var/run/docker.sock']);
+    expect(parse('1 connect(3<socket:[1]>, {sa_family=AF_UNIX, sun_path=@"dbus-x"}, 110) = 0').ineligible).toEqual(['external socket: connect @dbus-x']);
+    expect(parse('1 connect(3<socket:[1]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1 ENOENT (No such file or directory)', '1 connect(3<socket:[2]>, {sa_family=AF_UNIX, sun_path="/t/browse.sock"}, 110) = 0').ineligible).toEqual([]);
+  });
+});

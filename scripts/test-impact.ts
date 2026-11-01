@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import * as localKey from '../lib/test-impact/key';
 import type { KeyOptions, KeyReport } from '../lib/test-impact/key';
-import { STRACE_FLAGS, TRACE_VERSION, parseStrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
+import { STRACE_FLAGS, TRACE_VERSION, envDigests, parseStrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
 
 const USAGE = 'usage: test-impact.ts trace [--out <dir>] <test-file>... | key --tree <ref> [--base <ref>] [--traces <dir>] [--json] <test-file>... | explain [--tree <ref>] [--base <ref>] [--traces <dir>] <test-file>';
 const DEFAULT_TRACES = path.join('.context', 'test-impact', 'traces');
@@ -62,7 +62,7 @@ function trace(root: string, argv: string[]): number {
       const r = spawnSync('strace', [...STRACE_FLAGS, '-o', log, '--', process.execPath, ...bunIsolationArgs(), 'test', path.join(root, file), '--timeout=30000', '--max-concurrency=1'],
         { cwd: root, env: { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' }, timeout: 600_000, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
       const set = parseStrace(fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '', { repoRoot: root, home: os.homedir(), tmpDir: tmp, pathDirs: (process.env.PATH ?? '').split(path.delimiter) });
-      const record: TraceRecord = { version: TRACE_VERSION, test: file, tracedAt: new Date().toISOString(), commit: head.status === 0 ? head.stdout.trim() : null, exitCode: r.status, runtime: localKey.runtimeManifest(), ...set };
+      const record: TraceRecord = { version: TRACE_VERSION, test: file, tracedAt: new Date().toISOString(), commit: head.status === 0 ? head.stdout.trim() : null, exitCode: r.status, runtime: localKey.runtimeManifest(), env: envDigests(process.env), ...set };
       fs.writeFileSync(tracePath(out, file), JSON.stringify(record, null, 2) + '\n');
       if (r.status !== 0) failed++;
       const verdict = set.ineligible.length ? `ineligible: ${set.ineligible.join('; ')}` : 'eligible';

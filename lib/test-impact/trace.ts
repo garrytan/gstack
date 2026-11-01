@@ -15,6 +15,7 @@
  * executables outside the repo as `tools`, so key.ts can refuse untracked inputs and hash tools.
  * lib/test-impact/key.ts hashes the read set at a tree.
  */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -22,9 +23,17 @@ export const TRACE_VERSION = 2;
 /** `-e trace=` set; strace 6.8 on x86_64 Linux accepts every name (stat and open are the legacy calls static binaries still make). */
 export const TRACE_SYSCALLS = [
   'openat', 'open', 'execve', 'execveat', 'getdents64', 'readlink', 'readlinkat', 'stat', 'lstat', 'newfstatat', 'statx',
-  'access', 'faccessat', 'faccessat2', 'chdir', 'fchdir', 'clone', 'clone3', 'fork', 'vfork', 'connect', 'bind', 'sendto', 'getsockname',
+  'access', 'faccessat', 'faccessat2', 'chdir', 'fchdir', 'clone', 'clone3', 'fork', 'vfork', 'connect', 'bind', 'sendto', 'sendmsg', 'sendmmsg', 'getsockname',
 ] as const;
 /** strace flags: follow children, decode fd paths (gives every *at call its directory and every pid its cwd), full dirents, long strings. */
+/** Environment variables whose values a free test may branch on; a trace records them and a key refuses a trace made under other values. */
+export const ENV_ALLOWLIST = ['CI', 'GITHUB_ACTIONS', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'EVALS', 'EVALS_TIER'];
+
+/** Each ENV_ALLOWLIST variable as `unset` or a sha256 of its value. */
+export function envDigests(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(ENV_ALLOWLIST.map(k => [k, env[k] === undefined ? 'unset' : createHash('sha256').update(env[k]!).digest('hex')]));
+}
+
 export const STRACE_FLAGS = ['-f', '-y', '-qq', '-v', '-s', '65535', '-e', `trace=${TRACE_SYSCALLS.join(',')}`];
 
 export interface TraceContext {
@@ -63,6 +72,8 @@ export interface TraceRecord extends ReadSet {
   commit: string | null;
   exitCode: number | null;
   runtime: Record<string, string>;
+  /** envDigests of the traced run. */
+  env: Record<string, string>;
 }
 
 interface Call { pid: number; name: string; args: string; ret: string; retPath: string | null }
@@ -109,14 +120,16 @@ function dirfdAndPath(args: string): { dirfd: string | null; file: string | null
 const firstString = (args: string): string | null => { const s = /^"((?:[^"\\]|\\.)*)"/.exec(args); return s ? unescapeStrace(s[1]!) : null; };
 const within = (p: string, root: string) => p === root || p.startsWith(root === '/' ? '/' : `${root}/`);
 
-interface Peer { family: 'inet' | 'unix'; host: string; port: number; path?: string }
+interface Peer { family: 'inet' | 'unix'; host: string; port: number; path?: string; abstract?: boolean }
 function sockaddr(args: string): Peer | null {
-  if (/sa_family=AF_UNIX/.test(args)) { const p = /sun_path=@?"((?:[^"\\]|\\.)*)"/.exec(args); return p ? { family: 'unix', host: '', port: 0, path: unescapeStrace(p[1]!) } : null; }
+  if (/sa_family=AF_UNIX/.test(args)) { const p = /sun_path=(@?)"((?:[^"\\]|\\.)*)"/.exec(args); return p ? { family: 'unix', host: '', port: 0, path: unescapeStrace(p[2]!), abstract: p[1] === '@' } : null; }
   if (!/sa_family=AF_INET6?\b/.test(args)) return null;
   const port = /sin6?_port=htons\((\d+)\)/.exec(args);
   const host = /inet_addr\("([^"]+)"\)/.exec(args) ?? /inet_pton\(AF_INET6?,\s*"([^"]+)"/.exec(args);
   return { family: 'inet', host: host?.[1] ?? '?', port: port ? Number(port[1]) : 0 };
 }
+/** An open that creates the file or discards its old bytes (O_CREAT with O_EXCL or O_TRUNC); plain O_CREAT may open an existing file as is. */
+const replacesFile = (args: string) => /O_CREAT/.test(args) && /O_EXCL|O_TRUNC/.test(args);
 const loopback = (host: string) => /^127\./.test(host) || host === '::1' || host === '::ffff:127.0.0.1';
 
 /** A per-test read set from one strace log. */
@@ -126,37 +139,42 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
   const tmp = path.posix.normalize(ctx.tmpDir);
   const shared = (ctx.sharedTmp ?? ['/tmp', '/var/tmp']).map(p => path.posix.normalize(p));
   const pathDirs = new Set((ctx.pathDirs ?? []).filter(Boolean).map(p => path.posix.normalize(p)));
-  const ancestors = new Set<string>([home]);
+  const ancestors = new Set<string>();
   for (const p of [repo, tmp, home]) for (let d = path.posix.dirname(p); ; d = path.posix.dirname(d)) { ancestors.add(d); if (d === '/') break; }
   const cwd = new Map<number, string>();
   const paths = new Set<string>();
-  const reached = new Set<string>();
-  const created = new Set<string>();
+  const firstReach = new Map<string, 'created' | 'reached'>();
   const dirs = new Map<string, Set<string>>();
   const reasons = new Set<string>();
   const tools = new Set<string>();
   const calls = straceCalls(text);
-  const ownPorts = new Set<number>();
+  const bound = new Set<string>();
+  const ownEndpoints = new Set<string>();
   for (const c of calls) {
     if ((c.name !== 'bind' && c.name !== 'getsockname') || c.ret !== '0') continue;
+    const inode = /^-?\d+<socket:\[(\d+)\]>/.exec(c.args)?.[1] ?? '';
+    if (c.name === 'bind') bound.add(`${c.pid}:${inode}`);
+    else if (!bound.has(`${c.pid}:${inode}`)) continue;
     const a = sockaddr(c.args);
-    if (a?.family === 'inet' && a.port && loopback(a.host)) ownPorts.add(a.port);
+    if (a?.family === 'inet' && a.port) ownEndpoints.add(`${a.host}:${a.port}`);
   }
+  const ownLoopback = (p: Peer) => loopback(p.host) && [p.host, '0.0.0.0', '::'].some(h => ownEndpoints.has(`${h}:${p.port}`));
   const cwdOf = (pid: number) => cwd.get(pid) ?? ctx.startCwd ?? repo;
   const absolute = (pid: number, p: string, dir: string | null) => path.posix.normalize(path.posix.isAbsolute(p) ? p : path.posix.join(dir ?? cwdOf(pid), p));
   const record = (raw: string, kind: 'access' | 'exec' | 'content', ok = false, creates = false) => {
     const abs = raw.length > 1 ? raw.replace(/\/+$/, '') : raw;
-    if (within(abs, '/proc') || within(abs, '/dev') || within(abs, tmp) || ancestors.has(abs)) return;
+    if (within(abs, '/proc') || within(abs, '/dev') || within(abs, tmp) || ancestors.has(abs) || (abs === home && kind === 'access')) return;
     if (within(abs, repo)) {
       const rel = abs === repo ? '.' : abs.slice(repo.length + 1);
       if (/(?:^|\/)node_modules(?:\/|$)/.test(rel)) return;
       if (rel === '.git' && kind === 'access') return;
       if (rel === '.git' || rel.startsWith('.git/')) { reasons.add(`reads the repository's own git state (${rel})`); return; }
       paths.add(rel);
-      if (ok) (creates ? created : reached).add(rel);
+      if (ok && !firstReach.has(rel)) firstReach.set(rel, creates ? 'created' : 'reached');
       return;
     }
-    if (pathDirs.has(path.posix.dirname(abs))) { if (kind === 'exec') tools.add(abs); return; }
+    if (tools.has(abs) && kind === 'content') return;
+    if (pathDirs.has(path.posix.dirname(abs)) && kind !== 'content') { if (kind === 'exec') tools.add(abs); return; }
     if (within(abs, home)) { reasons.add(`reads the real HOME (${abs})`); return; }
     const sharedRoot = shared.find(s => within(abs, s));
     if (sharedRoot && abs !== sharedRoot) { reasons.add(`reads shared temp state (${abs})`); return; }
@@ -191,23 +209,26 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
         dirs.set(rel, names);
         break;
       }
-      case 'connect': case 'sendto': {
+      case 'connect': case 'sendto': case 'sendmsg': case 'sendmmsg': {
         const peer = sockaddr(c.args);
-        if (peer?.family === 'unix' && peer.path) record(absolute(c.pid, peer.path, null), 'access');
-        if (peer?.family === 'inet' && !(loopback(peer.host) && ownPorts.has(peer.port))) reasons.add(`network: ${c.name} ${peer.host}:${peer.port}`);
+        if (peer?.family === 'inet' && !ownLoopback(peer)) reasons.add(`network: ${c.name} ${peer.host}:${peer.port}`);
+        if (peer?.family !== 'unix' || !peer.path || !ok) break;
+        const abs = peer.abstract ? null : absolute(c.pid, peer.path, null);
+        if (abs && (within(abs, repo) || within(abs, tmp))) record(abs, 'access', true);
+        else reasons.add(`external socket: ${c.name} ${peer.abstract ? '@' : ''}${peer.path}`);
         break;
       }
       case 'bind': case 'getsockname': break;
       case 'execve': case 'open': case 'stat': case 'lstat': case 'access': case 'readlink': {
         const p = firstString(c.args);
         if (p === null) break;
-        record(absolute(c.pid, p, null), c.name === 'execve' ? (ok ? 'exec' : 'access') : c.name === 'open' ? 'content' : 'access', ok, c.name === 'open' && /O_CREAT/.test(c.args));
+        record(absolute(c.pid, p, null), c.name === 'execve' ? (ok ? 'exec' : 'access') : c.name === 'open' ? 'content' : 'access', ok, c.name === 'open' && replacesFile(c.args));
         break;
       }
       default: {
         if (file === null) break;
         const target = file === '' && dirfd ? path.posix.normalize(dirfd) : absolute(c.pid, file, dirfd);
-        const creates = c.name === 'openat' && /O_CREAT/.test(c.args);
+        const creates = c.name === 'openat' && replacesFile(c.args);
         record(target, c.name === 'execveat' ? (ok ? 'exec' : 'access') : c.name === 'openat' ? 'content' : 'access', ok, creates);
         if (ok && c.retPath && c.name === 'openat' && path.posix.isAbsolute(c.retPath)) record(path.posix.normalize(c.retPath), 'content', true, creates);
       }
@@ -217,7 +238,7 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
     paths: [...paths].sort(),
     dirs: Object.fromEntries([...dirs].sort(([a], [b]) => a.localeCompare(b)).map(([d, n]) => [d, [...n].sort()])),
     ineligible: [...reasons].sort(),
-    present: [...reached].filter(p => !created.has(p)).sort(),
+    present: [...firstReach].filter(([, how]) => how === 'reached').map(([p]) => p).sort(),
     tools: [...tools].sort(),
   };
 }
