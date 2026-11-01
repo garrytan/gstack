@@ -41,14 +41,15 @@ SKILL_NAME=""
 MODEL_OVERLAY="none"
 PARENT_PID=""
 BRAIN_HEALTH="no"
-RENDER_KIND="none"
+RENDER_KIND=""
+RENDER_SET="no"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skill)       SKILL_NAME="$2"; shift 2 ;;
     --model)       MODEL_OVERLAY="$2"; shift 2 ;;
     --parent-pid)  PARENT_PID="$2"; shift 2 ;;
     --brain-health) BRAIN_HEALTH="yes"; shift ;;
-    --render)      RENDER_KIND="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
+    --render)      RENDER_SET="yes"; RENDER_KIND="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
     -h|--help)
       echo 'Usage: gstack-skill-start --skill NAME [--model OVERLAY] [--parent-pid PID] [--brain-health] [--render unattended]'
       echo 'Starts a skill session and prints its STATUS lines. --help starts nothing.'
@@ -57,8 +58,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$SKILL_NAME" ] || SKILL_NAME="unknown"
-case "$RENDER_KIND" in
-  none|unattended) ;;
+case "$RENDER_SET:$RENDER_KIND" in
+  no:|yes:unattended) ;;
   *) echo "gstack-skill-start: --render takes unattended (got '$(printf '%s' "$RENDER_KIND" | tr -cd 'a-zA-Z0-9._-')')" >&2; exit 2 ;;
 esac
 

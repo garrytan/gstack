@@ -182,6 +182,7 @@ describe('gstack-skill-start --render unattended', () => {
     const bad = start(['--render', 'interactive']);
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain("--render takes unattended (got 'interactive')");
+    expect(start(['--render', 'none']).status).toBe(2);
     const bare = start(['--render']);
     expect(bare.status).toBe(2);
     expect(bare.stderr).toContain("--render takes unattended (got '')");
