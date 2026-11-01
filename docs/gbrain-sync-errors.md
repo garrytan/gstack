@@ -76,6 +76,11 @@ both fixes:
    ~/.claude/skills/gstack/bin/gstack-brain-sync --drop-queue --yes
    ```
 
+A synced `.json` file that does not parse (often git conflict markers from a
+merge) is held the same way under rule `invalid-json`. Its only fix is to
+repair the file; `--skip-file` is not offered, because it would stop that
+file syncing for good. The next sync re-checks it.
+
 **Git index lock.** A git process killed mid-write leaves
 `~/.gstack/.git/index.lock`. The sync removes it once it is older than 10
 minutes, because every gstack writer to `~/.gstack` takes the same sync lock

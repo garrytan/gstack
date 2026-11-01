@@ -91,8 +91,8 @@ gstack-brain-sync --status
 ```
 
 Shows: the status (`ok`, `idle`, `held`, `collision`, `blocked`,
-`push_failed`, `error`), files held back by the secret scan with their
-fixes, files held because their path differs only by letter case from
+`push_failed`, `error`), files held back by the secret scan or because
+they are not valid JSON, with their fixes, files held because their path differs only by letter case from
 another path (`case_held`, `case_names`; see
 [troubleshooting](troubleshooting.md#artifact-case-collision)), the
 `drainable` count, the last sync and push times, pending queue depth, and
@@ -190,6 +190,12 @@ append commits. Git's default would conflict at the file tail, but the
 
 You shouldn't see conflict prompts. If you do (a real semantic conflict,
 like two machines editing the same plan), git will stop and prompt.
+
+JSON files such as `developer-profile.json` have no merge driver, so a
+merge can leave conflict markers in them. The sync parses every staged
+`.json` file and holds back one that does not parse (status `held`, rule
+`invalid-json`) until you repair it, and `gstack-doctor` warns when a synced profile or
+decision snapshot holds conflict markers.
 
 ## Cross-machine pull cadence
 
