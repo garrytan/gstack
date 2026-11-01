@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.13.0] - 2026-11-01
+
+- `/ship`'s preflight no longer runs `git merge` when `origin/<base>` is already in HEAD. It checks `git merge-base --is-ancestor` first and reports `MERGE: up to date`, so a checkout whose guard refuses `git merge` (a shared machine) gets past Step 3 when there is nothing to merge. A moved base still merges (GST-691).
+
 ## [1.92.12.0] - 2026-11-01
 
 **When the merge queue gets long, 3 to 6 PRs from one part of the code can now land as one wave PR: one /ship, one READY, one train slot and one version.** Every slot in a train pays for its own stamp commit, its own round of about 12 required workflow runs (about 15 minutes, one slot after another) and its own version. The last 10 merged trains landed 26 PRs this way, with 16 to 24 READY PRs waiting at every build (refs/notes/gstack-trains; gate runs 41165841909 to 41217563527). Garry's rule R46 (2026-10-31) asks every Captain to group functional areas into wave PRs when queues get long. `gstack-ship-queue wave` now does this inside gstack's own train tooling, so crews get it from gstack instead of from prose (GST-574).
