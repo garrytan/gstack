@@ -177,8 +177,12 @@ test('an exhausted owner deadline never launches another child', async () => {
   expect(result).toMatchObject({ exitCode: null, timedOut: true, groupPid: null, incompleteCapture: { childClosed: false } });
 }, 30_000);
 
+// The exit must land before the wall for its code to survive. In Windows Free Tests 41164892775 the child took over
+// 150 ms to start and exit, so the wall won (exitCode null). The same child exits in 45-102 ms across 39 lane runs of the
+// normal-exit case and in up to 371 ms on a CPU-saturated runner (GSTA-199 scratch run 41205291567). This case asserts no
+// elapsed bound, so its wall only has to come after the exit.
 test('missing close preserves a nonzero exit while explicitly refusing completeness', async () => {
-  const result = await runShardChild({ ...options, args: ['-e', 'process.exit(7)'],
+  const result = await runShardChild({ ...options, timeoutMs: 2_000, args: ['-e', 'process.exit(7)'],
     hookStreams: child => {
       const emit = child.emit.bind(child);
       child.emit = ((event: string | symbol, ...args: unknown[]) => event === 'close' ? true : emit(event, ...args)) as typeof child.emit;
