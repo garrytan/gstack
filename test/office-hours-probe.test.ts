@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { PROBE_TIMEOUT_MS, resolveProbe, runProbe } from '../lib/office-hours-probe';
+import { PROBE_TIMEOUT_MS, repoRootOf, resolveProbe, runProbe } from '../lib/office-hours-probe';
 import { renderOfficeHoursReviewerPrompt } from '../lib/office-hours-review';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -40,7 +40,9 @@ describe('resolveProbe', () => {
     for (const command of ['curl', './jq', '/usr/bin/git', 'git;rm', '$(id)', 'gstack-missing']) {
       expect('refused' in resolveProbe(command, { pathEnv: bin, gstackBin, repoRoot: repo })).toBe(true);
     }
-    expect(resolveProbe('jq', { pathEnv: repo, gstackBin, repoRoot: repo })).toEqual({ refused: 'jq resolves inside the repository' });
+    expect(resolveProbe('jq', { pathEnv: repo, gstackBin, repoRoot: repo })).toEqual({ refused: 'jq is not on PATH' });
+    fs.symlinkSync(path.join(repo, 'jq'), path.join(bin, 'jq'));
+    expect(resolveProbe('jq', { pathEnv: bin, gstackBin, repoRoot: repo })).toEqual({ refused: 'jq resolves inside the repository' });
     expect(resolveProbe('rg', { pathEnv: bin, gstackBin })).toEqual({ refused: 'rg is not on PATH' });
   });
 
@@ -58,7 +60,7 @@ describe('resolveProbe', () => {
     for (const [command, w] of [['gh', ['pr', 'create']], ['git', ['worktree']], ['docker', ['compose', 'up']], ['uv', ['pip', 'install']], ['go', ['mod', 'tidy']]] as const) {
       expect(resolveProbe(command, o, w)).toEqual({ exe: path.join(bin, command) });
     }
-    for (const [command, w] of [['uv', ['run', 'probetarget']], ['uv', ['tool', 'run']], ['docker', ['run', 'img']], ['docker', ['container', 'run']], ['go', ['test', 'pkg']], ['go', ['run', 'x']], ['npm', ['exec', 'x']], ['npm', ['run', 'x']], ['gh', ['myext']], ['git', ['log', 'x']]] as const) {
+    for (const [command, w] of [['uv', ['run', 'probetarget']], ['uv', ['tool', 'run']], ['docker', ['run', 'img']], ['docker', ['container', 'run']], ['go', ['test', 'pkg']], ['go', ['run', 'x']], ['cargo', ['fmt']], ['cargo', ['clippy']], ['npm', ['exec', 'x']], ['npm', ['run', 'x']], ['gh', ['myext']], ['git', ['log', 'x']]] as const) {
       expect('refused' in resolveProbe(command, o, w)).toBe(true);
     }
   });
@@ -67,12 +69,27 @@ describe('resolveProbe', () => {
     expect(resolveProbe('gstack-login', { pathEnv: bin, gstackBin })).toEqual({ refused: 'gstack-login does not handle --help' });
   });
 
-  test('the probe sees no keys or tokens, gets a throwaway HOME, and never retries a gstack bin with -h', () => {
-    const peek = tool(bin, 'peek', 'echo "key=${OPENAI_API_KEY:-none} gh=${GH_TOKEN:-none} home_empty=$([ "$HOME" = "$PWD" ] && echo yes) args=$*"');
-    process.env.OPENAI_API_KEY ??= 'planted'; process.env.GH_TOKEN ??= 'planted';
-    expect(runProbe(peek).output.trim().split('\n')).toEqual(['key=none gh=none home_empty=yes args=-h']);
+  test('the probe sees no keys or tokens, keeps HOME, drops in-repository PATH entries, and never retries a gstack bin with -h', () => {
+    const saved = { OPENAI_API_KEY: process.env.OPENAI_API_KEY, GH_TOKEN: process.env.GH_TOKEN };
+    process.env.OPENAI_API_KEY = 'planted'; process.env.GH_TOKEN = 'planted';
+    try {
+      tool(repo, 'man', 'echo repo man');
+      const peek = tool(bin, 'peek', 'echo "key=${OPENAI_API_KEY:-none} gh=${GH_TOKEN:-none} home=$HOME path=$PATH args=$*"');
+      const out = runProbe(peek, [], { pathEnv: [repo, 'rel/bin', bin].join(path.delimiter), repoRoot: repo }).output.trim();
+      expect(out).toBe(`key=none gh=none home=${process.env.HOME} path=${bin} args=-h`);
+      expect(resolveProbe('man' as string, { pathEnv: repo, gstackBin, repoRoot: repo })).toHaveProperty('refused');
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
     const g = tool(gstackBin, 'gstack-quiet', 'echo "args=$*" # --help');
     expect(runProbe(g).output.trim()).toBe('args=--help');
+  });
+
+  test('repoRootOf finds the enclosing repository without running git', () => {
+    fs.mkdirSync(path.join(repo, '.git', 'x'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'a', 'b'), { recursive: true });
+    expect(repoRootOf(path.join(repo, 'a', 'b'))).toBe(repo);
+    expect(repoRootOf(bin)).toBeUndefined();
   });
 
   test('runProbe passes only --help, closes stdin and stops a hanging command', () => {

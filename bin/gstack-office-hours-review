@@ -4,9 +4,8 @@ import * as path from 'node:path';
 import { atomicWriteSync } from '../lib/fs-atomic.ts';
 import { assessOfficeHoursReviews, extractOfficeHoursReviewBlock, loadOfficeHoursReviews, officeHoursDesignChanges, officeHoursMaxRounds, officeHoursSnapshotChanges, officeHoursVerdictReceipt, parseOfficeHoursVerdictReceipt, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock, verifyOfficeHoursCitations, verifyOfficeHoursVerdictReceipt } from '../lib/office-hours-review.ts';
 import { parseSpecFixes, verifySpecFixesAtCap } from '../lib/spec-review-cap.ts';
-import { resolveProbe, runProbe } from '../lib/office-hours-probe.ts';
+import { repoRootOf, resolveProbe, runProbe } from '../lib/office-hours-probe.ts';
 import { resultLine } from '../lib/result-codes.ts';
-import { spawnSync } from 'node:child_process';
 
 const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
 
@@ -14,14 +13,14 @@ const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
 function probe(args) {
   if (args.length < 2 || args.length > 4 || args[0] !== '--help') throw new Error('usage: gstack-office-hours-review probe --help <command> [<subcommand> [<subcommand>]]');
   const named = args.slice(1).join(' ');
-  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000 });
-  const target = resolveProbe(args[1], { pathEnv: process.env.PATH ?? '', gstackBin: path.dirname(fs.realpathSync(process.argv[1])), repoRoot: top.status === 0 ? top.stdout.trim() : undefined }, args.slice(2));
+  const where = { pathEnv: process.env.PATH ?? '', repoRoot: repoRootOf(process.cwd()) };
+  const target = resolveProbe(args[1], { ...where, gstackBin: path.dirname(fs.realpathSync(process.argv[1])) }, args.slice(2));
   if ('refused' in target) {
     console.error(resultLine('gstack-office-hours-review probe', 'OFFICE_HOURS_PROBE_REFUSED', `${named}: ${target.refused}`));
     process.exitCode = 3;
     return;
   }
-  const r = runProbe(target.exe, args.slice(2));
+  const r = runProbe(target.exe, args.slice(2), where);
   console.log(`PROBE: ${named} ${r.timedOut ? 'timeout' : `exit=${r.status}`}`);
   if (r.output) console.log(r.output);
   if (r.timedOut) process.exitCode = 1;

@@ -9,7 +9,8 @@
  *   resolved      the file exists inside a root and the cited lines exist,
  *                 or the sha names a commit in a root's repository
  *   unresolved    a relative path into a root's tree that is missing, a
- *                 directory, or a line past the end: the claim is false here
+ *                 directory, a dangling link, line 0, a reversed range or a
+ *                 line past the end: the claim is false here
  *   unverifiable  this checkout cannot judge it (outside every root, a bare
  *                 name no root has, a symlink leaving the root, a file over
  *                 the size cap, a sha a shallow clone lacks): reported only
@@ -49,7 +50,8 @@ function lineCount(file: string, size: number): number {
 function resolvePath(token: string, roots: readonly string[], maxBytes: number): { outcome: ReceiptOutcome; reason: string } {
   const m = PATH_TOKEN_RE.exec(token)!;
   const file = m.groups!.file!.replace(/^\.\//, '');
-  const last = Number(m.groups!.to ?? m.groups!.from);
+  const first = Number(m.groups!.from), last = Number(m.groups!.to ?? m.groups!.from);
+  if (first < 1 || last < first) return { outcome: 'unresolved', reason: `line range ${first}-${last} is not a range of lines` };
   if (!roots.length) return { outcome: 'unverifiable', reason: 'no root to resolve against (not in a git checkout; pass --root)' };
   if (/^[~$]/.test(file)) return { outcome: 'unverifiable', reason: 'path outside every root' };
   let intoTree = false;
@@ -58,9 +60,13 @@ function resolvePath(token: string, roots: readonly string[], maxBytes: number):
     if (!inside(root, candidate)) continue;
     const top = file.includes('/') ? path.join(root, file.split('/')[0]!) : candidate;
     if (path.isAbsolute(file) || fs.existsSync(top)) intoTree = true;
-    const st = fs.lstatSync(candidate, { throwIfNoEntry: false });
-    if (!st) continue;
-    const real = fs.realpathSync(candidate);
+    let real: string;
+    try {
+      if (!fs.lstatSync(candidate, { throwIfNoEntry: false })) continue;
+      real = fs.realpathSync(candidate);
+    } catch (e) {
+      return { outcome: 'unresolved', reason: `cannot open (${(e as NodeJS.ErrnoException).code ?? 'error'})` };
+    }
     if (!inside(fs.realpathSync(root), real)) return { outcome: 'unverifiable', reason: 'symlink leaves the root' };
     const target = fs.statSync(real);
     if (!target.isFile()) return { outcome: 'unresolved', reason: 'not a regular file' };

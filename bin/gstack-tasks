@@ -58,7 +58,7 @@ function rowsDir(fallback: string): string {
   if (!top) return fallback;
   const exclude = git('rev-parse', '--git-path', 'info/exclude');
   if (exclude) {
-    const file = path.resolve(top, exclude);
+    const file = path.resolve(exclude);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     if (!(fs.existsSync(file) && fs.readFileSync(file, 'utf8').split('\n').includes('/.gstack/tmp/'))) fs.appendFileSync(file, '/.gstack/tmp/\n');
   }
@@ -71,12 +71,12 @@ function main(argv: string[]): number {
   if (!['prior', 'add', 'supersede'].includes(cmd)) return usage(`unknown command ${cmd}`);
   const phase = flag(rest, '--phase') as TaskPhase | undefined;
   if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
-  const dir = flag(rest, '--dir') ?? path.join(resolveStateRoot(), 'projects', slug('SLUG'));
-  const branch = flag(rest, '--branch') ?? (git('branch', '--show-current') || 'unknown');
+  const dir = path.resolve(flag(rest, '--dir') ?? path.join(resolveStateRoot(), 'projects', slug('SLUG')));
+  const branch = flag(rest, '--branch') ?? (git('rev-parse', '--git-dir') ? git('branch', '--show-current') : 'unknown');
   const json = rest.includes('--json');
   try {
     if (cmd === 'add') {
-      const r = addRows(dir, phase, branch, slug('BRANCH'), git('rev-parse', 'HEAD') || 'unknown', path.join(rowsDir(dir), rowsFileName(phase)));
+      const r = addRows(dir, phase, branch, flag(rest, '--branch') ?? slug('BRANCH'), git('rev-parse', 'HEAD') || 'unknown', path.join(rowsDir(dir), rowsFileName(phase)));
       process.stdout.write([`ADDED: tasks=${r.tasks} dispositions=${r.dispositions} ${r.file}`, ...r.superseded.map(f => `SUPERSEDED: ${f}`)].join('\n') + '\n');
       return EXIT.ok;
     }

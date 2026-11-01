@@ -114,7 +114,10 @@ export function addRows(dir: string, phase: TaskPhase, branch: string, branchSlu
   fs.mkdirSync(dir, { recursive: true });
   const slug = branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown';
   const file = path.join(dir, `tasks-${phase}-${slug}-${iso.slice(0, 8)}-${iso.slice(9, 15)}.jsonl`);
-  fs.appendFileSync(file, tasks.map(t => JSON.stringify(t) + '\n').join(''));
+  try { fs.writeFileSync(file, tasks.map(t => JSON.stringify(t) + '\n').join(''), { flag: 'wx' }); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    throw new SupersedeRefused(`${file} already exists (a run in the same second); rerun add`);
+  }
   if (dispositions.length) fs.appendFileSync(path.join(dir, `task-dispositions-${phase}-${slug}.jsonl`), dispositions.map(d => JSON.stringify(d) + '\n').join(''));
   fs.rmSync(rows, { force: true });
   const { moved } = supersede(dir, phase, branch, file);

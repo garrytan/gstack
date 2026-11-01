@@ -90,6 +90,13 @@ describe('resolveReceipts', () => {
     expect(JSON.stringify(out)).not.toContain('TOKEN');
   });
 
+  test('line 0, a reversed range, a dangling link and a path through a file are unresolved, never a crash', () => {
+    const dir = fixtureRepo();
+    fs.symlinkSync(path.join(dir, 'lib', 'gone.ts'), path.join(dir, 'lib', 'dangling.ts'));
+    const out = resolveReceipts(parseRealityLines('REALITY: numbers pass ok lib/a.ts:0 lib/a.ts:3-1 lib/dangling.ts:1 lib/a.ts/x.ts:1 lib/a.ts:1-3'), { roots: [dir] });
+    expect(out.map(r => r.outcome)).toEqual(['unresolved', 'unresolved', 'unresolved', 'unresolved', 'resolved']);
+  });
+
   test('a commit sha in the repository resolves; an absent one is unverifiable', () => {
     const dir = fixtureRepo();
     const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', timeout: 10_000 });

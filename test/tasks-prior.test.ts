@@ -13,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { generateTasksSectionAggregate, generateTasksSectionEmit } from '../scripts/resolvers/tasks-section';
 import type { TemplateContext } from '../scripts/resolvers/types';
-import { priorSet, readTaskFiles, supersede, SupersedeRefused } from '../lib/tasks-prior';
+import { addRows, priorSet, readTaskFiles, supersede, SupersedeRefused } from '../lib/tasks-prior';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-tasks');
@@ -201,6 +201,35 @@ describe('gstack-tasks add', () => {
     expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toContain('PRIOR_TASKS: none');
     expect(fs.existsSync(rowsFile(w))).toBe(false);
     expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toMatch(/^ADDED: tasks=0 dispositions=0 /m);
+  });
+
+  test('from a subdirectory, add excludes .gstack/tmp in the repository\'s own git dir and reads the root rows file', () => {
+    const w = world();
+    const sub = path.join(w.repo, 'a', 'b');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(rowsFile(w), JSON.stringify({ id: 'T1', priority: 'P1', component: 'c', title: 'from sub', source_finding: 's', effort_human: 'h', effort_cc: 'c', files: [] }) + '\n');
+    const add = spawnSync('bun', [BIN, 'add', '--phase', 'eng-review', '--dir', path.relative(sub, w.dir)], { cwd: sub, encoding: 'utf8', timeout: 30_000, env: { ...process.env, HOME: w.home, GSTACK_HOME: path.join(w.home, '.gstack'), GSTACK_STATE_ROOT: path.join(w.home, '.gstack') } });
+    expect(add.stdout).toMatch(/^ADDED: tasks=1 dispositions=0 /m);
+    expect(fs.readFileSync(path.join(w.repo, '.git', 'info', 'exclude'), 'utf8')).toContain('/.gstack/tmp/');
+    expect(fs.existsSync(path.join(w.home, '.git'))).toBe(false);
+  });
+
+  test('on a detached HEAD the rows carry an empty branch, as the /autoplan aggregator reads it', () => {
+    const w = world();
+    spawnSync('git', ['checkout', '-q', '--detach'], { cwd: w.repo, timeout: 10_000 });
+    fs.writeFileSync(rowsFile(w), JSON.stringify({ id: 'T1', priority: 'P1', component: 'c', title: 'detached task', source_finding: 's', effort_human: 'h', effort_cc: 'c', files: [] }) + '\n');
+    expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).status).toBe(0);
+    expect(aggregate(w)).toContain('detached task');
+  });
+
+  test('a second add in the same second refuses and keeps its rows file', () => {
+    const w = world();
+    const t0 = new Date('2026-10-31T10:00:00Z');
+    addRows(w.dir, 'eng-review', BRANCH, 'feature-x', w.commit, path.join(w.home, 'none.jsonl'), t0);
+    const rows = path.join(w.home, 'rows.jsonl');
+    fs.writeFileSync(rows, JSON.stringify({ id: 'T1', priority: 'P1', component: 'c', title: 't', source_finding: 's', effort_human: 'h', effort_cc: 'c', files: [] }) + '\n');
+    expect(() => addRows(w.dir, 'eng-review', BRANCH, 'feature-x', w.commit, rows, t0)).toThrow(SupersedeRefused);
+    expect(fs.existsSync(rows)).toBe(true);
   });
 
   test('add refuses an invalid rows file and writes nothing', () => {

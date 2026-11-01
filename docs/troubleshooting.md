@@ -3241,9 +3241,10 @@ bin must handle `--help`. Up to two subcommand words are allowed for git, gh,
 docker, cargo, go, npm and uv, each from that CLI's list of built-in names in
 `lib/office-hours-probe.ts`; words that run a named program, script, image or
 extension (`uv run`, `docker run`, `go test`, `npm exec`, a gh extension) are
-refused. The probe never runs a shell, closes stdin, runs in an empty temporary
-directory that is also its HOME, passes no keys or tokens in its environment and
-stops after 10 seconds.
+refused. The probe never runs a shell or a repository-local program (PATH
+entries inside the repository are dropped), closes stdin, runs in an empty
+temporary directory, passes no keys or tokens in its environment and stops after
+10 seconds.
 
 **Fix.** Nothing to repair. The claim stays unverified, not disproved; check it
 from the command's source or docs in the repository instead.
@@ -3266,8 +3267,8 @@ shows both row shapes), and rerun `gstack-tasks add --phase <phase>`.
 ### `REALITY_RECEIPT_UNRESOLVED`
 
 **Meaning.** `gstack-plan-reality check` opened a receipt and it is false in
-the checkout: the file is missing, it is a directory, or the cited line is past
-its end. The `RECEIPT_UNRESOLVED: <row> <receipt> <reason>` line names each
+the checkout: the file is missing, it is a directory or a dangling link, the
+line is 0 or the range runs backward, or the cited line is past its end. The `RECEIPT_UNRESOLVED: <row> <receipt> <reason>` line names each
 one. A receipt the checkout cannot judge (a path outside every root, a bare
 file name no root has, a sha a shallow clone lacks) prints
 `RECEIPT_UNVERIFIABLE:` instead and never blocks.
