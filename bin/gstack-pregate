@@ -26,6 +26,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { baseContainsHead } from '../lib/default-base';
 import { EXIT, exitTableHelp, formatResult, type PregateFile } from '../lib/headless-artifacts';
 import { PREGATE_CONFIG_PATH, explainConfig, isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from '../lib/pregate/config';
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
@@ -72,7 +73,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
 
   --stage preflight|tests|all   default all
   --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
-  --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch, else main)
+  --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch unless it is the
+                                checked-out one, else the PR's base, origin/main, origin/master; lib/default-base.ts)
   --allow-repo-commands         run pin-file commands and the test runner (what /ship passes); without it those checks are incomplete
   --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands; the head file may
                                 only add test lanes over the base copy, else PREGATE_HEAD_POLICY_LOOSENS)
@@ -285,6 +287,8 @@ function cmdSealed(root: string, rest: string[], json: boolean): number {
   if (!pushedSha) { process.stderr.write(`gstack-pregate sealed: ${end} is not a commit\n`); return EXIT.usage; }
   const listed = range ? rangeCommits(root, range) : publishedCommits(root, { localSha: pushedSha, remoteName: remote });
   const baseRef = gitOut(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]) ? `refs/remotes/${remote}/${base}` : null;
+  const self = baseRef && baseContainsHead(root, baseRef);
+  if (self) { process.stderr.write(`${resultLine('gstack-pregate sealed', 'BASE_CONTAINS_HEAD', self)}; the policy would be the branch's own\n`); return EXIT.refused; }
   const remoteUrl = gitOut(root, ['remote', 'get-url', remote]);
   const report = 'error' in listed
     ? sealedErrorReport(listed.error, remoteUrl ?? remote)

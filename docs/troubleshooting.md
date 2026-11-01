@@ -5210,6 +5210,26 @@ wait`'s `--timeout`.
 **Fix.** Run `wait` again (the pause stays valid until it expires), or find who
 owns the base's red.
 
+<a id="base-contains-head"></a>
+### `BASE_CONTAINS_HEAD`
+
+**Meaning.** A base-relative step (`gstack-ship-queue ready`, `land` and
+`train` receipt binding, `gstack-review-plan`, `gstack-pregate`,
+`gstack-gate-diff`, `gstack-diff-scope`, `gstack-docs-candidate snapshot`)
+was given a base that is the head or already contains it, while the branch
+has commits its real base lacks. The comparison would read the branch against
+itself and report no changes, a false green. The usual cause is a checkout
+made by a PR flow: `refs/remotes/origin/HEAD` names the PR branch and there is
+no local `main` (GST-774). The detail names the base, the head, and the real
+base (the PR's base from `gh`, else `origin/main`, else `origin/master`). For
+a pull request's head the queue refuses whenever the base contains it. On the
+base branch itself, on a detached HEAD, and on a fresh branch with no commits
+past its base, the step runs as before.
+
+**Fix.** Pass the real base (`--base main`, or the PR's base branch). When
+`origin/HEAD` names the checked-out branch, `git remote set-head origin main`
+repairs every default at once.
+
 <a id="queue-receipt-depth-raised"></a>
 ### `QUEUE_RECEIPT_DEPTH_RAISED`
 

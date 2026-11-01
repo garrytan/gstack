@@ -19,6 +19,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { baseContainsHead } from './default-base';
 import type { ShipReceipt } from './headless-artifacts';
 import { collectCommit } from './review-collect';
 import { depthOfCommitInput, gateScanNeeded, type Depth } from './review-depth';
@@ -189,12 +190,14 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
 }
 
-/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. */
+/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed. */
 export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[]):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
-  | { ok: false; code: ReceiptBindingCode | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
+  | { ok: false; code: ReceiptBindingCode | 'BASE_CONTAINS_HEAD' | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
   const b = bindReceipt(body, pr, accepted);
   if (!b.ok) return b;
+  const self = baseContainsHead(root, baseRef, b.head);
+  if (self) return { ok: false, code: 'BASE_CONTAINS_HEAD', message: self, line: b.line };
   const ancestor = (commit: string) => b.receipt.carry?.ancestry === 'rewritten' || git(root, ['merge-base', '--is-ancestor', commit, b.head]).ok;
   const problems = exceptionProblems(body, b.receipt, ancestor);
   if (problems.length) return { ok: false, code: 'QUEUE_RECEIPT_EXCEPTION_INVALID', message: `the receipt's owner exception does not stand: ${problems.join('; ')}`, line: b.line };

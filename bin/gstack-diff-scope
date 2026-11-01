@@ -15,7 +15,11 @@
 #            trips loudly instead of silently disabling reviewers)
 #   exit 2  base ref unresolvable             → all false + SCOPE_ERROR=no_base
 #           (shallow CI checkout / missing fetch — a green here would mean
-#            "we could not look")
+#            "we could not look"; also no default base when origin/HEAD
+#            names the checked-out branch and nothing past it resolves)
+#   exit 2  base is HEAD or contains it       → all false + SCOPE_ERROR=base_contains_head
+#           (the branch has commits its real base lacks, so it would be
+#            compared with itself, GST-774; the reason as a comment line)
 # Every line is shell-safe for `source <(...)` consumers: assignments or
 # `#`-comments only.
 #
@@ -26,14 +30,25 @@
 set -euo pipefail
 
 # Detect the repo's default branch when no arg is given (#703-class
-# platform-agnostic rule): origin/HEAD -> origin/main -> origin/master -> main.
-_default_base() {
-  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' && return
-  git rev-parse --verify -q origin/main >/dev/null 2>&1 && { echo "main"; return; }
-  git rev-parse --verify -q origin/master >/dev/null 2>&1 && { echo "master"; return; }
-  echo "main"
-}
-BASE="${1:-$(_default_base)}"
+# platform-agnostic rule, lib/default-base.ts): origin/HEAD unless it names the
+# checked-out branch (a PR flow's clone can point it at the PR branch, GST-511,
+# GST-774) -> the PR's base (gh, 5 s) -> origin/main -> origin/master -> main.
+# An origin/HEAD skipped that way with nothing past it resolving leaves BASE
+# empty, and that fails closed; so does a default-base.ts that cannot run.
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+_default_base_ts() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/lib/default-base.ts" "$@"; }
+NO_DEFAULT=""
+BASE="${1:-}"
+if [ -z "$BASE" ]; then
+  _rc=0
+  _found=$(_default_base_ts default 2>/dev/null) || _rc=$?
+  case "$_rc" in
+    0) BASE="$_found" ;;
+    1) BASE="main" ;;
+    3) NO_DEFAULT="$_found" ;;
+    *) NO_DEFAULT="lib/default-base.ts could not run (exit $_rc); pass the base explicitly" ;;
+  esac
+fi
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
 
@@ -65,14 +80,43 @@ _print_flags() {
   echo "SCOPE_AUTH=$AUTH"
 }
 
-# Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
-# `git diff` return an empty list — all-false with exit 0, a green that means
-# "we could not look". Distinguish it before diffing.
-if ! git rev-parse --verify -q "${BASE}^{commit}" >/dev/null 2>&1; then
+if [ -z "$BASE" ]; then
   _print_flags
   echo "SCOPE_ERROR=no_base"
-  echo "# base ref '${BASE}' is not resolvable — shallow checkout or missing fetch. Run: git fetch origin ${BASE}"
+  echo "# ${NO_DEFAULT}"
   exit 2
+fi
+
+# Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
+# `git diff` return an empty list — all-false with exit 0, a green that means
+# "we could not look". Distinguish it before diffing. A branch name that does
+# not resolve here reads its origin twin first (a PR checkout has no local main).
+if ! git rev-parse --verify -q "${BASE}^{commit}" >/dev/null 2>&1; then
+  case "$BASE" in
+    HEAD|refs/*|origin/*|*[~^@:]*) ;;
+    *) if git rev-parse --verify -q "refs/remotes/origin/${BASE}^{commit}" >/dev/null 2>&1; then BASE="origin/$BASE"; fi ;;
+  esac
+  if ! git rev-parse --verify -q "${BASE}^{commit}" >/dev/null 2>&1; then
+    _print_flags
+    echo "SCOPE_ERROR=no_base"
+    echo "# base ref '${BASE}' is not resolvable — shallow checkout or missing fetch. Run: git fetch origin ${BASE}"
+    exit 2
+  fi
+fi
+
+# A base that is the head or already contains it reads the branch against
+# itself, all false with exit 0 (GST-774). lib/default-base.ts decides whether
+# that is the base branch itself or a fresh branch (today's output) or a
+# refusal; it is asked only when git says the base contains the head.
+if git merge-base --is-ancestor "${HEAD_REF:-HEAD}" "${BASE}" >/dev/null 2>&1; then
+  _rc=0
+  _why=$(_default_base_ts check "$BASE" "${HEAD_REF:-HEAD}" gstack-diff-scope 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    _print_flags
+    echo "SCOPE_ERROR=base_contains_head"
+    echo "# ${_why:-lib/default-base.ts could not check the base (exit $_rc) (BASE_CONTAINS_HEAD)}"
+    exit 2
+  fi
 fi
 
 # Changed files, NUL-delimited (#2526 minor: `git diff --name-only` octal-quotes
