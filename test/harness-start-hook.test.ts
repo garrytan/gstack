@@ -38,6 +38,13 @@ case "$1 $2" in
     hooks=""; [ -d "$d/extensions/gstack-start" ] && [ "$acc" = true ] && [ "$en" != false ] && hooks='{"name":"before_prompt_build"}'
     printf '{"plugin":{"status":"loaded","enabled":%s},"typedHooks":[%s]}\n' "$([ "$en" = false ] && echo false || echo true)" "$hooks" ;;
 esac
+case "$1 $2" in "config set"|"config unset")
+  j="$d/openclaw.json"; b="$d/fake-base.json"
+  [ -f "$b" ] || { if [ -f "$j" ]; then cp "$j" "$b"; else printf '{"meta":{"lastTouchedVersion":"fake"}}' > "$b"; fi; }
+  acc=false; grep -q '^plugins.entries.gstack-start.hooks.allowConversationAccess=true$' "$c" && acc=true
+  en=$(grep '^plugins.entries.gstack-start.enabled=' "$c" | tail -1 | cut -d= -f2); enj=null; [ -n "$en" ] && enj=$en
+  if grep -q '^plugins.entries.gstack-start' "$c"; then printf '%s,"plugins":{"entries":{"gstack-start":{"enabled":%s,"hooks":{"allowConversationAccess":%s}}}}}' "$(sed 's/}$//' "$b")" "$enj" "$acc" > "$j"; else cp "$b" "$j"; fi ;;
+esac
 `;
 const FAKE_HERMES = String.raw`#!/bin/sh
 d="$HERMES_HOME"
@@ -48,10 +55,19 @@ case "$1 $2" in
   "plugins remove") rm -rf "$d/plugins/$3" "$d/fake-state" ;;
   "plugins list") if [ -d "$d/plugins/gstack-start" ]; then printf '[{"name":"gstack-start","status":"%s"}]\n' "$(cat "$d/fake-state" 2>/dev/null || echo 'not enabled')"; else echo '[]'; fi ;;
 esac
+case "$1 $2" in "plugins enable"|"plugins disable"|"plugins remove")
+  y="$d/config.yaml"; b="$d/fake-base.yaml"
+  [ -f "$b" ] || { if [ -f "$y" ]; then cp "$y" "$b"; else : > "$b"; fi; }
+  s=$(cat "$d/fake-state" 2>/dev/null)
+  { cat "$b"; [ -z "$s" ] || printf 'plugins:\n  %s:\n  - gstack-start\n' "$s"; } > "$y.t"; mv "$y.t" "$y" ;;
+esac
 `;
+/** A configured harness: what each harness's own setup leaves (OpenClaw onboarding, hermes setup) before gstack runs. */
+const HEALTHY = { openclaw: '{"agents":{"defaults":{"model":{"primary":"anthropic/claude-opus-5-5"}}},"gateway":{"mode":"local"}}', hermes: 'model:\n  default: claude-opus-5-5\n  provider: anthropic\nterminal:\n  backend: local\n' };
+const CONFIG = { openclaw: 'openclaw.json', hermes: 'config.yaml' };
 
 /** A temp home, state root and profile, with fake openclaw and hermes CLIs first on PATH. */
-function rig(target: 'openclaw' | 'hermes', extra: { noCli?: boolean; env?: Record<string, string> } = {}) {
+function rig(target: 'openclaw' | 'hermes', extra: { noCli?: boolean; fresh?: boolean; env?: Record<string, string> } = {}) {
   const d = tmp();
   const bin = path.join(d, 'bin');
   fs.mkdirSync(bin);
@@ -59,11 +75,13 @@ function rig(target: 'openclaw' | 'hermes', extra: { noCli?: boolean; env?: Reco
   fs.writeFileSync(path.join(bin, 'hermes'), FAKE_HERMES, { mode: 0o755 });
   const profile = path.join(d, target === 'openclaw' ? 'oc' : 'he');
   fs.mkdirSync(profile, { recursive: true });
+  const config = path.join(profile, CONFIG[target]);
+  if (!extra.fresh) fs.writeFileSync(config, HEALTHY[target]);
   const env = { PATH: (extra.noCli ? '' : bin + path.delimiter) + '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sekret', [target === 'openclaw' ? 'OPENCLAW_STATE_DIR' : 'HERMES_HOME']: profile, ...extra.env };
   const o = (more: Partial<RegisterOptions> = {}): RegisterOptions => ({ target: TARGETS[target], checkout: ROOT, stateRoot: path.join(d, 'state'), env, home: path.join(d, 'home'), version: VERSION, ...more });
   const root = path.join(profile, target === 'openclaw' ? 'extensions' : 'plugins', HOOK_ID);
   const calls = () => fs.existsSync(path.join(profile, 'fake-calls')) ? fs.readFileSync(path.join(profile, 'fake-calls'), 'utf8').trim().split('\n') : [];
-  return { d, bin, profile, env, o, root, calls };
+  return { d, bin, profile, config, env, o, root, calls };
 }
 
 describe('start hook: the note and the plugin files', () => {
@@ -486,7 +504,130 @@ describe('start hook: teardown keeps what gstack did not write (fake CLI)', () =
   }, 300_000);
 });
 
+describe('start hook: HARN-18 smoke defects (GST-778)', () => {
+  const offPath = (r: { env: Record<string, string> }) => ({ ...r.env, PATH: '/usr/bin:/bin' });
+  const cli = (r: { bin: string; env: Record<string, string> }, t: 'openclaw' | 'hermes', ...args: string[]) => spawnSync(path.join(r.bin, t), args, { env: r.env, encoding: 'utf8', timeout: 30_000 });
+
+  test('OPENCLAW_CONFIG_PATH naming the profile own openclaw.json, even through a symlink, keeps the hook', () => {
+    const r = rig('openclaw');
+    const link = path.join(tmp(), 'ln');
+    fs.symlinkSync(r.profile, link);
+    const viaEnv = register({ ...r.o(), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1', OPENCLAW_CONFIG_PATH: path.join(link, 'openclaw.json') } });
+    expect(viaEnv.hook).toMatchObject({ state: 'active', required: true });
+    const s = rig('openclaw');
+    expect(register({ ...s.o({ startHook: true }), env: { ...s.env, OPENCLAW_CONFIG_PATH: s.config } }).hook?.state).toBe('active');
+  }, 120_000);
+
+  test('a foreign OPENCLAW_CONFIG_PATH still turns an env opt-in off, and says so as a failure with the fix', () => {
+    const r = rig('openclaw');
+    const res = register({ ...r.o(), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1', OPENCLAW_CONFIG_PATH: path.join(r.d, 'elsewhere', 'openclaw.json') } });
+    expect(res.hook).toMatchObject({ state: 'off', required: true });
+    expect(res.hook?.detail).toContain('OPENCLAW_CONFIG_PATH points OpenClaw at ' + path.join(r.d, 'elsewhere', 'openclaw.json'));
+    expect(res.hook?.fix).toContain('unset OPENCLAW_CONFIG_PATH or set it to ' + r.config);
+    expect(r.calls()).toEqual([]);
+    expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);
+    expect(readLedger(res.ledger)!.meta.start_hook).toBe('off');
+    expect(fs.readFileSync(r.config, 'utf8')).toBe(HEALTHY.openclaw);
+  }, 120_000);
+
+  test('a fresh harness with no config: turning the hook on creates no config, runs no harness command, and fails with the setup to run first', () => {
+    for (const t of ['openclaw', 'hermes'] as const) {
+      const r = rig(t, { fresh: true });
+      const res = register(r.o({ startHook: true }));
+      expect(res.hook).toMatchObject({ state: 'written', required: true });
+      expect(res.hook?.detail).toContain('no ' + (t === 'openclaw' ? 'OpenClaw' : 'Hermes') + ' config at ' + r.config);
+      expect(res.hook?.fix).toContain(t === 'openclaw' ? 'openclaw onboard' : 'hermes setup');
+      expect(fs.existsSync(r.config)).toBe(false);
+      expect(r.calls()).toEqual([]);
+      expect(fs.existsSync(path.join(r.profile, 'skills'))).toBe(true);
+      expect(readLedger(res.ledger)!.meta.hook_active).toBe('no');
+    }
+  }, 300_000);
+
+  test('once the harness setup has written its config, the next refresh turns the hook on and changes only the plugin entry', () => {
+    const o = rig('openclaw', { fresh: true });
+    register(o.o({ startHook: true }));
+    fs.writeFileSync(o.config, HEALTHY.openclaw);
+    expect(register(o.o()).hook).toMatchObject({ state: 'active', retried: true });
+    const json = JSON.parse(fs.readFileSync(o.config, 'utf8'));
+    expect(json.plugins).toEqual({ entries: { [HOOK_ID]: { enabled: true, hooks: { allowConversationAccess: true } } } });
+    delete json.plugins;
+    expect(json).toEqual(JSON.parse(HEALTHY.openclaw));
+    expect(o.calls().filter(l => l.startsWith('config set')).map(l => l.split('|')[0])).toEqual(['config set plugins.entries.gstack-start.hooks.allowConversationAccess true', 'config set plugins.entries.gstack-start.enabled true']);
+
+    const h = rig('hermes', { fresh: true });
+    register(h.o({ startHook: true }));
+    fs.writeFileSync(h.config, HEALTHY.hermes);
+    expect(register(h.o()).hook).toMatchObject({ state: 'active', retried: true });
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(HEALTHY.hermes + 'plugins:\n  enabled:\n  - gstack-start\n');
+  }, 300_000);
+
+  test('turning off or unregistering a hook that never turned on, in a harness with no config, creates no config', () => {
+    for (const t of ['openclaw', 'hermes'] as const) {
+      const r = rig(t, { fresh: true });
+      register(r.o({ startHook: true }));
+      if (t === 'openclaw') expect(register(r.o({ startHook: false })).hook?.state).toBe('off');
+      else unregister(r.o().stateRoot, ROOT, 'hermes', r.env);
+      expect(fs.existsSync(r.config)).toBe(false);
+      expect(r.calls()).toEqual([]);
+      expect(fs.existsSync(r.root)).toBe(false);
+    }
+  }, 300_000);
+
+  test('Hermes status without hermes on PATH (its own terminal tool) reads the hook from config.yaml', () => {
+    const r = rig('hermes');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    const row = () => status(r.o().stateRoot, VERSION, offPath(r)).find(s => s.target === 'hermes')!.hook!;
+    expect(row()).toMatchObject({ state: 'active' });
+    expect(row().detail).toContain('hermes is not on PATH');
+    cli(r, 'hermes', 'plugins', 'disable', HOOK_ID);
+    expect(row().state).toBe('disabled');
+    fs.writeFileSync(r.config, HEALTHY.hermes);
+    expect(row().state).toBe('written');
+    fs.writeFileSync(r.config, 'plugins: [unclosed\n');
+    expect(row()).toMatchObject({ state: 'unknown' });
+    expect(row().detail).toContain('hermes is not on PATH');
+  }, 120_000);
+
+  test('OpenClaw status without openclaw on PATH is unknown when openclaw.json turns the hook on, disabled when the user turned it off', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    const row = () => status(r.o().stateRoot, VERSION, offPath(r)).find(s => s.target === 'openclaw')!.hook!;
+    expect(row()).toMatchObject({ state: 'unknown' });
+    expect(row().detail).toContain('openclaw is not on PATH');
+    cli(r, 'openclaw', 'config', 'set', 'plugins.entries.gstack-start.enabled', 'false');
+    expect(row().state).toBe('disabled');
+    expect(status(r.o().stateRoot, VERSION, r.env).find(s => s.target === 'openclaw')!.hook!.state).toBe('disabled');
+  }, 120_000);
+});
+
+
 describe.skipIf(process.platform === 'win32')('start hook through ./setup --host', () => {
+  test('OPENCLAW_CONFIG_PATH naming the profile own config keeps an env opt-in on; a foreign one exits 4 with the hook off', () => {
+    const f = makeFixture();
+    const src = makeSource(f, path.join(f.dir, 'gstack'));
+    const bin = path.join(f.dir, 'fakebin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'openclaw'), FAKE_OPENCLAW, { mode: 0o755 });
+    const profile = path.join(f.home, '.openclaw');
+    fs.mkdirSync(profile, { recursive: true });
+    fs.writeFileSync(path.join(profile, 'openclaw.json'), HEALTHY.openclaw);
+    const PATH = bin + path.delimiter + f.env.PATH;
+    const own = runSetup(f, path.join(src, 'setup'), ['--host', 'openclaw'], { env: { PATH, GSTACK_HARNESS_START_HOOK: '1', OPENCLAW_CONFIG_PATH: path.join(profile, 'openclaw.json') } });
+    expect(own.status, own.stdout + own.stderr).toBe(0);
+    expect(own.stdout).toContain('start hook: active');
+    const g = makeFixture();
+    const gsrc = makeSource(g, path.join(g.dir, 'gstack'));
+    fs.mkdirSync(path.join(g.home, '.openclaw'), { recursive: true });
+    fs.writeFileSync(path.join(g.home, '.openclaw', 'openclaw.json'), HEALTHY.openclaw);
+    const foreign = runSetup(g, path.join(gsrc, 'setup'), ['--host', 'openclaw'], { env: { PATH: bin + path.delimiter + g.env.PATH, GSTACK_HARNESS_START_HOOK: '1', OPENCLAW_CONFIG_PATH: path.join(g.dir, 'other', 'openclaw.json') } });
+    expect(foreign.status, foreign.stdout + foreign.stderr).toBe(4);
+    expect(foreign.stdout).toContain('start hook: off');
+    expect(foreign.stderr).toContain('(HARNESS_HOOK_INACTIVE; docs/troubleshooting.md#harness-hook-inactive)');
+    expect(foreign.stderr).toContain('OPENCLAW_CONFIG_PATH');
+    expect(fs.existsSync(path.join(g.home, '.openclaw', 'skills', 'gstack', 'SKILL.md'))).toBe(true);
+  }, 300_000);
+
   test('exits 4 with the skills registered when the hook does not turn on, and the next run retries it', () => {
     const f = makeFixture();
     const src = makeSource(f, path.join(f.dir, 'gstack'));
@@ -495,6 +636,7 @@ describe.skipIf(process.platform === 'win32')('start hook through ./setup --host
     fs.writeFileSync(path.join(bin, 'openclaw'), FAKE_OPENCLAW, { mode: 0o755 });
     const profile = path.join(f.home, '.openclaw');
     fs.mkdirSync(profile, { recursive: true });
+    fs.writeFileSync(path.join(profile, 'openclaw.json'), HEALTHY.openclaw);
     fs.writeFileSync(path.join(profile, 'fake-fail'), '');
     const PATH = bin + path.delimiter + f.env.PATH;
     const first = runSetup(f, path.join(src, 'setup'), ['--host', 'openclaw'], { env: { PATH, GSTACK_HARNESS_START_HOOK: '1' } });
