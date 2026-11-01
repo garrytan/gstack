@@ -25,6 +25,7 @@ import { HOST_PATHS } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
 import { applySectionGuards, rewriteCarvedSectionRefs, SKILL_BYTE_CEILING, usesLazySections } from './resolvers/sections';
 import { ModuleError, excludedSkillDirs, selectModules } from './modules';
+import { SESSION_KINDS, applySessionGuards, type SessionKind } from './resolvers/unattended';
 import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
@@ -57,6 +58,8 @@ export interface GenerationOptions {
   respectDetection?: boolean;
   log?: (message: string) => void;
   planMode?: boolean;
+  /** Render kind; undefined = interactive (resolvers/unattended.ts). */
+  sessionKind?: SessionKind;
   /** Module loadout (scripts/modules.ts selectModules); null/undefined = `full`. */
   modules?: ModuleFilter | null;
 }
@@ -71,6 +74,7 @@ interface RenderOptions {
   explainLevel: 'default' | 'terse';
   gbrainDetected: boolean;
   planMode: boolean;
+  sessionKind: SessionKind;
   modules: ModuleFilter | null;
 }
 
@@ -150,6 +154,11 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   const disabledSkills = (disabledValue ?? '').split(/[\s,]+/).filter(Boolean);
   const badDisabled = disabledSkills.find(n => !/^\/?[a-z0-9-]+$/.test(n));
   if (badDisabled) throw new Error(`--disabled-skills takes skill names (got ${JSON.stringify(badDisabled)})`);
+  const sessionKind = value('--session-kind') ?? 'interactive';
+  if (!(SESSION_KINDS as readonly string[]).includes(sessionKind)) throw new Error(`Unknown session kind: ${sessionKind}. Use ${SESSION_KINDS.join(' or ')}.`);
+  if (sessionKind === 'unattended' && (outDir === undefined || path.resolve(outDir) === ROOT)) {
+    throw new ModuleError('MODULE_SPEC_INVALID', '--session-kind unattended needs an --out-dir outside the checkout root; the committed tree is always the interactive render', 'bin/gstack-modules render --host <host> --loadout full --session-kind unattended --out-dir <dir>');
+  }
   const modules = selectModules({ loadout: value('--loadout'), modules: value('--modules') });
   if (modules && (outDir === undefined || path.resolve(outDir) === ROOT)) {
     throw new ModuleError('MODULE_SPEC_INVALID', `--${value('--modules') === undefined ? 'loadout' : 'modules'} with exclusions needs an --out-dir outside the checkout root; the committed tree is always the full render`, 'bin/gstack-modules render --host <host> --modules <spec> --out-dir <dir>');
@@ -161,7 +170,7 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   // Swap-in callers use --link-root for the FINAL serving path (#2692).
   // Direct --out-dir callers retain their existing links into the render.
   return {
-    host, model, catalogMode, explainLevel, planMode,
+    host, model, catalogMode, explainLevel, planMode, sessionKind: sessionKind as SessionKind,
     dryRun: args.includes('--dry-run'),
     respectDetection: args.includes('--respect-detection'),
     outputRoot: outDir === undefined ? ROOT : path.resolve(outDir),
@@ -680,7 +689,7 @@ function resolvePlaceholders(
   // section generation so both paths get the same gbrain-aware behavior.
   const suppressed = effectiveSuppressedResolvers(hostConfig, options);
   const onePass = (input: string): string =>
-    applySectionGuards(input, ctx).replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
+    applySessionGuards(applySectionGuards(input, ctx), ctx).replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
       const parts = fullKey.split(':');
       const resolverName = parts[0];
       const args = parts.slice(1);
@@ -736,6 +745,7 @@ function buildContext(
   return {
     skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
     preambleTier, model: options.model ?? getHostConfig(host).defaultModel, interactive, explainLevel: options.explainLevel, installRoot: options.installRoot, planMode: options.planMode,
+    ...(options.sessionKind === 'unattended' ? { sessionKind: options.sessionKind } : {}),
     ...(options.modules ? { modules: options.modules } : {}),
   };
 }
@@ -866,7 +876,8 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   }
 
   // Prepend generated header (after frontmatter)
-  const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath)) + (options.modules ? `<!-- loadout: ${options.modules.name} -->\n` : '');
+  const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath)) + (options.modules ? `<!-- loadout: ${options.modules.name} -->\n` : '')
+    + (options.sessionKind === 'unattended' ? '<!-- session-kind: unattended -->\n' : '');
   const fmEnd = content.indexOf('---', content.indexOf('---') + 3);
   if (fmEnd !== -1) {
     const insertAt = content.indexOf('\n', fmEnd) + 1;
@@ -991,6 +1002,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     explainLevel: settings.explainLevel ?? 'default',
     gbrainDetected: loadGbrainOverride(settings.respectDetection ?? false),
     planMode: settings.planMode ?? true,
+    sessionKind: settings.sessionKind ?? 'interactive',
     modules: settings.modules ?? null,
   };
   const hosts = settings.host === 'all' ? ALL_HOST_NAMES as Host[] : [settings.host ?? 'claude'];

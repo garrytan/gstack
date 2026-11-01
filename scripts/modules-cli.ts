@@ -5,6 +5,7 @@
  *   gstack-modules validate
  *   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
  *                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
+ *                         [--session-kind interactive|unattended]
  *
  * Exit 0 on success, 2 on a refused input (ModuleError, printed with its code,
  * fix and docs anchor), 1 on an unexpected failure.
@@ -17,6 +18,7 @@ import { resolveModel } from './models';
 import { LOADOUTS_FILE, ModuleError, loadLoadouts, moduleCatalog, selectModules, validateLoadouts } from './modules';
 import { renderLoadout } from './modules-render';
 import type { Host } from './resolvers/types';
+import { SESSION_KINDS, type SessionKind } from './resolvers/unattended';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const USAGE = `Usage:
@@ -24,6 +26,7 @@ const USAGE = `Usage:
   gstack-modules validate                   check ${LOADOUTS_FILE} against the catalog
   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
+                        [--session-kind interactive|unattended]
                                             render one loadout and write loadout.lock.json
 Guide: docs/loadouts.md`;
 
@@ -74,9 +77,11 @@ export async function modulesMain(args: string[]): Promise<CliResult> {
       if (planMode !== undefined && planMode !== 'on' && planMode !== 'off') throw new ModuleError('MODULE_SPEC_INVALID', '--plan-mode takes on or off', 'drop it, or pass --plan-mode off');
       const installRoot = flag(rest, '--install-root');
       if (installRoot !== undefined && !/^\/[A-Za-z0-9_.@+\/-]*$/.test(installRoot)) throw new ModuleError('MODULE_SPEC_INVALID', '--install-root must be a plain absolute path', 'pass the absolute install root setup would use');
+      const sessionKind = flag(rest, '--session-kind') ?? 'interactive';
+      if (!(SESSION_KINDS as readonly string[]).includes(sessionKind)) throw new ModuleError('MODULE_SPEC_INVALID', `--session-kind takes ${SESSION_KINDS.join(' or ')}`, 'drop it, or pass --session-kind unattended');
       const selection = selectModules({ loadout, modules });
-      const lock = await renderLoadout({ host, selection, outDir, installRoot: installRoot ?? null, model, planMode: planMode !== 'off' });
-      return { code: 0, stdout: `RENDERED: loadout=${lock.loadout} host=${host} files=${lock.files.length} bytes=${lock.total_bytes} excluded=${lock.excluded.length} lock=${path.join(path.resolve(outDir), 'loadout.lock.json')}\n`, stderr: '' };
+      const lock = await renderLoadout({ host, selection, outDir, installRoot: installRoot ?? null, model, planMode: planMode !== 'off', sessionKind: sessionKind as SessionKind });
+      return { code: 0, stdout: `RENDERED: loadout=${lock.loadout}${lock.session_kind === 'unattended' ? ' session_kind=unattended' : ''} host=${host} files=${lock.files.length} bytes=${lock.total_bytes} excluded=${lock.excluded.length} lock=${path.join(path.resolve(outDir), 'loadout.lock.json')}\n`, stderr: '' };
     }
     return { code: 2, stdout: '', stderr: `Unknown command ${JSON.stringify(command.slice(0, 40))}.\n${USAGE}\n` };
   } catch (error) {

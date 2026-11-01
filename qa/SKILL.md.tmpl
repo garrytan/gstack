@@ -153,7 +153,7 @@ label and sanitized command/request/state evidence.
 Sort issues by severity and apply the selected fix tier. Mark lower-tier issues and
 those not fixable from source (third-party widgets, infrastructure) as "deferred."
 
-### Refresh learnings for the component/page where the bug lives
+{{IF_SESSION:interactive}}### Refresh learnings for the component/page where the bug lives
 
 Before the fix loop, search again for the buggy component/page. Use ONE noun containing
 only letters, digits or hyphens (e.g., `checkout-button`, `payment`), never a path,
@@ -166,7 +166,7 @@ quotes, whitespace or other punctuation; simplify to an alphanumeric stem if nee
 
 Name an applicable learning in one sentence, or continue if none applies.
 
----
+{{/IF_SESSION}}---
 
 ## Phase 8: Fix Loop
 

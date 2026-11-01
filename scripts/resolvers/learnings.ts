@@ -13,6 +13,7 @@
  */
 import type { TemplateContext } from './types';
 import { getHostConfig } from '../../hosts/index';
+import { isUnattended } from './unattended';
 
 // Whitelist for query= macro values. Allows alphanumeric, space, hyphen, underscore.
 // Anything else (e.g. $, backticks, quotes, ;) is a shell-injection vector when the
@@ -30,6 +31,7 @@ export const learningsCapture = (command: string) => `{ _LE=$(${command} 2>&1 >&
 export const LEARNINGS_VERDICT = `[ "$_LR" = 0 ] || { _LE=\${_LE%%$'\\n'*}; echo "LEARNINGS: unavailable (\${_LE:-exit $_LR})"; }`;
 
 export function generateLearningsSearch(ctx: TemplateContext, args?: string[]): string {
+  if (isUnattended(ctx)) return '';
   // Parse query= arg. Empty value falls through to no-query (principle of least surprise:
   // a stray {{LEARNINGS_SEARCH:query=}} placeholder gets today's behavior, not a build error).
   const queryArg = (args || [])
@@ -115,6 +117,7 @@ smarter on their codebase over time.`;
 }
 
 export function generateLearningsLog(ctx: TemplateContext): string {
+  if (isUnattended(ctx)) return '';
   const binDir = ctx.paths.binDir; // env-var hosts already resolve to $GSTACK_BIN via types.ts
 
   return `## Capture Learnings

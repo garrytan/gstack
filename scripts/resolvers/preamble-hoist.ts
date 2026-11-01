@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { TemplateContext } from './types';
 import { preambleSections } from './preamble';
+import { generateUnattendedPreamble, isUnattended } from './unattended';
 
 /** A skill name no generator special-cases; a section that mentions it names the skill. */
 const SHARED_SKILL = 'gstack-shared-preamble';
@@ -91,6 +92,7 @@ function sharedPath(ctx: TemplateContext): string {
 
 /** {{PREAMBLE}}: the full preamble for tier 1, else the pointer plus this skill's own sections. */
 export function generateSkillPreamble(ctx: TemplateContext): string {
+  if (isUnattended(ctx)) return generateUnattendedPreamble(ctx);
   const own = preambleSections(ctx);
   if (!hoistsPreamble(ctx)) return own.join('\n\n');
   const shared = sharedSections(ctx);
