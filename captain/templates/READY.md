@@ -39,8 +39,16 @@ pin: <sha40>                      # the full head SHA, restated
 screen choice: <--no-screen: cases <ids> ran focused and passed | --screen: <reason>>
 flaky: <none | case, both run ids, logged in the ledger on <date>>
 review passes: <n> (deferred: <items filed as issues, or none>)
+Unverified: <none | each claim the lane did not check itself, and why>
 Head frozen from now on; a push drops this PR from any train and I will READY again.
 ```
+
+`Unverified:` is required. It lists every claim in the READY that the lane did not check
+itself: a local test that timed out, a paid run skipped, a number a model reported, a claim
+inherited from another thread, and a review finding set aside on an assumption nobody
+tested. `none` means the lane looked for each of these and found none. A missing line is
+asked for as a follow-up message: it never holds a PR out of a train, does not stale
+READYs sent before the line existed, and needs no new `ready` or /ship run.
 
 Optional lines a crew's rules file may require:
 

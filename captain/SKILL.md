@@ -110,13 +110,12 @@ through it to one person (the owner). The operating model below is what keeps do
 lanes merging into one base branch every day without a red base: lanes never merge, a
 READY block is the only merge trigger, every merge runs through a train, every decision
 the owner makes is recorded in their own words, and flakes are fixed daily instead of
-retried away. The guide for a team setting this up on Capy, with the drive layout and
-the templates, is `docs/captain.md` in the gstack checkout; the copy-paste files are in
-`captain/templates/` next to this skill.
+retried away. The team guide, drive layout included, is `docs/captain.md`; the copy-paste
+files are in `captain/templates/` next to this skill.
 
 Usage: `/captain [setup | ready <pr> | train | digest | approvals | flaky-pass]`; `/crew` is
-the same skill. With no argument, read the crew's rules file and the digest, then do whatever the open item at
-the top of the digest needs.
+the same skill. With no argument, read the rules file and the digest, then act on the
+digest's top open item.
 
 ## Boundaries
 
@@ -191,11 +190,11 @@ and adds the lines the tool cannot know. Validate every field before the pin goe
 | `READY_RECEIPT` | the receipt path the tool wrote (local and on the notes ref) | missing |
 | flaky cases | each one already in the ledger, with both runs | a rerun that is not logged, or a second failure called a flake |
 | lane statement | "head frozen from now on" | absent |
+| `Unverified` | each claim the lane did not check itself, or `none` | never refused or staled; ask for it |
 
-Optional lines a crew may require in its rules file: the gate run id and tree hash the
-lane's own gate covered (useful where lanes gate on their own machines), the issue the PR
-closes, and the key before/after image for the merge ask. Ship the fields as options and
-let the rules file pick; one crew's habit is not the contract.
+Optional lines a crew's rules file may require: the gate run id and tree hash of the
+lane's own gate, the issue the PR closes, and the key before/after image. One crew's
+habit is not the contract.
 
 After READY the head is frozen. A push drops the PR from any train and needs a new READY
 at the new head, /ship rerun included. The one exception is the stamp push below.
@@ -415,14 +414,17 @@ occurrence escalates. Every rerun's spend is reported.
 
 ## Reports and waves
 
-A lane that finishes writes `reports/<code>.md` (`captain/templates/report.md`): Outcome,
-PR (number, head, version, checks), Needs (what the owner must do), Cost, Lesson, and
-the Approvals table. The controller reads reports before it reads chat, and turns every
-Lesson into a rule in the rules file, a line in the standing-rules file
-(`captain/templates/AGENTS.md`), or a filed tool fix. The controller's own log is
-append-only and timestamped (`captain/templates/NOTES.md`); the digest is derived from it.
+A lane that finishes writes `reports/<code>.md` (`captain/templates/report.md`): Outcome
+with its `Unverified:` line, PR (number, head, version, checks), Needs (what the owner
+must do), Cost, Lesson, and the Approvals table. The controller reads reports before it
+reads chat, and turns every Lesson into a rule in the rules file, a line in the
+standing-rules file (`captain/templates/AGENTS.md`), or a filed tool fix. The controller's
+own log is append-only and timestamped (`captain/templates/NOTES.md`); the digest is
+derived from it. After a revert or S1 fix of a merged crew PR, the controller writes a
+postmortem (`captain/templates/postmortem.md`): why did the lane and every reviewer believe
+it was right? Its rule change ships as a gstack PR.
 
-Serial slots cost tens of minutes each, so PRs in one area travel together. When more
+Serial slots are slow, so PRs in one area travel together. When more
 than `WAVE_TRIGGER` (6) PRs are READY, run `gstack-ship-queue wave plan` for area groups
 of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY on the wave
 PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
