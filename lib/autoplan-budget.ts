@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ANSWERED_BY_RE, type GateItem } from './gate-list';
 import { settledIds } from './autoplan-confirm';
-import type { ConsensusRecord } from './autoplan-reconcile';
+import { sameProblem, type ConsensusRecord } from './autoplan-reconcile';
 import { FILES, RunError, journal, now, readJournal, voiceRows, type RunState, type RunStop } from './autoplan-state';
 import { readLedger, release, setCap, summarize } from './spend-ledger';
 
@@ -35,7 +35,7 @@ export const atCap = (state: RunState, phase: string): boolean => { const cap = 
 /** The phase is about to open past its cap (a rerun-all reply reopened it). */
 export const overCap = (state: RunState, phase: string): boolean => { const cap = roundCap(state, phase); return cap !== null && roundOf(state, phase) > cap; };
 
-/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row paired (by title or line) with a High or Critical native one counted once. */
+/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row naming the same problem (`sameProblem`) as a High or Critical native one counted once. */
 function openHigh(state: RunState, phase: string): number {
   const ps = state.phases[phase];
   if (ps?.deferred) return (ps.deferred.counts.High ?? 0) + (ps.deferred.counts.Critical ?? 0);
@@ -45,7 +45,7 @@ function openHigh(state: RunState, phase: string): number {
   const high = (s: string | undefined) => s === 'High' || s === 'Critical';
   const native = voiceRows(state, phase, 'native');
   const nativeHigh = new Set(native.filter(r => high(r.severity)).map(r => r.id));
-  const paired = new Set(rows.filter(r => r.native_id && r.basis !== 'file' && nativeHigh.has(r.native_id)).map(r => r.outside_id));
+  const paired = new Set(rows.filter(r => r.native_id && sameProblem(r) && nativeHigh.has(r.native_id)).map(r => r.outside_id));
   const answered = settledIds(state);
   return [...native, ...voiceRows(state, phase, 'outside')]
     .filter(r => !paired.has(r.id) && !(r as { settled_by?: string }).settled_by && !answered.has(r.id) && high(r.severity)).length;

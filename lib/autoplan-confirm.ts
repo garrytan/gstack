@@ -111,12 +111,15 @@ const earlierRows = (state: RunState, phase: string): FindingRow[] =>
 /** The origin tag of an open Critical/High finding's gate item: only `a` (its fix applied to the plan) settles it. */
 export const FINDING_ORIGIN = 'finding';
 
-/** Earlier finding id -> the answered decision whose gate item named it. A finding carried into the build stays open. */
-export function settledIds(state: RunState): Map<string, string> {
+/**
+ * Earlier finding id -> the answered decision whose gate item named it. A finding carried into the build stays open,
+ * and `findings: false` also leaves an applied one open, so a confirm round re-raising it is never suppressed.
+ */
+export function settledIds(state: RunState, o: { findings?: boolean } = {}): Map<string, string> {
   const out = new Map<string, string>();
   for (const d of readDecisions(state.out)) {
     if (d.chosen == null || d.status === 'pending' || !d.origin) continue;
-    if (d.origin.endsWith(`|${FINDING_ORIGIN}`) && d.chosen !== 'a') continue;
+    if (d.origin.endsWith(`|${FINDING_ORIGIN}`) && (d.chosen !== 'a' || o.findings === false)) continue;
     for (const id of (d.origin.split('|')[1] ?? '').split('+')) if (id && id !== 'null') out.set(id, d.id);
   }
   return out;
@@ -129,7 +132,7 @@ export function settledIds(state: RunState): Map<string, string> {
 export function annotateConfirm(state: RunState, phase: string, rows: FindingRow[], ctx: { planName: string; planSource: string; snapshotPath: string }): { correlated: number; settled: number } {
   const earlier = earlierRows(state, phase);
   if (!earlier.length) return { correlated: 0, settled: 0 };
-  const settled = settledIds(state);
+  const settled = settledIds(state, { findings: false });
   const added = new Set((phaseDelta(state, phase, ctx.snapshotPath)?.ops ?? []).filter(o => o.op === '+' && o.text.trim()).map(o => o.text.trim()));
   const planLines = (read(ctx.planSource) ?? '').split('\n');
   const isPlan = (f: FindingRow) => f.file === ctx.planName;

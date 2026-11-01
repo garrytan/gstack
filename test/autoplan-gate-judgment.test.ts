@@ -324,6 +324,15 @@ describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', ()
     expect(readRunJson(g.out).status).toBe('amend_pending');
   });
 
+  test('a user challenge one line away does not hide an unrelated Critical: a location match alone is not a twin', () => {
+    const g = gated({
+      native: [{ id: 'F1', severity: 'Medium', title: 'Package the worker as its own service', file: 'plan.md', line: 10, user_challenge: true, changes: 'scope', fix: 'split the worker out' }],
+      outside: [{ id: 'O1', severity: 'Critical', title: 'Webhook payload reaches the SQL query unescaped', file: 'plan.md', line: 11, fix: 'use parameterized queries' }],
+    }, NONE);
+    const apply = gate(g.out).items.filter((i: any) => i.finding);
+    expect(apply.map((i: any) => i.title)).toEqual([expect.stringMatching(/^Critical: Webhook payload reaches the SQL query unescaped \[.*-ceo-outside-1\]$/)]);
+  });
+
   test('b, as-is, or a token reply that leaves the item unanswered carries the finding into the build with no plan change', () => {
     for (const pick of [(id: string) => `${id}b p1a`, () => 'as-is', () => 'p1a']) {
       const g = gated(KILL, NONE);
@@ -349,6 +358,7 @@ describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', ()
     expect(readJsonl(path.join(g.out, 'attempts.jsonl')).find(e => e.event === 'answered')).toMatchObject({ answer_class: 'plan-changes', changes: [`${item.id}a`] });
     expect(readRunJson(g.out).status).toBe('amend_pending');
     expect(settledIds({ out: g.out } as any).has(item.finding[0])).toBe(true);
+    expect(settledIds({ out: g.out } as any, { findings: false }).has(item.finding[0])).toBe(false);
   });
 
   test('after recommend changes an item, p1b (which takes the recommendations) needs the --rec-hash the owner saw', () => {

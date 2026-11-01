@@ -218,6 +218,8 @@ export function titleScore(a: string, b: string): number {
   if (pa !== undefined && pb !== undefined && pa !== pb) return 0;
   return jaccard(tokens(a), tokens(b));
 }
+/** The voices name one problem: a title association or the parent's override. A shared location (file, or file:line with unrelated titles) associates two findings but never makes them one. */
+export const sameProblem = (r: ReconciliationRow) => !!r.native_id && (r.basis === 'title' || r.basis === 'override' || (r.basis === 'file_line' && !r.resolution.startsWith('same location')));
 const level = (s: Severity) => SEVERITIES.indexOf(s);
 /** A remedy compared as words: case, punctuation and spacing ignored. */
 export const remedyKey = (text: string | undefined) => (text ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
