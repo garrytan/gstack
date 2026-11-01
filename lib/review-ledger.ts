@@ -60,15 +60,13 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /**
- * A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "not CRITICAL") is no finding
- * (GST-766) when it ends the clause or names a kind of finding ("issues", "severity", "remains"); a label that opens a field
- * ("High:") or describes something else ("no HIGH watermark") is still one, and a line naming a file:line keeps every label.
+ * A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "No P0/P1 issues") is no finding
+ * (GST-766), unless it opens a field ("High:"). A prose finding phrased around a negated label still reaches merged.jsonl through
+ * its required Severity or Blocks field.
  */
-const NEGATED = /(?<![A-Za-z0-9])(?:no|nothing|not|none|zero|without|never)\s+(?:(?:new|remaining|other|further|additional|more|at)\s+)?$/i;
-const NEGATION_LIST = /^\s*(?:or|nor)\s*$/i;
-const NEGATED_TAIL = /^(?:-?\s*(?:severity|level))?(?:\s*(?:$|[.,;!?)/])|\s+(?:or|nor|and|issues?|findings?|problems?|bugs?|defects?|risks?|concerns?|blockers?|ones?|items?|severity|impact|remains?|left|found|here)\b(?!\s*:))/i;
+const NEGATED = /(?<![A-Za-z0-9-])(?:no|nothing|not|none|(?<!\bby\s)zero|without|never)\s+(?:(?:new|remaining|other|further|additional|more|at)\s+)?$/i;
+const NEGATION_LIST = /^\s*(?:,|\/|or|nor|and|,\s*(?:or|nor|and))\s*$/i;
 const MARKUP = /[*_`[\]]/g;
-const LOCATED = /[A-Za-z_][\w./-]*:\d+/;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -98,11 +96,10 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const asserted = (t: string) => {
     const all = [...t.matchAll(ALL_LABELS)];
-    if (LOCATED.test(t)) return all;
     let end = -1, negated = false;
     return all.filter(m => {
       const at = m.index!;
-      negated = NEGATED_TAIL.test(t.slice(at + m[0].length, at + m[0].length + 40).replace(MARKUP, ''))
+      negated = !/^\s*:/.test(t.slice(at + m[0].length, at + m[0].length + 8).replace(MARKUP, ''))
         && (NEGATED.test(t.slice(Math.max(0, at - 60), at).replace(MARKUP, '')) || (negated && NEGATION_LIST.test(t.slice(end, at).replace(MARKUP, ''))));
       end = at + m[0].length;
       return !negated;
