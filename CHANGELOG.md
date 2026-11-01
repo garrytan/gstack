@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.92.33.0] - 2026-11-01
+
+**Eleven flaky tests from the 2026-10-31 flaky pass stop failing correct runs, and six more now name their cause when they fail.** Three paid detectors missed correct replies, one product script copied a file git was rewriting, and the free-test reds came from a binary's slow first launch on a fresh Windows runner, a fixture written in two steps and a cleanup that raced the runner's own scanner.
+
+### Fixed
+- **`scripts/ubicloud/ubi-runner.sh`**: `pack` copies the live `.git/index` with `cat` instead of `cp`. Git renames `index.lock` over the index, and GNU cp 9.4 then fails with "replaced while being copied" (Free Tests 41073582974). A loop that swaps the index during 300 packs failed 10 times before and 0 after.
+- **Windows cold first launch** (`test/helpers/warm-first-exec.ts`): `test/land-and-deploy-flow.test.ts`, `test/skill-positional-literals.test.ts`, `test/team-init-hook-shell-neutral.test.ts` and `browse/test/cookie-import-node.test.ts` launch jq, awk or PowerShell once, unasserted, before the timed calls. On 12 fresh windows-latest VMs (run 41205346554) a first launch cost jq 60-250 ms, awk 190-290 ms and PowerShell 1.7-3.1 s more than a warm one, and in every red the file's first launch was the call that hit its kill (Windows Free Tests 41195098239, 41196095371, 41175329114, 41174352235, 41175308095, 41187420609, 41152107410). Every timed call keeps its kill.
+- **`browse/test/terminal-agent-publication-lock.test.ts`**: the preload writes its `ready` file to a temporary name and renames it, so the kill hook never parses a half-written file (Free Tests 41156375412).
+- **`test/qa-only-browser-probe.test.ts`**: on a Windows EBUSY the cleanup asks Restart Manager who holds browse.exe, waits up to 5 s only when the holder is outside the test (the runner's `provjobd.exe`), then removes once more; a test-host holder or a second failure throws with the owners named (Windows Free Tests 41068546881, 41172879765).
+- **`test/strict-output-settlement.test.ts`**: the missing-close case gives its child a 2 s wall instead of 150 ms. It asserts no elapsed time, and a child on a loaded Windows runner took over 150 ms to exit (Windows Free Tests 41164892775).
+
+### Gate integrity
+- **plan-design-with-ui-scope** (`test/skill-e2e-plan-design-with-ui.test.ts`): the focus question also counts when its "All 7" option carries a letter, as in "A) All 7 passes" (paid gates 41178131219 and 41186376825). Both questions are saved as fixtures; the phrase not leading the label, a 4/7 rating and a label without "focus" still count zero.
+- **review-coverage-audit** (`test/helpers/coverage-audit-evidence.ts`): a grep display over two or more literal files after the reads no longer voids the whole call (gate 41149166998). An option, a substitution, a redirect or a tampered read still gets no credit, and a quoted file name with a space stays one operand.
+- **tpa-absent** (`test/helpers/third-party-actions.ts`): the passive pitch's negation check covers only the clause that holds "can be downloaded", so "Aside is not installed but can be downloaded at aside.com" counts once; "cannot", "never", "not something that" and "is not available to download" still count zero. The clause scan is linear: 112 KB of model text takes about 0.2 s, not 7 s.
+
+### Changed
+- Seven tests and helpers gain diagnostics so the next red names its cause. The workflow judge records response bytes and the time of the last byte, so a silent socket and a model thinking on a live connection look different (gate 41185637598); `test/gstack-ship-queue.test.ts` keeps the refusing call's stderr; the ship-budget harness names a call that ended without an exit code; `test/helpers/plan-review-board-feedback.ts`, `test/team-init-hook-shell-neutral.test.ts` and `test/ship-hook-windows-paths.test.ts` print each step's or spawn's time; the ios-qa loopback tests use a listener that drops every connection and a 10 s proxy timeout, so a stuck hop fails as a named 504 instead of a bare 30 s test timeout.
+
 ## [1.92.32.0] - 2026-11-01
 
 **Four flakes from the 2026-10-29 flaky pass stop failing correct runs.** Three free-tier tests failed on harness timing (a half-written marker file, a Windows kill that left a process tree behind, a hook kill set at 5 s), and the plan-devex-finding-floor paid case waited out 600 s after a provider error. Each repair has a free test that fails without it.
