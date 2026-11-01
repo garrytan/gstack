@@ -79,7 +79,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
     'lib/review-depth.ts': { sha: 'd649569a163c03476c6e0c5ea295f5d02088f96aab85fbc7d558f2ac2b27006a', replay: 'R51' },
-    'lib/review-risk.ts': { sha: '74d585cc8f8c80cd9673865f55b002ae11341d978362a9cc719f25ac83f6c6fb', replay: 'R51' },
+    'lib/review-risk.ts': { sha: 'dbef7475d467e17340b21a2bacb52a16a7ccb1ee66291900ed2d36dfb5cfb7f2', replay: 'R51' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {

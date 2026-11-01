@@ -28,7 +28,8 @@ describe('risk classes', () => {
     expect(risk(['src/db/users.ts'], { 'src/db/users.ts': ['await sql`DELETE FROM users WHERE id = ${id}`;'] })).toEqual(['data']);
     expect(risk(['app/models/user.rb'], { 'app/models/user.rb': ['User.where(stale: true).destroy_all'] })).toEqual(['data']);
     expect(risk(['src/list.ts'], { 'src/list.ts': ['// delete from the list when done', 'arr.splice(i, 1);'] })).toEqual([]);
-    for (const line of ['db.exec("delete from users");', 'await sql`delete from sessions where id = 1`;', 'DELETE FROM users;', 'drop database app;', 'DROP SCHEMA s;'])
+    for (const line of ['db.exec("delete from users");', 'await sql`delete from sessions where id = 1`;', 'DELETE FROM users;', 'drop database app;', 'DROP SCHEMA s;',
+      'await sql`DELETE FROM ${table} WHERE id = ?`;', 'DELETE FROM users u WHERE u.stale', 'DELETE FROM sessions USING users WHERE x', 'DELETE FROM users RETURNING id', 'const q = "DELETE FROM " + table;'])
       expect(risk(['src/db.ts'], { 'src/db.ts': [line] })).toEqual(['data']);
     for (const line of ["const r = spawn('sh', ['-c', cmd], { timeout: 1 });", "Bun.spawn(['bash', '-lc', x]);", "fs.rmSync(t, { recursive: true, force: true });", 'rm -rf "$DIR"'])
       expect(risk(['src/run.ts'], { 'src/run.ts': [line] })).toEqual(['security']);
