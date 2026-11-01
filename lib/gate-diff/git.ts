@@ -13,6 +13,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultBaseBranch, type DefaultBase } from '../default-base';
 import type { CommitInfo, FileDiff, FileStatus, Hunk, Unsupported } from './types';
 
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -63,20 +64,19 @@ function remoteNames(cwd: string): string[] {
 }
 
 /**
- * The remote's HEAD target → `main` → `master` (the gstack-diff-scope chain),
- * as a ref name; the remotes are walked in resolveBase's order, so the default
- * and the fix line come from the same remote.
+ * The default base (lib/default-base.ts, the gstack-diff-scope chain) as a ref
+ * name: a remote's HEAD target as `<remote>/<branch>` unless it names the
+ * checked-out branch, the PR's base, `main`, `master`; the remotes are walked
+ * in resolveBase's order, so the default and the fix line come from the same
+ * remote. With no remote naming one, a local main or master, else `main`.
+ * `skipped` when a remote HEAD named the checked-out branch and nothing past it
+ * resolved: the caller fails closed instead of diffing the branch against itself.
  */
-export function defaultBase(cwd: string): string {
-  const remotes = remoteNames(cwd);
-  for (const remote of remotes) {
-    const head = gitText(['symbolic-ref', '-q', `refs/remotes/${remote}/HEAD`], cwd);
-    if (head) return head.replace(/^refs\/remotes\//, '');
-  }
-  for (const name of ['main', 'master']) {
-    if (resolvesToCommit(name, cwd) || remotes.some((remote) => resolvesToCommit(`${remote}/${name}`, cwd))) return name;
-  }
-  return 'main';
+export function defaultBase(cwd: string): { ref: string } | { skipped: NonNullable<DefaultBase['skipped']> } {
+  const found = defaultBaseBranch(cwd, remoteNames(cwd));
+  if (found.branch) return { ref: found.remote ? `${found.remote}/${found.branch}` : found.branch };
+  if (found.skipped) return { skipped: found.skipped };
+  return { ref: ['main', 'master'].find((name) => resolvesToCommit(name, cwd)) ?? 'main' };
 }
 
 export function isShallow(cwd: string): boolean {

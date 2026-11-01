@@ -5,13 +5,16 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { EXIT } from '../lib/headless-artifacts';
 import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
 import { fillDue } from '../lib/ship-queue-train';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { gitArgvIn, makeGhShimPath } from './helpers/scratch-repo';
 
 const repos: FixtureRepo[] = [];
 const fixture = (opts?: Parameters<typeof makeFixtureRepo>[0]) => { const r = makeFixtureRepo(opts); repos.push(r); return r; };
@@ -303,5 +306,48 @@ describe('gstack-ship-policy (bin)', () => {
     const lax = fixture();
     expect(runBin(lax, 'gstack-ship-policy', ['check-history', '--base', 'main']).out).toBe('HISTORY: squash-ok (no check; policy history=squash-ok; plan=merge)\n');
     expect(runBin(lax, 'gstack-ship-policy', ['check-history', '--base', 'main', '--plan', 'rebase']).status).toBe(EXIT.ok);
+  });
+});
+
+describe('resolveBaseBranch: origin/HEAD naming the checked-out branch (GST-511)', () => {
+  // Value: protects=the default base every receipt, queue and pregate reader takes is never the PR branch a clone's origin/HEAD
+  //   names: the PR base, then origin/main, and with neither a named stderr line beside a base origin does not have;
+  //   fails_when=resolveBaseBranch returns origin/HEAD's branch when it is the checked-out one; why_new=no test pointed
+  //   origin/HEAD at the feature branch; seam=a gh stub on PATH and a child bun; no_claim=remotes other than origin.
+  test('skips origin/HEAD when it names the checked-out branch; a detached HEAD keeps it', () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gst511-base-')));
+    const shims: string[] = [];
+    try {
+      const git = (...a: string[]) => expect(gitArgvIn(dir, a).status).toBe(0);
+      git('init', '-q', '-b', 'main');
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+      git('add', '-A'); git('commit', '-qm', 'seed');
+      git('checkout', '-q', '-b', 'feat');
+      fs.writeFileSync(path.join(dir, 'b.txt'), 'b\n');
+      git('add', '-A'); git('commit', '-qm', 'feat');
+      git('update-ref', 'refs/remotes/origin/main', 'main');
+      git('update-ref', 'refs/remotes/origin/feat', 'feat');
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+      const script = `import { resolveBaseBranch } from ${JSON.stringify(path.join(import.meta.dir, '..', 'lib', 'ship-policy.ts'))};\nprocess.stdout.write(resolveBaseBranch(process.cwd()));\n`;
+      const base = (mode: 'fail' | 'json', payload?: string) => {
+        const { pathEnv, shimDir } = makeGhShimPath(mode, payload);
+        shims.push(shimDir);
+        const r = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', script], { cwd: dir, encoding: 'utf8', timeout: 30_000, env: { ...process.env, PATH: pathEnv } });
+        return { out: r.stdout ?? '', err: r.stderr ?? '' };
+      };
+      expect(base('fail')).toEqual({ out: 'main', err: '' });
+      git('tag', 'feat');
+      expect(base('fail')).toEqual({ out: 'main', err: '' });
+      git('tag', '-d', 'feat');
+      expect(base('json', 'release').out).toBe('release');
+      git('update-ref', '-d', 'refs/remotes/origin/main');
+      const none = base('fail');
+      expect(none.out).toBe('main');
+      expect(none.err).toContain('origin/HEAD names the checked-out branch feat, and no PR base, origin/main or origin/master resolves; pass the base explicitly or run git remote set-head origin <base>');
+      git('checkout', '-q', '--detach');
+      expect(base('fail')).toEqual({ out: 'feat', err: '' });
+    } finally {
+      for (const d of [dir, ...shims]) fs.rmSync(d, { recursive: true, force: true });
+    }
   });
 });

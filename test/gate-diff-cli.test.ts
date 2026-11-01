@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runBin } from './helpers/run-bin';
 import { buildGateDiffRepo, gitIn } from './helpers/gate-diff-repo';
+import { makeGhShimPath } from './helpers/scratch-repo';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-gate-diff');
@@ -476,6 +477,30 @@ describe('gstack-gate-diff candidate model and output', () => {
     const root = run(src, ['--commit', gitIn(src, ['rev-list', '--max-parents=0', 'HEAD']).trim(), '--format', 'jsonl']);
     expect(root.status).toBe(0);
     expect(summary(root.stdout).listed).toBeGreaterThan(0);
+  });
+
+  // Value: protects=no explicit base in a clone whose origin/HEAD names the checked-out PR branch lists the PR's files against
+  // origin/main, and with no other base fails closed naming origin/HEAD (GST-511); fails_when=defaultBase takes a remote HEAD that
+  // names the checked-out branch (GATE_SUMMARY listed=0, exit 0: an empty diff that passes); why_new=the upstream-only case removes
+  // the remote HEAD instead; seam=a gh stub on PATH; no_claim=the PR base gh reports, covered in test/diff-scope.test.ts.
+  test('no explicit base where origin/HEAD names the checked-out branch: the base is origin/main, and with none it fails closed', () => {
+    const dir = repo({ fixture: 'rh1-skip', commit: true });
+    gitIn(dir, ['remote', 'add', 'origin', path.join(dir, 'missing.git')]);
+    gitIn(dir, ['update-ref', 'refs/remotes/origin/main', 'main']);
+    gitIn(dir, ['update-ref', 'refs/remotes/origin/feature', 'feature']);
+    gitIn(dir, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feature']);
+    const { pathEnv, shimDir } = makeGhShimPath('fail');
+    repos.push(shimDir);
+    const runNoBase = () => runBin(BIN, [], { cwd: dir, gstackHome: home, env: { GSTACK_STATE_ROOT: undefined, PATH: pathEnv } });
+    const found = runNoBase();
+    expect(found.status).toBe(0);
+    expect(summary(found.stdout).listed).toBeGreaterThan(0);
+    expect(summary(found.stdout).tagged).toBe('RH-1:1');
+    gitIn(dir, ['update-ref', '-d', 'refs/remotes/origin/main']);
+    const none = runNoBase();
+    expect(none.status).toBe(2);
+    expect(none.stdout.trim()).toBe('GATE_ERROR=no_base ref=origin/HEAD target=origin/feature fix=git remote set-head origin <base>');
+    expect(none.stderr).toContain('gstack-gate-diff: origin/HEAD names the checked-out branch feature, and no PR base, origin/main or origin/master resolves; pass the base explicitly or run git remote set-head origin <base>');
   });
 
   test('base defaults to main when no ref is given and no origin/HEAD exists', () => {

@@ -59,7 +59,7 @@ export function baseBranchOf(base: string | undefined): string | null {
 
 /**
  * The fix for a pregate.json recorded against `recorded` when the ship's base
- * is `base`. `resolveBaseBranch` falls back to `main` when origin/HEAD is unset,
+ * is `base`. `resolveBaseBranch` falls back to `main` when no default base resolves,
  * so a repo whose base is another branch is told how to set it rather than
  * sent to rerun against a branch it may not have.
  */
