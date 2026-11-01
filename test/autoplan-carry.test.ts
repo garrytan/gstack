@@ -67,6 +67,25 @@ describe('whose words answered the gate (GEVA-2, P7)', () => {
     expect(r.validate(s.out).status).toBe(0);
   });
 
+  test('a later answer from someone else replaces the earlier answer\'s authorship and words; nothing stale survives', () => {
+    const dir = path.join(r.host.base, `carry${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui']).status).toBe(0);
+    phaseVia(r, out, 'ceo', NONE);
+    phaseVia(r, out, 'eng', NONE);
+    const first = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'p1c', '--by', 'agent:gstack-minder', '--words-by', 'agent:gstack-minder', '--owner-reply', 'p1c']);
+    expect(first.status, first.stderr).toBe(0);
+    const second = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'p1a', '--by', 'human']);
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toMatch(/^APPROVED: gate_rev=1/m);
+    const p1 = decisions(out).find(d => d.gate_rev === 1 && d.label === 'P1');
+    expect(p1).toMatchObject({ chosen: 'a', answered_by: 'human' });
+    for (const stale of ['words_by', 'answer_words', 'answer_words_parsed', 'owner_reply', 'owner_reply_parsed']) expect(p1[stale]).toBeUndefined();
+    const rows = importAutoplan(out, 'feature/x', 'Garry');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows[0]!.by).not.toContain('agent:gstack-minder');
+  });
+
   test('--words-by names the owner or the answering agent; anything else is refused', () => {
     const dir = path.join(r.host.base, `carry${++n}`);
     const out = path.join(dir, 'run');

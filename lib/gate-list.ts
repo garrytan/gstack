@@ -244,14 +244,19 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
 /** `--by` values: the owner typing tokens, or an agent relaying or deciding them. */
 export const ANSWERED_BY_RE = /^(human|agent:[A-Za-z0-9_.:-]+)$/;
 
+/** Who answered and in whose words: a new answer replaces all of it, so an earlier answerer's fields never survive under a later one. */
+const PROVENANCE = ['answered_by', 'owner_reply', 'owner_reply_parsed', 'answer_words', 'answer_words_parsed', 'words_by', 'carried_gate_from', 'carried_gate_rev', 'carry_reason', 'carried_answered_by'] as const;
+
 export function applyReply(rows: DecisionRow[], parsed: ParsedReply, answeredAt: string, answeredBy?: string, extra: Partial<DecisionRow> = {}): DecisionRow[] {
   if (!parsed.valid) return rows;
   const byId = new Map(parsed.choices.map(c => [c.id, c]));
   return rows.map(row => {
     const choice = byId.get(row.label?.toLowerCase() ?? '') ?? byId.get(row.id.slice(row.run.length + 1).replace(/^r\d+-/, ''));
     if (!choice || choice.prior || row.gate_rev !== parsed.gate_rev) return row;
+    const fresh = { ...row };
+    for (const k of PROVENANCE) delete (fresh as Record<string, unknown>)[k];
     return {
-      ...row, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
+      ...fresh, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
       status: choice.how === 'override' ? 'overridden' : 'approved',
     };
   });
