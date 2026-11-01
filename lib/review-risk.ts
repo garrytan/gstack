@@ -42,7 +42,7 @@ const SECURITY_LINE = [
 ];
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 const DATA_LINE = [
-  /\b(?:DROP\s+(?:TABLE|COLUMN|DATABASE|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+TABLE)\b/, /\b(?:drop\s+(?:table|column)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."]+\s+where\b/i,
+  /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
 ];
 

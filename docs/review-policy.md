@@ -97,7 +97,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
    ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
    finishes with its open notes listed in the PR body and receipt, or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
-   unverified, naming it (path, severity, problem). A third round is the owner's
+   unverified, or a round-2 fix edited a gate-class path, naming it (path,
+   severity, problem). A third round is the owner's
    grant of one scoped fix-check (recorded in `review_loop_exception`), never the
    loop's. The cap approves nothing.
 
@@ -116,7 +117,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
 | a full pass that fixed only below-floor findings | one fix-check (round 2) |
 | a light pass 1 whose below-floor fixes change no runtime lines | done |
-| round 2 (a full pass or a fix-check) that fixed a blocking finding | stop: name it for the owner, who may grant one scoped fix-check |
+| round 2 (a full pass or a fix-check) that fixed a blocking finding or edited a gate-class path | stop: name it for the owner, who may grant one scoped fix-check |
 | round 2 (a full pass or a fix-check) that fixed only below-floor findings | done: notes in the PR body |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
 | a fix-check that found nothing blocking | done |
@@ -190,9 +191,9 @@ in a data file still schedules the outside voice.
 
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **light**, runtime 0 | docs, tests, eval write-ups, UI or game text, or only registered outputs | one reader: the core checklist; the outside voice instead reads a diff that publishes numbers |
+| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | one reader: the core checklist; the outside voice instead reads a diff that publishes numbers |
 | **light**, runtime above 0 | code with no risk class, at any size (R51: size never raises the depth) | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves registered outputs out of its diff, and docs too unless the diff publishes numbers (a write-up); adversarial and outside voice read everything |
+| **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
 | **full** | gate class, a [risk class](#risk-classes), or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
 
 <a id="risk-classes"></a>
@@ -208,22 +209,9 @@ that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
-**UI or game text.** A UI file (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`,
-`.astro`, `.hbs`, `.erb`) or a string resource (a `locales/`, `i18n/`, `l10n/`,
-`translations/`, `strings/` or `dialogue/` directory, for a json, yaml, toml, properties, ini, xml or txt file; `.po`, `.strings`,
-`.xliff`, `.arb`, `.resx`, `.ftl`, `strings.xml`) counts as docs when it removes and
-adds the same number of lines and each pair differs only inside text spans:
-markup text between two tags (no quotes or `+`, so a string literal is never text), the `title`, `alt`, `placeholder`, `aria-label` and
-`aria-description` values, a quoted resource value after its key, a `.po` msgstr.
-The placeholders (`{name}`, `%s`, `${`, `{{`) must match, and a line with
-`<script`, `<style`, a template tag or a front-matter fence is never text. Any
-other change keeps the path code (`uiTextOnly`, `test/review-depth.test.ts`).
-
-**Chart SVG.** A new `.svg` (its added lines are the whole file; an edited one stays code) counts as docs when none of its lines holds a
-`<script>`, an `on*=` handler, `<foreignObject>`, an entity or doctype, an
-animated href, `@import`, `javascript:`, or an `href` or `url(` that is not a
-`#fragment` (`SVG_ACTIVE`). Anything active or external keeps it code
-(`test/review-risk-routing.test.ts`).
+**UI text and SVGs** stay code (light unless a risk class applies). A docs path
+for UI copy, locale values and chart SVGs waits for an allowlist classifier: three
+rounds of R51 review found bypasses in line-pattern versions of both.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -317,7 +305,7 @@ the specialists, audits and watchers at the host default too
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
 - R51: size never raises the depth; non-risky code is light at any size, and a risk
-  class makes it full. UI or game text is docs. Two rounds is the cap, a fix-check
+  class makes it full. Two rounds is the cap, a fix-check
   included: a blocker fixed in round 2 stops for the owner instead of earning a
   fix-check, and a light pass 1 whose below-floor fixes change no runtime lines is done.
 - A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
@@ -532,68 +520,3 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    instruction lives in a reviewer brief that changes only after a no-loss replay. What blocks is unchanged.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
-   line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
-   line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader
-   that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1.
-4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
-   finding, lowers its severity, folds it into a less severe duplicate, or adds or
-   promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
-   the ledger collected is a drop. Each addition and promotion is logged with its reason.
-5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
-   dispatched hashes per render (each render is one dispatch of its reader, so a
-   two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
-   `<reader>@2`), a collected output that is a review for every sent reader (`NOT_COLLECTED`
-   otherwise, and the output row `NOT_REVIEWED`; the marker is checked again in the output file when it is unchanged, so an
-   older ledger meets the same rule; a non-review the same dispatch later replaced with a review, by re-sending the brief, is `VOIDED`
-   and counted in `voided=N`). The outside voice may fail without blocking: `collect --unavailable '<reason>'` records its failure text
-   as missing coverage (`COLLECT_UNAVAILABLE`); an empty reason or an output that holds findings is refused (exit 2), so a partial
-   answer is collected normally and loses nothing. Verify prints its brief and output `UNAVAILABLE` and `unavailable=N` on the
-   verdict line, and its coverage is logged `unavailable` in the review-log row; any other reader is refused (exit 2), because its
-   missing coverage leaves the review incomplete. A mismatched send re-sent
-   byte-exact before anything was collected is void and counted (`voided=N` on the
-   verdict line); one that produced an output stays `MISMATCH`. Then output hashes
-   against the merged lines they produced, and the judgment rerun against the
-   recorded judged set, covering every collected id. A ledger from a run that kept no
-   prompts prints `VERIFY: no brief records` (exit 3), never clean.
-6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
-   staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
-   the specialists with QA and the other audits, then the Red Team, then Step 11's
-   voices. Each reviewer keeps its plan entry and is rendered by the same code as
-   `render`, once its inputs exist; the Red Team's findings file is the specialists'
-   `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
-   most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
-   host's line or output cap cannot cut one. Each reader's intent is recorded before its
-   subagent is created and its path right after (`mark`), so a resumed pass finds a
-   create whose result was lost by its title and never starts a reader twice; a
-   missing or doubled title stops the pass. On Capy the pass runs as one call to the
-   checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
-   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass, none), a
-   fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
-   `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
-   point is found against `origin/<base>` first, as preflight does.
-7. Every brief, audit readers' included, ends with a workspace paragraph naming the
-   checkout the bins run in (GST-482): a reader on a shared machine starts in the
-   machine's working directory, so it is told to `cd` there on every command, to give
-   every file tool an absolute path under it, and to start its reply with
-   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
-   section's render, which stays byte for byte. `collect` and `mark --state collected`
-   compare that line with the fingerprint recorded at render: a missing or foreign line is
-   `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
-   is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
-   outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
-   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
-
-## Where this is enforced
-
-- `lib/review-brief.ts`, `lib/review-ledger.ts`, `lib/review-pass.ts`, `lib/capy-review-pass.js`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`, `test/review-pass.test.ts`).
-- `lib/ship-parts.ts`, `bin/gstack-ship-parts`: the section text each /ship phase uses, returned once per run inside the phase program before it; `next --resend` sends an unreceived batch again (`test/ship-parts.test.ts`).
-
-- `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
-- `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
-- `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
-- `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
-- `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`); refusals are `REVIEW_SCOPE_INPUT` and `REVIEW_SCOPE_RANGE` ([troubleshooting.md](troubleshooting.md#review-scope-input)).
-- `lib/ship-policy.ts`: the `review_scope` key and its `ship: review_scope …` consequence line.
-- `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `bin/gstack-coauthor-trailers` for the contributor-credit trailers of a port.
-- `lib/ship-receipt-prose.ts`, `gstack-ship-receipt read --check-prose`: the body's quoted counters against the receipt (`RECEIPT_PROSE_MISMATCH`, [ship-policy.md](ship-policy.md#ship-receipt)).
-- `lib/ship-receipt.ts`, `lib/headless-artifacts.ts`: the `review_loop` receipt object, its schema and the summary line.

@@ -51,7 +51,7 @@ describe('nextStep: the transition table', () => {
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true, touchedGate: true }).step).toBe('stop');
   });
   test('below-floor fixes in round 2 finish with notes, a fix-check included', () => {
-    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true, touchedGate: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
     expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
     expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true, fixedBlocking: true }).step).toBe('stop');
   });
