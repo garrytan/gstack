@@ -152,12 +152,15 @@ export function checkoutRoot(): string {
 }
 
 /**
- * One REVIEWED_TREE line as "<tree> <toplevel>", or null. A list marker, heading mark or `printed:` label (GST-776) may lead it, and a whole-line `**…**` or
+ * One REVIEWED_TREE line as "<tree> <toplevel>", or null. A list marker, heading mark or `printed:` label (GST-776, also after the echoed `cd … && echo …` command on the same line) may lead it, and a whole-line `**…**` or
  * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
  */
 function parseTreeLine(line: string): string | null {
   const label = /^(?:\*\*[Pp]rinted:\*\*|[Pp]rinted:)\s+/;
-  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '').replace(label, '');
+  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '');
+  const echoed = /\s(?:\*\*[Pp]rinted:\*\*|[Pp]rinted:)\s+(?=\S)/.exec(t);
+  if (echoed && t.startsWith('cd ')) t = t.slice(echoed.index + 1);
+  t = t.replace(label, '');
   for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
   t = t.replace(label, '');
   const m = /^(?:\*\*REVIEWED_TREE:\*\*|REVIEWED_TREE:)\s+`?([0-9a-f]{40,64})`?\s+(.+)$/.exec(t);

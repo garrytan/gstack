@@ -589,6 +589,11 @@ describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => 
   //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts checkReviewedTree via gstack-review-dispatch collect; no_claim=the brief's wording, which stays main's until a no-loss replay
   test('the echoed command then a printed: line is read; the same shape with a wrong tree or checkout is still refused', () => {
     const reply = (fingerprint: string) => `${command}\nprinted: REVIEWED_TREE: ${fingerprint}\nNO FINDINGS\n`;
+    const oneLine = (fingerprint: string) => `${command} printed: REVIEWED_TREE: ${fingerprint}\n\nNO FINDINGS\n`;
+    expect(checkReviewedTree(oneLine(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(oneLine(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true });
+    expect(checkReviewedTree(oneLine(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false });
+    expect(checkReviewedTree(`${command} Note: REVIEWED_TREE: ${tree} ${top}`, `${tree} ${top}`).reported).toBe('none');
     expect(checkReviewedTree(reply(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
     expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
     expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
