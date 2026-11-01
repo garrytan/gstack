@@ -753,6 +753,155 @@ describe('gstack-developer-profile --log-session (#1671 fix)', () => {
 });
 
 // -----------------------------------------------------------------------
+// Concurrent writers (#3437). gstack-question-log starts a background
+// --derive after every append, and a multi-question AskUserQuestion logs
+// several rows at once, so derives overlap each other and /office-hours'
+// --log-session. Each subcommand rewrites the whole profile, so every
+// read-modify-write holds the profile lock and writes a unique temp file.
+// -----------------------------------------------------------------------
+
+async function runDevAsync(...args: string[]): Promise<{ stdout: string; stderr: string; status: number }> {
+  const proc = Bun.spawn([BIN_DEV, ...args], {
+    env: { ...process.env, GSTACK_HOME: tmpHome },
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const timer = setTimeout(() => proc.kill(), 60_000);
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timer);
+  return { stdout, stderr, status };
+}
+
+describe('gstack-developer-profile concurrent writers (#3437)', () => {
+  const lockDir = () => path.join(tmpHome, 'developer-profile.json.lock');
+
+  test('--derive does not write through a fixed temp path', () => {
+    fs.mkdirSync(path.join(tmpHome, 'developer-profile.json.tmp'));
+    const r = runDev('--derive');
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(typeof (readProfile() as { derived_at?: string }).derived_at).toBe('string');
+  });
+
+  test('a held profile lock keeps --derive and --log-session from writing', () => {
+    expect(runDev('--derive').status).toBe(0);
+    const before = fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8');
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), process.pid + '-held\n');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })]]) {
+      const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+      expect(res.status).toBe(5);
+      expect(res.stderr).toContain('developer-profile.json.lock');
+    }
+    expect(fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8')).toBe(before);
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(process.pid + '-held\n');
+  });
+
+  test('a stale lock left by a crashed writer is taken over', () => {
+    fs.mkdirSync(lockDir());
+    const old = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockDir(), old, old);
+    const r = runDev('--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' }));
+    expect(r.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a lock whose holder process is gone is taken over at once', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a lock older than 5 minutes is taken over even when its pid is alive (pid reuse)', () => {
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), process.pid + '-reused\n');
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(lockDir(), old, old);
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a takeover already in progress is not repeated', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    fs.mkdirSync(lockDir() + '.takeover');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.status).toBe(5);
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(gone + '-crashed\n');
+  });
+
+  test('a takeover that cannot remove the lock still gives up', () => {
+    expect(runDev('--derive').status).toBe(0);
+    fs.mkdirSync(lockDir());
+    const old = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockDir(), old, old);
+    fs.chmodSync(tmpHome, 0o555);
+    try {
+      const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+      const res = spawnSync(BIN_DEV, ['--derive'], { env, encoding: 'utf-8', cwd: ROOT, timeout: 10_000 });
+      expect(res.signal).toBeNull();
+      expect([0, 5]).toContain(res.status ?? -1);
+    } finally {
+      fs.chmodSync(tmpHome, 0o755);
+    }
+  }, 20_000);
+
+  test('a relative state root does not leave the lock behind', () => {
+    const env = { ...process.env, GSTACK_HOME: 'state' };
+    for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })]]) {
+      const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: tmpHome, timeout: 30_000 });
+      expect(res.stderr).toBe('');
+      expect(res.status).toBe(0);
+    }
+    const p = JSON.parse(fs.readFileSync(path.join(tmpHome, 'state', 'developer-profile.json'), 'utf-8'));
+    expect(p.sessions.length).toBe(1);
+    expect(typeof p.derived_at).toBe('string');
+    expect(fs.existsSync(path.join(tmpHome, 'state', 'developer-profile.json.lock'))).toBe(false);
+  });
+
+  test('overlapping derives and log-sessions keep every session and leave valid JSON', async () => {
+    for (let i = 0; i < 5; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode', user_choice: 'expand', session_id: 's' + i });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const rounds = 6;
+    for (let round = 0; round < rounds; round++) {
+      const runs = await Promise.all([
+        ...Array.from({ length: 6 }, () => runDevAsync('--derive')),
+        runDevAsync('--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'round-' + round })),
+      ]);
+      for (const r of runs) {
+        expect(r.stderr).toBe('');
+        expect(r.status).toBe(0);
+      }
+    }
+    const p = readProfile() as { sessions: Array<{ project_slug: string }>; inferred: { sample_size: number } };
+    expect(p.sessions.map((s) => s.project_slug).sort()).toEqual(Array.from({ length: rounds }, (_, i) => 'round-' + i).sort());
+    expect(p.inferred.sample_size).toBe(5);
+    expect(fs.readdirSync(tmpHome).filter((f) => f.startsWith('developer-profile.json.'))).toEqual([]);
+  }, 120_000);
+});
+
+// -----------------------------------------------------------------------
 // SESSION_COUNT / TIER / NUDGE_ELIGIBLE must ignore mode:resources entries.
 //
 // Phase 6 of /office-hours auto-appends one (or more) mode:resources bookkeeping
