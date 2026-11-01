@@ -21,6 +21,7 @@
  *   gstack-autoplan budget  --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by <human|agent:<id>>   the owner's journaled cap change
  *   gstack-autoplan check   --out <dir> --attempt <id> --result <file> --model <id> | --unavailable <reason>   the delta check before a carry
  *   gstack-autoplan checkpoints --from <dir>            list checkpoint generations, newest first, with hash ok|bad
+ *   gstack-autoplan shadow  --out <dir> | --runs <file> [--json]   export answered gates beside their shadow predictions (read-only)
  *   gstack-autoplan contract                            print the coordinator contract every lane prompt inherits (plan E2)
  *
  * Logic: lib/autoplan-run.ts (next/submit/resume), lib/autoplan-gate.ts (close, gate, answer),
@@ -52,6 +53,8 @@ import { createRunner, familyConflict, type RunnerId } from '../lib/outside-voic
 import { resultLine } from '../lib/result-codes';
 import { release } from '../lib/spend-ledger';
 import { COORDINATOR_CONTRACT } from '../lib/coordinator-contract';
+import { claimShadow, runShadow, shadowBeforeAnswer, shadowSwitch, type ShadowClaim, type ShadowOutcome } from '../lib/autoplan-shadow';
+import { exportShadow, renderShadowExport } from '../lib/autoplan-shadow-reader';
 
 const HELP = `gstack-autoplan — unattended /autoplan: next/submit loop, answer, resume (docs/unattended.md)
 DRIVER: ${driverFile()}
@@ -95,6 +98,14 @@ DRIVER: ${driverFile()}
           bind the one-reviewer delta check a CARRY_CHECK: line asked for: nothing at High or above carries the owner's
           last answer (CARRIED:); otherwise, or when unavailable, the gate goes to the owner as before
   checkpoints --from <dir>          list checkpoint generations, newest first: run, gate_rev, time, hash ok|bad, current
+  shadow  --out <dir> | --runs <file> [--json]
+          read-only export for taste-replay R2: one row per item of each answered gate revision, its shadow prediction
+          (recorded before the answer; status recorded, malformed, failed, missing, retrospective or off) beside the
+          owner's answer and how he gave it; counts by status, item class, owner_mode and ceo_eligible. An unanswered or
+          interrogated revision refuses SHADOW_BEFORE_ANSWER, a CEO-only run CEO_ONLY_NO_GATE. --runs: one run dir per line.
+          Shadow mode itself is off by default: gstack-config set autoplan_shadow on (or GSTACK_AUTOPLAN_SHADOW=1) at the
+          first next; each gate then gets one hidden model call (autoplan_shadow_model, default claude-opus-5-5) counted
+          against --spend-cap, and every command that prints a gate prints SHADOW: first
   close   --out <dir> --phase <p> --deferred "<reason>" --by <human|agent:<id>>
           close the phase accepted-with-findings: open voices skipped (dispatched attempts settle unknown at their
           reservation), open findings into tasks.jsonl; Critical, urgent and user-challenge findings become gate items
@@ -138,7 +149,7 @@ function nextLine(state: RunState, out: string): string {
  * Admission, then under the run lock: bring an existing run forward (GSTACK_VERSION_CHANGED, legacy decision ids)
  * and record an admission override as a deviation. Notices go to stdout before the command's own lines (stderr with --json).
  */
-function mutating(out: string, json: boolean, fn: () => number): number {
+function mutating(out: string, json: boolean, fn: () => number | Report): number | Report {
   const admission = admit(process.env);
   touchInstallLease(process.env);
   return withRunLock(out, () => {
@@ -155,11 +166,46 @@ function mutating(out: string, json: boolean, fn: () => number): number {
       notices.push(...migrated.lines);
     }
     if (notices.length) (json ? process.stderr : process.stdout).write(notices.join('\n') + '\n');
-    const code = fn();
+    const result = fn();
     if (admission.deviation && fs.existsSync(path.join(out, FILES.run))) { const state = readState(out); if (record(state)) writeState(state); }
-    if (code === EXIT.ok) checkpointQuietly(out);
-    return code;
+    if (typeof result !== 'number') return claimed(out, result);
+    if (result === EXIT.ok) checkpointQuietly(out);
+    return result;
   });
+}
+
+/**
+ * What a command that can leave a gate reports: the lines before the gate, the lines after it, and its JSON payload.
+ * `publish` puts the SHADOW line and the gate lines between them once the shadow has run (lib/autoplan-shadow.ts).
+ */
+interface Report { head: string[]; tail: string[]; payload: Record<string, unknown>; gate: boolean; claim?: ShadowClaim; claimLine?: string }
+
+/** Still under the command's run lock: a report at a gate claims its shadow (the checkpoint waits for publish); any other checkpoints now. */
+function claimed(out: string, r: Report): Report {
+  if (!r.gate) { checkpointQuietly(out); return r; }
+  try { const c = claimShadow(out); return { ...r, claim: c.claim, claimLine: c.line }; }
+  catch (e: any) { return { ...r, claimLine: `SHADOW: failed internal (${e?.message ?? e}); the gate stands` }; }
+}
+
+const shadowField = (o: ShadowOutcome | undefined, line: string | undefined) => (o ? { shadow: { status: o.status, ...(o.code ? { code: o.code } : {}), ...(o.model ? { model: o.model } : {}), ...(o.usd !== undefined ? { usd: o.usd } : {}) } } : line ? { shadow: { line } } : {});
+
+/**
+ * The one gate-publication step every command that prints a gate shares (next, submit, close, resume, revise, run, check):
+ * after the locked step, run the claimed shadow with no lock held, then print SHADOW, the gate and its cost, then
+ * checkpoint, so a checkpoint taken at a gate holds its shadow record. A shadow failure never fails the command.
+ */
+async function publish(out: string, json: boolean, r: number | Report): Promise<number> {
+  if (typeof r === 'number') return r;
+  const outcome = r.claim ? await runShadow(out, r.claim) : undefined;
+  const line = outcome?.line ?? r.claimLine;
+  const state = r.gate ? readState(out) : undefined;
+  emit(json, [...r.head, ...(line ? [line] : []), ...(state ? gateLines(state, out) : []), ...r.tail], { ...r.payload, ...(state ? gateCostField(state, out) : {}), ...shadowField(outcome, line) });
+  if (r.gate) gateCheckpoint(out);
+  return EXIT.ok;
+}
+function gateCheckpoint(out: string): void {
+  try { withRunLock(out, () => checkpointQuietly(out), { waitMs: 30_000 }); }
+  catch (e: any) { process.stderr.write(`CHECKPOINT: skipped for ${out}: ${e instanceof RunError ? `${e.detail} (${e.code})` : e?.message ?? e}; the command's result stands\n`); }
 }
 
 /** Set by a command whose success is a checkpoint moment beyond rest: a bound voice, a phase transition, the first next. */
@@ -180,7 +226,7 @@ function emit(json: boolean, lines: string[], payload: Record<string, unknown>):
   else process.stdout.write(lines.join('\n') + '\n');
 }
 
-function doNext(out: string, rest: string[], json: boolean): number {
+function doNext(out: string, rest: string[]): Report {
   const cwd = process.cwd();
   const initLines: string[] = [];
   const fresh = !fs.existsSync(path.join(out, FILES.run));
@@ -194,20 +240,18 @@ function doNext(out: string, rest: string[], json: boolean): number {
     if (maxRounds !== undefined && (!Number.isInteger(maxRounds) || maxRounds < 1)) throw new RunError('ARTIFACT_SCHEMA', '--max-rounds needs an integer >= 1', 1);
     const carryCheckCapUsd = num(rest, '--carry-check-cap');
     if (carryCheckCapUsd !== undefined && !(carryCheckCapUsd >= 0)) throw new RunError('ARTIFACT_SCHEMA', '--carry-check-cap needs a number >= 0', 1);
+    const shadow = shadowSwitch({ outsideEnabled: !rest.includes('--no-outside'), ceoOnly }, process.env);
+    if (shadow.line) initLines.push(shadow.line);
     initRun({ plan, out, cwd, planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
-      carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd, ceoOnly,
+      carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd, ceoOnly, shadow: shadow.shadow,
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
   const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch });
   moment = fresh ? 'init' : r.attempts.some(a => a.new) || r.lines.some(l => l.startsWith('PHASE_DEFERRED: ')) ? 'transition' : undefined;
   const status = r.state.status;
-  const lines = [...initLines, ...r.lines];
-  if (status === 'gate_pending') lines.push(...gateLines(r.state, out));
-  if (status === 'running') lines.push(`NEXT: gstack-autoplan next --out ${out}`);
-  lines.push(resultLineFor(status, out));
-  emit(json, lines, { run: r.state.run, status, phase: r.phase ?? null, attempts: r.attempts, gate_rev: r.state.gate_rev ?? null, ...gateCostField(r.state, out), out });
-  return EXIT.ok;
+  return { head: [...initLines, ...r.lines], tail: [...(status === 'running' ? [`NEXT: gstack-autoplan next --out ${out}`] : []), resultLineFor(status, out)], gate: status === 'gate_pending',
+    payload: { run: r.state.run, status, phase: r.phase ?? null, attempts: r.attempts, gate_rev: r.state.gate_rev ?? null, out } };
 }
 
 /** The gate pointer, its cost so far and the price of `rec` (lib/autoplan-gate-cost.ts), plus the owner-facing render to relay under Capy (lib/captain-brief.ts). */
@@ -228,7 +272,7 @@ function gateCostField(state: RunState, out: string): Record<string, unknown> {
   return cost ? { gate_cost: gateCostPayload(cost) } : {};
 }
 
-function doSubmit(out: string, rest: string[], json: boolean): number {
+function doSubmit(out: string, rest: string[]): number | Report {
   const phase = flag(rest, '--phase'); const voice = flag(rest, '--voice'); const result = flag(rest, '--result'); const record = flag(rest, '--record');
   const model = flag(rest, '--model'); const attempt = flag(rest, '--attempt'); const unavailable = flag(rest, '--unavailable'); const failed = flag(rest, '--failed');
   if (!phase || !voice) return usage('submit needs --phase and --voice');
@@ -240,28 +284,22 @@ function doSubmit(out: string, rest: string[], json: boolean): number {
   const r = submitResult({ out, phase, voice, result: result ? path.resolve(result) : undefined, record: record ? path.resolve(record) : undefined, model, attempt, attest: flag(rest, '--attest'),
     unavailable, failed, runner: flag(rest, '--runner'), usageUsd: num(rest, '--usage-usd'), reconcile: flag(rest, '--reconcile'), cwd: process.cwd() });
   const status = r.state.status;
-  const lines = [...r.lines];
-  if (status === 'gate_pending') lines.push(...gateLines(r.state, out));
-  if (status === 'running') lines.push(`NEXT: gstack-autoplan next --out ${out}`);
-  lines.push(resultLineFor(status, out));
-  emit(json, lines, { run: r.state.run, status, phase, voice, attempt: r.state.phases[phase]?.[voice]?.attempt ?? attempt ?? null, closed: r.closed, findings: r.findings, gate_rev: r.state.gate_rev ?? null, ...gateCostField(r.state, out), out });
-  return EXIT.ok;
+  return { head: [...r.lines], tail: [...(status === 'running' ? [`NEXT: gstack-autoplan next --out ${out}`] : []), resultLineFor(status, out)], gate: status === 'gate_pending',
+    payload: { run: r.state.run, status, phase, voice, attempt: r.state.phases[phase]?.[voice]?.attempt ?? attempt ?? null, closed: r.closed, findings: r.findings, gate_rev: r.state.gate_rev ?? null, out } };
 }
 
-function doRevise(out: string, rest: string[], json: boolean): number {
+function doRevise(out: string, rest: string[]): number | Report {
   const plan = flag(rest, '--plan'); const incorporates = listFlag(rest, '--incorporates'); const withdraw = listFlag(rest, '--withdraw'); const settle = listFlag(rest, '--settle');
   if (!plan && !withdraw.length && !settle.length) return usage('revise needs --plan <file> (and optionally --incorporates <id,...>), --withdraw <decision id> or --settle <id>');
   if (!plan && incorporates.length) return usage('--incorporates binds accepted changes to a revised plan: pass --plan <file>');
   refuseCeoOnly(readState(out), 'revise');
   const r = reviseRun({ out, plan: plan ? path.resolve(plan) : undefined, incorporates, withdraw, settle, cwd: process.cwd() });
-  const lines = [...r.lines];
-  if (r.state.status === 'running' || r.state.status === 'amend_pending') lines.push(nextLine(r.state, out));
-  lines.push(resultLineFor(r.state.status, out));
-  emit(json, lines, { run: r.state.run, status: r.state.status, reopened: r.reopened, amendments: pendingAmendments(r.state).map(a => a.decision), gate_rev: r.state.gate_rev ?? null, out });
-  return EXIT.ok;
+  const tail = [...(r.state.status === 'running' || r.state.status === 'amend_pending' ? [nextLine(r.state, out)] : []), resultLineFor(r.state.status, out)];
+  return { head: [...r.lines], tail, gate: r.state.status === 'gate_pending',
+    payload: { run: r.state.run, status: r.state.status, reopened: r.reopened, amendments: pendingAmendments(r.state).map(a => a.decision), gate_rev: r.state.gate_rev ?? null, out } };
 }
 
-function doClose(out: string, rest: string[], json: boolean): number {
+function doClose(out: string, rest: string[]): number | Report {
   const phase = flag(rest, '--phase'); const reason = flag(rest, '--deferred'); const by = flag(rest, '--by');
   if (!phase || !reason?.trim()) return usage('close needs --phase <p> --deferred "<reason>" --by <human|agent:<id>>');
   if (by === undefined || !ANSWERED_BY_RE.test(by)) throw new RunError('ANSWER_BY_REQUIRED', `close records who deferred the phase: pass --by human or --by agent:<id> (got ${JSON.stringify(by ?? null)})`, 3);
@@ -273,25 +311,22 @@ function doClose(out: string, rest: string[], json: boolean): number {
   const r = closeDeferred(state, phase as Phase, { reason: reason.trim(), by, cause: 'owner' });
   moment = 'transition';
   const lines = [...r.lines, ...(stopped ? liftStop(state, `${phase} closed deferred by ${by}`) : [])];
-  if (!currentPhase(state)) lines.push(...finishRun(state), ...(state.status === 'gate_pending' ? gateLines(state, out) : []));
+  if (!currentPhase(state)) lines.push(...finishRun(state));
   else { state.status = 'running'; lines.push(`NEXT: gstack-autoplan next --out ${out}`); }
   writeState(state);
-  lines.push(resultLineFor(state.status, out));
-  emit(json, lines, { run: state.run, status: state.status, phase, blockers: r.blockers, gate_rev: state.gate_rev ?? null, ...gateCostField(state, out), out });
-  return EXIT.ok;
+  return { head: lines, tail: [resultLineFor(state.status, out)], gate: state.status === 'gate_pending', payload: { run: state.run, status: state.status, phase, blockers: r.blockers, gate_rev: state.gate_rev ?? null, out } };
 }
 
 /** `check`: the delta reviewer's verdict before a carry (lib/autoplan-carry.ts). */
-function doCheck(out: string, rest: string[], json: boolean): number {
+function doCheck(out: string, rest: string[]): number | Report {
   const unavailable = flag(rest, '--unavailable');
   const result = flag(rest, '--result');
   if (unavailable === undefined && (!result || !flag(rest, '--model'))) return usage('check needs --attempt <id> and --result <file> --model <id>, or --unavailable "<reason>"');
   const r = submitCarryCheck({ out, attempt: flag(rest, '--attempt'), result: result ? path.resolve(result) : undefined, model: flag(rest, '--model'), unavailable, sameFamily: flag(rest, '--same-family') });
   moment = 'transition';
   const status = r.state.status;
-  const lines = [...r.lines, ...(status === 'gate_pending' ? gateLines(r.state, out) : []), ...(status === 'amend_pending' || status === 'running' ? [nextLine(r.state, out)] : []), resultLineFor(status, out)];
-  emit(json, lines, { run: r.state.run, status, gate_rev: r.state.gate_rev ?? null, carry: r.state.carry ?? null, out });
-  return EXIT.ok;
+  return { head: [...r.lines], tail: [...(status === 'amend_pending' || status === 'running' ? [nextLine(r.state, out)] : []), resultLineFor(status, out)], gate: status === 'gate_pending',
+    payload: { run: r.state.run, status, gate_rev: r.state.gate_rev ?? null, carry: r.state.carry ?? null, out } };
 }
 
 function doBudget(out: string, rest: string[], json: boolean): number {
@@ -313,13 +348,18 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   const deadline = num(rest, '--deadline');
   const deadlineAt = deadline ? Date.now() + deadline * 60_000 : undefined;
   for (let guard = 0; guard < 40; guard++) {
-    const code = withRunLock(out, () => doNext(out, rest, true));
-    if (code !== EXIT.ok) return code;
+    const step = withRunLock(out, () => { const r = doNext(out, rest); return r.gate ? claimed(out, r) : r; });
     const state = readState(out);
     if (state.status !== 'awaiting_result') {
-      if (!json) process.stdout.write([...statusLines(state), ...(state.status === 'gate_pending' ? gateLines(state, out) : [])].join('\n') + '\n');
-      process.stdout.write(resultLineFor(state.status, out) + '\n'); return EXIT.ok;
+      const outcome = step.claim ? await runShadow(out, step.claim) : undefined;
+      const line = outcome?.line ?? step.claimLine;
+      const at = readState(out);
+      emit(true, [], { ...step.payload, ...gateCostField(at, out), ...shadowField(outcome, line) });
+      if (!json) process.stdout.write([...statusLines(at), ...(line ? [line] : []), ...(at.status === 'gate_pending' ? gateLines(at, out) : [])].join('\n') + '\n');
+      if (step.gate) gateCheckpoint(out);
+      process.stdout.write(resultLineFor(at.status, out) + '\n'); return EXIT.ok;
     }
+    emit(true, [], step.payload);
     const phase = state.phase_order.find(p => state.phases[p]?.snapshot && !state.phases[p]?.closed_at)!;
     for (const voice of ['native', 'outside'] as const) {
       const v = state.phases[phase]![voice]!;
@@ -341,10 +381,22 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
       }
-      withRunLock(out, () => doSubmit(out, ['--phase', phase, '--voice', voice, '--result', `${open.result}.raw`, '--model', res.model ?? (voice === 'native' ? nativeModel : outsideModel), '--attempt', open.attempt, '--runner', res.runner], true));
+      const bound = withRunLock(out, () => doSubmit(out, ['--phase', phase, '--voice', voice, '--result', `${open.result}.raw`, '--model', res.model ?? (voice === 'native' ? nativeModel : outsideModel), '--attempt', open.attempt, '--runner', res.runner]));
+      if (typeof bound !== 'number') emit(true, [], bound.payload);
     }
   }
   return EXIT.fail;
+}
+
+/** `shadow`: the read-only export for taste-replay R2 (lib/autoplan-shadow-reader.ts). */
+function doShadow(rest: string[], json: boolean): number {
+  const runs = flag(rest, '--runs'); const one = flag(rest, '--out');
+  if (!runs === !one) return usage('shadow needs --out <run dir> or --runs <file> (one run directory per line)');
+  const dirs = runs ? fs.readFileSync(runs, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(d => path.resolve(d)) : [path.resolve(one!)];
+  const r = exportShadow(dirs);
+  for (const x of r.refused) process.stderr.write(resultLine('gstack-autoplan shadow', x.code, x.detail) + '\n');
+  if (json) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderShadowExport(r).join('\n') + '\n');
+  return r.rows.length === 0 && r.refused.length ? EXIT.refused : EXIT.ok;
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -359,15 +411,16 @@ async function main(argv: string[]): Promise<number> {
     catch (e: any) { if (!(e instanceof RunError)) throw e; process.stderr.write(resultLine('gstack-autoplan checkpoints', e.code, e.detail) + '\n'); return EXIT.refused; }
   }
   const outFlag = flag(rest, '--out');
-  if (!outFlag) return usage(`${cmd} needs --out <dir>`);
-  const out = path.resolve(outFlag);
+  if (!outFlag && cmd !== 'shadow') return usage(`${cmd} needs --out <dir>`);
+  const out = path.resolve(outFlag ?? '.');
   try {
-    if (cmd === 'next') return mutating(out, json, () => doNext(out, rest, json));
-    if (cmd === 'submit') return mutating(out, json, () => doSubmit(out, rest, json));
-    if (cmd === 'revise') return mutating(out, json, () => doRevise(out, rest, json));
-    if (cmd === 'close') return mutating(out, json, () => doClose(out, rest, json));
-    if (cmd === 'budget') return mutating(out, json, () => doBudget(out, rest, json));
-    if (cmd === 'check') return mutating(out, json, () => doCheck(out, rest, json));
+    if (cmd === 'shadow') return doShadow(rest, json);
+    if (cmd === 'next') return await publish(out, json, mutating(out, json, () => doNext(out, rest)));
+    if (cmd === 'submit') return await publish(out, json, mutating(out, json, () => doSubmit(out, rest)));
+    if (cmd === 'revise') return await publish(out, json, mutating(out, json, () => doRevise(out, rest)));
+    if (cmd === 'close') return await publish(out, json, mutating(out, json, () => doClose(out, rest)));
+    if (cmd === 'budget') return await publish(out, json, mutating(out, json, () => doBudget(out, rest, json)));
+    if (cmd === 'check') return await publish(out, json, mutating(out, json, () => doCheck(out, rest)));
     if (cmd === 'run') { const admission = admit(process.env); if (admission.lines.length) process.stdout.write(admission.lines.join('\n') + '\n'); return await doRun(out, rest, json); }
     if (cmd === 'status') {
       const state = readState(out);
@@ -377,13 +430,11 @@ async function main(argv: string[]): Promise<number> {
     if (cmd === 'resume') {
       const from = flag(rest, '--from');
       const restored = from !== undefined ? restoreCheckpoint(from, out) : [];
-      return withRunLock(out, () => {
+      return await publish(out, json, withRunLock(out, () => {
         const r = resumeRun(out);
-        checkpointQuietly(out);
-        const lines = [...restored, ...r.lines, resultLineFor(r.state.status, out)];
-        emit(json, lines, { run: r.state.run, status: r.state.status, execution_unknown: r.unknown, rebound: r.rebound, out });
-        return EXIT.ok;
-      }, { steal: true });
+        return claimed(out, { head: [...restored, ...r.lines], tail: [resultLineFor(r.state.status, out)], gate: r.state.status === 'gate_pending',
+          payload: { run: r.state.run, status: r.state.status, execution_unknown: r.unknown, rebound: r.rebound, out } });
+      }, { steal: true }));
     }
     if (cmd === 'answer') {
       const rev = flag(rest, '--gate-rev'); const reply = flag(rest, '--reply'); const by = flag(rest, '--by');
@@ -392,7 +443,9 @@ async function main(argv: string[]): Promise<number> {
       const replyFile = flag(rest, '--owner-reply-file'); const ownerFlag = flag(rest, '--owner-reply');
       if (replyFile !== undefined && ownerFlag !== undefined) return usage('--owner-reply and --owner-reply-file are exclusive');
       const ownerReply = replyFile !== undefined ? fs.readFileSync(replyFile, 'utf8') : ownerFlag === '-' ? fs.readFileSync(0, 'utf8') : ownerFlag;
-      return mutating(out, json, () => {
+      const shadowLines = await shadowBeforeAnswer(out);
+      if (shadowLines.length) (json ? process.stderr : process.stdout).write(shadowLines.join('\n') + '\n');
+      return await publish(out, json, mutating(out, json, () => {
         const state = readState(out);
         refuseCeoOnly(state, 'answer');
         const r = answerGate(state, Number(rev), reply, by, { recHash: flag(rest, '--rec-hash'), ownerReply });
@@ -402,19 +455,19 @@ async function main(argv: string[]): Promise<number> {
         lines.push(resultLineFor(state.status, out));
         emit(json, lines, { run: state.run, status: state.status, outcome: r.outcome, pending: r.pending, reopened: r.reopened, amendments: pendingAmendments(state).map(a => a.decision), gate_rev: state.gate_rev, out });
         return EXIT.ok;
-      });
+      }));
     }
     if (cmd === 'recommend') {
       const rev = flag(rest, '--gate-rev'); const item = flag(rest, '--item'); const option = flag(rest, '--option'); const basis = flag(rest, '--basis');
       if (rev === undefined || !item || !option || !basis?.trim()) return usage('recommend needs --gate-rev <n> --item <id> --option <k> --basis "<why>"');
-      return mutating(out, json, () => {
+      return await publish(out, json, mutating(out, json, () => {
         const state = readState(out);
         refuseCeoOnly(state, 'recommend');
         const lines = recommendGate(state, Number(rev), item.toLowerCase(), option.toLowerCase(), basis.trim(), flag(rest, '--by') ?? 'parent');
         writeState(state);
         emit(json, [...lines, resultLineFor(state.status, out)], { run: state.run, status: state.status, gate_rev: state.gate_rev, out });
         return EXIT.ok;
-      });
+      }));
     }
     if (cmd === 'export' && flag(rest, '--public') !== undefined) {
       return withRunLock(out, () => {
@@ -425,7 +478,7 @@ async function main(argv: string[]): Promise<number> {
       });
     }
     if (cmd === 'export') {
-      return mutating(out, json, () => {
+      return await publish(out, json, mutating(out, json, () => {
         const state = readState(out);
         const pending = pendingAmendments(state).map(a => a.decision);
         if (state.status === 'complete' && pending.length) throw new RunError('PLAN_AMEND_PENDING', `run says complete with accepted changes not in the plan: ${pending.join(', ')}`, 3);
@@ -434,7 +487,7 @@ async function main(argv: string[]): Promise<number> {
         for (const w of r.warnings) process.stderr.write(`gstack-autoplan export: ${w}\n`);
         emit(json, [...r.files.map(f => `EXPORTED: ${f}`), dispatchLine(state)], { run: state.run, files: r.files, warnings: r.warnings, dispatches: state.dispatches, est_input_tokens: state.est_input_tokens });
         return EXIT.ok;
-      });
+      }));
     }
     if (cmd === 'release') {
       const attempt = flag(rest, '--attempt');

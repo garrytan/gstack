@@ -105,6 +105,7 @@ describe('the switch is off by default and fixed at init', () => {
     const out = path.join(TMP, 'no-field');
     fs.cpSync(BASE, out, { recursive: true });
     const run = readRun(out);
+    expect(run.shadow).toEqual({ enabled: false, reason: 'off by default', source: 'default' });
     delete run.shadow;
     fs.writeFileSync(path.join(out, 'run.json'), JSON.stringify(run, null, 2) + '\n');
     expect(claimShadow(out)).toEqual({});
