@@ -361,6 +361,26 @@ describe('ready', () => {
     expect(queue(repo, ['ready', '--pr', '1'], shim(moved, green)).err).toMatch(/uncommitted tracked changes: pr-a\.txt.*\(QUEUE_NOT_READY\)/);
   }, 180_000);
 
+  test('STAMP_VERSION is unstamped for a PR whose own diff leaves VERSION alone after main moved to a newer version, and the stamp for one that changes it (GST-770 follow-up)', () => {
+    const repo = fixture();
+    const head = makePr(repo, 'pr-a');
+    repo.git('checkout', '-q', 'origin/main', '-B', 'main-moves');
+    fs.writeFileSync(path.join(repo.work, 'VERSION'), '1.2.4.0\n');
+    repo.git('commit', '-qam', 'v1.2.4.0 another PR landed');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin');
+    repo.git('checkout', '-q', 'pr-a');
+    const shim = (prHead: string) => ghQueueShim(repo, { prs: { '1': { headRefOid: prHead, url: 'https://github.com/o/r/pull/1', body: shippedBody('1', head) } }, checks: { [prHead]: green } });
+    const forked = queue(repo, ['ready', '--pr', '1', '--pregate', pregateFor(repo, head)], shim(head));
+    expect([forked.status, forked.err]).toEqual([EXIT.ok, '']);
+    expect(forked.out.split('\n').slice(0, 4)).toEqual([`READY #1 ${head} STAMP_VERSION=unstamped`, 'pr: https://github.com/o/r/pull/1', `head: ${head}`, 'version: unstamped']);
+    fs.writeFileSync(path.join(repo.work, 'VERSION'), '1.2.5.0\n');
+    repo.git('commit', '-qam', 'v1.2.5.0 stamp');
+    const stamped = repo.git('rev-parse', 'HEAD');
+    const ok = queue(repo, ['ready', '--pr', '1', '--pregate', pregateFor(repo, stamped)], shim(stamped));
+    expect(ok.out.split('\n')[0]).toBe(`READY #1 ${stamped} STAMP_VERSION=1.2.5.0`);
+  }, 180_000);
+
   // Value: protects=the re-READY after a slot's stamp push accepts the receipt /ship wrote for the pinned head, and only then;
   // fails_when=ready binds the receipt to HEAD alone (every stamped READY turns QUEUE_RECEIPT_STALE) or accepts any ancestor's receipt;
   // why_new=the READY test above binds receipts to the exact head only; seam=none; no_claim=real gh and CI (shims; unit only)

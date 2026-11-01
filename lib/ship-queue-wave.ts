@@ -27,7 +27,7 @@ import { versionAtRef } from './restamp';
 import { globToRegExp, type ShipPolicy } from './ship-policy';
 import { ciAtHead, type QueueContext } from './ship-queue';
 import { git, sha256, type QueueFailure } from './ship-queue-gate';
-import { fetchBase, mergeCommit, outFailed, outOk, outRefused, parsePins, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
+import { fetchBase, mergeCommit, mergeStep, outFailed, outOk, outRefused, parsePins, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { prInfo, type PrInfo } from './ship-queue-train-github';
 import { listWaves, loadWave, nowIso, persist, queueRoot, rebuildFromNotes, redactCause, wavePath, type ReadyReceipt, type WaveRecord } from './ship-queue-train-record';
 
@@ -67,7 +67,8 @@ export function areaKey(file: string, isSkillDir: (dir: string) => boolean): str
   return parts.length > 1 ? top : 'root';
 }
 
-export interface PlanPr { pr: string; head: string; files: string[]; lines: number }
+/** renamed maps a path the PR renamed to its new path; files lists both. */
+export interface PlanPr { pr: string; head: string; files: string[]; lines: number; renamed?: Record<string, string> }
 export interface WaveGroup { area: string; prs: PlanPr[]; integrator: string }
 
 /** The most common area across files, ties broken by name; 'misc' with no files. */
@@ -91,11 +92,13 @@ export const isHubFile = (file: string) => file.startsWith('docs/') || /\.(md|js
  * Group PRs into waves: PRs whose changes to a common code file conflict always travel together
  * (one integrator resolves the conflict once); hub files never link. conflicts(a, b) names the
  * files a merge of the two heads cannot resolve, or null when unknown, which counts every shared
- * file as conflicting. Each cluster takes its largest PR's area, clusters of one area are packed
- * in PR order into waves of at most max, and a wave below min rides solo. The integrator is the
- * PR with the most changed lines.
+ * file as conflicting; a conflict at the path either PR renamed the shared file to counts as one
+ * on that file. Each cluster takes its largest PR's area and is packed whole, first fit in PR
+ * order, into the waves of its area of at most max; a cluster larger than max is oversize (never
+ * split, so its conflicts still meet one integrator), and a wave below min rides solo. The
+ * integrator is the PR with the most changed lines.
  */
-export function groupWaves(prs: PlanPr[], areaOf: (f: string) => string, min = WAVE_MIN, max = WAVE_MAX, conflicts: (a: PlanPr, b: PlanPr) => string[] | null = () => null): { groups: WaveGroup[]; solo: string[] } {
+export function groupWaves(prs: PlanPr[], areaOf: (f: string) => string, min = WAVE_MIN, max = WAVE_MAX, conflicts: (a: PlanPr, b: PlanPr) => string[] | null = () => null): { groups: WaveGroup[]; solo: string[]; oversize: Array<{ area: string; prs: PlanPr[] }> } {
   const sorted = [...prs].sort((a, b) => Number(a.pr) - Number(b.pr));
   const root = new Map(sorted.map(p => [p.pr, p.pr]));
   const find = (x: string): string => { const r = root.get(x)!; return r === x ? x : find(r); };
@@ -106,7 +109,8 @@ export function groupWaves(prs: PlanPr[], areaOf: (f: string) => string, min = W
     const key = `${a.pr} ${b.pr}`;
     if (!clash.has(key)) clash.set(key, conflicts(a, b));
     const hit = clash.get(key);
-    if ((!hit || hit.includes(f)) && find(a.pr) !== find(b.pr)) root.set(find(b.pr), find(a.pr));
+    const at = [f, a.renamed?.[f], b.renamed?.[f]];
+    if ((!hit || at.some(p => p && hit.includes(p))) && find(a.pr) !== find(b.pr)) root.set(find(b.pr), find(a.pr));
   }));
   const clusters = new Map<string, PlanPr[]>();
   for (const p of sorted) clusters.set(find(p.pr), [...(clusters.get(find(p.pr)) ?? []), p]);
@@ -117,17 +121,20 @@ export function groupWaves(prs: PlanPr[], areaOf: (f: string) => string, min = W
   }
   const groups: WaveGroup[] = [];
   const solo: string[] = [];
+  const oversize: Array<{ area: string; prs: PlanPr[] }> = [];
   for (const [area, list] of [...byArea].sort((a, b) => a[0].localeCompare(b[0]))) {
-    let cur: PlanPr[] = [];
-    const flush = () => {
-      if (cur.length >= min) groups.push({ area, prs: cur, integrator: [...cur].sort(largestFirst)[0]!.pr });
-      else solo.push(...cur.map(p => p.pr));
-      cur = [];
-    };
-    for (const c of list) for (const p of c) { if (cur.length >= max) flush(); cur.push(p); }
-    flush();
+    const waves: PlanPr[][] = [];
+    for (const c of list) {
+      if (c.length > max) { oversize.push({ area, prs: c }); continue; }
+      const fit = waves.find(w => w.length + c.length <= max);
+      if (fit) fit.push(...c); else waves.push([...c]);
+    }
+    for (const w of waves) {
+      if (w.length >= min) groups.push({ area, prs: w, integrator: [...w].sort(largestFirst)[0]!.pr });
+      else solo.push(...w.map(p => p.pr));
+    }
   }
-  return { groups, solo: solo.sort((a, b) => Number(a) - Number(b)) };
+  return { groups, solo: solo.sort((a, b) => Number(a) - Number(b)), oversize };
 }
 
 export interface WaveChain { integrator: string[]; merges: string[]; stamps: string[] }
@@ -225,10 +232,14 @@ function readyReceipts(env: TrainEnv): ReadyReceipt[] {
   return [...newest.values()];
 }
 
-function changed(env: TrainEnv, head: string): { files: string[]; lines: number } | null {
+function changed(env: TrainEnv, head: string): { files: string[]; lines: number; renamed: Record<string, string> } | null {
   const fork = git(env.ctx.repoRoot, ['merge-base', `${env.remote}/${env.ctx.base}`, head]);
   const stat = fork.ok ? git(env.ctx.repoRoot, ['diff', '--numstat', '--no-renames', fork.out, head]) : fork;
-  if (!stat.ok) return null;
+  const moves = fork.ok ? git(env.ctx.repoRoot, ['diff', '--name-status', '-z', '-M', '--diff-filter=R', fork.out, head]) : fork;
+  if (!stat.ok || !moves.ok) return null;
+  const renamed: Record<string, string> = {};
+  const fields = moves.out.split('\0');
+  for (let i = 0; i + 2 < fields.length; i += 3) if (!isReleasePath(fields[i + 1]!, env.policy.policy)) renamed[fields[i + 1]!] = fields[i + 2]!;
   let lines = 0;
   const files: string[] = [];
   for (const row of stat.out.split('\n').filter(Boolean)) {
@@ -237,7 +248,7 @@ function changed(env: TrainEnv, head: string): { files: string[]; lines: number 
     files.push(file);
     lines += (Number(add) || 0) + (Number(del) || 0);
   }
-  return { files, lines };
+  return { files, lines, renamed };
 }
 
 const areaOf = (env: TrainEnv) => (f: string) => areaKey(f, dir => fs.existsSync(path.join(env.ctx.repoRoot, dir, 'SKILL.md.tmpl')));
@@ -269,12 +280,15 @@ export function wavePlan(ctx: QueueContext, o: { trigger: number; min: number; m
     if (ci.line.startsWith('unknown')) { unreadable.push(`#${r.pr} (CI ${ci.line})`); continue; }
     if (!ci.green) { lines.push(`NOT_GREEN: #${r.pr} (${ci.line}; left out until CI is green at the READY head)`); continue; }
     if (!ensureCommit(env, r.head, r.pr)) { unreadable.push(`#${r.pr} (head ${short(r.head)} not fetchable)`); continue; }
+    const onBase = mergeStep(env.ctx.repoRoot, `${env.remote}/${env.ctx.base}`, r.head, env.policy.policy);
+    if ('conflicts' in onBase && onBase.conflicts.some(f => f.startsWith('('))) { unreadable.push(`#${r.pr} (merge onto ${env.ctx.base} unreadable: ${onBase.conflicts.join(', ')})`); continue; }
+    if ('conflicts' in onBase) { lines.push(`NOT_MERGEABLE: #${r.pr} (conflicts with ${env.remote}/${env.ctx.base} at ${short(r.head)} in ${onBase.conflicts.join(', ')}; left out until the head merges cleanly onto ${env.ctx.base})`); continue; }
     const c = changed(env, r.head);
     if (!c) { unreadable.push(`#${r.pr} (diff unreadable)`); continue; }
     live.push({ pr: r.pr, head: r.head, ...c });
   }
   if (unreadable.length) return outFailed(fail('QUEUE_PROOF_MISSING', `cannot read ${unreadable.length} READY PR(s): ${unreadable.join('; ')}; a plan from a partial queue would mislead`), lines, `${Q} wave plan (after gh and git can read every PR)`, 'none');
-  lines.push(`QUEUE: ${live.length} live READY PR(s) (open, head equal to its READY receipt, CI green there); wave trigger ${o.trigger}`);
+  lines.push(`QUEUE: ${live.length} live READY PR(s) (open, head equal to its READY receipt, CI green there, merging cleanly onto ${env.ctx.base}); wave trigger ${o.trigger}`);
   if (live.length <= o.trigger) return outOk([...lines, `WAVE: not needed (${live.length} <= ${o.trigger}); build trains of single PRs`], `${Q} train build --prs <pins>`, 'none');
   const plan = groupWaves(live, areaOf(env), o.min, o.max, (a, b) => {
     const m = git(env.ctx.repoRoot, ['merge-tree', '--write-tree', '--name-only', '--no-messages', a.head, b.head]);
@@ -285,6 +299,7 @@ export function wavePlan(ctx: QueueContext, o: { trigger: number; min: number; m
     lines.push(`WAVE_GROUP: area=${g.area} prs=${g.prs.map(p => '#' + p.pr).join(',')} integrator=#${g.integrator} (most changed lines)`);
     lines.push(`  build: ${buildCmd(g.area, g.prs)}`);
   }
+  for (const c of plan.oversize) lines.push(`WAVE_OVERSIZE: area=${c.area} prs=${c.prs.map(p => '#' + p.pr).join(',')} (${c.prs.length} PRs whose changes conflict, over the wave maximum ${o.max}; kept whole with no build command: land part of it as single slots, then run wave plan again)`);
   if (plan.solo.length) lines.push(`SOLO: ${plan.solo.map(p => '#' + p).join(',')} (no area group of ${o.min}+; they ride as single slots)`);
   const first = plan.groups[0];
   return outOk(lines, first ? `#${first.integrator}'s owner integrates: ${buildCmd(first.area, first.prs)}` : `${Q} train build --prs <pins>`, 'none');
@@ -577,8 +592,9 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
 export const WAVE_HELP = `gstack-ship-queue wave: wave PRs for merge trains (docs/ship-policy.md#wave-prs)
 
   wave plan [--trigger <n>] [--min <n>] [--max <n>]
-                                           read-only: live READY PRs; over the trigger (default ${WAVE_TRIGGER}) WAVE_ADVISED and
-                                           WAVE_GROUP lines (area, PRs, integrator) with each group's build command
+                                           read-only: live READY PRs (NOT_GREEN and NOT_MERGEABLE heads left out); over the
+                                           trigger (default ${WAVE_TRIGGER}) WAVE_ADVISED and WAVE_GROUP lines (area, PRs, integrator)
+                                           with each group's build command; WAVE_OVERSIZE for linked PRs over --max (no command)
   wave build --prs <n>@<sha>,... [--area <name>] [--min <n>] [--max <n>] [--dry-run]
                                            the integrator branch wave/<nonce>: main plus each pin merged unchanged (train merge
                                            rules), the wave record in refs/notes/gstack-trains, the branch pushed, a frozen notice
