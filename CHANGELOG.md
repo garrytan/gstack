@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.92.21.0] - 2026-11-01
+
+**The PR and train path check out blobless clones, and the history reads they gate on fail loudly instead of reading a failed fetch as "absent" (GSTA-203 PR 5).** Free Tests' plan job, the Version Gate and E2E Evals' route, screen summary, planner, slices, reruns, bisect and report checked out every file of every commit (about 232 MB) to read a handful of old files. They now check out with `filter: blob:none` (about 17 MB), and git fetches an old file's contents the first time something reads it.
+
+### Changed
+- **Blobless checkouts** (`filter: blob:none`) in `free-tests.yml` (free-plan), `version-gate.yml` and `evals.yml` (route, screen-summary, plan-slices, eval-slices, eval-rerun, train-bisect, slices-report). The release, CSO, periodic, marathon, sweep and recorder workflows and the main backstop keep full clones. `test/ci-history-read.test.ts` names each with its reason and fails on any other full-history checkout without the filter, printing the file and line to fix.
+- **History reads fail loudly.** The train-policy reads in the route and backstop jobs stay inline (git and jq only, so no repository code decides whether a PR push starts paid work). The Version Gate's base `VERSION` read goes through `.github/scripts/history-read.sh` from the gate's merge-commit checkout, and its train classification through the TypeScript twin, `lib/history-read.ts`, which also lists the merge base's changed files without rename detection so that diff needs no file contents. Each one checks existence with `git ls-tree`, reads with `git show` (3 tries in a partial clone) and fails with `HISTORY_READ_FAILED` naming the ref, the path and the git version (docs/troubleshooting.md#history-read-failed). A file that is really absent keeps its old meaning. A ship policy that is not valid JSON now fails the route and backstop jobs instead of reading as "no train". The Version Gate goes red when `git fetch origin <base>` fails 3 times instead of carrying on. `gstack-restamp` and `gstack-ship-queue land` read the base branch's CHANGELOG the same way, so a read that fails stops them with `HISTORY_READ_FAILED` instead of treating the base as having no released sections.
+- **The eval image asserts partial clone support.** `.github/docker/Dockerfile.ci` makes a blobless clone and fetches a missing blob at build time, so an image whose git cannot do that fails to build.
+
 ## [1.92.20.0] - 2026-11-01
 
 **`/retro global` now sees Kimi Code, OMP and Antigravity sessions (#2917, #1977).** `gstack-global-discover` scanned only Claude Code, Codex and Gemini. A week spent in other agent CLIs went uncounted, and nothing showed a zero to notice.
