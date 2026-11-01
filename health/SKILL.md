@@ -115,45 +115,22 @@ When the user types `/health`, run this skill.
 
 ## Step 1: Detect Health Stack
 
-Read CLAUDE.md and look for a `## Health Stack` section. If found, parse the tools
-listed there and skip auto-detection.
-
-If no `## Health Stack` section exists, auto-detect available tools:
+Detect the tools with gstack's detector:
 
 ```bash
-# Type checker
-[ -f tsconfig.json ] && echo "TYPECHECK: tsc --noEmit"
-
-# Linter
-[ -f biome.json ] || [ -f biome.jsonc ] && echo "LINT: biome check ."
-setopt +o nomatch 2>/dev/null || true
-ls eslint.config.* .eslintrc.* .eslintrc 2>/dev/null | head -1 | xargs -I{} echo "LINT: eslint ."
-[ -f .pylintrc ] || [ -f pyproject.toml ] && grep -q "pylint\|ruff" pyproject.toml 2>/dev/null && echo "LINT: ruff check ."
-
-# Test runner
-[ -f package.json ] && grep -q '"test"' package.json 2>/dev/null && echo "TEST: $(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)" 2>/dev/null)"
-[ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "TEST: pytest"
-[ -f Cargo.toml ] && echo "TEST: cargo test"
-[ -f go.mod ] && echo "TEST: go test ./..."
-
-# Dead code
-command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
-[ -f package.json ] && grep -q '"knip"' package.json 2>/dev/null && echo "DEADCODE: npx knip"
-
-# Shell linting
-command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
-
-# GBrain presence — only report as a dimension if gbrain is actually
-# set up; otherwise skip so machines without gbrain aren't penalized.
-if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
-  echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
-fi
+C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" detect --for health
 ```
+
+It reads files and PATH only and runs nothing. A `## Health Stack` section in
+CLAUDE.md wins: its rows come back as they are, and auto-detection is skipped.
+Each `DIMENSION <name> <command>  (<source>)` line is a tool to run in Step 2.
+`DIMENSION <name> none  (<reason>)` means that category is unavailable: record it
+as `SKIPPED` with the reason. A `gbrain` command keeps its `timeout 5s`.
 
 Use Glob to search for shell scripts:
 - `**/*.sh` (shell scripts in the repo)
 
-After auto-detection, present the detected tools via AskUserQuestion:
+After auto-detection (no line's source is `CLAUDE.md Health Stack`), present the detected tools via AskUserQuestion:
 
 "I detected these health check tools for this project:
 
