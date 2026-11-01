@@ -552,6 +552,88 @@ a command gate cap below what a full train reserves, a merge method GitHub has
 turned off, and `rebase` as the merge method (`QUEUE_TRAIN_DOCTOR_FINDINGS`).
 Neither command writes anything.
 
+<a id="wave-prs"></a>
+### Wave PRs: several PRs in one slot
+
+When the queue is long, PRs that touch the same part of the code travel
+together as one **wave PR**: one integrator branch, one /ship, one READY, one
+train slot and one version (Garry's rule R46, 2026-10-31: "consolidating
+functional areas into larger wave PRs ... so we can land them faster with fewer
+test passes"). Each slot otherwise costs its own stamp commit and a full round
+of required checks before it merges, one slot after another, so a wave of
+three saves two of those rounds and two versions.
+
+```bash
+gstack-ship-queue wave plan                                     # read-only: QUEUE, WAVE_ADVISED, WAVE_GROUP lines
+gstack-ship-queue wave build --area ship --prs 41@<sha>,42@<sha>,43@<sha>
+gstack-ship-queue wave build --wave <nonce> --continue          # after resolving a conflict in the printed worktree
+gstack-ship-queue wave build --wave <nonce> --drop 42           # rebuild without #42 as a new wave
+gstack-ship-queue wave build --wave <nonce> --release           # end the wave unlanded; its PRs ride alone
+gstack-ship-queue wave status [--wave <nonce>]
+gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave PR merged
+```
+
+- **When.** `wave plan` counts the live READY PRs (open, head equal to their
+  READY receipt). Over the trigger (6) it prints `WAVE_ADVISED` and suggested
+  groups of 3 to 6: PRs that change a common file always share a group (their
+  conflicts are resolved once), each group takes its largest PR's functional
+  area (a skill directory, the first word of a `lib/`, `bin/` or `test/`
+  module name, or `docs`), smaller groups ride solo, and the integrator is
+  the PR with the most changed lines. `train build` handed more than 6 pins
+  prints the same `WAVE_ADVISED` line. It is advice: urgent and repair PRs
+  still ride alone. While the queue stays long, plan new work as area waves
+  from the start, so each piece skips its own /ship.
+- **Build.** `wave build` checks every pin is an open, same-repository PR at
+  that head (`QUEUE_WAVE_MOVED`, `QUEUE_TRAIN_UNTRUSTED`), not already in a
+  live wave (`QUEUE_WAVE_DUPLICATE`), 3 to 6 of them (`QUEUE_WAVE_SIZE`;
+  `--min`/`--max` change it). It merges the heads in order onto main with the
+  train's merge rules, each as a merge commit whose second parent is the pin,
+  so no constituent is rebased or squashed. The wave record (kind `wave`) is
+  written locally and to `refs/notes/gstack-trains` before `wave/<nonce>` is
+  pushed, and each constituent gets one "frozen in wave" comment. Then the
+  integrator opens the wave PR (the printed `gh pr create` and body file, or
+  the host's PR tool), runs /ship on it and READYs it.
+- **Conflicts.** A merge that conflicts outside the CHANGELOG and the stamp
+  files stops with `QUEUE_WAVE_CONFLICT` and leaves the merge in progress in a
+  worktree under the state root. The integrator resolves and commits it there,
+  then `--continue` checks that commit merges exactly that pin onto the
+  recorded commit and finishes the chain.
+- **Frozen heads.** Once in, a constituent's head does not move. Fixes go on
+  the wave branch as integrator commits, which the chain check allows. A
+  constituent that has to change goes back to its owner: `--drop <pr>` builds
+  a new wave on a new branch (never a force-push; the integrator closes the
+  old wave PR first, and the old record is marked superseded), refused with
+  `QUEUE_WAVE_DEPENDENT` when another pin contains the dropped one. A drop
+  that would leave fewer PRs than the minimum releases the wave instead, and
+  `--release` does the same for a wave PR closed without merging: the record
+  is marked released and every constituent can be READY'd on its own again.
+  Both wait until the wave PR is closed, since a train that already admitted
+  it would still land it. A constituent must target the base branch; a
+  stacked PR is refused, because its pin carries its parent's commits.
+- **READY and the train.** `ready --pr <wave pr>` and `train build` read the
+  wave record for a `wave/<nonce>` head branch (rebuilt from the notes ref on a
+  fresh machine; `QUEUE_WAVE_UNKNOWN` when there is none). They walk the
+  branch's first parents back to the recorded base: every pin must be merged
+  unchanged, in order, and any other merge is refused. Every constituent must
+  still be open at its pin. READY gains `WAVE:` and `CONSTITUENTS:` lines.
+  `ready` and `train build` refuse a constituent of a live wave on its own
+  (`QUEUE_WAVE_DUPLICATE`), so it cannot land twice. A wave head may carry
+  train land's stamp commits after its last constituent, so a stamped wave
+  is re-READY'd like any stamped PR. From there the wave PR is an ordinary slot: `train
+  land`, `verify`, the stamp and the backstop treat it like any PR, and under
+  `changelog_fragments` its one stamp folds every constituent's fragment into
+  one version section.
+- **After the merge.** `wave settle` finds the wave PR merged into the base
+  branch, checks that its merge commit is on that branch and carries its head
+  (the head's tree, or the head merged onto the merge's parent when the train
+  merged the PR directly), and walks its chain (train land's stamp or update
+  commits on top are allowed). A
+  constituent still at its pin gets a "Landed in wave #W as vX (sha)" comment
+  naming any integrator commits or hand-resolved merges that touched its
+  files, and is closed. One whose head moved after the wave froze stays open
+  with a comment saying its newer work did not land. Comments carry a marker, so a
+  rerun posts nothing twice; `--dry-run` shows the plan.
+
 <a id="ship-before-ready"></a>
 **0. Lane: /ship before READY.** Every READY follows a /ship run on the branch
 at the head being READY'd, including a re-READY after a push (Garry,
@@ -1339,7 +1421,8 @@ receipt when the base moves:
 | What changed since /ship | The receipt |
 |---|---|
 | a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
-| a merge of the base whose resolution changed product code | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
+| a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines identical and in the same places) | carries after one fix-check reviewer reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
+| a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
@@ -1380,7 +1463,8 @@ other `CARRY_TEST_GLOBS` in `lib/ship-receipt.ts`; an `openapi.spec.yaml` is
 product) or release metadata (`CHANGELOG.md`, `agents-digest/**`, each
 `<changelog_fragments.dir>/<slug>.md` fragment when the base policy sets
 `changelog_fragments` (not the directory's README.md or a nested path; a README
-change also makes the range's fragments product), and `VERSION`
+change the branch itself makes also makes the range's fragments product, while one
+a base merge brings in does not), and `VERSION`
 or `package.json` only while the change is a version stamp and nothing else: a
 dependency, a script or a new key makes them product). A path the policy's
 `stamp_files`, `stamp_paths` or `release_outputs` name is metadata only while
@@ -1415,7 +1499,10 @@ skill=ship status=complete` line, and its summary line ends with
 
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
-(exit 3; the refusal names the paths), and a working tree with uncommitted
+(exit 3; the refusal names the paths), except when the only difference is
+base context next to the branch's unchanged hunks, which is
+[`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
+until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)

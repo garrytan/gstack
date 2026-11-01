@@ -271,8 +271,9 @@ the specialists, audits and watchers at the host default too
 ### Behavior changes
 
 - Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
-  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
-  Team and the native adversarial pass on the range instead of the specialist army.
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
+  Team on the range, plus the native adversarial pass (on the range once Step 11 has
+  run, otherwise on the whole branch), instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
 - Every depth dispatches one batched specialist instead of one reader per
@@ -393,7 +394,8 @@ The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
 receipt carried across a base merge or a test-only fix
 ([ship-policy.md#receipt-carry](ship-policy.md#receipt-carry)) keeps these
-counters, because the reviewed product diff is unchanged.
+counters, because the reviewed product diff is unchanged or its only
+difference passed a scoped review.
 
 ## The scope knob
 
@@ -485,7 +487,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
-   wherever they stand, headings and table rows included; a top-level list item under a
+   wherever they stand outside a negation (below), headings and table rows included; a top-level list item under a
    label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
@@ -494,6 +496,15 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
+   A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "No P0/P1 issues":
+   no, nothing, not, none, zero, without or never, optionally followed by new, remaining, other, further, additional, more
+   or at, through Markdown, and carried to labels joined by a comma, slash, or, nor or and) is no finding unless it opens a
+   field (`High:`, GST-766). A line whose labels are all negated closes the open finding and heads the next, so a finding
+   worded around a negated label still arrives through its Severity or Blocks field. Each prose finding's line also
+   records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
+   a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
+   reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
+   instruction lives in a reviewer brief that changes only after a no-loss replay. What blocks is unchanged.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
@@ -531,7 +542,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    create whose result was lost by its title and never starts a reader twice; a
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
-   unchanged by the gstack Capy skill.
+   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass, none), a
+   fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
+   `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
+   point is found against `origin/<base>` first, as preflight does.
 7. Every brief, audit readers' included, ends with a workspace paragraph naming the
    checkout the bins run in (GST-482): a reader on a shared machine starts in the
    machine's working directory, so it is told to `cd` there on every command, to give
@@ -547,6 +561,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 ## Where this is enforced
 
 - `lib/review-brief.ts`, `lib/review-ledger.ts`, `lib/review-pass.ts`, `lib/capy-review-pass.js`, `bin/gstack-review-dispatch`: [verbatim dispatch](#verbatim-dispatch) (`test/review-dispatch.test.ts`, `test/review-pass.test.ts`).
+- `lib/ship-parts.ts`, `bin/gstack-ship-parts`: the section text each /ship phase uses, returned once per run inside the phase program before it; `next --resend` sends an unreceived batch again (`test/ship-parts.test.ts`).
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.

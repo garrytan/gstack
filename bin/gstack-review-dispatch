@@ -63,12 +63,14 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads; under
       review_exclude_paths prints REVIEW_EXCLUDE_RECORD: digest=<d> (the selection every reader's newest brief names: the
       value gstack-ship-receipt write --review-exclude takes), and a mixed set of digests makes it dirty
-  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>]
-       [--checklist-root <dir>] [-- <gstack-review-plan flags>]
+  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>] [--audit-only]
+       [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
-      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full or scoped prints PASS: none.
+      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
+      --audit-only skips the plan: the --extras readers are the whole pass (Step 14.5's docs audit)
       Before anything is written (and again before stage renders), each reviewer's diff is read once with a
       ${REVIEW_DIFF_MAX_BYTES}-byte ceiling: over it prints REVIEW_DIFF_TOO_LARGE with the largest folders and the fix for where the
       base policy's review_exclude_paths stands (exit 3); a git failure or timeout prints REVIEW_DIFF_UNREADABLE with the
@@ -82,7 +84,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
       an audit reader is collected with --output, whose REVIEWED_TREE line must match its render (else failed, COLLECT_WRONG_TREE)
-  mark --manifest <f> --before <tokens>,<credits>
+  mark --manifest <f> --before <tokens>,<credits> [--voices]   the pass's reading at its first dispatch; --voices keeps Step 11's own
   mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
   program [--ledger <f>]
@@ -108,7 +110,7 @@ function render(): number {
   const brief = role === 'targeted' ? readFile(checklist, 'targeted brief') : undefined;
   if (role === 'targeted') {
     const base = resolveBaseBranch(process.cwd(), flag('--base'));
-    const mb = [`origin/${base}`, base].map(ref => spawnSync('git', ['merge-base', ref, 'HEAD'], { encoding: 'utf8', timeout: 30_000 })).find(r => r.status === 0)?.stdout.trim();
+    const mb = mergeBaseWith(base);
     const full = diffBase ? spawnSync('git', ['rev-parse', '--verify', '--quiet', `${diffBase}^{commit}`], { encoding: 'utf8', timeout: 30_000 }).stdout?.trim() : undefined;
     if (!full || full !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
   }
@@ -152,6 +154,7 @@ const wrongTree = (reader: string, t: TreeCheck) => `${t.moved ? 'COLLECT_TREE_M
 const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
 const PROGRAM_VERSION = 1;
 const git = (a: string[]) => { const r = spawnSync('git', a, { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+const mergeBaseWith = (base: string) => [`origin/${base}`, base].map(ref => git(['merge-base', ref, 'HEAD'])?.trim()).find(Boolean);
 const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;
 /** Each selection is read once per process: the ceiling check and the outside voice's embedded diff share it. */
 const selections = new Map<string, ReaderDiff>();
@@ -189,23 +192,43 @@ function pass(): number {
     return EXIT.ok;
   }
   const planArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
+  if (args.includes('--audit-only')) {
+    const extrasFile = flag('--extras');
+    if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
+    const extras = JSON.parse(readFile(extrasFile, 'extras')!) as Extra[];
+    const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: mergeBaseWith(base) ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
+      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras });
+    fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
+    const t = sectionTexts(ROOT);
+    renderStage(m, 'first', t, branchDiff);
+    renderStage(m, 'specialists', t, branchDiff);
+    writeManifest(file, m);
+    process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
   const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024 });
   const text = plan(false);
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
   const j = plan(true);
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
-  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown } };
-  const planLines = text.stdout.trimEnd().split('\n');
+  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown } };
   const step = p.next.step;
-  if (step !== 'full' && step !== 'scoped') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
-  const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
+  const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
+  const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
+  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
+  if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
+  const mergeBase = mergeBaseWith(base);
+  const diffBase = flag('--diff-base') ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');
   const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
   const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
-    dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
-    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim(), ...planExclude(p.review_exclude) });
+    dispatches: step === 'fix-check' ? p.dispatches : p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
+    targetedClasses: p.targeted?.classes, mergeBase, rangeBase,
+    fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined,
+    ...planExclude(p.review_exclude) });
   const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
@@ -264,10 +287,11 @@ function passStep(cmd: string): number {
     const before = flag('--before');
     if (before) {
       const [tokens, credits] = before.split(',').map(Number);
-      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits>\n'); return EXIT.usage; }
-      m.before ??= { tokens: tokens!, credits: credits! };
+      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits> [--voices]\n'); return EXIT.usage; }
+      const key = args.includes('--voices') ? 'before_voices' : 'before';
+      m[key] ??= { tokens: tokens!, credits: credits! };
       writeManifest(file, m);
-      process.stdout.write(`BEFORE: tokens=${m.before.tokens} credits=${m.before.credits}\n`);
+      process.stdout.write(`BEFORE: ${key === 'before_voices' ? 'stage=voices ' : ''}tokens=${m[key]!.tokens} credits=${m[key]!.credits}\n`);
       return EXIT.ok;
     }
     const audit = m.readers.find(x => x.reader === flag('--reader'));
