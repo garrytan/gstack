@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.17.0] - 2026-11-01
+
+- `gstack-review-dispatch pass` takes the readers' diff base from the merge base with `origin/<base>`, the same base the review plan scores and the targeted reader checks. Before, a local `<base>` branch that lagged `origin/<base>` gave every brief the stale merge base, so reviewers read upstream commits the branch only inherited (GST-716).
+
 ## [1.92.16.0] - 2026-11-01
 
 **/ship no longer pays for a second review loop when only main moved, a test file changed, or the docs audit's own requested fix landed.** Each of these used to count as a product change: a base merge after review (`ROUTE: … behavior=86` on gbrain #7739), main rewording the line next to a reviewed hunk (#3631, founderstar#441), a test-only fix (gbrain #8084), and a one-line index link the audit asked for (gbrain #8087). Each one cost another ~$19 loop or an owner's documentation exception. A real product change still sends the PR back through the full loop (GST-407, GST-384, GST-391).
