@@ -14,6 +14,7 @@ allowed-tools:
   - Grep
   - Glob
   - AskUserQuestion
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
