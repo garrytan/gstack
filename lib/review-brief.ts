@@ -156,7 +156,7 @@ export function checkoutRoot(): string {
  * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
  */
 function parseTreeLine(line: string): string | null {
-  const label = /^(?:\*\*)?[Pp]rinted:(?:\*\*)?\s+/;
+  const label = /^(?:\*\*[Pp]rinted:\*\*|[Pp]rinted:)\s+/;
   let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '').replace(label, '');
   for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
   t = t.replace(label, '');

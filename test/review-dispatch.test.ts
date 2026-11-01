@@ -593,7 +593,7 @@ describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => 
     expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
     expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
     expect(checkReviewedTree(`Note: REVIEWED_TREE: ${tree} ${top}\nNO FINDINGS`, `${tree} ${top}`).reported).toBe('none');
-    for (const line of ['`printed: REVIEWED_TREE: ' + tree + ' ' + top + '`', `**Printed:** REVIEWED_TREE: ${tree} ${top}`]) {
+    for (const line of ['`printed: REVIEWED_TREE: ' + tree + ' ' + top + '`', `**Printed:** REVIEWED_TREE: ${tree} ${top}`, `**printed: REVIEWED_TREE: ${tree} ${top}**`]) {
       expect(checkReviewedTree(line, `${tree} ${top}`).ok, line).toBe(true);
       expect(checkReviewedTree(line.replace(tree, 'c'.repeat(40)), `${tree} ${top}`).ok, line).toBe(false);
     }
