@@ -32,7 +32,21 @@ export interface ScreenChoice {
   branch?: string;
   verdict?: ScreenVerdictRecord;
 }
-export interface TrainSlot { pr: string; head: string; ready_at: string; screen: ScreenChoice }
+/** A conditional READY (`ready --base-red --fixer <n>`): the receipt's base-red cases and the PR whose merge fixes them. */
+export interface BaseRedCondition { cases: string[]; fixer: string; base: string; expires_at: string }
+export interface TrainSlot {
+  pr: string; head: string; ready_at: string; screen: ScreenChoice;
+  /** Conditional slots ride only a generic train whose slot 1 is their fixer. */
+  base_red?: BaseRedCondition;
+  /** The fixer's READY (`ready --fixes-base-red`): the gate cases T0 may be red on, and only those. */
+  fixes_base_red?: string[];
+}
+/** One prefix a generic train gates (lib/ship-queue-train-gate.ts), on its own train-prefix/<nonce>/t<i> (or s<i>) ref. */
+export interface GatedPrefix { index: number; ref: string; commit: string; tree: string; outcome: GateOutcome | null; red: string[]; detail: string | null }
+/** A generic train's verdict over its prefixes: slots 1..landable may land; culprit is the held slot's PR. */
+export interface GenericVerdict { kind: 'green' | 'attributed' | 'red-on-main' | 'unattributed' | 'incomplete'; landable: number; culprit: string | null; at: string }
+/** Written to the record and the notes before train land's first remote effect for a slot. */
+export interface LandingRecord { slot: number; mode: 'direct' | 'update'; method: 'squash' | 'merge' | 'rebase'; pin: string; update: string | null; base: string; expected_tree: string; at: string }
 export interface TrainPrefix { index: number; commit: string; tree: string; pr: string | null }
 /** A stamped prefix S_i (changelog_fragments trains, lib/ship-queue-train-stamp.ts): what slot i publishes, exactly. */
 export interface StampedPrefix { index: number; commit: string; tree: string; pr: string; version: string; date: string }
@@ -44,6 +58,10 @@ export interface TrainRecord {
   merged: Array<{ pr: string; sha: string; tree: string; at: string }>; superseded_by: string | null;
   /** S_1..S_k when the base policy declares changelog_fragments; head and tree are then S_k's. Absent on plain trains. */
   stamped?: StampedPrefix[];
+  /** Generic trains (a policy train block with gates): every prefix gated; absent on gstack-evals trains, which keep today's rules. */
+  gated?: GatedPrefix[];
+  verdict?: GenericVerdict;
+  landing?: Record<string, LandingRecord>;
   effects: Array<{ at: string; what: string }>; error: string | null; created_at: string; updated_at: string;
 }
 export type AttemptPurpose = 'gate' | 'rebuild' | 'infra-redispatch' | 'bisect';
@@ -58,6 +76,11 @@ export interface AttemptRecord {
   inputs: Record<string, string>; state: 'dispatching' | 'unknown' | 'absent' | 'dispatched' | 'completed'; run: { id: number; url: string } | null;
   outcome: GateOutcome | null; detail: string | null; red_cases: string[]; panels: CasePanel[]; infra_eligible: boolean;
   cost_usd: number | null; prefixes: number[]; created_at: string; updated_at: string;
+  /** Generic trains: the policy gate index, the run attempt read, both attempts' jobs, the rerun and its FLAKY cases, a reused T0 run. */
+  gate?: number; run_attempt?: number; rerun?: 'requested' | 'refused'; jobs?: Array<{ attempt: number; name: string; conclusion: string | null }>;
+  flaky?: string[]; reused?: string; tree?: string | null; spend_usd?: number;
+  /** A command gate's running process: reconcile marks the attempt absent only once this owner is gone. */
+  owner?: { pid: number; host: string };
 }
 export type PrefixResult = 'red' | 'green';
 export interface BisectRecord {
@@ -75,6 +98,7 @@ export interface FreezeRecord {
 }
 export interface ReadyReceipt {
   schema: 1; kind: 'ready'; repo_key: string; pr: string; head: string; base_sha: string; ready_at: string; screen: ScreenChoice; updated_at: string;
+  base_red?: BaseRedCondition; fixes_base_red?: string[];
 }
 export type AnyRecord = TrainRecord | AttemptRecord | BisectRecord | FreezeRecord | ReadyReceipt;
 
