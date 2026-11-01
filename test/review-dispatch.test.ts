@@ -264,12 +264,17 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     ].join('\n');
     expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
     for (const prose of ['Found no CRITICAL issues in the fix range.', 'Nothing CRITICAL or HIGH remains.', 'This is not CRITICAL.', 'I found zero Critical findings, and none High.', 'The retry path is safe; without CRITICAL impact.',
-      'No new CRITICAL issues introduced by the fix.', 'No remaining CRITICAL or HIGH findings.', '**No** CRITICAL issues found.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'No [P1] issues remain.'])
+      'No new CRITICAL issues introduced by the fix.', 'No remaining CRITICAL or HIGH findings.', '**No** CRITICAL issues found.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'No [P1] issues remain.', 'Nothing at CRITICAL severity remains.'])
       expect([prose, parseFindings('fix-check', prose)]).toEqual([prose, []]);
-    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('r', 'No CRITICAL, High: the cache drops a row').map(f => f.label)).toEqual(['High']);
     expect(parseFindings('r', 'Nothing CRITICAL / HIGH: race in the queue').map(f => f.label)).toEqual(['HIGH']);
     expect(parseFindings('r', 'No CRITICAL lock guards the write in q.ts:7').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', 'No CRITICAL issues; the lock is missing in Makefile:7').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', 'No CRITICAL lock guards the write in q.ts:7; Low-level retries can overwrite committed rows.').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', '- The limiter has no HIGH watermark, so the queue grows without bound.').map(f => f.label)).toEqual(['HIGH']);
+    expect(parseFindings('r', 'This is no Low-severity issue: concurrent writes drop rows silently.').map(f => f.label)).toEqual(['Low']);
     expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
   });
