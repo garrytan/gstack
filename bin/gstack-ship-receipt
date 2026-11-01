@@ -32,6 +32,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts';
 import { resultLine, resultLineWithDocs } from '../lib/result-codes';
@@ -119,7 +120,7 @@ function jsonArg(raw: string | undefined): Record<string, unknown> | undefined {
   return parsed;
 }
 function git(args: string[], cwd?: string): string | undefined {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, maxBuffer: 256 * 1024 * 1024 });
   return r.status === 0 ? r.stdout.trim() : undefined;
 }
 function gh(args: string[]): { ok: boolean; out: string; err: string } {
@@ -399,12 +400,37 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
  */
 function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
-  const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
-  if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
-  if (!diff.stdout.trim()) return '';
-  const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, input: diff.stdout, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
-  if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
-  return id.stdout.trim().split(/\s+/)[0] ?? '';
+  const root = path.resolve(repoRoot, git(['rev-parse', '--git-path', 'gstack-patch-id'], repoRoot)?.trim() || '.git/gstack-patch-id');
+  sweepStalePatchDirs(root);
+  let dir: string;
+  try { fs.mkdirSync(root, { recursive: true }); dir = fs.mkdtempSync(path.join(root, 'run-')); } catch (e) { return { error: `cannot create a temp file under ${root} (${firstLine((e as Error).message, 'mkdtemp failed')}); make that directory writable` }; }
+  const file = path.join(dir, 'diff.patch');
+  let fd: number | undefined;
+  try {
+    const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', `--output=${file}`, from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000 });
+    if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
+    fd = fs.openSync(file, 'r');
+    const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8', timeout: 120_000 });
+    if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
+    return id.stdout.trim().split(/\s+/)[0] ?? '';
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A carry killed mid patch-id (preflight's timeout) skips patchId's `finally`; its product diff is removed by the next run once an hour old. */
+let swept = false;
+function sweepStalePatchDirs(root: string): void {
+  if (swept) return;
+  swept = true;
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  let names: string[] = [];
+  try { names = fs.readdirSync(root).filter(n => n.startsWith('run-')); } catch { return; }
+  for (const n of names) {
+    const p = path.join(root, n);
+    try { if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { recursive: true, force: true }); } catch { /* another run removed it */ }
+  }
 }
 
 /** `git patch-id --verbatim` exists from git 2.39 (docs/ship-policy.md#receipt-carry); an older git is a named refusal, never a silent fallback to the whitespace-stripping default. */
@@ -581,6 +607,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const reviewedBase = receipt.base.replace(/^origin\//, '');
   const retarget = reviewedBase !== base.replace(/^origin\//, '');
   let plan: ReturnType<typeof planCarry>;
+  let scopedDryRun: string | undefined;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
     const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
@@ -620,10 +647,14 @@ function cmdCarry(rest: string[], json: boolean): number {
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
       // branch itself touched against the base at either head: a base merge brings in every path the base changed, none of
-      // which can differ between the two base diffs. A path whose only difference is base context next to unchanged hunks
+      // which can differ between the two base diffs. A touched path with the same blob at both heads and at both bases has
+      // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A path whose only difference is base context next to unchanged hunks
       // (lib/ship-patch.ts) needs a scoped review instead of the loop.
       const sides = { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head };
-      for (const p of [...touched].sort()) {
+      const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, fromBase, headBase)];
+      if (moved.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
+      const [movedHead, movedBase] = moved as Set<string>[];
+      for (const p of [...touched].filter(p => movedHead.has(p) || movedBase.has(p)).sort()) {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
         if (cls !== 'product') continue;
@@ -644,7 +675,10 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
-      if (!record) {
+      if (!record && rest.includes('--dry-run')) {
+        scopedDryRun = `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
+        scopedReview = `base context moved (scoped review pending: ${contextPaths.join(', ')})`;
+      } else if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
         try {
@@ -655,9 +689,11 @@ function cmdCarry(rest: string[], json: boolean): number {
         }
         return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
       }
-      const review = readScopedReview(record, { head }, contextPaths);
-      if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
-      scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      if (record) {
+        const review = readScopedReview(record, { head }, contextPaths);
+        if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
+        scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      }
     }
     const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
@@ -698,6 +734,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
   const newBody = placeReceiptFirst(body, carried);
   const line = receiptSummaryLine(carried);
+  if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);
   if (rest.includes('--dry-run')) {
     process.stderr.write(line + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'dry-run', head, carry: plan.carry }) + '\n' : `CARRY: would carry from ${from.slice(0, 12)} to ${head.slice(0, 12)} (${plan.carry.reason}); nothing written\n`);
