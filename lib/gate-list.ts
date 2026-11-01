@@ -39,7 +39,10 @@ export interface GateItem {
   carried?: { from: string; chosen: string; gate_rev: number };
   /** A round-cap item (lib/autoplan-budget.ts): `b` grants the phase one more round and reopens it. */
   cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string };
+  /** The buildGate branch that wrote it (lib/autoplan-gate.ts); `kind` alone mislabels disagreements and single-voice challenges. */
+  item_class?: ItemClass;
 }
+export type ItemClass = 'challenge2' | 'challenge1' | 'disagree' | 'agent' | 'cap_deferred' | 'cap_blocker' | 'cap_delta' | 'p1';
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
   rec_rev?: number;
@@ -212,6 +215,20 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
 /** The option that keeps the plan's direction: the first with `changes_plan: false`; plan approval `a`; else the recommendation. */
 export function keepDirection(item: GateItem): string {
   return item.options.find(o => o.changes_plan === false)?.key ?? (item.id === 'p1' && item.options.some(o => o.key === 'a') ? 'a' : item.recommended);
+}
+
+/** The driver's own pick when nobody answers (a CEO-only run, and the shadow's free baseline): the direction kept; a cap approval stays undecided. */
+export function ruleKept(item: GateItem): string | null {
+  return item.cap && item.kind === 'approval' ? null : keepDirection(item);
+}
+
+/** How the owner's own words answered: their reply mode, and the item ids they named with an `<id><option>` token. */
+export function replyShape(words: string, list: GateList, parsed: ParsedReply): { mode: 'rec' | 'rec_except' | 'tokens' | 'as_is' | 'unparsed'; named: Set<string> } {
+  if (!parsed.valid) return { mode: 'unparsed', named: new Set() };
+  const tokens = tokenize(words, list);
+  const named = new Set(tokens.flatMap(t => { const m = /^([a-z]*[0-9]+)([a-z])$/.exec(t); return m && list.items.some(i => i.id === m[1]) ? [m[1]!] : []; }));
+  const mode = parsed.mode === 'rec' ? (tokens.includes('except') ? 'rec_except' : 'rec') : parsed.mode === 'as-is' ? 'as_is' : 'tokens';
+  return { mode, named };
 }
 
 /** The decisions.jsonl id for a gate item. Item ids restart at every gate revision, so revisions after the first carry `r<rev>-`. */
