@@ -966,6 +966,9 @@ runs every row through the stub model for $0 and flags malformed rows
 (`EVAL_DRY_RUN_FAILED`); `pilot start|settle|release|report` runs three priced
 items, records actual spend, extrapolates to the full set against the cap
 (`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question shows.
+`results --check <prereg> <results.md>` refuses a finished results file unless one
+table holds a filled row for every arm, each `<model>#no-gstack` row beside its
+variants (`EVAL_REPORT_NO_GSTACK_ROW`); no number leaves the run before it passes.
 The skill's closing section lists the tier-3 items (instrument audit, steady
 state, sealed paths, off-machine persistence, memory preflight, power tables, QA
 soak) as `tier 3, after P7`; none of them run yet.

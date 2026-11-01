@@ -307,6 +307,20 @@ Under `SESSION_KIND: unattended` write the question as an `approval` gate item t
 The full run, when approved, keeps settling every attempt into the same ledger and reprints
 the spend table at each gate; `budget_exhausted` stops it.
 
+## Step 5: Results beside the no-gstack arm
+
+Write the run's results as one markdown table in a results file, one row per arm identity
+from the Arms section, each `<model>#no-gstack` row beside its variants. Before any number
+leaves the run (a report, a READY block, a PR body), check it:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path>
+```
+
+`RESULTS: ok` lets the numbers go out. `EVAL_REPORT_NO_GSTACK_ROW` (exit 1) names the arm
+whose filled row is missing from the table that holds the others; add it and rerun. A
+preregistration with `stack: none` needs no row.
+
 ## Tier 3, after P7 (not in this skill yet)
 
 Each of these waits for the adoption number in the multi-agent wave plan (P7); one line each so the shape is known:

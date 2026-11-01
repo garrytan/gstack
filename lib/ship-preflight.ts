@@ -53,6 +53,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
       return false;
     }
+    if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
+      r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: fix what the base merge broke (CHANGELOG, size caps), commit and push; then gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet for that head; one fix-check reviewer reads it; gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
+      return false;
+    }
   } else r.add('PR: none open');
   const apple = git(cwd, ['ls-files', '--', '*.xcodeproj/*', '*.xcworkspace/*', 'Package.swift']).stdout.split('\n').filter(Boolean).map(p => p.replace(/(\.xcodeproj|\.xcworkspace)\/.*$/, '$1'));
   if (apple.length) r.add(`APPLE: ${short([...new Set(apple)], 3)}`).next('Step 0.9: for an App Store/TestFlight ask, confirm the app target and follow apple-release.md; otherwise ignore');
@@ -67,7 +71,22 @@ const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin
 
 function merge(cwd: string, base: string, r: Report): boolean {
   const policy = shipPolicy(cwd, base);
-  if (policy?.queue_mode === 'stamp-at-merge') r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
+  const stampAtMerge = policy?.queue_mode === 'stamp-at-merge';
+  const pending = stampAtMerge ? undefined : ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].find(ref => {
+    const p = git(cwd, ['rev-parse', '--git-path', ref]);
+    return p.status === 0 && !!p.stdout.trim() && fs.existsSync(path.resolve(cwd, p.stdout.trim()));
+  });
+  const unmerged = stampAtMerge ? [] : git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
+  if (pending) {
+    r.stop(`an unfinished ${pending.replace(/_HEAD$/, '').toLowerCase().replace('_', '-')} is in progress (${pending}${unmerged.length ? `, conflicts in ${short(unmerged, 8)}` : ''}): resolve and commit it, or abort it, then rerun (Step 3)`);
+    return false;
+  }
+  if (unmerged.length) {
+    r.stop(`unresolved conflicts in ${short(unmerged, 8)} with no merge, cherry-pick or revert in progress: resolve them (git add) or restore the files, then rerun (Step 3)`);
+    return false;
+  }
+  if (stampAtMerge) r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
+  else if (git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
   else {
     const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
     const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);

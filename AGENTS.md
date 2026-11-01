@@ -281,6 +281,9 @@ Agents poll `eval:bg:*` logs for the `### gstack-detach EXIT=<code> ###` sentine
 
 ## Platform support
 
+Support tiers (full: macOS, Linux; minimal: Windows, Gemini models) are in
+[docs/support-tiers.md](docs/support-tiers.md).
+
 - **macOS** + **Linux**: full test suite supported.
 - **Windows**: the curated Windows-safe subset runs in the `windows-free-tests`
   CI workflow across six `windows-latest` jobs, packed by Windows-measured

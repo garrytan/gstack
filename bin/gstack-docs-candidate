@@ -4,8 +4,9 @@
  *
  * Usage (run inside the repository):
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
- *                                  --base <rev> [--select <path>]... [--docs <path>]...
+ *                                  --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
  *   gstack-docs-candidate compare <candidate.json>
+ *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
  *   gstack-docs-candidate [snapshot|compare] --help
  *
  * snapshot saves, NUL-safely and without writing to the repository: base SHA,
@@ -15,15 +16,26 @@
  * selected paths are the committed, staged, unstaged and untracked paths.
  * --docs takes files or directories (directories expand to their tracked and
  * untracked files). It prints a short summary; the JSON file is the record.
+ * --exception names the blocked .gstack/tmp/docs-audit.json an owner accepted
+ * (Step 14.5 Blocked recovery): the record then carries that exception, so
+ * Step 16 can tell an accepted risk from a skipped audit.
  *
  * compare re-reads the same state and prints one JSON object: whether HEAD or
  * the index changed, which recorded paths' content changed or disappeared, and
  * which paths are newly dirty or untracked. It never decides whether a change
  * was permitted; the caller checks those paths against the child's report.
+ *
+ * attempt reads one audit child's output and says whether the launch counts
+ * against Step 14.5's attempt budget. A launch the child's install check refused
+ * (an `INSTALL: fail` row, its last GSTACK_RESULT line a document-release
+ * refusal, and no audit JSON) never audited, so it is not counted, once per
+ * invocation (--state, the invocation's record); a second refusal is counted
+ * and stops for the install fix (GST-391, gbrain #8084).
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
@@ -82,8 +94,19 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
-const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...
-       gstack-docs-candidate compare <candidate.json>`;
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
+       gstack-docs-candidate compare <candidate.json>
+       gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
+
+/** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record, read by the receipt's own parser; throws when the record is not blocked or names no complete exception. */
+function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> & { scope: string } {
+  let audit: unknown;
+  try { audit = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { throw new Error(`--exception ${file} is not readable JSON: ${(error as Error).message}`); }
+  const parsed = parseReceiptDocs(audit);
+  const problem = !parsed.ok ? parsed.message : parsed.docs.status !== 'blocked' ? `its status is ${parsed.docs.status}, not blocked` : !parsed.docs.exception ? 'it names no accepted exception' : null;
+  if (problem || !parsed.ok || !parsed.docs.exception) throw new Error(`--exception ${file}: ${problem}. Only an owner-accepted documentation risk writes this snapshot (ship/sections/documentation.md, Blocked recovery step 3)`);
+  return { ...parsed.docs.exception, scope: parsed.docs.scope };
+}
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
 function recordProblems(record: any): string[] {
@@ -98,13 +121,13 @@ function recordProblems(record: any): string[] {
 function main(argv: string[]): void {
   const [command, ...args] = argv;
   const topHelp = (command === '--help' || command === '-h') && !args.length;
-  const commandHelp = (command === 'snapshot' || command === 'compare') && args.length === 1 && args[0] === '--help';
+  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'attempt') && args.length === 1 && args[0] === '--help';
   if (topHelp || commandHelp) {
     console.log(USAGE);
     return;
   }
   if (command === 'snapshot') {
-    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs']);
+    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
@@ -112,6 +135,8 @@ function main(argv: string[]): void {
     const mode = one(args, '--mode');
     if (mode !== 'edit' && mode !== 'read-only') throw new Error('--mode must be edit or read-only');
     const base = git(['rev-parse', '--verify', one(args, '--base') + '^{commit}']).trim();
+    const exceptionFile = flag(args, '--exception')[0];
+    const exception = exceptionFile === undefined ? undefined : acceptedException(exceptionFile);
     process.chdir(top);
     const now = state(base);
     const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
@@ -119,10 +144,11 @@ function main(argv: string[]): void {
       : [...new Set([...now.committed, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
     const docs = expand(listed, flag(args, '--docs'));
     const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
-    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked) };
+    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
     fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
     console.log(`CANDIDATE: ${out}`);
     console.log(`base=${base} head=${now.head} branch=${now.branch || '(detached)'} mode=${mode}`);
+    if (exception) console.log(`EXCEPTION: accepted by ${exception.accepted_by} ${exception.date} via ${exception.via}`);
     console.log(`committed=${now.committed.length} staged=${now.staged.length} unstaged=${now.unstaged.length} untracked=${now.untracked.length} selected=${selected.length} docs=${docs.length} hashed=${tracked.length}`);
     for (const [label, list] of [['committed', now.committed], ['staged', now.staged], ['unstaged', now.unstaged], ['untracked', now.untracked], ['docs', docs]] as const) {
       if (list.length) console.log(`${label}: ${list.map(p => JSON.stringify(p)).join(' ')}`);
@@ -158,6 +184,33 @@ function main(argv: string[]): void {
       content_changed,
       newly_dirty,
     }));
+    return;
+  }
+  if (command === 'attempt') {
+    const INSTALL_FIX = 'run the Capy skill installer (scripts/install.sh --for document-release), then launch with its GSTACK_LAUNCH line';
+    const [file, ...rest] = args;
+    if (!file || file.startsWith('--')) throw new Error('attempt takes the child output file, then --state <attempts.json>');
+    const state = one(rest, '--state');
+    const lines = fs.readFileSync(file, 'utf8').split('\n').map(l => l.trim()).filter(Boolean);
+    const last = lines.filter(l => l.startsWith('GSTACK_RESULT: ')).pop();
+    const install = lines.find(l => /^INSTALL: fail\b/.test(l));
+    const audited = lines.some(l => { try { const v = JSON.parse(l); return !!v && typeof v === 'object' && 'schema_version' in v; } catch { return false; } });
+    if (!last || !/^GSTACK_RESULT: skill=document-release status=refused\b/.test(last) || !install || audited) { console.log('ATTEMPT: counted'); return; }
+    let seen = 0;
+    try { seen = Number(JSON.parse(fs.readFileSync(state, 'utf8')).not_counted) || 0; } catch { seen = fs.existsSync(state) ? 1 : 0; }
+    if (seen >= 1) {
+      console.log('ATTEMPT: counted (a second install refusal in this invocation)');
+      console.log(`STOP: ${INSTALL_FIX} and confirm its gstack: ok trailer before another launch`);
+      process.exit(3);
+    }
+    fs.mkdirSync(path.dirname(path.resolve(state)), { recursive: true });
+    try { fs.writeFileSync(state, JSON.stringify({ not_counted: 1 }) + '\n', { mode: 0o600, flag: 'wx' }); } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      console.log('ATTEMPT: counted (another launch in this invocation already used the allowance)');
+      console.log(`STOP: ${INSTALL_FIX} and confirm its gstack: ok trailer before another launch`);
+      process.exit(3);
+    }
+    console.log('ATTEMPT: not-counted (the audit child\'s install check refused document-release)');
     return;
   }
   throw new Error(USAGE);

@@ -91,6 +91,8 @@ export interface Ledger {
   /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */
   credits?: { baseline: number; last: number };
   notes?: Note[];
+  /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
+  meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -300,7 +302,7 @@ export function segmentEstimate(cal: Calibration, unit: string, from: string, to
  * section reads, reconcile: gstack-evals #34's two children cost 4.53M, 2-4.5M each) to save the parent's
  * context above the host floor on each call of the segment. #34's parent calls ran 0.2-0.3M over a 0.15M
  * floor, so a fresh child saves at most about 3/8 of a call, and a segment under CHILD_FIXED_COST over that
- * share (12M) cannot pay for its child. A light-depth diff (runtime lines at most SMALL_DIFF_LINES) keeps
+ * share (12M) cannot pay for its child. A small diff (runtime lines at most SMALL_DIFF_LINES) keeps
  * its segment when the segment's calibrated calls at this run's own per-call charge stay under that.
  */
 export const SMALL_RUN_LINES = SMALL_DIFF_LINES;
@@ -359,8 +361,20 @@ export function mutateLedger<T>(file: string, env: NodeJS.ProcessEnv, fn: (l: Le
     const ledger = readLedger(file);
     const out = fn(ledger);
     writeLedger(ledger, env);
-    return out;
+    return labelScope(ledger, out);
   });
+}
+
+export const TREE_METER = 'METER: tree (root counter, upper bound)';
+
+/** A tree-scoped run never prints a cost line without TREE_METER on the line after it. */
+export function labelScope<T>(l: Ledger, out: T): T {
+  if (l.meter_scope !== 'tree') return out;
+  const label = (lines: string[]) => lines.flatMap((line, i) => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/.test(line) && lines[i + 1] !== TREE_METER ? [line, TREE_METER] : [line]);
+  if (Array.isArray(out)) return label(out) as T;
+  const o = out as { stdout?: unknown };
+  if (Array.isArray(o?.stdout)) o.stdout = label(o.stdout);
+  return out;
 }
 
 function childUsed(l: Ledger, r: Reservation): number {
@@ -463,7 +477,7 @@ export function recordBlock(l: Ledger): string {
   const t = tally(l);
   const open = l.handoffs.filter(h => !h.reconciled_at).map(h => h.sha).join(',') || 'none';
   const credits = creditsUsed(l);
-  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}`;
+  return `run=${l.run} ledger=${l.file} role=${l.role} cap=${l.cap ?? 'none'} tail=${l.tail} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} baseline=${l.meter.baseline} used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} stop=${l.stopped?.reason ?? 'none'} handoff=${open}${l.mode === 'observe' ? ' mode=observe' : ''}${l.meter_scope === 'tree' ? ' meter_scope=tree' : ''}`;
 }
 
 /** The record's fenced gstack-budget block: written by the bin, never by the agent. */
@@ -509,12 +523,12 @@ export function ledgerFileFor(o: { run?: string; record?: string }, env: NodeJS.
   throw usageError('pass --run <id> or --record <path>; runs are never found by branch or directory');
 }
 
-/** SLUG and BRANCH exactly as gstack-review-log sees them (bin/gstack-slug). */
+/** REPO_SLUG and BRANCH exactly as gstack-review-log sees them (bin/gstack-slug); a .gstack-project marker never moves them. */
 export function reviewPaths(cwd: string, env: NodeJS.ProcessEnv): { marker: string; reviewLog: string } {
-  const r = runScriptSync(path.join(BIN_DIR, 'gstack-slug'), [], { cwd, env, encoding: 'utf8', timeout: 30_000 });
-  const get = (k: string) => new RegExp(`^${k}=(.*)$`, 'm').exec(r.stdout ?? '')?.[1]?.trim();
-  const slug = get('SLUG'), branch = get('BRANCH');
-  if (r.status !== 0 || !slug || !branch) throw usageError(`cannot resolve the project slug and branch in ${cwd} (bin/gstack-slug exit ${r.status})`);
+  const get = (k: string) => runScriptSync(path.join(BIN_DIR, 'gstack-slug'), ['--get', k], { cwd, env, encoding: 'utf8', timeout: 30_000 });
+  const s = get('REPO_SLUG'), b = get('BRANCH');
+  const slug = s.stdout?.trim(), branch = b.stdout?.trim();
+  if (s.status !== 0 || b.status !== 0 || !slug || !branch) throw usageError(`cannot resolve the repository slug and branch in ${cwd} (bin/gstack-slug exit ${s.status || b.status})`);
   const dir = path.join(resolveStateRoot(env), 'projects', slug);
   return { marker: path.join(dir, `${branch}-ship-budget.json`), reviewLog: path.join(dir, `${branch}-reviews.jsonl`) };
 }

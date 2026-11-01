@@ -56,7 +56,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
-Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). TARGETED: the money,
+Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data) or any DEPTH_ERROR;
+standard only by --depth-floor or a raise; otherwise light. TARGETED: the money,
 gate, auth and secret classes the diff touches; any class dispatches the targeted reader at every depth. NEXT: full, scoped
 (a full pass on the range: fix-check, Red Team, native adversarial), fix-check, stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
@@ -167,4 +168,4 @@ function main(): number {
   return EXIT.ok;
 }
 
-process.exit(main());
+process.exitCode = main();
