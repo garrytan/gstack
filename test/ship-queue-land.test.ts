@@ -47,7 +47,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
     "  if(d.mergeRefuse){console.error('Pull request is not mergeable: the base branch policy prohibits the merge');process.exit(1)}",
     "  if(d.driftOnMerge){const m=g('rev-parse','refs/heads/main');const t=g('rev-parse',m+'^{tree}');g('update-ref','refs/heads/main',g('commit-tree',t,'-p',m,'-m','outside merge'));d.driftOnMerge=false}",
-    "  const main=g('rev-parse','refs/heads/main');const sq=g('commit-tree',g('rev-parse',want+'^{tree}'),'-p',main,'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);if(d.outsideAfter){g('update-ref','refs/heads/main',g('commit-tree',g('rev-parse',sq+'^{tree}'),'-p',sq,'-m','outside after'));d.outsideAfter=false}d.mergeArgs=a.slice(3);p.state='MERGED';save();if(d.mergeErrorAfter){d.mergeErrorAfter=false;save();console.error('HTTP 502: Bad Gateway');process.exit(1)}process.exit(0)}",
+    "  const main=g('rev-parse','refs/heads/main');const sq=g('commit-tree',g('rev-parse',want+'^{tree}'),'-p',main,...(d.trueMerge&&a.includes('--merge')?['-p',want]:[]),'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);if(d.outsideAfter){g('update-ref','refs/heads/main',g('commit-tree',g('rev-parse',sq+'^{tree}'),'-p',sq,'-m','outside after'));d.outsideAfter=false}d.mergeArgs=a.slice(3);p.state='MERGED';save();if(d.mergeErrorAfter){d.mergeErrorAfter=false;save();console.error('HTTP 502: Bad Gateway');process.exit(1)}process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='create'&&d.createFail){d.createFail=false;save();console.error('timeout');process.exit(1)}",
     "if(a[0]==='pr'&&a[1]==='create'){const h=a[a.indexOf('--head')+1];const had=Object.entries(d.prs).find(([,p])=>p.headRefName===h&&p.state==='OPEN');if(had){console.error('a pull request for branch \"'+h+'\" into branch \"main\" already exists:\\nhttps://github.com/o/r/pull/'+had[0]);process.exit(1)}}",
     "if(a[0]==='pr'&&a[1]==='create'){const n=String(Math.max(0,...Object.keys(d.prs).map(Number))+1);d.prs[n]={state:'OPEN',headRefName:a[a.indexOf('--head')+1],isCrossRepository:false,title:a[a.indexOf('--title')+1],body:''};save();console.log('https://github.com/o/r/pull/'+n);process.exit(0)}",
@@ -561,6 +561,20 @@ describe('land: one pass, base, lock and history', () => {
     expect(r.err).toBe('');
     expect(r.out).toContain('LANDED: ');
     expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toContain('--merge');
+  }, 90_000);
+
+  // Value: protects=a merge-only land interrupted after GitHub merged resumes to LANDED, though a true merge puts the pin inside
+  //   the base; fails_when=the receipt check refuses the merged pin as BASE_CONTAINS_HEAD and the lock is never released;
+  //   why_new=GST-774's base guard, and the shim only squashed; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
+  test('merge-only: a true merge that errored after GitHub merged resumes to LANDED, not BASE_CONTAINS_HEAD', () => {
+    const fx = setup({ ...POLICY, history: 'merge-only' });
+    openPr(fx, '14');
+    land(fx, ['--pr', '14']);
+    fx.write(d => { d.trueMerge = true; d.mergeErrorAfter = true; });
+    expect(land(fx, ['--pr', '14']).err).toContain('HTTP 502');
+    const again = land(fx, ['--pr', '14']);
+    expect(again.out).not.toContain('BASE_CONTAINS_HEAD');
+    expect(again.out).toContain('LANDED: ');
   }, 90_000);
 });
 

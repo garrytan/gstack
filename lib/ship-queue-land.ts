@@ -360,7 +360,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   const pin = j?.reviewed_pin ?? recovered ?? info.headRefOid;
   const lines = [`LAND: #${o.pr} branch=${info.headRefName} pin=${pin}${j ? ` (resuming at ${j.phase})` : recovered ? ` (the head ${info.headRefOid.slice(0, 12)} is land's stamp commit; restamping from its pin)` : ''}`];
   git(root, ['fetch', '-q', 'origin', ctx.base]);
-  const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [pin]);
+  const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [pin], mergedResume);
   lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []));
   if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: 'run /ship at the pinned head first' }, run);
   if (!policy.changelog_fragments) return fail(lines, { code: 'QUEUE_NOT_READY', message: 'the base policy has changelog_fragments off; land merges only under the key, where ready records the READY receipt it checks' }, run);
