@@ -20,6 +20,8 @@ import captured_cd_chain from './fixtures/coverage-audit-cd-chain.json';
 import captured_wc_anchor from './fixtures/coverage-audit-wc-anchor.json';
 import captured_separator from './fixtures/coverage-audit-separator-collision.json';
 import captured_two_file_grep from './fixtures/coverage-audit-two-file-grep.json';
+import captured_plan_eng_wc_bytes from './fixtures/coverage-audit-plan-eng-wc-bytes.json';
+import captured_plan_eng_grep_head from './fixtures/coverage-audit-plan-eng-grep-head-before-reads.json';
 
 const clone = <T>(v:T):T => structuredClone(v);
 const diagram = '```text\nsrc/billing.ts\n├── processPayment: happy path [TESTED]\n└── refundPayment [UNTESTED]\n```';
@@ -1289,3 +1291,67 @@ describe('coverage audit native evidence: an escaped grep over two literal files
   });
 });
 
+
+const capturedCall = (capture: typeof captured_plan_eng_wc_bytes) => {
+  const both = { sourceRead: true, testsRead: true }, neither = { sourceRead: false, testsRead: false };
+  const files = { cwd: capture.cwd, source: { path: capture.cwd + '/src/billing.ts', content: capture.files.source },
+    tests: { path: capture.cwd + '/test/billing.test.ts', content: capture.files.tests } };
+  const transcript = (command: string, output: string) => [
+    { type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+    { type: 'assistant', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: capture.call.toolUseId, name: 'Bash', input: { command } }] } },
+    { type: 'user', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: capture.call.toolUseId, is_error: capture.call.isError, content: output }] } },
+  ];
+  const reads = (command = capture.call.command, output = capture.call.output) => coverageAuditReadEvidence(transcript(command, output), files);
+  const passes = () => coverageAuditVerdict({ exitReason: 'success', browseErrors: [], output: capture.finalOutput,
+    transcript: transcript(capture.call.command, capture.call.output) } as any, files);
+  const nonce = capture.files.source.match(/coverage-read-evidence: (\S+)/)![1]!;
+  return { both, neither, reads, passes, nonce };
+};
+
+describe('coverage audit native evidence: a wc -c byte count after both reads (CI 41209768188 slice 5, plan-eng)', () => {
+  const capture = captured_plan_eng_wc_bytes, { both, neither, reads, passes, nonce } = capturedCall(capture);
+  const count = 'wc -c plan-eng-review/sections/review-sections.md';
+
+  test('both complete reads before a literal wc -c count are credited and the recorded run passes', () => {
+    expect(capture.provenance.recordedPassed).toBe(false);
+    expect(capture.call.command).toContain('; cat -n src/billing.ts; echo ----; cat -n test/billing.test.ts; echo ---; ' + count + '; grep -n');
+    expect(reads()).toEqual(both);
+    expect(passes()).toEqual({ ...both, diagram: true, passed: true, failures: [] });
+  });
+
+  test('a wc -c operand that is not a literal in-cwd file, or a tampered read, still gets no credit', () => {
+    for (const operands of ['../outside.md', '/etc/passwd', '"$(touch x)"', '-', 'plan-eng-review/SKILL.md > out.txt', '--files0-from=list']) {
+      expect(reads(capture.call.command.replace(count, 'wc -c ' + operands)), operands).toEqual(neither);
+    }
+    expect(reads(capture.call.command.replace(count, 'wc -w plan-eng-review/sections/review-sections.md'))).toEqual(neither);
+    expect(reads(capture.call.command, capture.call.output.replace(nonce, nonce.slice(1) + '0'))).toMatchObject({ sourceRead: false });
+    expect(reads(capture.call.command.replace('cat -n test/billing.test.ts', 'cat -n test/other.test.ts'))).toMatchObject({ testsRead: false });
+  });
+});
+
+describe('coverage audit native evidence: owned reads after a bounded grep | head display (CI 41238366045 slice 5, plan-eng)', () => {
+  const capture = captured_plan_eng_grep_head, { both, neither, reads, passes, nonce } = capturedCall(capture);
+  const display = 'grep -n -i "test review\\|coverage diagram" plan-eng-review/SKILL.md | head;';
+  const run = capture.call.output.slice(capture.call.output.indexOf('\n') + 1);
+
+  test('both complete reads after a bounded display and an exact count are credited and the recorded run passes', () => {
+    expect(capture.provenance.recordedPassed).toBe(false);
+    expect(capture.call.command).toContain('; ' + display + ' wc -l plan-eng-review/sections/review-sections.md; cat -n src/billing.ts; echo ----; cat -n test/billing.test.ts');
+    expect(reads()).toEqual(both);
+    expect(passes()).toEqual({ ...both, diagram: true, passed: true, failures: [] });
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => 'SKILL.md:' + (i + 1) + ': test review').join('\n') + '\n';
+    expect(reads(capture.call.command, lines(10) + capture.call.output)).toEqual(both);
+  });
+
+  test('display output beyond its bound, a second copy of the reads, an unbounded display or a tampered read gets no credit', () => {
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => 'SKILL.md:' + (i + 1) + ': test review').join('\n') + '\n';
+    expect(reads(capture.call.command, lines(11) + capture.call.output)).toEqual(neither);
+    expect(reads(capture.call.command.replace('| head;', '| head -60;'), run + '\n' + capture.call.output)).toEqual(neither);
+    expect(reads(capture.call.command, capture.call.output + '\n' + run)).toEqual(neither);
+    for (const tail of ['| head -c 400;', ';', '| cat;']) {
+      expect(reads(capture.call.command.replace('| head;', tail)), tail).toEqual(neither);
+    }
+    expect(reads(capture.call.command, capture.call.output.replace(nonce, nonce.slice(1) + '0'))).toMatchObject({ sourceRead: false });
+    expect(reads(capture.call.command.replace('cat -n test/billing.test.ts', 'cat -n test/other.test.ts'))).toMatchObject({ testsRead: false });
+  });
+});

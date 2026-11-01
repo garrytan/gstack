@@ -6,5 +6,8 @@
 - **`.gstack/pregate.json`**: the local pregate lane runs `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI and the remote pregate already use, so a case that takes 5 s on a busy machine no longer fails only locally.
 - **`test/gstack-ship-receipt.test.ts`**: the full `write` case, about 62 git calls, gets a 15 s timeout instead of bun's 5 s default.
 
+- **`test/helpers/coverage-audit-evidence.ts`**: the plan-eng coverage audit detector credits complete reads proved by a literal `wc -c` byte count, and by a bounded display (`grep | head`) when exactly one copy of the reads follows; an unbounded display, a second copy or a tampered read still gets no credit (train gates 41209768188, 41238366045).
+- **`test/helpers/third-party-actions.ts`**: a statement that Aside is not available ("Recommended, since Aside isn't available") no longer counts as offering an Aside drive in the tpa-broken check; any other Aside mention in the option still does (gate 41246728073).
+
 ### Changed
 - `test/helpers/docsync-contract.ts` names the missing `documentation_section` when a document-release completion fails the contract, so the next paid red says which field was absent.

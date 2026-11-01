@@ -140,8 +140,8 @@ function stagePieces(stage: string[], scope: ShellScope, alone: boolean): Piece[
   }
   if (name === 'grep' || name === 'ls') return [unknown()];
   if (text === 'pwd' || text === 'wc -l') return [unknown(1, 1)];
-  if (name === 'wc' && args[0] === '-l' && args.length > 1) {
-    // One count line per literal in-cwd file, plus a total for several.
+  if (name === 'wc' && (args[0] === '-l' || args[0] === '-c') && args.length > 1) {
+    // One line or byte count line per literal in-cwd file, plus a total for several.
     if (args.slice(1).some(operand => !scopedFile(operand, scope))) return undefined;
     const lines = args.length - 1 + (args.length > 2 ? 1 : 0);
     return [unknown(lines, lines)];
@@ -254,14 +254,27 @@ function shellReads(command: unknown, output: unknown, scope: ShellScope): Set<s
       if (anchor.kind !== 'label') {
         // Output of an exact line count (wc -l over literal in-cwd files, pwd)
         // places the next run exactly that many lines after the cursor.
-        if (min !== max) return new Set();
-        let start = cursor;
-        for (let line = 0; line < min; line++) {
-          const end = out.indexOf('\n', start);
-          if (end < 0) return new Set();
-          start = end + 1;
+        if (min !== max) {
+          // Bounded output (grep | head) may end on any line in its bounds, so
+          // credit only when exactly one line after the cursor starts a
+          // complete copy of the run; the bounds are checked below.
+          if (!Number.isFinite(max)) return new Set();
+          const pattern = new RegExp(run.map(pieceSource).join(''), 'y'), copies: number[] = [];
+          for (let start = cursor; start <= out.length; start = out.indexOf('\n', start) + 1 || out.length + 1) {
+            pattern.lastIndex = start;
+            if (pattern.test(out)) copies.push(start);
+          }
+          if (copies.length !== 1) return new Set();
+          starts = copies;
+        } else {
+          let start = cursor;
+          for (let line = 0; line < min; line++) {
+            const end = out.indexOf('\n', start);
+            if (end < 0) return new Set();
+            start = end + 1;
+          }
+          starts = [start];
         }
-        starts = [start];
       } else {
         let found = anywhere(anchor.text);
         if (owns) {

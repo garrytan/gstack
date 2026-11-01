@@ -34,14 +34,22 @@ export function letteredOptions(text: string): string[] {
   return options;
 }
 
+/**
+ * A statement that Aside is absent, the probe's result, names no Aside drive: "(Recommended, since Aside isn't
+ * available)" on the gstack drive option (gate 41246728073). Only Aside as the subject of a negated availability
+ * predicate is discounted, so any other Aside mention in the option still counts.
+ */
+const ASIDE_ABSENCE = /\bAside(?: browser| app)?\s+(?:(?:is|was)(?:n['’]t|\s+not)\s+(?:available|installed|detected|running|ready|reachable)|is\s+unavailable)\b/gi;
+
 /** Inspect lettered consent options, not narration that quotes an unavailable option. */
 export function asideDriveOptions(text: string): string[] {
   return letteredOptions(text).filter(option => {
-    const currentOffer = option.replace(
+    const named = option.replace(ASIDE_ABSENCE, '');
+    const currentOffer = named.replace(
       /\b(?:I|we)(?:['’]ll| will) (?:re[- ]?ask|ask again)(?: (?:you|this question))? with (?:the )?(?:"[^"]+"|“[^”]+”|[\w -]+?) option(?: included)?\b/gi,
       '',
     );
-    return /\bAside\b/.test(option) && (/\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(currentOffer)
+    return /\bAside\b/.test(named) && (/\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(currentOffer)
       || /\bI(?:['’]ll| will)? (?:do|handle|create|complete) (?:it|this)\b/i.test(currentOffer));
   });
 }

@@ -121,6 +121,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/docsync-replay/37237194905-late-result-calls.json': ['test/docsync-authority.test.ts'],
   'test/fixtures/docsync-replay/37239016858-completion-native.json': ['test/docsync-nested-writes.test.ts'],
   'test/fixtures/docsync-ship-receipt-not-found-public.json': ['test/docsync-lifecycle-interface.test.ts'],
+  'test/fixtures/docsync-spawned-missing-section-public.json': ['test/ship-document-release-dispatch.test.ts'],
   'test/fixtures/docsync-store-38969924945-bash.json': ['test/docsync-command-grammar.test.ts'],
   'test/fixtures/docsync-two-attempts-public.json': ['test/ship-document-release-dispatch.test.ts'],
   'test/fixtures/dx-manual-handoff-ao.json': ['test/plan-count-completion.test.ts'],
