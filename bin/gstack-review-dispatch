@@ -345,7 +345,6 @@ function main(): number {
   return EXIT.usage;
 }
 
-try { process.exit(main()); } catch (e) {
-  if (e instanceof BriefError) { process.stderr.write(`BRIEF_RENDER_FAILED: ${e.message}\n`); process.exit(EXIT.fail); }
-  throw e;
+try { process.exitCode = main(); } catch (e) {
+  if (e instanceof BriefError) { process.stderr.write(`BRIEF_RENDER_FAILED: ${e.message}\n`); process.exitCode = EXIT.fail; } else throw e;
 }

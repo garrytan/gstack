@@ -226,6 +226,25 @@ describe('the targeted reader in a pass (GST-257 on main)', () => {
   }, 180_000);
 });
 
+describe('a large diff (GST-507)', () => {
+  // Value: protects=a pass on a results PR with thousands of files reads gstack-review-plan's whole JSON plan through the pipe and stages its readers; fails_when=either bin exits before its stdout drains, so the plan JSON arrives cut short and pass dies on JSON.parse;
+  //   why_new=HARN-1 hit it on a 4,000-file receipt tree (a 1.39 MB plan); seam=none; no_claim=what reviewers read on a large diff (GST-508)
+  test('a 4,000-file diff round-trips a plan JSON over 1 MB and pass stages its readers', () => {
+    const { dir, env } = repo();
+    const files = 4000;
+    const made = spawnSync('bash', ['-c', `for d in $(seq 1 40); do p=receipts/harness-evals-lane-b-results-run-$d/per-case-receipts/skill-behavior-panel; mkdir -p $p; for i in $(seq 1 100); do echo "{\\"case\\":$i}" > $p/receipt-for-case-number-$i-trial-a.json; done; done && git add -A && git commit -qm receipts`], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 });
+    expect(made.status, made.stderr).toBe(0);
+    const plan = spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    expect(plan.status, plan.stderr).toBe(0);
+    expect(plan.stdout.length).toBeGreaterThan(1_000_000);
+    expect((JSON.parse(plan.stdout) as { paths: string[] }).paths.filter(p => p.startsWith('receipts/'))).toHaveLength(files);
+    const out = path.join(dir, '.state/run/p1');
+    const p = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['pass', '--base', 'main', '--out', out, '--pass', 'big-p1'], { cwd: dir, env, encoding: 'utf8', timeout: 180_000 });
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^MANIFEST: file=.* pass=big-p1 readers=[1-9]/m);
+  }, 300_000);
+});
+
 describe('Capy pass program (fake host, real bins)', () => {
   test('gstack-review-dispatch program serves the checked-in file verbatim with its sha', () => {
     const r = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['program'], { encoding: 'utf8', timeout: 30_000 });

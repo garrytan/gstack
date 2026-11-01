@@ -282,6 +282,13 @@ gstack_result_anchor() {
     QUEUE_TRAIN_STAMP_MISMATCH) printf '%s' 'queue-train-stamp-mismatch' ;;
     QUEUE_TRAIN_TREE_MISMATCH) printf '%s' 'queue-train-tree-mismatch' ;;
     QUEUE_TRAIN_STALE) printf '%s' 'queue-train-stale' ;;
+    QUEUE_TRAIN_BASE_RED) printf '%s' 'queue-train-base-red' ;;
+    QUEUE_TRAIN_SPEND_CAP) printf '%s' 'queue-train-spend-cap' ;;
+    QUEUE_TRAIN_LAND_METHOD) printf '%s' 'queue-train-land-method' ;;
+    QUEUE_TRAIN_INIT_REFUSED) printf '%s' 'queue-train-init-refused' ;;
+    QUEUE_TRAIN_DOCTOR_FINDINGS) printf '%s' 'queue-train-doctor-findings' ;;
+    QUEUE_BASE_RED_NO_TRAIN) printf '%s' 'queue-base-red-no-train' ;;
+    SHIP_BASE_RED_FIXER) printf '%s' 'ship-base-red-fixer' ;;
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
@@ -353,6 +360,7 @@ gstack_result_anchor() {
     PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
+    EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     *) return 1 ;;
   esac
