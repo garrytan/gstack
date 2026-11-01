@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { FindingRow } from './headless-artifacts';
 import { readJsonl } from './headless-artifacts';
-import { jaccard, tokens } from './autoplan-reconcile';
+import { titleScore } from './autoplan-reconcile';
 import { readDecisions, type PhaseState, type RunState } from './autoplan-state';
 
 export interface DiffLine { op: ' ' | '+' | '-'; text: string; a?: number; b?: number }
@@ -135,7 +135,7 @@ export function annotateConfirm(state: RunState, phase: string, rows: FindingRow
   const isPlan = (f: FindingRow) => f.file === ctx.planName;
   let correlated = 0, settledCount = 0;
   for (const row of rows as Array<FindingRow & { correlates?: string[]; settled_by?: string }>) {
-    const same = earlier.filter(e => jaccard(tokens(e.title), tokens(row.title)) >= 0.6 || (!!e.file && !isPlan(e) && e.file === row.file && e.line === row.line));
+    const same = earlier.filter(e => titleScore(e.title, row.title) >= 0.6 || (!!e.file && !isPlan(e) && e.file === row.file && e.line === row.line));
     if (!same.length) continue;
     row.correlates = same.map(e => e.id);
     correlated++;

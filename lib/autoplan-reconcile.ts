@@ -211,6 +211,13 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
   for (const t of a) if (b.has(t)) inter++;
   return inter / (a.size + b.size - inter);
 }
+const capPath = (title: string) => /^\s*CAP[46]\s*:([^:]*):/i.exec(title)?.[1]!.trim();
+/** Title similarity. Two CAP-coded titles on different paths name different problems, so they never match. */
+export function titleScore(a: string, b: string): number {
+  const pa = capPath(a), pb = capPath(b);
+  if (pa !== undefined && pb !== undefined && pa !== pb) return 0;
+  return jaccard(tokens(a), tokens(b));
+}
 const level = (s: Severity) => SEVERITIES.indexOf(s);
 /** A remedy compared as words: case, punctuation and spacing ignored. */
 export const remedyKey = (text: string | undefined) => (text ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -265,12 +272,11 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
       continue;
     }
     const near = (n: FindingRow) => !!o.file && o.line !== undefined && n.file === o.file && n.line !== undefined && Math.abs(n.line - o.line) <= 3;
-    const ot = tokens(o.title);
     let match: FindingRow | undefined;
     let best = 0;
     for (const n of native) {
       if (used.has(n.id) || (o.file && n.file && o.file !== n.file)) continue;
-      const score = jaccard(ot, tokens(n.title)) + (near(n) ? 0.01 : 0);
+      const score = titleScore(o.title, n.title) + (near(n) ? 0.01 : 0);
       if (score >= 0.5 && score > best) { best = score; match = n; }
     }
     const titled = !!match;
@@ -294,9 +300,8 @@ export function reconcile(native: FindingRow[], outside: FindingRow[], overrides
   }
   // Plan reviews name a file without a line: same file, a line missing on either side, once every title and line match is placed.
   for (const [i, o] of later) {
-    const ot = tokens(o.title);
     const match = native.filter(n => !used.has(n.id) && n.file === o.file && (o.line === undefined || n.line === undefined))
-      .reduce<FindingRow | undefined>((b, n) => (!b || jaccard(ot, tokens(n.title)) > jaccard(ot, tokens(b.title)) ? n : b), undefined);
+      .reduce<FindingRow | undefined>((b, n) => (!b || titleScore(o.title, n.title) > titleScore(o.title, b.title) ? n : b), undefined);
     if (!match) continue;
     used.add(match.id);
     rows[i] = { outside_id: o.id, native_id: match.id, disposition: 'unverified', resolution: `same file, agreement unverified (${o.file}): ${match.title}`, basis: 'file', severity: { outside: o.severity, native: match.severity } };

@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import fixture from './fixtures/autoplan-pairing/run-20261014-pairs.json';
-import { reconcile } from '../lib/autoplan-reconcile';
+import { reconcile, titleScore } from '../lib/autoplan-reconcile';
 import { challengeDefault } from '../lib/autoplan-gate';
 
 const pair = (name: string) => fixture.pairs.find(p => p.name.startsWith(name))! as any;
@@ -103,5 +103,18 @@ describe('plan reviews name a file without a line (GBRA-223 claim 1)', () => {
     const a = row('native', 1, { severity: 'High', title: 'CAP6:bin/gstack-upgrade:recovery no retry bound on network failure', file: 'bin/gstack-upgrade' });
     const b = row('outside', 1, { severity: 'High', title: 'CAP6:lib/telemetry-sync.ts:recovery no retry bound on network failure', file: 'lib/telemetry-sync.ts' });
     expect(reconcile([a], [b]).rows[0]).toMatchObject({ disposition: 'new', native_id: null });
+  });
+
+  test('two CAP titles on different paths never match by title, even when both findings sit on the plan file', () => {
+    const A = 'CAP6:bin/gstack-eval-plan pilot start:fix no fix line names the command';
+    const B = 'CAP6:bin/gstack-outside-voice run:fix no fix line names the command';
+    expect(titleScore(A, B)).toBe(0);
+    expect(titleScore(A, A)).toBe(1);
+    expect(titleScore(A, 'no fix line names the command')).toBe(1);
+    const n = row('native', 1, { severity: 'High', title: A, file: 'plan.md', resolution: 'name the command' });
+    const o = row('outside', 1, { severity: 'High', title: B, file: 'plan.md', resolution: 'name the command' });
+    expect(reconcile([n], [o]).rows[0]).toMatchObject({ basis: 'file', disposition: 'unverified' });
+    const bare = (x: any) => { const { file, ...rest } = x; return rest; };
+    expect(reconcile([bare(n)], [bare(o)]).rows[0]).toMatchObject({ disposition: 'new', native_id: null });
   });
 });
