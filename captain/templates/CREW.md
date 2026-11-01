@@ -61,14 +61,15 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 6. **Your job ends at an unstamped READY.** Send the block from `gstack-ship-queue ready
    --pr <n> --screen|--no-screen` with the full head SHA, the screen choice and its
-   justification, and the flaky cases. Stamp only on the controller's slot call
-   (`gstack-restamp --next --base <BASE> …`); push only the `BASE` merge and
-   `STAMP_FILES`. Never merge, never enable auto-merge. Home: `docs/captain.md` (The
+   justification, the flaky cases and the `Unverified:` line. Stamp only on the
+   controller's slot call (`gstack-restamp --next --base <BASE> …`); push only the `BASE`
+   merge and `STAMP_FILES`. Never merge, never enable auto-merge. Home: `docs/captain.md` (The
    READY contract), `captain/templates/READY.md`, `captain/templates/slot-call.md`,
    `docs/ship-policy.md` (stamp-at-merge).
 
-7. **Report.** `reports/<your thread code>.md` in the controller's drive: Outcome, PR,
-   Needs, Cost, Lesson, Approvals. Home: `captain/templates/report.md`.
+7. **Report.** `reports/<your thread code>.md` in the controller's drive: Outcome (with
+   its `Unverified:` line), PR, Needs, Cost, Lesson, Approvals. Home:
+   `captain/templates/report.md`.
 
 8. **One path.** Everything goes through `CONTROLLER`, never peer to peer. Home:
    `docs/captain.md` (Roles, Lane discipline).

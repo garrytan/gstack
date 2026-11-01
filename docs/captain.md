@@ -90,7 +90,7 @@ Where each rule lives:
 | 4 | File ownership: edit only what you own; the controller routes the rest | [Lane discipline](#lane-discipline); the ownership list is the digest's **In progress** |
 | 5 | Standing spend and its cap per rerun | [Approvals, shape A](#approvals-three-shapes); the `SPEND` parameter |
 | 6 | The job ends at an unstamped READY; stamp on call; never merge | [The READY contract](#the-ready-contract), the [READY](../captain/templates/READY.md) and [slot call](../captain/templates/slot-call.md) templates, [ship-policy.md](ship-policy.md#stamp-at-merge) |
-| 7 | One report per lane: Outcome, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../captain/templates/report.md) |
+| 7 | One report per lane: Outcome with its Unverified line, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../captain/templates/report.md) |
 | 8 | One path: everything through the controller, never peer to peer | [Roles](#roles); [Lane discipline](#lane-discipline) |
 | 9 | Hands: a real browser, the owner's session or local work go through the controller | [The owner's device](#the-owners-device) |
 | 10 | Keep going; come back only for scope, a conflict, access or the owner's decision | [Lane discipline](#lane-discipline) |
