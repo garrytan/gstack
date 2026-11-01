@@ -14,7 +14,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { generatePreambleBash } from '../scripts/resolvers/preamble/generate-preamble-bash';
-import { insertRuntimePreludes } from '../scripts/resolvers/runtime-root';
+import { insertRuntimePreludes, runtimeRootPrelude } from '../scripts/resolvers/runtime-root';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gst882-'));
@@ -22,8 +22,8 @@ const ctx = (host: string, installRoot: string | null) =>
   ({ host, paths: HOST_PATHS[host], skillName: 'ship', tmplPath: '', model: 'claude', installRoot }) as TemplateContext;
 const startFence = (c: TemplateContext) => insertRuntimePreludes(generatePreambleBash(c), c).match(/```bash\n([\s\S]*?)\n```/)![1];
 const GROUPED = /(?:^|[;&|]\s*)\{\s|exit 1;\s*\}/m;
-const sh = (body: string, env: Record<string, string>) =>
-  spawnSync('bash', ['-uc', body], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env: { PATH: '/usr/bin:/bin', ...env } });
+const sh = (body: string, env: Record<string, string>, cwd = tmp) =>
+  spawnSync('bash', ['-uc', body], { cwd, encoding: 'utf8', timeout: 10_000, env: { PATH: '/usr/bin:/bin', ...env } });
 function stubStart(root: string) {
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
   fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
@@ -65,6 +65,25 @@ describe('skill-start fence is plain shell on every host (GST-882)', () => {
       expect(r.status, r.stderr).toBe(0);
       expect(r.stdout).toContain('STARTED ');
       expect(r.stdout).toContain('--skill ship');
+    });
+    test(`${host.name} checked-in render: the start lookup picks the root later fences pick`, () => {
+      const base = path.join(tmp, `${host.name}-parity`);
+      const home = path.join(base, 'home');
+      const repo = path.join(base, 'repo');
+      const exported = path.join(base, 'exported');
+      stubStart(path.join(home, host.name === 'codex' ? '.codex/skills/gstack' : host.globalRoot));
+      fs.mkdirSync(repo, { recursive: true });
+      spawnSync('git', ['init', '-q', repo], { timeout: 10_000 });
+      const c = ctx(host.name, null);
+      const lookup = startFence(c).split('\n').slice(0, -1).join('\n');
+      const root = (body: string, env: Record<string, string>) => sh(`${body}\necho "ROOT=$GSTACK_ROOT"`, env, repo).stdout.trim().split('\n').at(-1);
+      for (const layout of ['global', 'repo-local', 'exported']) {
+        if (layout === 'repo-local') stubStart(path.join(repo, host.localSkillRoot));
+        if (layout === 'exported') stubStart(exported);
+        const env = layout === 'exported' ? { HOME: home, GSTACK_ROOT: exported } : { HOME: home };
+        expect(root(lookup, env)).toBe(root(runtimeRootPrelude(c), env));
+        if (layout === 'exported') expect(root(lookup, env)).toBe(`ROOT=${exported}`);
+      }
     });
   }
 });
