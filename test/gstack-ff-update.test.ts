@@ -74,6 +74,8 @@ function ff(fx: Fx, rev = 'origin/main', extra: Record<string, string> = {}, bin
 }
 const read = (fx: Fx, f: string) => fs.readFileSync(path.join(fx.install, f), 'utf8');
 const write = (fx: Fx, f: string, body: string) => fs.writeFileSync(path.join(fx.install, f), body);
+/** Moves mtimes 10 s back so no entry is racily clean against the index (a same-second edit can trip the barrier's recapture). */
+const backdate = (fx: Fx, ...files: string[]) => { const s = Date.now() / 1000 - 10; for (const f of files) fs.utimesSync(path.join(fx.install, f), s, s); };
 const rescueRef = (out: string) => out.match(/^rescued [0-9a-f]+ [0-9a-f]+ (refs\/gstack\/rescue\/[0-9a-f]{40}) unmerged=([01])$/m);
 function makeUnmerged(fx: Fx, file: string) {
   const blob = (body: string) => execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: fx.install, input: body, encoding: 'utf8', timeout: 30_000 }).trim();
@@ -262,6 +264,124 @@ describe.skipIf(process.platform === 'win32')('gstack-ff-update: moving the tree
     const r = ff(fx, 'origin/main', { PATH: `${realDir}:${process.env.PATH}` });
     const ref = rescueRef(r.stdout)![1];
     expect(git(fx.install, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', ref)).toBe('gstack rescue <gstack@localhost>|gstack rescue <gstack@localhost>');
+  });
+
+  // Value: protects=the one move every upgrade path shares refuses (exit 6, nothing changed) when an enclosing project tracks the install or
+  //   VERSION was put back behind HEAD, even with nothing to move (#1022); fails_when=the preflight is skipped, runs after "already", or counts a gitlink;
+  //   why_new=no case had an enclosing project; seam=none
+  test('preflight: a tracking project or a reverted VERSION refuses with exit 6 and changes nothing; a gitlink and --preflight on a clean install pass', () => {
+    const fx = makeFixture();
+    const old = git(fx.install, 'rev-parse', 'HEAD');
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
+    git(fx.base, 'init', '-q', '-b', 'main');
+    git(fx.base, 'update-index', '--add', '--cacheinfo', `160000,${old},install`);
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
+    git(fx.base, 'update-index', '--force-remove', 'install');
+    git(fx.base, 'update-index', '--add', '--', 'install/VERSION', 'install/notes.txt');
+    release(fx, { 'notes.txt': 'top UPSTREAM\nmiddle\nbottom\n' });
+    const tracked = ff(fx);
+    expect(tracked.status, tracked.stdout + tracked.stderr).toBe(6);
+    expect(tracked.stdout).toStartWith(`tracked-by-project: ${fx.base} tracks 2 files of the gstack install at install,`);
+    expect(tracked.stdout.trim().split('\n')).toHaveLength(1);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(old);
+    fs.rmSync(path.join(fx.base, '.git'), { recursive: true, force: true });
+    expect(ff(fx).status).toBe(0);
+    write(fx, 'VERSION', '1.0.0\n');
+    const reverted = ff(fx);
+    expect(reverted.status).toBe(6);
+    expect(reverted.stdout).toStartWith('version-reverted: VERSION says 1.0.0 but the checkout is at 1.1.0');
+    expect(read(fx, 'VERSION')).toBe('1.0.0\n');
+    write(fx, 'VERSION', '9.9.9\n');
+    expect(ff(fx).stdout).toStartWith('version-reverted: VERSION says 9.9.9 but the checkout is at 1.1.0: files changed outside git');
+  });
+
+  // Value: protects=an unmerged VERSION still takes the existing rescue, which the unmerged-files banner's command relies on;
+  //   fails_when=the version-reverted preflight fires on conflict markers; why_new=the preflight is new; seam=none
+  test('preflight: an unmerged VERSION is rescued, not refused as version-reverted', () => {
+    const fx = makeFixture();
+    makeUnmerged(fx, 'VERSION');
+    const target = release(fx, { 'notes.txt': 'x\n' });
+    const r = ff(fx, target);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^rescued .* unmerged=1/);
+  });
+
+  // Value: protects=the preflight runs no code from the enclosing project (its core.fsmonitor hook); fails_when=an enclosing-repo git call
+  //   drops the fsmonitor override; why_new=the enclosing-project probe is new; seam=none
+  test('preflight: an enclosing project\'s core.fsmonitor hook never runs', () => {
+    const fx = makeFixture();
+    const sentinel = path.join(fx.base, 'fsmonitor-ran');
+    git(fx.base, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(fx.base, 'hook.sh'), `#!/bin/sh\ntouch '${sentinel}'\n`, { mode: 0o755 });
+    git(fx.base, 'config', 'core.fsmonitor', path.join(fx.base, 'hook.sh'));
+    const r = spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(fs.existsSync(sentinel)).toBe(false);
+  });
+
+  // Value: protects=the printed repair untracks only the install, even when its name holds glob characters, and prints whole at any path length;
+  //   fails_when=the rm drops --literal-pathspecs, the ignore rule is unescaped, or the message is capped short; why_new=review pass 1; seam=none
+  test('preflight: the tracked-by-project repair is literal and printed whole', () => {
+    const fx = makeFixture(`gstack*${'x'.repeat(150)}`);
+    const name = path.basename(fx.install);
+    git(fx.base, 'init', '-q', '-b', 'main');
+    const decoy = `gstack-data${'x'.repeat(150)}`;
+    fs.writeFileSync(path.join(fx.base, decoy), 'keep\n');
+    git(fx.base, 'add', '--', decoy);
+    git(fx.base, 'update-index', '--add', '--', `${name}/VERSION`);
+    const r = spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 });
+    expect(r.status, r.stdout + r.stderr).toBe(6);
+    expect(r.stdout.trimEnd()).toEndWith('and re-run');
+    expect(r.stdout).toContain(`add /gstack\\*${'x'.repeat(150)}/ to`);
+    const rm = r.stdout.match(/fix: (git -C .*? rm -r -q --cached -- '[^']*')/)?.[1];
+    expect(rm).toContain('--literal-pathspecs');
+    expect(spawnSync('bash', ['-c', rm!], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    expect(git(fx.base, 'ls-files').split('\n')).toEqual([decoy]);
+  });
+
+  // Value: protects=a dirty VERSION beside an unmerged file still takes the rescue (stash cannot run there); a VERSION that differs only in mode is no
+  //   revert; a held lock wins over the VERSION check; fails_when=the check looks only at VERSION's own stage, compares bytes, or runs before the lock;
+  //   why_new=review pass 1; seam=none
+  test('preflight: version-reverted yields to the rescue, to a same-text VERSION, and to a held lock', () => {
+    const fx = makeFixture();
+    makeUnmerged(fx, 'notes.txt');
+    write(fx, 'VERSION', '0.9.0\n');
+    backdate(fx, 'VERSION', 'notes.txt');
+    const mixed = ff(fx, release(fx, { 'other.txt': 'x\n' }));
+    expect(mixed.status, mixed.stdout + mixed.stderr).toBe(0);
+    expect(mixed.stdout).toMatch(/^rescued .* unmerged=1/);
+
+    const fy = makeFixture();
+    fs.chmodSync(path.join(fy.install, 'VERSION'), 0o755);
+    expect(spawnSync('bash', [FF, '--preflight', fy.install], { encoding: 'utf8', env: isolatedEnv(fy.base), timeout: 60_000 }).status).toBe(0);
+
+    const fz = makeFixture();
+    release(fz, { 'other.txt': 'x\n' });
+    write(fz, 'VERSION', '0.9.0\n');
+    const holder = spawn('sleep', ['30']);
+    try {
+      const lock = path.join(fz.install, '.git', 'gstack-ff.lock');
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, 'pid'), `${holder.pid}\n`);
+      expect(ff(fz, 'origin/main', { GSTACK_FF_LOCK_WAIT: '0' }).status).toBe(75);
+      expect(spawnSync('bash', [FF, '--preflight', fz.install], { encoding: 'utf8', env: isolatedEnv(fz.base), timeout: 60_000 }).status).toBe(6);
+    } finally {
+      holder.kill();
+    }
+  });
+
+  // Value: protects=a move interrupted after the tree was written but before HEAD moved still finishes on the next run, not held as
+  //   version-reverted; fails_when=the in-lock check ignores the target's VERSION; why_new=review pass 2; seam=none
+  test('an interrupted move (tree at the target, HEAD old) finishes instead of holding', () => {
+    const fx = makeFixture();
+    const target = release(fx, { 'notes.txt': 'top UPSTREAM\nmiddle\nbottom\n' });
+    execFileSync('bash', ['-c', `git archive ${target} | tar -x`], { cwd: fx.install, timeout: 30_000 });
+    expect(read(fx, 'VERSION')).toBe('1.1.0\n');
+    backdate(fx, 'VERSION', 'notes.txt');
+    const r = ff(fx, target);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(git(fx.install, 'rev-parse', 'HEAD')).toBe(target);
+    expect(spawnSync('bash', [FF, '--preflight', fx.install], { encoding: 'utf8', env: isolatedEnv(fx.base), timeout: 60_000 }).status).toBe(0);
   });
 
   test('refusals: not a fast-forward, an unresolvable target, and a missing checkout', () => {

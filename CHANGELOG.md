@@ -1,5 +1,90 @@
 # Changelog
 
+## [1.92.10.0] - 2026-11-01
+
+**/ship's scoped second pass runs again, and its Red Team reviews the fix range while Step 11's voices still read the whole branch.** After a blocking fix on a small range, `gstack-review-plan` plans a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range. `gstack-review-dispatch pass` refused that plan with `BRIEF_RENDER_FAILED: a pass dispatches no fix-check reader`, because a fix-check is not a pass reader. Every scoped pass failed this way, and GEVA-82 rendered its briefs by hand to get through (GST-619). Even past that refusal, the pass would have staged its Red Team on the merge base, because the Capy pass program never passes `--diff-base`.
+
+### Fixed
+- **`gstack-review-dispatch pass` keeps the fix-check out of the pass manifest and prints it as `FIX_CHECK: planned effort=full (Step 3.5 runs it on its own; not in this manifest)`.** A resumed `pass` command prints the line again. /ship's Step 9 text already runs that fix-check inside the scoped pass with `git diff $RANGE_BASE` as its hunks, so the pinned reviewer prose is unchanged. No reader is added or removed, so the pass runs the readers the plan already lists.
+- **A scoped pass's Red Team reviews the plan's fix range.** `pass` resolves the range base from the plan's `fix_range` and gives it to the Red Team alone, so it reviews `RANGE_BASE..HEAD` as docs/review-policy.md describes. Until Step 11 has run, the native adversarial pass and the outside voice in a scoped pass are Step 11's own voices, so they keep the merge base and read the whole branch. Once the plan flags carry `--adversarial-ran`, the whole scoped pass reads the range. An explicit `--diff-base` still wins, and a scoped plan without a readable range base is refused.
+
+### Tests
+- `test/review-pass.test.ts`: GEVA-2's invocation (`--extras`, `--pass1-depth standard --fixed-blocking --range-base <short sha>`) plans `NEXT: scoped`. `pass` exits 0, prints the `FIX_CHECK:` line (and again on resume), and stages the Red Team, the adversarial pass, the outside voice and the audit reader. The Red Team's brief names the full range-base sha, and the outside voice's diff carries the pass-1 lines. With `--adversarial-ran` added, the manifest's diff base is the range base. Both fail on main with `BRIEF_RENDER_FAILED`, and on the previous head of this PR because every reader there read the range.
+
+## [1.92.9.0] - 2026-11-01
+
+**/freeze can no longer be walked around with paths through folders that don't exist yet (#3623).** /freeze checks every Edit, Write and NotebookEdit path against its folder. The check only resolved a parent folder that already existed and compared the raw text otherwise, so `<boundary>/../outside/new/x`, `<boundary>/link-to-outside/new/x`, `<boundary>/..`, `~/.zshrc` with the working folder inside the boundary, and `C:\proj\src\..\..\other\new\x` were all allowed. Reported by Quinn O'Donnell (#3623, #3624).
+
+### Fixed
+- **The boundary check resolves the whole path.** `freeze/bin/check-freeze.sh` walks the path one folder at a time, follows symlinks at any depth even when the rest of the path does not exist yet, expands `~`, and resolves relative paths against the real working folder. An edit counts as inside only when both the operating system's reading and a path normalizer's reading of `..` land inside.
+- **Paths the hook can't place are blocked with a reason:** symlink loops, chains over 40 links, link targets that add up past 8192 characters, paths over 4096 characters, line breaks, Windows drive-relative (`C:x`) and root-relative (`\dev\x`) paths, names Windows trims (`.. `, `...`) and odd UNC roots. Windows rules keep `..` at the drive or share root.
+- **Legit edits that were blocked now pass:** `~/proj/src/x` from outside the folder, and a new subfolder when the boundary was saved through a symlinked parent (macOS `/tmp`).
+- **`careful/bin/hook-extract.sh`** keeps trailing newlines on path fields and matches Node's handling of lone surrogates there. /careful's command values are unchanged.
+
+## [1.92.8.0] - 2026-11-01
+
+**The secrets check no longer flags Python and Dart type names and variable reads as credentials (#3630).** A Python parameter like `session: HttpSession,` failed `gstack-pregate` as MEDIUM env.kv. Secrets findings can't be downgraded, so /ship wrote no receipt, and the only workaround was a file-wide allowlist entry. Dart's `'password': request.password,` and a React key like `key={item.id ?? index}` failed the same way. Reported by @dgrant in #3630. Approaches came from #3605 (@adam-balazs) and #3418/#3419 (@hbarney).
+
+### Fixed
+- **`lib/redact-patterns.ts`:** env.kv's source-syntax exemption (#3048) now covers `.dart`, `.py` and `.pyi` files as well as TypeScript. These languages have no unquoted string literal, so a bare name after `:` is a name. A JSX brace may join names with `??`, `||` or `&&` as well as `+`. Each case still reports when it is not code:
+  - a quoted value;
+  - a value that is not an identifier chain;
+  - an annotation with a literal default (`api_token: AuthToken = "<secret>"`, now caught in TypeScript too);
+  - a `password:` line inside a Dart or Python `'''`/`"""` string, where escaped quotes don't close the string and a delimiter inside a comment or a one-line string opens nothing;
+  - a `password: <value>` pair inside a one-line Python or Dart string;
+  - a literal fallback after the name (`"password": settings.db_pass or "<secret>"`);
+  - the same lines in `.env` or YAML files.
+
+  Python's `=` forms (`password=request.password`) still report.
+- **`lib/pregate/checks/secrets.ts`:** a changed Python or Dart file is scanned whole, and only findings on its added lines count. A line added inside an existing triple-quoted string is still read as a literal. Its row gives the file's line number. A file over 4 MiB, or one that can't be read, has its added lines scanned without the exemption.
+- **`bin/gstack-redact-prepush`:** the pre-push hook sees only added lines, so it scans Python and Dart lines without the exemption; a `password:` line added inside an existing triple-quoted string still warns.
+- **`lib/pregate/allowlist.ts`:** a pattern entry that names a finding by id and path but doesn't match prints a row saying so. Patterns are matched from where the flagged value starts, so the issue's `session: HttpSession` entry never matched. Before this change, that miss was silent.
+- **`docs/pregate.md`:** explains where a pattern is matched and how Python and Dart source is read.
+
+## [1.92.7.0] - 2026-11-01
+
+- `gstack-review-dispatch pass` no longer dies on a large diff. `gstack-review-plan` exited before its stdout pipe drained, so a plan JSON past about 128 KB (1.39 MB on a 4,000-file results PR) reached `pass` cut short and failed to parse. Both bins now set the exit code and let their output drain, and a 4,000-file test keeps it that way (GST-507).
+
+## [1.92.6.0] - 2026-11-01
+
+**Choosing "core" now means core everywhere gstack routes, and the four core skills carry their plain-English trigger phrases where hosts read them.** Under the default `proactive: core`, the CLAUDE.md routing section gstack offered still listed all 13 routing rules, and 16 non-core skills still told Codex and the other hosts to "proactively suggest" them (#3446). Separately, phrases like "test the site" or "ship it" lived only in each skill's `triggers:` metadata, which no host reads, so they never reached the list the agent picks skills from (#2118). The always-loaded Claude catalog does not grow. It measures 5,682 bytes before and 5,678 after (1,421 → 1,420 token-equivalents against the unchanged 1,423 ceiling).
+
+### Changed
+- **The CLAUDE.md routing offer follows the setting.** Under `core`, `bin/gstack-skill-start` offers the four core rules (/office-hours, /qa, /review, /ship) and one line saying the other skills are not suggested: they run when you type them or when a running skill hands off to them (so /ship still dispatches /document-release). Under `all` it offers the same 13 rules as before. Sections already in a project's CLAUDE.md are left alone; docs/proactive.md says how to trim one.
+- **Only the core skills invite proactive suggestions.** The "Proactively suggest/invoke ..." sentence is gone from the descriptions of /autoplan, /design-consultation, /design-html, /design-review, /design-shotgun, /devex-review, /document-release, /investigate, /learn, /plan-ceo-review, /plan-design-review, /plan-devex-review, /plan-eng-review, /plan-tune, /qa-only and /retro. Their "Use when asked to ..." sentences stay. On Codex and the other hosts that keep full descriptions, `proactive: all` no longer gets that hint from those 16 skills.
+- **The core skills' descriptions carry their trigger phrases.** /qa's catalog entry is now "Test the site, API or CLI and fix the bugs it finds.", /review's "Review this PR's diff.", and /ship's "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR." Every `triggers:` phrase of the four core skills now appears in its full description.
+
+### Tests
+- `test/proactive-skill-start.test.ts`: runs `gstack-skill-start` under `core`, `all` and the legacy `true`; core offers exactly the four core rules plus the scoping line, and all offers the shipped 13-rule section.
+- `test/proactive-core-set.test.ts`: each core skill's full description carries every `triggers:` phrase, its catalog entry carries at least one, and no other skill's catalog entry carries that phrase.
+- `test/skill-validation.test.ts`: no non-core template description says "Proactively suggest/invoke"; the proactive-phrase check now covers the four core skills.
+- All five new cases fail on main at 2d1b55d (office-hours already passed there).
+- Size ratchets move down only: 46 generated-SKILL.md pins in `test/fixtures/skill-md-size-allowlist.json` drop by the removed sentences, and /ship's size ledger records -21 bytes. The four ship goldens are regenerated for the new description.
+
+## [1.92.5.0] - 2026-10-31
+
+**Updates no longer stall in silence when the project around your gstack install has committed gstack's files (#1022).** If gstack lives inside another git project (for example `<project>/.claude/skills/gstack`) and that project committed gstack's files as ordinary files, a stash, reset or branch switch in the project put the old files back. VERSION stayed frozen at an old release while updates reported success. Once this release is on disk, every update path stops before it changes anything and prints the exact fix. An install the project has already reverted is still running the project's old copies of these scripts, so it needs the one-time repair in `docs/troubleshooting.md#auto-update-tracked-by-project` first.
+
+### Fixed
+- **`bin/gstack-ff-update` checks before it moves.** It refuses with exit 6 and `tracked-by-project:` when the enclosing project tracks the install's files (a git submodule is fine), and with `version-reverted:` when VERSION's first line disagrees with HEAD's. The message spells out the repair. Untrack the install (`git rm --cached`, literal paths only), ignore it, commit on every branch, then `git stash push` in the install, which keeps every edit. `--preflight <install>` prints the same check on demand. An unmerged file still goes to the existing rescue, and a full update checks VERSION inside the install lock.
+- **`bin/gstack-upgrade`** runs that check before any fetch and refuses with `UPGRADE_REFUSED` (exit 3).
+- **The session auto-updater** holds the update on exit 6 and shows a banner that points to `--preflight` and the new troubleshooting section, `docs/troubleshooting.md#auto-update-tracked-by-project`.
+
+## [1.92.4.0] - 2026-10-31
+
+**A merge train now carries up to five READY PRs instead of three.** That means fewer full gates for the same number of PRs. A short train still leaves one hour after its oldest READY.
+
+### Changed
+- `.gstack/ship-policy.json`: `train.max_size` goes from 3 to 5 (Garry, 2026-10-31). `fill_hours` stays at 1. `test/gstack-ship-policy.test.ts` pins the new value. Four READY PRs wait for the hour, and the fifth fills the train. The example block in docs/ship-policy.md, which shows gstack's own policy, now reads 5.
+
+## [1.92.3.0] - 2026-10-31
+
+**`gstack-redact` now catches a credential on a diff line (GST-543).** The env.kv rule matched from the start of the line, so the leading `+` or `-` of a diff line stopped the match. `git diff | gstack-redact` returned no finding and exit 0 for `+API_TOKEN=<random value>`. It did the same for a removed line that was indented or used `export`, and for a merge diff's two-column markers (`++`, ` +`). A `diff` code block in a PR body had the same blind spot. Pregate's `secrets` check and the pre-push hook were not affected, because both strip the `+` before scanning.
+
+### Fixed
+- **`lib/redact-patterns.ts`:** env.kv accepts a diff marker before the name: `+` or `-`, optionally after one more column of a space, `+` or `-`. So the line in the example above now reports MEDIUM env.kv and exits 2. A `-` followed by one space and text still reads as a Markdown bullet or YAML list item, as before. The name-shape check and the schema-field exemption accept the same marker, so `API_TOKEN=changeme`, `cacheKey: …` and `input_key: …` stay clean on a diff line. Scanning every tracked file in the repo gives the same env.kv results as before.
+- **`test/redact-diff-prefix.test.ts`:** every pattern in `PATTERNS` has a sample. The test requires each sample to report bare, behind each diff marker, and on an added or removed line inside a real hunk, indented or not. A new pattern without a sample fails the test. The check found that env.kv was the only rule with this blind spot. Every other rule starts at a word boundary or has no line anchor.
+
 ## [1.92.2.0] - 2026-10-31
 
 - The model panel adds a `<model>#no-gstack` arm beside each model's skill arm (Garry's rule that every head-to-head eval also tests no gstack), with its rows keyed by arm identity and the candidate's folders named after a project. arm-benchmark runs three with/without pairs per task under a spend ledger and a pinned model. A paired judge scores both orders and must pass calibration before it decides; the per-diff judge is reported beside it. The safety-rule and router cases gain a descriptive `none` arm where the task exists without the skill text. `gstack-eval-plan results --check <prereg> <results.md>` refuses a results file unless one table holds a filled row for every arm, so each no-gstack row sits beside its variants (`EVAL_REPORT_NO_GSTACK_ROW`).
