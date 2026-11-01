@@ -513,7 +513,18 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    missing coverage leaves the review incomplete. A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
-   against the merged lines they produced, and the judgment rerun against the
+   against the merged lines they produced, and each merged line against the finding collect
+   parses at that id's index from the unchanged output file, label and raw text byte for byte
+   (`merged_line_differs` on the OUTPUT and JUDGE rows otherwise, GST-541), so an edited
+   merged.jsonl cannot lower a finding or swap its text. A recorded output file that is missing
+   (`output_file_missing`), a judgment run on a merged file collect did not write
+   (`judge_merged_not_collected`) and merged rows collect never recorded
+   (`merged_rows_not_collected`) are dirty too, and so is an output whose re-parsed findings
+   outnumber or undercount the ids collect recorded (`merged_count_differs`). The one exception
+   is a reply collect refused for its tree: verify re-checks the reply's `REVIEWED_TREE` line
+   against the render's tree, and such an output stays `NOT_REVIEWED` until a re-sent brief is
+   answered by a reply that passes the same check. Deleting a whole output event with its rows is
+   not caught yet, because the ledger has no anchor for it. The judgment is then rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a

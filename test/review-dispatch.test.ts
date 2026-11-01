@@ -683,6 +683,112 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
   });
+
+  // Value: protects=verify re-derives every merged row from the reader's unchanged output by its index, so a merged.jsonl edited
+  //   after collect cannot lower a finding or swap a blocker's text for a summary and still verify clean; fails_when=a forged label
+  //   or a copied raw line on a real blocker's id verifies clean (GST-541: both did at main c830c9b); why_new=verify compared only
+  //   output hashes and line counts; seam=verify; no_claim=that an output collected without a recorded file can be re-derived
+  test('verify re-derives each merged row by index: a forged label or a summary copied onto a blocker id is dirty', () => {
+    const blocker = '{"severity":"CRITICAL","path":"log.ts","line":3,"category":"security","summary":"bearer token written to a public log","specialist":"testing"}';
+    const summary = '{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"I found nothing CRITICAL.","specialist":"testing"}';
+    const setup = () => {
+      const p = pass();
+      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+      const out = p.w('spec.out', blocker + '\n' + summary + '\n');
+      expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]).status).toBe(0);
+      return p;
+    };
+    const judgeAll = (p: ReturnType<typeof pass>, severity: string) => run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', p.w('judged.jsonl',
+      readJsonl<MergedLine>(p.merged).map(m => JSON.stringify({ id: m.id, severity: m.id.endsWith('#1') ? severity : 'INFORMATIONAL' })).join('\n') + '\n')]);
+    const clean = setup();
+    expect(judgeAll(clean, 'CRITICAL').status).toBe(0);
+    expect(run(['verify', '--ledger', clean.ledger]).stdout).toContain('VERIFY: clean');
+    const forge = (p: ReturnType<typeof pass>, edit: (rows: MergedLine[]) => void) => {
+      const rows = readJsonl<MergedLine>(p.merged);
+      edit(rows);
+      fs.writeFileSync(p.merged, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+      expect(judgeAll(p, 'INFORMATIONAL').stdout.trim()).toBe('JUDGMENT: ok added=0 promoted=0 folded=0');
+      return run(['verify', '--ledger', p.ledger]);
+    };
+    const label = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([label.status, label.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    const copied = forge(setup(), rows => { rows[0]!.label = rows[1]!.label; rows[0]!.raw = rows[1]!.raw; });
+    expect([copied.status, copied.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    expect(copied.stdout).toMatch(/^JUDGE - MISMATCH .*merged_line_differs/m);
+    const gone = setup();
+    fs.rmSync(path.join(gone.out, 'spec.out'));
+    const missing = forge(gone, rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([missing.status, missing.stdout.includes('output_file_missing'), missing.stdout.includes('merged_line_differs=["specialist/testing#1","specialist/testing#2"]')]).toEqual([1, true, true]);
+    const copy = setup();
+    const forgedCopy = copy.w('merged2.jsonl', readJsonl<MergedLine>(copy.merged).map((r, k) => JSON.stringify(k ? r : { ...r, label: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(run(['judge', '--ledger', copy.ledger, '--merged', forgedCopy, '--judged', copy.w('judged.jsonl', readJsonl<MergedLine>(copy.merged).map(m => JSON.stringify({ id: m.id, severity: 'INFORMATIONAL' })).join('\n') + '\n')]).status).toBe(0);
+    const viaCopy = run(['verify', '--ledger', copy.ledger]);
+    expect([viaCopy.status, viaCopy.stdout]).toEqual([1, expect.stringMatching(/^JUDGE - MISMATCH .*judge_merged_not_collected/m)]);
+    const quiet = pass();
+    run(['sent', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--sent', quiet.file]);
+    const none = quiet.w('none.out', 'NO FINDINGS\n');
+    expect(run(['collect', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--output', none, '--merged', quiet.merged]).status).toBe(0);
+    fs.writeFileSync(quiet.merged, '');
+    expect(run(['judge', '--ledger', quiet.ledger, '--merged', quiet.merged, '--judged', quiet.w('judged.jsonl', '')]).status).toBe(0);
+    fs.rmSync(none);
+    const noneGone = run(['verify', '--ledger', quiet.ledger]);
+    expect([noneGone.status, noneGone.stdout.includes('output_file_missing')]).toEqual([1, true]);
+    const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
+    expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
+  });
+  // Value: protects=an output event edited to read like a refused reply (no ids, review false, tree_ok false) or to drop its file
+  //   cannot drop its findings and still verify clean, while a reply collect really refused for its tree stays NOT_REVIEWED until a re-sent brief is answered;
+  //   fails_when=verify skips the count check on the editable review or tree_ok field, so a clean marker keeps the output MATCH or a
+  //   later review voids it, or an output with no recorded file passes on its review field (fix-checks at 721539c, 56ed6e3 and 50dc73c: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
+  //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
+  test('an output event edited to look refused is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
+    const voice = (reply: string) => {
+      const out = tmp();
+      const ledger = path.join(out, 'review-ledger.jsonl');
+      const merged = path.join(out, 'merged.jsonl');
+      const brief = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+      const send = () => run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', brief]);
+      let n = 0;
+      const take = (text: string) => { const f = path.join(out, `ov${++n}.out`); fs.writeFileSync(f, text); return run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', f, '--merged', merged]); };
+      send();
+      const c = take(reply);
+      const forge = (edit: Record<string, unknown>) => {
+        fs.writeFileSync(ledger, readJsonl<Record<string, unknown>>(ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, ...edit } : e)).join('\n') + '\n');
+        fs.writeFileSync(merged, '');
+      };
+      const verify = () => {
+        fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+        expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+        return run(['verify', '--ledger', ledger]);
+      };
+      return { c, send, take, forge, verify };
+    };
+    const noIds = voice(findings);
+    expect(noIds.c.status).toBe(0);
+    noIds.forge({ ids: [], review: false });
+    const v = noIds.verify();
+    expect([v.status, v.stdout.includes('merged_count_differs=1/0'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const unfiled = voice(findings);
+    unfiled.forge({ file: null, ids: [] });
+    const u = unfiled.verify();
+    expect([u.status, u.stdout.includes('output_file_unrecorded'), u.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const flagged = voice(findings);
+    flagged.forge({ ids: [], review: false, tree_ok: false });
+    flagged.send();
+    expect(flagged.take('Recommendation: approve\n').status).toBe(0);
+    const f = flagged.verify();
+    expect([f.status, f.stdout.includes('merged_count_differs=1/0'), f.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const wrong = voice(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n` + findings);
+    expect([wrong.c.status, wrong.c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice')]).toEqual([1, true]);
+    const w = wrong.verify();
+    expect([w.status, /^OUTPUT outside-voice NOT_REVIEWED .*wrong_tree/m.test(w.stdout), w.stdout.includes('merged_count_differs')]).toEqual([1, true, false]);
+    wrong.send();
+    expect(wrong.take('Recommendation: approve\n').status).toBe(0);
+    const r = wrong.verify();
+    expect([r.status, r.stdout.includes('replaced_by_a_review'), r.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
+  });
 });
 
 describe('the workspace paragraph (GST-482)', () => {
