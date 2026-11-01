@@ -708,6 +708,41 @@ export function clearStringSpanCache(): void {
   stringSpansCache = null;
 }
 
+/**
+ * The string whose quote is at `i`: where its content starts and ends, and the
+ * index after its closing delimiter. An interpolated expression (`{…}` in a
+ * Python f- or t-string, `${…}` in a non-raw Dart string) is skipped whole,
+ * nested strings included, so a quote inside it never ends the outer string
+ * (GST-738); an expression left open runs to the end of the text.
+ */
+function stringAt(text: string, i: number, lang: "py" | "dart"): [number, number, number] {
+  const n = text.length;
+  const c = text[i]!;
+  const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+  const multiline = close.length === 3;
+  let k = i;
+  while (k > 0 && /[A-Za-z]/.test(text[k - 1]!)) k -= 1;
+  const prefix = k === 0 || !/[\w$]/.test(text[k - 1]!) ? text.slice(k, i) : "";
+  const raw = lang === "dart" && prefix === "r";
+  const interpolated = lang === "dart" ? !raw : /^(?:[rR]?[fFtT]|[fFtT][rR])$/.test(prefix);
+  let j = i + close.length;
+  while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) {
+    if (!raw && text[j] === "\\") { j += 2; continue; }
+    if (!interpolated) { j += 1; continue; }
+    if (lang === "py" && text.startsWith("{{", j)) { j += 2; continue; }
+    if (lang === "py" ? text[j] !== "{" : !text.startsWith("${", j)) { j += 1; continue; }
+    j += lang === "py" ? 1 : 2;
+    for (let depth = 1; j < n && depth > 0; ) {
+      const d = text[j]!;
+      if (d === '"' || d === "'") { j = stringAt(text, j, lang)[2]; continue; }
+      if (d === "{") depth += 1;
+      else if (d === "}") depth -= 1;
+      j += 1;
+    }
+  }
+  return [i + close.length, Math.min(j, n), Math.min(j, n) + close.length];
+}
+
 function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
   if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
   const spans: Array<[number, number]> = [];
@@ -729,13 +764,9 @@ function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]>
       continue;
     }
     if (c !== '"' && c !== "'") { i += 1; continue; }
-    const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
-    const multiline = close.length === 3;
-    const raw = lang === "dart" && text[i - 1] === "r" && !/[\w$]/.test(text[i - 2] ?? "");
-    let j = i + close.length;
-    while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) j += !raw && text[j] === "\\" ? 2 : 1;
-    spans.push([i + close.length, Math.min(j, n)]);
-    i = j + close.length;
+    const [from, to, next] = stringAt(text, i, lang);
+    spans.push([from, to]);
+    i = next;
   }
   stringSpansCache = { text, lang, spans };
   return spans;

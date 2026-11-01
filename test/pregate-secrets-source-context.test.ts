@@ -99,7 +99,7 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
-  test('a Python file whose working copy no longer holds the diff\'s added lines is scanned by its added lines (#3630)', () => {
+  test('a Python file whose working copy no longer holds the diff\'s added lines is scanned as git diffed it (#3630, GST-738)', () => {
     const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
     const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n' } });
     try {
@@ -107,7 +107,21 @@ describe('pregate secrets: source context and diff integrity', () => {
       fx.git('update-index', '--assume-unchanged', 'app.py');
       fs.writeFileSync(path.join(fx.work, 'app.py'), 'x = 1\ny = 2\n');
       const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
-      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py, added line 1')) }).toEqual({ status: 'fail', kv: true });
+      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py, line 2')) }).toEqual({ status: 'fail', kv: true });
+    } finally { cleanup(fx); }
+  });
+
+  // Value: protects=the Python/Dart exemption reads the text git diffed, never a working copy that differs from it; fails_when=a committed credential inside a """ block passes because the working copy's other lines were edited under assume-unchanged;
+  //   why_new=GST-738: the added lines matched, so the edited delimiters around them were trusted; seam=git diff; no_claim=a file edited after the scan
+  test('a committed credential in a Python string still fails when the working copy rewrites the lines around it (GST-738)', () => {
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\nCONFIG = """\n"""\n' } });
+    try {
+      commit(fx, { 'app.py': `x = 1\nCONFIG = """\npassword: ${token}\n"""\n` });
+      fx.git('update-index', '--assume-unchanged', 'app.py');
+      fs.writeFileSync(path.join(fx.work, 'app.py'), `x = 1\nCONFIG = 1  #\npassword: ${token}\n#\n`);
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect({ status: check.status, kv: ((check.lines ?? []) as string[]).some((l) => l.includes('env.kv') && l.includes('app.py')) }).toEqual({ status: 'fail', kv: true });
     } finally { cleanup(fx); }
   });
 

@@ -492,7 +492,7 @@ describe('the Capy skill loader', () => {
 describe('a scoped pass after a blocker fix (GST-619)', () => {
   // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix, invoked as GEVA-2 ran it: the Red Team reviews the fix range, Step 11's voices still pending keep the whole branch, the fix-check is named outside the manifest for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, stages the Red Team on the merge base, stages pending Step 11 voices on the range, drops the fix-check silently, or puts it in the manifest;
   //   why_new=GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on every scoped pass and rendered briefs by hand; seam=none; no_claim=the fix-check's own brief
-  function scoped(flags: string[]) {
+  function scoped(flags: string[], explicitMergeBase = false) {
     const { dir, env } = repo();
     const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
     const mergeBase = sh('git merge-base main HEAD');
@@ -503,7 +503,7 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     fs.mkdirSync(path.join(dir, '.state'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.state/qa.md'), 'QA the fix.\n');
     fs.writeFileSync(extras, JSON.stringify([{ name: 'qa', prompt_file: path.join(dir, '.state/qa.md') }]));
-    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
+    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, ...(explicitMergeBase ? ['--diff-base', mergeBase] : []), '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
     const p = bin(dir, env, args);
     expect(p.status, p.stdout + p.stderr).toBe(0);
     expect(p.stdout).toMatch(/^NEXT: scoped /m);
@@ -543,6 +543,15 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     const s = scoped(['--adversarial-ran']);
     expect(s.m.diff_base).toBe(s.rangeBase);
     expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['audit/qa', null]]);
+  }, 120_000);
+
+  // Value: protects=an explicit --diff-base reaches every reader, the Red Team included; fails_when=a scoped pass asked to read the whole branch still stages its Red Team on the fix range; why_new=GST-738 (outside voice); seam=none; no_claim=none
+  test('an explicit --diff-base widens the scoped Red Team too (GST-738)', () => {
+    const s = scoped([], true);
+    expect(s.m.diff_base).toBe(s.mergeBase);
+    const m = settle(s, 'specialists') && settle(s, 'red-team');
+    const redTeam = fs.readFileSync(m.readers.find(r => r.reader === 'red-team')!.file!, 'utf8');
+    expect({ diffBase: m.readers.find(r => r.reader === 'red-team')!.diff_base ?? null, reads: redTeam.includes(s.mergeBase) }).toEqual({ diffBase: null, reads: true });
   }, 120_000);
 });
 

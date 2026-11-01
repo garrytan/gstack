@@ -347,6 +347,27 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`    'password: ${vIdent} more',`, "lib/a.dart"], [`    "password: ${vIdent} more",`, "app.py"],
     ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
   });
+  // Value: protects=an interpolated expression inside a Python f-string or Dart string is skipped whole, so a quote inside it never ends the outer string; fails_when=a """/''' delimiter in a nested string closes the block early and a password: line inside it reads as code;
+  //   why_new=GST-738 (outside voice); seam=none; no_claim=Python before 3.12, where the nested quote is a syntax error
+  test("env.kv: a quote inside an f-string or Dart interpolation does not end the string (GST-738)", () => {
+    const kv = (text: string, sourcePath: string) => scan(text, { repoVisibility: "private", sourcePath, processEnv: {} }).findings.some((f) => f.id === "env.kv");
+    const v = "Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx";
+    for (const [literal, file] of [
+      [`CONFIG = f'''\n{"'''"}\npassword: ${v}\n'''\n`, "app.py"],
+      [`CONFIG = rf"""\n{x.replace('"""', "")}\npassword: ${v}\n"""\n`, "app.py"],
+      [`CONFIG = f'''\n{f"{'\'\'\''}"}\npassword: ${v}\n'''\n`, "app.py"],
+      [`const s = '''\${"'''"}\npassword: ${v}\n''';\n`, "lib/a.dart"],
+      [`const s = """\${m["k"] ?? '"""'}\npassword: ${v}\n""";\n`, "lib/a.dart"],
+    ] as const) expect({ literal, kv: kv(literal, file) }).toEqual({ literal, kv: true });
+    for (const [code, file] of [
+      ["msg = f'{a}:{b}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
+      ["msg = f'''{{literal brace'''\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
+      ["msg = f'{x:>{width}}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
+      ["if'a' in s: pass\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
+      ["final s = 'hi ${user.name} and $id';\n  login(password: request.password);\n", "lib/a.dart"],
+      ["final s = r'${raw}';\n  login(password: request.password);\n", "lib/a.dart"],
+    ] as const) expect({ code, kv: kv(code, file) }).toEqual({ code, kv: false });
+  });
   test("env.kv's source-syntax check stays linear on a match-dense file (#3630)", () => {
     for (const file of ["app.py", "src/a.ts"]) {
       const text = "def f(\n" + "    session: HttpSession,\n".repeat(12_000) + "): pass\n";
