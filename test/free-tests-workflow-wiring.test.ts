@@ -47,7 +47,7 @@ describe('free-tests workflow wiring', () => {
     const suite = workflow.jobs['free-suite'];
     const aggregate = workflow.jobs['free-tests'];
     expect(planner.steps.find((step: any) => step.id === 'plan').run).toContain('--ci-plan');
-    expect(suite.needs).toBe('free-plan');
+    expect(suite.needs).toEqual(['free-plan', 'reuse']);
     expect(suite.strategy.matrix).toBe('${{ fromJSON(needs.free-plan.outputs.matrix) }}');
     expect(suite.strategy['fail-fast']).toBe(false);
     expect(suite.strategy['max-parallel']).toBe(20);

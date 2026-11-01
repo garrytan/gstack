@@ -224,6 +224,23 @@ describe('prefix trees modulo stamps', () => {
     expect(stampFreeTree(git, 'f'.repeat(40), repo.work, policy)).toHaveProperty('error');
   });
 
+  // Value: protects=a gated-to-current diff git cannot produce refuses with its cause instead of reading as 'no changes'
+  //   (GST-448); fails_when=buildReceipt treats a failed diff as an empty one or drops why it failed; seam=a missing blob; no_claim=none
+  test('a diff git cannot produce refuses the receipt with EVIDENCE_IDENTITY_UNKNOWN and git\'s reason', () => {
+    const policy = loadPolicyFromHead(repo.work).policy;
+    repo.git('checkout', '-q', '-B', 'lost-blob', sha.t1!);
+    fs.writeFileSync(path.join(repo.work, 'lost.txt'), 'a blob this test deletes from the object store\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'add a blob');
+    const head = repo.git('rev-parse', 'HEAD');
+    const blobId = repo.git('rev-parse', `${head}:lost.txt`);
+    const gitDir = repo.git('rev-parse', '--absolute-git-dir');
+    fs.rmSync(path.join(gitDir, 'objects', blobId.slice(0, 2), blobId.slice(2)));
+    const r = buildReceipt({ repoRoot: repo.work, gated: sha.t1!, current: head, policy, policyLabel: 'fixture' }) as { error?: string; code?: string };
+    expect(r.code).toBe('EVIDENCE_IDENTITY_UNKNOWN');
+    expect(r.error).toMatch(/^git diff [0-9a-f]{12} [0-9a-f]{12} failed \(.+\), so the changed files cannot be classified/);
+    repo.git('checkout', '-q', '-f', 'squash');
+  });
+
   // #3512: a stamp path carrying a tentative `*_KEY_VERSION = '<next minor>'` (gstack's own convention since #3511) digests the
   // same before and after the slot stamp moves it, so train-backstop finds the record that covers main; a base-version mention
   // on a line the base already carried digests the same at the prefix (where it equals VERSION) and on the stamped main.
