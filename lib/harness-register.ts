@@ -540,10 +540,11 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
   const root = hookRoot(t.name, profile);
   const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
+  if (prevOn && !choice.on) assertHookRoot(t.name, profile, root, root, (code, msg) => { throw new HarnessError(code, msg); });
   if (!choice.on) return plan;
   const why = dest !== profileSkills(t.name, profile) ? 'this registration uses another skills folder (' + dest + ')'
     : t.name === 'openclaw' && opts.env.OPENCLAW_CONFIG_PATH ? 'OPENCLAW_CONFIG_PATH points OpenClaw at a config outside that profile' : '';
-  if (why) {
+  if (why && (plan.explicit || !prevOn)) {
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
     return { ...plan, on: false, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' };
   }
@@ -641,12 +642,12 @@ export function register(opts: RegisterOptions): RegisterResult {
     if (!same) {
       const dirs = new Set(prev?.dirs ?? []);
       for (const p of files.keys()) for (let d = path.dirname(p); !fs.existsSync(d) && path.dirname(d) !== d; d = path.dirname(d)) dirs.add(d);
-      const record = (recorded: typeof want) => writeLedger(lfile, {
+      const record = (recorded: typeof want, final: boolean) => writeLedger(lfile, {
         meta: { id, target: t.name, dest, mode, checkout: opts.checkout, version: opts.version, names: visible.join(','), ...(router ? { router } : {}), ...(context ? { context } : {}),
-          ...(hook ? { start_hook: hook.on ? 'on' : 'off' } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(!hook.prevOn || hook.explicit ? { hook_active: 'no' } : prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : {}) },
+          ...(hook ? { start_hook: hook.on ? 'on' : 'off' } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(!hook.prevOn || hook.explicit ? { hook_active: 'no' } : prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : !final && prev?.meta.hook_root ? { hook_profile: prev.meta.hook_profile, hook_root: prev.meta.hook_root } : {}) },
         files: recorded, dirs: [...dirs].sort((a, b) => b.length - a.length), blocks,
       });
-      record([...want, ...(prev?.files ?? []).filter(f => !files.has(f.path))]);
+      record([...want, ...(prev?.files ?? []).filter(f => !files.has(f.path))], false);
       for (const [p, sha] of prevFiles) {
         if (files.has(p)) continue;
         const disk = onDiskSha(p);
@@ -665,7 +666,7 @@ export function register(opts: RegisterOptions): RegisterResult {
         fs.renameSync(p + '.gstack-new', p);
         written++;
       }
-      record(want);
+      record(want, true);
     }
     for (const [file, text] of blockWrites) {
       if (text === (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null)) continue;

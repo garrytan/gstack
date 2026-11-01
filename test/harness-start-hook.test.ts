@@ -386,6 +386,57 @@ describe('start hook: Hermes lifecycle and the saved choice (fake CLI)', () => {
   }, 300_000);
 });
 
+describe('start hook: teardown keeps what gstack did not write (fake CLI)', () => {
+  test('a kept copy of an edited Hermes plugin file survives unregister: Hermes only disables the plugin', () => {
+    const r = rig('hermes');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    fs.writeFileSync(path.join(r.root, 'note.txt'), 'my note\n');
+    const again = register(r.o());
+    expect(again.kept).toHaveLength(1);
+    unregister(r.o().stateRoot, ROOT, 'hermes', r.env);
+    expect(r.calls().at(-1)!.split('|')[0]).toBe('plugins disable gstack-start');
+    expect(fs.readFileSync(again.kept[0], 'utf8')).toBe('my note\n');
+  }, 300_000);
+
+  test('a plugins folder swapped for a symlink after registration: off refuses, unregister deletes nothing through it', () => {
+    const r = rig('hermes');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    const elsewhere = path.join(r.d, 'elsewhere');
+    fs.renameSync(path.join(r.profile, 'plugins'), elsewhere);
+    fs.symlinkSync(elsewhere, path.join(r.profile, 'plugins'));
+    fs.writeFileSync(path.join(elsewhere, HOOK_ID, 'important.txt'), 'keep');
+    expect(() => register(r.o({ startHook: false }))).toThrow(expect.objectContaining({ code: 'HARNESS_UNSAFE_DESTINATION' }));
+    unregister(r.o().stateRoot, ROOT, 'hermes', r.env);
+    expect(r.calls().some(l => l.startsWith('plugins remove'))).toBe(false);
+    expect(fs.readdirSync(path.join(elsewhere, HOOK_ID)).sort()).toEqual(['__init__.py', 'important.txt', 'note.txt', 'plugin.yaml']);
+  }, 300_000);
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('an opt-out that fails to delete the plugin files can be run again', () => {
+    const r = rig('openclaw');
+    const on = register(r.o({ startHook: true }));
+    expect(on.hook?.state).toBe('active');
+    fs.chmodSync(r.root, 0o555);
+    try {
+      expect(() => register(r.o({ startHook: false }))).toThrow(/EACCES/);
+      expect(readLedger(on.ledger)!.meta.hook_root).toBe(r.root);
+    } finally { fs.chmodSync(r.root, 0o755); }
+    const off = register(r.o({ startHook: false }));
+    expect(off.hook?.state).toBe('off');
+    expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);
+    expect(readLedger(off.ledger)!.meta.hook_root).toBeUndefined();
+  }, 300_000);
+
+  test('a saved opt-in survives one run from a shell that sets OPENCLAW_CONFIG_PATH', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    const res = register({ ...r.o(), env: { ...r.env, OPENCLAW_CONFIG_PATH: '/elsewhere/openclaw.json' } });
+    expect(res.hook?.state).not.toBe('off');
+    expect(r.calls().some(l => l.startsWith('config unset'))).toBe(false);
+    expect(fs.existsSync(path.join(r.root, 'index.js'))).toBe(true);
+    expect(readLedger(res.ledger)!.meta.start_hook).toBe('on');
+  }, 300_000);
+});
+
 describe.skipIf(process.platform === 'win32')('start hook through ./setup --host', () => {
   test('exits 4 with the skills registered when the hook does not turn on, and the next run retries it', () => {
     const f = makeFixture();
