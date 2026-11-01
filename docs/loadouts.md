@@ -44,6 +44,8 @@ bin/gstack-modules render --host claude --loadout full --out-dir ~/arms/control
 bin/gstack-modules render --host claude --loadout full --session-kind unattended --out-dir ~/arms/unattended
 ```
 
+In a template, text only an interactive session uses sits inside `{{IF_SESSION:interactive}}…{{/IF_SESSION}}` (`{{IF_SESSION:unattended}}` for text only the unattended render keeps). An unpaired or nested guard fails generation.
+
 No install uses this render yet. Setup's default Claude root links the committed tree, so serving it to installs is a separate change that waits on the before/after eval.
 
 ## Changing a loadout
