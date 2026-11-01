@@ -694,7 +694,8 @@ const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s
  * text) records every string's content span: a `'''`/`"""` block, or a
  * `'`/`"` string that ends at its line unless a backslash continues it.
  * Comments are skipped (`#` in Python; `//` and nested `/* *\/` in Dart), so a
- * delimiter inside one opens nothing; a backslash escapes the next character, except in a Dart raw
+ * delimiter inside one opens nothing, and a Dart block comment's own span is
+ * recorded too: a `password:` line in it is text, not code (GST-738); a backslash escapes the next character, except in a Dart raw
  * string (`r'''…'''`). The exemption needs the
  * whole file to see a block's opener: pregate passes Dart and Python files
  * whole, and the pre-push hook, which scans added lines alone, passes them
@@ -706,6 +707,22 @@ let stringSpansCache: { text: string; lang: string; spans: Array<[number, number
 /** Drops the cached text once a scan ends, so a long-lived process holds no scanned input. */
 export function clearStringSpanCache(): void {
   stringSpansCache = null;
+}
+
+/** The index after the comment at `i`: a line comment ends at its newline, a Dart block comment at its matching `*\/` (they nest). */
+function commentEnd(text: string, i: number, lang: "py" | "dart"): number {
+  if (lang === "py" || !text.startsWith("/*", i)) {
+    const eol = text.indexOf("\n", i);
+    return eol < 0 ? text.length : eol;
+  }
+  let depth = 1;
+  let j = i + 2;
+  while (j < text.length && depth > 0) {
+    if (text.startsWith("/*", j)) { depth += 1; j += 2; }
+    else if (text.startsWith("*/", j)) { depth -= 1; j += 2; }
+    else j += 1;
+  }
+  return j;
 }
 
 /**
@@ -734,6 +751,8 @@ function stringAt(text: string, i: number, lang: "py" | "dart"): [number, number
     j += lang === "py" ? 1 : 2;
     for (let depth = 1; j < n && depth > 0; ) {
       const d = text[j]!;
+      const comment = lang === "py" ? d === "#" : text.startsWith("//", j);
+      if (comment || (lang === "dart" && text.startsWith("/*", j))) { j = commentEnd(text, j, lang); continue; }
       if (d === '"' || d === "'") { j = stringAt(text, j, lang)[2]; continue; }
       if (d === "{") depth += 1;
       else if (d === "}") depth -= 1;
@@ -750,17 +769,13 @@ function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]>
   for (let i = 0; i < n; ) {
     const c = text[i]!;
     if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
-      const eol = text.indexOf("\n", i);
-      i = eol < 0 ? n : eol;
+      i = commentEnd(text, i, lang);
       continue;
     }
     if (lang === "dart" && text.startsWith("/*", i)) {
-      let depth = 1;
-      for (i += 2; i < n && depth > 0; ) {
-        if (text.startsWith("/*", i)) { depth += 1; i += 2; }
-        else if (text.startsWith("*/", i)) { depth -= 1; i += 2; }
-        else i += 1;
-      }
+      const end = commentEnd(text, i, lang);
+      spans.push([i, end]);
+      i = end;
       continue;
     }
     if (c !== '"' && c !== "'") { i += 1; continue; }

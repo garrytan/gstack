@@ -358,6 +358,10 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`CONFIG = f'''\n{f"{'\'\'\''}"}\npassword: ${v}\n'''\n`, "app.py"],
       [`const s = '''\${"'''"}\npassword: ${v}\n''';\n`, "lib/a.dart"],
       [`const s = """\${m["k"] ?? '"""'}\npassword: ${v}\n""";\n`, "lib/a.dart"],
+      // A comment inside an interpolation holds no delimiter, and a Dart block comment is text.
+      [`CONFIG = f"""\n{1 # } """\n}\npassword: ${v}\n"""\n`, "app.py"],
+      [`const s = '''\${x // '''\n}\npassword: ${v}\n''';\n`, "lib/a.dart"],
+      [`void main() {}\n/*\npassword: ${v}\n*/\n`, "lib/a.dart"],
     ] as const) expect({ literal, kv: kv(literal, file) }).toEqual({ literal, kv: true });
     for (const [code, file] of [
       ["msg = f'{a}:{b}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],

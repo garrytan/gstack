@@ -2,5 +2,5 @@
 
 ### Fixed
 - **`lib/pregate/checks/secrets.ts`:** a changed Python or Dart file's whole text comes from a full-context `git diff`, never from the working copy.
-- **`lib/redact-patterns.ts`:** a Python f-string's `{…}`, or t-string's, and a non-raw Dart string's `${…}` are skipped whole, nested strings included. A quote inside one doesn't end the outer string. An expression left open runs to the end of the file, so the exemption fails closed.
+- **`lib/redact-patterns.ts`:** a Python f-string's `{…}`, or t-string's, and a non-raw Dart string's `${…}` are skipped whole, nested strings and comments included. A quote inside one doesn't end the outer string. A `password:` line inside a Dart `/* */` comment is now read as text, not code. An expression left open runs to the end of the file, so the exemption fails closed.
 - **`bin/gstack-review-dispatch`:** `pass --diff-base` now sets the scoped Red Team's base too.
