@@ -44,7 +44,7 @@ import { exportPublic } from '../lib/autoplan-public';
 import { migrateRun } from '../lib/autoplan-migrate';
 import { reviseRun } from '../lib/autoplan-revise';
 import { pendingAmendments, type RunState, type Voice } from '../lib/autoplan-state';
-import { FILES, RunError, currentPhase, initRun, markOutside, nextStep, readState, resumeRun, statusLines, submitResult, withRunLock, writeState, type NextOptions } from '../lib/autoplan-run';
+import { FILES, RunError, currentPhase, fitReservation, initRun, markOutside, nextStep, readState, resumeRun, retireAttempt, statusLines, submitResult, withRunLock, writeState, type NextOptions } from '../lib/autoplan-run';
 import { driverFile, type Phase } from '../lib/autoplan-prompts';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { createRunner, familyConflict, type RunnerId } from '../lib/outside-voice-runner';
@@ -321,6 +321,8 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
     const row = isApi(voice) ? pricingRow(modelOf(voice)) : undefined;
     return row ? +((fs.statSync(promptFile).size / 3 * row.input_per_mtok + (maxTokens ?? DEFAULT_MAX_TOKENS) * row.output_per_mtok) / 1e6).toFixed(6) : undefined;
   };
+  const usdOf = (voice: Voice, used: { input_tokens?: number; output_tokens?: number } | undefined) =>
+    isApi(voice) && pricingRow(modelOf(voice)) && typeof used?.input_tokens === 'number' && typeof used?.output_tokens === 'number' ? estimateCostUsd({ input: used.input_tokens, output: used.output_tokens }, modelOf(voice)) : undefined;
   for (let guard = 0; guard < 40; guard++) {
     const code = withRunLock(out, () => doNext(out, rest, true, price));
     if (code !== EXIT.ok) return code;
@@ -335,6 +337,8 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       const open = v.attempts?.find(a => a.state === 'dispatched');
       if (!open) continue;
       const runnerId = voice === 'native' ? nativeRunner : outsideRunner;
+      const cost = price(voice, open.prompt);
+      if (cost !== undefined) withRunLock(out, () => fitReservation(out, phase as Phase, voice, open.attempt, cost));
       const runner = createRunner(runnerId);
       const remaining = deadlineAt ? deadlineAt - Date.now() : runnerId === 'api' ? apiTimeoutMs(maxTokens) : 300_000;
       if (remaining <= 0) { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
@@ -346,12 +350,12 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       if (res.status !== 'completed' && res.status !== 'unverified') {
         if (voice === 'outside') { withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} ${res.status}${res.detail ? `: ${res.detail}` : ''}`)); continue; }
         process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.reason ? `: ${res.reason}` : ''}${res.detail ? `: ${res.detail}` : ''}\n`);
-        withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); });
+        withRunLock(out, () => { retireAttempt(out, phase as Phase, voice, open.attempt, usdOf(voice, res.usage) ?? 'unknown'); const s = readState(out); s.status = 'interrupted'; writeState(s); });
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
       }
-      const used = res.usage;
-      const usage = isApi(voice) && pricingRow(modelOf(voice)) && typeof used.input_tokens === 'number' && typeof used.output_tokens === 'number' ? ['--usage-usd', String(estimateCostUsd({ input: used.input_tokens, output: used.output_tokens }, modelOf(voice)))] : [];
+      const usd = usdOf(voice, res.usage);
+      const usage = usd === undefined ? [] : ['--usage-usd', String(usd)];
       try { withRunLock(out, () => doSubmit(out, ['--phase', phase, '--voice', voice, '--result', `${open.result}.raw`, '--model', res.model ?? modelOf(voice), '--attempt', open.attempt, '--runner', res.runner, ...usage], true)); }
       catch (e) {
         if (voice !== 'outside' || !(e instanceof RunError)) throw e;

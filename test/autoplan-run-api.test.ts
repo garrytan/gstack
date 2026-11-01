@@ -104,4 +104,20 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(r.stderr).toMatch(/native voice unavailable: truncated: .*output limit/);
     expect(r.state.status).toBe('interrupted');
   }, 150_000);
+
+  test('a truncated call settles what it cost, and a retry with a larger output limit is admitted afresh against the cap', async () => {
+    mode = 'cut';
+    const first = await run('cut-retry', ['--spend-cap', '8']);
+    expect(first.state.status).toBe('interrupted');
+    const truncated = first.state.phases.ceo.native.attempts[0].attempt;
+    const ledger = JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8'));
+    expect(ledger.reserved.map((r: any) => r.attempt)).not.toContain(truncated);
+    expect(ledger.settled.find((s: any) => s.attempt === truncated).usd).toBeGreaterThan(0);
+    mode = 'ok';
+    calls = 0;
+    const retry = await run('cut-retry', ['--spend-cap', '8', '--max-tokens', '2000000']);
+    expect(retry.status).toBe(3);
+    expect(retry.stdout + retry.stderr).toContain('SPEND_CAP_EXCEEDED');
+    expect(calls).toBe(0);
+  }, 150_000);
 });

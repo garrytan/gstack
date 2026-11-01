@@ -31,7 +31,7 @@ import type { RunStatus } from './headless-artifacts';
 import { sha256File } from './headless-artifacts';
 import { outsideConsent } from './outside-consent';
 import { familyConflict, modelFamily } from './outside-voice-runner';
-import { renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
+import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
 
@@ -411,6 +411,33 @@ export function closeOutside(state: RunState, phase: Phase, status: 'unavailable
   if (state.phases[phase]?.native?.status === 'completed') lines.push(...closeAndAdvance(state, phase));
   else if (state.status !== 'gate_pending') state.status = 'awaiting_result';
   return lines;
+}
+
+/** Raise an open attempt's reservation to what the call about to run can cost; the cap still binds (SPEND_CAP_EXCEEDED). */
+export function fitReservation(out: string, phase: Phase, voice: Voice, attempt: string, usd: number): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a || usd <= a.estimate_usd + 1e-9) return;
+  const file = path.join(out, FILES.spend);
+  release(file, attempt);
+  try { reserve(file, attempt, usd); }
+  catch (e) {
+    reserve(file, attempt, a.estimate_usd);
+    if (e instanceof SpendCapExceeded) throw new RunError('SPEND_CAP_EXCEEDED', `${attempt} (${phase} ${voice}) was admitted at ${a.estimate_usd}; the call it is about to make can cost ${usd}, past the cap ${state.spend_cap_usd}`, 3);
+    throw e;
+  }
+  a.estimate_usd = usd;
+  writeState(state);
+}
+
+/** A paid call that failed (truncated, refused): settle what it cost and supersede its attempt, so a retry is admitted afresh. */
+export function retireAttempt(out: string, phase: Phase, voice: Voice, attempt: string, usd: number | 'unknown'): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (a) { a.state = 'superseded'; a.terminal_at = now(); }
+  settle(path.join(out, FILES.spend), attempt, usd);
+  journal(out, { event: 'superseded', attempt, phase, voice, usage_usd: usd });
+  writeState(state);
 }
 
 /** Mark the outside voice of the current phase unavailable/failed (the runner could not run); closes the phase if native is bound. */
