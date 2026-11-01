@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { locateRule, safetyRule } from './helpers/safety-rules';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -39,7 +40,7 @@ function prepare(root: string, arm: 'rule' | 'removed') {
   const probe = `import { prepareCodexHostRuntime } from ${JSON.stringify(path.join(ROOT, 'test', 'helpers', 'codex-host-runner.ts'))};
 const root = prepareCodexHostRuntime({ ...process.env, GSTACK_CODEX_HOST_ROOT: ${JSON.stringify(root)}, GSTACK_SAFETY_ARM: ${JSON.stringify(arm)} });
 if (root !== ${JSON.stringify(root)}) throw new Error('unexpected runtime root ' + root);`;
-  const run = Bun.spawnSync([process.execPath, '--no-env-file', '--config=/dev/null', '-e', probe], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+  const run = Bun.spawnSync([process.execPath, ...bunIsolationArgs(), '-e', probe], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
   expect(run.stderr.toString()).toBe('');
   expect(run.exitCode).toBe(0);
 }
