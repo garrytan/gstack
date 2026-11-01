@@ -563,7 +563,7 @@ of required checks before it merges, one slot after another, so a wave of
 three saves two of those rounds and two versions.
 
 ```bash
-gstack-ship-queue wave plan                                     # read-only (merge-tree scratch objects aside): QUEUE, WAVE_ADVISED, WAVE_GROUP lines
+gstack-ship-queue wave plan                                     # read-only (merge-tree scratch objects aside): NOT_GREEN, NOT_MERGEABLE, QUEUE, WAVE_ADVISED, WAVE_GROUP, WAVE_OVERSIZE lines
 gstack-ship-queue wave build --area ship --prs 41@<sha>,42@<sha>,43@<sha>
 gstack-ship-queue wave build --wave <nonce> --continue          # after resolving a conflict in the printed worktree
 gstack-ship-queue wave build --wave <nonce> --drop 42           # rebuild without #42 as a new wave
