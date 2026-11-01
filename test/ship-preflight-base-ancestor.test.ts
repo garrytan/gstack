@@ -43,4 +43,17 @@ describe('preflight merge when the base is already in HEAD (GST-691)', () => {
     expect(merges()).toEqual(['merge origin/main --no-edit']);
     expect(r.stdout).toContain('STOP: git merge origin/main failed: shared-tree guard: git merge is not allowed in this checkout');
   });
+
+  // Value: protects=an unfinished merge of another branch still stops at Step 3 with its conflicted files named, though the base is in HEAD;
+  //   fails_when=the ancestor shortcut reports up to date over an index with unmerged paths and the run tests conflict markers;
+  //   why_new=GST-691 /ship adversarial finding 1; seam=git ls-files -u; no_claim=how the agent resolves it
+  test('an unfinished merge with the base already in HEAD still stops on its conflicts', () => {
+    const { f } = guarded();
+    f.git('checkout', '-q', '-b', 'other', 'main'); f.write({ 'src/a.ts': 'export const a = 5;\n' }); f.commit('other edits a');
+    f.git('checkout', '-q', 'feat'); f.write({ 'src/a.ts': 'export const a = 6;\n' }); f.commit('feat edits a');
+    expect(f.git('merge', '--no-edit', 'other').status).not.toBe(0);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect([r.status, lineOf(r.stdout, 'MERGE')]).toEqual([3, '']);
+    expect(r.stdout).toMatch(/STOP: merge conflicts in src\/a\.ts/);
+  });
 });

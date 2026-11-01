@@ -68,7 +68,7 @@ const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin
 function merge(cwd: string, base: string, r: Report): boolean {
   const policy = shipPolicy(cwd, base);
   if (policy?.queue_mode === 'stamp-at-merge') r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
-  else if (git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
+  else if (!git(cwd, ['ls-files', '-u']).stdout.trim() && git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
   else {
     const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
     const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
