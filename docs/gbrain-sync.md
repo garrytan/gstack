@@ -201,10 +201,9 @@ is kept in a git stash; `gstack-brain-sync --status` names the stash and the
 command that brings it back.
 
 JSON files such as `developer-profile.json` have no merge driver, so a
-merge run by hand in `~/.gstack`, or one left by an older gstack, can leave
-conflict markers in them. The sync parses every staged `.json` file and
-holds back one that does not parse (status `held`, rule `invalid-json`)
-until you repair it, and `gstack-doctor` warns when a synced profile or
+merge can leave conflict markers in them. The sync parses every staged
+`.json` file and holds back one that does not parse (status `held`, rule
+`invalid-json`) until you repair it, and `gstack-doctor` warns when a synced profile or
 decision snapshot holds conflict markers.
 
 ## Cross-machine pull cadence
