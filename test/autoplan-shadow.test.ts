@@ -216,6 +216,32 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     expect(readLedger(path.join(out, 'spend.json')).settled.filter(s => s.label === 'shadow').map(s => [s.attempt, s.usd])).toEqual([['shadow-r1-1', 0.014]]);
     expect(fs.existsSync(path.join(out, 'shadow', 'r1.pending'))).toBe(false);
   });
+  test('a link at a reply path is replaced, never written through', async () => {
+    const f = await fake('linked-reply', [{ mode: 'valid' }]);
+    const out = gateRun();
+    const { claim } = claimShadow(out);
+    const sentinel = path.join(TMP, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'keep');
+    const reply = path.join(out, 'shadow', 'shadow-r1-1.reply.txt');
+    fs.symlinkSync(sentinel, reply);
+    expect((await runShadow(out, claim!, { env: { ...process.env, ...f.env } })).status).toBe('recorded');
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('keep');
+    expect(fs.lstatSync(reply).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(reply, 'utf8')).toContain('fake prediction');
+  });
+  test('a cap changed during the call admits the retry against the new cap and is not written back over', async () => {
+    const f = await fake('cap-moved', [{ mode: 'truncated', delay_ms: 400 }, { mode: 'valid' }]);
+    const out = gateRun();
+    const { claim } = claimShadow(out);
+    const pending = runShadow(out, claim!, { env: { ...process.env, ...f.env } });
+    await Bun.sleep(150);
+    const run = readRun(out);
+    run.spend_cap_usd = 2;
+    fs.writeFileSync(path.join(out, 'run.json'), JSON.stringify(run, null, 2) + '\n');
+    expect((await pending).status).toBe('recorded');
+    expect(f.requests().length).toBe(2);
+    expect(readLedger(path.join(out, 'spend.json')).cap_usd).toBe(2);
+  });
   test('a malformed page is asked once more; items valid in either reply record, the rest record malformed', async () => {
     const fixed = await shadowed('missing-then-valid', [{ mode: 'missing' }, { mode: 'valid' }]);
     expect(fixed.f.requests().length).toBe(2);

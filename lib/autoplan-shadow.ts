@@ -308,7 +308,7 @@ export async function runShadow(out: string, claim: ShadowClaim, o: RunShadowOpt
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw new ShadowFailure('timeout', `the ${(o.deadlineMs ?? SHADOW_DEADLINE_MS) / 1000} s deadline passed before the call`);
       const attempt = `shadow-r${rev}-${callIds(readJournal(out), rev).length + 1}`;
-      try { reserve(ledgerFile, attempt, estimate(maxTokens), { cap: state.spend_cap_usd, label: 'shadow' }); }
+      try { reserve(ledgerFile, attempt, estimate(maxTokens), { cap: readState(out).spend_cap_usd, label: 'shadow' }); }
       catch (e: any) { throw new ShadowFailure('budget', e.message); }
       journal(out, { event: 'shadow_dispatched', gate_rev: rev, attempt, model, max_tokens: maxTokens, estimate_usd: estimate(maxTokens), retrospective: claim.retrospective });
       let result: ApiCallResult;
@@ -322,7 +322,7 @@ export async function runShadow(out: string, claim: ShadowClaim, o: RunShadowOpt
       const { input_tokens: inTok, output_tokens: outTok } = result.usage;
       const usd: number | 'unknown' = typeof inTok === 'number' && typeof outTok === 'number' ? estimateCostUsd({ input: inTok, output: outTok }, model) : 'unknown';
       settle(ledgerFile, attempt, usd);
-      fs.writeFileSync(path.join(shadowDir(out), `${attempt}.reply.txt`), result.text);
+      writeAtomic(path.join(shadowDir(out), `${attempt}.reply.txt`), result.text);
       const reply = { result, usd, attempt };
       replies.push(reply);
       return reply;
