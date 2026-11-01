@@ -72,6 +72,21 @@ describe('gstack-ship-receipt write', () => {
     expect(rewritten).toContain('## Summary');
   });
 
+  test('without --session-kind or GSTACK_SESSION_KIND, session_kind comes from gstack-session-kind (#3541)', () => {
+    const repo = fixture();
+    makePr(repo, 'pr-a', { expects: '1.2.4.0' });
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n\nProse.\n');
+    const env = { GSTACK_SESSION_KIND: '' };
+    const kind = runBin(repo, 'gstack-session-kind', [], env);
+    expect(kind.status, kind.err).toBe(0);
+    const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '44', '--base', 'main', '--body', body, '--json'], env);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(JSON.parse(w.out).session_kind).toBe(kind.out.trim());
+  });
+
   test('refuses an invalid receipt before writing (RECEIPT_INVALID) and a non-integer --pr', () => {
     const repo = fixture();
     const body = path.join(repo.root, 'body.md');
