@@ -1673,11 +1673,13 @@ skill, so a "no difference" result says nothing about the skill (FOUN-32 found
 this in another crew's null result).
 
 **Every caller says which prompt it uses.** `runAgentSdkTest` and every direct
-SDK `query()` call pass `CLAUDE_CODE_PRESET` from
-`test/helpers/sdk-system-prompt.ts` (an overlay arm adds `append`), or name why
-not: `{ type: 'sdk-default', reason }` for a stub provider or a connectivity
-probe, `{ type: 'custom', text, reason }` for an arm that replaces the prompt.
-The runner refuses a missing, empty or bare-string prompt before it starts, and
+SDK `query()` call pass the Claude Code preset,
+`{ type: 'preset', preset: 'claude_code' }` (also exported as
+`CLAUDE_CODE_PRESET` from `test/helpers/sdk-system-prompt.ts`; an overlay arm
+adds `append`), or name why not: `{ type: 'sdk-default', reason }` for a stub
+provider or a connectivity probe, `{ type: 'custom', text, reason }` for an arm
+that replaces the prompt. The runner refuses a missing, empty, bare-string or
+unnamed prompt before it starts, and
 `test/sdk-system-prompt-tripwire.test.ts` scans test/ and scripts/ for the same
 mistake in free CI. Arms that compare loadouts, the no-gstack arm included,
 keep the same preset and differ only in what the arm loads.
