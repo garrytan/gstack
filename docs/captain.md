@@ -172,7 +172,7 @@ not a new ask ([carry-forward](unattended.md#carry-forward)).
 
 **The record.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` (with
 `--stack <b1,b2,...>` for a stacked PR set) writes the approval row (date, the ask, the owner's exact words, the lane that answered as relayer,
-what it covers); `gstack-approvals render` puts it in the report and the PR body. Before
+what it covers; a gate answered with `--words-by agent:<id>` is listed under that agent as its own decision, not the owner's words); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
 The brief's done line names the row. A plan approval is not a READY field; the
