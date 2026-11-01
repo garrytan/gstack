@@ -3,7 +3,8 @@
  * test-impact — trace free tests and compute their reuse keys (GST-167 PR 2; docs/test-impact.md).
  *
  *   scripts/test-impact.ts trace [--out <dir>] <test-file>...
- *       Run each file with `bun test` under strace (Linux) and write its read set to <dir>
+ *       Run each file under strace (Linux) exactly as the free runner does (its bun test arguments and shard
+ *       sandbox) and write its read set to <dir>
  *       (default .context/test-impact/traces).
  *   scripts/test-impact.ts key --tree <ref> [--base <ref>] [--traces <dir>] [--json] <test-file>...
  *       Print each file's key at <ref>, or why it is ineligible. With --base, the key code is
@@ -17,7 +18,9 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { bunIsolationArgs } from '../lib/bun-isolation';
+import { randomUUID } from 'node:crypto';
+import { createShardSandbox } from './lib/shard-engine';
+import { buildShardArgs, disableGitAutoMaintenance } from './test-free-shards';
 import * as localKey from '../lib/test-impact/key';
 import type { KeyOptions, KeyReport } from '../lib/test-impact/key';
 import { STRACE_FLAGS, TRACE_VERSION, envDigests, parseStrace, tracePath, type TraceRecord } from '../lib/test-impact/trace';
@@ -55,20 +58,22 @@ function trace(root: string, argv: string[]): number {
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 30_000 });
   let failed = 0;
   for (const file of files.map(f => relTo(root, f))) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-run-'));
+    const sandbox = createShardSandbox('gstack-test-impact-run-', process.env, { realpath: true });
+    const env = { ...sandbox.env, BROWSE_STATE_FILE: path.join(sandbox.stateDir, '.gstack', 'browse.json'), GSTACK_FREE_SHARD_ID: randomUUID(), BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' };
+    disableGitAutoMaintenance(env);
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-log-'));
     try {
       const log = path.join(logDir, 'strace.txt');
-      const r = spawnSync('strace', [...STRACE_FLAGS, '-o', log, '--', process.execPath, ...bunIsolationArgs(), 'test', path.join(root, file), '--timeout=30000', '--max-concurrency=1'],
-        { cwd: root, env: { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' }, timeout: 600_000, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-      const set = parseStrace(fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '', { repoRoot: root, home: os.homedir(), tmpDir: tmp, pathDirs: (process.env.PATH ?? '').split(path.delimiter) });
-      const record: TraceRecord = { version: TRACE_VERSION, test: file, tracedAt: new Date().toISOString(), commit: head.status === 0 ? head.stdout.trim() : null, exitCode: r.status, runtime: localKey.runtimeManifest(), env: envDigests(process.env), ...set };
+      const r = spawnSync('strace', [...STRACE_FLAGS, '-o', log, '--', process.execPath, ...buildShardArgs([file], { rootDir: root })],
+        { cwd: root, env, timeout: 600_000, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+      const set = parseStrace(fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '', { repoRoot: root, home: os.homedir(), tmpDir: sandbox.stateDir, pathDirs: (process.env.PATH ?? '').split(path.delimiter) });
+      const record: TraceRecord = { version: TRACE_VERSION, test: file, tracedAt: new Date().toISOString(), commit: head.status === 0 ? head.stdout.trim() : null, exitCode: r.status, runtime: localKey.runtimeManifest(), env: envDigests(env), ...set };
       fs.writeFileSync(tracePath(out, file), JSON.stringify(record, null, 2) + '\n');
       if (r.status !== 0) failed++;
       const verdict = set.ineligible.length ? `ineligible: ${set.ineligible.join('; ')}` : 'eligible';
       console.log(`traced ${file}: exit ${r.status ?? r.signal}, ${set.paths.length} paths, ${Object.keys(set.dirs).length} listed dirs, ${verdict} → ${path.relative(root, tracePath(out, file))}`);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.rmSync(sandbox.stateDir, { recursive: true, force: true });
       fs.rmSync(logDir, { recursive: true, force: true });
     }
   }

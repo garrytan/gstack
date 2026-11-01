@@ -80,6 +80,17 @@ describe('test-impact key: what changes it', () => {
     expect(keyAt(repo, 'HEAD', t).key).not.toBe(before.key);
   });
 
+  test('a branch .gitattributes export-ignore cannot hide a graph input', () => {
+    const t = 'test/a.test.ts';
+    const repo = fixture({ 'lib/hidden.ts': 'export const x = 1;\n', [t]: "import { x } from '../lib/hidden';\nimport { test } from 'bun:test';\ntest('a', () => x);\n" });
+    traceFrom(repo, t);
+    const before = keyAt(repo, 'main', t);
+    commit(repo, { '.gitattributes': 'lib/hidden.ts export-ignore\n', 'lib/hidden.ts': 'export const x = 2;\n' });
+    const after = keyAt(repo, 'HEAD', t);
+    expect(after.inputs).toContainEqual(expect.objectContaining({ kind: 'graph', path: 'lib/hidden.ts' }));
+    expect(after.key).not.toBe(before.key);
+  });
+
   test('a file added under a directory the test listed changes the key', () => {
     const t = 'test/listing.test.js';
     const repo = fixture({ 'test/data/a.txt': 'a\n', 'test/data/b.txt': 'b\n', [t]: `${NODE_TEST}test('lists', () => require('fs').readdirSync(require('path').join(__dirname, 'da' + 'ta')));\n` });
@@ -221,11 +232,13 @@ describe('scripts/test-impact.ts', () => {
   });
 
   const hasStrace = process.platform === 'linux' && spawnSync('strace', ['-V'], { timeout: 10_000 }).status === 0;
-  test.if(hasStrace)('trace (real strace): a spawned bin that sources a sibling records the sibling, and editing it changes the key', () => {
+  test.if(hasStrace)('trace (real strace, the runner\'s own command): a spawned bin that sources a sibling and the bunfig preload are recorded, and editing the sibling changes the key', () => {
     const t = 'test/tool2.test.ts';
     const repo = fixture({
       'bin/tool2': '#!/bin/bash\ncd "$(dirname "$0")"\nsource ./tool2-lib.sh\ngreet\n',
       'bin/tool2-lib.sh': 'greet() { echo hi; }\n',
+      'bunfig.toml': '[test]\npreload = ["./test/setup.ts"]\n',
+      'test/setup.ts': 'export {};\n',
       [t]: "import { expect, test } from 'bun:test';\nimport { spawnSync } from 'node:child_process';\nimport * as path from 'node:path';\ntest('greets', () => expect(spawnSync(path.join(import.meta.dir, '..', 'bin', 'tool2'), { encoding: 'utf8', timeout: 10000 }).stdout.trim()).toBe('hi'));\n",
     });
     fs.chmodSync(path.join(repo.work, 'bin/tool2'), 0o755);
@@ -237,7 +250,7 @@ describe('scripts/test-impact.ts', () => {
     expect(r.status).toBe(0);
     expect(r.out).toContain(`traced ${t}: exit 0`);
     const rec = readTrace(traces, t)!;
-    expect(rec.paths).toEqual(expect.arrayContaining([t, 'bin/tool2', 'bin/tool2-lib.sh']));
+    expect(rec.paths).toEqual(expect.arrayContaining([t, 'bin/tool2', 'bin/tool2-lib.sh', 'bunfig.toml', 'test/setup.ts']));
     expect(rec.ineligible).toEqual([]);
     const env = { ...process.env, ...repo.env };
     const runtime = { platform: process.platform, arch: process.arch, bun: Bun.version };

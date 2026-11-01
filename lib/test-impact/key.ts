@@ -8,7 +8,7 @@
  *   - listed: the sorted entry names of every repo directory the trace listed;
  *   - graph: the forward import-graph closure of the test (lib/pregate/import-graph.ts),
  *     capped at MAX_HOPS hops; a closure that reaches the cap is ineligible, never truncated;
- *   - global: bun.lock, every tsconfig*.json and the pregate `dependencies`;
+ *   - global: bun.lock, bunfig.toml, every tsconfig*.json and the pregate `dependencies`;
  *   - code: KEY_CODE_FILES, the runner, planner, shard engine, graph and key code;
  *   - tool: the bytes of each executable outside the repo the trace ran (git, bash, tar…), read on this machine;
  *   - runtime and env: the runtime manifest and ENV_ALLOWLIST values.
@@ -58,8 +58,8 @@ export interface KeyOptions {
   now?: number; runtime?: Record<string, string>; env?: Record<string, string | undefined>;
 }
 
-function git(repoRoot: string, args: string[], input?: Buffer | string): Buffer {
-  const r = spawnSync('git', args, { cwd: repoRoot, input, timeout: 300_000, maxBuffer: 1024 * 1024 * 1024 });
+function git(repoRoot: string, args: string[], input?: Buffer | string, env?: NodeJS.ProcessEnv): Buffer {
+  const r = spawnSync('git', args, { cwd: repoRoot, input, env, timeout: 300_000, maxBuffer: 1024 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.error?.message ?? r.stderr?.toString().trim() ?? r.status}`);
   return r.stdout;
 }
@@ -104,19 +104,22 @@ export function catText(repoRoot: string, treeish: string, rel: string): string 
   return r.status === 0 ? r.stdout : null;
 }
 
-/** A tree-ish exported to a fresh temp directory with every file staged, so the import graph (git ls-files) sees exactly that tree. */
+/**
+ * A tree-ish checked out into a fresh temp directory with every file staged, so the import graph (git ls-files) sees exactly
+ * that tree. It goes through a private index and checkout-index, never `git archive`, whose export-ignore and export-subst
+ * attributes would let the tree itself hide files from the graph.
+ */
 export function materializeTree(repoRoot: string, treeish: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-tree-'));
-  const tar = `${dir}.tar`;
+  const env = { ...process.env, GIT_INDEX_FILE: `${dir}.index` };
   try {
-    git(repoRoot, ['archive', '--format=tar', '-o', tar, treeish]);
-    const x = spawnSync('tar', ['-xf', tar, '-C', dir], { timeout: 300_000 });
-    if (x.status !== 0) throw new Error(`tar -xf failed: ${x.stderr?.toString().trim()}`);
+    git(repoRoot, ['read-tree', treeish], undefined, env);
+    git(repoRoot, ['checkout-index', '-a', '-f', `--prefix=${dir}/`], undefined, env);
     git(dir, ['init', '-q']);
     git(dir, ['add', '-A', '-f']);
     return dir;
   } catch (error) { fs.rmSync(dir, { recursive: true, force: true }); throw error; }
-  finally { fs.rmSync(tar, { force: true }); }
+  finally { fs.rmSync(env.GIT_INDEX_FILE, { force: true }); }
 }
 
 /** The runtime manifest a key binds: platform, architecture and Bun version. */
@@ -187,7 +190,7 @@ export function computeKeys(opts: KeyOptions): KeyReport {
   const envNow = envDigests(opts.env ?? process.env);
   const runtime = opts.runtime ?? runtimeManifest();
   const shared: KeyInput[] = [
-    ...[...treeIdx.entries.keys()].filter(p => p === 'bun.lock' || TSCONFIG.test(p)).map(p => ({ kind: 'global' as const, path: p, digest: '' })),
+    ...[...treeIdx.entries.keys()].filter(p => p === 'bun.lock' || p === 'bunfig.toml' || TSCONFIG.test(p)).map(p => ({ kind: 'global' as const, path: p, digest: '' })),
     { kind: 'global', path: `${PREGATE_CONFIG_PATH}#dependencies`, digest: sha(JSON.stringify(dependencies)) },
     ...KEY_CODE_FILES.map(p => ({ kind: 'code' as const, path: p, digest: '' })),
     ...Object.entries(runtime).sort().map(([k, v]) => ({ kind: 'runtime' as const, path: k, digest: v })),
