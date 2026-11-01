@@ -354,7 +354,7 @@ export interface RegisterResult {
   id: string; target: TargetName; dest: string; mode: SkillsMode;
   status: 'installed' | 'updated' | 'unchanged'; written: number; skills: number; router: string | null; ledger: string; kept: string[];
   /** The start hook, for OpenClaw and Hermes; required: this run turned it on or was asked to, so anything but active is a failure. */
-  hook?: HookResult & { required?: boolean };
+  hook?: HookResult & { required?: boolean; retried?: boolean };
 }
 
 const PLAIN = /^[^\t\n\r]+$/;
@@ -541,9 +541,11 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const root = hookRoot(t.name, profile);
   const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
   if (!choice.on) return plan;
-  if (dest !== profileSkills(t.name, profile)) {
-    if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and this registration uses another skills folder (' + dest + ')');
-    return { ...plan, on: false, note: 'off: this registration uses a custom skills folder (' + choice.source + ' asked for the hook)' };
+  const why = dest !== profileSkills(t.name, profile) ? 'this registration uses another skills folder (' + dest + ')'
+    : t.name === 'openclaw' && opts.env.OPENCLAW_CONFIG_PATH ? 'OPENCLAW_CONFIG_PATH points OpenClaw at a config outside that profile' : '';
+  if (why) {
+    if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
+    return { ...plan, on: false, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' };
   }
   assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
   return { ...plan, files: hookFiles(t.name, root) };
@@ -554,11 +556,15 @@ function finishHook(opts: RegisterOptions, hook: HookPlan | null, released: stri
   if (!hook) return undefined;
   if (!hook.on) return { state: 'off', ...(hook.note ? { detail: hook.note } : {}), ...(released ? { fix: released } : {}) };
   const t = opts.target.name as 'openclaw' | 'hermes';
-  const required = !hook.prevOn || hook.explicit || hook.retry;
-  if (!required) return { state: 'unchecked', profile: hook.profile, root: hook.root, fix: 'gstack-harness status shows whether it is active' };
+  const required = !hook.prevOn || hook.explicit;
+  if (!required && !hook.retry) return { state: 'unchecked', profile: hook.profile, root: hook.root, fix: 'gstack-harness status shows whether it is active' };
+  if (!required) {
+    const now = inspectHook(t, hook.profile, opts.env, opts.home);
+    if (now.state === 'active' || now.state === 'disabled') return { ...now, profile: hook.profile, root: hook.root, retried: true };
+  }
   const failed = activateHook(t, hook.profile, opts.env, opts.home);
   const r = inspectHook(t, hook.profile, opts.env, opts.home);
-  return { ...r, ...(failed && r.state !== 'active' && !r.detail?.startsWith(failed) ? { detail: failed + (r.detail ? '; ' + r.detail : '') } : {}), profile: hook.profile, root: hook.root, required };
+  return { ...r, ...(failed && r.state !== 'active' && !r.detail?.startsWith(failed) ? { detail: failed + (r.detail ? '; ' + r.detail : '') } : {}), profile: hook.profile, root: hook.root, required, retried: !required };
 }
 
 export function register(opts: RegisterOptions): RegisterResult {
@@ -663,7 +669,7 @@ export function register(opts: RegisterOptions): RegisterResult {
     }
     if (opts.registry && t.render === 'host') shellRegistry(opts, 'gstack_install_registry_upsert', [t.name, 'global', '-', dest, opts.checkout, opts.checkout, opts.version, '-', '-']);
     const hookResult = finishHook(opts, hook, released);
-    const active = hookResult?.required ? (hookResult.state === 'active' ? 'yes' : 'no') : '';
+    const active = hookResult?.required || hookResult?.retried ? ({ active: 'yes', disabled: 'disabled' } as Record<string, string>)[hookResult.state] ?? 'no' : '';
     const saved = active ? readLedger(lfile) : null;
     if (saved && saved.meta.hook_active !== active) writeLedger(lfile, { ...saved, meta: { ...saved.meta, hook_active: active } });
     return { id, target: t.name, dest, mode, status: !prev ? 'installed' : same ? 'unchanged' : 'updated', written, skills, router, ledger: lfile, kept, ...(hookResult ? { hook: hookResult } : {}) };

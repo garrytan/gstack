@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { TARGETS, readLedger, register, status, unregister, type RegisterOptions } from '../lib/harness-register';
-import { HOOK_ID, START_NOTE, START_NOTE_MAX, hookChoice, hookFiles } from '../lib/harness-start-hook';
+import { HOOK_ID, START_NOTE, START_NOTE_MAX, hookChoice, hookFiles, inspectHook } from '../lib/harness-start-hook';
 import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, registryRows, runSetup } from './helpers/install-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -29,7 +29,8 @@ en=$(grep '^plugins.entries.gstack-start.enabled=' "$c" | tail -1 | cut -d= -f2)
 case "$1 $2" in
   "config set") echo "$3=$4" >> "$c" ;;
   "config unset") grep -v "^$3" "$c" > "$c.t"; mv "$c.t" "$c" ;;
-  "config get") printf '{"allow":%s,"entries":{"gstack-start":{"enabled":%s,"hooks":{"allowConversationAccess":%s}}}}\n' "$(cat "$d/fake-allow" 2>/dev/null || echo null)" "$enj" "$acc" ;;
+  "config get") api=""; grep -q '^plugins.entries.gstack-start.hooks.allowPromptInjection=false$' "$c" && api=',"allowPromptInjection":false'
+    printf '{"allow":%s,"deny":%s,"entries":{"gstack-start":{"enabled":%s,"hooks":{"allowConversationAccess":%s%s}}}}\n' "$(cat "$d/fake-allow" 2>/dev/null || echo null)" "$(cat "$d/fake-deny" 2>/dev/null || echo null)" "$enj" "$acc" "$api" ;;
   "plugins inspect")
     hooks=""; [ -d "$d/extensions/gstack-start" ] && [ "$acc" = true ] && [ "$en" != false ] && hooks='{"name":"before_prompt_build"}'
     printf '{"plugin":{"status":"loaded","enabled":%s},"typedHooks":[%s]}\n' "$([ "$en" = false ] && echo false || echo true)" "$hooks" ;;
@@ -55,7 +56,7 @@ function rig(target: 'openclaw' | 'hermes', extra: { noCli?: boolean; env?: Reco
   fs.writeFileSync(path.join(bin, 'hermes'), FAKE_HERMES, { mode: 0o755 });
   const profile = path.join(d, target === 'openclaw' ? 'oc' : 'he');
   fs.mkdirSync(profile, { recursive: true });
-  const env = { PATH: (extra.noCli ? '' : bin + path.delimiter) + '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sekret', OPENCLAW_CONFIG_PATH: '/elsewhere/openclaw.json', [target === 'openclaw' ? 'OPENCLAW_STATE_DIR' : 'HERMES_HOME']: profile, ...extra.env };
+  const env = { PATH: (extra.noCli ? '' : bin + path.delimiter) + '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sekret', [target === 'openclaw' ? 'OPENCLAW_STATE_DIR' : 'HERMES_HOME']: profile, ...extra.env };
   const o = (more: Partial<RegisterOptions> = {}): RegisterOptions => ({ target: TARGETS[target], checkout: ROOT, stateRoot: path.join(d, 'state'), env, home: path.join(d, 'home'), version: VERSION, ...more });
   const root = path.join(profile, target === 'openclaw' ? 'extensions' : 'plugins', HOOK_ID);
   const calls = () => fs.existsSync(path.join(profile, 'fake-calls')) ? fs.readFileSync(path.join(profile, 'fake-calls'), 'utf8').trim().split('\n') : [];
@@ -143,6 +144,7 @@ describe('start hook: who decides', () => {
     const s = rig('openclaw');
     expect(() => register(s.o({ skillsDir: path.join(s.d, 'custom', 'skills'), startHook: true }))).toThrow(expect.objectContaining({ code: 'HARNESS_HOOK_UNSUPPORTED' }));
     expect(() => register({ ...s.o({ startHook: true }), target: TARGETS.dots, skillsDir: path.join(s.d, 'dots') })).toThrow(expect.objectContaining({ code: 'HARNESS_HOOK_UNSUPPORTED' }));
+    expect(() => register({ ...s.o({ startHook: true }), env: { ...s.env, OPENCLAW_CONFIG_PATH: '/elsewhere/openclaw.json' } })).toThrow(expect.objectContaining({ code: 'HARNESS_HOOK_UNSUPPORTED' }));
     for (const x of [r, s]) { expect(fs.existsSync(path.join(x.profile, 'skills'))).toBe(false); expect(x.calls()).toEqual([]); }
     expect(fs.existsSync(path.join(s.d, 'custom'))).toBe(false);
   });
@@ -233,6 +235,54 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
   }, 120_000);
 });
 
+describe('start hook: read back and retry (fake CLI)', () => {
+  test('OpenClaw deny lists and allowPromptInjection false read back as written; a Hermes disable reads back as disabled', () => {
+    const r = rig('openclaw');
+    fs.mkdirSync(r.root, { recursive: true });
+    const cfg = (line: string) => fs.appendFileSync(path.join(r.profile, 'fake-config'), line + '\n');
+    cfg('plugins.entries.gstack-start.hooks.allowConversationAccess=true');
+    expect(inspectHook('openclaw', r.profile, r.env, r.d).state).toBe('active');
+    fs.writeFileSync(path.join(r.profile, 'fake-deny'), '["gstack-start"]');
+    expect(inspectHook('openclaw', r.profile, r.env, r.d)).toMatchObject({ state: 'written', detail: 'plugins.deny lists gstack-start' });
+    fs.rmSync(path.join(r.profile, 'fake-deny'));
+    cfg('plugins.entries.gstack-start.hooks.allowPromptInjection=false');
+    expect(inspectHook('openclaw', r.profile, r.env, r.d)).toMatchObject({ state: 'written', detail: 'plugins.entries.gstack-start.hooks.allowPromptInjection is false' });
+    const h = rig('hermes');
+    fs.mkdirSync(h.root, { recursive: true });
+    fs.writeFileSync(path.join(h.profile, 'fake-state'), 'disabled');
+    expect(inspectHook('hermes', h.profile, h.env, h.d)).toMatchObject({ state: 'disabled' });
+  });
+
+  test('after a failed opt-in, refresh retries without failing, and stops for good once the user disables the plugin', () => {
+    const r = rig('openclaw');
+    fs.writeFileSync(path.join(r.profile, 'fake-allow'), '["anthropic"]');
+    expect(register(r.o({ startHook: true })).hook).toMatchObject({ state: 'written', required: true });
+    expect(readLedger(register(r.o()).ledger)!.meta.hook_active).toBe('no');
+    const retry = register(r.o());
+    expect(retry.hook).toMatchObject({ state: 'written', required: false, retried: true });
+    fs.rmSync(path.join(r.profile, 'fake-allow'));
+    const fixed = register(r.o());
+    expect(fixed.hook).toMatchObject({ state: 'active', retried: true });
+    expect(readLedger(fixed.ledger)!.meta.hook_active).toBe('yes');
+    const sets = r.calls().filter(l => l.startsWith('config set')).length;
+    expect(register(r.o()).hook?.state).toBe('unchecked');
+    expect(r.calls().filter(l => l.startsWith('config set')).length).toBe(sets);
+
+    const s = rig('openclaw');
+    fs.writeFileSync(path.join(s.profile, 'fake-fail'), '');
+    expect(register(s.o({ startHook: true })).hook?.state).toBe('written');
+    fs.rmSync(path.join(s.profile, 'fake-fail'));
+    fs.appendFileSync(path.join(s.profile, 'fake-config'), 'plugins.entries.gstack-start.enabled=false\n');
+    const before = s.calls().filter(l => l.startsWith('config set')).length;
+    const left = register(s.o());
+    expect(left.hook).toMatchObject({ state: 'disabled', retried: true });
+    expect(readLedger(left.ledger)!.meta.hook_active).toBe('disabled');
+    register(s.o());
+    expect(s.calls().filter(l => l.startsWith('config set')).length).toBe(before);
+    expect(fs.readFileSync(path.join(s.profile, 'fake-config'), 'utf8')).toContain('enabled=false');
+  }, 300_000);
+});
+
 describe('start hook: Hermes lifecycle and the saved choice (fake CLI)', () => {
   test('a one-run env opt-in is saved; config off then refresh turns it off; unregister removes the plugin through Hermes', () => {
     const r = rig('hermes', { env: { GSTACK_HARNESS_START_HOOK: '1' } });
@@ -299,6 +349,9 @@ describe.skipIf(process.platform === 'win32')('start hook through ./setup --host
     expect(first.stderr).toContain('(HARNESS_HOOK_INACTIVE; docs/troubleshooting.md#harness-hook-inactive)');
     expect(fs.existsSync(path.join(profile, 'skills', 'gstack', 'SKILL.md'))).toBe(true);
     expect(registryRows(f).map(row => row[0])).toEqual(['openclaw']);
+    const refreshed = runSetup(f, path.join(src, 'setup'), ['--refresh-registered'], { env: { PATH } });
+    expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
+    expect(refreshed.stdout + refreshed.stderr).toContain('start hook: written');
     fs.rmSync(path.join(profile, 'fake-fail'));
     const second = runSetup(f, path.join(src, 'setup'), ['--host', 'openclaw'], { env: { PATH } });
     expect(second.status, second.stdout + second.stderr).toBe(0);

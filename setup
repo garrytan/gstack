@@ -518,7 +518,8 @@ $_RF_TARGETS
 EOF
   grep -q '	failed	' "$_RF_SUMMARY" && _RF_FAILED=1
   if [ "$HARNESS_AUTO" -eq 1 ] && [ -d "$GSTACK_STATE_ROOT/harness" ]; then
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || _RF_FAILED=1
+    # Exit 4: every registration refreshed; a start hook this run turned on is not active (printed above).
+    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || [ "$?" -eq 4 ] || _RF_FAILED=1
   fi
   echo ""
   if [ "$_RF_FAILED" -eq 1 ]; then
