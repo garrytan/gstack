@@ -178,9 +178,10 @@ function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
   };
 }
 
-// Uses --fast to avoid hanging on a dead DB. Per the local-status classifier
-// (which probes DB directly via `gbrain sources list`), gbrain_doctor_ok is a
-// coarse health summary, not engine-reachability — that's gbrain_local_status.
+// Uses --fast to avoid hanging on a dead DB. --fast skips every DB check, so
+// gbrain_doctor_ok only says doctor ran and its filesystem checks passed; it
+// proves nothing about the brain's data. Step 5 runs the full --doctor gate.
+// Engine reachability is gbrain_local_status (it probes `gbrain sources list`).
 function detectDoctor(onPath: boolean): boolean {
   if (!onPath) return false;
   return runDoctor(["--fast"], 3_000).brain_ok;
