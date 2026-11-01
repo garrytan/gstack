@@ -1325,10 +1325,8 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
         check(operation);
         if (!Number.isSafeInteger(pid) || (pid as number) <= 1) throw new BrowserCleanupError('invalid browser child identity');
         const identity = identities.get(pid as number);
-        if (!identity && identities.get(daemon as number)?.root) {
-          if (!await inspect(operation, pid as number)) return;
-          throw new BrowserCleanupError(`browser child ownership is unconfirmed: recorded pid ${pid} is alive outside daemon ${daemon}'s process tree`);
-        }
+        if (!identity && identities.get(daemon as number)?.root) throw new BrowserCleanupError(
+          `browser child ownership is unconfirmed: recorded pid ${pid} (${await inspect(operation, pid as number) ? 'alive' : 'exited'}) was never seen in daemon ${daemon}'s process tree`);
         if (!identity || identity.daemon !== daemon || identity.root) throw new BrowserCleanupError('browser child ownership is unconfirmed');
         if (await live(operation, identity) && (typeof start !== 'string' || !start
           || await nativeStart(operation, identity) !== start.replace(/\s+/g, ' '))) throw new BrowserCleanupError('browser child identity was replaced');

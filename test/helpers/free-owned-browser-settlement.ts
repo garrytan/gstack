@@ -17,7 +17,7 @@ const ROOT = path.resolve(import.meta.dir, '../..');
 export const SETTLEMENT_MODE_GROUPS = {
   lifecycle: ['success', 'failure', 'timeout', 'cancel', 'cancel-force', 'cancel-cold-probes', 'settle-cold-probes', 'settle-slow-exit', 'cancel-vanishing-record'],
   ownership: ['endpoint-mix', 'full-state-mix', 'terminal-mix', 'chromium-mix', 'replaced-pid', 'stale-child-start', 'replaced-start',
-    'exit-environment-race', 'unavailable-environment', 'directory-remove-failure', 'exited-child-race'],
+    'exit-environment-race', 'unavailable-environment', 'directory-remove-failure'],
 } as const;
 
 const OWNERSHIP_ACTOR = `
@@ -50,7 +50,6 @@ if (role === 'leaf') {
   }));
   await Bun.sleep(50);
   const owned = [identity(process.pid), ...children.map(child => identity(child.pid))];
-  if (mode === 'exited-child-race') await new Promise(resolve => { children[0].once('exit', resolve); children[0].kill('SIGKILL'); });
   const server = Bun.serve({hostname:'127.0.0.1', port:0, fetch() {
     fs.appendFileSync(file('.http'), 'request\\n'); return new Response('ok');
   }});
