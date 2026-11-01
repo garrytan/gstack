@@ -24,6 +24,8 @@ d="$OPENCLAW_STATE_DIR"; c="$d/fake-config"
 printf '%s|secret=%s|home=%s|cfg=%s\n' "$*" "$ANTHROPIC_API_KEY" "$HOME" "$OPENCLAW_CONFIG_PATH" >> "$d/fake-calls"
 [ -f "$d/fake-fail" ] && { echo "config write refused" >&2; exit 3; }
 [ -f "$d/fake-kill" ] && { rm -f "$d/fake-kill"; kill -9 "$PPID"; sleep 5; }
+[ -f "$d/fake-noisy" ] && echo "[plugins] gstack-start: cannot verify where this plugin came from"
+[ -f "$d/fake-hang" ] && [ "$1" = plugins ] && exec sleep 40
 touch "$c"
 acc=false; grep -q '^plugins.entries.gstack-start.hooks.allowConversationAccess=true$' "$c" && acc=true
 en=$(grep '^plugins.entries.gstack-start.enabled=' "$c" | tail -1 | cut -d= -f2); enj=null; [ -n "$en" ] && enj=$en
@@ -281,6 +283,34 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     expect(fs.readFileSync(off.kept[0], 'utf8')).toBe('my note\n');
   }, 300_000);
 
+  test('an explicit --start-hook on an unchanged registration killed during activation is retried by the next run', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    fs.writeFileSync(path.join(r.profile, 'fake-kill'), '');
+    const cli = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'bin', 'gstack-harness'), 'register', 'openclaw', '--start-hook'],
+      { env: { ...r.env, PATH: r.env.PATH + path.delimiter + path.dirname(process.execPath), HOME: path.join(r.d, 'home'), GSTACK_STATE_ROOT: path.join(r.d, 'state') }, encoding: 'utf8', timeout: 240_000 });
+    expect(cli.signal, cli.stderr).toBe('SIGKILL');
+    const dir = path.join(r.d, 'state', 'harness');
+    expect(readLedger(path.join(dir, fs.readdirSync(dir).find(f => f.endsWith('.ledger'))!))!.meta.hook_active).toBe('no');
+    expect(register(r.o()).hook).toMatchObject({ state: 'active', retried: true });
+  }, 300_000);
+
+  test('a log line in brackets before the harness JSON still reads back as active', () => {
+    const r = rig('openclaw');
+    fs.writeFileSync(path.join(r.profile, 'fake-noisy'), '');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    expect(inspectHook('openclaw', r.profile, r.env, path.join(r.d, 'home')).state).toBe('active');
+  }, 120_000);
+
+  test('a hung harness read-back gives up after a short timeout', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    fs.writeFileSync(path.join(r.profile, 'fake-hang'), '');
+    const t0 = Date.now();
+    expect(inspectHook('openclaw', r.profile, r.env, path.join(r.d, 'home')).state).toBe('written');
+    expect(Date.now() - t0).toBeLessThan(35_000);
+  }, 120_000);
+
   test('without the harness on PATH the hook is written, not active, and names the commands to run', () => {
     const r = rig('openclaw', { noCli: true });
     const res = register(r.o({ startHook: true }));
@@ -424,6 +454,7 @@ describe('start hook: teardown keeps what gstack did not write (fake CLI)', () =
     fs.renameSync(ext, moved);
     fs.symlinkSync(moved, ext);
     expect(() => register(r.o({ startHook: false }))).toThrow(expect.objectContaining({ code: 'HARNESS_UNSAFE_DESTINATION' }));
+    expect(() => register({ ...r.o(), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } })).toThrow(expect.objectContaining({ code: 'HARNESS_UNSAFE_DESTINATION' }));
     expect(fs.existsSync(path.join(moved, HOOK_ID, 'index.js'))).toBe(true);
     fs.unlinkSync(ext);
     fs.renameSync(moved, ext);
@@ -431,6 +462,17 @@ describe('start hook: teardown keeps what gstack did not write (fake CLI)', () =
     expect(off.hook?.state).toBe('off');
     expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);
     expect(readLedger(off.ledger)!.meta.hook_root).toBeUndefined();
+  }, 300_000);
+
+  test('unregister leaves an empty plugin folder alone when the folder above it was swapped for a symlink', () => {
+    const r = rig('openclaw');
+    expect(register(r.o({ startHook: true })).hook?.state).toBe('active');
+    const ext = path.join(r.profile, 'extensions'), elsewhere = path.join(r.d, 'elsewhere');
+    fs.renameSync(ext, path.join(r.d, 'old'));
+    fs.mkdirSync(path.join(elsewhere, HOOK_ID), { recursive: true });
+    fs.symlinkSync(elsewhere, ext);
+    unregister(r.o().stateRoot, ROOT, 'openclaw', r.env);
+    expect(fs.existsSync(path.join(elsewhere, HOOK_ID))).toBe(true);
   }, 300_000);
 
   test('a saved opt-in survives one run from a shell that sets OPENCLAW_CONFIG_PATH', () => {

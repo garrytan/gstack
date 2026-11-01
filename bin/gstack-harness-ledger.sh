@@ -125,7 +125,10 @@ gstack_harness_unregister_ledger() {
   done < "$ledger"
   while IFS=$'\t' read -r kind a b; do
     [ "$kind" = dir ] && [ -d "$b" ] && [ ! -L "$b" ] || continue
-    case "$b" in "$dest"/*) _gstack_harness_owned "$b" "$dest" || continue ;; esac
+    case "$b" in
+      "$dest"/*) _gstack_harness_owned "$b" "$dest" || continue ;;
+      *) if [ -n "$hprof" ]; then case "$b" in "$hprof"/*) _gstack_harness_below "$b" "$hprof" || continue ;; esac; fi ;;
+    esac
     rmdir "$b" 2>/dev/null
   done < "$ledger"
   case "$target" in

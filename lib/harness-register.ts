@@ -541,19 +541,20 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const root = hookRoot(t.name, profile);
   const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
   const saved = prev?.meta.hook_root && prev.meta.hook_profile ? { profile: prev.meta.hook_profile, root: prev.meta.hook_root } : null;
-  if (saved && !choice.on) assertHookRoot(t.name, saved.profile, saved.root, saved.root, (code, msg) => { throw new HarnessError(code, msg); });
-  if (!choice.on) return plan;
+  const name = t.name;
+  const off = (p: HookPlan) => { if (saved) assertHookRoot(name, saved.profile, saved.root, saved.root, (code, msg) => { throw new HarnessError(code, msg); }); return p; };
+  if (!choice.on) return off(plan);
   const why = dest !== profileSkills(t.name, profile) ? 'this registration uses another skills folder (' + dest + ')'
     : t.name === 'openclaw' && opts.env.OPENCLAW_CONFIG_PATH ? 'OPENCLAW_CONFIG_PATH points OpenClaw at a config outside that profile' : '';
   if (why && (plan.explicit || !prevOn)) {
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
-    return { ...plan, on: false, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' };
+    return off({ ...plan, on: false, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' });
   }
   try {
     assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
   } catch (e) {
     if (plan.explicit || prevOn || !(e instanceof HarnessError)) throw e;
-    return { ...plan, on: false, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook; ' + HARNESS_CODES[e.code].fix + ')' };
+    return off({ ...plan, on: false, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook; ' + HARNESS_CODES[e.code].fix + ')' });
   }
   return { ...plan, files: hookFiles(t.name, root) };
 }
@@ -675,6 +676,7 @@ export function register(opts: RegisterOptions): RegisterResult {
       fs.writeFileSync(file, text);
     }
     if (opts.registry && t.render === 'host') shellRegistry(opts, 'gstack_install_registry_upsert', [t.name, 'global', '-', dest, opts.checkout, opts.checkout, opts.version, '-', '-']);
+    if (same && hook?.on && hook.explicit && prev.meta.hook_active !== 'no') writeLedger(lfile, { ...prev, meta: { ...prev.meta, hook_active: 'no' } });
     const hookResult = finishHook(opts, hook, released);
     const active = hookResult?.required || hookResult?.retried ? ({ active: 'yes', disabled: 'disabled' } as Record<string, string>)[hookResult.state] ?? 'no' : '';
     const saved = active ? readLedger(lfile) : null;

@@ -131,26 +131,31 @@ export function activateHook(t: HookTarget, profile: string, env: Env, home: str
   return '';
 }
 
-const parseJson = (s: string): any => { try { return JSON.parse(s.slice(s.search(/[[{]/))); } catch { return null; } };
+function parseJson(s: string): any {
+  for (const m of s.matchAll(/^[ \t]*[[{]/gm)) { try { return JSON.parse(s.slice(m.index)); } catch {} }
+  return null;
+}
 
 /** Reads the hook back from the harness: active (configured for new sessions), disabled by the user, or written (with the fix). */
+const READ_TIMEOUT = 15_000;
+
 export function inspectHook(t: HookTarget, profile: string, env: Env, home: string): HookResult {
   const fix = activateCommands(t, profile);
   if (!onPath(t, env)) return { state: 'written', detail: t + ' is not on PATH, so gstack could not turn the plugin on or check it', fix };
   if (t === 'hermes') {
-    const r = runHarness(t, profile, ['plugins', 'list', '--json'], env, home);
+    const r = runHarness(t, profile, ['plugins', 'list', '--json'], env, home, READ_TIMEOUT);
     const row = (parseJson(r.stdout) ?? []).find?.((p: any) => p?.name === HOOK_ID);
     if (row?.status === 'enabled') return { state: 'active' };
     if (row?.status === 'disabled') return { state: 'disabled', detail: 'turned off in Hermes (plugins.disabled); gstack leaves it off', fix: activateCommands(t, profile) };
     return { state: 'written', detail: row ? 'Hermes lists it as ' + row.status : 'hermes plugins list does not show ' + HOOK_ID + (r.why ? ' (' + r.why + ')' : ''), fix };
   }
-  const cfg = parseJson(runHarness(t, profile, ['config', 'get', 'plugins', '--json'], env, home).stdout) ?? {};
+  const cfg = parseJson(runHarness(t, profile, ['config', 'get', 'plugins', '--json'], env, home, READ_TIMEOUT).stdout) ?? {};
   const entry = cfg.entries?.[HOOK_ID] ?? {};
   if (entry.enabled === false) return { state: 'disabled', detail: 'turned off in openclaw.json (plugins.entries.' + HOOK_ID + '.enabled false); gstack leaves it off', fix };
   if (Array.isArray(cfg.deny) && cfg.deny.includes(HOOK_ID)) return { state: 'written', detail: 'plugins.deny lists ' + HOOK_ID, fix: 'remove ' + HOOK_ID + ' from plugins.deny in openclaw.json' };
   if (Array.isArray(cfg.allow) && cfg.allow.length && !cfg.allow.includes(HOOK_ID)) return { state: 'written', detail: 'plugins.allow is set and does not list ' + HOOK_ID, fix: 'OPENCLAW_STATE_DIR=' + JSON.stringify(profile) + " openclaw config set plugins.allow '" + JSON.stringify([...cfg.allow, HOOK_ID]) + "'" };
   if (entry.hooks?.allowPromptInjection === false) return { state: 'written', detail: 'plugins.entries.' + HOOK_ID + '.hooks.allowPromptInjection is false', fix };
-  const r = runHarness(t, profile, ['plugins', 'inspect', HOOK_ID, '--runtime', '--json'], env, home);
+  const r = runHarness(t, profile, ['plugins', 'inspect', HOOK_ID, '--runtime', '--json'], env, home, READ_TIMEOUT);
   const d = parseJson(r.stdout);
   if (d?.plugin?.status === 'loaded' && d.plugin.enabled && (d.typedHooks ?? []).some((h: any) => h?.name === 'before_prompt_build')) return { state: 'active' };
   const why = d?.plugin ? 'status ' + d.plugin.status + (d.plugin.enabled ? '' : ', not enabled') + ((d.typedHooks ?? []).length ? '' : ', before_prompt_build not registered') : 'openclaw plugins inspect failed' + (r.why ? ' (' + r.why + ')' : '');
