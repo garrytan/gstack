@@ -14,7 +14,7 @@ bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```
 
-`./setup` on its own installs production dependencies only. `bun install` (and `bin/dev-setup`, which runs it) adds the dev toolchain the tests and evals need: the Claude Agent SDK, TypeScript, Prettier and oxlint. Once they are installed, a later `./setup` runs the full install too, so they stay at `bun.lock`'s versions.
+`./setup` on its own installs production dependencies only. `bin/dev-setup` adds the dev toolchain the tests and evals need (the Claude Agent SDK, TypeScript, Prettier and oxlint) and marks the clone as a contributor's with `git config gstack.contributor true`. In a marked clone a later `./setup` runs the full install too, so the toolchain stays at `bun.lock`'s versions. In an unmarked clone `./setup` moves back to production dependencies, which is how installs made before v1.91.231.0 drop the toolchain they never needed. If you ran plain `bun install` instead of `bin/dev-setup`, run `git config gstack.contributor true` once, or set `GSTACK_CONTRIBUTOR=1` for a single run.
 
 > **Full clone vs shallow.** The README's user-facing install uses `--depth 1` for speed. As a contributor, use a full clone (no `--depth` flag) — you'll need history for `git log`, `git blame`, `git bisect`, and reviewing PRs against earlier versions. If you already have a `--depth 1` clone from following the README, promote it to a full clone with `git fetch --unshallow`.
 
@@ -24,25 +24,15 @@ bin/dev-setup                  # activate dev mode
 bun install --frozen-lockfile
 bun run typecheck        # expect no output and exit 0 (about a second)
 bun run typecheck:test   # expect "test typecheck ratchet: N known diagnostics, none new."
-bun run lint             # expect "lint ratchet: N known findings, none new (oxlint <version>)." (under a second)
 ```
 
 `typecheck` covers product code (`browse/src`, `lib`, `scripts`, `bin`, `hosts`, and the other
 entries in `tsconfig.json`) and must stay at zero errors. `typecheck:test` holds test code to the
 committed `scripts/typecheck-test-baseline.json`: a new or repeated diagnostic fails and names
 the file, TS code and message; fixing diagnostics also fails until you lock the smaller allowance
-in with `bun run typecheck:test --write-baseline`. `lint` runs oxlint's correctness rules
-(`.oxlintrc.json`) and holds existing findings to `scripts/lint-baseline.json` the same way: a new
-or repeated finding fails with `LINT_RATCHET_NEW` and its file, line and rule, and a fixed one fails
-with `LINT_RATCHET_FIXED` until `bun run lint --write-baseline` locks it in (that flag only
-shrinks the baseline). The baseline records the oxlint version, which must match `package.json`'s
-exact pin; after bumping oxlint, run `bun run lint --write-baseline --oxlint-upgrade` in the same
-change. Findings are keyed by file, so renaming or splitting a file moves its findings and they count as
-new: fix them, or mark an intended one with `// eslint-disable-next-line <rule> -- <reason>` (oxlint
-honors it, and /review lists it as a gate edit). oxlint
-picks files by extension, so the extensionless Bun scripts in `bin/` are not linted yet. Editing
-`lib/cso/*.ts`? Run `bun run format:cso` before committing; CI runs
-`format:cso:check`. All four run in the required `free-tests` check.
+in with `bun run typecheck:test --write-baseline`. Editing `lib/cso/*.ts`? Run
+`bun run format:cso` before committing; CI runs `format:cso:check`. All three run in the required
+`free-tests` check.
 
 Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:
 
@@ -746,11 +736,11 @@ worth the review overhead.
 
 ## Multi-host development
 
-gstack generates SKILL.md files for 10 hosts from one set of `.tmpl` templates.
+gstack generates SKILL.md files for 13 hosts from one set of `.tmpl` templates.
 Each host is a typed config in `hosts/*.ts`. The generator reads these configs
 to produce host-appropriate output (different frontmatter, paths, tool names).
 
-**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain.
+**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain, Copilot, Antigravity, Gemini CLI.
 
 ### Generating for all hosts
 
@@ -759,7 +749,7 @@ to produce host-appropriate output (different frontmatter, paths, tool names).
 bun run gen:skill-docs                    # Claude (default)
 bun run gen:skill-docs --host codex       # Codex
 bun run gen:skill-docs --host opencode    # OpenCode
-bun run gen:skill-docs --host all         # All 10 hosts
+bun run gen:skill-docs --host all         # All 13 hosts
 
 # Or use build, which does all hosts + compiles binaries
 bun run build

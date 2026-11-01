@@ -752,6 +752,10 @@ List known files only. For unknown files, write "to be determined" and use an
 empty JSONL files array. Each task needs a concrete verification step.
 Always emit the markdown section. Write its JSONL artifact for `/autoplan` only when the Step 0 storage policy permits it; otherwise label the complete task output not persisted and do not claim an aggregation artifact exists.
 
+### Earlier lists on this branch
+
+Before listing tasks, run `~/.claude/skills/gstack/bin/gstack-tasks prior --phase ceo-review` and reconcile what it prints, so a rerun never leaves two lists.
+
 ### Markdown section (always emit)
 
 ```markdown
@@ -774,49 +778,11 @@ Rules:
 
 ### JSONL artifact (write when permitted, including zero tasks)
 
-`/autoplan` reads this file to aggregate across phases. Build each line with
-`jq -nc` so titles and source findings containing quotes, newlines, or
-backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
+`/autoplan` aggregates this list. With your file-write tool, write one JSON object per line to `.gstack/tmp/tasks-ceo-review-rows.jsonl` at the repo root (no free text in a command; no rows, no file): a task is `{"id":"T1","priority":"P1","component":"","title":"","source_finding":"","effort_human":"~2h","effort_cc":"~15min","files":[]}`, plus `"carried_from":"<run_id>/<id>"` when carried; a closed earlier task is `{"prior":"<run_id>/<id>","disposition":"done|dropped","reason":""}`. Then write the list (empty means "ran, no findings", distinct from "didn't run"):
 
 ```bash
-GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
-SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
-TASKS_DIR="$GSTACK_STATE_ROOT/projects/${SLUG:-unknown}"
-mkdir -p "$TASKS_DIR"
-TASKS_FILE="$TASKS_DIR/tasks-ceo-review-$(date +%Y%m%d-%H%M%S).jsonl"
-COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
-# The task record keeps the raw git branch; artifact filenames keep gstack-slug's sanitized BRANCH.
-GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-
-# Repeat ONE jq invocation per task identified during this review.
-# Substitute the placeholders inline with shell variables you set per task:
-#   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
-#   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
-#   like '["browse/src/sanitize.ts","browse/src/server.ts"]').
-jq -nc \
-  --arg phase 'ceo-review' \
-  --arg run_id "$RUN_ID" \
-  --arg branch "$GIT_BRANCH" \
-  --arg commit "$COMMIT" \
-  --arg id "$TASK_ID" \
-  --arg priority "$PRIORITY" \
-  --arg component "$COMPONENT" \
-  --arg effort_human "$EFFORT_HUMAN" \
-  --arg effort_cc "$EFFORT_CC" \
-  --arg title "$TITLE" \
-  --arg source_finding "$SOURCE_FINDING" \
-  --argjson files "$FILES_JSON" \
-  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding}' \
-  >> "$TASKS_FILE"
+~/.claude/skills/gstack/bin/gstack-tasks add --phase ceo-review
 ```
-
-If `jq` is not installed, fall back to skipping the JSONL write and warn
-the user to install jq for autoplan aggregation. Never hand-roll JSONL.
-
-When writes are permitted and zero tasks were identified, touch the JSONL file
-(`: > "$TASKS_FILE"`) so the aggregator sees that the phase produced output
-this run (an empty file means "ran, no findings" — distinct from "didn't run").
 
 
 ### Completion Summary

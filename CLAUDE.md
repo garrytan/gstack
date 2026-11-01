@@ -130,7 +130,7 @@ and commit both; never edit the generated file
 (`test/design-checklist-sync.test.ts` fails on drift).
 
 Generation uses each host's `defaultModel` (`claude` for most hosts, `gpt`
-for Codex, `gemini` for Antigravity's `agy`) unless `--model` is explicit. Codex installs additionally read the
+for Codex, `gemini` for Antigravity's `agy` and Gemini CLI) unless `--model` is explicit. Codex installs additionally read the
 top-level model from `${CODEX_HOME:-~/.codex}/config.toml`; rerun
 `./setup --host codex` after changing that model. Note: `bun run build` and a
 bare `gen:skill-docs --host codex` render the host default (gpt) — if your
