@@ -1,0 +1,13 @@
+**PRs no longer wait on the six-shard Windows suite. A short `windows-smoke` check is the required Windows check, and the full suite runs nightly on main.** Windows has minimal support (docs/support-tiers.md). Since 2026-11-01 06:00 UTC, Windows Free Tests finished last on 71 of 73 PR heads, with a wall time of 892 s at p50 and 1,886 s at p90 over 71 green PR runs, and each run used about 59 Windows runner-minutes. The new smoke check finished in 198 s on this PR (run 41325664750). With smoke in its place, the slowest required check on a PR drops from 892 s to 562 s at p50 and from 1,877 s to 1,193 s at p90.
+
+### Changed
+- **New `windows-smoke.yml`** (check `windows-smoke`, on pull requests, pushes to main and by hand). It installs gstack with `./setup --host claude` into a separate home, starts /ship, /review, /qa-only, /investigate and /browse with `gstack-skill-start`, runs the installed browse chain against gstack's own browser, and runs 15 Windows-safe test files. Each file's reason is written next to it in the workflow. No cache: a cold `bun install` took 16 to 17 s, while restoring the cache took 33 to 42 s in a three-round A/B.
+- **`windows-free-tests.yml` runs nightly** (09:17 UTC) on main, and by hand. It no longer runs on pull requests or pushes and never blocks a merge. A red nightly gets a fix only when it shows a broken install, startup or core workflow. Other Windows-only failures close as won't fix with a link to docs/support-tiers.md.
+- **Bun cache removed** from `windows-free-tests.yml` and `windows-setup-e2e.yml`. The 18 cache entries on pull-request refs (8.05 GB) were deleted. Main's entries were left alone.
+- **`gstack-ship-queue ready --dispatch-ci`** skips a named workflow that main has but the PR branch predates, and prints a note instead of failing. GitHub reads the workflow file from the branch, so dispatching `windows-smoke.yml` on an older branch could only fail.
+
+### Gate integrity
+- `.gstack/ship-policy.json` `required_checks`: `windows-free-tests` is replaced by `windows-smoke`. The ci-hint, `--dispatch-ci` docs, train CLI help and `free-durations-record.yml` now name `windows-smoke.yml`.
+- `.gstack/pregate.json`: the `windows-free-tests.yml/windows-free-shard` remote lane is removed, since that suite no longer runs on PRs. Linux and macOS lanes are unchanged.
+- `scripts/test-health-report.ts` measures Windows from `windows-smoke.yml` PR runs.
+- No test file was deleted, skipped or re-tiered. `scripts/harness-version.json` records `scripts/test-pr-profile.ts` as a non-behavioral change: it only lists `windows-smoke.yml` among files no paid case reads.
