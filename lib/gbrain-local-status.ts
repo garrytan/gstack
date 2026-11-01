@@ -54,6 +54,7 @@ import { atomicWriteSync } from "./fs-atomic";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { buildGbrainEnv, gbrainChildCwd, gbrainConfigDir, isExecTimeout, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
+import { classifyGbrainMcpEntry } from "./gbrain-mcp-locality";
 import { resolveStateRoot } from "./state-root";
 
 export type LocalEngineStatus =
@@ -187,16 +188,11 @@ export function hasRemoteOnlyGbrainMcp(
   } catch {
     return false;
   }
-  // Same classification rules as gstack-gbrain-detect's detectMcpMode tier 3,
-  // including the #2051 name generalization (gbrain, gbrain-remote, gbrain_work).
-  const classify = (entry: McpEntry): "remote" | "local" | null => {
-    const mtype = entry.type || entry.transport || "";
-    if (mtype === "url" || mtype === "http" || mtype === "sse") return "remote";
-    if (mtype === "stdio") return "local";
-    if (entry.url) return "remote";
-    if (entry.command) return "local";
-    return null;
-  };
+  // The classifier gstack-gbrain-detect's detectMcpMode uses, so a loopback
+  // `gbrain serve --http` over this machine's own engine is local here too
+  // (#3539): detect never prints local-stdio next to thin-client. Name
+  // generalization (#2051: gbrain, gbrain-remote, gbrain_work) is below.
+  const classify = (entry: McpEntry): "remote" | "local" | null => classifyGbrainMcpEntry(entry, env ?? process.env);
   /** Extract the gbrain-relevant entries from an mcpServers object. */
   const gbrainEntries = (servers: unknown): Record<string, McpEntry> => {
     const out: Record<string, McpEntry> = {};

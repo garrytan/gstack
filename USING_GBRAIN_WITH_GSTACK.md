@@ -74,6 +74,8 @@ If you accept the local PGLite, you end up in **split-engine mode**:
 - **Brain/context queries** (`mcp__gbrain__search`, `mcp__gbrain__query`, `mcp__gbrain__get_page`) route to the remote MCP. Plans, retros, learnings, cross-machine memory — all on the shared server.
 - **Code queries** (`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `gbrain search` for code) route to the local PGLite via the `.gbrain-source` pin in each worktree. Indexed locally, fast, never leaves the machine.
 
+A `gbrain serve --http` on this machine's loopback address (`localhost`, `127.0.0.1`, `::1`) over this machine's own Postgres brain is not Path 4. That is gbrain's recommended setup for local agents on a Postgres brain (`gbrain bootstrap harness`), and gstack treats it as a local brain: transcripts go through `gbrain import` here. gstack decides this from the URL and the local gbrain config alone, and only a config with a Postgres `database_url` counts. A loopback URL next to a local PGLite stays Path 4, so the split-engine setup above keeps working when you reach the remote brain through an SSH tunnel or port forward on a loopback port.
+
 The two engines are independent. Wiping the local PGLite doesn't touch the remote brain; rotating the remote MCP bearer doesn't affect local code search. This is also the right configuration if your remote brain admin can't (or shouldn't) index every developer's checkout — local code stays local.
 
 ## MCP registration for Claude Code

@@ -760,6 +760,50 @@ describe("lib/gbrain-local-status — bearer-token thin-client (#2520)", () => {
     expect(localEngineStatus({ noCache: true })).toBe("engine-locked");
   });
 
+  // #3539: a loopback `gbrain serve --http` over this machine's own engine is
+  // a local registration. Before, the transport-only copy of the rule called
+  // it remote, so detect printed gbrain_mcp_mode local-stdio next to
+  // gbrain_local_status thin-client for the same entry.
+  it("keeps the local engine's own status for a loopback http gbrain MCP over a local Postgres (#3539)", () => {
+    env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "engine-locked-v43",
+      withConfig: true,
+      claudeJson: { mcpServers: { gbrain: { type: "http", url: "http://127.0.0.1:3131/mcp" } } },
+    });
+    restoreEnv = applyEnv(env);
+    writeFileSync(env.configPath, JSON.stringify({ engine: "postgres", database_url: "postgres://fake" }));
+    expect(localEngineStatus({ noCache: true })).toBe("broken-db");
+  });
+
+  it("still reclassifies a locked local PGLite as 'thin-client' behind a loopback http entry (Path 4 split-engine, #3539)", () => {
+    env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "engine-locked-v43",
+      withConfig: true,
+      claudeJson: { mcpServers: { gbrain: { type: "http", url: "http://127.0.0.1:3131/mcp" } } },
+    });
+    restoreEnv = applyEnv(env);
+    expect(localEngineStatus({ noCache: true })).toBe("thin-client");
+  });
+
+  it("still reclassifies as 'thin-client' when the loopback entry's config carries remote_mcp (#3539 guard)", () => {
+    env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "engine-locked",
+      withConfig: true,
+      claudeJson: { mcpServers: { gbrain: { type: "http", url: "http://127.0.0.1:3131/mcp" } } },
+    });
+    restoreEnv = applyEnv(env);
+    writeFileSync(
+      env.configPath,
+      JSON.stringify({ engine: "pglite", remote_mcp: { mcp_url: "http://127.0.0.1:3131/mcp" } }),
+    );
+    // Config marker short-circuits to thin-client before the probe; the
+    // loopback entry must not turn that into a local registration.
+    expect(localEngineStatus({ noCache: true })).toBe("thin-client");
+  });
+
   it("still returns 'missing-config' when no gbrain MCP registration exists (discriminator)", () => {
     env = makeEnv({
       withGbrain: true,
