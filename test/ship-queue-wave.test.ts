@@ -235,6 +235,7 @@ describe('ready and train build read the wave', () => {
     const pins = ['1', '2', '3', '4', '5', '6', '7'].map(pr => {
       const h = openPr(fx, pr, { file: pr === '7' ? 'docs/seven.md' : `lib/ship-${pr}.ts`, changelog: false });
       readyReceipt(fx, pr, h);
+      fx.write(d => { d.ci[h] = [{ name: 'free-tests', status: 'completed', conclusion: 'success' }]; });
       return `${pr}@${h}`;
     });
     const build = queue(fx, ['train', 'build', '--prs', pins.join(','), '--dry-run']);
@@ -245,6 +246,47 @@ describe('ready and train build read the wave', () => {
     expect(line(plan.out, 'WAVE_GROUP:')).toContain('area=ship prs=#1,#2,#3,#4,#5,#6');
     expect(line(plan.out, 'SOLO:')).toContain('#7');
     expect(line(queue(fx, ['wave', 'plan', '--trigger', '7']).out, 'WAVE:')).toContain('not needed');
+  }, 180_000);
+
+  test('wave plan links PRs only on a real code conflict, so hub docs and ledgers do not chain areas together, and leaves out READY heads whose CI is not green (GST-770)', () => {
+    const fx = make();
+    const seed = { 'docs/troubleshooting.md': '# Troubleshooting\n', 'test/fixtures/ledger.json': '{}\n', 'lib/ship-a.ts': 'export const a = 0;\n' };
+    fx.repo.git('checkout', '-q', 'origin/main', '-B', 'seed');
+    for (const [f, t] of Object.entries(seed)) { fs.mkdirSync(path.dirname(path.join(fx.repo.work, f)), { recursive: true }); fs.writeFileSync(path.join(fx.repo.work, f), t); }
+    fx.repo.git('add', '-A');
+    fx.repo.git('commit', '-q', '-m', 'seed hub files');
+    fx.repo.git('push', '-q', 'origin', 'HEAD:main');
+    fx.repo.git('fetch', '-q', 'origin');
+    const pr = (n: string, area: string, extra: Record<string, string> = {}, ci = 'success') => {
+      fx.repo.git('checkout', '-q', 'origin/main', '-B', `pr-${n}`);
+      const files = { [`lib/${area}-${n}.ts`]: `export const x${n} = 1;\n`, [`test/${area}-${n}.test.ts`]: `// #${n}\n`,
+        'docs/troubleshooting.md': `# Troubleshooting\n\n## #${n}\n`, 'test/fixtures/ledger.json': `{ "pr": ${n} }\n`, ...extra };
+      for (const [f, t] of Object.entries(files)) fs.writeFileSync(path.join(fx.repo.work, f), t);
+      fx.repo.git('add', '-A');
+      fx.repo.git('commit', '-q', '-m', `feat #${n}`);
+      const head = fx.repo.git('rev-parse', 'HEAD');
+      fx.repo.git('push', '-q', '-f', 'origin', `HEAD:refs/pull/${n}/head`);
+      fx.write(d => {
+        d.prs[n] = { headRefOid: head, isCrossRepository: false, state: 'OPEN', headRefName: `pr-${n}`, url: `https://github.com/fixture/repo/pull/${n}`, body: shippedBody(n, head) };
+        d.ci[head] = [{ name: 'free-tests', status: 'completed', conclusion: ci }];
+      });
+      readyReceipt(fx, n, head);
+    };
+    pr('1', 'ship', { 'lib/ship-a.ts': Array.from({ length: 40 }, (_, i) => `export const a${i} = 'one';\n`).join('') });
+    pr('2', 'ship');
+    pr('3', 'ship');
+    for (const n of ['4', '5', '6']) pr(n, 'pregate');
+    pr('8', 'review', { 'lib/ship-a.ts': "export const a = 'eight';\n" });
+    pr('9', 'pregate', {}, 'failure');
+    const plan = queue(fx, ['wave', 'plan']);
+    expect(plan.status).toBe(EXIT.ok);
+    expect(line(plan.out, 'NOT_GREEN:')).toMatch(/^NOT_GREEN: #9 \(red at [0-9a-f]{12} /);
+    expect(line(plan.out, 'QUEUE:')).toContain('7 live READY PR(s)');
+    expect(plan.out.split('\n').filter(l => l.startsWith('WAVE_GROUP:'))).toEqual([
+      'WAVE_GROUP: area=pregate prs=#4,#5,#6 integrator=#4 (most changed lines)',
+      'WAVE_GROUP: area=ship prs=#1,#8,#2,#3 integrator=#1 (most changed lines)',
+    ]);
+    expect(line(plan.out, 'SOLO:')).toBe('');
   }, 180_000);
 });
 
