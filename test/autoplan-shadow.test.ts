@@ -126,6 +126,15 @@ describe('the reply contract: exactly one valid object per requested id', () => 
     expect(page.prompt).toContain('"id": "uc1"');
     expect(page.prompt).not.toContain('{{');
   });
+  test('slot names inside the plan text stay plan text; the template slots are still filled', () => {
+    const planFile = path.join(TMP, 'slot-plan.md');
+    fs.writeFileSync(planFile, '## Implementation plan\n\nfill {{QUESTIONS}} and {{IDS}} in {{PLAN}}\n');
+    const p = buildPage({ ...readState(out), active_plan: planFile }, gateOf(out), decider());
+    expect(p.prompt).toContain('fill {{QUESTIONS}} and {{IDS}} in {{PLAN}}');
+    expect(p.prompt).toContain('"id": "uc1"');
+    expect(p.prompt).toContain('uc1, uc2, p1');
+    expect(p.prompt.split('{{').length).toBe(4);
+  });
   test('a good reply is clean', () => {
     expect(parsePage(reply(valid), page.items).clean).toBe(true);
   });

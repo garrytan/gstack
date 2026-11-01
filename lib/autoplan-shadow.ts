@@ -205,8 +205,8 @@ export function buildPage(state: RunState, list: GateList, deciderText: string):
   });
   const planText = fs.existsSync(state.active_plan) ? fs.readFileSync(state.active_plan, 'utf8') : '';
   const plan = (extractHeading(planText, 'Implementation plan') ?? planText).slice(0, PLAN_CHARS);
-  const prompt = deciderText.replace('{{PLAN}}', () => plan).replace('{{QUESTIONS}}', () => '```json\n' + JSON.stringify(items.map(i => i.frozen), null, 2) + '\n```')
-    .replace('{{IDS}}', () => items.map(i => i.item.id).join(', '));
+  const slots: Record<string, string> = { PLAN: plan, QUESTIONS: '```json\n' + JSON.stringify(items.map(i => i.frozen), null, 2) + '\n```', IDS: items.map(i => i.item.id).join(', ') };
+  const prompt = deciderText.replace(/\{\{(PLAN|QUESTIONS|IDS)\}\}/g, (_, k: string) => slots[k]!);
   return { prompt, items, plan_sha256: sha256(planText), prompt_sha256: sha256(deciderText), request_sha256: sha256(prompt) };
 }
 

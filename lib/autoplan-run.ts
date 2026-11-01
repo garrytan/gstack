@@ -50,7 +50,7 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
   const mine = JSON.stringify({ pid: process.pid, host: os.hostname(), at: now() });
   const staged = `${lock}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
   fs.writeFileSync(staged, mine);
-  for (let i = 0; ; i++) {
+  for (let reclaims = 0; ;) {
     try {
       fs.linkSync(staged, lock);
       fs.unlinkSync(staged);
@@ -69,7 +69,7 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
       if (alive && Date.now() < waitUntil) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); continue; }
       if (alive) { fs.rmSync(staged, { force: true }); throw new RunError('RUN_LOCKED', unreadable ? `${lock} is being written by another command` : `pid ${owner.pid} on ${owner.host} since ${owner.at}`, 3); }
       try { fs.unlinkSync(lock); } catch { /* raced with its owner's exit */ }
-      if (i > 50) { fs.rmSync(staged, { force: true }); throw new RunError('RUN_LOCKED', `could not reclaim ${lock}`, 3); }
+      if (++reclaims > 50) { fs.rmSync(staged, { force: true }); throw new RunError('RUN_LOCKED', `could not reclaim ${lock}`, 3); }
     }
   }
   try { return fn(); } finally { try { if (fs.readFileSync(lock, 'utf8') === mine) fs.unlinkSync(lock); } catch { /* already gone */ } }
