@@ -755,13 +755,67 @@ If the message names a missing timeout tool, install coreutils (`gtimeout`) or p
 **Expected result.** The next design skill prints `DESIGN_READY`.
 
 <a id="design-image-model-invalid"></a>
-### `GSTACK_DESIGN_IMAGE_MODEL="<value>" is not a gpt-image model name (expected something like gpt-image-2); fix it or unset it to use gpt-image-2`
+### `GSTACK_DESIGN_IMAGE_MODEL="<value>" is not a gpt-image model name ...` (or `... is not a Gemini model name, and the design provider is gemini`)
 
-**Meaning.** The design binary refuses an image tool model override that is not
-a `gpt-image-*` model name, before sending any request.
+**Meaning.** The design binary refuses a model override that does not fit the
+picked provider, before sending any request. On OpenAI the image tool model
+must be a `gpt-image-*` name; on Gemini, `GSTACK_DESIGN_IMAGE_MODEL` and
+`GSTACK_DESIGN_MODEL` must be `gemini-*` names. A Gemini 404 for a model also
+points here.
 
-**Fix.** `export GSTACK_DESIGN_IMAGE_MODEL=gpt-image-2` (or another gpt-image
-model your key can use), or `unset GSTACK_DESIGN_IMAGE_MODEL`.
+**Fix.** `unset GSTACK_DESIGN_IMAGE_MODEL GSTACK_DESIGN_MODEL` to use the
+defaults, or set models the picked provider and your key can use.
+
+<a id="design-no-image-key"></a>
+### `No image API key found (OpenAI or Gemini).`
+
+**Meaning.** `$D` found neither an OpenAI key (`~/.gstack/openai.json`,
+`OPENAI_API_KEY`) nor a Gemini key (`~/.gstack/gemini.json`,
+`GEMINI_API_KEY`). Design skills fall back to HTML wireframes.
+
+**What is kept.** Nothing was sent or spent.
+
+**Fix.** Get a free Gemini key at https://aistudio.google.com/apikey, then
+`export GEMINI_API_KEY=<key>` or `printf %s "$KEY" | $D setup --provider gemini --key-stdin`.
+
+**Expected result.** The next design command prints `Using Gemini key from ...`.
+
+<a id="design-provider-invalid"></a>
+### `GSTACK_DESIGN_PROVIDER="<value>" is not a design provider (expected openai or gemini).`
+
+**Fix.** `export GSTACK_DESIGN_PROVIDER=gemini` (or `openai`), or
+`unset GSTACK_DESIGN_PROVIDER` to let `$D` pick (OpenAI when its key is set,
+else Gemini).
+
+<a id="design-provider-no-key"></a>
+### `GSTACK_DESIGN_PROVIDER=<provider> but no <Provider> key was found`
+
+**Meaning.** You picked a provider explicitly and it has no key, so `$D`
+stopped before any request instead of quietly using the other one.
+
+**Fix.** Set that provider's key (`GEMINI_API_KEY` or `OPENAI_API_KEY`), run
+`$D setup --provider <provider>`, or unset `GSTACK_DESIGN_PROVIDER`.
+
+<a id="design-gemini-key-rejected"></a>
+### `Gemini API error (400|403, model <model>, key from <source>): ...`
+
+**Meaning.** Google rejected the key (`API_KEY_INVALID`), or the key's Google
+Cloud project has the Generative Language API turned off. The message names
+where the key came from, never the key.
+
+**Fix.** Create a key at https://aistudio.google.com/apikey and run
+`$D setup --provider gemini`, or enable the Generative Language API for the
+key's project. To use OpenAI instead: `export GSTACK_DESIGN_PROVIDER=openai`.
+
+<a id="design-gemini-quota"></a>
+### `Gemini API error (429 ...): ... no image quota left today`
+
+**Meaning.** The key's daily quota for the model is used up, or the key is on a
+free tier with no quota for image models. `$D` does not retry this; a
+short-term 429 is retried after Google's suggested delay.
+
+**Fix.** Enable billing for the key in Google AI Studio, wait for the daily
+reset, or `export GSTACK_DESIGN_PROVIDER=openai`.
 
 <a id="design-taste-profile-unavailable"></a>
 ### `TASTE_PROFILE_UNAVAILABLE: could not resolve the project slug (gstack-slug failed). Fix: run ./setup.`
@@ -4877,6 +4931,91 @@ trains and other trains' merges are refused until a repair lands.
 **Fix.** Admit one repair PR at its exact head (`train build --repair --prs
 <n>@<sha>`). The freeze clears when verify finds main's tree after that merge
 in a green record; `NEXT:` then builds a train of the PRs still unmerged.
+
+<a id="queue-wave-conflict"></a>
+### `QUEUE_WAVE_CONFLICT`
+
+**Meaning.** `wave build` merged the constituents in order with the train's
+merge rules, and one conflicts with the wave so far outside the CHANGELOG and
+the stamp files. Nothing was pushed. The record (state `conflict`) names the
+PR, the files and a worktree under the state root where the merge is in
+progress. `--continue` refuses until that worktree holds one committed merge
+of the constituent's pin onto the recorded commit with a clean tree.
+
+**Fix.** Resolve the files in the printed worktree, `git -C <worktree> commit
+--no-edit`, then `gstack-ship-queue wave build --wave <nonce> --continue`. Or
+build the wave without that PR.
+
+<a id="queue-wave-moved"></a>
+### `QUEUE_WAVE_MOVED`
+
+**Meaning.** A wave no longer lands what its record names: a constituent was
+pushed, closed or merged after it joined (heads freeze once in), the wave
+branch carries a merge that is not a constituent's pin (main merged in, for
+example), a pin is missing from the branch, or the wave was rebuilt and this
+PR is the old one. The same code refuses a constituent that targets a branch
+other than the base (a stacked PR's pin carries its parent's commits), a
+wave that was released, and a `--drop` or `--release` while the wave PR is
+still open, since a train that already admitted it would still land it.
+
+**Fix.** Close the wave PR if one is open, then rebuild without the moved PR,
+`wave build --wave <nonce> --drop <pr>`, which makes a new wave branch and PR (never a
+force-push); run /ship and READY the new wave PR. The moved PR goes back to
+its owner and rides on its own or in a later wave. A stacked PR rides on its
+own; after a release, each constituent is READY'd on its own.
+
+<a id="queue-wave-duplicate"></a>
+### `QUEUE_WAVE_DUPLICATE`
+
+**Meaning.** A PR would land twice or waves would nest: it is already a
+constituent of another live wave, `train build` was handed both a wave PR and
+one of its constituents (or two waves sharing one), a wave PR was named as a
+constituent, or a constituent of a live wave was READY'd or handed to `train
+build` on its own.
+
+**Fix.** Keep each PR in one place: drop the separate pin from `train build`,
+or rebuild one wave without the shared PR. A constituent of a live wave lands
+through the wave PR.
+
+<a id="queue-wave-size"></a>
+### `QUEUE_WAVE_SIZE`
+
+**Meaning.** A wave carries 3 to 6 PRs by default (R46). `--min` and `--max`
+change the bounds for one command.
+
+**Fix.** Add or remove PRs; `wave plan` suggests area groups. Fewer PRs than
+the minimum ride as single train slots.
+
+<a id="queue-wave-unknown"></a>
+### `QUEUE_WAVE_UNKNOWN`
+
+**Meaning.** A PR's head branch is `wave/<nonce>`, or a command named a
+nonce, but no wave record exists in local state or on
+`refs/notes/gstack-trains`. `ready` and `train build` refuse rather than
+treat the PR as an ordinary one, since its constituents cannot be checked.
+
+**Fix.** `gstack-ship-queue wave status` lists the known waves. When the
+record is gone, rebuild the wave with `wave build --prs`.
+
+<a id="queue-wave-dependent"></a>
+### `QUEUE_WAVE_DEPENDENT`
+
+**Meaning.** `wave build --drop <pr>` was asked to drop a PR whose pin is an
+ancestor of another constituent's pin (a stacked PR), so the rebuilt wave would
+still land the dropped code.
+
+**Fix.** Drop the containing PR too, or keep the PR in the wave.
+
+<a id="queue-wave-not-merged"></a>
+### `QUEUE_WAVE_NOT_MERGED`
+
+**Meaning.** `wave settle` found no PR merged into the base branch whose head
+branch is the wave branch, its merge commit is not on the base branch, or that
+merge's tree is neither the PR's head tree nor that head merged onto the
+merge's parent, so it cannot say the constituents landed. Nothing was commented or closed.
+
+**Fix.** Land the wave PR through its train (`train land`), then rerun
+`gstack-ship-queue wave settle --wave <nonce>`.
 
 <a id="queue-receipt-missing"></a>
 ### `QUEUE_RECEIPT_MISSING`

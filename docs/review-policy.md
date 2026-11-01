@@ -271,8 +271,9 @@ the specialists, audits and watchers at the host default too
 ### Behavior changes
 
 - Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
-  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
-  Team and the native adversarial pass on the range instead of the specialist army.
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
+  Team on the range, plus the native adversarial pass (on the range once Step 11 has
+  run, otherwise on the whole branch), instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
 - Every depth dispatches one batched specialist instead of one reader per

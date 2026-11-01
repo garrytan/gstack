@@ -80,9 +80,9 @@ export const COMMANDS = new Map<string, {
     flags: ["--force"],
   }],
   ["setup", {
-    description: "Guided API key setup + smoke test",
-    usage: "setup",
-    flags: [],
+    description: "Guided API key setup (OpenAI or Gemini) + smoke test",
+    usage: "setup [--provider openai|gemini] [--key-stdin]",
+    flags: ["--provider", "--key-stdin"],
   }],
 ]);
 
