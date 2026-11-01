@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.7.0] - 2026-11-01
+
+- `gstack-review-dispatch pass` no longer dies on a large diff. `gstack-review-plan` exited before its stdout pipe drained, so a plan JSON past about 128 KB (1.39 MB on a 4,000-file results PR) reached `pass` cut short and failed to parse. Both bins now set the exit code and let their output drain, and a 4,000-file test keeps it that way (GST-507).
+
 ## [1.92.6.0] - 2026-11-01
 
 **Choosing "core" now means core everywhere gstack routes, and the four core skills carry their plain-English trigger phrases where hosts read them.** Under the default `proactive: core`, the CLAUDE.md routing section gstack offered still listed all 13 routing rules, and 16 non-core skills still told Codex and the other hosts to "proactively suggest" them (#3446). Separately, phrases like "test the site" or "ship it" lived only in each skill's `triggers:` metadata, which no host reads, so they never reached the list the agent picks skills from (#2118). The always-loaded Claude catalog does not grow. It measures 5,682 bytes before and 5,678 after (1,421 → 1,420 token-equivalents against the unchanged 1,423 ceiling).
