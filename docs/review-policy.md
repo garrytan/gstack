@@ -526,7 +526,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
    is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
    outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
-   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
+   worked elsewhere by accident; it is not proof of reading, since diff text can predict it. The brief asks for the bare
+   line and gives the command only as the way to get it; a `printed:` label before the line is still read, and its tree
+   and toplevel are still compared exactly (GST-776). Capy cannot start a subagent in a chosen directory, so before it
+   takes a start token or sends a reader, the Capy pass program compares the checkout with the one shared readers start
+   in (the thread's working directory) and stops on a mismatch. Step 11's voices take the `adversarial-review` start
+   token by default, and a `logStart` list without it stops before anything runs.
 
 ## Where this is enforced
 
