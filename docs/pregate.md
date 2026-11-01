@@ -182,7 +182,9 @@ Two stages with separate clocks, both printed:
   changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
   findings on its added lines count, so a line added inside an existing
   `"""` or `'''` string is still read as a literal; its rows give the file's
-  line number (`app.py, line 10`).
+  line number (`app.py, line 10`). The whole text is the version git diffed
+  (a full-context `git diff`), never the working copy; a file whose full diff
+  does not parse is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
@@ -816,8 +818,11 @@ those, each with its scope and its reason:
   (`session: HttpSession,`) and a dict entry or Dart named argument that reads
   a name (`"password": request.password`) are code, not credentials, as they
   are in TypeScript (#3630). Python's keyword form (`password=request.password`)
-  still reports. The same line inside a `"""` docstring is text and still
-  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  still reports. The same line inside a `"""` docstring, any other string or
+  a Dart `/* */` comment is text and still reports; allowlist it by its value.
+  Code inside a Python f-string or t-string `{…}` field, or a non-raw Dart
+  string's `${…}`, is read as code, and its nested strings and quotes do not
+  end the outer string (GST-738). The pre-push hook sees only added lines,
   so it scans Python and Dart lines without this exemption and may still warn
   (MEDIUM, non-blocking) on them.
 
