@@ -14,12 +14,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
+import { runScriptSync } from '../lib/script-invocation';
 import { resolveStateRoot } from '../lib/state-root';
 import { SupersedeRefused, TASK_PHASES, addRows, finishPending, priorSet, readTaskFiles, rowsFileName, supersede, type TaskPhase } from '../lib/tasks-prior';
 
 const HELP = `gstack-tasks — a plan review's task list across reruns
 
-  prior --phase <p> [--json]          the newest earlier list for this phase and branch, and how to reconcile it
+  prior --phase <p> [--json]          the newest earlier list for this phase and branch, and how to reconcile it;
+                                      deletes any rows file an unfinished run left
   add --phase <p>                     validate the rows file, write this run's list (empty: ran, no findings) and its
                                       dispositions to task-dispositions-<p>-<branch>.jsonl, then supersede this branch's earlier lists
   supersede --phase <p> --keep <list> [--json]   move this branch's reconciled earlier lists out of the aggregate
@@ -46,7 +48,7 @@ function usage(message: string): number {
 }
 const git = (...args: string[]) => { const r = spawnSync('git', args, { encoding: 'utf8', timeout: 10_000 }); return r.status === 0 ? r.stdout.trim() : ''; };
 function slug(name: 'SLUG' | 'BRANCH'): string {
-  const r = spawnSync(path.join(import.meta.dir, 'gstack-slug'), ['--get', name], { encoding: 'utf8', timeout: 10_000 });
+  const r = runScriptSync(path.join(import.meta.dir, 'gstack-slug'), ['--get', name], { encoding: 'utf8', timeout: 10_000 });
   return (r.status === 0 && r.stdout.trim()) || 'unknown';
 }
 
@@ -80,6 +82,7 @@ function main(argv: string[]): number {
     }
     if (cmd === 'prior') {
       finishPending(dir, phase);
+      fs.rmSync(path.join(rowsDir(dir), rowsFileName(phase)), { force: true });
       const files = readTaskFiles(dir, phase);
       for (const f of files) for (const n of f.malformed) process.stderr.write(`PRIOR_TASKS_MALFORMED: ${f.file}:${n}\n`);
       const prior = priorSet(files, phase, branch);

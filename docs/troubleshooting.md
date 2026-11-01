@@ -3236,11 +3236,14 @@ or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gs
 `gstack-office-hours-review probe --help <command> [<subcommand>]`, and nothing
 else runs. The command must be a gstack bin or one of the listed read-only CLIs
 (git, gh, bun, node, npm, pnpm, yarn, jq, rg, python3, uv, go, cargo, make,
-docker, claude, codex, gemini), found on PATH outside the repository. Up to two
-lowercase subcommand words are allowed for git, gh, docker, cargo, go, npm and
-uv only, whose subcommands are fixed names; the others could run a script or
-file named by the word. The probe never runs a shell, closes stdin, runs in an
-empty temporary directory and stops after 10 seconds.
+docker, claude, codex, gemini), found on PATH outside the repository; a gstack
+bin must handle `--help`. Up to two subcommand words are allowed for git, gh,
+docker, cargo, go, npm and uv, each from that CLI's list of built-in names in
+`lib/office-hours-probe.ts`; words that run a named program, script, image or
+extension (`uv run`, `docker run`, `go test`, `npm exec`, a gh extension) are
+refused. The probe never runs a shell, closes stdin, runs in an empty temporary
+directory that is also its HOME, passes no keys or tokens in its environment and
+stops after 10 seconds.
 
 **Fix.** Nothing to repair. The claim stays unverified, not disproved; check it
 from the command's source or docs in the repository instead.

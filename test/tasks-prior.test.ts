@@ -171,6 +171,26 @@ describe('gstack-tasks add', () => {
     expect(aggregate(w)).not.toContain('add retry');
   });
 
+  test('a dropped disposition is recorded with its reason and retires the prior list', () => {
+    const w = world();
+    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n');
+    fs.writeFileSync(rowsFile(w), JSON.stringify({ prior: `${R1}/T1`, disposition: 'dropped', reason: 'out of scope' }) + '\n');
+    const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
+    expect(add.stdout).toMatch(/^ADDED: tasks=0 dispositions=1 /m);
+    expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'task-dispositions-eng-review-feature-x.jsonl'), 'utf8'))).toMatchObject({ prior: `${R1}/T1`, disposition: 'dropped', reason: 'out of scope' });
+    expect(fs.existsSync(path.join(w.dir, 'superseded-' + path.basename(prior)))).toBe(true);
+    expect(aggregate(w)).not.toContain('add retry');
+  });
+
+  test('prior deletes a rows file an unfinished run left, so add never ingests stale rows', () => {
+    const w = world();
+    fs.writeFileSync(rowsFile(w), JSON.stringify({ id: 'T9', priority: 'P1', component: 'c', title: 'stale', source_finding: 's', effort_human: 'h', effort_cc: 'c', files: [] }) + '\n');
+    expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toContain('PRIOR_TASKS: none');
+    expect(fs.existsSync(rowsFile(w))).toBe(false);
+    expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toMatch(/^ADDED: tasks=0 dispositions=0 /m);
+  });
+
   test('add refuses an invalid rows file and writes nothing', () => {
     const w = world();
     const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');

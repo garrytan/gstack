@@ -27,7 +27,8 @@ describe('resolveProbe', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-repo-'));
   tool(bin, 'git', 'echo usage: git');
   tool(bin, 'curl', 'echo nope');
-  tool(gstackBin, 'gstack-thing', 'echo usage: gstack-thing');
+  tool(gstackBin, 'gstack-thing', '[ "$1" = --help ] && echo usage: gstack-thing');
+  tool(gstackBin, 'gstack-login', 'echo logged in');
   tool(repo, 'jq', 'echo repo jq');
 
   test('a listed CLI on PATH and a gstack bin resolve', () => {
@@ -49,6 +50,29 @@ describe('resolveProbe', () => {
     for (const [command, words] of [['node', ['script']], ['gstack-thing', ['prior']], ['git', ['-c']], ['git', ['../x']], ['git', ['Log']], ['git', ['a', 'b', 'c']]] as const) {
       expect('refused' in resolveProbe(command, { pathEnv: bin, gstackBin, repoRoot: repo }, words)).toBe(true);
     }
+  });
+
+  test('a subcommand word must be a listed built-in of that CLI, never one that runs a named program, image or extension', () => {
+    for (const c of ['gh', 'docker', 'uv', 'go', 'npm']) tool(bin, c, 'echo usage');
+    const o = { pathEnv: bin, gstackBin, repoRoot: repo };
+    for (const [command, w] of [['gh', ['pr', 'create']], ['git', ['worktree']], ['docker', ['compose', 'up']], ['uv', ['pip', 'install']], ['go', ['mod', 'tidy']]] as const) {
+      expect(resolveProbe(command, o, w)).toEqual({ exe: path.join(bin, command) });
+    }
+    for (const [command, w] of [['uv', ['run', 'probetarget']], ['uv', ['tool', 'run']], ['docker', ['run', 'img']], ['docker', ['container', 'run']], ['go', ['test', 'pkg']], ['go', ['run', 'x']], ['npm', ['exec', 'x']], ['npm', ['run', 'x']], ['gh', ['myext']], ['git', ['log', 'x']]] as const) {
+      expect('refused' in resolveProbe(command, o, w)).toBe(true);
+    }
+  });
+
+  test('a gstack bin that does not handle --help is refused', () => {
+    expect(resolveProbe('gstack-login', { pathEnv: bin, gstackBin })).toEqual({ refused: 'gstack-login does not handle --help' });
+  });
+
+  test('the probe sees no keys or tokens, gets a throwaway HOME, and never retries a gstack bin with -h', () => {
+    const peek = tool(bin, 'peek', 'echo "key=${OPENAI_API_KEY:-none} gh=${GH_TOKEN:-none} home_empty=$([ "$HOME" = "$PWD" ] && echo yes) args=$*"');
+    process.env.OPENAI_API_KEY ??= 'planted'; process.env.GH_TOKEN ??= 'planted';
+    expect(runProbe(peek).output.trim().split('\n')).toEqual(['key=none gh=none home_empty=yes args=-h']);
+    const g = tool(gstackBin, 'gstack-quiet', 'echo "args=$*" # --help');
+    expect(runProbe(g).output.trim()).toBe('args=--help');
   });
 
   test('runProbe passes only --help, closes stdin and stops a hanging command', () => {
