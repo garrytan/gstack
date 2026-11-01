@@ -1239,8 +1239,8 @@ git -C ~/.claude/skills/gstack update-ref -d 'refs/gstack/rescue/<oid>'
 <a id="setup-runtime-root-contains-checkout"></a>
 ### `gstack setup: refusing to replace <root> for <host>: this runtime directory contains the source checkout setup runs from (<checkout>), so replacing it would delete the checkout. Nothing was changed.`
 
-**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot and
-Antigravity by building a runtime root (such as `~/.cursor/skills/gstack`) and
+**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot,
+Antigravity and Gemini CLI by building a runtime root (such as `~/.cursor/skills/gstack`) and
 swapping it in for the old one, and Kiro by writing into `~/.kiro/skills/gstack`.
 Your gstack checkout lives at that root or inside it, so the swap would delete
 the checkout (#3084), and Kiro would link the checkout into itself. Setup refuses before
@@ -2202,6 +2202,25 @@ anything.
 
 ```powershell
 .\setup.ps1 --host codex
+```
+
+---
+
+<a id="setup-deps-migrate-failed"></a>
+### `gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; ...): <cause>`
+
+**Meaning.** Your install was made before v1.91.231.0, so it still carries the
+test and eval packages (about 520 MB, mostly the Claude Agent SDK). setup moved
+`node_modules` aside to install production dependencies only, that install
+failed, and setup put the full `node_modules` back. Nothing was removed, and
+gstack keeps working on the full install.
+
+**Fix.** Fix the cause the warning names (no network, a proxy, a full disk),
+then run `./setup` again. Developing gstack in this checkout? Mark it, and
+setup keeps the dev packages from then on:
+
+```bash
+git config gstack.contributor true
 ```
 
 ---

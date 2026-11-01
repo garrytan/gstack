@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.92.22.0] - 2026-11-01
+
+**gstack installs into Gemini CLI, and installs made before v1.91.231.0 finally drop the test and eval packages they never needed.** `./setup --host gemini` puts every gstack skill in `~/.gemini/skills`, where Gemini CLI 0.66.0 lists them (#1247). Separately, `./setup` used to treat any checkout that had TypeScript installed as a contributor's, so every install made before v1.91.231.0 (which ran a full `bun install`) kept about 510 MB of dev packages in `node_modules` forever (#3447).
+
+### Added
+- **Gemini CLI host** (experimental): `./setup --host gemini` (alias `gemini-cli`; `--host auto` picks it only when `gemini` is on PATH) links `gstack-<skill>` directories into `~/.gemini/skills` plus the `~/.gemini/skills/gstack` runtime root. The render goes to `.gemini-cli/` with frontmatter names that match their directories, `CLAUDE.md` read as `GEMINI.md`, and a tool glossary for Gemini CLI's tool names and for Antigravity CLI, which can read the same folder. Ask for a skill by name (`gstack-office-hours`); Gemini CLI loads it with `activate_skill`. `gstack-uninstall` removes only gstack-managed entries there, so your own skills stay. `--local --host gemini` is refused with a note that Gemini CLI loads workspace skills only in trusted folders. docs/ADDING_A_HOST.md lists the verified facts.
+- **An explicit contributor marker**: `bin/dev-setup` runs `git config gstack.contributor true`, and `GSTACK_CONTRIBUTOR=1` marks a single run. A marked clone keeps the full install on every `./setup`.
+
+### Changed
+- **An unmarked clone that still has the dev toolchain moves to production dependencies once.** setup takes a lock in the checkout, moves `node_modules` aside, installs production dependencies, checks every runtime package resolves, then deletes the old copy. If the install fails, the full `node_modules` goes back and setup prints `SETUP_DEPS_MIGRATE_FAILED` with the cause; nothing is removed and the next `./setup` tries again. CI, and a checkout whose git config cannot be read, never migrate. On a real install `node_modules` went from 1079 MB to 569 MB. Bun's shared package cache is left alone, because other projects can read it through symlinks.
+
+### Tests
+- test/setup-production-deps.test.ts: the marker (git config, env, CI, unreadable git config), the one-time migration and its no-op rerun, restore on a failed or unverified install, recovery of an interrupted move, the lock, an untouched Bun cache, and a real-Bun fixture for a marked and an unmarked clone. test/uninstall.test.ts: Gemini CLI entries removed, the user's own kept. Host config, conformance, install-registry, render-prune and runtime-root tests cover the new host.
+
 ## [1.92.21.0] - 2026-11-01
 
 **The PR and train path check out blobless clones, and the history reads they gate on fail loudly instead of reading a failed fetch as "absent" (GSTA-203 PR 5).** Free Tests' plan job, the Version Gate and E2E Evals' route, screen summary, planner, slices, reruns, bisect and report checked out every file of every commit (about 232 MB) to read a handful of old files. They now check out with `filter: blob:none` (about 17 MB), and git fetches an old file's contents the first time something reads it.
