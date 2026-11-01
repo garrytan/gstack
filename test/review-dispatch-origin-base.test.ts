@@ -41,7 +41,7 @@ describe('pass reads DIFF_BASE from origin/<base> (GST-716)', () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as { diff_base: string };
     expect(m.diff_base).toBe(originBase);
-    const briefs = fs.readdirSync(out).filter(f => f.endsWith('.prompt.md')).map(f => fs.readFileSync(path.join(out, f), 'utf8'));
+    const briefs = fs.readdirSync(path.join(out, 'briefs')).filter(f => f.endsWith('.prompt.md')).map(f => fs.readFileSync(path.join(out, 'briefs', f), 'utf8'));
     expect(briefs.length).toBeGreaterThan(0);
     for (const b of briefs) expect(b).toContain(originBase);
   }, 240_000);
