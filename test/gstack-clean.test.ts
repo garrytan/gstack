@@ -389,6 +389,50 @@ describe('gstack-clean', () => {
     expect(changedKeys(before, snapshot(g.root))).toEqual([]);
   });
 
+  test('a hard-linked log is left alone, and the other inode keeps every byte', () => {
+    const f = fixture();
+    const outside = put(path.join(f.root, 'outside.txt'), logText(1.2 * 1024 * 1024), 2 * 60 * 60 * 1000);
+    fs.linkSync(outside, path.join(f.gs, 'browse-console.log'));
+    const before = fs.readFileSync(outside);
+    const r = run(f, ['--apply']);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/skip +browse-console\.log: .*hard link/);
+    expect(fs.readFileSync(outside).equals(before)).toBe(true);
+  });
+
+  test('a log with no line break in its last 256 KB is left alone', () => {
+    const f = fixture();
+    put(path.join(f.gs, 'browse-network.log'), 'x'.repeat(1.2 * 1024 * 1024), 2 * 60 * 60 * 1000);
+    const before = snapshot(f.root);
+    const r = run(f, ['--apply']);
+    expect(r.out).toMatch(/skip +browse-network\.log: no line break/);
+    expect(changedKeys(before, snapshot(f.root))).toEqual([]);
+  });
+
+  test('an audit line that is not a JSON object leaves the audit file alone', () => {
+    const f = fixture();
+    put(path.join(f.gs, 'browse-audit.jsonl'), '{"ts":"2020-01-01T00:00:00Z"}\n[1]\n', 2 * 60 * 60 * 1000);
+    const before = snapshot(f.root);
+    const r = run(f, ['--apply', '--audit-days', '7']);
+    expect(r.out).toMatch(/skip +browse-audit\.jsonl: line 2 is not a JSON object/);
+    expect(changedKeys(before, snapshot(f.root))).toEqual([]);
+  });
+
+  test.skipIf(process.getuid?.() === 0)('an unreadable log is skipped and the rest still runs', () => {
+    const f = fixture();
+    put(path.join(f.gs, 'tmp', 'codex-err-old'), 'x', 30 * DAY);
+    const log = put(path.join(f.gs, 'browse-console.log'), logText(1.2 * 1024 * 1024), 2 * 60 * 60 * 1000);
+    fs.chmodSync(log, 0o000);
+    try {
+      const r = run(f, ['--apply']);
+      expect(r.code).toBe(0);
+      expect(r.out).toMatch(/skip +browse-console\.log: cannot read/);
+      expect(fs.existsSync(path.join(f.gs, 'tmp', 'codex-err-old'))).toBe(false);
+    } finally {
+      fs.chmodSync(log, 0o644);
+    }
+  });
+
   describe('exit codes', () => {
     test('2: an unknown flag or a bad --audit-days quotes the value; the last line is usage', () => {
       const f = fixture();

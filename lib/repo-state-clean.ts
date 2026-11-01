@@ -207,14 +207,19 @@ function evaluate(c: Candidate, dir: string, busy: string | null, opts: CleanOpt
   if (now - st.mtimeMs < RECENT_MS) return { ...c, reason: 'modified within the last hour' };
   if (busy) return { ...c, reason: busy };
   if (c.kind === 'remove') return { ...c, bytes: st.size, reason: 'codex scratch older than 7 days' };
+  if (st.nlink !== 1) return { ...c, reason: `has ${st.nlink} hard links, so cutting it would change a file outside this folder; left alone` };
+  let content: Buffer;
+  try { content = c.kind === 'cut' ? readTail(c.file, st.size) : fs.readFileSync(c.file); } catch (e: any) {
+    return { ...c, reason: `cannot read (${e?.code ?? 'error'}); left alone` };
+  }
   if (c.kind === 'cut') {
-    const tail = readTail(c.file, st.size);
+    const tail = content;
     const at = tail.indexOf(0x0a);
     if (at < 0) return { ...c, reason: 'no line break in its last 256 KB; left alone' };
     const keep = tail.subarray(at + 1);
     return { ...c, keep, bytes: st.size - keep.length, reason: 'over 1 MB; keeps the last 256 KB from a line start' };
   }
-  const keep = auditKeep(fs.readFileSync(c.file), now - opts.auditDays! * DAY_MS);
+  const keep = auditKeep(content, now - opts.auditDays! * DAY_MS);
   if (typeof keep === 'string') return { ...c, reason: keep };
   if (keep.length === st.size) return null;
   return { ...c, keep, bytes: st.size - keep.length, reason: `audit entries older than ${opts.auditDays} days` };
@@ -257,8 +262,11 @@ export function planClean(target: string, opts: CleanOptions, now = Date.now()):
 }
 
 function rewriteInPlace(file: string, keep: Buffer): void {
-  const fd = fs.openSync(file, 'r+');
+  const before = fs.lstatSync(file);
+  const fd = fs.openSync(file, fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW ?? 0));
   try {
+    const st = fs.fstatSync(fd);
+    if (st.ino !== before.ino || st.dev !== before.dev || st.nlink !== 1) throw Object.assign(new Error('the file changed before it could be cut'), { code: 'ECHANGED' });
     fs.writeSync(fd, keep, 0, keep.length, 0);
     fs.ftruncateSync(fd, keep.length);
   } finally { fs.closeSync(fd); }
