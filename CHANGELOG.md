@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.24.0] - 2026-11-01
+
+- `/ship` can finish after the owner accepts a Step 14.5 documentation risk. `gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json` writes the post-audit snapshot from the blocked record, naming who accepted it, the date, how and the base SHA, and `gstack-ship-release finish` prints that exception on its `DOCS:` line. Finish still stops on a blocked audit with no accepted exception, and on an exception snapshot whose docs-audit record no longer carries it (GST-713).
+
 ## [1.92.23.0] - 2026-11-01
 
 - **OpenClaw and Hermes: opt-in start hook.** `gstack-harness register openclaw|hermes --start-hook` (or `gstack-config set harness_start_hook on`, or `GSTACK_HARNESS_START_HOOK=1`) adds a `gstack-start` plugin that puts a one-line note on every user turn telling the agent to run a gstack skill's start command as written. Agents in these harnesses read gstack's skills but ran that command on 1 of 29 chances. gstack turns the plugin on through each harness's own CLI, checks that it is active, and exits 4 when it is not. It is off by default, the choice is saved across upgrades, a plugin you disable in the harness stays off, and `--no-start-hook`, unregister and uninstall take it out. See docs/hosts.md#start-hook.
