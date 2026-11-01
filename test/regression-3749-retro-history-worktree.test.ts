@@ -38,12 +38,15 @@ const LOAD = bashBlockAfter('### Step 12: Load History & Compare', 'retro').repl
 let tmp: string;
 let home: string;
 
+/** Git Bash on Windows prints the state root as given plus `/projects/...`; compare with forward slashes. */
+const fwd = (p: string) => p.replaceAll('\\', '/');
+
 function sh(script: string, cwd: string) {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   for (const k of ['GSTACK_STATE_ROOT', 'GSTACK_STATE_DIR', 'GSTACK_PROJECT_SLUG', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PROJECT_DIR']) delete env[k];
   const r = spawnSync('bash', ['-c', script], { cwd, env: { ...env, HOME: tmp, GSTACK_HOME: home }, encoding: 'utf-8', timeout: 30_000 });
-  return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status ?? -1 };
+  return { stdout: fwd(r.stdout ?? ''), stderr: r.stderr ?? '', status: r.status ?? -1 };
 }
 
 function git(cwd: string, ...args: string[]) {
@@ -90,7 +93,7 @@ describe('#3749 retro history is shared across linked worktrees', () => {
 
     const r = sh(LOAD, wt);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain(path.join(history, '2026-10-25-1.json'));
+    expect(r.stdout).toContain(fwd(path.join(history, '2026-10-25-1.json')));
     expect(fs.existsSync(path.join(history, '2026-10-25-1.json'))).toBe(true);
     expect(fs.existsSync(path.join(main, '.context', 'retros'))).toBe(false);
   });
@@ -100,14 +103,14 @@ describe('#3749 retro history is shared across linked worktrees', () => {
     const save = sh(LOAD, wt);
     expect(save.status).toBe(0);
     const file = save.stdout.match(/^RETRO_FILE: (.+)$/m)?.[1];
-    expect(file).toBe(path.join(history, '2026-11-01-1.json'));
-    expect(file!.startsWith(wt)).toBe(false);
+    expect(file).toBe(fwd(path.join(history, '2026-11-01-1.json')));
+    expect(file!.startsWith(fwd(wt))).toBe(false);
     fs.writeFileSync(file!, JSON.stringify({ date: '2026-11-01', window: '7d' }));
 
     git(main, 'worktree', 'remove', '--force', wt);
     const fromMain = sh(LOAD, main).stdout;
     expect(fromMain).toContain(file!);
-    expect(fromMain).toContain(`RETRO_FILE: ${path.join(history, '2026-11-01-2.json')}`);
+    expect(fromMain).toContain(`RETRO_FILE: ${fwd(path.join(history, '2026-11-01-2.json'))}`);
   });
 
   test('migration keeps every snapshot: duplicates collapse, same-name differing snapshots get the next number', () => {
@@ -133,15 +136,15 @@ describe('#3749 retro history is shared across linked worktrees', () => {
     const r = sh(LOAD, wt);
     expect(r.status).toBe(0);
     expect(fs.readFileSync(kept, 'utf-8')).toContain('2026-10-25');
-    expect(r.stdout).toContain(`RETRO_PRIOR: ${kept}`);
+    expect(r.stdout).toContain(`RETRO_PRIOR: ${fwd(kept)}`);
   });
 
   test('RETRO_FILE is reserved, so two runs in different worktrees never get the same path', () => {
     const { main, wt, history } = layout();
     const first = sh(LOAD, wt).stdout.match(/^RETRO_FILE: (.+)$/m)?.[1];
     const second = sh(LOAD, main).stdout.match(/^RETRO_FILE: (.+)$/m)?.[1];
-    expect(first).toBe(path.join(history, '2026-11-01-1.json'));
-    expect(second).toBe(path.join(history, '2026-11-01-2.json'));
+    expect(first).toBe(fwd(path.join(history, '2026-11-01-1.json')));
+    expect(second).toBe(fwd(path.join(history, '2026-11-01-2.json')));
     expect(fs.readFileSync(first!, 'utf-8').trim()).toBe('{}');
   });
 
