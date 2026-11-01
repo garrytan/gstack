@@ -55,4 +55,12 @@ describe('gstack-ship-budget calls', () => {
     const missing = spawnSync(BIN, ['calls', '--events', path.join(tmp, 'nope.json')], { encoding: 'utf8', timeout: 30_000 });
     expect(missing.status).toBe(2);
   });
+
+  test('a literal ~ in --events is the home directory, as a shell would expand it (GST-438)', () => {
+    const home = fs.mkdtempSync(path.join(tmp, 'home-'));
+    fs.writeFileSync(path.join(home, 'events.json'), JSON.stringify({ items: ITEMS, cursor: 'c1' }));
+    const r = spawnSync(BIN, ['calls', '--events', '~/events.json'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, HOME: home } });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^CALLS: total=8 decision=4 keepalive=4 .* source=c1$/m);
+  });
 });

@@ -246,7 +246,7 @@ export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previou
 Document: ${document}
 Verdict: ${verdictPath}
 
-Use only Read, Write, and the one Bash seal command for this review. Read the design at ${JSON.stringify(document)} with Read and ${previous
+Use only Read, Grep and Glob (on files inside the repository checkout, never elsewhere), Write, and Bash for the seal and probe commands in your dispatch message. Read the design at ${JSON.stringify(document)} with Read and ${previous
     ? `perform a delta re-review against the preceding verdict and the exact design changes captured below.`
     : 'review all 5 dimensions independently, including new defects.'} Never use Edit on any file, your verdict file included, and do not change the design.
 Use Write to save your complete verdict as JSON to ${JSON.stringify(verdictPath)}. Then run the \`Seal:\` command from your dispatch message with Bash, exactly as given; it validates the saved file and prints one receipt line. If it reports an error, Write the complete corrected JSON to the same path (never Edit, even for a one-field fix) and run the same command again. Use Bash for nothing else.
@@ -299,7 +299,7 @@ Use status unverified with the missing evidence and a current finding ID when re
 2. **Consistency** — Do parts of the document agree with each other? Contradictions?
 3. **Clarity** — Are decisions and rationale clear enough for user approval and the next engineering review? Are open discovery questions distinguished from committed behavior? Flag ambiguous or missing behavior in the chosen approach.
 4. **Scope** — Does the document creep beyond the original problem? YAGNI violations?
-5. **Feasibility** — Can this actually be built with the stated approach? Hidden complexity?
+5. **Feasibility** — Can this actually be built with the stated approach? Hidden complexity? Check the concrete claims the approach depends on: Read or Grep each cited repository file or function; check each cited command flag with the dispatch's \`Probe:\` command (a refused or failed probe leaves the claim unverified, never disproved); for each number, write its inputs, operation and result into the finding instead of running code. A wrong path, flag or number is blocking.
 
 ## Complete preceding verdict
 

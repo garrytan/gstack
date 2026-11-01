@@ -4,10 +4,12 @@
  * `set -o pipefail` with the exit code and the runner's own summary judged
  * (zero tests ran is a failure, exit 0 or not); platform lanes this machine
  * cannot run become persisted `requires-remote` obligations. A touched file
- * with no lane is `FAIL lanes — <file> has no test lane` once any policy
- * exists; with no policy anywhere (no base `.gstack/pregate.json`, no
- * user-owned file) it is the `warn` PREGATE_NO_POLICY with a starter printed
- * (lib/pregate/starter.ts), never a pass either way.
+ * with no lane is `FAIL lanes — <file> has no test lane` once the policy
+ * declares lanes (a `dependencies`, `empty_lanes`, `selection` or `local` key); with no policy
+ * anywhere, or one that declares neither (a timeout-only file), it is the
+ * `warn` PREGATE_NO_POLICY with a starter printed (lib/pregate/starter.ts),
+ * never a pass either way. `warn: ["lanes"]` downgrades only that condition:
+ * the selected tests still run and a red lane stays `fail` (GST-775).
  * Markdown no test depends on is the docs/no-tests empty lane instead
  * (lib/pregate/docs-lane.ts): it does not fail, and unmapped code still does.
  * A release manifest whose diff against the merge base changes only version
@@ -410,8 +412,15 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
   return { code: 'PREGATE_INCOMPLETE', detail: `a runner process timed out after ${ctx.timeoutMs} ms (${ctx.timeoutSource ?? '--timeout'} applies to each runner process; ${total} files; last file started: ${timedOut.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest})`, fix: 'raise --timeout or split the selection; a timed-out lane never passes' };
 }
 
-function describe(sel: Selection, noPolicy = false): string[] {
-  const lines = noPolicy ? [`no policy: ${sel.noLane.join(' ')} have no test lane (a warning under no policy; the starter below maps them)`] : sel.noLane.map(f => `FAIL lanes — ${f} has no test lane`);
+/** How a touched file with no lane is judged: the no-policy warning, the `warn: ["lanes"]` downgrade, or the hard PREGATE_NO_LANE. */
+type NoLaneMode = 'no-policy' | 'warned' | 'strict';
+
+function describe(ctx: PregateContext, sel: Selection, mode: NoLaneMode): string[] {
+  const lines = !sel.noLane.length ? []
+    : mode === 'warned' ? sel.noLane.map(f => `WARN lanes — ${f} has no test lane (warn: ["lanes"] in ${ctx.configLabel}; the selected tests are still judged)`)
+    : mode === 'strict' ? sel.noLane.map(f => `FAIL lanes — ${f} has no test lane`)
+    : ctx.configKind === 'none' ? [`no policy: ${sel.noLane.join(' ')} have no test lane (a warning under no policy; the starter below maps them)`]
+    : [`no lane policy: ${sel.noLane.join(' ')} have no test lane (a warning while ${ctx.configLabel} declares no dependencies, empty_lanes, selection or local; the starter below maps them)`];
   for (const r of sel.removed) lines.push(`removed (no lane owed): ${r.file} — ${r.note}`);
   if (sel.emptyLane.length) lines.push(`docs/no-tests (empty lane): ${sel.emptyLane.join(' ')}`);
   if (sel.inert.length) lines.push(`no-tests (assets and tool config): ${sel.inert.join(' ')}`);
@@ -566,9 +575,25 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
  */
 function withStarter(ctx: PregateContext, sel: Selection, result: CheckResult): CheckResult {
   const lines = [...(result.lines ?? []), ...starterPolicy(ctx, sel.noLane, detectRunner(ctx, sel.localTests.length ? sel.localTests : sel.tests))];
-  const noted = `${sel.noLane.length} touched file(s) with no test lane under no policy (starter printed)`;
+  const noted = `${sel.noLane.length} touched file(s) with no test lane under ${ctx.configKind === 'none' ? 'no policy' : 'a policy that declares no lanes'} (starter printed)`;
   if (result.status !== 'pass') return { ...result, lines, detail: `${result.detail}; ${noted}`, ...(result.status === 'requires-remote' && !result.code ? { code: 'PREGATE_NO_POLICY' } : {}) };
-  return { ...result, status: 'warn', code: 'PREGATE_NO_POLICY', lines, detail: `${result.detail}; ${noted}`, fix: `review the starter above, write it with gstack-pregate init, edit each TODO, then commit ${PREGATE_CONFIG_PATH} on the base branch; from then on an unmapped file is PREGATE_NO_LANE` };
+  const fix = ctx.configKind === 'none'
+    ? `review the starter above, write it with gstack-pregate init, edit each TODO, then commit ${PREGATE_CONFIG_PATH} on the base branch; from then on an unmapped file is PREGATE_NO_LANE`
+    : `review the starter above and add its dependencies to ${ctx.configFile}${ctx.configKind === 'user' ? '' : ' on the base branch'}, editing each TODO; from then on an unmapped file is PREGATE_NO_LANE`;
+  return { ...result, status: 'warn', code: 'PREGATE_NO_POLICY', lines, detail: `${result.detail}; ${noted}`, fix };
+}
+
+/**
+ * `warn: ["lanes"]` under a policy that declares lanes: the selected tests ran
+ * and their verdict stands (a red lane is still `fail`, an unfinished one
+ * `incomplete`); only a green run becomes `warn` PREGATE_NO_LANE naming the
+ * files with no lane. Before GST-775 the downgraded failure returned before
+ * any test ran, so a red test beside an unmapped file passed.
+ */
+function withNoLaneWarning(ctx: PregateContext, sel: Selection, result: CheckResult): CheckResult {
+  const noted = `${sel.noLane.length} touched file(s) with no test lane: ${sel.noLane.join(' ')} (downgraded to warn by ${ctx.configLabel})`;
+  if (result.status !== 'pass') return { ...result, detail: `${result.detail}; ${noted}`, ...(result.status === 'requires-remote' && !result.code ? { code: 'PREGATE_NO_LANE' } : {}) };
+  return { ...result, status: 'warn', code: 'PREGATE_NO_LANE', detail: `${result.detail}; ${noted}`, fix: noLaneFix(ctx, sel.noLane) };
 }
 
 async function run(ctx: PregateContext): Promise<CheckResult> {
@@ -576,16 +601,18 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   ctx.explain.push(...sel.provenance);
   for (const [lane, set] of Object.entries(sel.laneSets)) ctx.explain.push(`lane ${lane}: ${set === '?' ? 'file set unknown' : `${set.length} files`}`);
   const inputs = baseInputs(ctx, { selection: sha256(sel.tests.join('\n')), localTests: sha256(sel.localTests.join('\n')), remote: sha256(sel.remote.map(r => `${r.lane}:${r.tests.join(',')}`).join('\n')) });
-  const noPolicy = sel.noLane.length > 0 && ctx.configKind === 'none';
-  const base: CheckResult = { id: 'lanes', stage: 'tests', status: 'pass', inputs, lines: describe(sel, noPolicy), remote: sel.remote };
+  const declared = ctx.configKind !== 'none' && ctx.policyDeclaresLanes !== false;
+  const mode: NoLaneMode = !declared ? 'no-policy' : ctx.config.warn.includes('lanes') ? 'warned' : 'strict';
+  const base: CheckResult = { id: 'lanes', stage: 'tests', status: 'pass', inputs, lines: describe(ctx, sel, mode), remote: sel.remote };
   const lost = new Set(sel.removed.flatMap(r => r.lostCoverage)).size;
   const removedNote = sel.removed.length ? `${sel.removed.length} removed path(s)${lost ? `; ${lost} subject(s) lost their last test` : ''}` : '';
   const withRemoved = (r: CheckResult): CheckResult => (removedNote ? { ...r, detail: r.detail ? `${r.detail}; ${removedNote}` : removedNote } : r);
-  if (sel.noLane.length && !noPolicy) {
+  if (sel.noLane.length && mode === 'strict') {
     return withRemoved({ ...base, status: 'fail', cause: 'diff', code: 'PREGATE_NO_LANE', detail: `${sel.noLane.length} touched file(s) with no test lane: ${sel.noLane.join(' ')}`, fix: noLaneFix(ctx, sel.noLane) });
   }
   const result = withRemoved(await runSelected(ctx, sel, base));
-  return noPolicy ? withStarter(ctx, sel, result) : result;
+  if (!sel.noLane.length) return result;
+  return mode === 'no-policy' ? withStarter(ctx, sel, result) : withNoLaneWarning(ctx, sel, result);
 }
 
 /**

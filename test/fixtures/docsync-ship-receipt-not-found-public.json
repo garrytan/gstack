@@ -1,0 +1,189 @@
+{
+ "note": "Every tool call of the captured ship-docsync-stale-after parent in order (run 40749421675 paid-slice-13-a1, PR #3553 screen, tested sha 61e201ec; red on \"command outside declared docs observation interface\", passed on the in-run rerun). {home} is the fixture home, {shard} its shard root and {actor} test/helpers/docsync-fault-actor.ts. Inputs keep only command or file_path; outputs are kept only for installed gstack helper calls and failed calls. Call 16 typed the cap gate at the shard root ({shard}/.claude/...), exit 127, and call 17 ran the declared cap gate, which printed DOCS_CAP: none declared.",
+ "sourceRun": "40749421675 slice 13 ship-docsync-stale-after (PR #3553 screen, tested sha 61e201ec)",
+ "sourceFileSha256": "e9081702c80beef529dc23f7e4189121b1f098c57f5ced4202dcd1fa526bc602",
+ "calls": [
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/phase.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/.claude/skills/gstack/ship/sections/documentation.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/ship-invocation.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/candidate-ship-docs-a1.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/completion-ship-docs-a1.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun {actor} inspect {home}/actor-state.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/candidate-ship-docs-a1.json"
+   },
+   "output": "{\"audit_id\":\"ship-docs-a1\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[\"app.ts\"],\"newly_dirty\":[]}"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "sha256sum {home}/.claude/skills/gstack/document-release/SKILL.md {home}/.claude/skills/gstack/document-release/sections/audit-scope.md {home}/.claude/skills/gstack/document-release/sections/release-body.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun {actor} prepare {home}/actor-state.json audit_id=ship-docs-a2"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/candidate-ship-docs-a2.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Read",
+   "input": {
+    "file_path": "{home}/prompt-ship-docs-a2.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Edit",
+   "input": {
+    "file_path": "{home}/ship-invocation.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun {actor} dispatch {home}/actor-state.json audit_id=ship-docs-a2 candidate={home}/candidate-ship-docs-a2.json prompt={home}/prompt-ship-docs-a2.md run_in_background=false"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "{home}/completion-ship-docs-a2.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun {actor} inspect {home}/actor-state.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/candidate-ship-docs-a2.json"
+   },
+   "output": "{\"audit_id\":\"ship-docs-a2\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[\"handbook/reference/commands/widget.md.tmpl\"],\"newly_dirty\":[]}"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "{shard}/.claude/skills/gstack/bin/gstack-ship-receipt docs-caps --base main"
+   },
+   "output": "Exit code 127\n(eval):1: no such file or directory: {shard}/.claude/skills/gstack/bin/gstack-ship-receipt"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "{home}/.claude/skills/gstack/bin/gstack-ship-receipt docs-caps --base main"
+   },
+   "output": "DOCS_CAP: none declared"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/ship-docs-a2-post.json --audit-id ship-docs-a2 --mode edit --base 5d2ca5212c1cf92d81812d3698f6cc878ef800f6 --select AGENTS.md --select CHANGELOG.md --select README.md --select TODOS.md --select VERSION --select app.ts --select handbook/reference/commands/widget.md.tmpl --select package.json --docs handbook"
+   },
+   "output": "CANDIDATE: {home}/ship-docs-a2-post.json\nbase=5d2ca5212c1cf92d81812d3698f6cc878ef800f6 head=f111d65350744d996a121884de4fe1741df35011 branch=feature/docs mode=edit\ncommitted=1 staged=0 unstaged=2 untracked=1 selected=8 docs=1 hashed=9\ncommitted: \"handbook/reference/commands/widget.md.tmpl\"\nunstaged: \"app.ts\" \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"personal-note.txt\"\ndocs: \"handbook/reference/commands/widget.md.tmpl\""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p \"$(dirname \"$_EX\")\" && { grep -qxF '/.gstack/tmp/' \"$_EX\" 2>/dev/null || echo '/.gstack/tmp/' >> \"$_EX\"; }"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "rm -f .gstack/tmp/docs-audit.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "{home}/ship-docs-a2-documentation.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "{home}/repo/.gstack/tmp/docs-audit.json"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Edit",
+   "input": {
+    "file_path": "{home}/ship-invocation.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "{home}/ship-report.md"
+   },
+   "output": ""
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "bun {actor} publish {home}/actor-state.json audit_id=ship-docs-a2 report={home}/ship-report.md"
+   },
+   "output": ""
+  }
+ ]
+}
