@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -79,5 +80,14 @@ describe.skipIf(process.platform === 'win32')('gstack-launch-probe.sh classifica
     expect(r.stdout).toContain('broken=[make-pdf/dist/pdf\texit 2');
     expect(r.stdout).toContain('missing=[bin/gstack-global-discover]');
     expect(r.stdout).not.toContain('design/dist/design');
+  });
+
+  // Value: protects=the probe parses under macOS /bin/bash 3.2, so gstack-doctor can source it (#3601);
+  //   fails_when=a case pattern inside $( ) loses its leading (, on a macOS runner only: Linux /bin/bash is 5.x, which parsed the old line,
+  //   so test/bash32-case-in-substitution.test.ts is the Linux CI guard; why_new=the cases above run PATH bash; seam=none
+  test.skipIf(!fs.existsSync('/bin/bash'))('parses under /bin/bash (catches #3601 only where /bin/bash is 3.2, i.e. macOS)', () => {
+    const r = spawnSync('/bin/bash', ['-n', PROBE], { encoding: 'utf8', timeout: 30_000 });
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
   });
 });
