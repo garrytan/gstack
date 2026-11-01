@@ -92,7 +92,7 @@ hard-code:
   "changelog": "CHANGELOG.md",
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
-  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-free-tests", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
   "min_gstack_version": "1.91.340.0"
 }
 ```
@@ -210,7 +210,7 @@ READY PR as conflicting each time main stamps; the train merges the CHANGELOG
 by section, so the lane never merges main for it. The conflict does mean GitHub
 has no merge ref for the PR, so no `pull_request` CI runs on the head and
 `ready` prints `ci: none at <head12>` with a `ci-hint:` line. The lane then
-runs `ready … --dispatch-ci free-tests.yml,windows-free-tests.yml [--timeout
+runs `ready … --dispatch-ci free-tests.yml,windows-smoke.yml [--timeout
 <s>]` (under a train policy): it dispatches each named workflow on the branch
 (`gh workflow run <wf> --ref <branch>`, skipped when a run at this head already
 concluded), waits for the runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url>

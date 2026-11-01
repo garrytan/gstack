@@ -14,6 +14,8 @@ const root = path.resolve(import.meta.dir, '..');
 const load = (file: string) => Bun.YAML.parse(readFileSync(path.join(root, '.github/workflows', file), 'utf8')) as any;
 const windows = load('windows-free-tests.yml');
 const native = load('native-qualification.yml');
+const smoke = load('windows-smoke.yml');
+const smokeText = readFileSync(path.join(root, '.github/workflows/windows-smoke.yml'), 'utf8');
 
 /**
  * Ratchet: the Windows-safe subset may not silently shrink. If you deleted or
@@ -22,9 +24,9 @@ const native = load('native-qualification.yml');
  */
 const WINDOWS_CURATED_FLOOR = 795;
 
-test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
-  expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'push', 'workflow_call', 'workflow_dispatch']);
-  expect(windows.on.push).toEqual({ branches: ['main'] });
+test('the Windows lane runs nightly and by hand, plans, runs one strict shard per job and verifies every result', () => {
+  expect(Object.keys(windows.on).sort()).toEqual(['schedule', 'workflow_call', 'workflow_dispatch']);
+  expect(windows.on.schedule).toEqual([{ cron: '17 9 * * *' }]);
   expect(Object.keys(windows.on.workflow_dispatch.inputs)).toEqual(['record_durations']);
   expect(Object.keys(windows.on.workflow_call.inputs)).toEqual(['record_durations']);
   const plan = windows.jobs['windows-plan'];
@@ -35,6 +37,7 @@ test('the Windows lane plans, runs one strict shard per job and verifies every r
   const shard = windows.jobs['windows-free-shard'];
   expect(shard['runs-on']).toBe('windows-latest');
   expect(shard.needs).toBe('windows-plan');
+  expect(shard.if).toBe('${{ !inputs.record_durations }}');
   expect(shard.strategy).toEqual({ 'fail-fast': false, matrix: '${{ fromJSON(needs.windows-plan.outputs.matrix) }}' });
   const run = shard.steps.find((step: any) => step.name === 'Run Windows-safe shard');
   expect(run.run).toStartWith('bun run test:windows --ci-run "$RUNNER_TEMP/windows-plan.json" --shard ${{ matrix.shard }} --result ');
@@ -75,6 +78,50 @@ test('a record_durations dispatch times each Windows-safe file alone and uploads
   expect(logs.with['include-hidden-files']).toBe(true);
   expect(job.steps.at(-1).with.name).toBe('free-test-durations-windows');
   expect(job.steps.at(-1).if).toBe("always() && steps.seed.outcome == 'success'");
+});
+
+test('windows-smoke is the PR gate: every pull request and main push, one windows-latest job', () => {
+  expect(Object.keys(smoke.on).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch']);
+  expect(smoke.on.pull_request).toEqual({ branches: ['main'] });
+  expect(smoke.on.push).toEqual({ branches: ['main'] });
+  expect(smoke.permissions).toEqual({ contents: 'read' });
+  expect(Object.keys(smoke.jobs)).toEqual(['windows-smoke']);
+  const job = smoke.jobs['windows-smoke'];
+  expect(job['runs-on']).toBe('windows-latest');
+  expect(job.if).toBeUndefined();
+  const step = (name: string) => job.steps.find((s: any) => s.name === name);
+  expect(step('./setup installs into an isolated HOME').run).toContain('./setup --host claude');
+  const start = step('The core skills start').run;
+  expect(start).toContain('for skill in ship review qa-only investigate browse; do');
+  expect(start).toContain("grep -q '^SKILL_START_PROTO: 1'");
+  expect(step("/browse on gstack's own browser runs a piped chain flow from an unrelated directory").run).toContain('| "$BROWSE" chain');
+  const tests = step('Fastest Windows-safe free tests for install and the core skills');
+  expect(tests.run).toContain('bun run scripts/test-free-shards.ts --files-from "$RUNNER_TEMP/windows-smoke-files.txt"');
+  expect(tests.env.GSTACK_FREE_RETRY_FLAKY).toBe('1');
+});
+
+test('every windows-smoke test is Windows-safe, seeded fast, and says why it is there', () => {
+  const run: string = smoke.jobs['windows-smoke'].steps.find((s: any) => s.name === 'Fastest Windows-safe free tests for install and the core skills').run;
+  const files = run.slice(run.indexOf("<<'LIST'\n") + 9, run.indexOf('\nLIST')).split('\n');
+  expect(files.length).toBeGreaterThan(0);
+  expect(new Set(files).size).toBe(files.length);
+  const { safe } = curateWindowsSafe(collectFreeTestFiles(root), root);
+  expect(files.filter(file => !safe.includes(file))).toEqual([]);
+  const seed = JSON.parse(readFileSync(path.join(root, 'scripts/free-test-durations-windows.json'), 'utf8')).durations as Record<string, number>;
+  expect(files.filter(file => !(seed[file] <= 5_000))).toEqual([]);
+  expect(files.reduce((sum, file) => sum + seed[file]!, 0)).toBeLessThan(60_000);
+  for (const file of files) expect(smokeText).toMatch(new RegExp('#   ' + path.basename(file, '.test.ts').replace(/[.-]/g, '\\$&') + ' \\([0-9.]+\\): \\S'));
+});
+
+test('no Windows job restores or saves the bun install cache', () => {
+  // GSTA-203 PR 1: a cold install (16-17 s) beat restoring the ~450 MB
+  // windows-bun entry (33-42 s), and PR merge-ref saves filled the 10 GB quota.
+  for (const file of ['windows-free-tests.yml', 'windows-smoke.yml', 'windows-setup-e2e.yml']) {
+    for (const [name, job] of Object.entries<any>(load(file).jobs)) {
+      const caches = (job.steps ?? []).filter((step: any) => step.uses?.startsWith('actions/cache'));
+      expect({ file, job: name, caches }).toEqual({ file, job: name, caches: [] });
+    }
+  }
 });
 
 test('Windows shards use the pinned Node runtime and retain complete logs on every run', () => {

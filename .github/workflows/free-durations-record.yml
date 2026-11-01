@@ -161,7 +161,7 @@ jobs:
           - Files that failed while recording (durations kept; this PR's own free checks decide): $failed_line
           - Seed growth ratchet (60 s ceiling, shrink-only allowlist): $ratchet_line
 
-          Data only. This run dispatched Free Tests (the required free-tests check), Windows Free Tests and Quality gate on this branch; those are this PR's checks. The pull_request runs wait as "action required" because a token-opened PR never starts them without approval. Stamp and merge per docs/ship-policy.md; the stamp push runs the full PR checks.
+          Data only. This run dispatched Free Tests (the required free-tests check), Windows Smoke and Quality gate on this branch; those are this PR's checks. The pull_request runs wait as "action required" because a token-opened PR never starts them without approval. Stamp and merge per docs/ship-policy.md; the stamp push runs the full PR checks.
           EOF
           if [ -n "$number" ]; then
             gh pr edit "$number" --body-file pr-body.md
@@ -169,5 +169,5 @@ jobs:
             gh pr create --base main --head "$branch" --title "test(seed): refresh the free-suite duration seeds" --body-file pr-body.md
           fi
           gh workflow run free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
-          gh workflow run windows-free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          gh workflow run windows-smoke.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           gh workflow run quality-gate.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"

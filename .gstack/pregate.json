@@ -16,8 +16,7 @@
     "supabase/**": []
   },
   "selection": {
-    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list",
-    "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
+    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list"
   },
   "warn": [],
   "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
