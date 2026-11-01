@@ -271,8 +271,9 @@ the specialists, audits and watchers at the host default too
 ### Behavior changes
 
 - Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
-  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check, the Red
-  Team and the native adversarial pass on the range instead of the specialist army.
+  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
+  Team on the range, plus the native adversarial pass (on the range once Step 11 has
+  run, otherwise on the whole branch), instead of the specialist army.
 - A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
   core checklist and the gate scan review it.
 - Every depth dispatches one batched specialist instead of one reader per
@@ -375,7 +376,8 @@ The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
 receipt carried across a base merge or a test-only fix
 ([ship-policy.md#receipt-carry](ship-policy.md#receipt-carry)) keeps these
-counters, because the reviewed product diff is unchanged.
+counters, because the reviewed product diff is unchanged or its only
+difference passed a scoped review.
 
 ## The scope knob
 
@@ -514,6 +516,17 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
    unchanged by the gstack Capy skill.
+7. Every brief, audit readers' included, ends with a workspace paragraph naming the
+   checkout the bins run in (GST-482): a reader on a shared machine starts in the
+   machine's working directory, so it is told to `cd` there on every command, to give
+   every file tool an absolute path under it, and to start its reply with
+   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
+   section's render, which stays byte for byte. `collect` and `mark --state collected`
+   compare that line with the fingerprint recorded at render: a missing or foreign line is
+   `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
+   is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
+   outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
+   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
 
 ## Where this is enforced
 

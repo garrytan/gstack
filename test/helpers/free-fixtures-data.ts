@@ -150,7 +150,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/impeccable-detect-help.txt': ['test/impeccable-fixtures.test.ts'],
   'test/fixtures/investigate-owned-final-texts-opus.json': ['test/workflow-boundaries-fixture.test.ts'],
   'test/fixtures/investigate-owned-question-39195396438.json': ['test/workflow-boundaries-fixture.test.ts'],
-  'test/fixtures/judge-calibration/**': ['scripts/judge-calibration.ts', 'test/judge-calibration.test.ts'],
+  'test/fixtures/judge-calibration/**': ['test/judge-calibration.test.ts'],
   'test/fixtures/judge-panel-replay-2026-10-05.json': ['test/judge-panel-median.test.ts'],
   'test/fixtures/junit/**': ['test/flaky-run.test.ts'],
   'test/fixtures/launch-env-echo/**': ['test/launch-env-echo-ratchet.test.ts'],

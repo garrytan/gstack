@@ -8,6 +8,8 @@ Store-only releases audit `read-only` before distribution, without branch gates 
 never a third attempt, even after Step 16 changes. Increment before each launch
 or inline takeover, including failed launches; inline work follows the same
 validation gates. A stale snapshot is neither a new attempt nor a current audit.
+Save each child's output and run `~/.claude/skills/gstack/bin/gstack-docs-candidate attempt <output> --state <record dir>/docs-attempts.json`:
+`ATTEMPT: not-counted` (its install check refused it before any audit) takes the increment back once; run the install fix, then relaunch.
 Save the child handle. An exited child with missing output is stopped, but its audit is blocked.
 
 **Entry:** First entry runs
@@ -96,7 +98,7 @@ branch's copy (a PR cannot raise its own cap), prints one `DOCS_CAP: <path> <byt
 (`DOCS_CAP: none declared` without any) and exits 1 on any `over` or absent file: a
 blocked audit, repaired by trimming that file, never by raising the cap. Then save for Step 16 only post-child hashes (rerun the Prepare `snapshot`
 with only `--out <audit-id>-post.json` changed; Step 16 `compare`s it; never type
-hashes), status, and the section copied unchanged as the sole content of a private
+hashes), status, the child's final JSON line as `<audit-id>-result.json`, and the section copied unchanged as the sole content of a private
 `<audit-id>-documentation.md`. That file is the section's single source;
 reports and Step 19 insert it by command (`cat`) where they can, never retyped or edited.
 Save records once; cite files by path, never copying their content.

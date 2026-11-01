@@ -207,6 +207,35 @@ receipts record the gateway host. On Codex, `/design-shotgun` generates mockups
 with Codex's built-in `$imagegen` skill instead, so it needs no
 `OPENAI_API_KEY`; `$D` still builds and serves the comparison board.
 
+### Gemini when there's no OpenAI key
+
+With no OpenAI key, `$D` uses Google's Gemini instead, so people without an
+OpenAI key (or with an OpenAI organization that hasn't passed ID verification)
+get real mockups instead of wireframes. A Gemini key from
+[Google AI Studio](https://aistudio.google.com/apikey) is free to create:
+`export GEMINI_API_KEY=...` or `$D setup --provider gemini`.
+
+| | OpenAI | Gemini |
+|---|---|---|
+| Picked when | an OpenAI key is set (always wins) | no OpenAI key, or `GSTACK_DESIGN_PROVIDER=gemini` |
+| Key | `~/.gstack/openai.json`, then `OPENAI_API_KEY` | `~/.gstack/gemini.json`, then `GEMINI_API_KEY` |
+| Images | `gpt-5.5` driving `gpt-image-2` | `gemini-nano-banana-2.1` (`GSTACK_DESIGN_IMAGE_MODEL`) |
+| Screenshot reading | `gpt-5.5` | `gemini-3.8-flash` (`GSTACK_DESIGN_MODEL`) |
+| Egress ledger sink | `design-openai` | `design-gemini` |
+
+`GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly; when an OpenAI key
+is also set, `$D setup --provider gemini` saves the key and prints that export
+as its last line, because OpenAI still comes first otherwise. A failure on the
+picked provider is never retried on the other one; an OpenAI
+organization-verification error ends with the line that switches to Gemini.
+On Gemini, model overrides must be `gemini-…` names, `--size` must be
+1536x1024, 1024x1024 or 1024x1536 (sent as an aspect ratio), `--quality` is
+ignored, and `OPENAI_BASE_URL` does not apply. On Google's free tier, Gemini
+API prompts and images may be used to improve Google's products; `$D` says so
+once per run. `bun run design/scripts/live-gemini-check.ts` checks a Gemini
+key against the defaults (free model lookups, then one image and one vision
+call).
+
 ## Adding a host
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](ADDING_A_HOST.md).

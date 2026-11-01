@@ -275,6 +275,86 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join(".");
     expect(scan(`token: ${jwt},`, { repoVisibility: "private", sourcePath: "src/auth.ts" }).findings.map((f) => f.id)).toContain("jwt");
   });
+  // #3630 (#3605, #3418, #3419) — the #3048 rule, extended: Dart and Python have
+  // no unquoted string literal either, so a bare name chain after `:` is a name;
+  // a JSX brace may join names with ?? || && as well as +. Each widening keeps a
+  // negative control that still fires.
+  test("env.kv skips Dart/Python source names and JSX logical joins, never a literal (#3630)", () => {
+    const kv = (text: string, sourcePath?: string) =>
+      scan(text, { repoVisibility: "private", ...(sourcePath ? { sourcePath } : {}) }).findings.some((f) => f.id === "env.kv");
+    const v = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ";
+    const vIdent = "Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx";
+    for (const [code, file] of [
+      ["def fetch_days(\n    *,\n    session: HttpSession,\n    start: int,\n) -> None:\n    pass", "app.py"],
+      ["      password: pydantic.SecretStr", "app/models.py"],
+      ["      password: pydantic.SecretStr", "app/models.pyi"],
+      ['      "password": request.password,', "app/api/handlers.py"],
+      ['      "api_key": settings.api_key,', "app/api/handlers.py"],
+      ["      'password': request.password,", "backend/lib/src/handlers/onboarding_handlers.dart"],
+      ["              password: request.password,", "backend/lib/src/handlers/pfs_handlers.dart"],
+      ["const doc = '''usage''';\n  password: request.password,", "backend/lib/src/config.dart"],
+      ["key={workout.id ?? index}", "src/SessionList.jsx"],
+      ["key={item.uuid || item.slug}", "src/List.tsx"],
+      ["key={row.ready && row.id}", "src/Grid.tsx"],
+      // A trailing comment is not part of the expression.
+      ["  password: req.body.password // don't log it (see docs", "src/a.ts"], ["    password: pydantic.SecretStr  # the user's password, or", "app/models.py"],
+      ["    'password': request.password // don't log", "lib/a.dart"],
+      // A quote inside a comment opens nothing.
+      ["# it's a session\ndef f(\n    session: HttpSession,\n): pass", "app.py"], ["/* it's a session */\n  password: request.password,", "lib/a.dart"],
+      // A literal in the next pair on the line belongs to that pair.
+      ['    "session": request.session, "mode": "readwrite-primary",', "app.py"],
+      // Quotes that close before the name leave it code.
+      ["    login('it\\'s', password: request.password);", "lib/a.dart"], ['    "user": "a", "password": request.password,', "app.py"],
+      // The triple-quote guard is Dart/Python only: a stray ''' in a TS string leaves #3048 as it was.
+      ["const s = \"'''\";\n  session: SessionState,", "src/a.ts"],
+    ] as const) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
+    for (const [literal, file] of [
+      ["    session: HttpSession,", "deploy/values.yaml"],
+      ["    session: HttpSession,", undefined],
+      [`    session: "${v}",`, "app.py"],
+      [`      "password": "${v}",`, "app/api/handlers.py"],
+      [`  password = "${v}"`, "app/config.py"],
+      ["      password=request.password,", "app/api/handlers.py"],
+      ["      password = request.password", "app/api/handlers.py"],
+      [`CONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      [`      'password': '${v}',`, "backend/lib/src/handlers/onboarding_handlers.dart"],
+      [`  password: "${v}",`, "backend/lib/src/config.dart"],
+      [`  password = "${v}";`, "backend/lib/src/config.dart"],
+      [`  password: ${v},`, "backend/lib/src/config.dart"],
+      [`const fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`key={settings.apiKey ?? "${v}"}`, "src/A.tsx"],
+      [`key={${v} || index}`, "src/A.tsx"],
+      ["key={workout.id ?? index}", ".env"],
+      // An annotation with a literal default is still a literal.
+      [`    api_token: AuthToken = "${v}"`, "app.py"], [`    api_token: AuthToken="${v}"`, "app.py"],
+      [`  apiToken: AuthToken = "${v}";`, "src/a.ts"], [`  apiToken: AuthToken = '${v}',`, "lib/a.dart"],
+      // An escaped delimiter does not close the block.
+      [`CONFIG = """\n\\"""\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      // A delimiter in a comment or a one-line string opens nothing, so the block after it is still a block.
+      [`# don't use """ here\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      [`DELIM = '"""'\nCONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
+      [`// no ''' here\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`/* ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`/* outer /* ''' */ still a comment ''' */\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      [`const dir = r'''C:\\dir\\''';\nconst fixture = '''\npassword: ${vIdent}\n''';`, "test/fixtures.dart"],
+      // An expression that continues on the next line may carry a literal there.
+      [`    api_token: AuthToken = (\n        "${v}"\n    )`, "app.py"],
+      // A literal fallback after a name is still a literal.
+      [`      "password": settings.db_pass or "${v}",`, "app.py"], [`      'password': request.password ?? '${v}',`, "lib/a.dart"],
+      // A one-line string continued by a backslash spans lines.
+      [`CFG = "db: \\\npassword: ${vIdent} \\\n"`, "app.py"],
+      // A key and value inside one quoted string are text, not a dict entry.
+      [`    'password: ${vIdent} more',`, "lib/a.dart"], [`    "password: ${vIdent} more",`, "app.py"],
+    ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
+  });
+  test("env.kv's source-syntax check stays linear on a match-dense file (#3630)", () => {
+    for (const file of ["app.py", "src/a.ts"]) {
+      const text = "def f(\n" + "    session: HttpSession,\n".repeat(12_000) + "): pass\n";
+      const t0 = performance.now();
+      const found = scan(text, { repoVisibility: "private", sourcePath: file }).findings.filter((f) => f.id === "env.kv").length;
+      expect({ file, found, fast: performance.now() - t0 < 3_000 }).toEqual({ file, found: 0, fast: true });
+    }
+  });
   // #2912 — a line that READS a secret from the environment holds no secret;
   // it must not fire (and so must not be masked or withhold a /cso source file).
   test("env.kv skips exact environment reads (#2912)", () => {

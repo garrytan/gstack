@@ -13,7 +13,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BriefError, briefFile, promptHash, renderBrief, type BriefRole, type SectionTexts, type Slots } from './review-brief';
+import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from './review-targeted';
@@ -31,6 +31,8 @@ export interface PassReader {
   /** An audit or QA reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
+  /** The fingerprint the reader's reply must report: the checkout's HEAD^{tree} and toplevel when its brief was rendered (GST-482). */
+  tree?: string | null;
   path?: string; output?: string; error?: string; state_at?: string;
 }
 export interface Manifest {
@@ -72,7 +74,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'red-team':
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string;
 }): Manifest {
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
@@ -83,7 +85,8 @@ export function buildManifest(o: {
     const reader = readerKey(role, name);
     const exclude = d.exclude.length ? diffCommand(d).slice('git diff <diff-base> '.length) : undefined;
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
-      ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}) });
+      ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(role === 'red-team' && o.rangeBase ? { diff_base: o.rangeBase } : {}) });
   }
   for (const e of o.extras ?? []) {
     if (!/^[a-z0-9-]+$/.test(e.name)) throw new BriefError(`an audit reader's name is lowercase letters, digits and dashes: ${e.name}`);
@@ -126,16 +129,21 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
   const briefs = path.join(m.out, 'briefs');
   fs.mkdirSync(briefs, { recursive: true, mode: 0o700 });
   const done: PassReader[] = [];
+  const workdir = checkoutRoot();
+  const tree = checkoutTree(workdir);
+  if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
   for (const r of m.readers.filter(x => x.stage === stage && x.state === 'planned')) {
     if (r.prompt_file) {
       let text: string;
-      try { text = fs.readFileSync(r.prompt_file, 'utf8'); } catch { throw new BriefError(`cannot read ${r.reader}'s prompt file ${r.prompt_file}`); }
-      Object.assign(r, { file: r.prompt_file, sha256: promptHash(text), bytes: Buffer.byteLength(text), chunks: chunkCount(text), state: 'rendered' });
+      try { text = withWorkspace(fs.readFileSync(r.prompt_file, 'utf8'), workdir); } catch { throw new BriefError(`cannot read ${r.reader}'s prompt file ${r.prompt_file}`); }
+      const file = path.join(briefs, `${safe(r.reader)}.prompt.md`);
+      fs.writeFileSync(file, text, { mode: 0o600 });
+      Object.assign(r, { file, sha256: promptHash(text), bytes: Buffer.byteLength(text), chunks: chunkCount(text), state: 'rendered', tree });
       done.push(r);
       continue;
     }
     const role = r.role!;
-    const slots: Slots = { name: r.name, diff_base: m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
+    const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
       checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(',') };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
@@ -155,13 +163,13 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       Object.assign(slots, { checklist, brief, classes: (r.classes ?? []).join(','), diff_base: r.diff_base ?? m.diff_base });
       targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, patch_id: targetedPatchId(process.cwd(), slots.diff_base!) };
     }
-    const text = renderBrief(role, slots, t);
+    const text = withWorkspace(renderBrief(role, slots, t), workdir);
     const file = path.join(briefs, briefFile(role, r.name));
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted });
-    Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted });
+    Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }
   return done;

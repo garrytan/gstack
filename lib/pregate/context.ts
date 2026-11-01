@@ -177,13 +177,13 @@ export function loadedDotenvFiles(cwd: string, execArgv: readonly string[]): str
 
 /** `<state root>/projects/<slug>/pregate.json` for the repository at `root`, from the caller's environment. */
 export function defaultUserConfigPath(root: string): string {
-  return path.join(resolveStateRoot(), 'projects', slugFromEnvironment(undefined, root), 'pregate.json');
+  return path.join(resolveStateRoot(), 'projects', slugFromEnvironment(undefined, root, { scope: 'repository' }), 'pregate.json');
 }
 
 /** `<state root>/projects/<slug>/pregate/runs`: where every run's scratch directory lives (lib/pregate/run-scratch.ts), from the caller's environment. */
 export function defaultScratchRoot(root: string, env: NodeJS.ProcessEnv = process.env): string {
   const stateRoot = resolveStateRoot(env);
-  return path.join(stateRoot, 'projects', slugFromEnvironment(stateRoot, root), 'pregate', 'runs');
+  return path.join(stateRoot, 'projects', slugFromEnvironment(stateRoot, root, { scope: 'repository' }), 'pregate', 'runs');
 }
 
 /** This run's scratch directory, created under the state root; an unwritable state root falls back to a private directory under os.tmpdir() (still one per run). */
