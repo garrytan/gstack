@@ -366,6 +366,11 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`render({\n    "id": f"{n:#x}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
       [`render({\n    "id": f"{n:'>10}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
       [`render({\n    "id": f"{n!r:{w}}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
+      // In an f-string a backslash does not escape the brace after it.
+      [`CONFIG = f"""\\{"""\npassword: ${v}\n"""}"""\n`, "app.py"],
+      // Nesting past the depth cap runs to the end of the text instead of overflowing the stack.
+      ["const s = '" + "${'".repeat(20000) + `\npassword: ${v}\n`, "lib/a.dart"],
+      ["x = f'" + "{a:".repeat(100000) + `\npassword: ${v}\n`, "app.py"],
     ] as const) expect({ literal, kv: kv(literal, file) }).toEqual({ literal, kv: true });
     for (const [code, file] of [
       ["msg = f'{a}:{b}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],

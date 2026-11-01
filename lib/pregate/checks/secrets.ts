@@ -93,7 +93,7 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
   const whole = new Map<string, { text: string; keep: number[] }>();
   const sources = [...numbers.keys()].filter(file => LEXICAL_CONTEXT_SOURCE.test(file));
   if (sources.length) {
-    const full = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+    const full = spawnSync('git', ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
     for (const [file, post] of parsePostimages(full.status === 0 ? full.stdout ?? '' : '')) {
       const keep = numbers.get(file) ?? [];
       const added = files.get(file) ?? [];

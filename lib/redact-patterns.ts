@@ -725,14 +725,17 @@ function commentEnd(text: string, i: number, lang: "py" | "dart"): number {
   return j;
 }
 
+const MAX_INTERPOLATION_DEPTH = 256;
+
 /** The index after a Dart `${…}` expression starting at `j`: braces balance, and its strings and comments are skipped whole. */
-function dartExpressionEnd(text: string, j: number): number {
-  for (let depth = 1; j < text.length && depth > 0; ) {
+function dartExpressionEnd(text: string, j: number, depth: number): number {
+  if (depth > MAX_INTERPOLATION_DEPTH) return text.length;
+  for (let open = 1; j < text.length && open > 0; ) {
     const d = text[j]!;
     if (text.startsWith("//", j) || text.startsWith("/*", j)) { j = commentEnd(text, j, "dart"); continue; }
-    if (d === '"' || d === "'") { j = stringAt(text, j, "dart")[2]; continue; }
-    if (d === "{") depth += 1;
-    else if (d === "}") depth -= 1;
+    if (d === '"' || d === "'") { j = stringAt(text, j, "dart", depth)[2]; continue; }
+    if (d === "{") open += 1;
+    else if (d === "}") open -= 1;
     j += 1;
   }
   return Math.min(j, text.length);
@@ -744,16 +747,17 @@ function dartExpressionEnd(text: string, j: number): number {
  * outside its brackets starts the conversion and format spec, which is plain
  * text apart from nested `{…}` fields (`{n:#x}`, `{n:'>10}`).
  */
-function pythonFieldEnd(text: string, j: number, multiline: boolean): number {
+function pythonFieldEnd(text: string, j: number, multiline: boolean, depth: number): number {
   const n = text.length;
+  if (depth > MAX_INTERPOLATION_DEPTH) return n;
   let nest = 0;
   while (j < n) {
     const d = text[j]!;
     if (d === "#" && multiline) { j = commentEnd(text, j, "py"); continue; }
-    if (d === '"' || d === "'") { j = stringAt(text, j, "py")[2]; continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "py", depth)[2]; continue; }
     if (d === "}" && nest === 0) return j + 1;
     if (nest === 0 && (d === ":" || (d === "!" && text[j + 1] !== "="))) {
-      for (j += 1; j < n && text[j] !== "}"; ) j = text[j] === "{" ? pythonFieldEnd(text, j + 1, multiline) : j + 1;
+      for (j += 1; j < n && text[j] !== "}"; ) j = text[j] === "{" ? pythonFieldEnd(text, j + 1, multiline, depth + 1) : j + 1;
       return Math.min(j + 1, n);
     }
     if ("([{".includes(d)) nest += 1;
@@ -768,9 +772,10 @@ function pythonFieldEnd(text: string, j: number, multiline: boolean): number {
  * index after its closing delimiter. An interpolated expression (`{…}` in a
  * Python f- or t-string, `${…}` in a non-raw Dart string) is skipped whole,
  * nested strings included, so a quote inside it never ends the outer string
- * (GST-738); an expression left open runs to the end of the text.
+ * (GST-738); an expression left open, or nested past MAX_INTERPOLATION_DEPTH,
+ * runs to the end of the text. In a Python f-string `\{` still opens a field.
  */
-function stringAt(text: string, i: number, lang: "py" | "dart"): [number, number, number] {
+function stringAt(text: string, i: number, lang: "py" | "dart", depth = 0): [number, number, number] {
   const n = text.length;
   const c = text[i]!;
   const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
@@ -782,11 +787,11 @@ function stringAt(text: string, i: number, lang: "py" | "dart"): [number, number
   const interpolated = lang === "dart" ? !raw : /^(?:[rR]?[fFtT]|[fFtT][rR])$/.test(prefix);
   let j = i + close.length;
   while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) {
-    if (!raw && text[j] === "\\") { j += 2; continue; }
+    if (!raw && text[j] === "\\") { j += lang === "py" && interpolated && text[j + 1] === "{" ? 1 : 2; continue; }
     if (!interpolated) { j += 1; continue; }
     if (lang === "py" && text.startsWith("{{", j)) { j += 2; continue; }
     if (lang === "py" ? text[j] !== "{" : !text.startsWith("${", j)) { j += 1; continue; }
-    j = lang === "py" ? pythonFieldEnd(text, j + 1, multiline) : dartExpressionEnd(text, j + 2);
+    j = lang === "py" ? pythonFieldEnd(text, j + 1, multiline, depth + 1) : dartExpressionEnd(text, j + 2, depth + 1);
   }
   return [i + close.length, Math.min(j, n), Math.min(j, n) + close.length];
 }

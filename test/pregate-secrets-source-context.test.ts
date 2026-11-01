@@ -125,6 +125,16 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
+  test('diff.suppressBlankEmpty does not shift the diffed Python text (GST-738)', () => {
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n\ny = 2\n' } });
+    try {
+      commit(fx, { 'app.py': 'x = 1\n\ny = 2\nrows = {\n    "password": session.password,\n}\n' });
+      fx.git('config', 'diff.suppressBlankEmpty', 'true');
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect(check.status).toBe('pass');
+    } finally { cleanup(fx); }
+  });
+
   test('a one-line change to a Python file counts one added line (#3630)', () => {
     const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n'.repeat(50) } });
     try {
