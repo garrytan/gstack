@@ -843,7 +843,7 @@ describe('gstack-brain-sync per-file hold', () => {
     }
     function setup() {
       init();
-      write(SHARED, '# shared v1\n');
+      write(SHARED, '{"note":"shared v1"}\n');
       write(OTHER, '# other v1\n');
       expect(drain().status).toBe(0);
       expect(statusJson().status).toBe('ok');
@@ -856,15 +856,15 @@ describe('gstack-brain-sync per-file hold', () => {
 
     test('a dirty tracked file the remote did not touch rides through the merge', () => {
       setup();
-      peerCommit(SHARED, '# shared from the peer\n');
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
       write(OTHER, '# other, local edit not queued\n', false);
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       expect(statusJson().status).toBe('ok');
       expect(remoteFiles()).toContain(CLEAN);
-      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
       expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other, local edit not queued\n');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared from the peer"}\n');
     });
 
     /** The restore command the status names, run as printed. */
@@ -878,17 +878,17 @@ describe('gstack-brain-sync per-file hold', () => {
 
     test('a dirty tracked file the remote also changed no longer leaves the push failed', () => {
       setup();
-      peerCommit(SHARED, '# shared from the peer\n');
-      write(SHARED, '# shared, local edit not queued\n', false);
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
+      write(SHARED, '{"note":"shared, local edit not queued"}\n', false);
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
       expect(s.status).toBe('ok');
       expect(remoteFiles()).toContain(CLEAN);
-      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
+      expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
       // The merged version stays in the working tree: no conflict markers,
       // nothing staged, and nothing stale for a later sync to publish.
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared from the peer"}\n');
       expect(unmerged()).toBe('');
       expect(staged()).toBe('');
       expect(s.message).toContain(`local edits to ${SHARED} conflicted`);
@@ -900,23 +900,23 @@ describe('gstack-brain-sync per-file hold', () => {
       write(OTHER, '# other v2\n');
       expect(drain().status).toBe(0);
       expect(statusJson().status).toBe('ok');
-      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
-      expect(git(['show', `${sha}:${SHARED}`]).stdout).toBe('# shared, local edit not queued\n');
+      expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
+      expect(git(['show', `${sha}:${SHARED}`]).stdout).toBe('{"note":"shared, local edit not queued"}\n');
       // The printed command brings the local edit back.
       expect(recover(s.message)).toBe(sha!);
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local edit not queued"}\n');
     });
 
     test('a local deletion of a file the remote changed keeps the remote file and stashes the deletion', () => {
       setup();
-      peerCommit(SHARED, '# shared from the peer\n');
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
       fs.rmSync(path.join(tmpHome, SHARED));
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
       expect(s.status).toBe('ok');
-      expect(remoteShow(SHARED).stdout).toBe('# shared from the peer\n');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared from the peer\n');
+      expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared from the peer"}\n');
       expect(unmerged()).toBe('');
       expect(s.message).toContain(`local edits to ${SHARED} conflicted`);
       recover(s.message);
@@ -934,7 +934,7 @@ describe('gstack-brain-sync per-file hold', () => {
       } finally {
         fs.rmSync(peer, { recursive: true, force: true });
       }
-      write(SHARED, '# shared, local edit not queued\n', false);
+      write(SHARED, '{"note":"shared, local edit not queued"}\n', false);
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
@@ -943,7 +943,7 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(fs.existsSync(path.join(tmpHome, SHARED))).toBe(false);
       expect(unmerged()).toBe('');
       recover(s.message);
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local edit not queued"}\n');
     });
 
     test('a conflicting file whose name looks like a pattern resets only itself', () => {
@@ -954,16 +954,16 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(git(['merge', '-q', '--ff-only', 'origin/main']).status).toBe(0);
       peerCommit(GLOB, '# glob from the peer\n');
       write(GLOB, '# glob, local edit not queued\n', false);
-      write(SHARED, '# shared, local edit not queued\n', false);
+      write(SHARED, '{"note":"shared, local edit not queued"}\n', false);
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
       expect(s.status).toBe('ok');
       expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob from the peer\n');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local edit not queued"}\n');
       recover(s.message);
       expect(fs.readFileSync(path.join(tmpHome, GLOB), 'utf-8')).toBe('# glob, local edit not queued\n');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local edit not queued"}\n');
     });
 
     test('a file that never checks out clean does not strand the other local edits', () => {
@@ -973,7 +973,7 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(drain().status).toBe(0);
       fs.mkdirSync(path.join(tmpHome, '.git', 'info'), { recursive: true });
       fs.writeFileSync(path.join(tmpHome, '.git', 'info', 'attributes'), '*.md text eol=lf\n');
-      peerCommit(SHARED, '# shared from the peer\n');
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
       write(OTHER, '# other, local edit not queued\n', false);
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
@@ -987,28 +987,28 @@ describe('gstack-brain-sync per-file hold', () => {
       setup();
       write(OTHER, '# other, older stashed work\n', false);
       expect(git(['stash', 'push', '-q', '-m', 'older work']).status).toBe(0);
-      peerCommit(SHARED, '# shared from the peer\n');
-      write(SHARED, '# shared, local edit not queued\n', false);
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
+      write(SHARED, '{"note":"shared, local edit not queued"}\n', false);
       write(CLEAN, '# a plan\n');
       const shim = gitShim('case " $* " in *" stash push "*) exit 0;; esac');
       expect(drain(shim.env).status).toBe(0);
       expect(statusJson().status).toBe('push_failed');
       expect(git(['stash', 'list']).stdout).toContain('older work');
       expect(fs.readFileSync(path.join(tmpHome, OTHER), 'utf-8')).toBe('# other v1\n');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local edit not queued\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local edit not queued"}\n');
     });
 
     test('a conflicting merge is aborted and git\'s reason reaches the status', () => {
       setup();
-      peerCommit(SHARED, '# shared from the peer\n');
-      write(SHARED, '# shared, local commit\n');
+      peerCommit(SHARED, '{"note":"shared from the peer"}\n');
+      write(SHARED, '{"note":"shared, local commit"}\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
       expect(s.status).toBe('push_failed');
       expect(s.message).toContain(`Merge conflict in ${SHARED}`);
       expect(mergeHead()).toBe(false);
       expect(unmerged()).toBe('');
-      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('# shared, local commit\n');
+      expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared, local commit"}\n');
       // The next drain is not blocked by a half-finished merge.
       write(OTHER, '# other v2\n');
       expect(drain().status).toBe(0);
