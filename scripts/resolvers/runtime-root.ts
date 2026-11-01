@@ -70,7 +70,7 @@ export function skillStartLines(ctx: TemplateContext): { lookup: string; command
   }
   return {
     lookup: [
-      `[ -d "\${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/${getHostConfig(ctx.host).localSkillRoot}`,
+      `[ -d "\${GSTACK_ROOT:-/-}/lib" ]&&[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/${getHostConfig(ctx.host).localSkillRoot}`,
       `[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=${globalRoot(ctx)}`,
       `[ -d "$GSTACK_ROOT/bin" ]||echo "gstack: no install found (tried $GSTACK_ROOT). ${fix}">&2`,
     ].join('\n'),

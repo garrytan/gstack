@@ -23,7 +23,7 @@ const ctx = (host: string, installRoot: string | null) =>
 const startFence = (c: TemplateContext) => insertRuntimePreludes(generatePreambleBash(c), c).match(/```bash\n([\s\S]*?)\n```/)![1];
 const GROUPED = /(?:^|[;&|]\s*)\{\s|exit 1;\s*\}/m;
 const sh = (body: string, env: Record<string, string>) =>
-  spawnSync('bash', ['-c', body], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env: { PATH: '/usr/bin:/bin', ...env } });
+  spawnSync('bash', ['-uc', body], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env: { PATH: '/usr/bin:/bin', ...env } });
 function stubStart(root: string) {
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
   fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
