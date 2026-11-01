@@ -74,9 +74,10 @@ _gstack_harness_cut_block() {
 # plugins.entries.gstack-start; Hermes removes the plugin and its config entries when its
 # folder holds exactly the files gstack wrote, unedited, and is reached without a symlink
 # below the profile; otherwise it only disables it so an edit or a kept copy survives. The harness runs with PATH, HOME and the profile only. Without the harness on
-# PATH it prints the command to run instead.
+# PATH it prints the command to run instead. A profile with no harness config (openclaw.json, config.yaml) never had
+# the plugin turned on, and the harness CLI would create a config holding only that change, so it runs no harness command.
 gstack_harness_hook_release() {
-  local ledger="$1" kind a b target="" on="" profile="" root="" edited=0 to="" sub cmd n=0 safe=1 total
+  local ledger="$1" kind a b target="" on="" profile="" root="" edited=0 to="" sub cmd cfg n=0 safe=1 total
   [ -f "$ledger" ] || return 0
   while IFS=$'\t' read -r kind a b; do
     case "$kind" in
@@ -91,6 +92,8 @@ gstack_harness_hook_release() {
     [ "${total:-0}" -gt "$n" ] && edited=1
   fi
   command -v timeout >/dev/null 2>&1 && to="timeout 60"
+  case "$target" in openclaw) cfg=openclaw.json ;; hermes) cfg=config.yaml ;; *) cfg="" ;; esac
+  if [ -z "$cfg" ] || [ -f "$profile/$cfg" ]; then
   case "$target" in
     openclaw) cmd="config unset plugins.entries.gstack-start"
       if command -v openclaw >/dev/null 2>&1 && env -i PATH="$PATH" HOME="$HOME" OPENCLAW_STATE_DIR="$profile" $to openclaw $cmd </dev/null >/dev/null 2>&1; then :
@@ -99,6 +102,7 @@ gstack_harness_hook_release() {
       if command -v hermes >/dev/null 2>&1 && env -i PATH="$PATH" HOME="$HOME" HERMES_HOME="$profile" $to hermes plugins "$sub" gstack-start </dev/null >/dev/null 2>&1; then :
       else echo "  start hook: turn it off in Hermes yourself: HERMES_HOME=\"$profile\" hermes plugins disable gstack-start"; fi ;;
   esac
+  fi
   if [ "$safe" = 1 ] && [ -d "$root/__pycache__" ] && _gstack_harness_owned "$root/__pycache__" "$root"; then
     rm -f "$root"/__pycache__/*.pyc
     rmdir "$root/__pycache__" 2>/dev/null
