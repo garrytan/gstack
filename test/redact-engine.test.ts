@@ -366,6 +366,8 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`render({\n    "id": f"{n:#x}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
       [`render({\n    "id": f"{n:'>10}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
       [`render({\n    "id": f"{n!r:{w}}",\n}, """\npassword: ${v}\n""")\n`, "app.py"],
+      // A # comment in a single-quoted f-string's multi-line field holds no delimiter either.
+      [`msg = f"{\n  1 # }" """\n}"\nCONFIG = """\npassword: ${v}\n"""\n`, "app.py"],
       // In an f-string a backslash does not escape the brace after it.
       [`CONFIG = f"""\\{"""\npassword: ${v}\n"""}"""\n`, "app.py"],
       // Nesting past the depth cap runs to the end of the text instead of overflowing the stack.
@@ -377,6 +379,9 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["msg = f'''{{literal brace'''\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["msg = f'{x:>{width}}'\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["msg = f\"{when:%b %d '%y} {d[':']} {a[1:2]} {a!=b}\"\nrows = {\n    \"password\": session.password,\n}\n", "app.py"],
+      // Code inside a multi-line interpolation is code, not string text.
+      ["msg = f\"{\n {\n  'password': request.password,\n }\n}\"\n", "app.py"],
+      ["final s = \"${login(\n  password: request.password,\n)}\";\n", "lib/a.dart"],
       ["if'a' in s: pass\ndef f(\n    session: HttpSession,\n): pass\n", "app.py"],
       ["final s = 'hi ${user.name} and $id';\n  login(password: request.password);\n", "lib/a.dart"],
       ["final s = r'${raw}';\n  login(password: request.password);\n", "lib/a.dart"],
