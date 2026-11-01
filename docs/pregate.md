@@ -178,7 +178,11 @@ Two stages with separate clocks, both printed:
   simply not proven.
 - `secrets`: `gstack-redact` over the branch's added lines (merge-base to the
   working tree, untracked files included). HIGH, or MEDIUM in the `secret`
-  category, fails; other MEDIUM findings warn. Cannot be downgraded.
+  category, fails; other MEDIUM findings warn. Cannot be downgraded. A
+  changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
+  findings on its added lines count, so a line added inside an existing
+  `"""` or `'''` string is still read as a literal; its rows give the file's
+  line number (`app.py, line 10`).
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
@@ -802,6 +806,20 @@ those, each with its scope and its reason:
   the entry is inert for that finding and the row says so (`allowlist[0]
   env.kv not tested on env.kv (<file>): the scanner gave no position for its
   pattern; the finding is kept`) rather than silently keeping it.
+- The position is where the flagged value starts, not the name before it.
+  For `session: HttpSession` in a YAML file the pattern is `HttpSession`;
+  `session: HttpSession` never matches there. An entry that names a finding
+  by id and path, and whose pattern matches the line but not at the value,
+  prints `allowlist[0] env.kv pattern did not match env.kv (<file>, added
+  line N, col C): …; the finding is kept`.
+- In Python and Dart source, a parameter or field annotation
+  (`session: HttpSession,`) and a dict entry or Dart named argument that reads
+  a name (`"password": request.password`) are code, not credentials, as they
+  are in TypeScript (#3630). Python's keyword form (`password=request.password`)
+  still reports. The same line inside a `"""` docstring is text and still
+  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  so it scans Python and Dart lines without this exemption and may still warn
+  (MEDIUM, non-blocking) on them.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line
