@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { canonicalRows, parseReceipt, parseRecordFindings, parseReviewResult, type CanonicalFinding } from './autoplan-reconcile';
 import { amendmentSteps, applyGuidance, closeDeferred, closePhase } from './autoplan-gate';
 import { finishRun } from './autoplan-ceo-only';
+import type { ShadowSwitch } from './autoplan-shadow';
 import { GSTACK_VERSION } from './autoplan-migrate';
 import { driftLine, normalizeFindingFile, reviewHash, scaffold } from './autoplan-plan-text';
 import { PHASES, SNAPSHOT_TOOL, attemptFile, bindPromptResult, detectScope, driverFile, extractHeading, phaseOrder, reviewSkillFile, scopeLines, scopeSourceLabel, sectionLoadFor, snapshotTool, writePrompts, type Phase, type Scope, type ScopeFlags } from './autoplan-prompts';
@@ -38,8 +39,12 @@ import { annotateConfirm, confirmBlock } from './autoplan-confirm';
 /** An unreadable run.lock younger than this is a lock some other gstack is still writing, never a stale one. */
 const LOCK_WRITE_GRACE_MS = 30_000;
 
-/** Exclusive ownership for one command: a lock whose pid is alive is never stolen; a dead pid's lock is reclaimed. */
-export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean } = {}): T {
+/**
+ * Exclusive ownership for one command: a lock whose pid is alive is never stolen; a dead pid's lock is reclaimed.
+ * `waitMs`: retry a live owner's lock for that long before RUN_LOCKED (the shadow's publishing step, lib/autoplan-shadow.ts).
+ */
+export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean; waitMs?: number } = {}): T {
+  const waitUntil = Date.now() + (opts.waitMs ?? 0);
   fs.mkdirSync(out, { recursive: true });
   const lock = path.join(out, FILES.lock);
   const mine = JSON.stringify({ pid: process.pid, host: os.hostname(), at: now() });
@@ -61,6 +66,7 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
       } else if (owner.host === os.hostname() && typeof owner.pid === 'number') {
         try { process.kill(owner.pid, 0); alive = true; } catch (k: any) { alive = k.code === 'EPERM'; }
       } else if (owner.host && owner.host !== os.hostname()) alive = !opts.steal;
+      if (alive && Date.now() < waitUntil) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); continue; }
       if (alive) { fs.rmSync(staged, { force: true }); throw new RunError('RUN_LOCKED', unreadable ? `${lock} is being written by another command` : `pid ${owner.pid} on ${owner.host} since ${owner.at}`, 3); }
       try { fs.unlinkSync(lock); } catch { /* raced with its owner's exit */ }
       if (i > 50) { fs.rmSync(staged, { force: true }); throw new RunError('RUN_LOCKED', `could not reclaim ${lock}`, 3); }
@@ -72,7 +78,7 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
 // ---------------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------------
-export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; ceoOnly?: boolean; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number; carryForward?: boolean; carryCheckCapUsd?: number }
+export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; ceoOnly?: boolean; shadow?: ShadowSwitch; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number; carryForward?: boolean; carryCheckCapUsd?: number }
 
 /** `lines` receives what init itself reports (SCAFFOLDED:). A plan with one section heading missing refuses, or with `scaffold` is reviewed from a scaffolded copy. */
 export function initRun(o: InitOptions, lines: string[] = []): RunState {
@@ -120,12 +126,12 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
     deviations: ['autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)'],
     ...(o.deadlineMin ? { deadline_at: new Date(Date.now() + o.deadlineMin * 60_000).toISOString() } : {}),
     ...(o.light ? { light: true } : {}),
-    ...(o.ceoOnly ? { ceo_only: true } : {}), gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },
+    ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },
     ...(o.planHeading ? { plan_heading: o.planHeading } : {}), ...(scaffolded ? { scaffolded: true } : {}),
     ...(o.carryForward === false ? { carry_forward: false } : {}), ...(o.carryCheckCapUsd !== undefined ? { carry_check_cap_usd: o.carryCheckCapUsd } : {}),
   };
   fs.writeFileSync(path.join(out, 'timing.json'), JSON.stringify({ schema_version: 1, run, phases: [], started_at: now(), session_kind: state.session_kind }, null, 2) + '\n');
-  journal(out, { event: 'init', run, plan_source: source, scope, phase_order: order, ...(o.ceoOnly ? { ceo_only: true } : {}), ...(consentMissing ? { outside: 'not_run', reason: 'consent_missing' } : {}) });
+  journal(out, { event: 'init', run, plan_source: source, scope, phase_order: order, ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), ...(consentMissing ? { outside: 'not_run', reason: 'consent_missing' } : {}) });
   writeState(state);
   return state;
 }
