@@ -291,6 +291,13 @@ gstack_result_anchor() {
     QUEUE_BASE_RED_NO_TRAIN) printf '%s' 'queue-base-red-no-train' ;;
     SHIP_BASE_RED_FIXER) printf '%s' 'ship-base-red-fixer' ;;
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
+    QUEUE_WAVE_CONFLICT) printf '%s' 'queue-wave-conflict' ;;
+    QUEUE_WAVE_MOVED) printf '%s' 'queue-wave-moved' ;;
+    QUEUE_WAVE_DUPLICATE) printf '%s' 'queue-wave-duplicate' ;;
+    QUEUE_WAVE_SIZE) printf '%s' 'queue-wave-size' ;;
+    QUEUE_WAVE_UNKNOWN) printf '%s' 'queue-wave-unknown' ;;
+    QUEUE_WAVE_DEPENDENT) printf '%s' 'queue-wave-dependent' ;;
+    QUEUE_WAVE_NOT_MERGED) printf '%s' 'queue-wave-not-merged' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
     QUEUE_RECEIPT_CONDITIONAL) printf '%s' 'queue-receipt-conditional' ;;
@@ -363,6 +370,9 @@ gstack_result_anchor() {
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
+    TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
+    REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
     *) return 1 ;;
   esac
 }

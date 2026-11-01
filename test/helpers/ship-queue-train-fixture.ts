@@ -209,6 +209,9 @@ function shimSource(): string {
     "  if (paged) { const list = paged[2] === 'check-runs' ? (d.ci[paged[1]] || []) : ((d.statuses || {})[paged[1]] || []); const key = paged[2] === 'check-runs' ? 'check_runs' : 'statuses';",
     "    out(paged[3] === '1' ? { total_count: list.length, state: 'success', [key]: list } : { total_count: list.length, [key]: [] }); }",
     "}",
+    "if (a[0] === 'pr' && a[1] === 'comment') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.comments = [...(p.comments || []), { body: opt('--body') }]; out({}); }",
+    "if (a[0] === 'pr' && a[1] === 'close') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.state = 'CLOSED'; out({}); }",
+    "if (a[0] === 'pr' && a[1] === 'list') { const head = opt('--head'); const st = opt('--state'); out(Object.entries(d.prs).filter(([, p]) => (!head || p.headRefName === head) && (st !== 'open' || p.state === 'OPEN')).map(([n, p]) => ({ number: Number(n), state: p.state, headRefOid: p.headRefOid, baseRefName: p.baseRefName || 'main', mergeCommit: p.mergeCommit || null }))); }",
     "fail('gh shim: unsupported ' + a.join(' '));",
   ].join('\n') + '\n';
 }

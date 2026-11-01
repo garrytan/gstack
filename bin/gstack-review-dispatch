@@ -161,18 +161,22 @@ function pass(): number {
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
   const j = plan(true);
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
-  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] } };
-  const planLines = text.stdout.trimEnd().split('\n');
+  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null };
+  const fixChecks = p.dispatches.filter(d => d.role === 'fix-check');
+  const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
   const step = p.next.step;
   if (step !== 'full' && step !== 'scoped') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
-  const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
+  const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
+  if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
+  const mergeBase = git(['merge-base', base, 'HEAD'])?.trim();
+  const diffBase = flag('--diff-base') ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');
   const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
   const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
-    dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
-    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim() });
+    dispatches: p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
+    targetedClasses: p.targeted?.classes, mergeBase, rangeBase });
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
   const t = sectionTexts(ROOT);
   renderStage(m, 'first', t, branchDiff);
