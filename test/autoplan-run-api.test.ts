@@ -13,7 +13,7 @@ import { DEFAULT_MAX_TOKENS } from '../lib/outside-voice-api';
 import { AUTOPLAN, ROOT, SMALL_PLAN, env } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-run-api-'));
-let mode: 'ok' | 'cut' | 'bad-outside' | 'hang' = 'ok';
+let mode: 'ok' | 'cut' | 'bad-outside' | 'bad-native' | 'hang' | 'down' = 'ok';
 let calls = 0;
 let openaiLimits: unknown[] = [];
 let server: ReturnType<typeof Bun.serve>;
@@ -23,13 +23,14 @@ beforeAll(() => {
     async fetch(req) {
       calls++;
       if (mode === 'hang') { await Bun.sleep(5000); return new Response('late', { status: 504 }); }
+      if (mode === 'down') return new Response('overloaded', { status: 503 });
       const body = await req.json();
       const prompt = String(body.messages[0].content);
       const m = /INPUT: ([a-z]+) ([0-9a-f]{64})/.exec(prompt.slice(prompt.lastIndexOf('RESULT FORMAT')))!;
       const text = mode === 'cut'
         ? `INPUT: ${m[1]} ${m[2]}\n\nA long review that ran out of output tokens before the findings fen`
         : `INPUT: ${m[1]} ${m[2]}\n\nComplete review.\n\n\`\`\`gstack-findings\n{"id":"F1","severity":"Medium","title":"Name the retry metric","fix":"add retries_total"}\n\`\`\`\n`;
-      if (new URL(req.url).pathname.endsWith('/messages')) return Response.json({ model: body.model, stop_reason: mode === 'cut' ? 'max_tokens' : 'end_turn', content: [{ type: 'text', text }], usage: { input_tokens: 10, output_tokens: 20 } });
+      if (new URL(req.url).pathname.endsWith('/messages')) return Response.json({ model: body.model, stop_reason: mode === 'cut' ? 'max_tokens' : 'end_turn', content: [{ type: 'text', text: mode === 'bad-native' ? `INPUT: ${m[1]} ${m[2]}\n\nA review with no findings fence.` : text }], usage: { input_tokens: 10, output_tokens: 20 } });
       openaiLimits.push(body.max_completion_tokens);
       return Response.json({ model: body.model, choices: [{ finish_reason: mode === 'cut' ? 'length' : 'stop', message: { content: mode === 'bad-outside' ? `INPUT: ${m[1]} ${m[2]}\n\nA review with no findings fence.` : text } }], usage: { prompt_tokens: 10, completion_tokens: 20 } });
     },
@@ -37,13 +38,13 @@ beforeAll(() => {
 });
 afterAll(() => { server.stop(true); fs.rmSync(TMP, { recursive: true, force: true }); });
 
-async function run(name: string, extra: string[] = [], keys: Record<string, string> = { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test' }) {
+async function run(name: string, extra: string[] = [], keys: Record<string, string> = { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test' }, nativeModel = 'anthropic/claude-opus-5-5') {
   const dir = path.join(TMP, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'plan.md'), SMALL_PLAN);
   const out = path.join(dir, 'run');
   const base = `http://127.0.0.1:${server.port}`;
-  const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', 'anthropic/claude-opus-5-5', '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api', ...extra], {
+  const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', nativeModel, '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api', ...extra], {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     env: env({ ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', ...keys, ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: `${base}/v1`, GSTACK_AUTOPLAN_CHECKPOINT_DIR: '', GSTACK_STATE_ROOT: path.join(TMP, 'state') }),
   });
@@ -150,5 +151,63 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     const ledger = JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8'));
     expect(ledger.reserved.map((r: any) => r.attempt)).not.toContain(sent.attempt);
     expect(ledger.settled.find((s: any) => s.attempt === sent.attempt).usd).toBe('unknown');
+  }, 150_000);
+
+  test('a sent call the provider refused with a 503 is charged its reservation', async () => {
+    mode = 'down';
+    const r = await run('refused-503', ['--spend-cap', '8']);
+    expect(r.state.status).toBe('interrupted');
+    const sent = r.state.phases.ceo.native.attempts[0];
+    expect(sent.state).toBe('superseded');
+    const ledger = JSON.parse(fs.readFileSync(path.join(r.out, 'spend.json'), 'utf8'));
+    expect(ledger.reserved.map((x: any) => x.attempt)).not.toContain(sent.attempt);
+    expect(ledger.settled.find((s: any) => s.attempt === sent.attempt).usd).toBe('unknown');
+  }, 150_000);
+
+  test('a paid native call whose result submit refuses is settled at its usage, so the rerun is admitted afresh', async () => {
+    mode = 'bad-native';
+    const r = await run('refused-result', ['--spend-cap', '8']);
+    expect(r.status).not.toBe(0);
+    const sent = r.state.phases.ceo.native.attempts[0];
+    expect(sent.state).toBe('superseded');
+    const ledger = JSON.parse(fs.readFileSync(path.join(r.out, 'spend.json'), 'utf8'));
+    expect(ledger.reserved.map((x: any) => x.attempt)).not.toContain(sent.attempt);
+    expect(ledger.settled.find((s: any) => s.attempt === sent.attempt).usd).toBeGreaterThan(0);
+  }, 150_000);
+
+  test('a call in flight when the process died is charged its reservation on the next run, which dispatches a fresh attempt', async () => {
+    mode = 'hang';
+    calls = 0;
+    const dir = path.join(TMP, 'killed');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'plan.md'), SMALL_PLAN);
+    const out = path.join(dir, 'run');
+    const base = `http://127.0.0.1:${server.port}`;
+    const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', 'anthropic/claude-opus-5-5', '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api', '--spend-cap', '8'], {
+      cwd: ROOT, stdout: 'ignore', stderr: 'ignore',
+      env: env({ ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: `${base}/v1`, GSTACK_AUTOPLAN_CHECKPOINT_DIR: '', GSTACK_STATE_ROOT: path.join(TMP, 'state') }),
+    });
+    for (let i = 0; i < 200 && calls === 0; i++) await Bun.sleep(50);
+    expect(calls).toBe(1);
+    proc.kill('SIGKILL');
+    await proc.exited;
+    mode = 'ok';
+    const retry = await run('killed', ['--spend-cap', '8']);
+    expect(retry.status, retry.stderr).toBe(0);
+    const [lost, fresh] = retry.state.phases.ceo.native.attempts;
+    expect(lost.state).toBe('superseded');
+    expect(fresh.state).toBe('submitted');
+    const ledger = JSON.parse(fs.readFileSync(path.join(retry.out, 'spend.json'), 'utf8'));
+    expect(ledger.settled.find((s: any) => s.attempt === lost.attempt).usd).toBe('unknown');
+  }, 150_000);
+
+  test('with a spend cap an unpriced api model reserves the default in any session kind, so a cap below it refuses before any call', async () => {
+    mode = 'ok';
+    calls = 0;
+    const kind = ['GSTACK', 'SESSION', 'KIND'].join('_');
+    const r = await run('unpriced', ['--spend-cap', '1'], { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', [kind]: 'spawned' }, 'anthropic/claude-haiku-5-5');
+    expect(r.status).toBe(3);
+    expect(r.stdout + r.stderr).toContain('SPEND_CAP_EXCEEDED');
+    expect(calls).toBe(0);
   }, 150_000);
 });

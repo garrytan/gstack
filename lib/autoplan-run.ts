@@ -433,11 +433,21 @@ export function fitReservation(out: string, phase: Phase, voice: Voice, attempt:
   writeState(state);
 }
 
-/** A paid call that failed (truncated, refused): settle what it cost and supersede its attempt, so a retry is admitted afresh. */
+/** Record that `run`'s paid call for an open attempt is going out (true) or never left this machine (false). */
+export function markSent(out: string, phase: Phase, voice: Voice, attempt: string, sent: boolean): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a) return;
+  if (sent) a.sent_at = now(); else delete a.sent_at;
+  writeState(state);
+}
+
+/** A paid call that did not bind a result (failed, refused, lost with its process): settle what it cost and supersede its open attempt, so a retry is admitted afresh. */
 export function retireAttempt(out: string, phase: Phase, voice: Voice, attempt: string, usd: number | 'unknown'): void {
   const state = readState(out);
   const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
-  if (a) { a.state = 'superseded'; a.terminal_at = now(); }
+  if (!a || a.state !== 'dispatched') return;
+  a.state = 'superseded'; a.terminal_at = now();
   settle(path.join(out, FILES.spend), attempt, usd);
   journal(out, { event: 'superseded', attempt, phase, voice, usage_usd: usd });
   writeState(state);

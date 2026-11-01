@@ -13,7 +13,7 @@ import { readJsonl } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 
 export type Voice = 'native' | 'outside';
-export interface AttemptState { attempt: string; state: 'dispatched' | 'submitted' | 'execution_unknown' | 'cancelled' | 'superseded' | 'deferred'; prompt: string; result: string; estimate_usd: number; dispatched_at: string; terminal_at?: string }
+export interface AttemptState { attempt: string; state: 'dispatched' | 'submitted' | 'execution_unknown' | 'cancelled' | 'superseded' | 'deferred'; prompt: string; result: string; estimate_usd: number; dispatched_at: string; terminal_at?: string; /** `run` set it before the paid call went out; an open attempt still carrying it was in flight when its process died. */ sent_at?: string }
 export interface VoiceState extends VoiceOutcome {
   attempt?: string; attempts?: AttemptState[]; result_sha256?: string; findings?: number; label?: string; usage?: Record<string, unknown>; detail?: string;
   /** verified: the INPUT receipt matched the snapshot; attested: a --record bound without one, on the parent's word (attest_reason). */

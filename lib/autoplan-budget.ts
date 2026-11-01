@@ -63,15 +63,15 @@ export function roundsLine(state: RunState): string {
 }
 
 /**
- * The estimate one new attempt reserves: the flag, else the run's persisted `--estimate-usd`, else the unattended
- * default when the run has a spend cap or runs on Capy, else 0 (host spend unknown, not admitted). `run` prices its
- * api attempts from the price table instead (NextOptions.price).
+ * The estimate one new attempt reserves: the flag, else the run's persisted `--estimate-usd`, else the default whenever
+ * the run has a spend cap (any session kind) or an unattended run is on Capy, else 0 (host spend unknown, not admitted).
+ * `run` prices its api attempts from the price table instead (NextOptions.price); an unpriced model falls back to this.
  */
 export function attemptEstimate(state: RunState, flag: number | undefined, env: NodeJS.ProcessEnv): { usd: number; line?: string } {
   const set = flag ?? state.estimate_usd;
   if (set !== undefined) return { usd: set };
-  if (state.session_kind !== 'unattended' || (env.GSTACK_CAPY !== '1' && state.spend_cap_usd === null)) return { usd: 0 };
-  return { usd: DEFAULT_HOST_ESTIMATE_USD, line: `ESTIMATE: ${DEFAULT_HOST_ESTIMATE_USD.toFixed(2)} per voice reserved for each host-subagent attempt (unattended default under a spend cap or on Capy; --estimate-usd <n> sets it for the rest of the run); actual host spend stays unknown` };
+  if (state.spend_cap_usd === null && (state.session_kind !== 'unattended' || env.GSTACK_CAPY !== '1')) return { usd: 0 };
+  return { usd: DEFAULT_HOST_ESTIMATE_USD, line: `ESTIMATE: ${DEFAULT_HOST_ESTIMATE_USD.toFixed(2)} per voice reserved for each host-subagent attempt (default under a spend cap, or unattended on Capy; --estimate-usd <n> sets it for the rest of the run); actual host spend stays unknown` };
 }
 
 /** Stop the run: terminal `incomplete` with the structured budget_exhausted stop, journaled. Returns the STOP and RECOVER lines. */
