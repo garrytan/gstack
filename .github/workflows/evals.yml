@@ -179,6 +179,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -193,9 +194,19 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           base="${BASE_SHA:-origin/${DEFAULT_BRANCH}}"
-          train=$(git show "${base}:.gstack/ship-policy.json" 2>/dev/null | jq -c 'if (.train | type) == "object" then .train else null end' 2>/dev/null || true)
-          artifact=$(jq -r '.record_artifact // ""' <<<"${train:-null}" 2>/dev/null || true)
-          check=$(jq -r '.full_gate_check // ""' <<<"${train:-null}" 2>/dev/null || true)
+          ref="$base" file=.gstack/ship-policy.json policy=null
+          read_failed() { echo "::error::cannot read ${file} at ${ref}. $1 ($(git --version)). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)" >&2; exit 1; }
+          listed=$(git ls-tree --full-tree "$ref" -- "$file") || read_failed "git ls-tree failed"
+          if [ -n "$listed" ]; then
+            for try in 1 2 3; do
+              policy=$(git show "${ref}:${file}") && break
+              if [ "$try" = 3 ]; then read_failed "git show failed 3 times"; fi
+              sleep $((try * 2))
+            done
+          fi
+          train=$(jq -c 'if (.train | type) == "object" then .train else null end' <<<"$policy") || { echo "::error::${base}:.gstack/ship-policy.json is not valid JSON; fix the policy file" >&2; exit 1; }
+          artifact=$(jq -r '.record_artifact // ""' <<<"${train:-null}")
+          check=$(jq -r '.full_gate_check // ""' <<<"${train:-null}")
           if [ -z "$train" ] || [ "$train" = null ]; then
             echo "train=false" >> "$GITHUB_OUTPUT"
             echo "- Train policy: none at ${base}; this run routes as before" >> "$GITHUB_STEP_SUMMARY"
@@ -470,6 +481,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -528,6 +540,7 @@ jobs:
           # Preserve full history for merge-base diff selection. Moving the
           # planner off the eval image must not change its selection inputs.
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -670,6 +683,7 @@ jobs:
           # shards on the lane's first live run ("ambiguous argument
           # 'main...HEAD'"). The manifest still governs WHICH shards run.
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Fix bun temp
@@ -903,6 +917,7 @@ jobs:
         with:
           ref: ${{ inputs.screen_merge_sha }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Fix bun temp
@@ -1029,6 +1044,7 @@ jobs:
         with:
           ref: ${{ fromJSON(needs.route.outputs.bisect_refs)[matrix.slice] }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Verify the prefix checkout
@@ -1173,6 +1189,7 @@ jobs:
           # history of its prefix commits T1..Tk for the train record.
           ref: ${{ inputs.screen_merge_sha }}
           fetch-depth: ${{ needs.plan-slices.outputs.mode == 'train' && '0' || '1' }}
+          filter: blob:none
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

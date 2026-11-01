@@ -9,6 +9,7 @@
  */
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
@@ -400,10 +401,11 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
 }
 
 /** calls: count parent calls from the host's transcript items (lib/ship-calls.ts). */
-export function cmdCalls(argv: string[]): Outcome {
+export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['events', 'since', 'until']);
-  const file = str(o, 'events');
-  if (!file) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  const raw = str(o, 'events');
+  if (!raw) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  const file = raw === '~' || raw.startsWith('~/') ? path.join(ctx.env.HOME || os.homedir(), raw.slice(1)) : raw;
   let doc: unknown;
   try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { throw usageError(`calls --events ${file}: ${e.message}`); }
   const d = doc as { items?: unknown; cursor?: unknown };

@@ -25,6 +25,7 @@ import {
 } from './ship-queue-train';
 import { mergeChangelogs, ownEntryAboveMain, parseChangelog } from './changelog-check';
 import { buildReceipt } from './tree-receipt';
+import { genericBackstop } from './ship-queue-train-gate';
 
 const Q = 'gstack-ship-queue';
 
@@ -121,7 +122,7 @@ function published(env: TrainEnv, t: TrainRecord, i: number, main: string): { sa
  * never seats a PR that may already be in.
  */
 /** A record entry that counts as merged without a GitHub read: plain trains only; a stamped train counts only what GitHub reports MERGED (#3603). */
-const recordedMerged = (t: TrainRecord, pr: string): boolean => !t.stamped && t.merged.some(m => m.pr === pr);
+const recordedMerged = (t: TrainRecord, pr: string): boolean => !t.stamped && !t.gated && t.merged.some(m => m.pr === pr);
 
 async function freezeQueue(env: TrainEnv, t: TrainRecord, reason: string, mainSha: string, states: ReadonlyMap<string, string>): Promise<FreezeRecord> {
   const now = nowIso();
@@ -142,6 +143,12 @@ async function freezeQueue(env: TrainEnv, t: TrainRecord, reason: string, mainSh
   persist(env.ctx.repoRoot, [f], { remote: env.remote });
   effect(t, `queue frozen: ${reason}`);
   save(env, t);
+  if (t.gated && env.train.gates) {
+    f.backstop = await genericBackstop(env, mainSha);
+    f.updated_at = nowIso();
+    persist(env.ctx.repoRoot, [f], { remote: env.remote });
+    return f;
+  }
   const slug = repoSlug(env.ctx);
   const nonce = makeNonce('gate', mainSha, mainSha, randomBytes(3).toString('hex'), { purpose: 'backstop' });
   const dispatch = { workflow: env.train.gate_workflow, inputs: { [DISPATCH_INPUTS.evalsAll]: 'true', [DISPATCH_INPUTS.expectedSha]: mainSha, [DISPATCH_INPUTS.nonce]: nonce } };
@@ -203,6 +210,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   const i = t.slots.findIndex(s => s.pr === o.pr);
   if (i < 0) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} does not include #${o.pr}` }, [], nextFor(t), run);
   if (t.stamped) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has stamped prefixes; its slots publish S_i exactly through train land, never a hand stamp checked modulo stamps` }, [], `${Q} train land --train ${t.nonce} --pr ${o.pr}`, run);
+  if (t.gated) return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} gates every prefix; its slots publish their gated prefix exactly through train land, never a merge checked modulo stamps` }, [], `${Q} train land --train ${t.nonce} --pr ${o.pr}`, run);
   const gate = attemptsOf(t).filter(a => a.purpose !== 'bisect').at(-1);
   if (gate?.outcome !== 'GREEN' || !['green', 'merging', 'merged'].includes(t.state)) {
     return outRefused({ code: 'QUEUE_GATE_MISSING', message: `train ${t.nonce} has no green record (state ${t.state}, last gate ${gate?.outcome ?? 'none'})` }, [], nextFor(t), run);
@@ -238,11 +246,12 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
 
 export function confirmMerged(env: TrainEnv, t: TrainRecord, pr: string, main: string, index: number, lines: string[]): TrainOut {
   const run = trainFile(t.nonce);
-  const state = t.stamped ? prState(env.ctx, pr) : 'MERGED';
-  if (state !== 'MERGED') return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `main's tree is S${index} of train ${t.nonce}, but GitHub reports #${pr} as ${state}, not MERGED; only a merge GitHub reports counts` }, lines, `gh pr view ${pr} --json state,headRefOid; rerun once GitHub reports #${pr} MERGED`, run);
+  const state = t.stamped || t.gated ? prState(env.ctx, pr) : 'MERGED';
+  if (state !== 'MERGED') return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `main's tree is ${t.stamped ? 'S' : 'T'}${index} of train ${t.nonce}, but GitHub reports #${pr} as ${state}, not MERGED; only a merge GitHub reports counts` }, lines, `gh pr view ${pr} --json state,headRefOid; rerun once GitHub reports #${pr} MERGED`, run);
   if (!t.merged.some(m => m.pr === pr)) t.merged.push({ pr, sha: main, tree: git(env.ctx.repoRoot, ['rev-parse', `${main}^{tree}`]).out, at: nowIso() });
   const merged = t.slots.filter(s => s.pr === pr || recordedMerged(t, s.pr) || (t.merged.some(m => m.pr === s.pr) && prState(env.ctx, s.pr) === 'MERGED'));
-  t.state = merged.length === t.slots.length ? 'merged' : 'merging';
+  const landable = t.verdict?.landable ?? t.slots.length;
+  t.state = merged.length >= landable ? (landable === t.slots.length ? 'merged' : 'attributed') : 'merging';
   effect(t, `verified #${pr} merged as T${index}`);
   save(env, t);
   lines.push(`VERIFY_TRAIN: #${pr} merged; main's tree is T${index} of train ${t.nonce} (${merged.length}/${t.slots.length} merged)`);

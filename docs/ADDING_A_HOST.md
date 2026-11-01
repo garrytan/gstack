@@ -2,7 +2,7 @@
 
 gstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes,
-GBrain, Copilot, Antigravity) is defined as a typed TypeScript config object built by the
+GBrain, Copilot, Antigravity, Gemini CLI) is defined as a typed TypeScript config object built by the
 `defineHost()` factory. Rendering a new host means creating one file and
 re-exporting it: the generator, tests, and validation pick it up. Installing
 it is not free: setup still has one install arm per installable host (see
@@ -76,13 +76,13 @@ Inventory of every setup side effect, by phase (line numbers are approximate):
 |---|---|---|
 | Build | `browse/dist`, `design/dist`, `make-pdf/dist`, `bin/gstack-cso-*` in the source checkout | source |
 | Hosts record | `.gstack-installed-hosts` in the source checkout: every host setup installed from it, additive (#1694) | source |
-| Generation | renders for the recorded hosts only (`.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/`) in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
+| Generation | renders for the recorded hosts only (`.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/`, `.gemini-cli/`) in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
 | Render prune | renders of hosts the record does not name: links into the checkout removed, generated files moved to `$GSTACK_STATE_ROOT/backups/host-renders/<ts>-<id>/`, other files kept | source / state root |
 | Chromium | Playwright cache (`~/.cache/ms-playwright`), lock under the state root | machine |
 | Config | `skill_prefix`, `timeline_stop_hook`, team-mode keys in `$GSTACK_STATE_ROOT/config.yaml` | state root |
 | Claude arm | `~/.claude/skills/gstack` link, one dir per skill with a `SKILL.md` link, alias copies | selected host |
 | Codex arm | `${CODEX_HOME:-~/.codex}/skills/gstack` runtime root, `gstack-*` links into `.agents/skills`, `.agents/skills/gstack` sidecar | selected host |
-| Kiro, Factory, OpenCode, Cursor, Copilot, Antigravity arms | the host's `skills/gstack` runtime root (built beside the live one and swapped in) and `gstack-*` links | selected host |
+| Kiro, Factory, OpenCode, Cursor, Copilot, Antigravity, Gemini CLI arms | the host's `skills/gstack` runtime root (built beside the live one and swapped in) and `gstack-*` links | selected host |
 | OpenCode commands | `~/.config/opencode/commands/gstack-*.md` with a managed marker (#2629); user command files are never touched | selected host |
 | Registry | one row per activated install in `installs.tsv` | state root |
 | Migrations | whatever each `v*.sh` repairs; marker in the state root | state root |
@@ -245,12 +245,15 @@ which Google's docs do not state, so the rendered text names no number.
 
 **Shared `~/.gemini`.** Antigravity CLI and Gemini CLI both live under
 `~/.gemini`. Gemini CLI reads `~/.gemini/skills` (and `~/.agents/skills`);
-Antigravity CLI reads `~/.gemini/antigravity-cli/skills`. Setup writes only
-gstack entries in the latter, uninstall removes only gstack-managed entries
-there, and `--host auto` selects Antigravity only for `agy` on `PATH` or an
-existing `~/.gemini/antigravity-cli`, never for a bare `~/.gemini`.
-`test/setup-install-registry.test.ts` holds both directions. Gemini CLI as a
-host is not supported. Two overlaps remain: workspace `.agents/skills` is also
+Antigravity CLI reads `~/.gemini/antigravity-cli/skills`, and Google's
+migration table lists `~/.gemini/skills` as an Antigravity global path too.
+Each host's arm writes only gstack entries in its own directory, uninstall
+removes only gstack-managed entries in each, and `--host auto` selects
+Antigravity only for `agy` on `PATH` or an existing
+`~/.gemini/antigravity-cli`, and Gemini CLI only for `gemini` on `PATH`,
+never either for a bare `~/.gemini`. `test/setup-install-registry.test.ts`
+holds every direction, including both hosts installed together. Gemini CLI is
+its own host ("Gemini CLI" below). Two overlaps remain: workspace `.agents/skills` is also
 where a project-local Codex install puts its Codex-flavored `gstack-*`
 skills, which Antigravity will list in that repo, and the Antigravity 2.0 app
 and IDE read `~/.gemini/config/skills`, which this host does not install
@@ -276,6 +279,46 @@ CLI follows symlinked skill directories, that it does not import the runtime
 root's extra markdown files (`ETHOS.md`, `review/*.md`) as skills, the
 partial-read behavior of `view_file` on long skills, `ask_question` option
 handling, and an upgrade from an existing install.
+
+## Gemini CLI (#1247)
+
+Shipped as `experimental` (`hosts/gemini.ts`, `./setup --host gemini`, alias
+`--host gemini-cli`). Verified against Gemini CLI 0.66.0 (its bundled
+`docs/cli/skills.md` and `SkillManager.discoverSkills`) on 2026-10-31:
+
+| Fact | Value | Source |
+|---|---|---|
+| User skills | `~/.gemini/skills/<skill>/SKILL.md`, and the `~/.agents/skills` alias, which wins inside the user tier | [Agent Skills](https://geminicli.com/docs/cli/skills/), `packages/core/src/skills/skillManager.ts` |
+| Workspace skills | `.gemini/skills` and the `.agents/skills` alias, loaded only in a trusted folder (`/trust`) | same |
+| Precedence | built-in < extension < user < workspace; same name: the higher tier wins | same |
+| Discovery | `<dir>/<name>/SKILL.md`, one level deep; symlinked skill dirs are followed; the name comes from frontmatter `name` | same |
+| Invocation | the model calls `activate_skill` after you approve; `/skills list` and `gemini skills list` show them | same |
+| Tool names | `run_shell_command`, `read_file`, `read_many_files`, `write_file`, `replace`, `grep_search`, `glob`, `list_directory`, `ask_user`, `invoke_agent`, `activate_skill`, `enter_plan_mode`, `exit_plan_mode`, `write_todos`, `web_fetch`, `google_web_search` | 0.66.0 bundle |
+| Context file | `GEMINI.md` | 0.66.0 bundle |
+
+What the host does: skills in `~/.gemini/skills/gstack-*`, runtime root
+`~/.gemini/skills/gstack` with `.source-path` for `/gstack-upgrade`, `name:`
+equal to the `gstack-<skill>` directory, frontmatter limited to `name` and
+`description` (1024-character limit), the Gemini model overlay, and a
+one-paragraph tool glossary ahead of the preamble's STATUS rules. The glossary
+also names Antigravity's `run_command`, `view_file` and `ask_question`,
+because an Antigravity CLI that reads `~/.gemini/skills` sees these skills.
+The render directory is `.gemini-cli/` (gitignored), not `.gemini/`, so this
+repo's own trusted workspace never lists render output as skills. `--local`
+is refused: it installs only Claude, and Gemini CLI reads workspace skills only
+in trusted folders.
+
+Overlaps: inside a trusted repo, a project-local Codex install's `.agents/skills`
+(Codex-flavored `gstack-*` skills) is the workspace tier, which outranks
+`~/.gemini/skills`, so Gemini CLI uses those there. gstack never writes
+`~/.agents/skills`: that alias is shared with other tools and outranks
+`~/.gemini/skills`. Antigravity's own install stays in
+`~/.gemini/antigravity-cli/skills`.
+
+Unverified without a Gemini API key on the build machines (why it is not
+`full`): a live model run of any skill, `ask_user` option handling, and
+plan mode with gstack's plan-review skills. Discovery is verified:
+`gemini skills list` after `./setup --host gemini` lists the `gstack-*` skills.
 
 ## Instruction-only hosts and agent harnesses
 
@@ -313,6 +356,7 @@ hosts/
 ├── gbrain.ts        # GBrain
 ├── copilot.ts       # GitHub Copilot CLI
 ├── agy.ts           # Google Antigravity CLI
+├── gemini.ts        # Google Gemini CLI
 └── index.ts         # Registry: imports all, derives Host type
 ```
 
