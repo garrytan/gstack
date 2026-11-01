@@ -522,12 +522,16 @@ export function proxyMismatchLines(flags: GlobalFlags, state: ServerState, env: 
  * The server env for this invocation's resolved proxy (#915); empty when
  * direct, except BROWSE_PROXY_URL=direct where that bypasses the system proxy
  * settings (#3440), so a daemon start or auto-restart carries the opt-out the
- * session's hash was computed from.
+ * session's hash was computed from. The resolved URL already carries any
+ * BROWSE_PROXY_USER/PASS, so those are blanked for the daemon, which inherits
+ * this environment and would otherwise see the creds twice (#3457).
  */
 function proxyServerEnv(flags: Partial<Pick<GlobalFlags, 'proxyUrl' | 'proxySource' | 'proxyBypass' | 'explicitDirect'>> | null | undefined): Record<string, string> {
   if (!flags?.proxyUrl) return flags?.explicitDirect ? { BROWSE_PROXY_URL: 'direct' } : {};
   return {
     BROWSE_PROXY_URL: flags.proxyUrl,
+    BROWSE_PROXY_USER: '',
+    BROWSE_PROXY_PASS: '',
     ...(flags.proxySource ? { BROWSE_PROXY_SOURCE: flags.proxySource } : {}),
     ...(flags.proxyBypass ? { BROWSE_PROXY_BYPASS: flags.proxyBypass } : {}),
   };
