@@ -36,6 +36,7 @@ import { spawnSync } from 'child_process';
 import { CODEX_DRAIN_GRACE_MS, CodexHarnessError, codexUsageCostUsd, execCodex, type CodexResult } from './codex-session-runner';
 import { getProjectEvalDir } from './eval-store';
 import { hermeticChildEnv } from './hermetic-env';
+import { SAFETY_RULES, locateRule, removeRule, safetyArm } from './safety-rules';
 import { appendSessionLedger, sessionKey, type SessionEnd } from './session-ledger';
 import { sanitizeTestName, scanBrowseErrors, type SkillTestResult } from './session-runner';
 import { CODEX_FRONTIER_MODEL } from '../../scripts/resolvers/constants';
@@ -166,6 +167,35 @@ export function codexHostTranscript(rawLines: readonly string[], cwd: string, ou
 let runtimeRoot: string | undefined;
 
 /**
+ * The rule-removed safety arm (GSTACK_SAFETY_ARM=removed) must hold on the
+ * installed skills too, or the model reads the rule from ~/.codex/skills
+ * (GST-840). Each installed skill whose markdown carries a registered rule
+ * paragraph is a link into this checkout, so the link becomes a private copy
+ * and every such file is rewritten without the paragraph. Files are replaced,
+ * never written in place, so nothing reaches the checkout through a link.
+ */
+function removeSafetyRulesFromInstall(skillsDir: string): void {
+  for (const name of fs.readdirSync(skillsDir)) {
+    const dir = path.join(skillsDir, name);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter(file => file.endsWith('.md'))
+      .map(file => ({ file, text: fs.readFileSync(path.join(dir, file), 'utf8') }))
+      .filter(({ text }) => SAFETY_RULES.some(rule => locateRule(text, rule)));
+    if (!files.length) continue;
+    if (fs.lstatSync(dir).isSymbolicLink()) {
+      const target = fs.realpathSync(dir);
+      fs.unlinkSync(dir);
+      fs.cpSync(target, dir, { recursive: true });
+    }
+    for (const { file, text } of files) {
+      const out = path.join(dir, file);
+      fs.rmSync(out, { force: true });
+      fs.writeFileSync(out, SAFETY_RULES.reduce((current, rule) => locateRule(current, rule) ? removeRule(current, rule) : current, text));
+    }
+  }
+}
+
+/**
  * Install the full gstack Codex runtime once per process: `./setup --host codex`
  * into a private HOME/CODEX_HOME, with the login home's auth.json copied in.
  * Returns the root holding home/.codex and tmp/ (Codex will not create its
@@ -178,6 +208,7 @@ export function prepareCodexHostRuntime(env: NodeJS.ProcessEnv = process.env): s
   if (preset) {
     if (!fs.existsSync(path.join(preset, 'home', '.codex'))) throw new Error(`GSTACK_CODEX_HOST_ROOT ${preset} has no home/.codex`);
     fs.mkdirSync(path.join(preset, 'tmp'), { recursive: true });
+    if (safetyArm(env) === 'removed') removeSafetyRulesFromInstall(path.join(preset, 'home', '.codex', 'skills'));
     return runtimeRoot = preset;
   }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-host-'));
@@ -196,6 +227,7 @@ export function prepareCodexHostRuntime(env: NodeJS.ProcessEnv = process.env): s
     throw new Error(`./setup --host codex failed (exit ${setup.status}${setup.error ? `, ${setup.error.message}` : ''}): ${(setup.stderr || setup.stdout || '').slice(-2000)}`);
   }
   process.once('exit', () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } });
+  if (safetyArm(env) === 'removed') removeSafetyRulesFromInstall(path.join(codexHome, 'skills'));
   runtimeRoot = root;
   return root;
 }
