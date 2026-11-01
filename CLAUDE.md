@@ -550,7 +550,7 @@ Key routing rules:
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Ship/deploy/PR → invoke /ship (merge + deploy: the user types /land-and-deploy)
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 
