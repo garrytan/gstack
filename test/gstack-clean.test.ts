@@ -458,7 +458,7 @@ describe('gstack-clean', () => {
     for (let i = 0; i < 300; i++) put(path.join(f.gs, 'tmp', 'codex-err-' + String(i).padStart(6, '0')), 'x', 30 * DAY);
     const env: Record<string, string> = { PATH: quietPsPath(f), HOME: f.home, GSTACK_HOME: f.state };
     const cmd = [process.execPath, ...bunIsolationArgs(), BIN, '--apply', '--json'].map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(' ') + " 2>'" + path.join(f.root, 'err.txt') + "' | head -c 1 >/dev/null";
-    const r = spawnSync('bash', ['-c', cmd], { cwd: f.repo, env, encoding: 'utf8', timeout: 30_000 });
+    const r = spawnSync('bash', ['-c', 'set -o pipefail; ' + cmd], { cwd: f.repo, env, encoding: 'utf8', timeout: 30_000 });
     expect(r.status).toBe(0);
     expect(fs.readFileSync(path.join(f.root, 'err.txt'), 'utf8')).not.toContain('GSTACK_CLEAN_INTERNAL');
     expect(fs.readdirSync(path.join(f.gs, 'tmp')).filter(n => n.startsWith('codex-'))).toEqual([]);
