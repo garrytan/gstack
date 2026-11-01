@@ -398,7 +398,7 @@ the plan.
    `answered_by` on every decision row and in the review record's gate line,
    so a gate an agent closed is distinguishable from one the owner closed.
    `gstack-autoplan recommend` changes one recommendation before relay; it
-   bumps the gate's `rec_rev`, and a later `rec` needs the `--rec-hash` from
+   bumps the gate's `rec_rev`, and a later `rec` or `p1b` needs the `--rec-hash` from
    the render the owner saw (`GATE_REC_STALE`). Every `GATE:` line is followed
    by `GATE_SPEND:` and `GATE_REC_COST:` (also `gate_cost` in `--json`; see
    `autoplan/DRIVER.md`).

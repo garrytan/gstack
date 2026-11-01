@@ -316,7 +316,7 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   const deadlineAt = deadline ? Date.now() + deadline * 60_000 : undefined;
   const modelOf = (voice: Voice) => (voice === 'native' ? nativeModel : outsideModel);
   const isApi = (voice: Voice) => (voice === 'native' ? nativeRunner : outsideRunner) === 'api';
-  // An api call reserves its worst case (prompt bytes / 3 input tokens plus the output limit) and settles at its usage.
+  // An api call reserves its worst case (prompt bytes / 3 input tokens plus the output limit it is sent) and settles at its usage.
   const price = (voice: Voice, promptFile: string) => {
     const row = isApi(voice) ? pricingRow(modelOf(voice)) : undefined;
     return row ? +((fs.statSync(promptFile).size / 3 * row.input_per_mtok + (maxTokens ?? DEFAULT_MAX_TOKENS) * row.output_per_mtok) / 1e6).toFixed(6) : undefined;
@@ -339,7 +339,7 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       const remaining = deadlineAt ? deadlineAt - Date.now() : runnerId === 'api' ? apiTimeoutMs(maxTokens) : 300_000;
       if (remaining <= 0) { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       const timer = deadlineAt ? setTimeout(() => runner.cancel(), remaining) : undefined;
-      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, runnerId === 'api' ? apiTimeoutMs(maxTokens) : 600_000), cwd: process.cwd(), gate: 'execution', maxTokens });
+      const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, runnerId === 'api' ? apiTimeoutMs(maxTokens) : 600_000), cwd: process.cwd(), gate: 'execution', maxTokens: runnerId === 'api' ? maxTokens ?? DEFAULT_MAX_TOKENS : maxTokens });
       if (timer) clearTimeout(timer);
       if (!json) process.stdout.write(`VOICE: ${phase} ${voice} ${res.status} runner=${res.runner} model=${res.model ?? 'unknown'}\n`);
       if (res.status === 'cancelled') { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }

@@ -14,6 +14,7 @@ import { AUTOPLAN, ROOT, SMALL_PLAN, env } from './helpers/autoplan-run-fixture'
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-run-api-'));
 let mode: 'ok' | 'cut' | 'bad-outside' = 'ok';
 let calls = 0;
+let openaiLimits: unknown[] = [];
 let server: ReturnType<typeof Bun.serve>;
 beforeAll(() => {
   server = Bun.serve({
@@ -27,6 +28,7 @@ beforeAll(() => {
         ? `INPUT: ${m[1]} ${m[2]}\n\nA long review that ran out of output tokens before the findings fen`
         : `INPUT: ${m[1]} ${m[2]}\n\nComplete review.\n\n\`\`\`gstack-findings\n{"id":"F1","severity":"Medium","title":"Name the retry metric","fix":"add retries_total"}\n\`\`\`\n`;
       if (new URL(req.url).pathname.endsWith('/messages')) return Response.json({ model: body.model, stop_reason: mode === 'cut' ? 'max_tokens' : 'end_turn', content: [{ type: 'text', text }], usage: { input_tokens: 10, output_tokens: 20 } });
+      openaiLimits.push(body.max_completion_tokens);
       return Response.json({ model: body.model, choices: [{ finish_reason: mode === 'cut' ? 'length' : 'stop', message: { content: mode === 'bad-outside' ? `INPUT: ${m[1]} ${m[2]}\n\nA review with no findings fence.` : text } }], usage: { prompt_tokens: 10, completion_tokens: 20 } });
     },
   });
@@ -60,6 +62,7 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
 
   test('a spend cap binds api attempts at their priced worst case and settles them at their usage', async () => {
     mode = 'ok';
+    openaiLimits = [];
     const r = await run('capped', ['--spend-cap', '8']);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(`GSTACK_RESULT: skill=autoplan status=gate_pending run=${r.out}`);
@@ -68,6 +71,8 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(ledger.reserved).toEqual([]);
     expect(ledger.settled.length).toBe(4);
     for (const s of ledger.settled) expect(s.usd).toBeGreaterThan(0);
+    expect(openaiLimits.length).toBeGreaterThan(0);
+    for (const limit of openaiLimits) expect(limit).toBe(16_384);
     calls = 0;
     const zero = await run('zero-cap', ['--spend-cap', '0']);
     expect(zero.status).toBe(3);

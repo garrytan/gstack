@@ -351,6 +351,16 @@ describe('open Critical and High findings reach the gate (GBRA-223 claim 3)', ()
     expect(settledIds({ out: g.out } as any).has(item.finding[0])).toBe(true);
   });
 
+  test('after recommend changes an item, p1b (which takes the recommendations) needs the --rec-hash the owner saw', () => {
+    const g = gated({ native: [{ id: 'F1', severity: 'High', title: 'Ship the backoff behind a flag first', user_challenge: true, changes: 'scope', fix: 'gate it behind RETRY_BACKOFF=1' }], outside: [] }, NONE);
+    const item = gate(g.out).items.find((i: any) => i.id !== 'p1' && i.kind === 'auto' && i.options.some((o: any) => o.key === 'b'));
+    expect(r.ap(['recommend', '--out', g.out, '--gate-rev', '1', '--item', item.id, '--option', 'b', '--basis', 'owner asked for the flag', '--by', 'agent:test']).status).toBe(0);
+    const stale = answer(g.out, 1, 'p1b');
+    expect(stale.status).toBe(3);
+    expect(stale.stderr).toContain('GATE_REC_STALE');
+    expect(decisions(g.out).every(d => d.status === 'pending')).toBe(true);
+  });
+
   test('a partial reply records no auto default, so a later p1b still applies the finding fix', () => {
     const g = gated({ native: [...AGREE.native, ...KILL.native.map(f => ({ ...f, id: 'F9' }))], outside: AGREE.outside }, NONE);
     const item = gate(g.out).items.find((i: any) => i.finding);
