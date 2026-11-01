@@ -221,10 +221,13 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     if (r) missing.add(r.missing);
     unclaimed.push(...c.files.map(f => (c.cwd ? `${c.cwd}/${f}` : f)));
   }
-  if (rest.length) {
-    const runner = detectRunner(ctx, rest);
-    if (runner) groups.push({ runner, cwd: '', files: rest });
-    else unclaimed.push(...rest);
+  // One runner for every root file when one fits; otherwise one per language, so `.mjs` + `.py` runs both instead of neither.
+  const language = (f: string) => (/\.py$/.test(f) ? 'py' : /\.[cm]?js$/.test(f) ? 'js' : /\.[cm]?[jt]sx?$/.test(f) ? 'ts' : f);
+  const restParts = !rest.length ? [] : detectRunner(ctx, rest) ? [rest] : [...Map.groupBy(rest, language).values()];
+  for (const part of restParts) {
+    const runner = detectRunner(ctx, part);
+    if (runner) groups.push({ runner, cwd: '', files: part });
+    else unclaimed.push(...part);
   }
   for (const [root, list] of [...packages].sort(([a], [b]) => a.localeCompare(b))) groups.push({ runner: (pkgRunners.get(root) as { runner: string }).runner, cwd: root, files: list });
   return { groups, unclaimed: [...unclaimed, ...noPubspec], missing: [...missing].sort(), noPubspec };
