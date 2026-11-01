@@ -479,7 +479,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
-   closing summary stays a known phantom that lead judgment can fold. GST-766 skipped negated labels and lost
+   closing summary is a known phantom: it stays at that label in the judged set, lead judgment can fold it only into a
+   finding at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
