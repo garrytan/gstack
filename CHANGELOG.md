@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.92.30.0] - 2026-11-01
+
+**The free suite's shards finish closer together: slow test files are split and the packer plans from fresh timings.** The committed duration seed was missing more than a hundred free test files, so CI guessed the same time for every shard and the slowest shard ran far past the mean. No product code changed. Every split file runs the same tests as before.
+
+### Changed
+- **Split free test files.** Each of these went over the 60 s seed ceiling and is now two to five files, with test bodies moved unchanged and shared setup moved into `test/helpers/`: `test/host-renders-prune.test.ts`, `test/ship-queue-train.test.ts`, `test/claude-overlay-setup-lifecycle.test.ts`, `test/claude-overlay-setup-installs.test.ts`, `test/setup-codex-scope-namespaces.test.ts`, `test/setup-codex-scope-review-boundaries.test.ts`, `test/docsync-fault-interface.test.ts`, `test/shared-libs-checker-interface-evidence.test.ts` and `test/ubicloud-runner.test.ts`. The last one was 127 s and is now five files of 16 to 31 s, with its fake Ubicloud API and fake VM in `test/helpers/ubi-runner-fake-vm.ts`.
+- **Windows lane.** `test/gstack-doctor.test.ts`, the Windows lane's longest file, is now three files.
+- **Duration seeds.** `scripts/free-test-durations.json` (1,470 Linux files) and `scripts/free-test-durations-windows.json` (822 curated Windows files) were re-recorded at this branch by `free-durations-record.yml` run 41229924108. Linux files over 5 s recorded a median 1.26x slower than this branch's earlier recording on 2026-10-29 (run 40818261447). A second recording, run 41226501374, matched that at 1.29x, so the slowdown is the runner's current speed, not one noisy run.
+
+### Gate integrity
+- `scripts/free-test-seed-allowlist.json` is unchanged from main. `test/setup-codex-scope.test.ts` stays on it at 77 s. No entry was added.
+- `scripts/lib/windows-curation.ts` gives each new part the same Windows scope as the file it came from. `test/ubicloud-runner-tiers.test.ts` gets an explicit exclusion, because its shims now live in a helper the source scan doesn't read.
+- `test/test-of-test-ratchet.test.ts` lists the split files whose product reach now lives in a shared helper, each with its reason. `scripts/typecheck-test-baseline.json` moves one known diagnostic, with its code, into `test/helpers/shared-libs-checker-evidence.ts`.
+
 ## [1.92.29.0] - 2026-11-01
 
 - `/ship`'s review collector no longer turns a severity word in a negation into a finding. A fix-check reader that closed with "found nothing CRITICAL" was recorded as a CRITICAL finding with no file or line, and the judge can't drop a finding, so the run carried a phantom blocker that could stop the review loop at its cap (GST-766, from GEVA-92 on gstack-evals #108). A label right after "no", "nothing", "not", "none", "zero", "without" or "never" (optionally followed by a word like "new" or "remaining", and through Markdown emphasis or brackets), and a label joined to it by a comma, a slash, "or", "nor" or "and", now counts as no finding. A label that opens a field ("High: …") is still collected, and a prose finding worded around a negated label still arrives through its Severity or Blocks field.
