@@ -187,6 +187,15 @@ const firstOf = <T>(k: RepoKeys, read: (key: string) => T | null): T | null => {
 export const loadFreeze = (repoKeys: RepoKeys) => firstOf(repoKeys, key => readJson<FreezeRecord>(freezePath(key), 'freeze'));
 export const loadReady = (repoKeys: RepoKeys, pr: string, head: string) => firstOf(repoKeys, key => readJson<ReadyReceipt>(readyPath(key, pr, head), 'ready'));
 export const activeFreeze = (repoKeys: RepoKeys): FreezeRecord | null => firstOf(repoKeys, key => { const f = readJson<FreezeRecord>(freezePath(key), 'freeze'); return f && !f.cleared_at ? f : null; });
+/**
+ * When a freeze-phase land lock's freeze is over, the cleared_at that proves it: the notes ref fetched, no freeze
+ * active, and the last freeze cleared at or after the lock was written. Absence of a record is never proof.
+ */
+export function freezeLockCleared(repoRoot: string, remote: string, repoKeys: RepoKeys, lock: { phase_at?: string; started_at: string }): string | null {
+  if (!rebuildFromNotes(repoRoot, remote).fetched || activeFreeze(repoKeys)) return null;
+  const last = loadFreeze(repoKeys);
+  return last?.cleared_at && Date.parse(last.cleared_at) >= Date.parse(lock.phase_at ?? lock.started_at) ? last.cleared_at : null;
+}
 
 export const loadWave = (nonce: string) => (/^[A-Za-z0-9._-]{1,128}$/.test(nonce) ? readJson<WaveRecord>(wavePath(nonce), 'wave') : null);
 /** Every wave of this repository, newest first. */
@@ -325,13 +334,13 @@ export function forgetNotes(repoRoot: string, names: string[], remote = 'origin'
 }
 
 /** Rebuild local records from the notes ref: a note whose record is missing locally, or newer than the local copy, is written. */
-export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restored: number; read: number; detail: string } {
+export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restored: number; read: number; detail: string; fetched: boolean } {
   const f = fetchNotes(repoRoot, remote);
   const list = git(repoRoot, ['notes', `--ref=${NOTES_REF}`, 'list']);
-  if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail };
+  if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail, fetched: f.ok };
   const records = list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean)
     .map(blob => parseNote(git(repoRoot, ['cat-file', 'blob', blob]).out)).filter((r): r is AnyRecord => !!r);
   const fresh = records.filter(newerOrMissing);
   for (const r of fresh) writeJsonAtomic(recordPath(r), r);
-  return { restored: fresh.length, read: records.length, detail: f.detail };
+  return { restored: fresh.length, read: records.length, detail: f.detail, fetched: f.ok };
 }

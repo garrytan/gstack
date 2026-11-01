@@ -17,16 +17,24 @@
  * Either way main's tree must be the prefix after the merge; any other main is the freeze path
  * (QUEUE_TRAIN_TREE_MISMATCH), as for verify. Fork heads are refused. Journaled beside the train record; a rerun
  * resumes: open at the pin, open at the update commit, or merged (confirmed through main's tree).
+ *
+ * Train land takes the shared land lock (lib/ship-queue-land-lock.ts, #3599) as `train <nonce> slot <i> (#pr)`
+ * before its first main read, so no standalone land publishes beside a slot. After a slot merges with landable
+ * slots left, the lock stays in a train-owned `between` phase that the same train's next slot takes over; a stop
+ * that freezes the queue leaves it in a `freeze` phase only the admitted repair train takes over. The release is
+ * decided once, at the trainLand boundary (settleLock).
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { ciAtHead, type QueueContext } from './ship-queue';
-import { git, writeJsonAtomic } from './ship-queue-gate';
+import { git, writeJsonAtomic, type QueueFailure } from './ship-queue-gate';
+import { acquireLandLock, lockLabel, type HeldLandLock, type LandLock, type LandLockPhase } from './ship-queue-land-lock';
 import { waitChecks } from './ship-queue-land';
 import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
-import { activeFreeze, attemptsOf, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
+import { TERMINAL_STATES, activeFreeze, attemptsOf, freezeLockCleared, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
 import { fetchBase, fetchTrainBranch, findTrain, frozenLines, nextFor, outFailed, outPending, outRefused, save, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { confirmMerged, stopped } from './ship-queue-train-verify';
 
@@ -36,7 +44,10 @@ const STAMP_IDENTITY = { GIT_AUTHOR_NAME: 'gstack-ship-queue', GIT_AUTHOR_EMAIL:
 const isSha = (s: string) => /^[0-9a-f]{40,64}$/.test(s);
 interface SlotJournal { schema_version: 1; pr: string; pin: string; stamp_commit: string; base: string }
 interface Link { index: number; commit: string; tree: string; pin: string }
-interface Slot { env: TrainEnv; t: TrainRecord; i: number; pin: string; target: Link & { version?: string }; pred: Link; run: string; rerun: string; lines: string[] }
+interface Slot { env: TrainEnv; t: TrainRecord; i: number; pin: string; target: Link & { version?: string }; pred: Link; run: string; rerun: string; lines: string[]; lock: { held: HeldLandLock | null; effect: boolean } }
+
+/** Move this slot's land lock to a phase; a failure means another lander took it, so nothing remote may follow. */
+const lockPhase = (s: Slot, phase: LandLockPhase): QueueFailure | null => s.lock.held?.set(phase) ?? null;
 
 /** The checks train land requires on the landing commit: changelog_fragments.required_checks, else train.land.required_checks. */
 export const landRequiredChecks = (env: TrainEnv): string[] => env.policy.policy.changelog_fragments?.required_checks ?? env.train.land?.required_checks ?? [];
@@ -131,6 +142,9 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   const target = prInfo(ctx, pr);
   if ('error' in target) return outPending({ code: 'QUEUE_PROOF_MISSING', message: target.error }, s.lines, s.rerun, s.run);
   if (target.baseRefName && target.baseRefName !== ctx.base) return retargeted(s, target.baseRefName, ctx.base);
+  const moved = lockPhase(s, 'merging');
+  if (moved) return outFailed(moved, s.lines, s.rerun, s.run);
+  s.lock.effect = true;
   const m = ctx.gh(['pr', 'merge', pr, `--${method}`, '--match-head-commit', head]);
   if (!m.ok) return outFailed({ code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
   main = mainNow(ctx, s.env);
@@ -189,6 +203,8 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
     writeJsonAtomic(file, j);
     recordLanding(s, 'update', commit, base);
     const pushed = info.headRefOid !== commit;
+    const pushing = lockPhase(s, 'pushing');
+    if (pushing) return outFailed(pushing, s.lines, s.rerun, s.run);
     if (pushed) {
       const push = git(root, ['push', '-q', `--force-with-lease=refs/heads/${info.headRefName}:${info.headRefOid}`, env.remote, `${commit}:refs/heads/${info.headRefName}`]);
       if (!push.ok) {
@@ -198,6 +214,9 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
         if (!remote.ok || now !== commit) return outFailed({ code: 'QUEUE_NOT_READY', message: `the ${what} push failed and ${info.headRefName} still reads ${remote.ok ? info.headRefOid.slice(0, 12) : 'unknown'}: ${push.err.split('\n')[0]}` }, s.lines, s.rerun, s.run);
       }
     }
+    s.lock.effect = true;
+    const waiting = lockPhase(s, 'waiting');
+    if (waiting) return outFailed(waiting, s.lines, s.rerun, s.run);
     s.lines.push(`${pushed ? 'PUSHED' : 'RESUMED'}: ${commit} (tree ${label(s)}, parents [pin, main ${base.slice(0, 12)}]) ${pushed ? 'to' : 'is already the head of'} ${info.headRefName}`);
     if (o.noWait && pushed) return outPending({ code: 'QUEUE_NOT_READY', message: `checks run on the ${what} commit ${commit.slice(0, 12)}` }, s.lines, `gstack-pr-wait ${pr} --until green && ${s.rerun}`, s.run);
     if (!o.noWait) waitChecks(ctx, commit, o.timeoutMin ?? 60);
@@ -220,7 +239,43 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
 
 const retargeted = (s: Slot, b: string, base: string) => outRefused({ code: 'QUEUE_NOT_READY', message: `#${s.t.slots[s.i]!.pr} targets ${b}, not ${base}; train land merges only PRs on the base the train built` }, s.lines, `retarget #${s.t.slots[s.i]!.pr} to ${base}, then ${s.rerun}`, s.run);
 
-export async function trainLand(ctx: QueueContext, o: { train: string; pr: string; noWait?: boolean; timeoutMin?: number }): Promise<TrainOut> {
+interface TrainLandOptions { train: string; pr: string; noWait?: boolean; timeoutMin?: number; breakLock?: boolean; breakTrainLock?: boolean }
+
+/**
+ * The takeovers train land allows: its own train's between-slots lock, the freeze lock when the freeze admits this
+ * train as its repair (or, with the notes ref fetched, a freeze record cleared after the lock was written: absence
+ * is never proof), and a lock whose train record is terminal.
+ */
+function trainTakeover(env: TrainEnv, t: TrainRecord, i: number, lock: LandLock): string | null {
+  if (lock.train === t.nonce && lock.phase === 'between') return `LOCK: train ${t.nonce} slot ${i + 1} takes over its train's between-slots lock (from slot ${lock.slot})`;
+  if (lock.phase === 'freeze') {
+    const cleared = freezeLockCleared(env.ctx.repoRoot, env.remote, env.repo.keys, lock);
+    if (activeFreeze(env.repo.keys)?.repair?.train === t.nonce) return `LOCK: repair train ${t.nonce} takes over the freeze lock of ${lockLabel(lock)}`;
+    return cleared ? `LOCK: train ${t.nonce} takes over ${lockLabel(lock)}'s freeze lock; that freeze was cleared at ${cleared}` : null;
+  }
+  if (!lock.train || lock.train === t.nonce) return null;
+  const other = findTrain(env, lock.train);
+  return other && TERMINAL_STATES.includes(other.state) ? `LOCK: train ${t.nonce} takes over ${lockLabel(lock)}'s lock; that train is ${other.state}` : null;
+}
+
+/**
+ * The one release point: a freeze keeps the lock in `freeze`; once a slot merged, a train still merging keeps it
+ * `between` (a merged slot, a pending wait or a refusal before this slot's push); a failure after a remote effect
+ * keeps its phase for the resume; anything else releases it.
+ */
+function settleLock(s: Slot, out: TrainOut): TrainOut {
+  const held = s.lock.held!;
+  const midway = s.t.state === 'merging' && s.t.merged.length > 0;
+  const keep = (phase: LandLockPhase, line: string) => { const failed = held.set(phase); return failed ? `LOCK: ${phase} could not be written (${failed.message})` : line; };
+  let line: string;
+  if (activeFreeze(s.env.repo.keys)) line = keep('freeze', 'LOCK: freeze (kept for the repair train the freeze admits; --break-lock never breaks it)');
+  else if (midway && (out.exit === 0 || !s.lock.effect)) line = keep('between', `LOCK: between (train ${s.t.nonce} keeps the land lock for its next slot)`);
+  else if (out.exit !== 0 && s.lock.effect) line = `LOCK: kept in phase ${held.lock.phase}; ${s.rerun} resumes it`;
+  else line = held.release() ? 'LOCK: released' : 'LOCK: release push failed (the next lander takes it over)';
+  return { ...out, lines: [...out.lines, line] };
+}
+
+export async function trainLand(ctx: QueueContext, o: TrainLandOptions): Promise<TrainOut> {
   const fetchErr = fetchBase(ctx);
   const env = trainEnv(ctx);
   if ('code' in env) return outRefused(env, [], 'none', 'none');
@@ -241,8 +296,24 @@ export async function trainLand(ctx: QueueContext, o: { train: string; pr: strin
   if (!chain) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `the record's T0 and ${t.stamped ? 'S' : 'T'}1..${t.stamped ? 'S' : 'T'}${k} (with each slot's pin as second parent) are not the first-parent chain of the gated head ${t.head.slice(0, 12)}` }, [], `${Q} train status --train ${t.nonce}`, run);
   const pin = t.slots[i]!.head;
   const rerun = `${Q} train land --train ${t.nonce} --pr ${o.pr}`;
-  const s: Slot = { env, t, i, pin, target: { ...chain[i + 1]!, version: t.stamped?.[i]?.version }, pred: chain[i]!, run, rerun, lines: [] };
+  const s: Slot = { env, t, i, pin, target: { ...chain[i + 1]!, version: t.stamped?.[i]?.version }, pred: chain[i]!, run, rerun, lines: [], lock: { held: null, effect: false } };
   s.lines.push(`TRAIN_LAND: ${t.nonce} slot ${i + 1}/${k} #${o.pr} pin ${pin} -> ${label(s)}${s.target.version ? ` v${s.target.version}` : ''} tree ${s.target.tree}`);
+  const got = acquireLandLock({
+    root: ctx.repoRoot, remote: env.remote, holder: `${os.hostname()}:${process.pid}`, owner: { train: t.nonce, slot: i + 1, pr: o.pr }, journal: `train/${t.nonce}/slot-${i + 1}`,
+    now: () => new Date(), breakLock: o.breakLock, breakTrainLock: o.breakTrainLock,
+    phase: own => (own && ['pushing', 'waiting', 'merging'].includes(own.phase) ? own.phase : 'stamping'),
+    takeover: lock => trainTakeover(env, t, i, lock),
+    liveTrain: nonce => { const other = findTrain(env, nonce); return !other || !TERMINAL_STATES.includes(other.state); },
+  });
+  s.lines.push(...got.lines);
+  if ('failure' in got) return outRefused(got.failure, s.lines, `wait for the holder named above, then ${rerun}`, run);
+  s.lock = { held: got.held, effect: !!got.held.resumed && ['pushing', 'waiting', 'merging'].includes(got.held.resumed.phase) };
+  return settleLock(s, await landSlot(ctx, s, chain, o));
+}
+
+/** Train land under the lock: main read, confirmation, post-merge checks of the previous slot, then direct or update. */
+async function landSlot(ctx: QueueContext, s: Slot, chain: Link[], o: TrainLandOptions): Promise<TrainOut> {
+  const { env, t, i, pin, run, rerun } = s;
   const main = mainNow(ctx, env);
   if ('error' in main) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: main.error }, s.lines, rerun, run);
   if (main.tree === s.target.tree) return confirmed(s, main.sha, `main: ${main.sha} is ${label(s)} exactly`);

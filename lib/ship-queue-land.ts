@@ -17,15 +17,15 @@ import * as path from 'node:path';
 import { mergeChangelogs, parseChangelog } from './changelog-check';
 import { fragmentSlug, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef } from './restamp';
+import { acquireLandLock, lockLabel, readLock, writeLock, type LandLockPhase } from './ship-queue-land-lock';
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { QUEUE_DIR_REL, git, writeJsonAtomic, type QueueFailure } from './ship-queue-gate';
 import { bindShippedReceipt } from './ship-receipt-depth';
-import { loadReady, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
+import { TERMINAL_STATES, freezeLockCleared, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
 
-export const LAND_LOCK_REF = 'refs/notes/gstack-land';
+export { LAND_LOCK_REF } from './ship-queue-land-lock';
 export const MAX_RESTAMPS = 2;
-const PUSH_STALE_MS = 10 * 60_000;
 const MANIFESTS = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json'];
 const isSha = (s: string | undefined) => /^[0-9a-f]{40,64}$/.test(s ?? '');
 /** The first path segment of `rel` inside `wt` that is a symlink, or null: land writes only inside the checkout. */
@@ -49,34 +49,12 @@ export interface LandJournal {
   drift_main?: string; repair_pr?: string;
   phase: 'locked' | 'stamped' | 'pushed' | 'merged' | 'landed' | 'drift';
 }
-export interface LandLock { pr: string; holder: string; started_at: string; phase: 'stamping' | 'pushing' | 'waiting' | 'merging' | 'drift'; journal: string; phase_at?: string; repair_pr?: string; drift_of?: string }
-export interface LandOptions { pr: string; repair?: boolean; dryRun?: boolean; noWait?: boolean; breakLock?: boolean; allowRepoCommands?: boolean; waitTimeoutMin?: number; now?: () => Date; holder?: string }
+export interface LandOptions { pr: string; repair?: boolean; dryRun?: boolean; noWait?: boolean; breakLock?: boolean; breakTrainLock?: boolean; allowRepoCommands?: boolean; waitTimeoutMin?: number; now?: () => Date; holder?: string }
 
 const fail = (lines: string[], failure: QueueFailure, run: string): StepOutput => ({ ok: false, lines, failure, run });
 export const landJournalRel = (pr: string) => `${QUEUE_DIR_REL}/land/${pr}.json`;
 
 function readJson<T>(file: string): T | null { try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return null; } }
-
-/** The remote land lock: a ref whose commit holds lock.json, or a released marker. Updated only by exact lease. */
-function readLock(root: string): { sha: string; lock: LandLock | null } {
-  git(root, ['fetch', '-q', 'origin', `+${LAND_LOCK_REF}:${LAND_LOCK_REF}`]);
-  const sha = git(root, ['rev-parse', '--verify', '--quiet', LAND_LOCK_REF]).out;
-  if (!sha) return { sha: '', lock: null };
-  const body = git(root, ['show', `${sha}:lock.json`]);
-  let lock: LandLock | { released: true } | null = null;
-  try { lock = body.ok ? JSON.parse(body.out) : null; } catch { lock = null; }
-  return { sha, lock: lock && 'pr' in lock && /^\d+$/.test(String(lock.pr)) ? lock : null };
-}
-
-function writeLock(root: string, expected: string, value: LandLock | { released: true; by: string; at: string }): { ok: boolean; sha: string } {
-  const blob = git(root, ['hash-object', '-w', '--stdin'], undefined, JSON.stringify(value, null, 2) + '\n').out;
-  const tree = git(root, ['mktree'], undefined, `100644 blob ${blob}\tlock.json\n`).out;
-  const commit = git(root, ['commit-tree', tree, ...(expected ? ['-p', expected] : []), '-m', 'released' in value ? `land lock released by ${value.by}` : `land lock #${value.pr} ${value.phase}`]).out;
-  if (![blob, tree, commit].every(isSha)) return { ok: false, sha: '' };
-  const push = git(root, ['push', '-q', `--force-with-lease=${LAND_LOCK_REF}:${expected}`, 'origin', `${commit}:${LAND_LOCK_REF}`]);
-  if (push.ok) git(root, ['update-ref', LAND_LOCK_REF, commit]);
-  return { ok: push.ok, sha: commit };
-}
 
 /**
  * Release-version conflicts only: the version file and release outputs take the base's side, the
@@ -328,7 +306,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
     if (!n) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr create failed: ${(pr.err ?? pr.out).trim().slice(0, 160)}` }, run);
     j.repair_pr = n; writeJsonAtomic(file, j);
     const held = readLock(root);
-    if (held.lock?.pr === j.pr && held.lock.phase === 'drift') writeLock(root, held.sha, { ...held.lock, repair_pr: n });
+    if (held.state === 'held' && !held.lock.train && held.lock.pr === j.pr && held.lock.phase === 'drift') writeLock(root, held.sha, { ...held.lock, repair_pr: n });
     return { ok: true, run, lines: [...lines, `REPAIR_PR: #${n} ${branch} ${pushed}`, `NEXT: run /ship on #${n}, then gstack-ship-queue land --pr ${n} (it takes over #${j.pr}'s drift lock and releases it)`] };
   } finally {
     git(root, ['worktree', 'remove', '--force', wt]);
@@ -379,28 +357,31 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
     return { ok: true, run, lines: [...lines, ...s.lines, `STAMP_VERSION: ${s.version}`, `STAMP_TREE: ${s.tree}`, 'DRY-RUN: nothing locked, pushed or merged'] };
   }
 
-  let { sha: lockSha, lock } = readLock(root);
-  const drifted = lock && lock.pr !== o.pr && lock.phase === 'drift' ? lock.pr : null;
-  const repairOf = drifted ? readJson<LandJournal>(path.join(root, landJournalRel(drifted))) : null;
-  const driftOf = drifted && (lock!.repair_pr === o.pr || repairOf?.repair_pr === o.pr) ? drifted : lock?.pr === o.pr ? lock.drift_of : undefined;
-  if (drifted && driftOf) lines.push(`LOCK: taking over #${drifted}'s drift lock for its repair`);
-  else if (lock && lock.pr !== o.pr) {
-    const age = now().getTime() - Date.parse(lock.phase_at ?? lock.started_at);
-    if (!o.breakLock) return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `#${lock.pr} holds the land lock (${lock.holder}, phase ${lock.phase}, since ${lock.started_at})` }, run);
-    if (lock.phase === 'drift' || lock.drift_of) return fail(lines, { code: 'QUEUE_LAND_DRIFT', message: `#${lock.drift_of ?? lock.pr} holds a drift lock; --break-lock never breaks it, only its repair PR's land takes it over`, fix: `gstack-ship-queue land --pr ${lock.drift_of ?? lock.pr} --repair` }, run);
-    if ((lock.phase === 'pushing' || lock.phase === 'merging') && age < PUSH_STALE_MS) return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `#${lock.pr}'s holder is mid-${lock.phase === 'pushing' ? 'push' : 'merge'} (${Math.round(age / 1000)} s ago); --break-lock refused` }, run);
-    lines.push(`LOCK: broke #${lock.pr}'s lock (${lock.holder}, phase ${lock.phase})`);
-  }
-  const setLock = (phase: LandLock['phase']): QueueFailure | null => {
-    const next: LandLock = { pr: o.pr, holder, started_at: lock?.pr === o.pr ? lock.started_at : now().toISOString(), phase, journal: run, phase_at: now().toISOString(), ...(driftOf ? { drift_of: driftOf } : {}) };
-    const w = writeLock(root, lockSha, next);
-    if (!w.ok) return { code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' };
-    lockSha = w.sha; lock = next;
-    return null;
-  };
+  let driftOf: string | undefined;
+  const got = acquireLandLock({
+    root, holder, owner: { pr: o.pr }, journal: run, now, breakLock: o.breakLock, breakTrainLock: o.breakTrainLock,
+    takeover: held => {
+      if (held.phase === 'freeze') {
+        const cleared = freezeLockCleared(root, ctx.remote ?? 'origin', keys, held);
+        return cleared ? `LOCK: taking over ${lockLabel(held)}'s freeze lock; that freeze was cleared at ${cleared}` : null;
+      }
+      if (held.train || held.phase !== 'drift' || (held.repair_pr !== o.pr && readJson<LandJournal>(path.join(root, landJournalRel(held.pr)))?.repair_pr !== o.pr)) return null;
+      driftOf = held.pr;
+      return `LOCK: taking over #${held.pr}'s drift lock for its repair`;
+    },
+    liveTrain: nonce => {
+      if (!loadTrain(nonce)) rebuildFromNotes(root, ctx.remote ?? 'origin');
+      const t = loadTrain(nonce);
+      return !t || !TERMINAL_STATES.includes(t.state);
+    },
+    extra: own => { driftOf ??= own?.drift_of; return driftOf ? { drift_of: driftOf } : {}; },
+    phase: () => (j?.phase === 'pushed' ? 'waiting' : j?.phase === 'merged' ? 'merging' : 'stamping'),
+  });
+  lines.push(...got.lines);
+  if ('failure' in got) return fail(lines, got.failure, run);
+  const lock = got.held;
+  const setLock = (phase: LandLockPhase) => lock.set(phase);
   const save = () => writeJsonAtomic(file, j);
-  const failed = setLock(j?.phase === 'pushed' ? 'waiting' : j?.phase === 'merged' ? 'merging' : 'stamping');
-  if (failed) return fail(lines, failed, run);
   if (!j) { j = { schema_version: 1, pr: o.pr, branch: info.headRefName, reviewed_pin: pin, last_pushed_head: recovered ? info.headRefOid : null, stamp_commit: null, stamp_tree: null, base_sha: null, version: null, date: null, restamps: 0, phase: 'locked' }; save(); }
 
   for (;;) {
@@ -409,7 +390,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
     if (j.phase === 'pushed' && j.base_sha !== baseNow) {
       if (j.restamps >= MAX_RESTAMPS) {
         j.restamps = 0; save();
-        if (!driftOf) writeLock(root, lockSha, { released: true, by: holder, at: now().toISOString() });
+        if (!driftOf) lock.release();
         return fail(lines, { code: 'QUEUE_LAND_BASE_BUSY', message: `origin/${ctx.base} moved during CI ${MAX_RESTAMPS + 1} times; the lock is released and a later run restamps from the pin` }, run);
       }
       lines.push(`BASE_MOVED: ${j.base_sha?.slice(0, 12)} -> ${baseNow.slice(0, 12)}; restamping`);
@@ -419,7 +400,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
       const s = buildStamp(ctx, policy, { pin, baseSha: baseNow, pr: o.pr, title: info.title, allowRepoCommands: !!o.allowRepoCommands, now: j.date ? new Date(`${j.date}T12:00:00Z`) : now() });
       if ('code' in s) {
         if (driftOf) setLock('stamping');
-        else writeLock(root, lockSha, { released: true, by: holder, at: now().toISOString() });
+        else lock.release();
         return fail([...lines], s, run);
       }
       lines.push(...s.lines);
@@ -471,8 +452,8 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
       j.phase = 'landed'; save();
       const driftJournal = driftOf ? readJson<LandJournal>(path.join(root, landJournalRel(driftOf))) : null;
       if (driftOf && driftJournal) writeJsonAtomic(path.join(root, landJournalRel(driftOf)), { ...driftJournal, phase: 'landed' });
-      const rel = writeLock(root, lockSha, { released: true, by: holder, at: now().toISOString() });
-      return { ok: true, run, lines: [...lines, `MERGED: #${o.pr} as ${main} (${j.version})`, `LANDED: origin/${ctx.base} tree ${tree} equals the stamped tree`, `LOCK: ${rel.ok ? 'released' : 'release push failed (the next land takes it over)'}`] };
+      const released = lock.release();
+      return { ok: true, run, lines: [...lines, `MERGED: #${o.pr} as ${main} (${j.version})`, `LANDED: origin/${ctx.base} tree ${tree} equals the stamped tree`, `LOCK: ${released ? 'released' : 'release push failed (the next land takes it over)'}`] };
     }
     if (j.phase === 'drift') return fail(lines, { code: 'QUEUE_LAND_DRIFT', message: 'a previous land of this PR found drift', fix: `gstack-ship-queue land --pr ${o.pr} --repair` }, run);
   }
