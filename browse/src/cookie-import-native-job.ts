@@ -47,6 +47,8 @@ export function parseNativeCookieDiagnostic(value: unknown): NativeCookieDiagnos
   return diagnostic;
 }
 
+export const NATIVE_CLEANUP_MS = 20_000;
+
 export interface NativeCookieJob {
   name: string;
   terminate(): void;
@@ -64,10 +66,13 @@ export async function createNativeCookieJob(): Promise<NativeCookieJob> {
   let stage: NativeCookieDiagnostic['stage'] = 'job_create';
   let handle: number | bigint = 0;
   let closed = false;
+  const held = new Map<number, number | bigint>();
   const close = () => {
     if (closed) return;
     closed = true;
     try {
+      for (const member of held.values()) api.CloseHandle(member);
+      held.clear();
       if (handle && !api.CloseHandle(handle)) throw new NativeCookieJobError('job_close', api.GetLastError());
     } finally {
       closeLibrary();
@@ -93,7 +98,25 @@ export async function createNativeCookieJob(): Promise<NativeCookieJob> {
         const accounting = Buffer.alloc(48);
         if (closed) throw new NativeCookieJobError('job_query');
         if (!api.QueryInformationJobObject(handle, 1, ptr(accounting), accounting.byteLength, null)) throw new NativeCookieJobError('job_query', api.GetLastError());
-        return accounting.readUInt32LE(40);
+        const listed = Buffer.alloc(8 + 8 * 1024);
+        if (!api.QueryInformationJobObject(handle, 3, ptr(listed), listed.byteLength, null)) throw new NativeCookieJobError('job_query', api.GetLastError());
+        for (let index = 0; index < Math.min(listed.readUInt32LE(4), 1024); index++) {
+          const pid = Number(listed.readBigUInt64LE(8 + 8 * index));
+          if (held.has(pid)) continue;
+          const member = api.OpenProcess(0x00101000, 0, pid);
+          if (!member) continue;
+          const inJob = Buffer.alloc(4);
+          if (api.IsProcessInJob(member, handle, ptr(inJob)) && inJob.readInt32LE(0) !== 0) held.set(pid, member);
+          else api.CloseHandle(member);
+        }
+        let running = 0;
+        for (const [pid, member] of held) {
+          const state = api.WaitForSingleObject(member, 0);
+          if (state === 0x102) running++;
+          else if (state === 0) { api.CloseHandle(member); held.delete(pid); }
+          else throw new NativeCookieJobError('job_query', api.GetLastError());
+        }
+        return Math.max(accounting.readUInt32LE(40), running);
       },
       close,
     };
@@ -150,6 +173,8 @@ async function openKernel() {
       QueryInformationJobObject: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
       AssignProcessToJobObject: { args: [FFIType.u64, FFIType.u64], returns: FFIType.i32 },
       OpenProcess: { args: [FFIType.u32, FFIType.i32, FFIType.u32], returns: FFIType.u64 },
+      IsProcessInJob: { args: [FFIType.u64, FFIType.u64, FFIType.ptr], returns: FFIType.i32 },
+      WaitForSingleObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.u32 },
       TerminateJobObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
       CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
       GetLastError: { args: [], returns: FFIType.u32 },
