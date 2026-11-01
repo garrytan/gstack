@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.92.15.0] - 2026-11-01
+
+bump: minor
+
+- Plan reviews check facts and keep one task list. `gstack-plan-reality check` now opens every `file:line` receipt and reports a missing file or out-of-range line as `REALITY_RECEIPT_UNRESOLVED` (#973). The /office-hours spec reviewer reads the repository, checks command flags through `gstack-office-hours-review probe --help <command>` (gstack bins that handle `--help` and a short list of common CLIs with their built-in subcommands only, run without your keys or tokens and never from a repository-local path; everything else is refused with `OFFICE_HOURS_PROBE_REFUSED`) and writes out the arithmetic behind any number it questions (#973). A plan-review rerun reconciles the last task list through the new `gstack-tasks` (`prior`, `add`, `supersede`), with task text written to a file rather than a command line, an empty list now means "ran, no findings", and `add` refuses while an earlier task is neither carried nor closed, so /autoplan's aggregate no longer drops an open task or shows a stale one (#1791).
+- /office-hours saves the approved wireframe beside the design doc and names it on a `Wireframe:` line, and /plan-design-review finds the design doc and rates the plan against that image (#340). /plan-eng-review and /plan-ceo-review tie storage to the data's queries, constraints and update boundaries rather than file count (#1048). The office-hours closing names the founder signals it counted before the note (#513).
+
 ## [1.92.14.0] - 2026-11-01
 
 **A repository inside another repository can now be its own project: create an empty `.gstack-project` file in it.** gstack files each project's checkpoints, learnings and decisions under the outermost repository's slug, so a repo checked out inside a workspace repo filed its memory under the workspace and `/context-restore` couldn't find it later (#2649: 5 of one user's 16 nested repos, one with 73 checkpoints). The same marker in a plain folder above several repos gives them one shared memory, so a plan made in the umbrella carries into the repo where you build it (#1923). Nothing changes for anyone who doesn't create the file, and `GSTACK_PROJECT_SLUG` still wins.
