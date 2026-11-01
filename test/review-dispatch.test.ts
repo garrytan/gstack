@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -11,6 +11,16 @@ const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-')); dirs.push(d); return d; };
+/** A clean checkout of HEAD: the outside voice embeds the diff against its base, and a build that rewrites tracked files in ROOT can push that past the reviewer diff ceiling. */
+let clean = '';
+const cleanCheckout = () => {
+  if (clean) return clean;
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-clean-')), 'wt');
+  const r = spawnSync('git', ['-C', ROOT, 'worktree', 'add', '--detach', dir, 'HEAD'], { encoding: 'utf8', timeout: 120_000 });
+  if (r.status !== 0) throw new Error(`git worktree add failed: ${r.stderr}`);
+  return (clean = dir);
+};
+afterAll(() => { if (clean) spawnSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', clean], { encoding: 'utf8', timeout: 60_000 }); });
 /** A reader that follows its brief's workspace paragraph starts its reply with the REVIEWED_TREE line of that checkout (GST-482). */
 function treeLineOf(cwd: string): string {
   const git = (a: string[]) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8', timeout: 30_000 }).stdout.trim();
@@ -207,10 +217,11 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const spec = p.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"name","specialist":"testing"}\n');
     const outside = p.w('outside.out', 'Findings:\n1. **High**: retry loop never backs off (q.ts:78)\n2. Low - log line is noisy\nRecommendation: Fix the retry because it DoSes the pool\n');
     const c1 = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', spec, '--merged', p.merged]);
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
-    const ov = field(run(['render', '--role', 'outside-voice', '--out', p.out, '--diff-base', head]).stdout, 'file');
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', p.out, '--diff-base', head], wt).stdout, 'file');
     run(['sent', '--ledger', p.ledger, '--role', 'outside-voice', '--sent', ov]);
-    const c2 = run(['collect', '--ledger', p.ledger, '--role', 'outside-voice', '--output', outside, '--merged', p.merged]);
+    const c2 = run(['collect', '--ledger', p.ledger, '--role', 'outside-voice', '--output', outside, '--merged', p.merged], wt);
     expect([c1.stdout.includes('findings=2'), c2.stdout.includes('findings=2')]).toEqual([true, true]);
     const merged = fs.readFileSync(p.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as MergedLine);
     expect(merged.map(m => [m.id, m.label])).toEqual([['specialist/testing#1', 'CRITICAL'], ['specialist/testing#2', 'INFORMATIONAL'], ['outside-voice#1', 'High'], ['outside-voice#2', 'Low']]);
@@ -643,9 +654,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', path.join(p.out, 'judged.jsonl')]);
     const v = run(['verify', '--ledger', p.ledger]);
     expect([v.status, v.stdout.includes('replaced_by_a_review'), v.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
     const o = tmp();
-    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head]).stdout, 'file');
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head], wt).stdout, 'file');
     const ledger = path.join(o, 'review-ledger.jsonl'), merged = path.join(o, 'merged.jsonl');
     run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', ov]);
     const fail = path.join(o, 'timeout.out');
@@ -748,8 +760,9 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     const out = tmp();
     const ledger = path.join(out, 'review-ledger.jsonl');
     const merged = path.join(out, 'merged.jsonl');
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
-    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
     run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
     const reply = path.join(out, 'r.out');
     fs.writeFileSync(reply, '1. **CRITICAL**: auth bypass in a.ts:3\nBlocks: yes\n\nRecommendation: request changes\n');

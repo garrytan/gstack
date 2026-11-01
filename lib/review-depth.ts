@@ -56,6 +56,11 @@ const GATE_PATH = [
   /^lib\/review-(depth|collect|scope|targeted)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
+/** The path rules lib/review-exclude.ts keeps a matched file for: a gate path, agent prose, or a data-shaped config file. */
+export const isGatePath = (p: string) => GATE_PATH.some(r => r.test(p));
+export const isAgentProse = (p: string) => AGENT_PROSE.some(r => r.test(p));
+export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
+
 /** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
@@ -129,13 +134,15 @@ export interface ClassInput {
    * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
    */
   consumed?: readonly string[] | 'all';
+  /** Paths the base policy's review_exclude_paths leave out of every reader's diff (lib/review-exclude.ts): classified as docs. */
+  excluded?: ReadonlySet<string>;
 }
 export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null }
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
-const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
+const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -157,7 +164,7 @@ export function classifyDiff(i: ClassInput): ClassResult {
       raise('gate', 'gate scan unavailable');
       errors.push({ code: 'gate_scan_unavailable', detail: 'gstack-gate-diff reported no GATE_SUMMARY', input: 'gstack-gate-diff <base>', repair: 'run gstack-gate-diff <base> and read its GATE_ERROR line, or pass the recorded scan as --gate-tagged <n>' });
     } else if (i.gateTagged > 0) raise('gate', `gate scan tagged ${i.gateTagged} hunk(s)`);
-    const deletedGuarded = (i.deleted ?? []).filter(p => classifyPath(p, i.root) !== 'docs');
+    const deletedGuarded = (i.deleted ?? []).filter(p => !i.excluded?.has(p) && classifyPath(p, i.root) !== 'docs');
     if (deletedGuarded.length) raise('gate', `deletes ${deletedGuarded.length} code or test path(s)`);
   }
   if (CLASS_RANK[cls] >= CLASS_RANK.code) {
@@ -293,9 +300,11 @@ export interface PlanInput extends ClassInput {
   tiers?: boolean;
   /** The targeted classes (lib/review-targeted.ts) and whether the targeted reader already read this product patch. */
   targeted?: { classes: readonly string[]; ran?: boolean };
+  /** The base policy's exclusion: one `:(top,exclude,glob)` pathspec per applied pattern, added to every reader, and the kept files under them as `:(top,literal)` pathspecs. */
+  exclusion?: { specs: readonly string[]; keep: readonly string[] };
 }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
-export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string }
+export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string; keep?: string[] }
 export interface ReviewPlan extends DepthResult {
   /** The depth this step runs at: light raised to standard by a fixed blocker, a CRITICAL or an open blocker. */
   stepDepth: Depth;
@@ -368,6 +377,11 @@ export function diffCommand(d: Dispatch): string {
   return d.exclude.length ? `git diff <diff-base> -- . ${d.exclude.map(shellQuote).join(' ')}` : 'git diff <diff-base>';
 }
 
+/** The second command a reader runs when the base policy's exclusion keeps files its patterns match (a git exclude beats any positive pathspec); null otherwise. */
+export function keepCommand(d: Dispatch): string | null {
+  return d.keep?.length ? `git diff <diff-base> -- ${d.keep.map(shellQuote).join(' ')}` : null;
+}
+
 /** The reviewers the next step dispatches at its depth, with each role's effort tier and excluded pathspecs. */
 export function planReview(i: PlanInput): ReviewPlan {
   const c = classifyDiff(i);
@@ -380,8 +394,10 @@ export function planReview(i: PlanInput): ReviewPlan {
   const depthReasons = [...depth.reasons, ...(raise ? [`history:${h.fixedBlocking ? 'fixed-blocking' : h.blockingOpen ? 'blocking-open' : 'critical-found'}`] : [])];
   const skipped: string[] = [];
   const dispatches: Dispatch[] = [];
-  const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) => dispatches.push({ role, name, effort, exclude, ...extra });
-  const docsAndOutputs = i.paths.filter(p => pathClass(i, p) === 'docs' || isOutput(i, p)).map(excludeSpec);
+  const x = i.exclusion;
+  const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) =>
+    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
+  const docsAndOutputs = i.paths.filter(p => !i.excluded?.has(p) && (pathClass(i, p) === 'docs' || isOutput(i, p))).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
   const specialist: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;

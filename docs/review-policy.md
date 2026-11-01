@@ -339,6 +339,24 @@ Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 which hit 43 of 100; those paths already get full depth, so the gate class was
 narrowed to the gate scan's tagged hunks.
 
+<a id="review-exclude-paths"></a>
+## What readers read under `review_exclude_paths`
+
+A repository can list content folders its reviewers leave out, on its base
+branch only ([ship-policy.md](ship-policy.md#review-exclude-paths)). Under it,
+every reader (specialists, the Red Team, the native and outside voices, the
+targeted reader) reads the same selection: its `DIFF_CMD:` with one
+`:(top,exclude,glob)` item per applied pattern, the fixture command with the
+same items, and the `DIFF_KEEP:` command for the kept files under those
+patterns. The outside voice's embedded diff is that selection. Each brief says
+how many files and bytes were left out and that the reader must not report on
+their absence. Excluded paths count as docs for the depth and never trigger the
+numeric-claim scan or a targeted class; kept files keep their own class.
+
+Independently of the key, no reader is handed more than 2,000,000 bytes of
+diff: `gstack-review-dispatch` stops with `REVIEW_DIFF_TOO_LARGE` before it writes
+anything, instead of a review of the part a reader happened to see.
+
 ## What the receipt records
 
 `gstack-review-scope summary --since <REVIEW_SINCE>` reads this invocation's
@@ -551,6 +569,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
+- `lib/review-exclude.ts`: the base policy's `review_exclude_paths` (matched set, kept reasons, the kept-file argument bound, the digest the receipt, carry and the queue compare) and the 2,000,000-byte reader ceiling (`test/review-exclude.test.ts`).
 - `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
 - `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
 - `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`); refusals are `REVIEW_SCOPE_INPUT` and `REVIEW_SCOPE_RANGE` ([troubleshooting.md](troubleshooting.md#review-scope-input)).

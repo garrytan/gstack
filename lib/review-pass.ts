@@ -14,6 +14,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
+import { disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from './review-targeted';
@@ -31,6 +32,8 @@ export interface PassReader {
   /** An audit or QA reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
+  /** With the base policy's review_exclude_paths active: its `:(top,exclude,glob)` items, shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
+  policy_exclude?: string; keep?: string[];
   /** The fingerprint the reader's reply must report: the checkout's HEAD^{tree} and toplevel when its brief was rendered (GST-482). */
   tree?: string | null;
   path?: string; output?: string; error?: string; state_at?: string;
@@ -42,6 +45,8 @@ export interface Manifest {
   /** Step 11's own reading at its first dispatch, so its note never counts the pass's readers again. */
   before_voices?: { tokens: number; credits: number };
   log_starts?: Record<string, string>;
+  /** The plan's review_exclude object (lib/review-exclude.ts) without its file lists, and the line every brief carries; absent without the key. */
+  review_exclude?: Record<string, unknown>; disclosure?: string;
   /** Decision 3.5's files for a fix-check reader: the fix list, touched hunks, test results and callers. */
   fix_check?: FixCheckFiles;
 }
@@ -72,6 +77,7 @@ export function detectTestFw(root: string): string {
   return fw || 'unknown';
 }
 
+const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
 const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check': 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices', targeted: 'voices' };
 
@@ -79,7 +85,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check'
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string;
 }): Manifest {
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
@@ -90,7 +96,9 @@ export function buildManifest(o: {
     const name = role === 'specialist' ? d.name : undefined;
     const reader = readerKey(role, name);
     const exclude = d.exclude.length ? diffCommand(d).slice('git diff <diff-base> '.length) : undefined;
+    const policy = d.exclude.filter(s => s.startsWith(':(top,exclude,glob)'));
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
+      ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(d.keep?.length ? { keep: d.keep } : {}),
       ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
       ...(role === 'red-team' && o.rangeBase ? { diff_base: o.rangeBase } : {}) });
   }
@@ -103,7 +111,7 @@ export function buildManifest(o: {
   return {
     version: 1, pass: o.pass, out, ledger: path.resolve(o.ledger), merged: path.join(out, 'merged.jsonl'), base: o.base, diff_base: o.diffBase,
     stack: detectStack(o.root), test_fw: detectTestFw(o.root), learnings: o.learnings ?? null, checklist_root: o.checklistRoot,
-    next: o.next, plan_lines: o.planLines, readers,
+    next: o.next, plan_lines: o.planLines, readers, ...(o.reviewExclude ? { review_exclude: o.reviewExclude } : {}), ...(o.disclosure ? { disclosure: o.disclosure } : {}),
     ...(o.fixCheck ? { fix_check: Object.fromEntries(Object.entries(o.fixCheck).filter(([, v]) => v).map(([k, v]) => [k, path.resolve(v as string)])) as unknown as FixCheckFiles } : {}),
   };
 }
@@ -130,7 +138,7 @@ export function specialistFindings(mergedFile: string): string {
 }
 
 /** Render every planned reader of a stage. The Red Team renders only after every earlier reader is collected. */
-export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor: (base: string) => string): PassReader[] {
+export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor: (base: string, r: PassReader) => string): PassReader[] {
   const open = m.readers.filter(r => (r.stage === 'first' || r.stage === 'specialists') && r.state !== 'collected');
   if (stage === 'red-team' && open.length) throw new BriefError(`the Red Team renders after every earlier reader is collected; still open: ${open.map(r => r.reader).join(', ')}`);
   const briefs = path.join(m.out, 'briefs');
@@ -151,7 +159,8 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     }
     const role = r.role!;
     const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
-      checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(',') };
+      checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(','),
+      ...(m.disclosure ? { disclosure: m.disclosure, policy_exclude: r.policy_exclude, keep: r.keep?.map(shellQuote).join(' ') } : {}) };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
     if (role === 'red-team') {
@@ -161,7 +170,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
-    if (role === 'outside-voice') slots.diff = diffFor(m.diff_base);
+    if (role === 'outside-voice') slots.diff = diffFor(m.diff_base, r);
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
@@ -180,7 +189,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }

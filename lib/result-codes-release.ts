@@ -452,4 +452,20 @@ export const RELEASE_RESULT_CODES = {
     summary: 'under --policy-from head, the branch’s .gstack/pregate.json removes, shrinks or loosens something the trusted policy declares; a head policy may only add test lanes',
     fix: 'keep every key of the trusted policy as it is and only add dependencies globs with tests (or tests on an existing glob); land any other change, a [] declaration included, in its own PR on the base branch first',
   },
+  // The reviewer diff ceiling and the base policy's review_exclude_paths (lib/review-exclude.ts, GST-508).
+  REVIEW_DIFF_TOO_LARGE: {
+    anchor: 'review-diff-too-large',
+    summary: 'one reviewer\'s diff is over the 2,000,000-byte review ceiling, so /ship stopped before writing a manifest or a brief instead of handing a reader more than it can read',
+    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or narrow a pattern the kept-file bound skipped; or split the PR',
+  },
+  REVIEW_DIFF_UNREADABLE: {
+    anchor: 'review-diff-unreadable',
+    summary: 'git could not read a reviewer\'s diff (reason=timeout after timeout_ms, or reason=git-exit with git\'s exit code), so /ship stopped; the full stderr, with remote URLs redacted, is in the log= file',
+    fix: 'timeout: rerun once unchanged, then split the PR or exclude its largest data folders on the base; git exit 128: git fetch origin <base>, then rerun once; anything else: stop and ask a person',
+  },
+  REVIEW_EXCLUDE_REFERENCE: {
+    anchor: 'review-exclude-reference',
+    summary: 'informational: a kept code file names an excluded folder (a directory reference, not a full file path), so its files stay excluded and readers see that code without the files it reads',
+    fix: 'nothing to do for the review; if that code\'s correctness depends on the excluded files, narrow review_exclude_paths on the base so they stay in the diff',
+  },
 } as const satisfies Record<string, ResultCode>;
