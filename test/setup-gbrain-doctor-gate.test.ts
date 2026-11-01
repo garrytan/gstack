@@ -150,6 +150,20 @@ describe('gstack-gbrain-detect --doctor', () => {
   });
 });
 
+describe('gstack-gbrain-detect with a JSON-null gbrain config', () => {
+  test('still prints detect JSON, and --doctor fails closed with a cause', () => {
+    const env = { ...caseEnv('all checks pass'), HOME: path.join(tmp, 'null-config-home') };
+    fs.mkdirSync(path.join(env.HOME, '.gbrain'), { recursive: true });
+    fs.writeFileSync(path.join(env.HOME, '.gbrain', 'config.json'), 'null');
+    const detect = spawnSync(DETECT, [], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(detect.status).toBe(0);
+    expect(JSON.parse(detect.stdout).gbrain_doctor_ok).toBe(false);
+    const doctor = spawnSync(DETECT, ['--doctor'], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(doctor.status).toBe(1);
+    expect(JSON.parse(doctor.stdout).error).toContain('could not start');
+  });
+});
+
 describe('gstack-gbrain-detect gbrain_doctor_ok', () => {
   for (const name of Object.keys(CASES)) {
     const healthy = HEALTHY.includes(name);

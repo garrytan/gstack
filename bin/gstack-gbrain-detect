@@ -145,7 +145,13 @@ interface DoctorVerdict {
 }
 
 function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
-  const r = spawnGbrain(["doctor", "--json", ...extraArgs, "--scope=brain"], { timeout: timeoutMs });
+  let r: ReturnType<typeof spawnGbrain>;
+  try {
+    r = spawnGbrain(["doctor", "--json", ...extraArgs, "--scope=brain"], { timeout: timeoutMs });
+  } catch (e) {
+    const error = `gbrain doctor could not start: ${e instanceof Error ? e.message : String(e)}`;
+    return { brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null, error };
+  }
   let report: { status?: string; checks?: { name?: string; status?: string; category?: string }[] } | null = null;
   try {
     report = JSON.parse(r.stdout || "null");
