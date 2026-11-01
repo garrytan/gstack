@@ -25,7 +25,7 @@ fi
 # PWD-keyed slug cache matches other gstack project-state writers.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
 [ -z "${REPO_ROOT:-}" ] && { echo "REPO_MODE=unknown"; exit 0; }
-SLUG=$(cd "$REPO_ROOT" && "$SCRIPT_DIR/gstack-slug" | sed -n 's/^SLUG=//p' | head -1)
+SLUG=$(cd "$REPO_ROOT" && "$SCRIPT_DIR/gstack-slug" --get REPO_SLUG | head -1)
 [ -z "${SLUG:-}" ] && { echo "REPO_MODE=unknown"; exit 0; }
 
 # Validate: only allow known values (prevent shell injection via source <(...))

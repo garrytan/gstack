@@ -46,6 +46,11 @@
 #
 # Resolution order (highest precedence first):
 #   0. $GSTACK_PROJECT_SLUG env override (documented escape hatch)
+#   0m. Project marker (#2649, #1923): the innermost counted .gstack-project on
+#      the cwd chain makes its folder the project root; nothing above it is
+#      consulted (see _find_project_marker for when a marker counts). Its
+#      result has its own cache entry, so removing the marker restores the
+#      folder's earlier slug untouched.
 #   1. Walk UP from $(pwd) to the OUTERMOST ancestor containing a canonical
 #      project-identity marker (.git, .project.yaml, package.json, pyproject.toml,
 #      Cargo.toml, Gemfile, go.mod). Use that ancestor as the "project root".
@@ -108,8 +113,8 @@ case "${1:-}" in
   "") ;;
   --identity) MODE=identity ;;
   --get) MODE=get; MODE_ARG="${2:-}"
-    case "$MODE_ARG" in SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG|FORMER_SLUGS) ;;
-      *) echo "usage: gstack-slug --get SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG|FORMER_SLUGS" >&2; exit 2 ;;
+    case "$MODE_ARG" in SLUG|REPO_SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS) ;;
+      *) echo "usage: gstack-slug --get SLUG|REPO_SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|PROJECT_MARKER|LEGACY_SLUG|FORMER_SLUGS" >&2; exit 2 ;;
     esac ;;
   --stamp-checkpoint) MODE=stamp; MODE_ARG="${2:-}"
     [[ -n "$MODE_ARG" ]] || { echo "usage: gstack-slug --stamp-checkpoint <file>" >&2; exit 2; } ;;
@@ -127,6 +132,11 @@ case "${1:-}" in
       MODE=$([[ "$1" == "--from" ]] && echo adopt-from || echo adopt-dismiss)
       MODE_ARG=$(printf '%s' "${2:-}" | tr -cd 'a-zA-Z0-9._-')
       case "$MODE_ARG" in ""|.|..) echo "usage: gstack-slug --adopt-legacy $1 <slug>" >&2; exit 2 ;; esac
+      ADOPT_APPLY=0
+      if [[ "$1" == "--from" && "${3:-}" == "--under-root" ]]; then
+        MODE=adopt-under
+        case "${4:-}" in "") ;; --apply) ADOPT_APPLY=1 ;; *) echo "usage: gstack-slug --adopt-legacy --from <slug> --under-root [--apply]" >&2; exit 2 ;; esac
+      fi
     elif [[ -n "${1:-}" ]]; then
       echo "usage: gstack-slug --adopt-legacy [--copy <relpath>... | --from <slug> | --dismiss <slug>]" >&2; exit 2
     fi ;;
@@ -136,6 +146,8 @@ gstack-slug — print SLUG=<project slug> and BRANCH=<branch> for the current di
   eval "$(gstack-slug)"                 set SLUG and BRANCH
   SLUG=$(gstack-slug --get SLUG)        print one raw value (SLUG, BRANCH, or an --identity
                                         field); no eval needed
+  gstack-slug --get REPO_SLUG           the slug ignoring every .gstack-project marker, for records
+                                        that belong to one repository (policy, approvals, consent)
   gstack-slug --identity                also print PROJECT_REMOTE (canonical, credential-free),
                                         PROJECT_ROOT and LEGACY_SLUG (pre-#3003 bucket, if different)
   gstack-slug --stamp-checkpoint FILE   write remote:/project_root:/head: into FILE's frontmatter
@@ -154,6 +166,12 @@ gstack-slug — print SLUG=<project slug> and BRANCH=<branch> for the current di
                                         de-duplication, missing files copy, differing files are
                                         listed as conflicts and never overwritten; S is kept
   gstack-slug --adopt-legacy --dismiss S  stop naming former bucket S at skill start
+  gstack-slug --adopt-legacy --from S --under-root [--apply]
+                                        preview (or copy and restamp) S's checkpoints saved inside
+                                        the folder a .gstack-project marks
+Marker: an empty .gstack-project file makes its folder a project of its own (nested repos,
+  umbrella folders over several repos); --identity shows which marker applied or why one
+  was ignored. Docs: docs/state-root.md#nested-repos-and-umbrella-folders
 Env: GSTACK_PROJECT_SLUG pins the slug (ssh host aliases, vendored sub-repos); never cached.
 USAGE
     exit 0 ;;
@@ -319,12 +337,136 @@ _REMOTE_RESOLVED=0
 _resolve_remote() {
   if [[ "$_REMOTE_RESOLVED" -eq 1 ]]; then return 0; fi
   _REMOTE_RESOLVED=1
-  REMOTE_ROOT=$(_outermost_remote_repo "$PROJECT_DIR")
+  if [[ -n "${MARKER_ROOT:-}" ]]; then
+    # A marked folder consults only its own remote, never an outer repo's.
+    REMOTE_ROOT=""
+    [[ -e "$MARKER_ROOT/.git" ]] && git -C "$MARKER_ROOT" remote get-url origin >/dev/null 2>&1 && REMOTE_ROOT="$MARKER_ROOT"
+  else
+    REMOTE_ROOT=$(_outermost_remote_repo "$PROJECT_DIR")
+  fi
   if [[ -n "$REMOTE_ROOT" ]]; then
     REMOTE_URL=$(git -C "$REMOTE_ROOT" remote get-url origin 2>/dev/null) || REMOTE_URL=""
   fi
   return 0
 }
+
+# 0m. Project marker (#2649, #1923). A .gstack-project counts when it is a
+#     regular file (not a link or a directory) owned by this user, below $HOME
+#     when the cwd is under $HOME, and its folder is a git toplevel or not inside
+#     any git work tree. So a cloned repo can't plant one in a subfolder to pick a
+#     bucket by folder name, and a stray ~/.gstack-project can't swallow every
+#     project. Ignored markers are listed by --identity only.
+MARKER_ROOT=""
+MARKER_IGNORED=""
+_HOME_LOG="${HOME:-}"
+_HOME_PHYS=$(cd "$_HOME_LOG" 2>/dev/null && pwd -P) || _HOME_PHYS=""
+_UNDER_HOME=0
+for _h in "$_HOME_LOG" "$_HOME_PHYS"; do
+  [[ -n "$_h" && "$_h" != / && "$PROJECT_DIR" == "$_h"/* ]] && _UNDER_HOME=1
+done
+_is_home_or_above() {
+  local h
+  for h in "$_HOME_LOG" "$_HOME_PHYS"; do
+    [[ -n "$h" && ( "$h" == "$1" || "$h" == "$1"/* || "$1" == / ) ]] && return 0
+  done
+  return 1
+}
+# Prints why the marker in folder $1 does not count; nothing when it counts.
+# $2 overrides whether the walk stops at $HOME (default: the cwd is under it).
+_marker_reason() {
+  local m="$1/.gstack-project" d parent depth=0 under="${2:-$_UNDER_HOME}"
+  if [[ -L "$m" ]]; then echo "a symbolic link"; return 0; fi
+  if [[ -d "$m" ]]; then echo "a directory, not a file: rmdir '$m' && touch '$m'"; return 0; fi
+  [[ -f "$m" ]] || { echo "not a regular file"; return 0; }
+  [[ -O "$m" ]] || { echo "owned by another user"; return 0; }
+  case "$(basename "$1" | tr -cd 'a-zA-Z0-9._-')" in
+    ""|.|..) echo "its folder name has no letter or digit gstack can use in a project name; rename the folder or set GSTACK_PROJECT_SLUG"; return 0 ;;
+  esac
+  if [[ "$under" -eq 1 ]] && _is_home_or_above "$1"; then echo "at or above \$HOME"; return 0; fi
+  [[ ! -e "$1/.git" ]] || return 0
+  d=$(dirname "$1")
+  while [[ $depth -lt 64 ]]; do
+    if [[ "$under" -eq 1 ]] && _is_home_or_above "$d"; then break; fi
+    if [[ -e "$d/.git" ]]; then echo "inside the git work tree at $d; a marker counts only at a repository's top folder"; return 0; fi
+    parent=$(dirname "$d"); [[ "$parent" == "$d" ]] && break
+    d="$parent"; depth=$((depth + 1))
+  done
+  return 0
+}
+_find_project_marker() {
+  local dir="$1" parent="" why="" depth=0
+  while [[ -n "$dir" && $depth -lt 64 ]]; do
+    if [[ -e "$dir/.gstack-project" || -L "$dir/.gstack-project" ]]; then
+      why=$(_marker_reason "$dir")
+      if [[ -z "$why" ]]; then MARKER_ROOT=$(cd "$dir" 2>/dev/null && pwd -P) || MARKER_ROOT=""; [[ -z "$MARKER_ROOT" ]] || return 0; why="unreadable folder"; fi
+      MARKER_IGNORED="${MARKER_IGNORED}$dir/.gstack-project ($why)"$'\n'
+    fi
+    if [[ "$_UNDER_HOME" -eq 1 ]] && _is_home_or_above "$dir"; then break; fi
+    parent=$(dirname "$dir"); [[ "$parent" == "$dir" ]] && break
+    dir="$parent"; depth=$((depth + 1))
+  done
+  return 0
+}
+# A linked worktree outside the marked folder follows its main checkout: on a
+# miss the walk repeats from the main checkout, under that folder's $HOME rule.
+if [[ -z "$SLUG" && ! ( "$MODE" == get && "$MODE_ARG" == REPO_SLUG ) ]]; then
+  _find_project_marker "$PROJECT_DIR"
+  _main=""
+  [[ "$(basename "${GIT_COMMON_DIR:-x}")" != .git ]] || _main=$(dirname "$GIT_COMMON_DIR")
+  if [[ -z "$MARKER_ROOT" && -n "$_main" && "$PROJECT_DIR" != "$_main" && "$PROJECT_DIR" != "$_main"/* ]]; then
+    _cwd_under=$_UNDER_HOME
+    _UNDER_HOME=0
+    for _h in "$_HOME_LOG" "$_HOME_PHYS"; do
+      [[ -n "$_h" && "$_h" != / && "$_main" == "$_h"/* ]] && _UNDER_HOME=1
+    done
+    _find_project_marker "$_main"
+    _UNDER_HOME=$_cwd_under
+  fi
+  # A marker at a linked worktree's top folder stands for its main checkout.
+  if [[ -n "$MARKER_ROOT" && -f "$MARKER_ROOT/.git" ]]; then
+    _mc=$(_git_common_dir "$MARKER_ROOT")
+    [[ "$(basename "${_mc:-x}")" != .git ]] || MARKER_ROOT=$(dirname "$_mc")
+  fi
+fi
+_write_cache_entry() { # $1 file, $2 content; atomic, best-effort
+  local tmp
+  mkdir -p "$(dirname "$1")" 2>/dev/null || return 0
+  tmp=$(mktemp "$(dirname "$1")/.slug-XXXXXX" 2>/dev/null) || return 0
+  printf '%s' "$2" > "$tmp" && mv "$tmp" "$1" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+if [[ -n "$MARKER_ROOT" ]]; then
+  PROJECT_ROOT="$MARKER_ROOT"
+  MARKER_CACHE="$CACHE_DIR/marker/$(printf '%s' "$MARKER_ROOT" | sed -e 's/%/%25/g' -e 's/_/%5f/g' -e 's#/#_#g')"
+  _m=$(cat "$MARKER_CACHE" 2>/dev/null || true)
+  if [[ "$_m" == v2:* ]]; then
+    SLUG=$(printf '%s' "${_m#v2:}" | tr -cd 'a-zA-Z0-9._-')
+    case "$SLUG" in .|..) SLUG="" ;; esac
+  fi
+  if [[ -z "$SLUG" ]]; then
+    _resolve_remote
+    if [[ -n "$REMOTE_URL" ]]; then
+      gstack_remote_slug "$REMOTE_URL"
+      SLUG="$_gri_slug"
+      case "$SLUG" in ""|.|..|*/*) SLUG="" ;; esac
+    fi
+    SLUG="${SLUG:-$(basename "$MARKER_ROOT" | tr -cd 'a-zA-Z0-9._-')}"
+    case "$SLUG" in .|..) SLUG="" ;; esac
+    if [[ -n "$SLUG" ]]; then
+      _write_cache_entry "$MARKER_CACHE" "v2:$SLUG"
+      # One notice when the marker first moves this folder away from a bucket
+      # that holds checkpoints (stderr only; later runs are marker-cache hits).
+      for _f in "$CACHE_FILE" "$MAIN_CACHE_FILE" "$LEGACY_CACHE_FILE"; do
+        [[ -n "$_f" && -f "$_f" ]] || continue
+        _old=$(cat "$_f" 2>/dev/null || true); _old=$(printf '%s' "${_old#v2:}" | tr -cd 'a-zA-Z0-9._-')
+        if [[ -n "$_old" && "$_old" != "$SLUG" && "$_old" != . && "$_old" != .. && -n "$(ls -A "$GSTACK_STATE_ROOT/projects/$_old/checkpoints" 2>/dev/null)" ]]; then
+          echo "gstack: $MARKER_ROOT/.gstack-project files this folder under projects/$SLUG; checkpoints saved here before are in projects/$_old (preview recovering them with: gstack-slug --adopt-legacy --from $_old --under-root)" >&2
+        fi
+        break
+      done
+    fi
+  fi
+fi
 
 # 1b. Cached identity is STICKY (#2212): a project that used gstack before it
 #     adopted a git remote keeps its pre-origin slug — recomputing from the
@@ -408,6 +550,19 @@ if [[ -z "$SLUG" ]]; then
     # slash-bearing slugs and fall through to the basename fallback below.
     # (tr -cd already deletes "/", so */* is belt-and-braces.)
     case "$SLUG" in ""|.|..|*/*) SLUG="" ;; esac
+    # One hint on a fresh resolve: this checkout has its own differing remote
+    # but files under an outer repo's (stderr only; the cache keeps it quiet).
+    if [[ -n "$SLUG" && -n "$REMOTE_ROOT" && "$(basename "${GIT_COMMON_DIR:-x}")" == .git ]]; then
+      _here=$(dirname "$GIT_COMMON_DIR")
+      _outer=$(cd "$REMOTE_ROOT" 2>/dev/null && pwd -P) || _outer=""
+      if [[ -n "$_outer" && "$_here" != "$_outer" ]]; then
+        _own=$(git -C "$_here" remote get-url origin 2>/dev/null) || _own=""
+        if [[ -n "$_own" ]] && gstack_remote_slug "$_own" && [[ -n "$_gri_slug" && "$_gri_slug" != "$SLUG" ]]; then
+          echo "gstack: $_here has its own remote but files under projects/$SLUG (the outer repo at $_outer); to give it its own memory: touch '$_here/.gstack-project' (docs/state-root.md#nested-repos-and-umbrella-folders)" >&2
+        fi
+        gstack_remote_slug "$REMOTE_URL"
+      fi
+    fi
   fi
 fi
 
@@ -432,7 +587,7 @@ SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
 
 # A worktree whose own pre-#2767 entry named a different bucket that still
 # holds data: remember it so skill start can name the merge command.
-if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && "$_ENTRY_FILE" != "$LEGACY_CACHE_FILE" && -f "$LEGACY_CACHE_FILE" ]]; then
+if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && -z "$MARKER_ROOT" && "$_ENTRY_FILE" != "$LEGACY_CACHE_FILE" && -f "$LEGACY_CACHE_FILE" ]]; then
   _OWN=$(cat "$LEGACY_CACHE_FILE" 2>/dev/null || true)
   _OWN=$(printf '%s' "${_OWN#v2:}" | tr -cd 'a-zA-Z0-9._-')
   _FORMER_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/.former-slugs"
@@ -442,7 +597,7 @@ if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && "$_ENTRY_FILE" != "$LEGACY_CACHE_F
   fi
 fi
 
-if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 ]]; then
+if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && -z "$MARKER_ROOT" ]]; then
   for _f in "$CACHE_FILE" "$LEGACY_CACHE_FILE"; do
     CURRENT_CACHE=""
     if [[ -f "$_f" ]]; then
@@ -470,8 +625,8 @@ RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || RAW_BRANCH=""
 BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
 BRANCH="${BRANCH:-unknown}"
 
-if [[ "$MODE" == "get" && ( "$MODE_ARG" == SLUG || "$MODE_ARG" == BRANCH ) ]]; then
-  if [[ "$MODE_ARG" == SLUG ]]; then printf '%s\n' "$SLUG"; else printf '%s\n' "$BRANCH"; fi
+if [[ "$MODE" == "get" && ( "$MODE_ARG" == SLUG || "$MODE_ARG" == REPO_SLUG || "$MODE_ARG" == BRANCH ) ]]; then
+  if [[ "$MODE_ARG" == BRANCH ]]; then printf '%s\n' "$BRANCH"; else printf '%s\n' "$SLUG"; fi
   exit 0
 fi
 FORMER_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/.former-slugs"
@@ -665,6 +820,7 @@ case "$MODE" in
     case "$MODE_ARG" in
       PROJECT_REMOTE) printf '%s\n' "$ID_REMOTE" ;;
       PROJECT_ROOT) printf '%s\n' "$ID_ROOT" ;;
+      PROJECT_MARKER) [[ -z "$MARKER_ROOT" ]] && echo || printf '%s\n' "$MARKER_ROOT/.gstack-project" ;;
       LEGACY_SLUG) printf '%s\n' "$ID_LEGACY" ;;
     esac
     ;;
@@ -674,7 +830,11 @@ case "$MODE" in
     echo "BRANCH=$BRANCH"
     printf 'PROJECT_REMOTE=%q\n' "$ID_REMOTE"
     printf 'PROJECT_ROOT=%q\n' "$ID_ROOT"
+    printf 'PROJECT_MARKER=%q\n' "${MARKER_ROOT:+$MARKER_ROOT/.gstack-project}"
     echo "LEGACY_SLUG=$ID_LEGACY"
+    while IFS= read -r _ign; do
+      if [[ -n "$_ign" ]]; then printf 'MARKER_IGNORED=%q\n' "$_ign"; fi
+    done <<<"$MARKER_IGNORED"
     ;;
 
   stamp)
@@ -797,6 +957,54 @@ case "$MODE" in
         echo "NEWER_TASK $f"; exit 0
       fi
     done
+    ;;
+
+  adopt-under)
+    # Recover checkpoints a former bucket holds for the marked folder: only
+    # those stamped (worktree:, else project_root:) at or below it. Preview
+    # unless --apply; copies are restamped with this identity and keep head:.
+    [[ -n "$MARKER_ROOT" ]] || { echo "gstack-slug: no .gstack-project applies here, so there is no marked folder to recover checkpoints for (see gstack-slug --identity)" >&2; exit 2; }
+    [[ "$MODE_ARG" != "$SLUG" ]] || { echo "gstack-slug: projects/$MODE_ARG is this project's own bucket." >&2; exit 2; }
+    AU_FROM="$STATE_PHYS/projects/$MODE_ARG/checkpoints"
+    AU_TO="$STATE_PHYS/projects/$SLUG/checkpoints"
+    if [[ ! -d "$AU_FROM" || -L "$AU_FROM" ]]; then echo "Nothing to recover: no checkpoints in projects/$MODE_ARG."; exit 0; fi
+    AU_WANT=0; AU_HAVE=0; AU_UNSTAMPED=0; AU_RC=0
+    while IFS= read -r f; do
+      [[ -n "$f" && -f "$f" && ! -L "$f" ]] || continue
+      IFS=$'\037' read -r _b root wt _t <<<"$(_checkpoint_meta "$f")"
+      if [[ -z "$root" && -z "$wt" ]]; then AU_UNSTAMPED=$((AU_UNSTAMPED + 1)); continue; fi
+      where="${wt:-$root}"
+      [[ "$where" == "$MARKER_ROOT" || "$where" == "$MARKER_ROOT"/* ]] || continue
+      dst="$AU_TO/$(basename "$f")"
+      if [[ -e "$dst" || -L "$dst" ]]; then echo "ALREADY $dst"; AU_HAVE=$((AU_HAVE + 1)); continue; fi
+      AU_WANT=$((AU_WANT + 1))
+      if [[ "$ADOPT_APPLY" -eq 0 ]]; then echo "WOULD_COPY $f"; continue; fi
+      AU_WT="${wt:-$root}"; [[ "$AU_WT" != "$ID_ROOT" ]] || AU_WT=""
+      mkdir -p "$AU_TO" && AU_TMP=$(mktemp "$AU_TO/.adopt-XXXXXX") || { echo "FAILED $f"; AU_RC=1; continue; }
+      if GRI_REMOTE="$ID_REMOTE" GRI_ROOT="$ID_ROOT" GRI_WORKTREE="$AU_WT" awk '
+        function ids() {
+          if (ENVIRON["GRI_REMOTE"] != "") print "remote: " ENVIRON["GRI_REMOTE"]
+          print "project_root: " ENVIRON["GRI_ROOT"]
+          if (ENVIRON["GRI_WORKTREE"] != "") print "worktree: " ENVIRON["GRI_WORKTREE"]
+        }
+        NR == 1 && $0 == "---" { infm = 1; print; next }
+        infm && $0 == "---" { ids(); print; infm = 0; next }
+        infm && (/^remote:/ || /^project_root:/ || /^worktree:/) { next }
+        { print }' "$f" > "$AU_TMP" && touch -r "$f" "$AU_TMP" && ln "$AU_TMP" "$dst" 2>/dev/null; then
+        rm -f "$AU_TMP"; echo "COPIED $dst"
+      elif [[ -e "$dst" || -L "$dst" ]]; then
+        rm -f "$AU_TMP"; echo "ALREADY $dst"; AU_WANT=$((AU_WANT - 1)); AU_HAVE=$((AU_HAVE + 1))
+      else
+        rm -f "$AU_TMP"; echo "FAILED $f"; AU_RC=1
+      fi
+    done < <(find "$AU_FROM" -maxdepth 1 -name '*.md' -type f 2>/dev/null | LC_ALL=C sort)
+    if [[ "$ADOPT_APPLY" -eq 1 ]]; then
+      echo "recovered $AU_WANT checkpoint(s) from projects/$MODE_ARG into projects/$SLUG ($AU_HAVE already there); projects/$MODE_ARG is unchanged"
+    else
+      echo "$AU_WANT checkpoint(s) in projects/$MODE_ARG were saved inside $MARKER_ROOT ($AU_HAVE already here); nothing copied. To copy and restamp them: gstack-slug --adopt-legacy --from $MODE_ARG --under-root --apply"
+    fi
+    [[ "$AU_UNSTAMPED" -eq 0 ]] || echo "$AU_UNSTAMPED checkpoint(s) predate identity stamps, so their folder is unknown; they stay in projects/$MODE_ARG"
+    exit "$AU_RC"
     ;;
 
   adopt)

@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.92.14.0] - 2026-11-01
+
+**A repository inside another repository can now be its own project: create an empty `.gstack-project` file in it.** gstack files each project's checkpoints, learnings and decisions under the outermost repository's slug, so a repo checked out inside a workspace repo filed its memory under the workspace and `/context-restore` couldn't find it later (#2649: 5 of one user's 16 nested repos, one with 73 checkpoints). The same marker in a plain folder above several repos gives them one shared memory, so a plan made in the umbrella carries into the repo where you build it (#1923). Nothing changes for anyone who doesn't create the file, and `GSTACK_PROJECT_SLUG` still wins.
+
+### Added
+- **`.gstack-project` marker.** The innermost marker on the way up from the current folder makes its folder the project root. The slug is that folder's own remote, or its name when it has none. A marker counts only when it is a regular file you own, in a folder whose name has a letter or digit, not in your home folder itself or above it, and at a repository's top folder or in a folder outside every repository. So a cloned repository can't plant one in a subfolder to pick another project's bucket. `gstack-slug --identity` prints `PROJECT_MARKER=` and one `MARKER_IGNORED=` line, with the reason, for each marker that didn't count; `--get PROJECT_MARKER` works too.
+- **`gstack-slug --adopt-legacy --from <slug> --under-root [--apply]`** previews, then copies and restamps, the checkpoints an old bucket holds that were saved inside the marked folder, so `/context-restore` finds them. The first run after you add a marker names the command when the old bucket holds checkpoints. A nested repo with its own remote and no marker gets a one-time hint on its first resolve.
+
+### Changed
+- **Marker results have their own cache entries** (`slug-cache/marker/`), so deleting the marker restores the folder's earlier slug byte for byte. A linked worktree outside an umbrella follows it through its main checkout, from its first run, for as long as the marker counts.
+- **`browse/bin/remote-slug` follows a counted marker**, linked worktrees included, so the design-doc lookups in /plan-ceo-review, /plan-devex-review, /autoplan and the spec review find docs where /office-hours saved them.
+- **Records that belong to one repository ignore every marker**: pregate policy and run scratch, approvals, `/verify` results, the review log, the `/ship` spend-cap pointer, the cached repo mode and the Greptile early-push answer stay under the repository's own slug (`gstack-slug --get REPO_SLUG`, `slugFromEnvironment(..., { scope: 'repository' })`), so a branch that commits a marker can't change which policy applies.
+
+### Tests
+- `test/gstack-slug-project-marker.test.ts`: 29 cases for the bash resolver, its TS twin and remote-slug (nested repo, umbrella, innermost wins, env wins, cache restored on removal, ignored subfolder, link, directory and `$HOME` markers, hostile origin, worktree outside the umbrella (resolved before or after its main checkout), scoped checkpoint recovery that never replaces an existing file, folder names with no usable letters, cache keys that differ only by `/` and `_`, a non-ASCII parent in the C locale, repo mode, the review log and the spend-cap pointer under a marker, recovered checkpoints keeping their repository, a remote-less repo's linked worktrees, hook reader, cross-writer entries, repository scope). The cases that expect a marker to take effect fail on the previous code; the ignored-marker cases are controls that pass on both.
+
 ## [1.92.13.0] - 2026-11-01
 
 - `/ship`'s preflight no longer runs `git merge` when `origin/<base>` is already in HEAD. It checks `git merge-base --is-ancestor` first and reports `MERGE: up to date`, so a checkout whose guard refuses `git merge` (a shared machine) gets past Step 3 when there is nothing to merge. A moved base still merges (GST-691).
