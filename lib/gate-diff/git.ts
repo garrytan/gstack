@@ -85,22 +85,23 @@ export function isShallow(cwd: string): boolean {
 
 /**
  * The base as a ref that resolves here and, when `head` is given, shares
- * history with it: the ref itself, else its remote-tracking branch
- * (`origin/main` for `main`). A clone that checked out only the feature
- * branch has no local `main`, and the merge-base against `origin/main` is the
- * same commit; a stale local `main` that shares no history with HEAD (a
- * fetched-over clone) yields to the twin too, so the fix line's fetch into the
- * tracking ref is a fix and not a loop.
+ * history with it: for a branch name its remote-tracking branch first
+ * (`origin/main` for `main`), the base /ship merges against, else the ref
+ * itself. A local `main` that is missing, behind (a linked worktree or a Capy
+ * clone never moves it, #3650) or shares no history with HEAD (a fetched-over
+ * clone) yields to the twin, so the fix line's fetch into the tracking ref is
+ * a fix and not a loop.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'differs' } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
   const direct = resolvesToCommit(ref, cwd);
-  if (direct && related(direct)) return { ref, sha: direct };
-  if (!isBranchName(ref)) return direct ? { ref, sha: direct } : null;
-  for (const remote of remoteNames(cwd)) {
-    const tracking = `${remote}/${ref}`;
-    const sha = resolvesToCommit(tracking, cwd);
-    if (sha && related(sha)) return { ref: tracking, sha, local: direct ? 'unrelated' : 'missing' };
+  if (isBranchName(ref)) {
+    for (const remote of remoteNames(cwd)) {
+      const tracking = `${remote}/${ref}`;
+      const sha = resolvesToCommit(tracking, cwd);
+      if (!sha || !related(sha)) continue;
+      return sha === direct ? { ref: tracking, sha } : { ref: tracking, sha, local: !direct ? 'missing' : related(direct) ? 'differs' : 'unrelated' };
+    }
   }
   return direct ? { ref, sha: direct } : null;
 }

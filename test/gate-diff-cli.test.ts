@@ -153,6 +153,32 @@ describe('gstack-gate-diff arguments and exit contract', () => {
   // fetches from it; fails_when=remoteNames or resolveBase hard-code origin, or noBaseFix falls back to the literal 'origin'
   // while a real remote exists; why_new=every existing fixture has either an origin remote or none; seam=none;
   // no_claim=nothing about the order when origin and another remote both carry the branch.
+  // Value: protects=a bare base name scans from the same merge base /ship merges against (origin/<base>) when the local
+  // branch is related but behind (#3650); fails_when=resolveBase prefers any related local branch, so a stale local main
+  // widens the scan to commits already upstream; why_new=the stale-main test above covers only unrelated history;
+  // seam=none; no_claim=nothing about a local base that is ahead of its remote-tracking twin.
+  test('a related local main that is behind origin/main yields to origin/main (#3650)', () => {
+    const src = repo({ fixture: 'rh1-skip', commit: true });
+    const seed = gitIn(src, ['rev-parse', 'main']).trim();
+    gitIn(src, ['checkout', '-q', 'main']);
+    fs.mkdirSync(path.join(src, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(path.join(src, '.github', 'workflows', 'ci.yml'), 'on: push\njobs: {}\n');
+    gitIn(src, ['add', '-A']);
+    gitIn(src, ['commit', '-q', '-m', 'upstream ci change']);
+    gitIn(src, ['checkout', '-q', 'feature']);
+    gitIn(src, ['rebase', '-q', 'main']);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-behind-'));
+    repos.push(dir);
+    gitIn(dir, ['clone', '-q', '--branch', 'feature', `file://${src}`, '.']);
+    gitIn(dir, ['branch', '-f', 'main', seed]);
+    const bare = run(dir, ['main']);
+    const remote = run(dir, ['origin/main']);
+    expect([bare.status, remote.status]).toEqual([0, 0]);
+    expect(summary(bare.stdout).candidate).toBe(summary(remote.stdout).candidate);
+    expect(bare.stdout).toBe(remote.stdout);
+    expect(bare.stderr).toContain('gstack-gate-diff: local main is not origin/main; base is origin/main');
+  });
+
   test('a clone whose only remote is upstream resolves the base to upstream/main, and the fix line fetches from upstream', () => {
     const src = repo({ fixture: 'rh1-skip', commit: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-upstream-'));

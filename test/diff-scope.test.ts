@@ -330,6 +330,25 @@ describe('exit-code contract (#2526)', () => {
   });
 });
 
+describe('a bare base name reads origin/<base> when it exists (#3650)', () => {
+  test('a local main behind origin/main does not widen the scope to upstream commits', () => {
+    const dir = createRepo(['README2.md']);
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString().trim();
+    const seed = git('rev-parse', 'main');
+    git('checkout', '-q', 'main');
+    writeFileSync(join(dir, 'service.py'), 'print(1)\n');
+    git('add', '.');
+    git('commit', '-qm', 'upstream backend change');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    git('rebase', '-q', 'origin/main');
+    git('branch', '-f', 'main', seed);
+    expect(git('diff', '--name-only', 'main...HEAD').split('\n').sort()).toEqual(['README2.md', 'service.py']);
+    const scope = runScope(dir);
+    expect([scope.SCOPE_BACKEND, scope.SCOPE_DOCS]).toEqual(['false', 'true']);
+  });
+});
+
 describe('uncommitted work is visible (#2299)', () => {
   test('uncommitted change on a branch with no commits sets the scope', () => {
     const dir = mkdtempSync(join(tmpdir(), 'diff-scope-dirty-'));
