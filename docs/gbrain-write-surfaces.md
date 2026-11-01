@@ -197,7 +197,7 @@ should have saved):
 ```bash
 gbrain get "<prefix>/<slug>"           # expect markdown + frontmatter
 gbrain search "<slug fragment>"        # expect slug in top results
-gbrain sources list                    # confirm gstack-brain-<user> source
+gbrain sources list                    # confirm gstack-artifacts-<user> source
 gbrain get "entities/<person>"         # expect stub per named person
 ```
 
