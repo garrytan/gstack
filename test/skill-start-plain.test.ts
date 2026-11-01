@@ -80,7 +80,7 @@ describe('skill-start fence is plain shell on every host (GST-882)', () => {
       for (const layout of ['global', 'repo-local', 'exported']) {
         if (layout === 'repo-local') stubStart(path.join(repo, host.localSkillRoot));
         if (layout === 'exported') stubStart(exported);
-        const env = layout === 'exported' ? { HOME: home, GSTACK_ROOT: exported } : { HOME: home };
+        const env: Record<string, string> = layout === 'exported' ? { HOME: home, GSTACK_ROOT: exported } : { HOME: home };
         expect(root(lookup, env)).toBe(root(runtimeRootPrelude(c), env));
         if (layout === 'exported') expect(root(lookup, env)).toBe(`ROOT=${exported}`);
       }
