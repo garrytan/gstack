@@ -687,7 +687,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'learnings-show': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts', 'test/skill-e2e-learnings.test.ts'],
   // GSTA-228 planning wave (test/skill-e2e-planning-wave.test.ts).
   'planning-wave-planted-facts': ['lib/office-hours-review.ts', 'lib/office-hours-probe.ts', 'bin/gstack-office-hours-review', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
-  'planning-wave-schema': ['plan-eng-review/SKILL.md.tmpl', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
+  'planning-wave-schema': ['plan-eng-review/SKILL.md.tmpl', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
   'planning-wave-tasks-rerun': ['scripts/resolvers/tasks-section.ts', 'bin/gstack-tasks', 'lib/tasks-prior.ts', 'bin/gstack-slug', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
   'planning-wave-closing-signals': ['office-hours/sections/design-and-handoff.md.tmpl', 'office-hours/SKILL.md.tmpl', 'test/skill-e2e-planning-wave.test.ts', 'test/helpers/planning-wave-task.ts', 'test/helpers/llm-judge.ts'],
   // W1 safety-rule evals (test/helpers/safety-rules.ts registry; E3).

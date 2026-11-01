@@ -709,13 +709,16 @@ Rules:
 
 ### JSONL artifact (always write, even if zero tasks)
 
-`/autoplan` reads this file to aggregate across phases. `start` creates it (an empty file means "ran, no findings", distinct from "didn't run"); one `add` per task serializes quotes, newlines and backslashes safely.
+`/autoplan` aggregates this list. `start` creates it empty ("ran, no findings", distinct from "didn't run") and prints an empty ROWS_FILE:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-tasks start --phase devex-review)"  # sets TASKS_FILE and RUN_ID
-# FILES is a JSON array literal like '["browse/src/server.ts"]'; add --carried-from <run_id>/<id> for a carried task.
-~/.claude/skills/gstack/bin/gstack-tasks add --file "$TASKS_FILE" --run "$RUN_ID" --id T1 --priority P1 --component "<component>" \
-  --title "<title>" --source "<finding>" --effort-human "~2h" --effort-cc "~15min" --files '[]'
+~/.claude/skills/gstack/bin/gstack-tasks start --phase devex-review
+```
+
+Read ROWS_FILE, then write one JSON object per line into it with your file-write tool (free text never goes in a command): a task is `{"id":"T1","priority":"P1","component":"","title":"","source_finding":"","effort_human":"~2h","effort_cc":"~15min","files":[]}`, plus `"carried_from":"<run_id>/<id>"` when carried; a closed earlier task is `{"prior":"<run_id>/<id>","disposition":"done|dropped","reason":""}`. Then:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-tasks add --phase devex-review
 ```
 
 

@@ -124,52 +124,66 @@ describe('gstack-tasks prior and supersede', () => {
   });
 });
 
-describe('gstack-tasks start, add and close', () => {
+describe('gstack-tasks start and add', () => {
+  const R1 = '20261031T100000Z-1';
+  const startRun = (w: ReturnType<typeof world>) => {
+    const out = tasks(['start', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout;
+    const get = (k: string) => new RegExp(`^${k}: (.+)$`, 'm').exec(out)![1]!;
+    return { list: get('TASKS_FILE'), rows: get('ROWS_FILE') };
+  };
+
   test('a rerun carries one task, closes the other, and the aggregate shows only the reconciled list', () => {
     const w = world();
-    const R1 = '20261031T100000Z-1';
-    fs.writeFileSync(path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl'), row(R1, 'T1', 'add retry', w.commit) + '\n' + row(R1, 'T2', 'add metrics', w.commit) + '\n');
-    const prior = tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout;
-    expect(prior).toContain('PRIOR_TASKS: ');
-    expect(prior).toMatch(/RECONCILE: .*--carried-from 20261031T100000Z-1\/<id>.*close --phase eng-review --prior 20261031T100000Z-1\/<id> --done <commit>.*supersede --phase eng-review --keep/);
-    const start = tasks(['start', '--phase', 'eng-review', '--dir', w.dir], w.repo);
-    const vars = Object.fromEntries(start.stdout.trim().split('\n').map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 2, -1)]));
-    expect(path.basename(vars.TASKS_FILE!)).toMatch(/^tasks-eng-review-feature-x-\d{8}-\d{6}\.jsonl$/);
-    expect(fs.readFileSync(vars.TASKS_FILE!, 'utf8')).toBe('');
-    const title = 'retry "quoted"\nwith a \\ backslash';
-    const add = tasks(['add', '--file', vars.TASKS_FILE!, '--run', vars.RUN_ID!, '--id', 'T1', '--priority', 'P1', '--component', 'demo', '--title', title, '--source', 'f', '--effort-human', '~1h', '--effort-cc', '~5min', '--files', '["a.ts"]', '--carried-from', `${R1}/T1`], w.repo);
+    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n' + row(R1, 'T2', 'add metrics', w.commit) + '\n');
+    expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toMatch(new RegExp(`RECONCILE: .*"carried_from": "${R1}/<id>".*"prior": "${R1}/<id>", "disposition": "done"`));
+    const run = startRun(w);
+    expect(path.basename(run.list)).toMatch(/^tasks-eng-review-feature-x-\d{8}-\d{6}\.jsonl$/);
+    expect(fs.readFileSync(run.list, 'utf8')).toBe('');
+    expect(fs.realpathSync(path.dirname(run.rows))).toBe(fs.realpathSync(path.join(w.repo, '.gstack', 'tmp')));
+    expect(fs.readFileSync(path.join(w.repo, '.git', 'info', 'exclude'), 'utf8')).toContain('/.gstack/tmp/');
+    const title = 'retry "quoted"\nwith a \\ backslash and $(id)';
+    const task = (id: string, t: string, extra = {}) => JSON.stringify({ id, priority: 'P1', component: 'demo', title: t, source_finding: 'f', effort_human: '~1h', effort_cc: '~5min', files: ['a.ts'], ...extra });
+    fs.writeFileSync(run.rows, [task('T1', title, { carried_from: `${R1}/T1` }), JSON.stringify({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit }), task('T2', 'validate the rate limit')].join('\n') + '\n');
+    const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
     expect(add.status).toBe(0);
-    const written = JSON.parse(fs.readFileSync(vars.TASKS_FILE!, 'utf8'));
-    expect(written).toMatchObject({ phase: 'eng-review', run_id: vars.RUN_ID, branch: BRANCH, commit: w.commit, id: 'T1', title, files: ['a.ts'], carried_from: `${R1}/T1` });
-    const close = tasks(['close', '--phase', 'eng-review', '--prior', `${R1}/T2`, '--done', w.commit, '--dir', w.dir], w.repo);
-    expect(close.stdout).toStartWith(`CLOSED: ${R1}/T2 done `);
+    expect(add.stdout).toContain(`ADDED: tasks=2 dispositions=1 ${run.list}`);
+    expect(add.stdout).toContain(`SUPERSEDED: ${prior}`);
+    const written = fs.readFileSync(run.list, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    expect(written[0]).toMatchObject({ phase: 'eng-review', branch: BRANCH, commit: w.commit, id: 'T1', title, files: ['a.ts'], carried_from: `${R1}/T1` });
+    expect(written[0].run_id > R1).toBe(true);
     expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'task-dispositions-eng-review-feature-x.jsonl'), 'utf8'))).toMatchObject({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit, branch: BRANCH });
-    expect(tasks(['supersede', '--phase', 'eng-review', '--keep', vars.TASKS_FILE!, '--dir', w.dir], w.repo).stdout).toContain('SUPERSEDED: ');
+    expect(fs.readFileSync(run.rows, 'utf8')).toBe('');
     const agg = aggregate(w);
     expect(agg).toContain('with a');
     expect(agg).not.toContain('add metrics');
   });
 
-  test('add refuses a file that is not a phase list and a --files value that is not a string array', () => {
+  test('add refuses an invalid rows file and writes nothing; add before start is refused', () => {
     const w = world();
-    const base = ['--run', 'R', '--id', 'T1', '--priority', 'P1', '--component', 'c', '--title', 't', '--source', 's', '--effort-human', 'h', '--effort-cc', 'c'];
-    const wrongFile = tasks(['add', '--file', path.join(w.dir, 'notes.jsonl'), ...base, '--files', '[]'], w.repo);
-    expect(wrongFile.status).toBe(3);
-    expect(wrongFile.stderr).toContain('TASKS_SUPERSEDE_REFUSED');
-    expect(tasks(['add', '--file', path.join(w.dir, 'tasks-eng-review-x.jsonl'), ...base, '--files', '[1]'], w.repo).status).toBe(3);
-    expect(tasks(['close', '--phase', 'eng-review', '--prior', 'R1/T2', '--dir', w.dir], w.repo).status).toBe(2);
-    expect(fs.existsSync(path.join(w.dir, 'notes.jsonl'))).toBe(false);
+    expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).status).toBe(3);
+    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n');
+    const run = startRun(w);
+    for (const bad of ['{"id":"T1"}', '{"id":"T1","priority":"P1","component":"c","title":"t","source_finding":"s","effort_human":"h","effort_cc":"c","files":[1]}', '{"prior":"T2","disposition":"done","reason":"x"}', '{"prior":"R/T2","disposition":"maybe","reason":"x"}', 'not json']) {
+      fs.writeFileSync(run.rows, bad + '\n');
+      const r = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
+      expect(r.status).toBe(3);
+      expect(r.stderr).toContain('TASKS_SUPERSEDE_REFUSED');
+    }
+    expect(fs.readFileSync(run.list, 'utf8')).toBe('');
+    expect(fs.existsSync(prior)).toBe(true);
   });
 });
 
 describe('the rendered emit block', () => {
-  test('every plan review reads the prior list and writes through gstack-tasks', () => {
+  test('every plan review reads the prior list and writes through gstack-tasks with no free text on a command line', () => {
     for (const [skill, phase] of [['plan-eng-review', 'eng-review'], ['plan-ceo-review', 'ceo-review'], ['plan-design-review', 'design-review'], ['plan-devex-review', 'devex-review']] as const) {
       const out = generateTasksSectionEmit({ skillName: skill } as TemplateContext, [phase]);
       expect(out).toContain(`gstack-tasks prior --phase ${phase}`);
-      expect(out).toContain(`gstack-tasks start --phase ${phase}`);
-      expect(out).toContain('gstack-tasks add --file "$TASKS_FILE" --run "$RUN_ID"');
-      expect(out).toContain('--carried-from');
+      expect(out).toContain(`\`\`\`bash\n~/.claude/skills/gstack/bin/gstack-tasks start --phase ${phase}\n\`\`\``);
+      expect(out).toContain(`\`\`\`bash\n~/.claude/skills/gstack/bin/gstack-tasks add --phase ${phase}\n\`\`\``);
+      expect(out).toContain('"carried_from":"<run_id>/<id>"');
       expect(out).not.toContain('jq -nc');
     }
   });
