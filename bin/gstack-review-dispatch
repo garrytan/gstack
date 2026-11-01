@@ -19,7 +19,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { BRIEF_ROLES, BriefError, briefFile, promptHash, renderBrief, sectionTexts, type BriefRole, type Slots } from '../lib/review-brief';
+import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
 import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
@@ -37,15 +37,19 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
              --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md;
              --diff-base must be the merge base with --base, default origin/HEAD's branch, on every pass)
-      writes <out>/<role>[-<name>].prompt.md, records it in the ledger (default <out>/review-ledger.jsonl) and prints
+      writes <out>/<role>[-<name>].prompt.md, the brief followed by the workspace paragraph naming the toplevel of the
+      checkout it runs in (the one its diff and merge base come from), records it in the ledger (default <out>/review-ledger.jsonl) and prints
       BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
   sent --ledger <f> --role <role> [--name <n>] --sent <file>
       the exact prompt a dispatch passed: BRIEF_SENT: … match, or BRIEF_MISMATCH: … (exit 1; the pass is not reviewed)
-  collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <merged.jsonl>
+  collect --ledger <f> --role <role> [--name <n>] --output <file> --merged <merged.jsonl> [--manifest <f>]
       the reader's raw output: hashes it and appends each finding to merged.jsonl with its label as written. A reply with
       no finding must carry its brief's clean marker (NO FINDINGS; the Recommendation: line for the voices); without one it is
       COLLECT_NOT_REVIEWED (exit 1): a refusal, an empty reply or a reader that never saw the diff, and verify reports NOT_COLLECTED
-      until the brief is re-sent and answered with a review, which voids it. --unavailable '<reason>' (the outside voice only; refused when the
+      until the brief is re-sent and answered with a review, which voids it. A reply whose REVIEWED_TREE line is missing or names
+      another checkout or tree than its brief was rendered on is COLLECT_WRONG_TREE (COLLECT_TREE_MOVED when only the tree
+      moved; exit 1, nothing merged, verify reports NOT_COLLECTED, and with --manifest <f> the reader becomes failed); the
+      outside voice's, when it holds no finding, is recorded as unavailable coverage instead --unavailable '<reason>' (the outside voice only; refused when the
       output holds findings) records its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
@@ -55,12 +59,14 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads
-  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>]
-       [--checklist-root <dir>] [-- <gstack-review-plan flags>]
+  pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>] [--audit-only]
+       [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
-      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full or scoped prints PASS: none.
+      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
+      --audit-only skips the plan: the --extras readers are the whole pass (Step 14.5's docs audit)
   show --manifest <f>                         MANIFEST_JSON: <the manifest on one line>
   stage --manifest <f> --stage <first|specialists|red-team|voices>
       renders a stage; the Red Team only after every earlier reader is collected, its findings file being the
@@ -68,7 +74,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   chunk --manifest <f> --reader <r> --index <i>
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
-  mark --manifest <f> --before <tokens>,<credits>
+      an audit reader is collected with --output, whose REVIEWED_TREE line must match its render (else failed, COLLECT_WRONG_TREE)
+  mark --manifest <f> --before <tokens>,<credits> [--voices]   the pass's reading at its first dispatch; --voices keeps Step 11's own
   mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
   program [--ledger <f>]
@@ -94,7 +101,7 @@ function render(): number {
   const brief = role === 'targeted' ? readFile(checklist, 'targeted brief') : undefined;
   if (role === 'targeted') {
     const base = resolveBaseBranch(process.cwd(), flag('--base'));
-    const mb = [`origin/${base}`, base].map(ref => spawnSync('git', ['merge-base', ref, 'HEAD'], { encoding: 'utf8', timeout: 30_000 })).find(r => r.status === 0)?.stdout.trim();
+    const mb = mergeBaseWith(base);
     const full = diffBase ? spawnSync('git', ['rev-parse', '--verify', '--quiet', `${diffBase}^{commit}`], { encoding: 'utf8', timeout: 30_000 }).stdout?.trim() : undefined;
     if (!full || full !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
   }
@@ -113,21 +120,27 @@ function render(): number {
     classes: flag('--classes'), brief,
     fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };
-  const text = renderBrief(role, slots, sectionTexts(ROOT));
+  const workdir = checkoutRoot();
+  const tree = checkoutTree(workdir);
+  if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
+  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir);
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const file = path.join(path.resolve(out), briefFile(role, name));
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
   const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, patch_id: diffBase ? targetedPatchId(process.cwd(), diffBase) : 'none' };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), ...targeted });
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }
 
+const wrongTree = (reader: string, t: TreeCheck) => `${t.moved ? 'COLLECT_TREE_MOVED' : 'COLLECT_WRONG_TREE'}: reader=${reader} reported=${JSON.stringify(t.reported)} expected=${JSON.stringify(t.expected)} (${t.moved ? 'the checkout moved after this brief was rendered' : 'the reply did not review the checkout its brief named'}; nothing merged; restore it with a fresh pass under a new --pass and --out)\n`;
+
 const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
 const PROGRAM_VERSION = 1;
 const git = (a: string[]) => { const r = spawnSync('git', a, { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
+const mergeBaseWith = (base: string) => [`origin/${base}`, base].map(ref => git(['merge-base', ref, 'HEAD'])?.trim()).find(Boolean);
 const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;
 const branchDiff = (base: string) => {
   const d = git(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', base]);
@@ -146,23 +159,42 @@ function pass(): number {
     return EXIT.ok;
   }
   const planArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
+  if (args.includes('--audit-only')) {
+    const extrasFile = flag('--extras');
+    if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
+    const extras = JSON.parse(readFile(extrasFile, 'extras')!) as Extra[];
+    const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: mergeBaseWith(base) ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
+      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras });
+    fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
+    const t = sectionTexts(ROOT);
+    renderStage(m, 'first', t, branchDiff);
+    renderStage(m, 'specialists', t, branchDiff);
+    writeManifest(file, m);
+    process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
+    return EXIT.ok;
+  }
   const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024 });
   const text = plan(false);
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
   const j = plan(true);
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
-  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] } };
-  const planLines = text.stdout.trimEnd().split('\n');
+  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null };
   const step = p.next.step;
-  if (step !== 'full' && step !== 'scoped') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
-  const diffBase = flag('--diff-base') ?? git(['merge-base', base, 'HEAD'])?.trim();
+  const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
+  const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
+  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
+  if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
+  const mergeBase = mergeBaseWith(base);
+  const diffBase = flag('--diff-base') ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');
   const extras = extrasFile ? JSON.parse(readFile(extrasFile, 'extras')!) as Extra[] : [];
   const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase, root, checklistRoot: flag('--checklist-root') ?? ROOT,
-    dispatches: p.dispatches, next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
-    targetedClasses: p.targeted?.classes, mergeBase: git(['merge-base', base, 'HEAD'])?.trim() });
+    dispatches: step === 'fix-check' ? p.dispatches : p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
+    targetedClasses: p.targeted?.classes, mergeBase, rangeBase,
+    fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined });
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
   const t = sectionTexts(ROOT);
   renderStage(m, 'first', t, branchDiff);
@@ -209,11 +241,23 @@ function passStep(cmd: string): number {
     const before = flag('--before');
     if (before) {
       const [tokens, credits] = before.split(',').map(Number);
-      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits>\n'); return EXIT.usage; }
-      m.before ??= { tokens: tokens!, credits: credits! };
+      if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits> [--voices]\n'); return EXIT.usage; }
+      const key = args.includes('--voices') ? 'before_voices' : 'before';
+      m[key] ??= { tokens: tokens!, credits: credits! };
       writeManifest(file, m);
-      process.stdout.write(`BEFORE: tokens=${m.before.tokens} credits=${m.before.credits}\n`);
+      process.stdout.write(`BEFORE: ${key === 'before_voices' ? 'stage=voices ' : ''}tokens=${m[key]!.tokens} credits=${m[key]!.credits}\n`);
       return EXIT.ok;
+    }
+    const audit = m.readers.find(x => x.reader === flag('--reader'));
+    if (flag('--state') === 'collected' && audit?.prompt_file && audit.tree !== undefined) {
+      if (!flag('--output')) { process.stderr.write(`gstack-review-dispatch mark: ${audit.reader} is collected with --output <its reply>, which must prove the checkout it reviewed\n`); return EXIT.usage; }
+      const tree = checkReviewedTree(readFile(flag('--output'), 'reader output')!, audit.tree);
+      if (!tree.ok) {
+        markReader(m, audit.reader, 'failed', { output: flag('--output'), error: `reviewed another tree: ${tree.reported}` });
+        writeManifest(file, m);
+        process.stdout.write(wrongTree(audit.reader, tree));
+        return EXIT.fail;
+      }
     }
     const r = markReader(m, flag('--reader') ?? '', flag('--state') as ReaderState, { path: flag('--path'), output: flag('--output'), error: flag('--error') });
     writeManifest(file, m);
@@ -276,7 +320,21 @@ function main(): number {
     if (unavailable !== undefined && !mayBeUnavailable(reader)) { process.stderr.write(`gstack-review-dispatch collect: --unavailable is for the outside voice only; ${reader}'s missing coverage leaves the review incomplete, never clean\n`); return EXIT.usage; }
     if (unavailable !== undefined && !unavailable.trim()) { process.stderr.write('gstack-review-dispatch collect: --unavailable needs a reason\n'); return EXIT.usage; }
     if (unavailable !== undefined && parseFindings(reader, output).length) { process.stderr.write(`gstack-review-dispatch collect: ${reader}'s output holds findings; collect it without --unavailable so none is lost\n`); return EXIT.usage; }
-    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable);
+    const rendered = readLedger(ledger).filter(e => e.event === 'rendered' && e.reader === reader).at(-1);
+    const tree = unavailable === undefined && rendered && 'tree' in rendered ? checkReviewedTree(output, typeof rendered.tree === 'string' ? rendered.tree : null) : undefined;
+    if (tree && !tree.ok && mayBeUnavailable(reader) && !parseFindings(reader, output).length) {
+      const why = `reviewed another tree: reported ${tree.reported}, expected ${tree.expected}`;
+      const r = collect(ledger, reader, output, merged, path.resolve(outFile!), why);
+      process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(why)} (missing outside coverage: unavailable, never clean)\n`);
+      return EXIT.ok;
+    }
+    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree);
+    if (tree && !tree.ok) {
+      const mf = flag('--manifest');
+      if (mf) { const m = readManifest(mf); markReader(m, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, m); }
+      process.stdout.write(wrongTree(reader, tree));
+      return EXIT.fail;
+    }
     if (unavailable !== undefined) { process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(unavailable)} (missing outside coverage: unavailable, never clean)\n`); return EXIT.ok; }
     if (!r.review) {
       process.stdout.write(`COLLECT_NOT_REVIEWED: reader=${reader} findings=0 sha256=${r.sha} (no finding and no ${cleanMarkers(reader).map(([m]) => m).join(' or ')} line: a refusal, an empty reply or a reader that never saw the diff is not a review; verify reports this brief NOT_COLLECTED)\n`);
@@ -310,7 +368,6 @@ function main(): number {
   return EXIT.usage;
 }
 
-try { process.exit(main()); } catch (e) {
-  if (e instanceof BriefError) { process.stderr.write(`BRIEF_RENDER_FAILED: ${e.message}\n`); process.exit(EXIT.fail); }
-  throw e;
+try { process.exitCode = main(); } catch (e) {
+  if (e instanceof BriefError) { process.stderr.write(`BRIEF_RENDER_FAILED: ${e.message}\n`); process.exitCode = EXIT.fail; } else throw e;
 }

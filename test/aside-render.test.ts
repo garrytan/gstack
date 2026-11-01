@@ -350,7 +350,7 @@ function writeDriver(dir: string): string {
   fs.writeFileSync(driver, `const M = await import(${JSON.stringify(LIB)});
 const job = JSON.parse(process.argv[2]);
 let out;
-if (job.fn === 'probeAside') out = M.probeAside(job.timeoutMs);
+if (job.fn === 'probeAside') out = M.probeAside(job.timeoutMs, job.platform);
 else if (job.fn === 'renderWithAside') out = await M.renderWithAside(job.spec);
 else if (job.fn === 'render') {
   if (job.primeAside) M.pickEngine(true, { probe: () => ({ ok: true, version: 'fake-aside' }) });
@@ -383,9 +383,9 @@ describe.skipIf(!HERMETIC)('aside-render: probeAside classifies a fake CLI the w
   let driver: string;
   beforeAll(() => { fs.mkdirSync(bin); driver = writeDriver(tmp); });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const probe = (env?: Record<string, string>): AsideProbe => {
+  const probe = (env?: Record<string, string>, platform = 'darwin'): AsideProbe => {
     fs.rmSync(log, { force: true });
-    return runDriver<AsideProbe>(driver, { fn: 'probeAside', timeoutMs: 5_000 }, { binDir: bin, env });
+    return runDriver<AsideProbe>(driver, { fn: 'probeAside', timeoutMs: 5_000, platform }, { binDir: bin, env });
   };
 
   test('no `aside` on PATH → NEEDS_ASIDE (install it), never "not running"', () => {
@@ -441,6 +441,23 @@ describe.skipIf(!HERMETIC)('aside-render: probeAside classifies a fake CLI the w
     expect(r.reason).toBe('NEEDS_ASIDE');
     expect(r.detail).toContain('GSTACK_SKIP_ASIDE=1');
     expect(fs.existsSync(log)).toBe(false);
+  });
+
+  test.each(['linux', 'win32'])('on %s → NEEDS_ASIDE naming the platform, and the CLI is never invoked, even when one is on PATH (#2864)', platform => {
+    writeFakeAside(bin, { repl: 'echo "ASIDE_READY /x"', log });
+    const r = probe(undefined, platform);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('NEEDS_ASIDE');
+    expect(r.detail).toBe(`Aside is macOS-only (this is ${platform})`);
+    expect(fs.existsSync(log)).toBe(false);
+  });
+
+  test('GSTACK_SKIP_ASIDE=1 keeps precedence over the platform check', () => {
+    const r = probe({ GSTACK_SKIP_ASIDE: '1' }, 'linux');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.detail).toContain('GSTACK_SKIP_ASIDE=1');
   });
 });
 

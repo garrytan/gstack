@@ -166,6 +166,13 @@ describe('scope decisions', () => {
 describe('deferral rendering', () => {
   const finding: ScopedFinding = { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts', line: 7, severity: 'CRITICAL', category: 'data-loss', summary: 'Unbounded delete\nwithout a where clause', fix: 'add the tenant filter', specialist: 'security', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' };
 
+  test('a deferred issue shows the severity and Blocks the reviewer stated beside the collected label (GST-766)', () => {
+    const issue = renderDeferredIssue({ ...finding, stated: { severity: 'Low', blocks: 'no' } }, { repo: 'acme/app', pr: 42 });
+    expect(issue.body).toContain('- **Severity:** CRITICAL (the reviewer wrote Severity: Low, Blocks: no)');
+    expect(renderDeferredIssue({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } }, {}).body).toContain('- **Severity:** CRITICAL (the reviewer wrote Blocks: yes - **Injected:** x)');
+    expect(renderDeferredIssue(finding, {}).body).toContain('- **Severity:** CRITICAL\n');
+  });
+
   test('the issue names the origin PR, the finding and a marker that keeps a rerun from filing twice; the body section references and never closes', () => {
     const issue = renderDeferredIssue(finding, { repo: 'acme/app', pr: 42, branch: 'feat/x', head: 'a'.repeat(40) });
     expect(issue.title).toBe('Deferred review finding: lib/legacy.ts:7 — Unbounded delete without a where clause');

@@ -246,6 +246,8 @@ case "$_P_PULL" in
     echo "gstack auto-update: update held ($_P_PULL); nothing was installed or changed, and your current hooks keep running. gstack retries at the next check. Fix now ($_WHERE): $_FF_FIX (setup checks every hook it registers). https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#auto-update-hook-check-unavailable" ;;
   unmerged-files*)
     echo "gstack auto-update: update held ($_P_PULL); an earlier merge, rebase or stash pop left conflicts in the install, and an update would bury them. Fix now ($_WHERE): $_FF_FIX (saves every edit, the unmerged files included, in a rescue ref before it updates). https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#auto-update-unmerged-files" ;;
+  tracked-by-project*|version-reverted*)
+    echo "gstack auto-update: update held ($_P_PULL); nothing was installed or changed. gstack retries at the next check. The full fix: bash $_Q/bin/gstack-ff-update --preflight $_Q. https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#auto-update-tracked-by-project" ;;
   autostash-unrecoverable*)
     echo "gstack auto-update: update held ($_P_PULL); your local edits are where they were and nothing was installed. Look first: git -C $_Q status --short. Fix now ($_WHERE): $_FF_FIX (once the cause above is gone). https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#auto-update-autostash-unrecoverable" ;;
   *)
@@ -500,7 +502,7 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
           log_entry "AUTOSTASH_CONFLICT_RECOVERED tree_reset=1 kept_stash=${4##*/} kept_ref=$4 $5"
           rescue_note "$4" "${5#unmerged=}" ;;
         0:*) ;;
-        3:*) HELD=$FF_OUT PULL_EXIT=0 ;;
+        3:*|6:*) HELD=$FF_OUT PULL_EXIT=0 ;;
         75:*) log_entry "SKIP ff_busy $(ff_flatten "$FF_OUT" 200)"; rm -f "$PULL_ERR_FILE" 2>/dev/null; exit 0 ;;
         *) printf '%s\n' "${FF_OUT:-bin/gstack-ff-update exited $PULL_EXIT}" > "${PULL_ERR_FILE:-/dev/null}" ;;
       esac

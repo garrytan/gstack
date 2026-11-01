@@ -2,7 +2,7 @@
 name: ship
 preamble-tier: 4
 version: 1.0.0
-description: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. (gstack)"
+description: "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -455,7 +455,7 @@ not web services already deployed.
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `skipped` under stamp-at-merge).
+The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge).
 
 **Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution, and wait for the answer before editing or continuing; then commit and rerun the preflight.
 
@@ -508,7 +508,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
    does not mean failed or unrun probes passed. Keep Step 9.4's incomplete flags
    and the user's exception.
 4. **Save the evidence.** Save both records and matching **reviewed tree** for
-   Step 16. Continue to Step 12.
+   Step 16, with its merge base. Continue to Step 12.
 
 ## Step 12: Version bump (auto-decide)
 
@@ -666,7 +666,7 @@ Run stages 1–5 in order; recovery notes below name where to resume. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
 
-**One call for stages 1–4:** `~/.claude/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
+**One call for stages 1–4:** `~/.claude/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
 makes Step 15's item-3 commit and runs stages 1–4 and the pregate; each `STOP:` is a recovery
 below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 
