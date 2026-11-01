@@ -110,8 +110,8 @@ describe('planReview dispatches the targeted reader', () => {
   test('at light, standard and full depth when a class hit, never when none did', () => {
     expect(plan({ targeted: { classes: ['money'] } })).toMatchObject({ depth: 'light' });
     expect(roles(plan({ targeted: { classes: ['money'] } }))).toContain('targeted full');
-    expect(plan({ diffLines: 80, perPath: [{ path: 'src/a.ts', lines: 80, binary: false }], targeted: { classes: ['secret'] } }).depth).toBe('standard');
-    expect(roles(plan({ diffLines: 80, perPath: [{ path: 'src/a.ts', lines: 80, binary: false }], targeted: { classes: ['secret'] } }))).toContain('targeted full');
+    expect(plan({ diffLines: 80, perPath: [{ path: 'src/a.ts', lines: 80, binary: false }], targeted: { classes: ['secret'] }, floor: 'standard' }).depth).toBe('standard');
+    expect(roles(plan({ diffLines: 80, perPath: [{ path: 'src/a.ts', lines: 80, binary: false }], targeted: { classes: ['secret'] }, floor: 'standard' }))).toContain('targeted full');
     expect(plan({ gateTagged: 1, targeted: { classes: ['gate'] } }).depth).toBe('full');
     expect(roles(plan({ gateTagged: 1, targeted: { classes: ['gate'] } }))).toContain('targeted full');
     expect(roles(plan({ targeted: { classes: [] } }))).not.toContain('targeted full');
@@ -183,6 +183,18 @@ function planRepo(f: Fixture) {
   const run = (args: string[]) => spawnSync(PLAN, ['--base', 'main', ...(args.includes('--gate-tagged') ? [] : ['--gate-tagged', '0']), ...args], { cwd: dir, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state } });
   return { dir, run, write };
 }
+/**
+ * R51 (risk, not size): the depth each fixture plans now. Every risk or gate fixture plans full and keeps every role main
+ * dispatched, plus the full panel; a non-risky fixture keeps main's reviewers except the roles listed (size no longer raises it).
+ */
+const FULL_PANEL = ['specialist', 'red-team', 'adversarial-native', 'outside-voice'];
+const R51: Record<string, { depth: string; panel: boolean; dropped?: string[] }> = {
+  'none-light': { depth: 'light', panel: false }, 'none-standard': { depth: 'light', panel: false, dropped: ['outside-voice'] }, 'none-docs': { depth: 'light', panel: false },
+  'none-tests': { depth: 'light', panel: false }, 'none-costume': { depth: 'light', panel: false }, 'none-gate-path': { depth: 'full', panel: true },
+  'secret-light': { depth: 'full', panel: true }, 'secret-path': { depth: 'full', panel: true }, 'secret-removed': { depth: 'full', panel: true }, 'gate-tagged': { depth: 'full', panel: true },
+  'money-light': { depth: 'full', panel: true }, 'money-path': { depth: 'full', panel: true }, 'money-removed': { depth: 'full', panel: true }, 'money-standard': { depth: 'full', panel: true },
+  'auth-path': { depth: 'full', panel: true }, 'money-fix-check': { depth: 'full', panel: false }, 'money-pass2': { depth: 'full', panel: false }, 'gate-repeat': { depth: 'full', panel: false },
+};
 const field = (out: string, prefix: string, key: string) => new RegExp(`^${prefix}.* ${key}=(\\S+)`, 'm').exec(out)?.[1];
 
 describe('gstack-review-plan prints TARGETED and dispatches the targeted reader', () => {
@@ -190,17 +202,23 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
   //   standard and full depth and on fix-check, scoped and repeat steps, is still dispatched unchanged, and the only addition is the
   //   targeted reader on a class diff; fails_when=the change drops, renames or re-efforts any reviewer, or adds the reader on a diff
   //   with no class; seam=bin/gstack-review-plan end to end; no_claim=that the reader finds the defect (the paid replay's question)
-  test('the dispatch-superset no-loss check: on every fixture the branch dispatches main\'s reviewers plus only the targeted reader', () => {
+  //   R51 changes the table: risk and gate fixtures plan full (every role main dispatched, plus the full panel), and the one
+  //   non-risky standard fixture drops only the outside voice; fails_when=a risk fixture loses a role main dispatched or misses
+  //   the full panel, or a non-risky fixture loses a role the R51 table does not list
+  test('the dispatch-superset no-loss check: risk and gate fixtures keep every role main dispatched plus the full panel; non-risky ones drop only what R51 lists', () => {
     expect(Object.keys(MAIN).sort()).toEqual(Object.keys(FIXTURES).sort());
-    expect(new Set(Object.values(MAIN).map(m => m.depth))).toEqual(new Set(['light', 'standard', 'full']));
+    expect(Object.keys(R51).sort()).toEqual(Object.keys(FIXTURES).sort());
+    const role = (d: string) => d.split(' ')[0]!;
     for (const [name, f] of Object.entries(FIXTURES)) {
       const r = planRepo(f).run(f.args ?? []);
       expect(r.status, `${name}: ${r.stderr}`).toBe(0);
       const got = r.stdout.split('\n').filter(l => l.startsWith('DISPATCH: ')).map(l => l.slice('DISPATCH: '.length));
-      const want = MAIN[name]!;
-      expect(r.stdout, name).toContain(`REVIEW_DEPTH: ${want.depth} `);
-      expect(got.filter(d => !want.main.includes(d)), name).toEqual(want.classes === 'none' ? [] : ['targeted targeted effort=full']);
-      expect(want.main.filter(d => !got.includes(d)), name).toEqual([]);
+      const want = MAIN[name]!, now = R51[name]!;
+      expect(r.stdout, name).toContain(`REVIEW_DEPTH: ${now.depth} `);
+      const roles = new Set(got.map(role));
+      expect([...new Set(want.main.map(role))].filter(x => !roles.has(x)), name).toEqual(now.dropped ?? []);
+      if (now.panel) expect(FULL_PANEL.filter(x => !roles.has(x)), name).toEqual([]);
+      expect(roles.has('targeted'), name).toBe(want.classes !== 'none');
       expect(field(r.stdout, 'TARGETED:', 'classes'), name).toBe(want.classes);
     }
   }, 180_000);

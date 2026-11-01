@@ -302,7 +302,7 @@ export function segmentEstimate(cal: Calibration, unit: string, from: string, to
  * section reads, reconcile: gstack-evals #34's two children cost 4.53M, 2-4.5M each) to save the parent's
  * context above the host floor on each call of the segment. #34's parent calls ran 0.2-0.3M over a 0.15M
  * floor, so a fresh child saves at most about 3/8 of a call, and a segment under CHILD_FIXED_COST over that
- * share (12M) cannot pay for its child. A light-depth diff (runtime lines at most SMALL_DIFF_LINES) keeps
+ * share (12M) cannot pay for its child. A small diff (runtime lines at most SMALL_DIFF_LINES) keeps
  * its segment when the segment's calibrated calls at this run's own per-call charge stay under that.
  */
 export const SMALL_RUN_LINES = SMALL_DIFF_LINES;

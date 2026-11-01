@@ -70,7 +70,7 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
     tagged = g?.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   }
   const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged });
-  return { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12) };
+  return { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk };
 }
 
 export const depthBelow = (have: Depth, need: Depth) => RANK[have] < RANK[need];
@@ -182,7 +182,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged });
   const have = rd?.depth;
   const inputs = `base@${short(baseSha.ok ? baseSha.out : null)},registry@${short(c.registry.sha)},gate_scan@${scanBound ? short(rd!.gate_scan.head) : 'missing'}`;
-  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs}`;
+  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
   if (have && !depthBelow(have, need.depth)) return { ok: true, line };
   const why = have ? `was reviewed at ${have} depth` : 'records no review_depth though its writer records one';
   const errs = need.errors.map(e => `${e.code} (${e.input})`).join('; ');

@@ -208,7 +208,7 @@ describe('loop summary', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true }] },
     ];
     const s = summarizeReviewLoop(rows, '2026-10-26T09:30:00Z');
-    expect(s).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen' });
+    expect(s).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 });
     expect(reviewLoopLine(s)).toBe('REVIEW_LOOP: passes=2 blocking_found=2 deferred=1 noted=1 fixed=1 scope=frozen');
   });
 
@@ -223,7 +223,7 @@ describe('loop summary', () => {
       { skill: 'review', via: 'ship', review_binding: { state: 'changed', started_at: '2026-10-26T09:00:00.000Z' }, findings: [{ fingerprint: 'old:1:q', action: 'noted' }] },
       { skill: 'review', via: 'ship', findings: [{ fingerprint: 'undated:1:q', action: 'noted' }] },
     ];
-    expect(summarizeReviewLoop(rows, '2026-10-26T09:30:00Z')).toEqual({ passes: 3, blocking_found: 1, deferred: 0, noted: 2, fixed: 1, scope: 'frozen' });
+    expect(summarizeReviewLoop(rows, '2026-10-26T09:30:00Z')).toEqual({ passes: 3, blocking_found: 1, deferred: 0, noted: 2, fixed: 1, scope: 'frozen', rounds: 3 });
   });
 });
 
@@ -421,7 +421,7 @@ describe('gstack-review-scope (bin)', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true, action: 'fixed' }] },
     ];
     fs.writeFileSync(path.join(logDir, `${branch}-reviews.jsonl`), rows.map(r => JSON.stringify(r)).join('\n') + '\n{not json\n');
-    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen' };
+    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 };
     const out = path.join(repo.root, 'review-loop.json');
     const r = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-26T09:30:00Z', '--out', out, '--json']);
     expect(r.status).toBe(EXIT.ok);
