@@ -469,7 +469,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
-   wherever they stand outside a negation (below), headings and table rows included; a top-level list item under a
+   wherever they stand, headings and table rows included; a top-level list item under a
    label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
@@ -478,11 +478,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
-   A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "No P0/P1 issues":
-   no, nothing, not, none, zero, without or never, optionally followed by new, remaining, other, further, additional, more
-   or at, through Markdown, and carried to labels joined by a comma, slash, or, nor or and) is no finding unless it opens a
-   field (`High:`, GST-766). A line whose labels are all negated closes the open finding and heads the next, so a finding
-   worded around a negated label still arrives through its Severity or Blocks field. Each prose finding's line also
+   A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
+   closing summary is a known phantom: it stays at that label in the judged set, lead judgment can fold it only into a
+   finding at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
+   real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
+   reverted that. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
