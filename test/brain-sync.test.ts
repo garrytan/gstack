@@ -1189,6 +1189,8 @@ describe('gstack-brain-sync per-file hold', () => {
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       expect(statusJson().status).toBe('blocked');
+      expect(statusJson().message).toContain('unfinished');
+      expect(statusJson().message).not.toContain('--skip-file <path>');
       expect(remoteShow(PROFILE).stdout).toBe('{"sessions":[],"v":"peer"}\n');
       expect(remoteFiles()).not.toContain(CLEAN);
       expect(git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status).toBe(0);

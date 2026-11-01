@@ -1022,7 +1022,7 @@ hold_flagged_paths() {
   WAITING=${WAITING:-0}
   if [ -s "$scan.unstage" ] && git -C "$GSTACK_HOME" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     ST_DRAINABLE=0
-    write_status "blocked" "a git merge in $GSTACK_HOME is unfinished and $(grep -c . "$scan.unstage") file(s) are held back; committing the merge without them would drop the other side's changes. Repair them (see held[]), then sync again; nothing was committed, the merge and the queue are kept"
+    write_status "blocked" "a git merge in $GSTACK_HOME is unfinished and $(grep -c . "$scan.unstage") file(s) are held back or wait for their coupled group; committing the merge without them would drop the other side's changes. Repair the files held[] names (they stay queued and sync on the next run), or finish the merge yourself; --skip-file and --drop-queue do not clear this. Nothing was committed; the merge and the queue are kept"
     echo "BRAIN_SYNC: blocked: unfinished merge with held files" >&2
     return 1
   fi
