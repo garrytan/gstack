@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.37.0] - 2026-11-01
+
+- **A Red Team finding that quotes `origin/<base>` no longer stops `/ship`'s review** (`lib/review-brief.ts`, GST-797). The renderer checked each finished brief for unfilled slots like `<base>`, `<diff-base>` and `<exclude>` after the reviewers' findings and past learnings had been pasted in, so a finding that quoted one failed the render with `BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>` (seen on #3795). A quoted `<diff-base>` was also quietly swapped for the commit sha. The check now runs on the brief before that text goes in, and the quoted text reaches the reader exactly as written. A slot the section really leaves open still fails the render. A brief whose findings and learnings quote no slot name renders the same bytes as before.
+
 ## [1.92.36.0] - 2026-11-01
 
 **/ship's review collector keeps every severity label again, so a blocker named after "no CRITICAL issues except" is no longer lost.** v1.92.29.0 (GST-766) skipped any severity word that followed "no", "nothing", "none" and similar words, to stop a reviewer's closing line like "found nothing CRITICAL" from counting as a finding. That also threw away real blockers named in an exception clause: "No CRITICAL issues except the token leak in log.ts:3", "Nothing CRITICAL apart from the auth bypass (auth.ts:9)" and four more wordings collected nothing at all, so the gate never saw them. The collector now reads labels exactly as it did before v1.92.29.0. The reviewer's own Severity and Blocks fields are still recorded beside the label (`stated`), as in v1.92.29.0.
