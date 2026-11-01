@@ -352,7 +352,7 @@ warning on stderr). A repository without gstack's eval workflow declares
 "train": {
   "gate_workflow": "evals.yml", "free_workflow": "free-tests.yml",
   "full_gate_check": "gstack/full-gate", "record_artifact": "gstack-train-record",
-  "max_size": 3, "fill_hours": 1, "screen_selection": "gstack-paid",
+  "max_size": 5, "fill_hours": 1, "screen_selection": "gstack-paid",
   "trial_reservation_usd": 1.5
 },
 "min_gstack_version": "<the version that introduced train>"
@@ -680,8 +680,8 @@ forked (the chain's merge onto the pin's own prefix is the verdict), refuses
 `QUEUE_TRAIN_CONFLICT` for a pin that does not merge, and otherwise prints
 `MERGE_CHECK: T1..T<k> merge clean onto <base>@<sha>`, so a
 `QUEUE_TRAIN_WAITING` result is also a clean dry-run merge of the pool (the
-crew template's sibling trial merge, done by the tool). gstack's own block fills at 3 PRs or one hour (it was 5 PRs or
-three hours until 2026-10-26, which left READY PRs waiting most of a day). The same pins on the same base return the live train
+crew template's sibling trial merge, done by the tool). gstack's own block fills at 5 PRs or one hour (it was 5 PRs or
+three hours until 2026-10-26, which left READY PRs waiting most of a day, then 3 PRs or one hour until 2026-10-31). The same pins on the same base return the live train
 instead of a second one; `train build --train <nonce>` resumes a train from
 its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
