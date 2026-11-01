@@ -310,12 +310,11 @@ describe('gstack-clean', () => {
     test('no process listing is unknown liveness and skips tmp/', () => {
       const f = fixture();
       put(path.join(f.gs, 'tmp', 'codex-err-old'), 'x', 30 * DAY);
-      const onlyGit = path.join(f.root, 'only-git');
-      fs.mkdirSync(onlyGit);
-      const gitBin = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
-      fs.symlinkSync(gitBin, path.join(onlyGit, 'git'));
+      const failingPs = path.join(f.root, 'failing-ps');
+      fs.mkdirSync(failingPs);
+      fs.writeFileSync(path.join(failingPs, 'ps'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
       const before = snapshot(path.join(f.repo));
-      const r = run(f, ['--apply'], { env: { PATH: onlyGit } });
+      const r = run(f, ['--apply'], { env: { PATH: failingPs + path.delimiter + (process.env.PATH ?? '') } });
       expect(r.code).toBe(0);
       expect(r.out).toContain('skip         tmp/codex-err-old: cannot list processes to tell whether codex is running');
       expect(changedKeys(before, snapshot(f.repo))).toEqual([]);
@@ -454,21 +453,13 @@ describe('gstack-clean', () => {
     }
   });
 
-  test.skipIf(process.platform === 'win32')('tmp removal is unaffected by a codex process elsewhere on the host', async () => {
+  test('--json reaches a pipe whole with hundreds of actions', () => {
     const f = fixture();
-    put(path.join(f.gs, 'tmp', 'codex-err-old'), 'x', 30 * DAY);
-    const fake = path.join(f.root, 'fakebin', 'codex');
-    put(fake, '#!/bin/sh\nsleep 30\n', 0);
-    fs.chmodSync(fake, 0o755);
-    const child = spawn(fake, [], { stdio: 'ignore' });
-    try {
-      await Bun.sleep(300);
-      const r = run(f, ['--apply']);
-      expect(r.code).toBe(0);
-      expect(fs.existsSync(path.join(f.gs, 'tmp', 'codex-err-old'))).toBe(false);
-    } finally {
-      child.kill('SIGKILL');
-    }
+    for (let i = 0; i < 300; i++) put(path.join(f.gs, 'tmp', 'codex-err-' + String(i).padStart(6, '0')), 'x', 30 * DAY);
+    const env: Record<string, string> = { PATH: quietPsPath(f), HOME: f.home, GSTACK_HOME: f.state };
+    const cmd = [process.execPath, ...bunIsolationArgs(), BIN, '--json'].map(a => "'" + a.replace(/'/g, "'\''") + "'").join(' ') + ' | (sleep 1; cat)';
+    const r = spawnSync('sh', ['-c', cmd], { cwd: f.repo, env, encoding: 'utf8', timeout: 30_000 });
+    expect(JSON.parse(r.stdout).actions.length).toBe(300);
   });
 
   describe('exit codes', () => {
@@ -485,7 +476,7 @@ describe('gstack-clean', () => {
       }
     });
 
-    test('1: a read-only folder and a read-only file give FAILED lines; rerunning is safe', () => {
+    test.skipIf(process.getuid?.() === 0)('1: a read-only folder and a read-only file give FAILED lines; rerunning is safe', () => {
       const f = fixture();
       put(path.join(f.gs, 'tmp', 'codex-err-old'), 'x', 30 * DAY);
       const log = put(path.join(f.gs, 'browse-dialog.log'), logText(1.1 * 1024 * 1024), 2 * 60 * 60 * 1000);

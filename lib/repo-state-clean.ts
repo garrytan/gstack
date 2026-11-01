@@ -377,9 +377,17 @@ function run(argv: string[], env: NodeJS.ProcessEnv, cwd: string, io: Io): numbe
   return report(io, opts, resolved, applied.done, [...plan.skips, ...applied.skips]);
 }
 
+/** Synchronous, so a pipe gets every byte before the bin calls process.exit. */
+function writeAll(fd: number, text: string): void {
+  const buf = Buffer.from(text, 'utf8');
+  for (let off = 0; off < buf.length;) {
+    try { off += fs.writeSync(fd, buf, off); } catch (e: any) { if (e?.code !== 'EAGAIN') throw e; }
+  }
+}
+
 /** The bin's entry. Never throws: an unexpected error prints one GSTACK_CLEAN_INTERNAL line and exits 1. */
 export function main(argv: string[], env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): number {
-  const io: Io = { out: line => process.stdout.write(`${line}\n`), err: line => process.stderr.write(`${line}\n`) };
+  const io: Io = { out: line => writeAll(1, `${line}\n`), err: line => writeAll(2, `${line}\n`) };
   try {
     return run(argv, env, cwd, io);
   } catch (e) {
