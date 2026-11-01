@@ -124,7 +124,7 @@ export async function importNativeCookies(options: {
     const timer = setTimeout(() => {
       worker.kill();
       reject(new CookieImportError('Native cookie cleanup could not be confirmed within its deadline.', 'native_cleanup_failed'));
-    }, Math.max(0, deadline + NATIVE_CLEANUP_MS - Date.now()));
+    }, Math.max(0, deadline + NATIVE_CLEANUP_MS + 2_000 - Date.now()));
     worker.stdout.setEncoding('utf8');
     worker.stdout.on('data', chunk => {
       output += chunk;

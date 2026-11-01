@@ -254,27 +254,14 @@ function shellReads(command: unknown, output: unknown, scope: ShellScope): Set<s
       if (anchor.kind !== 'label') {
         // Output of an exact line count (wc -l over literal in-cwd files, pwd)
         // places the next run exactly that many lines after the cursor.
-        if (min !== max) {
-          // Bounded output (grep | head) may end on any line in its bounds, so
-          // credit only when exactly one line after the cursor starts a
-          // complete copy of the run; the bounds are checked below.
-          if (!Number.isFinite(max)) return new Set();
-          const pattern = new RegExp(run.map(pieceSource).join(''), 'y'), copies: number[] = [];
-          for (let start = cursor; start <= out.length; start = out.indexOf('\n', start) + 1 || out.length + 1) {
-            pattern.lastIndex = start;
-            if (pattern.test(out)) copies.push(start);
-          }
-          if (copies.length !== 1) return new Set();
-          starts = copies;
-        } else {
-          let start = cursor;
-          for (let line = 0; line < min; line++) {
-            const end = out.indexOf('\n', start);
-            if (end < 0) return new Set();
-            start = end + 1;
-          }
-          starts = [start];
+        if (min !== max) return new Set();
+        let start = cursor;
+        for (let line = 0; line < min; line++) {
+          const end = out.indexOf('\n', start);
+          if (end < 0) return new Set();
+          start = end + 1;
         }
+        starts = [start];
       } else {
         let found = anywhere(anchor.text);
         if (owns) {

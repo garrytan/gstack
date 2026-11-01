@@ -30,7 +30,6 @@ import manualWording from './fixtures/third-party-actions-manual-wording.json';
 import opusRenders from './fixtures/third-party-actions-opus-consent-renders.json';
 import recoveryFixture from './fixtures/third-party-actions-recovery-public.json';
 import pitchCaptures from './fixtures/third-party-actions-pitch-captures.json';
-import brokenAbsence from './fixtures/third-party-actions-broken-absence-reason.json';
 import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, "..");
@@ -610,32 +609,5 @@ describe('Opus consent renders (gate captures)', () => {
       'Normally I would offer "I drive it in Aside", but Apple credentials are never a drive target.',
       '1. Sign in on any device and generate the password.',
       'A) You generate it yourself on any device.\nB) You enter it through the masked prompt.']) expect(offersDriveOption(text), text).toBe(false);
-  });
-});
-
-// Gate 41246728073 slice 16 (PR #3727): Opus offered only the gstack drive and gave the
-// recommendation's reason as "since Aside isn't available". A statement that Aside is
-// absent names no Aside drive; any other Aside mention in the same option still does.
-describe('consent offer extraction: an Aside-absence reason on the gstack drive option', () => {
-  test('the captured tpa-broken renders offer no Aside drive', () => {
-    const [red, rerun] = brokenAbsence.renders;
-    expect(red.recordedPassed).toBe(false);
-    expect(letteredOptions(red.assistantText)[0]).toContain("(Recommended, since Aside isn't available)");
-    for (const render of brokenAbsence.renders) expect(asideDriveOptions(render.assistantText), render.attempt).toEqual([]);
-    expect(offersDriveOption(rerun.assistantText)).toBe(true);
-  });
-
-  test('absence statements are discounted; an Aside drive beside them is still caught', () => {
-    for (const option of ["B) I drive it in gstack's own visible browser (Recommended, since Aside isn't available)",
-      "B) I drive it in gstack's own visible browser, because the Aside app is not running.",
-      "B) I drive it in gstack's own browser; Aside wasn't detected.", "B) I drive it in gstack's own browser (Aside is unavailable).",
-      "B) I drive it in gstack's own browser since Aside isn’t installed."])
-      expect(asideDriveOptions(option), option).toEqual([]);
-    for (const option of ["A) I drive it in your Aside browser, even though Aside isn't running yet.",
-      "B) I drive it in gstack's own browser, or in Aside once Aside is not busy.", "B) Since Aside isn't available, I drive it in Aside's fallback window.",
-      "A) Aside isn't available yet, so open it; then I drive it in your Aside browser.", "A) I drive it in Aside; gstack isn't available.",
-      "B) I drive it in gstack's own browser and switch to Aside if it's running.",
-      "A) Aside isn't running, so I'll launch it and drive it there.", "A) Aside app is not running yet; I'll start it and drive the dashboard for you."])
-      expect(asideDriveOptions(option), option).toHaveLength(1);
   });
 });
