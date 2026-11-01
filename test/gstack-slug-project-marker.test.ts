@@ -178,6 +178,36 @@ describe('gstack-slug: .gstack-project marker', () => {
     expect(slug(wt)).toBe('org-backend');
   });
 
+  test('a linked worktree outside the umbrella follows it before the main checkout has ever resolved', () => {
+    const { top, backend } = umbrella();
+    git(['-C', backend, 'commit', '-q', '--allow-empty', '-m', 'init']);
+    mark(top);
+    const wt = path.join(home, 'elsewhere', 'wt');
+    git(['-C', backend, 'worktree', 'add', '-q', wt]);
+    expect(projectMarkerRoot(wt)).toBe(top);
+    expect(slug(wt)).toBe('MyProduct');
+    expect(slugFromEnvironment(state, wt)).toBe('MyProduct');
+    expect(run(REMOTE_SLUG, wt).stdout.trim()).toBe('MyProduct');
+    expect(slug(backend)).toBe('MyProduct');
+    expect(slug(wt)).toBe('MyProduct');
+  });
+
+  test('a worktree outside $HOME ignores a $HOME marker above its main checkout', () => {
+    const backend = repo(path.join(home, 'code', 'backend'), 'git@github.com:org/backend.git');
+    git(['-C', backend, 'commit', '-q', '--allow-empty', '-m', 'init']);
+    mark(home);
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-marker-out-')));
+    try {
+      const wt = path.join(outside, 'wt');
+      git(['-C', backend, 'worktree', 'add', '-q', wt]);
+      expect(slug(wt)).toBe('org-backend');
+      expect(projectMarkerRoot(wt)).toBe('');
+      expect(slugFromEnvironment(state, wt)).toBe('org-backend');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   test('a worktree outside the umbrella follows it even when $HOME is itself a git repository', () => {
     git(['init', '-q', home]);
     const { top, backend } = umbrella();
@@ -282,21 +312,20 @@ describe('lib/bin-context: marker twin', () => {
     expect(defaultUserConfigPath(proj)).toBe(before);
   });
 
-  test('a linked worktree follows the umbrella natively, and a stale binding is dropped', () => {
+  test('a linked worktree follows the umbrella natively and stops when the marker goes', () => {
     const { top, backend } = umbrella();
     git(['-C', backend, 'commit', '-q', '--allow-empty', '-m', 'init']);
     mark(top);
     expect(slugFromEnvironment(state, backend)).toBe('MyProduct');
     const wt = path.join(home, 'elsewhere', 'wt');
     git(['-C', backend, 'worktree', 'add', '-q', wt]);
-    expect(projectMarkerRoot(state, wt)).toBe(top);
+    expect(projectMarkerRoot(wt)).toBe(top);
     expect(slugFromEnvironment(state, wt)).toBe('MyProduct');
     expect(readVersionedSlugCache(state, wt)).toBe('MyProduct');
     fs.rmSync(path.join(top, '.gstack-project'));
-    expect(projectMarkerRoot(state, wt)).toBe('');
+    expect(projectMarkerRoot(wt)).toBe('');
     expect(slugFromEnvironment(state, wt)).toBe('org-backend');
     expect(slug(wt)).toBe('org-backend');
-    expect(fs.readdirSync(path.join(state, 'slug-cache', 'marker-binding'))).toEqual([]);
   });
 
   test('subfolder and $HOME markers are ignored natively too', () => {

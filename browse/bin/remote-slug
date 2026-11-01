@@ -7,7 +7,7 @@
 set -e
 . "$(dirname "$0")/../../bin/gstack-remote-identity.sh" 2>/dev/null || { echo "$0: bin/gstack-remote-identity.sh is missing. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
 # A counted .gstack-project marker (#2649, #1923), found on the cwd chain or
-# through a linked worktree's binding, decides identity the way bin/gstack-slug
+# from a linked worktree's main checkout, decides identity the way bin/gstack-slug
 # does, so design-doc lookups find docs where skills saved them.
 _gs="$(dirname "$0")/../../bin/gstack-slug"
 if [ -n "$("$_gs" --get PROJECT_MARKER 2>/dev/null || true)" ]; then

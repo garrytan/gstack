@@ -5,7 +5,7 @@
 - **`gstack-slug --adopt-legacy --from <slug> --under-root [--apply]`** previews, then copies and restamps, the checkpoints an old bucket holds that were saved inside the marked folder, so `/context-restore` finds them. The first run after you add a marker names the command when the old bucket holds checkpoints. A nested repo with its own remote and no marker gets a one-time hint on its first resolve.
 
 ### Changed
-- **Marker results have their own cache entries** (`slug-cache/marker/`), so deleting the marker restores the folder's earlier slug byte for byte. A linked worktree outside an umbrella follows it through a binding on the git common dir, valid only while the marker still counts.
+- **Marker results have their own cache entries** (`slug-cache/marker/`), so deleting the marker restores the folder's earlier slug byte for byte. A linked worktree outside an umbrella follows it through its main checkout, from its first run, for as long as the marker counts.
 - **`browse/bin/remote-slug` follows a counted marker**, linked worktrees included, so the design-doc lookups in /plan-ceo-review, /plan-devex-review, /autoplan and the spec review find docs where /office-hours saved them.
 - **Records that belong to one repository ignore every marker**: pregate policy and run scratch, approvals, `/verify` results and the Greptile early-push answer stay under the repository's own slug (`gstack-slug --get REPO_SLUG`, `slugFromEnvironment(..., { scope: 'repository' })`), so a branch that commits a marker can't change which policy applies.
 

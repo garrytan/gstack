@@ -315,32 +315,17 @@ function markerCacheFile(stateRoot: string, root: string): string {
   return join(stateRoot, "slug-cache", "marker", toMsysPath(root).replace(/\//g, "_"));
 }
 
-function markerBindingFile(stateRoot: string, commonDir: string): string {
-  return join(stateRoot, "slug-cache", "marker-binding", toMsysPath(commonDir).replace(/\//g, "_"));
-}
-
 /**
  * The marked folder that sets this cwd's identity, or "". A linked worktree
- * outside the marked folder follows its main checkout through the binding
- * gstack-slug keys on the git common dir.
+ * outside the marked folder follows its main checkout: on a miss the walk
+ * repeats from there, as bin/gstack-slug does.
  */
-export function projectMarkerRoot(stateRoot: string, cwd: string): string {
-  let root = findProjectMarker(cwd).root;
+export function projectMarkerRoot(cwd: string): string {
+  const root = findProjectMarker(cwd).root;
+  if (root) return root;
   const common = gitCommonDir(cwd);
   const main = common && basename(common) === ".git" ? dirname(common) : "";
-  if (!root && main) {
-    let bound = "";
-    try {
-      bound = readFileSync(markerBindingFile(stateRoot, common), "utf-8").split("\n")[0].trim();
-    } catch {
-      // no binding
-    }
-    const homes = homeForms();
-    if (bound && (main === bound || isUnder(main, bound)) && !markerIgnoredReason(bound, homes.some((h) => isUnder(bound, h)), homes)) {
-      root = bound;
-    }
-  }
-  return root;
+  return main && main !== cwd && !isUnder(cwd, main) ? findProjectMarker(main).root : "";
 }
 
 function writeCacheEntry(file: string, content: string): void {
@@ -383,9 +368,6 @@ function markerSlug(stateRoot: string, cwd: string, root: string): string {
     if (!slug || slug === "." || slug === "..") return "";
     writeCacheEntry(file, `${SLUG_CACHE_VERSION_PREFIX}${slug}`);
   }
-  const common = gitCommonDir(cwd);
-  const main = common && basename(common) === ".git" ? dirname(common) : "";
-  if (main && (main === root || isUnder(main, root))) writeCacheEntry(markerBindingFile(stateRoot, common), root);
   return slug;
 }
 
@@ -398,7 +380,7 @@ function markerSlug(stateRoot: string, cwd: string, root: string): string {
  * preamble runs, having already written the entry.
  */
 export function readVersionedSlugCache(stateRoot: string, cwd: string): string | undefined {
-  const marker = projectMarkerRoot(stateRoot, cwd);
+  const marker = projectMarkerRoot(cwd);
   const file = marker ? markerCacheFile(stateRoot, marker) : slugCacheReadOrder(stateRoot, cwd).find((f) => existsSync(f));
   if (!file) return undefined;
   let raw: string;
@@ -432,7 +414,7 @@ export function slugFromEnvironment(
   //     Scope "repository" (pregate policy and scratch, approvals, /verify) ignores
   //     every marker, so a branch that commits one can't move those records
   //     (twin of gstack-slug --get REPO_SLUG).
-  const markerRoot = opts.scope === "repository" ? "" : projectMarkerRoot(home, cwd);
+  const markerRoot = opts.scope === "repository" ? "" : projectMarkerRoot(cwd);
   if (markerRoot) {
     const slug = markerSlug(home, cwd, markerRoot);
     if (slug) return slug;

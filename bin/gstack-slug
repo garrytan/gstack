@@ -404,25 +404,20 @@ _find_project_marker() {
   done
   return 0
 }
-# A linked worktree outside the marked folder follows its main checkout's
-# marker through a binding keyed on the git common dir, valid only while the
-# main checkout is under that folder and the marker still counts.
-MARKER_BINDING=""
-[[ "$(basename "${GIT_COMMON_DIR:-x}")" != .git ]] || MARKER_BINDING="$CACHE_DIR/marker-binding/$(printf '%s' "$GIT_COMMON_DIR" | tr '/' '_')"
+# A linked worktree outside the marked folder follows its main checkout: on a
+# miss the walk repeats from the main checkout, under that folder's $HOME rule.
 if [[ -z "$SLUG" && ! ( "$MODE" == get && "$MODE_ARG" == REPO_SLUG ) ]]; then
   _find_project_marker "$PROJECT_DIR"
-  if [[ -z "$MARKER_ROOT" && -n "$MARKER_BINDING" && -f "$MARKER_BINDING" ]]; then
-    _bound=$(head -1 "$MARKER_BINDING" 2>/dev/null || true)
-    _main=$(dirname "$GIT_COMMON_DIR")
-    _bound_under=0
+  _main=""
+  [[ "$(basename "${GIT_COMMON_DIR:-x}")" != .git ]] || _main=$(dirname "$GIT_COMMON_DIR")
+  if [[ -z "$MARKER_ROOT" && -n "$_main" && "$PROJECT_DIR" != "$_main" && "$PROJECT_DIR" != "$_main"/* ]]; then
+    _cwd_under=$_UNDER_HOME
+    _UNDER_HOME=0
     for _h in "$_HOME_LOG" "$_HOME_PHYS"; do
-      [[ -n "$_h" && "$_h" != / && "$_bound" == "$_h"/* ]] && _bound_under=1
+      [[ -n "$_h" && "$_h" != / && "$_main" == "$_h"/* ]] && _UNDER_HOME=1
     done
-    if [[ -n "$_bound" && ( "$_main" == "$_bound" || "$_main" == "$_bound"/* ) && -z "$(_marker_reason "$_bound" "$_bound_under")" ]]; then
-      MARKER_ROOT="$_bound"
-    else
-      rm -f "$MARKER_BINDING" 2>/dev/null || true
-    fi
+    _find_project_marker "$_main"
+    _UNDER_HOME=$_cwd_under
   fi
 fi
 _write_cache_entry() { # $1 file, $2 content; atomic, best-effort
@@ -462,11 +457,6 @@ if [[ -n "$MARKER_ROOT" ]]; then
         break
       done
     fi
-  fi
-  _main=""
-  [[ -z "$MARKER_BINDING" ]] || _main=$(dirname "$GIT_COMMON_DIR")
-  if [[ -n "$_main" && ( "$_main" == "$MARKER_ROOT" || "$_main" == "$MARKER_ROOT"/* ) && "$(head -1 "$MARKER_BINDING" 2>/dev/null)" != "$MARKER_ROOT" ]]; then
-    _write_cache_entry "$MARKER_BINDING" "$MARKER_ROOT"
   fi
 fi
 
