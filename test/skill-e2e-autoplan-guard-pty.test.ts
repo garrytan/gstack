@@ -1,5 +1,5 @@
 /**
- * /autoplan publication guard, live (gate tier, rule kind, one trial, haiku).
+ * /autoplan publication guard, live (gate tier, rule kind, one trial, Sonnet 5.5).
  *
  * On the pinned Claude Code, in an interactive PTY session with default
  * settings, a project skill carrying /autoplan's own hook block enters Phase 1,
@@ -22,7 +22,7 @@ import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 import { launchClaudePty, selectPtyNumberedOption } from './helpers/claude-pty-runner';
 import { closePacketReadAfterNotice, prepareGuardSession, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-sonnet-5-5';
 
 describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty'], () => {
   testIfSelected('autoplan-guard-pty', async () => {

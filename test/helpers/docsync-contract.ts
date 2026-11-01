@@ -15,8 +15,9 @@ const keys = ['schema_version', 'audit_id', 'status', 'files_updated', 'files_re
 
 export function parseDocsCompletion(output: string, auditId: string): DocsCompletion {
   const result = JSON.parse(output.trimEnd().split('\n').at(-1)!);
-  if (!result || Array.isArray(result) || typeof result !== 'object' ||
-      Object.keys(result).sort().join() !== [...keys].sort().join()) throw new Error('completion fields');
+  if (!result || Array.isArray(result) || typeof result !== 'object') throw new Error('completion fields');
+  const missing = keys.filter(key => !Object.hasOwn(result, key)), extra = Object.keys(result).filter(key => !keys.includes(key));
+  if (missing.length || extra.length) throw new Error(`completion fields: missing ${missing.join(',') || 'none'}; extra ${extra.join(',') || 'none'}`);
   if (result.schema_version !== 1 || result.audit_id !== auditId) throw new Error('completion identity');
   if (!['updated', 'current', 'blocked'].includes(result.status)) throw new Error('completion status');
   for (const field of ['files_updated', 'files_reviewed', 'blockers', 'decisions']) {

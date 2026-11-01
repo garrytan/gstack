@@ -11,6 +11,7 @@ import { observeDocsWrites, docsWriteFailures, docsCommandAllowed, docsPreambleC
 import { docsActorCommand, docsActorHook, installDocsActor, type DocsActorState, type DocsFault } from './helpers/docsync-fault-actor';
 import { docsActorVerdict } from './helpers/docsync-fault-eval';
 import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import missingSection from './fixtures/docsync-spawned-missing-section-public.json';
 
 const ROOT = path.join(import.meta.dir, '..');
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -655,5 +656,25 @@ describe('two-attempt documentation audits', () => {
     expect(docsDispatchIndices(calls.filter((_, index) => index !== dispatches[0]))).toHaveLength(1);
     expect(docsDispatchIndices(calls.filter((_, index) => !dispatches.includes(index)))).toEqual([]);
     expect(docsDispatchIndex(calls.filter((_, index) => !dispatches.includes(index)))).toBe(-1);
+  });
+});
+
+// Gates 41217563527 and 41238366045 (docsync-spawned): the child returned every field
+// except documentation_section, and the red read only "completion fields".
+describe('completion field failures name the fields', () => {
+  test('the captured spawned completions name the omitted documentation_section; the reruns parse', () => {
+    for (const { run, attempt, recordedPassed, output } of missingSection.outputs) {
+      const auditId = JSON.parse(output.trimEnd().split('\n').at(-1)!).audit_id;
+      if (recordedPassed) expect(parseDocsCompletion(output, auditId).status, run + attempt).toBe('blocked');
+      else expect(() => parseDocsCompletion(output, auditId), run + attempt).toThrow('completion fields: missing documentation_section; extra none');
+    }
+  });
+
+  test('an extra or legacy field is named too', () => {
+    const accepted = missingSection.outputs.find(row => row.recordedPassed)!.output;
+    const report = JSON.parse(accepted.trimEnd().split('\n').at(-1)!);
+    expect(() => parseDocsCompletion(JSON.stringify({ ...report, commit_sha: null }), report.audit_id)).toThrow('completion fields: missing none; extra commit_sha');
+    const { files_reviewed: _, ...rest } = report;
+    expect(() => parseDocsCompletion(JSON.stringify({ ...rest, pushed: false }), report.audit_id)).toThrow('completion fields: missing files_reviewed; extra pushed');
   });
 });

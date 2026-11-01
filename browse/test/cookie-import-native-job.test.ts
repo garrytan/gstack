@@ -10,7 +10,7 @@ import { Database } from 'bun:sqlite';
 import { dlopen, FFIType, ptr } from 'bun:ffi';
 import { nativeBrowserPaths } from '../src/cookie-import-native';
 import { NATIVE_BROWSER_VERSION_COMMAND } from '../src/cookie-import-native-integrity';
-import { createNativeCookieJob, joinNativeCookieJob, NativeCookieJobError, nativeCookieDiagnostic, parseNativeCookieDiagnostic, type NativeCookieJob } from '../src/cookie-import-native-job';
+import { createNativeCookieJob, joinNativeCookieJob, NATIVE_CLEANUP_MS, NativeCookieJobError, nativeCookieDiagnostic, parseNativeCookieDiagnostic, type NativeCookieJob } from '../src/cookie-import-native-job';
 import { nativeCookieEnvironment, NATIVE_COOKIE_NODE_SCRIPT, superviseNativeCookieImport, type NativeCookieMember, type NativeCookieReply, type NativeCookieRequest } from '../src/cookie-import-native-worker';
 import { decodeNativeCommandLine } from './fixtures/native-cookie-process-observer';
 import { createFixtureDeleteLease, FixtureDeleteError } from './fixtures/native-cookie-delete-lease';
@@ -349,6 +349,8 @@ const request: NativeCookieRequest = {
 function kernelContract(mode: string) {
   const script = `
     const calls = [];
+    const polls = {};
+    let listings = 0;
     globalThis.__nativeCookieFfi = {
       FFIType: { ptr: 'ptr', u64: 'u64', u32: 'u32', i32: 'i32' },
       ptr: buffer => buffer,
@@ -358,8 +360,18 @@ function kernelContract(mode: string) {
           CreateJobObjectW: (security, name) => { calls.push(['create', security, name.toString('utf16le')]); return 42; },
           OpenJobObjectW: (access, inherit, name) => { calls.push(['open', access, inherit, name.toString('utf16le')]); return 42; },
           SetInformationJobObject: (handle, kind, buffer, length) => { calls.push(['limits', handle, kind, length, buffer.readUInt32LE(16)]); return 1; },
-          QueryInformationJobObject: (handle, kind, buffer, length) => { calls.push(['query', handle, kind, length]); buffer.writeUInt32LE(3, 40); return 1; },
-          OpenProcess: (access, inherit, pid) => { calls.push(['open-process', access, inherit, pid === process.pid]); return 999; },
+          QueryInformationJobObject: (handle, kind, buffer, length) => {
+            calls.push(['query', handle, kind, length]);
+            if (kind === 1) buffer.writeUInt32LE(${mode === 'exiting' ? 0 : 3}, 40);
+            if (kind === 3 && ${JSON.stringify(mode)} === 'exiting' && listings++ === 0) {
+              buffer.writeUInt32LE(3, 4);
+              [101, 102, 103].forEach((pid, index) => buffer.writeBigUInt64LE(BigInt(pid), 8 + 8 * index));
+            }
+            return 1;
+          },
+          OpenProcess: (access, inherit, pid) => { calls.push(['open-process', access, inherit, pid === process.pid]); return ${mode === 'exiting' ? '1000 + pid' : 999}; },
+          IsProcessInJob: (member, job, result) => { calls.push(['in-job', member, job]); result.writeInt32LE(member === 1103 ? 0 : 1, 0); return 1; },
+          WaitForSingleObject: (member, milliseconds) => { calls.push(['wait', member, milliseconds]); polls[member] ??= member - 1100; return polls[member]-- > 0 ? 0x102 : 0; },
           AssignProcessToJobObject: (job, process) => { calls.push(['assign', job, process]); return ${mode === 'join-fail' ? 0 : 1}; },
           TerminateJobObject: (job, code) => { calls.push(['terminate', job, code]); return 1; },
           CloseHandle: handle => { calls.push(['close', handle]); return 1; },
@@ -378,6 +390,11 @@ function kernelContract(mode: string) {
       const active = job.activeProcesses();
       job.terminate(); job.close(); job.close();
       console.log(JSON.stringify({ name: job.name, active, calls }));
+    } else if (${JSON.stringify(mode)} === 'exiting') {
+      const job = await createNativeCookieJob();
+      const active = [job.activeProcesses(), job.activeProcesses(), job.activeProcesses()];
+      job.close();
+      console.log(JSON.stringify({ active, calls }));
     } else {
       let error, diagnostic;
       try { await joinNativeCookieJob('Local\\\\gstack-cookie-12345678-1234-1234-1234-123456789abc'); } catch (caught) { error = caught.message; diagnostic = caught.diagnostic; }
@@ -414,6 +431,15 @@ describe('production Windows Job Object API contract', () => {
     expect(result.calls).toContainEqual(['query', 42, 1, 48]);
     expect(result.calls).toContainEqual(['terminate', 42, 1]);
     expect(result.calls.filter((call: unknown[]) => call[0] === 'close')).toEqual([['close', 42]]);
+  });
+
+  test('a member the Job no longer counts stays active until its process handle signals exit', () => {
+    const result = kernelContract('exiting');
+    expect(result.active).toEqual([2, 1, 0]);
+    expect(result.calls).toContainEqual(['query', 42, 3, 8 + 8 * 1024]);
+    expect(result.calls).toContainEqual(['open-process', 0x00101000, 0, false]);
+    expect(result.calls.filter((call: unknown[]) => call[0] === 'in-job')).toEqual([['in-job', 1101, 42], ['in-job', 1102, 42], ['in-job', 1103, 42]]);
+    expect(result.calls.filter((call: unknown[]) => call[0] === 'close')).toEqual([['close', 1103], ['close', 1101], ['close', 1102], ['close', 42]]);
   });
 
   test('member assigns its own handle, never a discovered PID', () => {
@@ -921,10 +947,36 @@ describe('owned native-cookie lifecycle', () => {
     expect(now).toBeLessThan(30_000);
   });
 
+  test('cleanup waits for a member that is still exiting after the Job count reads zero', async () => {
+    let now = 0;
+    let held = false;
+    let settleReply!: (reply: NativeCookieReply) => void;
+    let settleClose!: () => void;
+    const result = await superviseNativeCookieImport(request, {
+      now: () => now,
+      sleep: async milliseconds => {
+        now += milliseconds;
+        if (now >= 20) settleReply({ cookies: [] });
+        if (now >= 200) settleClose();
+      },
+      createJob: async () => ({
+        name: 'synthetic-owned-job', close() {}, terminate() {},
+        activeProcesses: () => {
+          if (now < 100) held = true;
+          return now < 100 || (held && now < 5_000) ? 1 : 0;
+        },
+      }),
+      startMember: () => ({ result: new Promise(resolve => { settleReply = resolve; }), closed: new Promise(resolve => { settleClose = resolve; }), stop() {} }),
+    });
+    expect(result).toEqual({ cookies: [] });
+    expect(now).toBeGreaterThanOrEqual(5_000);
+    expect(now).toBeLessThan(NATIVE_CLEANUP_MS);
+  });
+
   test('unconfirmed termination is reported as cleanup failure, never success', async () => {
     const run = simulation({ retainAfterTerminate: true });
     expect(await run.run).toEqual({ error: 'native_cleanup_failed' });
-    expect(run.state()).toMatchObject({ time: 30_000, terminated: 1, stopped: 1, jobClosed: 1 });
+    expect(run.state()).toMatchObject({ time: 25_000 + NATIVE_CLEANUP_MS, terminated: 1, stopped: 1, jobClosed: 1 });
   });
 
   test('a process crash cannot strand remaining members', async () => {
@@ -1029,11 +1081,11 @@ function safeLaunchEvidence(file: string): object {
 }
 
 function nativeSupervisor(input: NativeCookieRequest, env: NodeJS.ProcessEnv) {
-  const cleanupDeadline = performance.now() + 30_000;
+  const cleanupDeadline = performance.now() + 25_000 + NATIVE_CLEANUP_MS;
   const child = ownFixtureChild(spawn(process.execPath, ['--no-env-file', '--no-install', '--no-macros', '--config=NUL', path.resolve(import.meta.dir, '../src/cookie-import-native-worker.ts')], { env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }));
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; });
-  const timer = setTimeout(() => child.kill(), 30_000);
+  const timer = setTimeout(() => child.kill(), 25_000 + NATIVE_CLEANUP_MS);
   const done = new Promise<NativeCookieReply>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', () => {
