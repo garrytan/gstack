@@ -49,9 +49,12 @@ describe('bounded Claude review context', () => {
     fs.appendFileSync(path.join(root, 'sources/spec.txt'), 'CURRENT_SOURCE_BODY_'.repeat(8));
     fs.writeFileSync(path.join(root, 'untracked.ts'), 'UNTRACKED_CODE\n');
     fs.writeFileSync(path.join(root, 'sources/untracked.docx'), 'UNTRACKED_SOURCE_BODY_'.repeat(8));
+    const largeSource = 'LARGE_UNTRACKED_SOURCE_COPY_'.repeat(8 * 1024);
+    fs.writeFileSync(path.join(root, 'sources/large.txt'), largeSource);
     fs.copyFileSync(path.join(root, 'sources/spec.txt'), path.join(root, 'copied-source.txt'));
     git(root, 'add', 'copied-source.txt');
     fs.copyFileSync(path.join(root, 'sources/spec.txt'), path.join(root, 'untracked-source-copy.txt'));
+    fs.copyFileSync(path.join(root, 'sources/large.txt'), path.join(root, 'untracked-large-source-copy.txt'));
     const outside = path.join(temporary, 'outside-secret.txt');
     fs.writeFileSync(outside, 'SYMLINK_TARGET_MUST_NOT_BE_READ\n');
     fs.symlinkSync(outside, path.join(root, 'untracked-link'));
@@ -67,6 +70,7 @@ describe('bounded Claude review context', () => {
     expect(text).toContain('file body omitted because it contains a source artifact');
     expect(text).not.toContain('CURRENT_SOURCE_BODY_');
     expect(text).not.toContain('UNTRACKED_SOURCE_BODY_');
+    expect(text).not.toContain('LARGE_UNTRACKED_SOURCE_COPY_');
     expect(text).not.toContain('SYMLINK_TARGET_MUST_NOT_BE_READ');
   });
 
@@ -192,6 +196,19 @@ describe('bounded Claude review context', () => {
     expect(text).not.toContain(sourceBody);
   });
 
+  test('treats changed file names as literal pathspecs', () => {
+    const root = repository('literal-pathspec');
+    fs.writeFileSync(path.join(root, '*'), 'old\n');
+    git(root, '--literal-pathspecs', 'add', '--', '*');
+    git(root, 'commit', '-m', 'add metacharacter path');
+    fs.writeFileSync(path.join(root, '*'), 'new\n');
+    fs.appendFileSync(path.join(root, 'sources/spec.txt'), 'PATHSPEC_SOURCE_LEAK\n');
+
+    const text = buildReviewContextPacket(root, 'main', Buffer.from('Review request\n')).toString('utf8');
+    expect(text).toContain('+new');
+    expect(text).not.toContain('PATHSPEC_SOURCE_LEAK');
+  });
+
   test('rejects whole source bodies and oversized prepared prompts', () => {
     const root = repository('prepared');
     fs.appendFileSync(path.join(root, 'sources/spec.txt'), 'changed\n');
@@ -210,19 +227,22 @@ describe('bounded Claude review context', () => {
     fs.writeFileSync(path.join(root, 'large.txt'), 'small\n');
     fs.writeFileSync(path.join(root, 'large-small-diff.txt'), 'line\n'.repeat(600_000));
     fs.writeFileSync(path.join(root, 'large-source-copy.txt'), 'small\n');
+    fs.writeFileSync(path.join(root, 'large-rewrite.txt'), 'a'.repeat(512 * 1024));
     fs.writeFileSync(path.join(root, 'later.ts'), 'export const later = 1;\n');
-    git(root, 'add', 'sources/large-snippet.txt', 'large.txt', 'large-small-diff.txt', 'large-source-copy.txt', 'later.ts');
+    git(root, 'add', 'sources/large-snippet.txt', 'large.txt', 'large-small-diff.txt', 'large-source-copy.txt', 'large-rewrite.txt', 'later.ts');
     git(root, 'commit', '-m', 'add large fixtures');
     fs.writeFileSync(path.join(root, 'large.txt'), 'x'.repeat(17 * 1024 * 1024));
     const largeSmall = fs.readFileSync(path.join(root, 'large-small-diff.txt'), 'utf8');
     fs.writeFileSync(path.join(root, 'large-small-diff.txt'), largeSmall.replace('line\n', 'changed\n'));
     fs.writeFileSync(path.join(root, 'large-source-copy.txt'), copiedSource + 'x'.repeat(3 * 1024 * 1024));
+    fs.writeFileSync(path.join(root, 'large-rewrite.txt'), 'b'.repeat(512 * 1024));
     fs.appendFileSync(path.join(root, 'later.ts'), 'export const stillReviewed = true;\n');
     fs.writeFileSync(path.join(root, 'huge-untracked.txt'), 'u'.repeat(3 * 1024 * 1024));
     const packet = buildReviewContextPacket(root, 'main', Buffer.from('Review request\n'));
     expect(packet.length).toBeLessThanOrEqual(REVIEW_PACKET_MAX_BYTES);
     expect(packet.toString('utf8').endsWith('[DIFF CONTENT OMITTED OR TRUNCATED BY PACKET LIMITS]\n')).toBe(true);
     expect(packet.toString('utf8')).toContain('"M"\t"large-small-diff.txt"');
+    expect(packet.toString('utf8')).toContain('+changed');
     expect(packet.toString('utf8')).toContain('+export const stillReviewed = true;');
     expect(packet.toString('utf8')).toContain('file exceeds the source scan limit');
     expect(packet.toString('utf8')).not.toContain(copiedSource);

@@ -1,4 +1,4 @@
 {
-  "bytes": 1352,
-  "why": "print validated merge-base before bounded review prompt preparation"
+  "bytes": 611,
+  "why": "bound review packets and remove duplicate preparation instructions"
 }

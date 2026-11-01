@@ -2,11 +2,11 @@
 
 ## [1.92.37.0] - 2026-11-01
 
-**Claude Code review steps now receive a bounded review packet instead of an unbounded repository diff.** Review and ship keep a complete manifest of changed paths, but they send only changed non-`sources/` file content plus the caller's selected specification excerpts. The packet rejects prepared prompts over 1 MiB before reading them, excludes whole source artifacts and their copies, and caps the final payload at 2 MiB with an explicit truncation marker. This prevents large checked-in DOCX files and text extractions from turning a focused code review into a million-token request.
+**Claude Code review steps now receive a bounded review packet instead of an unbounded repository diff.** Review and ship keep a complete manifest of changed paths, but they send only changed non-`sources/` file content plus the caller's selected specification excerpts. The packet rejects prepared prompts over 128 KiB before reading them, excludes whole source artifacts and their copies, and caps the final payload at 384 KiB with an explicit truncation marker. This prevents large checked-in DOCX files and text extractions from turning a focused code review into a million-token request.
 
 ### Changed
 - **Outside review context** (`scripts/resolvers/outside-voice.ts`, `scripts/resolvers/outside-voice-steps.ts`): both review and ship route Claude Code reviews through the same bounded packet builder. The workflow tells callers to supply the changed code and only the cited specification sections; it no longer appends the raw full diff or renders a base ref into shell source.
-- **Packet construction** (`lib/review-context-packet.ts`, `bin/gstack-review-context.ts`): changed and untracked paths are listed, non-source text diffs are included within the byte budget, source bodies and source-copy payloads are omitted, files too large to source-scan fail closed, and validated base commits are resolved without a shell.
+- **Packet construction** (`lib/review-context-packet.ts`, `bin/gstack-review-context.ts`): changed and untracked paths are listed, non-source text diffs are included within the byte budget, literal path handling prevents wildcard expansion into `sources/`, source bodies and source-copy payloads are omitted, files too large to source-scan fail closed, and validated base commits are resolved without a shell.
 
 ### Tests
 - `test/review-context-packet.test.ts` covers tracked and untracked files, unchanged and changed source copies, cross-boundary renames, symlink safety, nested invocation, pre-read prompt rejection, huge diffs, hostile base refs and generated review/ship wiring.

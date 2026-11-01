@@ -151,7 +151,6 @@ If \`CODEX_MODE\` is \`ready\` or \`unverified\`:
 Outside prompt (supply repository context from the parent):
 
 "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Use only the supplied bounded review packet. If it is missing, report missing context; never substitute a raw repository diff or read file bodies under sources/. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. A finding blocks only if it ${BLOCKING_FLOOR}; end each finding with \`Severity: Critical|High|Medium|Low\` and \`Blocks: yes|no\`. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
-Write a private request below 1 MiB whose first line is \`GSTACK_DIFF_BASE: <commit>\`, using the exact merge-base commit hash from the diff-size step (or the approved \`RANGE_BASE\` on a ship rerun). After that header, include only the task, relevant changed non-\`sources/\` excerpts, and cited spec sections. The builder adds the complete changed-path manifest and capped diff while omitting \`sources/\` bodies. Substitute the request's shell-quoted path for \`<prepared-prompt-file>\`; never put a branch name, prompt text, whole spec extraction, DOCX body, or \`sources/\` body into shell source.
 ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, reviewPacket: true, reviewBaseFromInput: true })}
 
 Present the full output verbatim. A Critical, High or \`Blocks: yes\` finding is CRITICAL; \`Blocks: no\` never lowers one, and only a named policy ground drops it. ${isShip ? 'An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.' : 'This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.'}
@@ -170,8 +169,6 @@ function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): str
   return `### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
 If \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
-
-Prepare a structured review prompt whose first line is \`GSTACK_DIFF_BASE: <commit>\` using the exact merge-base hash, followed by a request for severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
 ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: true, structuredBase: '<base>', gate: 'structured', reviewPacket: true, reviewBaseFromInput: true })}
 

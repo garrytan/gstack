@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const REVIEW_PACKET_MAX_BYTES = 2 * 1024 * 1024;
-export const REVIEW_PROMPT_MAX_BYTES = 1024 * 1024;
+export const REVIEW_PACKET_MAX_BYTES = 384 * 1024;
+export const REVIEW_PROMPT_MAX_BYTES = 128 * 1024;
 export const REVIEW_BASE_HEADER = 'GSTACK_DIFF_BASE: ';
 const SOURCE_INDEX_MAX_BYTES = 32 * 1024 * 1024;
-const REVIEW_DIFF_CHUNK_MAX_BYTES = 256 * 1024;
+const SOURCE_BODY_MAX_BYTES = REVIEW_PACKET_MAX_BYTES;
+const REVIEW_FILE_SCAN_MAX_BYTES = 16 * 1024 * 1024;
+const REVIEW_DIFF_CHUNK_MAX_BYTES = 64 * 1024;
 const AMBIGUOUS_SOURCE_MAX_BYTES = 7;
 const OMISSION_MARKER = Buffer.from('\n[DIFF CONTENT OMITTED OR TRUNCATED BY PACKET LIMITS]\n');
 
@@ -74,12 +76,12 @@ function baseFile(cwd: string, base: string, file: string, maxBytes: number): Bu
 function fileExceedsScanLimit(cwd: string, base: string, file: string): boolean {
   try {
     const stat = fs.lstatSync(path.join(cwd, file));
-    if (stat.isFile() && stat.size > REVIEW_PACKET_MAX_BYTES) return true;
+    if (stat.isFile() && stat.size > REVIEW_FILE_SCAN_MAX_BYTES) return true;
   } catch { /* absent in the worktree */ }
   const result = spawnSync('git', ['cat-file', '-s', `${base}:${file}`], { cwd, encoding: 'utf8' });
   if (result.status !== 0) return false;
   const size = Number.parseInt(result.stdout.trim(), 10);
-  return Number.isFinite(size) && size > REVIEW_PACKET_MAX_BYTES;
+  return Number.isFinite(size) && size > REVIEW_FILE_SCAN_MAX_BYTES;
 }
 
 function sourcePaths(cwd: string, base: string): string[] {
@@ -94,32 +96,34 @@ function containsBody(target: Buffer, source: Buffer): boolean {
 
 type SourceIndex = { bodies: Buffer[]; saturated: boolean };
 
-function buildSourceIndex(cwd: string, base: string): SourceIndex {
+function buildSourceIndex(cwd: string, base: string, prompt: Buffer): SourceIndex {
   const bodies: Buffer[] = [];
   const hashes = new Set<string>();
   let used = 0;
+  let saturated = false;
   for (const file of sourcePaths(cwd, base)) {
-    for (const body of [existingFile(cwd, file, REVIEW_PACKET_MAX_BYTES), baseFile(cwd, base, file, REVIEW_PACKET_MAX_BYTES)]) {
+    for (const body of [existingFile(cwd, file, SOURCE_BODY_MAX_BYTES), baseFile(cwd, base, file, SOURCE_BODY_MAX_BYTES)]) {
       if (!body || body.length === 0) continue;
+      if (containsBody(prompt, body)) throw new Error('Prepared review prompt contains the whole body of a source artifact');
       const hash = createHash('sha256').update(body).digest('hex');
       if (hashes.has(hash)) continue;
-      if (used + body.length > SOURCE_INDEX_MAX_BYTES) return { bodies, saturated: true };
+      if (used + body.length > SOURCE_INDEX_MAX_BYTES) {
+        saturated = true;
+        continue;
+      }
       hashes.add(hash);
       bodies.push(body);
       used += body.length;
     }
   }
-  return { bodies, saturated: false };
+  return { bodies, saturated };
 }
 
 function containsWholeSourceBody(index: SourceIndex, target: Buffer): boolean {
-  return index.saturated || index.bodies.some(body => containsBody(target, body));
+  return index.bodies.some(body => containsBody(target, body));
 }
 
 function rejectWholeSourceBodies(index: SourceIndex, prompt: Buffer): void {
-  if (index.saturated) {
-    throw new Error(`Source protection index exceeds ${SOURCE_INDEX_MAX_BYTES} bytes`);
-  }
   if (containsWholeSourceBody(index, prompt)) {
     throw new Error('Prepared review prompt contains the whole body of a source artifact');
   }
@@ -140,9 +144,12 @@ function limitedDiff(cwd: string, args: string[]): DiffChunk {
 
 function diffForChange(cwd: string, base: string, change: Change, sources: SourceIndex): DiffChunk {
   if (change.paths.some(isSourceArtifact)) return { body: Buffer.alloc(0), omitted: false };
+  if (sources.saturated) {
+    return { body: Buffer.from('\n[diff omitted because the source protection index reached its limit]\n'), omitted: true };
+  }
   if (change.untracked) {
     const file = change.paths[0];
-    const body = existingFile(cwd, file, REVIEW_PACKET_MAX_BYTES);
+    const body = existingFile(cwd, file, REVIEW_FILE_SCAN_MAX_BYTES);
     if (!body) {
       return {
         body: Buffer.from(`\n[untracked file unavailable or exceeds packet budget: ${JSON.stringify(file)}]\n`),
@@ -153,13 +160,15 @@ function diffForChange(cwd: string, base: string, change: Change, sources: Sourc
     if (containsWholeSourceBody(sources, body)) {
       return { body: Buffer.from(`\n[file body omitted because it contains a source artifact: ${JSON.stringify(file)}]\n`), omitted: true };
     }
-    return { body: Buffer.concat([Buffer.from(`\n--- /dev/null\n+++ ${JSON.stringify(file)}\n`), body, Buffer.from('\n')]), omitted: false };
+    const truncated = body.length > REVIEW_DIFF_CHUNK_MAX_BYTES;
+    const payload = truncated ? body.subarray(0, REVIEW_DIFF_CHUNK_MAX_BYTES) : body;
+    return { body: Buffer.concat([Buffer.from(`\n--- /dev/null\n+++ ${JSON.stringify(file)}\n`), payload, Buffer.from('\n')]), omitted: truncated };
   }
   if (change.paths.some(file => fileExceedsScanLimit(cwd, base, file))) {
     return { body: Buffer.from(`\n[tracked file diff omitted because the file exceeds the source scan limit: ${change.paths.map(file => JSON.stringify(file)).join(', ')}]\n`), omitted: true };
   }
   const containsProtectedBody = change.paths.some(file =>
-    [existingFile(cwd, file, REVIEW_PACKET_MAX_BYTES), baseFile(cwd, base, file, REVIEW_PACKET_MAX_BYTES)]
+    [existingFile(cwd, file, REVIEW_FILE_SCAN_MAX_BYTES), baseFile(cwd, base, file, REVIEW_FILE_SCAN_MAX_BYTES)]
       .some(body => body && containsWholeSourceBody(sources, body)),
   );
   if (containsProtectedBody) {
@@ -168,7 +177,7 @@ function diffForChange(cwd: string, base: string, change: Change, sources: Sourc
   const parts: Buffer[] = [];
   let omitted = false;
   for (const file of change.paths) {
-    const chunk = limitedDiff(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--binary', base, '--', file]);
+    const chunk = limitedDiff(cwd, ['--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', base, '--', file]);
     parts.push(chunk.body);
     omitted ||= chunk.omitted;
   }
@@ -186,12 +195,13 @@ function appendWithin(parts: Buffer[], value: Buffer, used: number, limit: numbe
 }
 
 export function buildReviewContextPacket(cwd: string, base: string, prompt: Buffer): Buffer {
+  if (base.startsWith('-')) throw new Error('Review base must not start with an option prefix');
   if (prompt.length > REVIEW_PROMPT_MAX_BYTES) {
     throw new Error(`Prepared review prompt is ${prompt.length} bytes; limit is ${REVIEW_PROMPT_MAX_BYTES}`);
   }
   const resolvedBase = git(cwd, ['merge-base', base, 'HEAD']).toString('utf8').trim();
   const changes = changedFiles(cwd, resolvedBase);
-  const sources = buildSourceIndex(cwd, resolvedBase);
+  const sources = buildSourceIndex(cwd, resolvedBase, prompt);
   rejectWholeSourceBodies(sources, prompt);
 
   const header = manifest(changes);
