@@ -151,7 +151,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
-    if (!label && !blocks && !(section && listItem) && ANY_LABEL.test(t)) { current = null; if (!indented) head = t; continue; }
+    if (!label && !blocks && !(section && listItem) && ANY_LABEL.test(t)) { current = null; head = t; continue; }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
