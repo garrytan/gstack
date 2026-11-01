@@ -15,6 +15,7 @@ import { StringDecoder } from 'node:string_decoder';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { withoutLiveBrainEnv } from '../../lib/live-brain-env';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
 // Strict Bun-test output classification works around a Bun test runner bug
@@ -568,6 +569,8 @@ export async function runShardChild(options: RunShardChildOptions): Promise<Shar
  * a group-SIGKILLed shard never runs its own cleanup, so the lane removes
  * `stateDir` afterwards (the cleanup backstop). `realpath` resolves a
  * symlinked tmpdir (macOS /var -> /private/var) for lanes that compare paths.
+ * The brain-selection variables are dropped (withoutLiveBrainEnv): a shard's
+ * children inherit this env even when a test spawns them without `env:`.
  */
 export function createShardSandbox(
   prefix: string,
@@ -579,7 +582,7 @@ export function createShardSandbox(
   const tmp = path.join(stateDir, 'tmp');
   fs.mkdirSync(tmp);
   const env: NodeJS.ProcessEnv = {
-    ...baseEnv, TMPDIR: tmp, TEMP: tmp, TMP: tmp,
+    ...withoutLiveBrainEnv(baseEnv), TMPDIR: tmp, TEMP: tmp, TMP: tmp,
     CHROMIUM_PROFILE: path.join(stateDir, 'chromium-profile'),
   };
   for (const name of CAPY_LAUNCH_MARKERS) delete env[name];

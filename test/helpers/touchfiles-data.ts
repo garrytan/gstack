@@ -1723,6 +1723,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
 export const GLOBAL_TOUCHFILES = [
   'scripts/test-strict-output.ts',
   'scripts/lib/shard-engine.ts',     // The shard engine test-strict-output.ts re-exports (moved there in the W2 refactor)
+  'lib/live-brain-env.ts',           // createShardSandbox drops these brain-selection vars from every shard's env
   // Canonical paid execution and its shared time allocations affect every paid test.
   'scripts/test-paid-shards.ts',
   'scripts/lib/paid-cases.ts',       // Case/trial shard keys, plan and report moved out of test-paid-shards.ts
