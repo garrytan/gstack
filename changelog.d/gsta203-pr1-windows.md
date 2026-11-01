@@ -10,4 +10,4 @@
 - `.gstack/ship-policy.json` `required_checks`: `windows-free-tests` is replaced by `windows-smoke`. The ci-hint, `--dispatch-ci` docs, train CLI help and `free-durations-record.yml` now name `windows-smoke.yml`.
 - `.gstack/pregate.json`: the `windows-free-tests.yml/windows-free-shard` remote lane is removed, since that suite no longer runs on PRs. Linux and macOS lanes are unchanged.
 - `scripts/test-health-report.ts` measures Windows from `windows-smoke.yml` PR runs.
-- No test file was deleted, skipped or re-tiered. `scripts/harness-version.json` records `scripts/test-pr-profile.ts` as a non-behavioral change: it only lists `windows-smoke.yml` among files no paid case reads.
+- No test file was deleted, skipped or re-tiered. `scripts/harness-version.json` records `scripts/test-pr-profile.ts` as a non-behavioral change, because it only lists `windows-smoke.yml` among files no paid case reads.
