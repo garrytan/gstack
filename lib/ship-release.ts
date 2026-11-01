@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
 import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
@@ -223,6 +224,26 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
   if (stale === null) { r.stop(`gstack-docs-candidate compare failed: ${firstLine(cmp.stderr)}; documentation freshness is unknown (stage 3)`); return false; }
   const record = JSON.parse(fs.readFileSync(postFile, 'utf8'));
+  const auditFile = path.join(cwd, '.gstack/tmp/docs-audit.json');
+  let docsAudit: ReceiptDocs | null = null;
+  if (fs.existsSync(auditFile)) {
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(auditFile, 'utf8')); } catch { raw = undefined; }
+    const parsed = parseReceiptDocs(raw);
+    if (!parsed.ok) { r.stop(`.gstack/tmp/docs-audit.json: ${parsed.message}; documentation status is unknown (stage 3)`); return false; }
+    docsAudit = parsed.docs;
+  }
+  const accepted = docsAudit?.exception;
+  if (accepted || record.exception) {
+    const same = !!accepted && !!record.exception && docsAudit!.status === 'blocked' && record.exception.scope === docsAudit!.scope
+      && (['accepted_by', 'date', 'via', 'reason'] as const).every(k => record.exception[k] === accepted[k]);
+    if (!same) {
+      r.stop(accepted
+        ? `the Step 14.5 audit is blocked and ${postFile} names no matching owner-accepted exception: snapshot with --exception .gstack/tmp/docs-audit.json (documentation.md Blocked recovery step 3)`
+        : `${postFile} names a documentation exception but .gstack/tmp/docs-audit.json is not the blocked record carrying it: rerun Step 14.5`);
+      return false;
+    }
+  }
   const baseRef = `origin/${base.replace(/^origin\//, '')}`;
   const nul = (out: string) => out.split('\0').filter(Boolean);
   const auditBase = git(cwd, ['merge-base', baseRef, record.head]).stdout.trim();
@@ -252,7 +273,8 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
   const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p));
   const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length})`;
-  r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}`}`);
+  const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';
+  r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}${exception}`}`);
   if (left.length) { r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, a fix the audit\'s result asked for via --docs-requested <path> --docs-result <audit-id>-result.json, or a named risk); never refresh hashes'); return false; }
   return true;
 }

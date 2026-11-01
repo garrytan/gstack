@@ -1239,8 +1239,8 @@ git -C ~/.claude/skills/gstack update-ref -d 'refs/gstack/rescue/<oid>'
 <a id="setup-runtime-root-contains-checkout"></a>
 ### `gstack setup: refusing to replace <root> for <host>: this runtime directory contains the source checkout setup runs from (<checkout>), so replacing it would delete the checkout. Nothing was changed.`
 
-**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot and
-Antigravity by building a runtime root (such as `~/.cursor/skills/gstack`) and
+**Meaning.** Setup installs Codex, Factory, OpenCode, Cursor, Copilot,
+Antigravity and Gemini CLI by building a runtime root (such as `~/.cursor/skills/gstack`) and
 swapping it in for the old one, and Kiro by writing into `~/.kiro/skills/gstack`.
 Your gstack checkout lives at that root or inside it, so the swap would delete
 the checkout (#3084), and Kiro would link the checkout into itself. Setup refuses before
@@ -2278,6 +2278,25 @@ anything.
 
 ---
 
+<a id="setup-deps-migrate-failed"></a>
+### `gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; ...): <cause>`
+
+**Meaning.** Your install was made before v1.91.231.0, so it still carries the
+test and eval packages (about 520 MB, mostly the Claude Agent SDK). setup moved
+`node_modules` aside to install production dependencies only, that install
+failed, and setup put the full `node_modules` back. Nothing was removed, and
+gstack keeps working on the full install.
+
+**Fix.** Fix the cause the warning names (no network, a proxy, a full disk),
+then run `./setup` again. Developing gstack in this checkout? Mark it, and
+setup keeps the dev packages from then on:
+
+```bash
+git config gstack.contributor true
+```
+
+---
+
 <a id="chromium-install-exit-127"></a>
 ### `Chromium bootstrap: chromium-install — <bun> x playwright install chromium exited 127 (command not found); install Bun from bun.sh (winget Bun ships no bunx), or skip with ./setup --no-browser (Git Bash) or .\setup.ps1 --no-browser (PowerShell)`
 
@@ -2967,6 +2986,34 @@ ref (`upstream/main` in a fork clone) never resolves as `origin/<base>`, and
 fetching it cannot create that ref, so pass a branch that exists on `origin`
 (`git branch -r --list 'origin/*'` lists them). `gstack-pregate` says so in
 its fix instead of suggesting the fetch.
+
+<a id="history-read-failed"></a>
+### `cannot read <path> at <ref>. <cause> (git version <v>). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)`
+
+**Meaning.** A CI job or a local release tool read a file at an older commit
+and git could not produce it. The PR and train path jobs (Free Tests' plan, the Version Gate,
+and E2E Evals' route, screen summary, planner, slices, reruns, bisect and
+report) check out blobless clones (`filter: blob:none`): every commit and
+tree is there, but an older file's contents are fetched from GitHub the first
+time something reads them. When that fetch fails three times (a GitHub outage,
+a network drop), or the ref does not resolve at all, the read fails here
+instead of counting as "the file is absent". A file the commit really does not
+have still reads as absent, as before. No ship policy at the base means no
+train, and no VERSION means `0.0.0.0`. The route and backstop policy reads (inline
+in their workflows), `.github/scripts/history-read.sh` (the Version Gate's base
+`VERSION`) and `lib/history-read.ts` (the Version Gate's train classification)
+print this line. The Version Gate prints the same code when
+`git fetch origin <base>` fails three times. `gstack-restamp` and
+`gstack-ship-queue land` print it too when they cannot read the base branch's
+CHANGELOG, which they check fragments against (`lib/changelog-fragments.ts`
+reads it through `lib/history-read.ts`); outside a partial clone they do not
+retry.
+
+**Fix.** Rerun the failed job once GitHub is reachable. If it fails the same
+way on a healthy network, check that the ref exists on `origin` and that the
+runner's git supports partial clone (`git --version` 2.22 or newer; the eval
+image asserts it at build time in `.github/docker/Dockerfile.ci`). For a local
+tool, run `git fetch origin <base>` and rerun it.
 
 <a id="policy-invalid"></a>
 ### `POLICY_INVALID`
@@ -5686,7 +5733,10 @@ over` line names (or raise its cap on the base branch). When the owner accepts
 the named risk instead, record it as `docs.exception: { accepted_by, date, via,
 reason }` and carry the `Documentation exception: accepted by <owner> <date> via
 <ref>: <reason>` line in the PR body's `## Documentation` section, word for word
-([ship-policy.md](ship-policy.md#ship-receipt)).
+([ship-policy.md](ship-policy.md#ship-receipt)). Then save the post-audit snapshot with
+`gstack-docs-candidate snapshot --exception .gstack/tmp/docs-audit.json`;
+`gstack-ship-release finish` stops on a blocked audit whose snapshot lacks the
+exception.
 <a id="gstack-pr-wait"></a>
 ## gstack-pr-wait
 
@@ -6043,6 +6093,26 @@ The router's description (at most 300 bytes) and the context block (at most 600 
 ### `gstack-harness: no registration named "<name>"` (HARNESS_NOT_REGISTERED)
 
 There is no ledger for that harness or id under `$GSTACK_STATE_ROOT/harness`. `gstack-harness status` lists every registration on this machine with its id.
+
+<a id="harness-hook-unsupported"></a>
+### `gstack-harness: <harness> has no start hook` / `the start hook goes into the <harness> profile <dir>, and this registration uses another skills folder` (HARNESS_HOOK_UNSUPPORTED)
+
+The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` set OpenClaw reads a config outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, such a registration just gets no hook, and its receipt says so.
+
+<a id="harness-hook-choice-invalid"></a>
+### `gstack-harness: GSTACK_HARNESS_START_HOOK="<value>" is not on or off` (HARNESS_HOOK_CHOICE_INVALID)
+
+The start hook switch takes `on` or `off` (`GSTACK_HARNESS_START_HOOK` also takes `1` or `0`). Nothing was registered. Fix the value, or unset it so each registration keeps its saved choice.
+
+<a id="harness-hook-owned-elsewhere"></a>
+### `gstack-harness: a gstack-start plugin already exists at <dir> and this registration did not write it` (HARNESS_HOOK_OWNED_ELSEWHERE)
+
+Each harness profile has one start hook, owned by the gstack registration that wrote it, so that removing one install can never take another install's hook away. This folder is not in this registration's ledger: another gstack checkout or state root wrote it, or someone made it by hand. Nothing was written. Run `gstack-harness register <harness> --no-start-hook` from the gstack install that wrote it (its `gstack-harness status` shows the hook), or move the folder aside, then register again.
+
+<a id="harness-hook-inactive"></a>
+### `gstack-harness: <harness> start hook is written: <why>. Turn it on: <command>` (HARNESS_HOOK_INACTIVE, exit 4)
+
+The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
 
 <a id="harness-qm-credentials"></a>
 ### `gstack-harness: no QM admin credential in the environment` / `... needs --yes` (HARNESS_QM_CREDENTIALS)
