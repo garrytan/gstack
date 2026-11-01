@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.45.0] - 2026-11-01
+
+### /ship review scales to risk, not size
+
+- **Review depth follows risk.** Code that touches security, user data, money, secrets, auth or the merge checks gets the full review panel. Other code goes to the light tier at any size, with one batched reader plus the native adversarial pass. Docs, tests and eval write-ups get one reader. UI text and SVG files stay code for now. A larger diff never raises the depth by itself.
+- **New risk classes.** `lib/review-risk.ts` holds the money, auth and secret matchers the targeted pass already used, plus new security (trust boundaries, shell and HTML sinks, shells run through argv, recursive deletes, `eval`) and user-data (persistence paths, `DELETE FROM`, `deleteMany`, `destroy_all`) signals.
+- **At most 2 review rounds.** A fix-check counts as a round. A blocker that is still open or fixed in round 2 stops for the owner, who may grant one scoped fix-check; there is no round 3. A fix in round 2 that edits gate code also stops for the owner. Below-floor fixes in round 2 finish, with the notes listed.
+- **Receipts record tier and rounds.** `review_loop.rounds` and `review_depth.risk` are on the receipt, and the summary line prints `rounds=`. `gstack-ship-queue ready` still refuses a receipt below its head's depth.
+- Replayed on the 26-unit no-loss panel, no historical blocker was lost. Over the last 100 main commits (an estimate from replaying the depth rules), 8 go from standard to light, 12 go up to full, and no commit with a risk class goes down.
+
 ## [1.92.44.0] - 2026-11-01
 
 **`literals` stops treating a same-name sibling file as the changed module (GST-820).** A test that only mentioned `test/postgres-unit-arms.txt` was counted as a consumer of `scripts/postgres-unit-arms.ts`, so any `12` in it failed `PREGATE_LITERALS` when `ARM_SHARDS` moved from 12 to 18. In gbrain #8372 that gave 17 false files. A path now names the module only when its stem is followed by the module's own extension (for a JS/TS module, any JS/TS extension), or by anything other than a letter, digit, `_`, `-` or another extension, and the full file name no longer matches with a further extension such as `.snap`. Extensionless imports, `.js` imports and the module's own path still count.
