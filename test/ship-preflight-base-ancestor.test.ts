@@ -47,7 +47,7 @@ describe('preflight merge when the base is already in HEAD (GST-691)', () => {
   // Value: protects=an unfinished merge, cherry-pick or revert stops at Step 3 with its name and conflicted files, though the base is in HEAD, and no git merge runs;
   //   fails_when=the ancestor shortcut reports up to date over one, or the stop is a guard's refusal that names no cause;
   //   why_new=GST-691 /ship adversarial findings; seam=git rev-parse MERGE_HEAD/CHERRY_PICK_HEAD; no_claim=how the agent resolves it
-  test('an unfinished merge or cherry-pick with the base already in HEAD stops and names it, conflicted or resolved', () => {
+  test('an unfinished merge, cherry-pick or revert with the base already in HEAD stops and names it, conflicted or resolved', () => {
     const { f, merges } = guarded();
     f.git('checkout', '-q', '-b', 'other', 'main'); f.write({ 'src/a.ts': 'export const a = 5;\n' }); f.commit('other edits a');
     f.git('checkout', '-q', 'feat'); f.write({ 'src/a.ts': 'export const a = 6;\n' }); f.commit('feat edits a');
@@ -61,6 +61,11 @@ describe('preflight merge when the base is already in HEAD (GST-691)', () => {
     expect(f.git('cherry-pick', 'other').status).not.toBe(0);
     f.write({ 'src/a.ts': 'export const a = 8;\n' }); f.git('add', 'src/a.ts');
     expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain('STOP: an unfinished cherry-pick is in progress (CHERRY_PICK_HEAD):');
+    f.git('cherry-pick', '--abort');
+    f.write({ 'src/a.ts': 'export const a = 9;\n' }); f.commit('feat edits a again');
+    expect(f.git('revert', '--no-edit', 'HEAD~1').status).not.toBe(0);
+    f.write({ 'src/a.ts': 'export const a = 10;\n' }); f.git('add', 'src/a.ts');
+    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain('STOP: an unfinished revert is in progress (REVERT_HEAD):');
     expect(merges()).toEqual([]);
   });
 });
