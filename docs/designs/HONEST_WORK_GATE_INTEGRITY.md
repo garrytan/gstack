@@ -180,9 +180,12 @@ only history need is calibration, which `--commit <sha>` covers by scanning
 one commit's first-parent delta without the working tree.) Positional
 base defaults the way `gstack-diff-scope` does (the remote's `HEAD` target,
 origin first, then the other remotes → `main` → `master`); an
-already-qualified ref is used as given, and a branch name with no local
-branch resolves through its remote-tracking twin (`origin/main` for `main`:
-the merge-base is the same commit), noted once on stderr. stdout: one
+already-qualified ref is used as given, and a branch name resolves through
+its remote-tracking twin (`origin/main` for `main`), so a stale local `main`
+never adds commits the branch only inherited (GST-883). Only when no remote
+has the branch does the local ref stand, noted once on stderr (a repository
+with no remote at all uses it quietly). Branches are read by full ref name,
+so a tag named `main` or `origin/main` cannot stand in for them. stdout: one
 `GATE_SUMMARY: listed=N read=N tagged={RH-1:2,RH-15:1} unmatched=N
 coverage=<patterns> languages_unlisted=<…> candidate=<sha+wtree>` line, then
 the read-level listing (bounded; the full listing goes to `--out`).

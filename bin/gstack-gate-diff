@@ -39,7 +39,8 @@ const BIN_DIR = path.dirname(Bun.fileURLToPath(import.meta.url));
 const USAGE = `usage: gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha>] [--help]
 
 Lists every hunk in a test, CI, runner/lint-config, snapshot or golden path of the
-candidate (merge-base of <base-ref> and HEAD -> working tree + untracked files),
+candidate (merge-base of <base-ref> and HEAD -> working tree + untracked files;
+a branch name resolves to origin/<base-ref>, the local ref only when no remote has it),
 tags the gate edits it recognises (RH-1 RH-3 RH-4 RH-12 RH-13 RH-14 RH-15 RH-16),
 and prints the read-level listing after one GATE_SUMMARY: line. --commit <sha>
 scans that commit's first-parent delta instead of the working tree.
@@ -148,7 +149,8 @@ function main(argv: string[]): number {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
       return 2;
     }
-    if (base.local) console.error(`gstack-gate-diff: ${base.local === 'unrelated' ? `local ${baseRef} shares no history with HEAD` : `no local branch ${baseRef}`}; base is ${base.ref}`);
+    if (base.local === 'fallback') console.error(`gstack-gate-diff: ${base.unrelatedRemote ? `${base.unrelatedRemote} shares no history with HEAD` : `no remote-tracking branch for ${baseRef}`}; base is the local ${baseRef}, which may lag its remote`);
+    else if (base.local) console.error(`gstack-gate-diff: ${base.local === 'unrelated' ? `local ${baseRef} shares no history with HEAD` : `no local branch ${baseRef}`}; base is ${base.ref}`);
     const mb = mergeBase(base.sha, head, root);
     if (!mb) {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);

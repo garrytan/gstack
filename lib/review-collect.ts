@@ -171,7 +171,7 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
 /** The working tree against the merge base with origin/<base> (or <base>), untracked files counted per path; the registry is the base ref's commit. */
 export function collectLive(root: string, base: string): Collected {
   const errors: DepthError[] = [];
-  const ref = git(root, ['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]).ok ? `origin/${base}` : base;
+  const ref = [`refs/remotes/origin/${base}`, `refs/heads/${base}`].find(r => git(root, ['rev-parse', '--verify', '-q', `${r}^{commit}`]).ok) ?? base;
   const registry = loadRegistryAt(root, ref);
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
