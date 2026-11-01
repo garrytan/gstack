@@ -454,16 +454,18 @@ Concurrency and recovery: every state write is a locked read-modify-write
 (`test/autoplan-run-recovery.test.ts`, `test/autoplan-run-concurrency.test.ts`,
 `test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
 through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
-spend is `unknown` and counted in `worst_case`. Under a cap (or on Capy) each
-unattended host-subagent attempt reserves the default per voice unless
+spend is `unknown` and counted in `worst_case`. Under a cap, in any session
+kind (or unattended on Capy), each host-subagent attempt, and each api attempt
+whose model has no price, reserves the default per voice unless
 `next --estimate-usd <n>` sets the reservation, which the run keeps for later
 phases (`run` reserves an api attempt's priced worst case, prompt bytes / 3
-input tokens plus the output limit, and settles it at its token usage; a native
-call that fails after it was sent settles at its usage, or at its full
-reservation when the usage is unknown, while one refused before anything was
-sent, such as with no API key, keeps its attempt open for the rerun, and a
-failed outside call leaves the phase native-only and stays counted at its
-reservation); `submit
+input tokens plus the output limit, and settles it at its token usage; every
+native call that went out and bound no result, whether it failed, was cancelled,
+had its result refused, or was in flight when the process died (the next `run`
+finds it), settles at its usage, or at its full reservation when the usage is
+unknown, while one refused before anything was sent, such as with no API key,
+keeps its attempt open for the rerun, and a failed outside call leaves the phase
+native-only and stays counted at its reservation); `submit
 --usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.
