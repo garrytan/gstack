@@ -526,8 +526,9 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   if (target.kind === 'error') return fail(target.error);
 
   const deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const browseEnv = { ...process.env, BROWSE_SESSION: '' };
   const run = async (args: string[]): Promise<string> => {
-    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), { ...process.env, BROWSE_SESSION: '' });
+    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), browseEnv);
     log.push(`$ browse ${args.join(' ').slice(0, 300)}\n${r.stdout}${r.stderr}`.trim());
     if (r.error || r.code !== 0) {
       const first = (r.stderr || r.stdout || r.error || '').trim().split('\n')[0];
@@ -644,7 +645,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   } catch (e) {
     return fail((e as Error).message);
   } finally {
-    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000);
+    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000, browseEnv);
     srv?.stop();
     if (work) fs.rmSync(work, { recursive: true, force: true });
   }

@@ -225,11 +225,20 @@ const rootTab = bm.getActiveTabId();
   const pinned = JSON.parse((await run('newtab', [U('vp'), '--json'])).result).tabId;
   bm.switchTab(userTab, { bringToFront: false });
   const mode = bm.connectionMode;
+  const listener = (page) => {
+    const id = bm.nextTabId++;
+    bm.pages.set(id, page);
+    bm.tabSessions.set(id, new (bm.tabSessions.values().next().value.constructor)(page));
+    bm.activeTabId = id;
+  };
+  bm.context.on('page', listener);
   bm.connectionMode = 'headed';
   let r;
-  try { r = await run('viewport', ['auto'], { tabId: pinned }); } finally { bm.connectionMode = mode; }
+  try { r = await run('viewport', ['auto'], { tabId: pinned }); } finally { bm.connectionMode = mode; bm.context.off('page', listener); }
+  const pinnedPage = bm.pages.get(pinned);
   steps.headedViewport = { status: r.status, userTracked: bm.pages.get(userTab) === userPage,
-    pinnedLive: bm.pages.has(pinned), pinnedUrl: bm.pages.get(pinned)?.url() ?? null };
+    pinnedLive: bm.pages.has(pinned), pinnedUrl: pinnedPage?.url() ?? null, activeKept: bm.getActiveTabId() === userTab,
+    sameObject: [...bm.pages.values()].filter(p => p === pinnedPage).length, rootUrl: (await run('url')).result };
 }
 
 { // state save and load inside a session land the session on its own saved page
@@ -364,7 +373,8 @@ describe('session lifecycle', () => {
     expect(steps.headedNew).toEqual({ activeKept: true, added: 1, sameObject: 1 });
   });
   test('headed: viewport auto under a tab pin rebuilds only the pinned tab', () => {
-    expect(steps.headedViewport).toMatchObject({ status: 200, userTracked: true, pinnedLive: true });
+    expect(steps.headedViewport).toMatchObject({ status: 200, userTracked: true, pinnedLive: true, activeKept: true, sameObject: 1 });
+    expect(steps.headedViewport.rootUrl).not.toContain('s=vp');
     expect(steps.headedViewport.pinnedUrl).toContain('s=vp');
   });
   test('state save and load inside a session leave it on its saved page', () => {

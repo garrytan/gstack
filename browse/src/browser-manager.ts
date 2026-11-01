@@ -1811,9 +1811,16 @@ export class BrowserManager {
     const pinned = this.getPage();
     const loaded = this.getActiveSession().getLoadedHtml();
     const url = pinned.url();
+    const activeBefore = this.activeTabId;
     const page = await this.context.newPage();
+    const listenerId = [...this.pages].find(([, p]) => p === page)?.[0];
+    if (listenerId !== undefined) {
+      this.pages.delete(listenerId);
+      this.tabSessions.delete(listenerId);
+    }
+    this.activeTabId = activeBefore;
     const session = new TabSession(page);
-    this.wirePageEvents(page);
+    if (listenerId === undefined) this.wirePageEvents(page);
     try {
       if (loaded) await session.setTabContent(loaded.html, { waitUntil: loaded.waitUntil });
       else if (url !== 'about:blank') await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });

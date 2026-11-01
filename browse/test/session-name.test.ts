@@ -119,6 +119,9 @@ describe('CLI retry after a token change', () => {
 describe('gstack-render browse calls', () => {
   test('turn the automatic session off: render pins its own tab ids', () => {
     const source = fs.readFileSync(path.resolve(import.meta.dir, '../../lib/aside-render.ts'), 'utf8');
-    expect(source).toMatch(/runProc\(bin, args, [^\n]*BROWSE_SESSION: ''/);
+    expect(source).toContain("const browseEnv = { ...process.env, BROWSE_SESSION: '' };");
+    const calls = source.match(/runProc\(bin,[^\n]*/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of calls) expect(call).toContain('browseEnv');
   });
 });
