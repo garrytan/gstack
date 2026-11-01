@@ -83,12 +83,18 @@ const SPECIALIST_DIFF = 'run\n`DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <e
 
 const PLACEHOLDERS = ['<diff-base>', '<exclude>', '<base>', '{checklist path}', '{STACK}', '{TEST_FW}', '{merged findings summary}', '{red-team checklist path}', '{learnings'];
 
-/** Render one reader's brief. Throws BriefError on a missing slot, a section that no longer carries an anchor or placeholder, or a placeholder left unfilled. */
+/**
+ * Render one reader's brief. Throws BriefError on a missing slot, a section that no longer carries an anchor or placeholder, or a placeholder left unfilled.
+ * Findings and learnings are reviewer text that may quote a slot name such as origin/<base> (GST-797): they render as a token, so the
+ * placeholder check and the slot fills never see them, and go in last, trimmed as renderRole trims them.
+ */
 export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): string {
-  const text = renderRole(role, slots, t);
+  const held: Slots = { ...slots };
+  for (const k of ['findings', 'learnings']) if (slots[k]?.trim()) held[k] = `\u0000${k}\u0000`;
+  const text = renderRole(role, held, t);
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
-  return text;
+  return text.replace(/\u0000(findings|learnings)\u0000/g, (_, k: string) => slots[k]!.trim());
 }
 
 function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {

@@ -106,6 +106,36 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8')).toContain(`Read each checklist at ${lists} (tag each finding's`);
     expect(run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,maintenance']).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
   });
+
+  // Value: protects=a finding or learning that quotes a slot name reaches its reader byte for byte instead of failing the render;
+  //   fails_when=the unfilled-slot check runs after findings or learnings are pasted in, or a later slot fill rewrites the pasted text
+  //   (#3795: a finding quoting `origin/<base>` failed with BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>);
+  //   why_new=GST-797; seam=lib/review-brief.ts renderBrief via gstack-review-dispatch render; no_claim=fix-check or outside-voice content
+  test('findings and learnings that quote slot names render verbatim', () => {
+    const quoted = ['[HIGH] bin/x.ts:4 runs `git merge-base origin/<base> HEAD` against a stale ref',
+      '[MEDIUM] lib/y.ts:9 builds `DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <exclude>` by hand'].join('\n');
+    const out = tmp();
+    const w = (name: string, text: string) => { const f = path.join(out, name); fs.writeFileSync(f, text); return f; };
+    const red = run(['render', '--role', 'red-team', '--out', out, '--diff-base', SHA, '--findings-file', w('findings.txt', `${quoted}\n`), '--specialists', '2']);
+    expect(red.status, red.stderr).toBe(0);
+    expect(fs.readFileSync(field(red.stdout, 'file'), 'utf8')).toContain(quoted);
+    const spec = run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA, '--exclude', "-- . ':(exclude)*.lock'", '--learnings-file', w('learnings.txt', quoted)]);
+    expect(spec.status, spec.stderr).toBe(0);
+    const brief = fs.readFileSync(field(spec.stdout, 'file'), 'utf8');
+    expect(brief).toContain(`Past learnings: ${quoted}`);
+    expect(brief).toContain(`git diff "$DIFF_BASE" -- . ':(exclude)*.lock'`);
+  });
+
+  // Value: protects=the unfilled-slot refusal still fires when a section really leaves a slot open, quoted findings or not;
+  //   fails_when=the GST-797 fix skips the check, or quoted content masks a real open slot; seam=lib/review-brief.ts renderBrief
+  test('a slot the section really leaves open still refuses the render', () => {
+    const t = sectionTexts(ROOT);
+    const slots = { diff_base: SHA, checklist: '/x/red-team.md', specialists: '2' };
+    const open = { ...t, redTeam: `${t.redTeam} Compare against origin/<base>.` };
+    expect(() => renderBrief('red-team', slots, open)).toThrow(/^red-team: unfilled placeholder <base>$/);
+    expect(() => renderBrief('red-team', { ...slots, findings: 'quotes `origin/<base>`' }, open)).toThrow(/^red-team: unfilled placeholder <base>$/);
+    expect(() => renderBrief('specialist', { ...slots, name: 'testing', learnings: 'see <exclude>' }, { ...t, specialist: `${t.specialist} See <exclude>.` })).toThrow(/^specialist: unfilled placeholder <exclude>$/);
+  });
 });
 
 describe('gstack-review-dispatch sent, collect, judge and verify: nothing changed on the way in or out', () => {
