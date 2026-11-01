@@ -229,6 +229,8 @@ export function nextStep(o: NextOptions): NextResult {
   if (estimate.line && (['native', 'outside'] as const).some(voice => usdFor(voice) === estimate.usd)) lines.push(estimate.line);
   if (first) lines.push(reviewEstimateLine(state, estimate.usd));
   const fresh = (['native', 'outside'] as const).filter(voice => { const v = voiceState(state, phase!, voice); const open = openAttempt(v); return !voiceTerminal(v) && (!open || (open.state === 'execution_unknown' && o.redispatch?.includes(open.attempt))); });
+  const resultOf = (voice: Voice, attempt: string) => path.join(state.out, attemptFile(phase!, voice, attempt.slice(state.run.length + 1), 'md'));
+  fresh.forEach((voice, i) => bindPromptResult(prompts[voice], resultOf(voice, `${state.run}-a${state.attempt_counter + i + 1}`)));
   const before = summarize(readLedger(path.join(state.out, FILES.spend), state.spend_cap_usd));
   const asked = fresh.reduce((sum, voice) => sum + usdFor(voice), 0);
   if (state.spend_cap_usd !== null && fresh.length && before.worst_case_usd + asked > state.spend_cap_usd + 1e-9) {
@@ -250,8 +252,7 @@ export function nextStep(o: NextOptions): NextResult {
       continue;
     }
     const attempt = `${state.run}-a${++state.attempt_counter}`;
-    const resultFile = path.join(state.out, attemptFile(phase, voice, attempt.slice(state.run.length + 1), 'md'));
-    bindPromptResult(prompts[voice], resultFile);
+    const resultFile = resultOf(voice, attempt);
     const usd = usdFor(voice);
     try { reserve(path.join(state.out, FILES.spend), attempt, usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
     catch (e: any) { if (e.code === 'SPEND_CAP_EXCEEDED') { state.attempt_counter--; writeState(state); throw new RunError('SPEND_CAP_EXCEEDED', e.message, 3); } throw e; }

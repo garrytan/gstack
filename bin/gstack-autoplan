@@ -83,7 +83,7 @@ DRIVER: ${driverFile()}
           --settle records a packaging/ordering change that needs no plan edit and reopens nothing (ids: decision id or d4)
   run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api] ...
           next in a loop, only when a runner executes both voices here (hosts without subagents: --native-runner api --runner api);
-          --deadline cancels the children it started; --max-tokens caps each api call's output (Anthropic default 16384), and a
+          --deadline cancels the children it started; --max-tokens caps each api call's output (default 16384; OpenAI counts reasoning tokens in it), and a
           response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
           --by agent:<id> needs --owner-reply "<owner's words>" (- reads stdin; --owner-reply-file <path>), stored verbatim;
@@ -323,6 +323,8 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
   };
   const usdOf = (voice: Voice, used: { input_tokens?: number; output_tokens?: number } | undefined) =>
     isApi(voice) && pricingRow(modelOf(voice)) && typeof used?.input_tokens === 'number' && typeof used?.output_tokens === 'number' ? estimateCostUsd({ input: used.input_tokens, output: used.output_tokens }, modelOf(voice)) : undefined;
+  // Refused before any request left this machine, so nothing was billed: the attempt stays open for the rerun. Any other failure settles at its usage, or its reservation when the usage is unknown.
+  const NOT_SENT = new Set(['runner_unavailable', 'cli_missing', 'model_unselected']);
   for (let guard = 0; guard < 40; guard++) {
     const code = withRunLock(out, () => doNext(out, rest, true, price));
     if (code !== EXIT.ok) return code;
@@ -346,12 +348,12 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       const res = await runner.run({ promptFile: open.prompt, outFile: `${open.result}.raw`, model: voice === 'native' ? nativeModel : outsideModel, timeoutMs: Math.min(remaining, runnerId === 'api' ? apiTimeoutMs(maxTokens) : 600_000), cwd: process.cwd(), gate: 'execution', maxTokens: runnerId === 'api' ? maxTokens ?? DEFAULT_MAX_TOKENS : maxTokens });
       if (timer) clearTimeout(timer);
       if (!json) process.stdout.write(`VOICE: ${phase} ${voice} ${res.status} runner=${res.runner} model=${res.model ?? 'unknown'}\n`);
-      if (res.status === 'cancelled') { withRunLock(out, () => { const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
+      const retire = () => { if (!NOT_SENT.has(res.reason ?? '')) retireAttempt(out, phase as Phase, voice, open.attempt, usdOf(voice, res.usage) ?? 'unknown'); };
+      if (res.status === 'cancelled') { withRunLock(out, () => { retire(); const s = readState(out); s.status = 'interrupted'; writeState(s); }); process.stdout.write(resultLineFor('interrupted', out) + '\n'); return EXIT.fail; }
       if (res.status !== 'completed' && res.status !== 'unverified') {
         if (voice === 'outside') { withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} ${res.status}${res.detail ? `: ${res.detail}` : ''}`)); continue; }
         process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.reason ? `: ${res.reason}` : ''}${res.detail ? `: ${res.detail}` : ''}\n`);
-        const spent = usdOf(voice, res.usage);
-        withRunLock(out, () => { if (spent !== undefined) retireAttempt(out, phase as Phase, voice, open.attempt, spent); const s = readState(out); s.status = 'interrupted'; writeState(s); });
+        withRunLock(out, () => { retire(); const s = readState(out); s.status = 'interrupted'; writeState(s); });
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
       }

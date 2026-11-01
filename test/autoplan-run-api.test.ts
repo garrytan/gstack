@@ -13,7 +13,7 @@ import { DEFAULT_MAX_TOKENS } from '../lib/outside-voice-api';
 import { AUTOPLAN, ROOT, SMALL_PLAN, env } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-run-api-'));
-let mode: 'ok' | 'cut' | 'bad-outside' | 'down' = 'ok';
+let mode: 'ok' | 'cut' | 'bad-outside' | 'hang' = 'ok';
 let calls = 0;
 let openaiLimits: unknown[] = [];
 let server: ReturnType<typeof Bun.serve>;
@@ -22,7 +22,7 @@ beforeAll(() => {
     port: 0,
     async fetch(req) {
       calls++;
-      if (mode === 'down') return new Response('overloaded', { status: 503 });
+      if (mode === 'hang') { await Bun.sleep(5000); return new Response('late', { status: 504 }); }
       const body = await req.json();
       const prompt = String(body.messages[0].content);
       const m = /INPUT: ([a-z]+) ([0-9a-f]{64})/.exec(prompt.slice(prompt.lastIndexOf('RESULT FORMAT')))!;
@@ -37,7 +37,7 @@ beforeAll(() => {
 });
 afterAll(() => { server.stop(true); fs.rmSync(TMP, { recursive: true, force: true }); });
 
-async function run(name: string, extra: string[] = []) {
+async function run(name: string, extra: string[] = [], keys: Record<string, string> = { ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test' }) {
   const dir = path.join(TMP, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'plan.md'), SMALL_PLAN);
@@ -45,7 +45,7 @@ async function run(name: string, extra: string[] = []) {
   const base = `http://127.0.0.1:${server.port}`;
   const proc = Bun.spawn(['bun', AUTOPLAN, 'run', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui', '--no-dx', '--native-model', 'anthropic/claude-opus-5-5', '--outside-model', 'openai/gpt-6-astra', '--runner', 'api', '--native-runner', 'api', ...extra], {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
-    env: env({ ANTHROPIC_API_KEY: 'ak-test', OPENAI_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: `${base}/v1`, GSTACK_AUTOPLAN_CHECKPOINT_DIR: '', GSTACK_STATE_ROOT: path.join(TMP, 'state') }),
+    env: env({ ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', ...keys, ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: `${base}/v1`, GSTACK_AUTOPLAN_CHECKPOINT_DIR: '', GSTACK_STATE_ROOT: path.join(TMP, 'state') }),
   });
   const timer = setTimeout(() => proc.kill('SIGKILL'), 120_000);
   const [status, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -122,16 +122,16 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(calls).toBe(0);
   }, 150_000);
 
-  test('a failed call that reports no usage charges nothing: its attempt stays open and the rerun reuses it at the cap that admitted it', async () => {
-    mode = 'down';
-    const first = await run('down-retry', ['--spend-cap', '8']);
+  test('a call refused before any request leaves charges nothing: with no key the attempt stays open and the rerun reuses it at the cap that admitted it', async () => {
+    mode = 'ok';
+    calls = 0;
+    const first = await run('no-key', ['--spend-cap', '8'], { OPENAI_API_KEY: 'sk-test' });
     expect(first.state.status).toBe('interrupted');
+    expect(calls).toBe(0);
     const open = first.state.phases.ceo.native.attempts[0];
     expect(open.state).toBe('dispatched');
-    const before = JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8'));
-    expect(before.settled).toEqual([]);
-    mode = 'ok';
-    const retry = await run('down-retry', ['--spend-cap', '8']);
+    expect(JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8')).settled).toEqual([]);
+    const retry = await run('no-key', ['--spend-cap', '8']);
     expect(retry.status, retry.stderr).toBe(0);
     expect(retry.stdout).toContain(`GSTACK_RESULT: skill=autoplan status=gate_pending run=${retry.out}`);
     expect(retry.state.phases.ceo.native.attempts.map((a: any) => a.attempt)).toEqual([open.attempt]);
@@ -139,5 +139,16 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(ledger.settled.length).toBe(4);
     expect(ledger.released ?? []).toEqual([]);
     for (const s of ledger.settled) expect(s.label).toMatch(/^(ceo|eng)\/(native|outside)$/);
+  }, 150_000);
+
+  test('a call that was sent and timed out with no usage is charged its reservation, so the cap binds on the rerun', async () => {
+    mode = 'hang';
+    const first = await run('timed-out', ['--spend-cap', '8', '--deadline', '0.02']);
+    expect(first.state.status).toBe('interrupted');
+    const sent = first.state.phases.ceo.native.attempts[0];
+    expect(sent.state).toBe('superseded');
+    const ledger = JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8'));
+    expect(ledger.reserved.map((r: any) => r.attempt)).not.toContain(sent.attempt);
+    expect(ledger.settled.find((s: any) => s.attempt === sent.attempt).usd).toBe('unknown');
   }, 150_000);
 });
