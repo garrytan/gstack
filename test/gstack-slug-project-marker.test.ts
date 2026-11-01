@@ -291,6 +291,25 @@ describe('gstack-slug: .gstack-project marker', () => {
     expect(run(REMOTE_SLUG, path.join(backend, 'src')).stdout.trim()).toBe('org-backend');
   });
 
+  test('remote-slug follows a marker under a non-ASCII parent in the C locale', () => {
+    const top = path.join(home, '文档', 'proj');
+    const backend = repo(path.join(top, 'backend'), 'git@github.com:org/backend.git');
+    mark(top);
+    expect(slug(backend, { LC_ALL: 'C' })).toBe('proj');
+    expect(run(REMOTE_SLUG, backend, [], { LC_ALL: 'C' }).stdout.trim()).toBe('proj');
+  });
+
+  test('repo mode stays with each repository under an umbrella', () => {
+    const { top, backend } = umbrella();
+    for (let i = 0; i < 5; i++) git(['-C', backend, 'commit', '-q', '--allow-empty', '-m', `c${i}`]);
+    mark(top);
+    expect(slug(backend)).toBe('MyProduct');
+    const r = run(path.join(ROOT, 'bin', 'gstack-repo-mode'), backend);
+    expect(r.stdout).toContain('REPO_MODE=solo');
+    expect(fs.existsSync(path.join(state, 'projects', 'MyProduct', 'repo-mode.json'))).toBe(false);
+    expect(fs.existsSync(path.join(state, 'projects', 'org-backend', 'repo-mode.json'))).toBe(true);
+  });
+
   test('marked folders whose paths differ only by / and _ keep separate slugs', () => {
     const a = path.join(home, 'team_app');
     const b = path.join(home, 'team', 'app');

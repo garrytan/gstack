@@ -10,9 +10,11 @@ set -e
 # from a linked worktree's main checkout, decides identity the way bin/gstack-slug
 # does, so design-doc lookups find docs where skills saved them.
 _id=$("$(dirname "$0")/../../bin/gstack-slug" --identity 2>/dev/null || true)
-case "$_id" in
-  *"PROJECT_MARKER=/"*) printf '%s\n' "$_id" | sed -n 's/^SLUG=//p'; exit 0 ;;
-esac
+_marker=$(printf '%s\n' "$_id" | sed -n 's/^PROJECT_MARKER=//p')
+if [ -n "$_marker" ] && [ "$_marker" != "''" ]; then
+  printf '%s\n' "$_id" | sed -n 's/^SLUG=//p'
+  exit 0
+fi
 URL=$(git remote get-url origin 2>/dev/null || true)
 _gri_slug=""
 if [ -n "$URL" ]; then

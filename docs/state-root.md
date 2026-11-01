@@ -172,7 +172,8 @@ clones that repo on its own.
 
 Checkpoints, learnings, decisions, the timeline and design docs follow the
 marker. Records that belong to one repository never do: pregate policy and run
-scratch, approvals, `/verify` results and the Greptile early-push answer stay
+scratch, approvals, `/verify` results, the cached solo or collaborative repo
+mode and the Greptile early-push answer stay
 under the slug the repository has without a marker (`gstack-slug --get
 REPO_SLUG`), so a branch that commits a marker can't change which policy
 applies.
