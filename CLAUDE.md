@@ -596,8 +596,9 @@ match the actual code on disk in this worktree.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).
-- `~/.gstack/` curated memory (the `gstack-artifacts-<user>` source that
-  `gstack-artifacts-init` registers; `gbrain sources list` shows the exact id).
+- `~/.gstack/` curated memory: the `gstack-artifacts-<user>` source, named after
+  the repo `gstack-artifacts-init` creates (lowercased and cut to 32 characters;
+  `gbrain sources list` shows the exact id).
 
 Prefer gbrain when:
 - "Where is X handled?" / semantic intent, no exact string yet:
