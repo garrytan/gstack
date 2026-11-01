@@ -73,4 +73,31 @@ describe('finish after an accepted documentation exception (GST-713)', () => {
     expect(stop.status).toBe(3);
     expect(stop.stdout).toContain('names a documentation exception but .gstack/tmp/docs-audit.json is not the blocked record carrying it');
   });
+
+  // Value: protects=finish matches the snapshot's exception to the blocked record field by field; fails_when=any blocked record
+  //   with any exception passes, so another owner's or an edited answer finishes; seam=finish stage 3; no_claim=receipt docs field
+  test('a blocked audit carrying a different exception than the snapshot stops finish', () => {
+    const { f, reviewed } = blockedAudit({ status: 'blocked', scope: 'README.md', exception: EXCEPTION });
+    expect(snapshot(f, ['--exception', '.gstack/tmp/docs-audit.json']).r.status).toBe(0);
+    f.write({ '.gstack/tmp/docs-audit.json': JSON.stringify({ status: 'blocked', scope: 'README.md', exception: { ...EXCEPTION, accepted_by: 'Someone else' } }) + '\n' });
+    const stop = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', path.join(f.root, 'post.json'), '--lane', LANE]);
+    expect(stop.status).toBe(3);
+    expect(stop.stdout).toContain('names no matching owner-accepted exception');
+  });
+
+  // Value: protects=only a complete, blocked, owner-accepted record writes an exception snapshot; fails_when=a current record, an
+  //   empty scope, a malformed date or unreadable JSON writes one; seam=gstack-docs-candidate snapshot --exception; no_claim=who may accept
+  test.each([
+    [{ status: 'current', scope: 'README.md', exception: EXCEPTION }, 'not blocked'],
+    [{ status: 'blocked', scope: ' ', exception: EXCEPTION }, 'it names no scope'],
+    [{ status: 'blocked', scope: 'README.md', exception: { ...EXCEPTION, date: '10/31/2026' } }, 'exception.date is not YYYY-MM-DD'],
+    ['{not json', 'is not readable JSON'],
+  ])('snapshot --exception refuses %j and writes nothing', (audit, message) => {
+    const f = shipFixture(); fixtures.push(f);
+    f.write({ '.gstack/tmp/docs-audit.json': typeof audit === 'string' ? audit : JSON.stringify(audit) });
+    const s = snapshot(f, ['--exception', '.gstack/tmp/docs-audit.json']);
+    expect(s.r.status).not.toBe(0);
+    expect(s.r.stderr).toContain(message);
+    expect(fs.existsSync(s.out)).toBe(false);
+  });
 });
