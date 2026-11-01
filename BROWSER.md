@@ -619,7 +619,7 @@ Storage stays intact by default. With explicit approval on a Chromium target, `-
 
 | Command | Description |
 |---------|-------------|
-| `tabs` | List open tabs |
+| `tabs` | List open tabs, with each owned tab's owner (a pair-agent client or `session:<name>`) |
 | `tab <id>` | Switch to tab |
 | `newtab [url] [--json]` | Open new tab; `--json` returns `{tabId, url}` for programmatic use |
 | `closetab [id]` | Close tab |
@@ -633,6 +633,27 @@ in a long script, `status`, `tabs`, `tab <id>`, `newtab`, `closetab`,
 `state save` and `stop` keep working, and `status` and `tabs` mark the tab as
 not responding. A command that needs the stuck tab times out after 30s and
 names it, so you can switch away or close it without `--force-restart`.
+
+**Sessions keep parallel agents on their own tabs (#1961).** A call from a
+known agent harness (Claude Code, Codex and others) gets a session named after
+that agent process; its first command opens the session's own tab and later
+commands stay there without moving the shared active tab. Name one with
+`--session <name>` or `BROWSE_SESSION=<name>`; `BROWSE_SESSION=` turns it off.
+`--tab-id` and `BROWSE_TAB` win over a session and no longer move the active
+tab either. Sessions isolate tabs, not cookies or storage, and only the local
+root token can name one.
+
+### Phone emulation + touch
+
+This is Chromium emulating a phone on one tab, not Safari; a real device still goes through `/ios-qa`.
+
+| Command | Description |
+|---------|-------------|
+| `device [<name> [--landscape] \| off \| --list]` | Emulate a phone on the current tab only (size, pixel ratio, touch, `pointer: coarse`, user agent) from Playwright's devices table; other tabs stay desktop. `off` restores; `viewport` and `responsive` refuse while a device is active |
+| `tap <@ref\|sel\|x y> [--hold <ms>]` | Touch and release at an element's center or at x y. Needs `device` first |
+| `swipe <@ref\|sel\|x y> <up\|down\|left\|right> [--distance <px>] [--ms <n>]` | One-finger swipe (default 300px over 300ms). Needs `device` first |
+| `pinch <@ref\|sel\|x y> <scale>` | Two-finger pinch; scale above 1 zooms in, below 1 zooms out. Needs `device` first |
+| `touch [down\|move <finger 0-9> <x> <y> \| up <finger> \| cancel]` | Hold, move and lift numbered fingers for multi-finger flows; no action lists held fingers. Needs `device` first |
 
 ### Extraction
 
@@ -1732,6 +1753,9 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_HEADLESS_SKIP` | 0 | Skip Chromium launch entirely (test harness only) |
 | `BROWSE_TUNNEL` | 0 | Activate the dual-listener tunnel architecture (requires `NGROK_AUTHTOKEN`) |
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
+| `BROWSE_SESSION` | unset (agent harness calls get `agent-<pid>`) | CLI side: this caller's session name; empty or `off` turns sessions off |
+| `BROWSE_SESSION_IDLE_MINUTES` | 120 | Daemon side: close (headless) or release (headed) a session's tabs after this many idle minutes; 0 keeps them |
+| `BROWSE_MAX_SESSIONS` | 16 | Daemon side: most sessions at once; the least recently used idle one is closed to make room |
 | `CHROMIUM_PROFILE` | unset | Explicit headed Chromium profile directory (used by gbrowser's gbd per-workspace); honored by headed launch and profile-lock cleanup, not used by headless sessions |
 | `GSTACK_DISABLE_GPU` | unset | On macOS, headless Chromium starts with a GPU-taming flag set (it stops runaway GPU-process spin) that also disables WebGL: `getContext('webgl')`/`'webgl2'` return `null`, so WebGL pages (three.js, Mapbox GL, sigma.js) show their fallback. Set `GSTACK_DISABLE_GPU=off` to enable WebGL (`off` is the only recognized value). |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
@@ -1776,7 +1800,11 @@ browse/
 │   ├── cdp-inspector.ts         # $B inspect — persistent CDP session per page
 │   ├── activity.ts              # ActivityEntry, CircularBuffer, SSE subscribers, privacy filtering
 │   ├── buffers.ts               # Console/network/dialog circular buffers (O(1) ring)
-│   ├── tab-session.ts           # Per-tab session state (load-html replay, ref map scope)
+│   ├── tab-session.ts           # Per-tab session state (load-html replay, ref map scope, device profile, held fingers)
+│   ├── session-name.ts          # CLI: which session a call belongs to (--session, BROWSE_SESSION, agent harness pid)
+│   ├── session-tabs.ts          # Daemon: per-session and per-tab-id request scopes, idle sweep, session cap
+│   ├── device-emulation.ts      # $B device: per-tab phone emulation over the tab's own CDP session
+│   ├── touch-commands.ts        # $B tap/swipe/pinch/touch via Input.dispatchTouchEvent
 │   ├── token-registry.ts        # Mint/validate/revoke for root + setup keys + scoped tokens
 │   ├── sse-session-cookie.ts    # 30-min HttpOnly cookie for /activity/stream + /inspector/events
 │   ├── pty-session-cookie.ts    # Separate scope: live Claude PTY auth
