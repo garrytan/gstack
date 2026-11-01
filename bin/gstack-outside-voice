@@ -4,7 +4,7 @@
  *
  *   gstack-outside-voice run --runner codex-cli|api|host-subagent --prompt <file> --out <file>
  *                            [--model <id>] [--result <file>] [--native-model <id>] [--fallback <runner>]
- *                            [--gate review|structured|spec|proposal] [--timeout-ms N] [--cwd <dir>] [--json]
+ *                            [--gate review|structured|spec|proposal] [--timeout-ms N] [--max-tokens N] [--cwd <dir>] [--json]
  *   gstack-outside-voice runners [--model <id>] [--json]   the runner table: capabilities and availability here
  *   gstack-outside-voice family <model-id>                  the model's family (same-family rule)
  *
@@ -20,18 +20,21 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import type { OutsideGate } from '../lib/outside-review-result';
 import { RUNNER_IDS, createRunner, familyConflict, modelFamily, outsideStatusLine, runnerTable, selectRunner, type RunnerId } from '../lib/outside-voice-runner';
 import { outsideConsent } from '../lib/outside-consent';
+import { apiTimeoutMs } from '../lib/outside-voice-api';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-outside-voice — one outside voice, three runners (docs/unattended.md)
 
   run --runner <r> --prompt <file> --out <file> [--model <id>] [--result <file>] [--native-model <id>]
-      [--fallback <r>] [--gate review|structured|spec|proposal] [--timeout-ms N] [--cwd <dir>] [--json]
+      [--fallback <r>] [--gate review|structured|spec|proposal] [--timeout-ms N] [--max-tokens N] [--cwd <dir>] [--json]
   runners [--model <id>] [--json]        the runner table: id, capabilities, available here
   family <model-id>                      print the model family (anthropic, openai, google, ...)
 
 Runners: codex-cli (repository review via codex exec), api (supplied-input review via
 OPENAI_API_KEY/ANTHROPIC_API_KEY; needs --model), host-subagent (binds --result from a
-cross-family subagent the host ran; needs --model). --native-model enforces the same-family
+cross-family subagent the host ran; needs --model). --max-tokens caps the api runner's output
+(Anthropic default 16384; its default time limit grows with it); a response cut off at the limit
+is unavailable (truncated). --native-model enforces the same-family
 rule. GSTACK_OUTSIDE_RUNNER names the fallback when --fallback is absent.
 Prints OUTSIDE_STATUS: <status> provider=<runner> model=<id> family=<f> and writes <out>.meta.json.
 codex_reviews=disabled (or an unreadable config) refuses every runner before it starts:
@@ -75,9 +78,12 @@ async function main(argv: string[]): Promise<number> {
   if (!fs.existsSync(promptFile)) return usage(`prompt file not found: ${promptFile}`);
   const gate = (flag(rest, '--gate') ?? 'review') as OutsideGate;
   if (!['review', 'structured', 'spec', 'proposal'].includes(gate)) return usage('--gate must be review, structured, spec or proposal');
+  const maxTokensText = flag(rest, '--max-tokens');
+  const maxTokens = maxTokensText === undefined ? undefined : Number(maxTokensText);
+  if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) return usage('--max-tokens needs a positive integer');
   const timeoutText = flag(rest, '--timeout-ms');
-  const timeoutMs = timeoutText === undefined ? 300_000 : Number(timeoutText);
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) return usage('--timeout-ms needs a positive integer');
+  const timeoutMs = timeoutText === undefined ? undefined : Number(timeoutText);
+  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0)) return usage('--timeout-ms needs a positive integer');
   const fallbackText = flag(rest, '--fallback') ?? process.env.GSTACK_OUTSIDE_RUNNER;
   if (fallbackText !== undefined && !isRunner(fallbackText)) return usage(`--fallback must be one of ${RUNNER_IDS.join(', ')}`);
   const model = flag(rest, '--model');
@@ -110,7 +116,7 @@ async function main(argv: string[]): Promise<number> {
   const stop = () => runner.cancel();
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
-  const result = await runner.run({ promptFile: path.resolve(promptFile), outFile: path.resolve(outFile), model, timeoutMs, cwd, gate, resultFile: resultFile ? path.resolve(resultFile) : undefined });
+  const result = await runner.run({ promptFile: path.resolve(promptFile), outFile: path.resolve(outFile), model, timeoutMs: timeoutMs ?? (choice.runner === 'api' ? apiTimeoutMs(maxTokens) : 300_000), cwd, gate, maxTokens, resultFile: resultFile ? path.resolve(resultFile) : undefined });
   fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
   fs.writeFileSync(`${path.resolve(outFile)}.meta.json`, JSON.stringify(result, null, 2) + '\n');
   if (json) process.stdout.write(JSON.stringify(result) + '\n');

@@ -36,6 +36,8 @@ export interface RunnerRequest {
   promptFile: string; outFile: string; model?: string; timeoutMs: number; cwd: string; gate: OutsideGate;
   /** host-subagent: the file the host's subagent wrote. */
   resultFile?: string;
+  /** api: the output token limit (lib/outside-voice-api.ts DEFAULT_MAX_TOKENS for Anthropic when unset). */
+  maxTokens?: number;
   env?: Record<string, string | undefined>;
   /** Directory of the gstack bins (gstack-codex-probe); defaults to this module's sibling bin/. */
   binDir?: string;
@@ -199,10 +201,11 @@ class ApiRunner implements OutsideRunner {
     if (!avail.ok) return finish({ ...base, status: 'unavailable', exit: 1, reason: 'runner_unavailable', detail: avail.reason }, started);
     const { callModel } = await import('./outside-voice-api');
     try {
-      const res = await callModel({ model: req.model!, prompt, timeoutMs: req.timeoutMs, env: req.env, signal: this.controller.signal });
+      const res = await callModel({ model: req.model!, prompt, timeoutMs: req.timeoutMs, env: req.env, signal: this.controller.signal, maxTokens: req.maxTokens });
       fs.mkdirSync(path.dirname(req.outFile), { recursive: true });
       fs.writeFileSync(req.outFile, res.text);
       const usage: RunnerUsage = { ...res.usage, usd: 'unknown' };
+      if (res.truncated) return finish({ ...base, model: res.model, family: modelFamily(res.model), status: 'unavailable', exit: 0, usage, reason: 'truncated', detail: `stopped at the output limit after ${res.usage.output_tokens ?? 'an unknown number of'} output tokens; raise --max-tokens` }, started, req.outFile);
       const { status, verdict } = classify(res.text, req.gate, { exit: 0 });
       return finish({ ...base, model: res.model, family: modelFamily(res.model), status, exit: 0, usage, verdict, ...(verdict.reason ? { reason: verdict.reason } : {}), ...(verdict.detail ? { detail: verdict.detail } : {}) }, started, req.outFile);
     } catch (e: any) {

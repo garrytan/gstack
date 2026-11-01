@@ -269,6 +269,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | closing a review phase, after its reviews finish and before announcing completion or loading the next phase (read afresh at each exit) | `sections/phase-close.md` |
 | presenting the Final Approval Gate (Phase 4) — the aggregator computes $AGGREGATED_TASKS that the gate message substitutes | `sections/tasks-aggregator.md` |
 | the preamble echoed `SESSION_KIND: unattended` (read before Phase 1 and at the Phase 4 gate) | `sections/unattended.md` |
+| the invocation names `--ceo-only` (read before any preamble instruction block) | `sections/ceo-only.md` |
 
 ---
 

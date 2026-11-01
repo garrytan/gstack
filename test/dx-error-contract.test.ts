@@ -20,6 +20,8 @@ describe('agent-ready error contract reaches every DX reviewer', () => {
     for (const text of [DX_ERROR_CONTRACT, DX_ERROR_COMPACT]) {
       expect(text).toContain('CAP4:<path>:<item>');
       expect(text).toContain('CAP6:<path>:<item>');
+      expect(text).toContain('CAP4:<path>:<item> <what fails>');
+      expect(text).toContain('CAP6:<path>:<item> <what fails>');
       expect(text).toContain('4/10');
       expect(text).toContain('6/10');
       expect(text).toMatch(/[Uu]sage (and|or) validation error/);

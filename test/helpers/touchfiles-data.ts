@@ -918,6 +918,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/autoplan-phase-handoff-6714.json','scripts/resolvers/learnings.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts',  'test/fixtures/plan-scope-recovery-av.json',   'test/fixtures/design-scope-checkpoint-at.json',  'scripts/resolvers/composition.ts',   'autoplan/**', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/design.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts', 'bin/gstack-autoplan-snapshot.ts',    'test/fixtures/autoplan/t-ceo-omitted-obligations.json', 'test/fixtures/autoplan/u-ceo-original-loss.json', 'test/fixtures/autoplan/v-ceo-dangling-references.json',
     'scripts/resolvers/design-doc-discovery.ts', 'bin/gstack-design-doc-find', 'bin/gstack-ceo-plan-find', 'plan-ceo-review/**', 'ETHOS.md', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/autoplan-phase-observer.ts', 'scripts/resolve-codex-generation-model.ts', 'scripts/resolvers/constants.ts'],
 
+  // /autoplan --ceo-only: zero questions through the CEO phase (GST-537)
+  'autoplan-ceo-only': ['autoplan/**', 'plan-ceo-review/**', 'ETHOS.md', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts',
+    'scripts/resolvers/preamble/generate-ask-user-format.ts', 'bin/gstack-state-root.sh', 'lib/state-root.ts',
+    'lib/headless-artifacts.ts', 'bin/gstack-ceo-mode-handoff', 'test/helpers/autoplan-ceo-only-evidence.ts', 'test/helpers/hermetic-env.ts',
+    'test/skill-e2e-autoplan-ceo-only.test.ts', 'test/fixtures/forcing-finding-seeds.ts'],
+
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
   'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts', 'test/skill-e2e-benchmark-providers.test.ts'],
 
@@ -1581,6 +1587,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-dual-voice': 'periodic',
+  'autoplan-ceo-only': 'marathon',  // Full /autoplan --ceo-only CEO review (349–984 s over 6 runs, GST-537); the gate (I5) and periodic lanes are at their caps
 
   // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
   'benchmark-providers-live': 'periodic',
@@ -1995,6 +2002,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'benchmark-workflow': 'rule',
   'setup-deploy-workflow': 'rule',
   'autoplan-dual-voice': 'rule',
+  'autoplan-ceo-only': 'rule',
   'benchmark-providers-live': 'rule',
   'scrape-match-path': 'behavior',
   'scrape-prototype-path': 'behavior',

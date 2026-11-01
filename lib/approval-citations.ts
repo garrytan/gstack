@@ -78,6 +78,7 @@ function planGate(dir: string, run: Record<string, any>): Resolution {
   const p1 = readJsonl(path.join(dir, 'decisions.jsonl')).find(d => d.label === 'P1' && d.gate_rev === rev);
   const approved = run.status === 'complete' && typeof gate.plan === 'string' && !['c', 'e'].includes(gate.plan) && p1 && p1.chosen === gate.plan && p1.status !== 'pending';
   if (!approved) return { state: 'rejected', why: `run ${run.run} holds this plan but its gate is not APPROVED (status ${run.status}, p1 ${p1?.chosen ?? 'unanswered'})` };
+  if (p1.words_by) return { state: 'rejected', why: `run ${run.run}: its gate was answered in ${p1.words_by}'s own words, not the owner's` };
   return { state: 'resolved', evidence: `plan ${run.run} gate_rev=${rev} p1=${gate.plan} answered_by=${gate.answered_by ?? p1.answered_by ?? 'unrecorded'}`, text: fs.readFileSync(planFile, 'utf8') };
 }
 
