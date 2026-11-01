@@ -136,6 +136,18 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(() => renderBrief('red-team', { ...slots, findings: 'quotes `origin/<base>`' }, open)).toThrow(/^red-team: unfilled placeholder <base>$/);
     expect(() => renderBrief('specialist', { ...slots, name: 'testing', learnings: 'see <exclude>' }, { ...t, specialist: `${t.specialist} See <exclude>.` })).toThrow(/^specialist: unfilled placeholder <exclude>$/);
   });
+
+  // Value: protects=a diff or hunk that carries NUL bytes reaches its reader unchanged and never pulls in another slot's text;
+  //   fails_when=renderBrief's put-back matches a token the caller can type, so a diff with \0learnings\0 splices the project's
+  //   learnings into the outside voice's brief and \0findings\0 crashes the render (GST-797 adversarial pass); seam=lib/review-brief.ts renderBrief
+  test('reviewer text is put back only where the render held it', () => {
+    const t = sectionTexts(ROOT);
+    const diff = '+a \u0000learnings\u0000 b \u0000findings\u0000 c';
+    const outside = renderBrief('outside-voice', { diff_base: SHA, diff, learnings: 'SECRET-LEARN', findings: 'F' }, t);
+    expect(outside).toContain(diff);
+    expect(outside).not.toContain('SECRET-LEARN');
+    expect(renderBrief('fix-check', { fix_list: 'a.ts:3 fixed', hunks: diff, tests: '3 pass' }, t)).toContain(diff);
+  });
 });
 
 describe('gstack-review-dispatch sent, collect, judge and verify: nothing changed on the way in or out', () => {
