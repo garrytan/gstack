@@ -226,7 +226,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
     const capy = read('capy/skill/gstack/SKILL.md');
     expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
-    expect(capy).toContain('`anthropic/claude-haiku-5-5` also fits');
+    expect(capy).toContain('(14.5 runs once)');
   });
 
   // Value: protects=a driven /ship dispatches every blocking reader on its rendered brief file unchanged, checks it with `sent`, merges findings only through `collect`, gates judgment with `judge` and verifies the run before the bind; fails_when=the driver lets the model write or trim a brief again or merge findings in prose (round 4b: arm D lost 8 blockers with 75 of 112 briefs paraphrased);
