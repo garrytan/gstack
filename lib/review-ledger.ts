@@ -59,6 +59,9 @@ const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
+/** A label a negation word governs ("found nothing CRITICAL", "no High or Critical issues", "not CRITICAL") is no finding (GST-766). */
+const NEGATED = /(?<![A-Za-z0-9])(?:no|nothing|not|none|zero|without|never)\s+$/i;
+const NEGATION_LIST = /^\s*(?:,|\/|or|nor|and)\s*$/i;
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
 /** A line that is only a finding's `Severity` or `Blocks` field ("Severity: High", "- Blocks: yes", "Severity High"). */
@@ -86,7 +89,15 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let treeSeen = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const asserted = (t: string) => {
+    let end = -1, negated = false;
+    return [...t.matchAll(ALL_LABELS)].filter(m => {
+      negated = NEGATED.test(t.slice(0, m.index)) || (negated && NEGATION_LIST.test(t.slice(end, m.index)));
+      end = m.index! + m[0].length;
+      return !negated;
+    });
+  };
+  const strongest = (t: string) => asserted(t).map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
   const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
