@@ -210,7 +210,7 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_WAVE_NOT_MERGED: {
     anchor: 'queue-wave-not-merged',
-    summary: 'wave settle found no merged PR for the wave branch, or main’s merge does not carry the wave head’s tree',
+    summary: 'wave settle found no merged PR for the wave branch, or main’s merge does not carry the wave head',
     fix: 'land the wave PR through its train (train land), then rerun wave settle --wave <nonce>',
   },
   // CREW rule 22 (Garry, 2026-10-25): /ship runs before every READY; the queue refuses a PR whose body has no current receipt.

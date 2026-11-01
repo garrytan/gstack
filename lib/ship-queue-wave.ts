@@ -507,8 +507,10 @@ export function waveSettle(ctx: QueueContext, o: { wave: string; dryRun: boolean
   if (!git(repo, ['merge-base', '--is-ancestor', mergeSha, `${env.remote}/${w.base.ref}`]).ok) {
     return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `#${merged.number}'s merge ${short(mergeSha)} is not on ${env.remote}/${w.base.ref}`), [], 'none', wavePath(w.nonce));
   }
-  if (git(repo, ['rev-parse', `${mergeSha}^{tree}`]).out !== git(repo, ['rev-parse', `${merged.headRefOid}^{tree}`]).out) {
-    return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `main's merge ${short(mergeSha)} does not carry #${merged.number}'s head tree; what landed is not the wave`), [], 'none', wavePath(w.nonce));
+  const mergedTree = git(repo, ['rev-parse', `${mergeSha}^{tree}`]).out;
+  const onParent = git(repo, ['merge-tree', '--write-tree', `${mergeSha}^1`, merged.headRefOid]);
+  if (mergedTree !== git(repo, ['rev-parse', `${merged.headRefOid}^{tree}`]).out && !(onParent.ok && onParent.out.split('\n')[0] === mergedTree)) {
+    return outRefused(fail('QUEUE_WAVE_NOT_MERGED', `main's merge ${short(mergeSha)} is neither #${merged.number}'s head tree nor that head merged onto its parent; what landed is not the wave`), [], 'none', wavePath(w.nonce));
   }
   const chain = waveChain(repo, w, merged.headRefOid, mergeSha);
   if ('error' in chain) return outRefused(fail('QUEUE_WAVE_MOVED', `the merged head ${short(merged.headRefOid)}: ${chain.error}`), [], 'none', wavePath(w.nonce));

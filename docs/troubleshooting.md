@@ -4933,8 +4933,8 @@ still land the dropped code.
 
 **Meaning.** `wave settle` found no PR merged into the base branch whose head
 branch is the wave branch, its merge commit is not on the base branch, or that
-merge does not carry the PR's head tree, so it cannot say the constituents
-landed. Nothing was commented or closed.
+merge's tree is neither the PR's head tree nor that head merged onto the
+merge's parent, so it cannot say the constituents landed. Nothing was commented or closed.
 
 **Fix.** Land the wave PR through its train (`train land`), then rerun
 `gstack-ship-queue wave settle --wave <nonce>`.

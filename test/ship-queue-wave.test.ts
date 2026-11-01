@@ -286,6 +286,29 @@ describe('wave settle', () => {
     expect(waveJson(fx, nonce).state).toBe('settled');
     expect(waveJson(fx, nonce).settled.map((s: any) => s.pr).sort()).toEqual(['1', '2', '3']);
   }, 180_000);
+
+  test('settles a wave the train merged directly onto a main that moved after the build, and still refuses a merge that lost the wave', () => {
+    const fx = make();
+    const heads = threePrs(fx);
+    const nonce = nonceOf(queue(fx, ['wave', 'build', '--prs', heads.map((h, i) => `${i + 1}@${h}`).join(',')]).out);
+    const head = waveAsPr(fx, nonce);
+    const other = openPr(fx, '4', { file: 'lib/ship-4.ts', changelog: false });
+    const moved = fx.repo.git('commit-tree', `${other}^{tree}`, '-p', 'origin/main', '-m', 'an earlier slot (#4)');
+    const lost = fx.repo.git('commit-tree', `${moved}^{tree}`, '-p', moved, '-m', 'wave (#10) without its content');
+    fx.repo.git('push', '-q', 'origin', `${lost}:refs/heads/main`);
+    fx.write(d => { Object.assign(d.prs['10'] as any, { state: 'MERGED', baseRefName: 'main', mergeCommit: { oid: lost } }); });
+    const refused = queue(fx, ['wave', 'settle', '--wave', nonce]);
+    expect([refused.status, refused.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_WAVE_NOT_MERGED')]);
+    const tree = fx.repo.git('merge-tree', '--write-tree', moved, head).split('\n')[0]!;
+    const squash = fx.repo.git('commit-tree', tree, '-p', moved, '-m', 'wave (#10)');
+    fx.repo.git('push', '-q', '-f', 'origin', `${squash}:refs/heads/main`);
+    fx.write(d => { Object.assign(d.prs['10'] as any, { mergeCommit: { oid: squash } }); });
+    const r = queue(fx, ['wave', 'settle', '--wave', nonce]);
+    expect([r.status, r.err]).toEqual([EXIT.ok, '']);
+    expect(r.out).toContain('SETTLED: #1 landed-closed');
+    const prs = fx.read().prs as Record<string, any>;
+    expect([prs['1'].state, prs['2'].state, prs['3'].state]).toEqual(['CLOSED', 'CLOSED', 'CLOSED']);
+  }, 180_000);
 });
 
 test('wave with no subcommand prints the wave help and exits usage', () => {
