@@ -160,15 +160,27 @@ describe('gstack-tasks add', () => {
     expect(agg).not.toContain('add metrics');
   });
 
-  test('with no rows file, add writes an empty list and retires the earlier one', () => {
+  test('with no rows file and no earlier list, add writes an empty list (ran, no findings)', () => {
     const w = world();
-    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
-    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n');
     const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
     expect(add.stdout).toMatch(/^ADDED: tasks=0 dispositions=0 /m);
     expect(lists(w)).toHaveLength(1);
-    expect(fs.existsSync(prior)).toBe(false);
-    expect(aggregate(w)).not.toContain('add retry');
+    expect(fs.readFileSync(path.join(w.dir, lists(w)[0]!), 'utf8')).toBe('');
+  });
+
+  test('add refuses while an earlier task is neither carried nor closed, and both lists stay as they were', () => {
+    const w = world();
+    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n' + row(R1, 'T2', 'add metrics', w.commit) + '\n');
+    fs.writeFileSync(rowsFile(w), JSON.stringify({ prior: `${R1}/T1`, disposition: 'done', reason: w.commit }) + '\n');
+    const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
+    expect(add.status).toBe(3);
+    expect(add.stderr).toContain(`TASKS_SUPERSEDE_REFUSED`);
+    expect(add.stderr).toContain(`undecided: ${R1}/T2;`);
+    expect(lists(w)).toEqual([path.basename(prior)]);
+    expect(fs.existsSync(rowsFile(w))).toBe(true);
+    fs.rmSync(rowsFile(w));
+    expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).stderr).toContain(`undecided: ${R1}/T1, ${R1}/T2;`);
   });
 
   test('a dropped disposition is recorded with its reason and retires the prior list', () => {

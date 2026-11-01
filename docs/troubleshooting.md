@@ -3253,7 +3253,8 @@ from the command's source or docs in the repository instead.
 
 **Meaning.** `gstack-tasks` refused a task list. Either `add` found a line in
 the rows file (`.gstack/tmp/tasks-<phase>-rows.jsonl`) that is not a valid
-task or disposition, so nothing was written; or `supersede` was asked to retire the earlier lists
+task or disposition, or it leaves a task from the branch's earlier list neither
+carried nor closed (the error names each `<run_id>/<id>`), so nothing was written; or `supersede` was asked to retire the earlier lists
 but the new list (`--keep`) is missing, outside the tasks directory, has a
 malformed line, or holds a row for another phase or branch, so nothing was
 moved and both lists stay live.

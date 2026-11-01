@@ -107,6 +107,10 @@ export function addRows(dir: string, phase: TaskPhase, branch: string, branchSlu
     if (v.carried_from !== undefined && (typeof v.carried_from !== 'string' || !PRIOR_RE.test(v.carried_from))) throw new SupersedeRefused(`${at} carried_from must be <run_id>/<id>`);
     tasks.push({ phase, run_id: runId, branch, commit, ...Object.fromEntries(TASK_FIELDS.map(k => [k, v[k]])), files: v.files, ...(v.carried_from ? { carried_from: v.carried_from } : {}) });
   });
+  const prior = fs.existsSync(dir) ? priorSet(readTaskFiles(dir, phase), phase, branch) : undefined;
+  const decided = new Set([...tasks.map(t => t.carried_from), ...dispositions.map(d => d.prior)]);
+  const open = (prior?.rows ?? []).map(r => `${prior!.run_id}/${String(r.id)}`).filter(id => !decided.has(id));
+  if (open.length) throw new SupersedeRefused(`${rows} leaves earlier tasks undecided: ${open.join(', ')}; carry each (carried_from) or close it (a done or dropped disposition)`);
   fs.mkdirSync(dir, { recursive: true });
   const slug = branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown';
   const file = path.join(dir, `tasks-${phase}-${slug}-${iso.slice(0, 8)}-${iso.slice(9, 15)}.jsonl`);
