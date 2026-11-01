@@ -9,7 +9,7 @@ import { runGeneration } from '../../scripts/gen-skill-docs';
 import { runSetup, type Fixture } from './install-fixture';
 
 export const ROOT = path.resolve(import.meta.dir, '../..');
-export const OTHER_DIRS = ['.agents', '.factory', '.kiro', '.opencode', '.cursor', '.copilot', '.agy', '.slate', '.openclaw', '.hermes', '.gbrain'];
+export const OTHER_DIRS = ['.agents', '.factory', '.kiro', '.opencode', '.cursor', '.copilot', '.agy', '.gemini-cli', '.slate', '.openclaw', '.hermes', '.gbrain'];
 
 export const skillFiles = (dir: string): string[] => !fs.existsSync(dir) ? []
   : (fs.readdirSync(dir, { recursive: true }) as string[]).filter(rel => path.basename(rel) === 'SKILL.md' && fs.statSync(path.join(dir, rel)).isFile());

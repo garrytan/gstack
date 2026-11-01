@@ -48,7 +48,7 @@ describe.skipIf(process.platform === 'win32')('setup prunes unrecorded host rend
     expect(fs.existsSync(path.join(f.dir, 'outside'))).toBe(true);
     expect(fs.existsSync(path.join(src, '.cursor/skills/gstack/bin'))).toBe(false);
     expect(fs.existsSync(path.join(src, 'bin/gstack-config'))).toBe(true);
-    for (const dir of ['.agents', '.opencode', '.copilot', '.agy', '.slate', '.openclaw', '.hermes', '.gbrain']) expect(fs.existsSync(path.join(src, dir)), dir).toBe(false);
+    for (const dir of ['.agents', '.opencode', '.copilot', '.agy', '.gemini-cli', '.slate', '.openclaw', '.hermes', '.gbrain']) expect(fs.existsSync(path.join(src, dir)), dir).toBe(false);
 
     expect(r.stdout).toContain('kept .factory/notes.md: not proven generated (no gstack banner or byte match)');
     expect(r.stdout).toContain('kept .kiro/skills/my-skill/SKILL.md: not proven generated');
