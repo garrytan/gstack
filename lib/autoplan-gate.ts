@@ -3,7 +3,7 @@
  * (plan B2, B9, B11). `closePhase` reconciles the outside pass against the
  * native one from canonical ids (lib/autoplan-reconcile.ts), writes the
  * consensus record and the timing row, and marks the phase closed.
- * `finishGate` turns disagreements and user challenges into one gate list
+ * `finishGate` turns disagreements, user challenges and open Critical/High findings into one gate list
  * (lib/gate-list.ts: `d<n>` auto items, `uc<n>` approval items, `p1` the plan
  * approval), writes decisions.jsonl, tasks.jsonl and the exported files, and
  * leaves the run `gate_pending`: unattended never approves. `answerGate`
@@ -26,9 +26,9 @@ import { FILES, RunError, journal as journalRow, now, readDecisions, voiceRows, 
 import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf } from './autoplan-budget';
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
-import { previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { FINDING_ORIGIN, previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { phaseClose } from './autoplan-timing';
-import { ANSWERED_BY_RE, applyReply, decisionId, decisionRows, keepDirection, parseReply, pendingHint, recHash, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
+import { ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, parseReply, pendingHint, recHash, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { FindingRow } from './headless-artifacts';
 import { readJsonl, sha256File } from './headless-artifacts';
 import { closeDraftDirectionsFile, loadBriefInputs } from './owner-brief';
@@ -205,14 +205,15 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const byId = new Map([...native, ...outside].map(f => [f.id, f]));
     const reran = gateRev > 1 && state.history.some(h => h.event === 'reopened' && h.phase === phase);
     const origin = (ids: string, options: GateOption[]) => [phase, ids, ps.closed_at, ps.snapshot, optionHash(options)].join('|');
-    const push = (item: GateItem, ids: string) => items.push({ ...item, origin: origin(ids, item.options) });
+    const push = (item: GateItem, ids: string, tag?: string) => items.push({ ...item, origin: [origin(ids, item.options), ...(tag ? [tag] : [])].join('|') });
     const challenged = new Set<string>();
+    const twins = new Map(consensus.rows.filter(r => r.native_id && r.basis !== 'file' && (r.disposition === 'confirmed' || r.disposition === 'unverified')).map(r => [r.native_id!, r.outside_id]));
     for (const row of consensus.rows) {
       const o = byId.get(row.outside_id)! as FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string };
       if (o.settled_by) continue;
       const n = (row.native_id ? byId.get(row.native_id) : undefined) as (FindingRow & { user_challenge?: boolean; changes?: string }) | undefined;
       const ids = `${row.native_id}+${row.outside_id}`;
-      if (o.user_challenge && n?.user_challenge && row.disposition !== 'new') {
+      if (o.user_challenge && n?.user_challenge && row.disposition !== 'new' && row.basis !== 'file') {
         challenged.add(o.id); challenged.add(n.id);
         const title = `${n.title} [${row.native_id} + ${row.outside_id}]`;
         if (reran && !n.changes && !o.changes) { push(agentDecision(`d${++d}`, title, phase, 'both voices recommend changing your stated direction'), ids); continue; }
@@ -223,6 +224,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
         continue;
       }
       if (row.disposition === 'disagree') {
+        challenged.add(o.id); challenged.add(n!.id);
         push({ id: `d${++d}`, title: `${n!.title} [${row.native_id} vs ${row.outside_id}]`, kind: 'auto', recommended: 'a', phase,
           why: `voices disagree: ${row.resolution}`, cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`,
           options: [{ key: 'a', text: `native position (${row.severity.native})`, changes_plan: false }, { key: 'b', text: `outside position (${row.severity.outside})`, changes_plan: true }] }, ids);
@@ -234,6 +236,20 @@ export function buildGate(state: RunState, gateRev: number): GateList {
       if (reran && !f.changes) { push(agentDecision(`d${++d}`, `${f.title} [${f.id}]`, phase, why), f.id); continue; }
       push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, why, ...(f.changes ? { changes: f.changes } : {}),
         cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your direction'), { key: 'b', text: 'accept the change', changes_plan: true }] }, f.id);
+    }
+    // An open Critical or High finding the items above do not cover: rec applies its fix to the plan.
+    const pairedOutside = new Set(twins.values());
+    for (const f of [...native, ...outside] as Array<FindingRow & { user_challenge?: boolean; settled_by?: string }>) {
+      if (f.voice === 'outside' && pairedOutside.has(f.id)) continue;
+      const group = [f, ...(twins.has(f.id) ? [byId.get(twins.get(f.id)!)!] : [])] as Array<FindingRow & { user_challenge?: boolean; settled_by?: string }>;
+      if (group.some(g => challenged.has(g.id) || g.user_challenge || g.settled_by)) continue;
+      const severity = group.some(g => g.severity === 'Critical') ? 'Critical' : group.some(g => g.severity === 'High') ? 'High' : null;
+      if (!severity) continue;
+      const ids = group.map(g => g.id);
+      const fixes = [...new Set(group.map(g => g.resolution).filter((r): r is string => !!r))];
+      push({ id: `d${++d}`, title: `${severity}: ${f.title} [${ids.join(' + ')}]`, kind: 'auto', recommended: 'a', phase, finding: ids,
+        why: `an open ${severity} finding (${group.map(g => g.voice).join(' + ')}); rec applies its fix to the plan`, cost: `a reopens ${phase}${phase === 'eng' ? '' : ' and eng'} once the plan is revised`,
+        options: [{ key: 'a', text: `apply the fix to the plan: ${fixes.length ? fixes.join('; ') : `resolve "${f.title}"`}`, changes_plan: true }, { key: 'b', text: 'carry it into the build as a blocking task (no plan change)', changes_plan: false }] }, ids.join('+'), FINDING_ORIGIN);
     }
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
@@ -277,7 +293,7 @@ export function recommendGate(state: RunState, gateRev: number, itemId: string, 
   writeDecisions(state.out, readDecisions(state.out).map(r => {
     const i = updated.get(r.id);
     if (!i) return r;
-    return { ...r, recommended: i.recommended, ...(i.kind === 'auto' ? { default_if_unanswered: i.recommended } : {}), ...(i.recommended_basis ? { recommended_basis: i.recommended_basis } : {}), ...(i.recommended_by ? { recommended_by: i.recommended_by } : {}) };
+    return { ...r, recommended: i.recommended, ...(i.kind === 'auto' ? { default_if_unanswered: autoDefault(i) } : {}), ...(i.recommended_basis ? { recommended_basis: i.recommended_basis } : {}), ...(i.recommended_by ? { recommended_by: i.recommended_by } : {}) };
   }));
   const hash = recHash(list);
   journalRow(state.out, { event: 'recommended', gate_rev: gateRev, item: itemId, option, basis, by, rec_rev: list.rec_rev, rec_hash: hash });
@@ -344,6 +360,8 @@ export interface AnswerOptions {
   recHash?: string;
   /** The owner's verbatim words; required for every `--by agent:<id>` answer. */
   ownerReply?: string;
+  /** `agent:<id>` when those words are the answering agent's own: recorded as `answer_words`/`words_by`, never as `owner_reply`, and never carried. */
+  wordsBy?: string;
   /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision and the owner's words it reuses. Replaces ownerReply and its re-parse. */
   carry?: { from: string; gate_rev: number; words: string; by?: string; reason: string };
 }
@@ -396,22 +414,24 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const currentHash = recHash(list);
   if (o.recHash !== undefined && o.recHash !== currentHash) throw new RunError('GATE_REC_STALE', `--rec-hash ${o.recHash} was rendered before the recommendations changed; current rec_hash=${currentHash}`, 3);
   if (parsed.mode === 'rec' && list.rec_rev === undefined && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `this gate was written before \`rec\`/\`all\` took plan changes (gate.json has no rec_rev), so the owner saw a different meaning; render it again (gstack-gate render ${gateFile} --all), relay it, and answer with --rec-hash ${currentHash}, or reply with explicit <id><option> tokens`, 3);
-  if (parsed.mode === 'rec' && (list.rec_rev ?? 0) > 0 && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `recommend changed this gate (rec_rev=${list.rec_rev}); pass --rec-hash from the render the owner saw (current rec_hash=${currentHash})`, 3);
+  const takesRecs = parsed.mode === 'rec' || parsed.choices.some(c => c.id === 'p1' && c.chosen === 'b' && !c.prior);
+  if (takesRecs && (list.rec_rev ?? 0) > 0 && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `recommend changed this gate (rec_rev=${list.rec_rev}); \`rec\` and \`p1b\` take its recommendations, so pass --rec-hash from the render the owner saw (current rec_hash=${currentHash})`, 3);
   const ownerParsed = o.ownerReply !== undefined && !o.carry ? checkOwnerReply(list, gateRev, prior, parsed, o.ownerReply) : undefined;
   const provenance = o.carry ? { owner_reply: o.carry.words, carried_gate_from: o.carry.from, carried_gate_rev: o.carry.gate_rev, carry_reason: o.carry.reason, ...(o.carry.by ? { carried_answered_by: o.carry.by } : {}) }
+    : o.ownerReply !== undefined && o.wordsBy ? { answer_words: o.ownerReply, answer_words_parsed: ownerParsed, words_by: o.wordsBy }
     : o.ownerReply !== undefined ? { owner_reply: o.ownerReply, owner_reply_parsed: ownerParsed } : {};
   const itemOf = (id: string) => list.items.find(i => i.id === id)!;
   const optionOf = (c: GateChoice) => itemOf(c.id).options.find(o => o.key === c.chosen)!;
   const plan = parsed.choices.find(c => c.id === 'p1');
   const lines: string[] = o.carry ? [] : voidPendingCheck(state, `the owner answered gate_rev ${gateRev}`);
   const answeredAt = now();
-  const record = () => writeDecisions(state.out, applyReply(rows, parsed, answeredAt, answeredBy, provenance).map(r => {
+  const record = (answered = parsed) => writeDecisions(state.out, applyReply(rows, answered, answeredAt, answeredBy, provenance).map(r => {
     const c = r.gate_rev === list.gate_rev && r.chosen && !r.chosen_text ? itemOf((r.label ?? '').toLowerCase())?.options.find(o => o.key === r.chosen) : undefined;
     return c ? { ...r, chosen_text: c.text } : r;
   }));
   if (!plan || parsed.pending.length) {
-    // Approvals unanswered: record what was answered, keep the gate pending; nothing reviewed changes.
-    record();
+    // Approvals unanswered: record what was answered, but not an auto default that p1b would change (the final answer decides it).
+    record({ ...parsed, choices: parsed.choices.filter(c => c.how !== 'auto_default' || c.chosen === itemOf(c.id).recommended) });
     const pending = parsed.pending.length ? parsed.pending : ['p1'];
     state.gate = { ...(state.gate ?? {}), last_reply: reply, pending };
     lines.push(`GATE_PENDING: ${pending.join(', ')} unanswered (${pendingHint(list, pending)})`);
@@ -421,7 +441,7 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const carried = (c: GateChoice) => itemOf(c.id).carried?.chosen === c.chosen;
   const changing = proceeds ? parsed.choices.filter(c => c.id !== 'p1' && !carried(c) && itemOf(c.id).reopens !== false && (optionOf(c).changes_plan ?? c.how === 'override')) : [];
   const tokens = (cs: GateChoice[]) => cs.map(c => `${c.id}${c.chosen}`);
-  const overrides = parsed.choices.filter(c => c.how === 'override' && c.id !== 'p1');
+  const overrides = parsed.choices.filter(c => c.id !== 'p1' && (c.how === 'override' || (c.how === 'auto_default' && c.chosen !== itemOf(c.id).recommended)));
   const reopenSet = new Set<Phase>(plan.chosen === 'd' ? state.phase_order : []);
   record();
   state.gate = { ...(state.gate ?? {}), answered_at: answeredAt, reply, gate_rev: gateRev, plan: plan.chosen, overrides: tokens(overrides), ...(answeredBy ? { answered_by: answeredBy } : {}), ...provenance };

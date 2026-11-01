@@ -373,7 +373,14 @@ the plan.
    refuses to open without one (`CONSENSUS_MISSING`).
 3. **Loop `next` until `status=gate_pending`.** Eng always runs last. The gate
    (`gate.json`, `gate_rev`) lists user challenges as approval items,
-   disagreements as auto items and `p1` plan approval; nothing is approved.
+   disagreements as auto items, each open Critical or High finding as an
+   auto item (a twin pair is one item; `a` applies the reviewer's fix to the
+   plan and is recommended, `b` carries it into the build as a blocking task)
+   and `p1` plan approval; nothing is approved. An unanswered auto item whose
+   recommendation changes the plan keeps the plan's direction, so only `rec`,
+   `p1b` (approve with the recommended changes) or an explicit `<id>a` applies
+   a fix; a finding carried with `b` stays
+   open, so a rerun that raises it again asks again.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)
@@ -384,12 +391,18 @@ the plan.
    means an agent relayed them, and then `--owner-reply` (or `-` for stdin,
    `--owner-reply-file <path>`) stores the owner's words verbatim
    (`OWNER_REPLY_REQUIRED`); owner words that parse to different choices are
-   refused (`GATE_OWNER_REPLY_MISMATCH`). An unattended run refuses an answer
+   refused (`GATE_OWNER_REPLY_MISMATCH`). The words default to the owner's: an
+   agent that answers in its own words (a Captain deciding on its own
+   authority) must pass `--words-by agent:<id>` with its own `--by` id. They
+   are then recorded as `answer_words` with `words_by`, never as
+   `owner_reply`; a later gate never carries them (`CARRY: no`), and
+   `gstack-approvals import` lists that row under the agent, not the owner.
+   An unattended run refuses an answer
    without `--by` (`ANSWER_BY_REQUIRED`, exit 3) and records the value as
    `answered_by` on every decision row and in the review record's gate line,
    so a gate an agent closed is distinguishable from one the owner closed.
    `gstack-autoplan recommend` changes one recommendation before relay; it
-   bumps the gate's `rec_rev`, and a later `rec` needs the `--rec-hash` from
+   bumps the gate's `rec_rev`, and a later `rec` or `p1b` needs the `--rec-hash` from
    the render the owner saw (`GATE_REC_STALE`). Every `GATE:` line is followed
    by `GATE_SPEND:` and `GATE_REC_COST:` (also `gate_cost` in `--json`; see
    `autoplan/DRIVER.md`).
@@ -439,7 +452,12 @@ Concurrency and recovery: every state write is a locked read-modify-write
 (`test/autoplan-run-recovery.test.ts`, `test/autoplan-run-concurrency.test.ts`,
 `test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
 through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
-spend is `unknown` and counted in `worst_case`. `--deadline <min>` makes the
+spend is `unknown` and counted in `worst_case`. Under a cap (or on Capy) each
+unattended host-subagent attempt reserves the default per voice unless
+`next --estimate-usd <n>` sets the reservation, which the run keeps for later
+phases (`run` reserves an api attempt's priced worst case, prompt bytes / 3
+input tokens plus the output limit, and settles it at its token usage); `submit
+--usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.
 
@@ -519,9 +537,8 @@ A gate revision after the first (`gate_rev` 2 and later, written after a
 it when nothing new needs their decision. `gstack-autoplan` prints
 `CARRIED: gate_rev=<n> <- gate_rev=<m> words="<their words>" by=<relayer> reason=<why>`,
 then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
-all of: the earlier gate approved (`p1a` or `p1b`) with `rec` or "do it"
-(not item tokens), no item there left pending, and the owner's words
-recorded; that gate was not itself carried; every accepted change incorporated
+all of: the earlier gate approved (`p1a` or `p1b`), no item there left
+pending, and the owner's words recorded; that gate was not itself carried; every accepted change incorporated
 or settled; the plan file's bytes equal those recorded at the gate or at the
 `revise` that took the changes (any later edit refuses, an ELI5-only one
 included); no urgent or
@@ -529,6 +546,13 @@ outside-plan finding open; and every new gate item one of the cases below.
 Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
 goes to the owner as before. `--no-carry-forward` on the first `next` turns it
 off for the run.
+
+An earlier answer given item by item (`<id><option>` tokens, not `rec` or "do
+it") carries only what the owner already answered: every item on the new gate
+must be carried by origin (the same proposal, so the same choice), and only an
+unreviewed post-cap delta (below) may be new. The carry replays the owner's own
+`p1` choice and records their tokens verbatim as its basis; any new or changed
+item, "do it" cases included, goes to the owner.
 
 - **"do it".** When the owner's words were "do it" (their words, not a
   `captain:` relay of them), a new `auto` item that changes no scope, cost or

@@ -57,28 +57,28 @@ line yourself; gstack never writes the plan.
 
 ### Commands
 
-- `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--scaffold]`
-  first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended), and an unattended Capy run reserves 5.00 per host attempt unless --estimate-usd <n> says otherwise, so --spend-cap binds.
+- `gstack-autoplan next --out <dir> --plan <plan.md> [scope flags] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--scaffold]`
+  first call: init the run, print PHASE:, SCOPE:, DRIVER: and one ATTEMPT: per voice; --max-rounds caps review rounds per phase (default 2 unattended); an unattended run with --spend-cap (or any unattended Capy run) reserves 5.00 per voice for each attempt, so the cap binds; --estimate-usd <n> sets that reservation and the run keeps it for later phases.
+- `gstack-autoplan run --out <dir> --plan <plan.md> --native-model <id> --outside-model <id> --native-runner api --runner api [--max-tokens <n>] [--spend-cap <usd>]`
+  hosts without subagents: one command calls both models directly (ANTHROPIC_API_KEY, OPENAI_API_KEY) and loops next/submit to the gate; a response cut off at the output limit is reported truncated, so raise --max-tokens (Anthropic default 16384).
 - `gstack-autoplan next --out <dir> [--redispatch <attempt>]`
   later calls: open the next phase or reprint open attempts; never redispatches on its own.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --record <file.md> --model <id> [--attempt <id>]`
   bind a free-form review record (canonical fence, one findings table or list, or `No findings.`).
 - `gstack-autoplan submit ... --record <file.md> --attest "<reason>" --attempt <id>`
   bind a record with no INPUT: line as receipt: attested (a wrong INPUT: always refuses).
-- `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --result <file> --model <id> --attempt <id>`
-  bind a canonical result (the RESULT FORMAT below).
+- `gstack-autoplan submit --out <dir> --phase <p> --voice native|outside --result <file> --model <id> --attempt <id> [--usage-usd <n>] [--reconcile <jsonl>]`
+  bind a canonical result (the RESULT FORMAT below); `--usage-usd` settles the attempt at what the reviewer actually cost (else it stays priced unknown at its reservation); on the submit that closes the phase, `--reconcile` takes your own pairing of findings both voices raised, one `{"outside_id","native_id","disposition","resolution"}` row each, over the structural one.
 - `gstack-autoplan submit --out <dir> --phase <p> --voice outside --unavailable|--failed "<reason>"`
   close the phase native-only when no outside voice can run.
-- `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by human|agent:<id> [--owner-reply <text>|-] [--rec-hash <h>]`
-  answer the gate with the reply grammar below; an agent answer stores the owner's words verbatim.
+- `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by human|agent:<id> [--owner-reply <text>|-] [--words-by agent:<id>] [--rec-hash <h>]`
+  answer the gate with the reply grammar below; an agent answer stores the owner's words verbatim, and passes --words-by agent:<id> whenever the words are its own (the default is owner).
 - `gstack-autoplan recommend --out <dir> --gate-rev <n> --item <id> --option <k> --basis "<why>"`
   change one recommendation before relay; then render and relay again (a `rec` needs the new `--rec-hash`).
 - `gstack-autoplan revise --out <dir> --plan <plan v2> --incorporates <decision ids>`
   bind the amended plan; reopens every phase whose reviewed plan changed, Eng last.
-- `gstack-autoplan revise --out <dir> --settle <decision id|d4>`
-  discharge a packaging or ordering change with no plan edit; reopens nothing.
-- `gstack-autoplan revise --out <dir> --withdraw <decision id>`
-  drop a pending amendment instead of applying it.
+- `gstack-autoplan revise --out <dir> --settle <decision id|d4> | --withdraw <decision id>`
+  --settle discharges a packaging or ordering change with no plan edit and reopens nothing; --withdraw drops a pending amendment instead of applying it.
 - `gstack-autoplan close --out <dir> --phase <p> --deferred "<reason>" --by human|agent:<id>`
   close a phase accepted-with-findings: its open findings go to tasks.jsonl, and Critical, urgent or user-challenge findings become gate items; also the recovery from `STOP: reason=budget_exhausted`.
 - `gstack-autoplan budget --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by human|agent:<id>`
@@ -111,7 +111,7 @@ A reply binds to the `gate_rev` you read (`--gate-rev`). Bare `yes`/`no` is unpa
 
 - `rec`: every item takes its recommendation, plan changes included (each prints APPLY:); `all` and `do it` are aliases.
 - `as-is`: keep every direction; no plan change.
-- `d3b uc1a`: one <id><option> token per item you set; unanswered auto items take their default.
+- `d3b uc1a`: one <id><option> token per item you set; unanswered auto items take their default (a finding item keeps the plan as written; `p1b` applies it).
 - `rec except d3b`: recommendations, with the listed overrides.
 
 ## Run directory

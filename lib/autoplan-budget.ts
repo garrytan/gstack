@@ -21,7 +21,7 @@ import { FILES, RunError, journal, now, readJournal, voiceRows, type RunState, t
 import { readLedger, release, setCap, summarize } from './spend-ledger';
 
 export const DEFAULT_MAX_ROUNDS = 2;
-/** Reserved per voice for a host-subagent attempt with no `--estimate-usd` in an unattended Capy run. */
+/** Reserved per voice for a host-subagent attempt with no `--estimate-usd` in an unattended run with a spend cap or on Capy. */
 export const DEFAULT_HOST_ESTIMATE_USD = 5;
 
 /** Round r of a phase: 1 plus the times it was reopened. */
@@ -35,17 +35,20 @@ export const atCap = (state: RunState, phase: string): boolean => { const cap = 
 /** The phase is about to open past its cap (a rerun-all reply reopened it). */
 export const overCap = (state: RunState, phase: string): boolean => { const cap = roundCap(state, phase); return cap !== null && roundOf(state, phase) > cap; };
 
-/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row paired with a native one counted once. */
+/** Open High or Critical findings of a closed phase: the deferred counts, else bound rows not settled or answered, an outside row paired (by title or line) with a High or Critical native one counted once. */
 function openHigh(state: RunState, phase: string): number {
   const ps = state.phases[phase];
   if (ps?.deferred) return (ps.deferred.counts.High ?? 0) + (ps.deferred.counts.Critical ?? 0);
   const file = path.join(state.out, `${phase}-consensus.json`);
   let rows: ConsensusRecord['rows'] = [];
   try { rows = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as ConsensusRecord).rows : []; } catch {}
-  const paired = new Set(rows.filter(r => r.native_id).map(r => r.outside_id));
+  const high = (s: string | undefined) => s === 'High' || s === 'Critical';
+  const native = voiceRows(state, phase, 'native');
+  const nativeHigh = new Set(native.filter(r => high(r.severity)).map(r => r.id));
+  const paired = new Set(rows.filter(r => r.native_id && r.basis !== 'file' && nativeHigh.has(r.native_id)).map(r => r.outside_id));
   const answered = settledIds(state);
-  return [...voiceRows(state, phase, 'native'), ...voiceRows(state, phase, 'outside')]
-    .filter(r => !paired.has(r.id) && !(r as { settled_by?: string }).settled_by && !answered.has(r.id) && (r.severity === 'High' || r.severity === 'Critical')).length;
+  return [...native, ...voiceRows(state, phase, 'outside')]
+    .filter(r => !paired.has(r.id) && !(r as { settled_by?: string }).settled_by && !answered.has(r.id) && high(r.severity)).length;
 }
 
 /** At the round cap with High or Critical findings still open, more rounds buy nothing: the owner decides. */
@@ -59,11 +62,16 @@ export function roundsLine(state: RunState): string {
   return `ROUNDS: ${state.phase_order.map(cell).join(' ')} max_rounds=${state.max_rounds ?? 'none'} host_spend=unknown`;
 }
 
-/** The estimate one new attempt reserves: the flag, else the Capy unattended default, else 0 (host spend unknown, not admitted). */
+/**
+ * The estimate one new attempt reserves: the flag, else the run's persisted `--estimate-usd`, else the unattended
+ * default when the run has a spend cap or runs on Capy, else 0 (host spend unknown, not admitted). `run` prices its
+ * api attempts from the price table instead (NextOptions.price).
+ */
 export function attemptEstimate(state: RunState, flag: number | undefined, env: NodeJS.ProcessEnv): { usd: number; line?: string } {
-  if (flag !== undefined) return { usd: flag };
-  if (state.session_kind !== 'unattended' || env.GSTACK_CAPY !== '1') return { usd: 0 };
-  return { usd: DEFAULT_HOST_ESTIMATE_USD, line: `ESTIMATE: ${DEFAULT_HOST_ESTIMATE_USD.toFixed(2)} per voice reserved for each host-subagent attempt (Capy unattended default; --estimate-usd <n> sets it); actual host spend stays unknown` };
+  const set = flag ?? state.estimate_usd;
+  if (set !== undefined) return { usd: set };
+  if (state.session_kind !== 'unattended' || (env.GSTACK_CAPY !== '1' && state.spend_cap_usd === null)) return { usd: 0 };
+  return { usd: DEFAULT_HOST_ESTIMATE_USD, line: `ESTIMATE: ${DEFAULT_HOST_ESTIMATE_USD.toFixed(2)} per voice reserved for each host-subagent attempt (unattended default under a spend cap or on Capy; --estimate-usd <n> sets it for the rest of the run); actual host spend stays unknown` };
 }
 
 /** Stop the run: terminal `incomplete` with the structured budget_exhausted stop, journaled. Returns the STOP and RECOVER lines. */
