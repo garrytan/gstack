@@ -107,7 +107,7 @@ Keep the review-record terms separate:
 | `review_binding` | The logger's proof tying a finished review to its captured candidate, not a finding identifier. |
 | `snapshot_covered_paths` | Supporting advice files the logger proved byte-identical to that candidate. Used by the prior-Skip checker, never supplied by the reviewer. |
 
-## Step 3.4: Workspace-aware queue status (advisory)
+{{IF_SESSION:interactive}}## Step 3.4: Workspace-aware queue status (advisory)
 
 Check the claimed VERSION's queue slot. This landing-order advice never blocks review.
 
@@ -131,7 +131,7 @@ Compare versions numerically per dotted component; missing ones count as zero.
 
 ---
 
-## Step 3.5: Diff scans
+{{/IF_SESSION}}## Step 3.5: Diff scans
 
 Run the gate scan first (local; every diff size), then the slop scan.
 
@@ -158,9 +158,10 @@ Advisory findings only; skip if unavailable.
 
 ## Step 3.6: Gather review context
 
-Run Prior Learnings, then Web research readiness, before Step 4; use both in
+{{IF_SESSION:interactive}}Run Prior Learnings, then Web research readiness, before Step 4; use both in
 the core review.
-
+{{/IF_SESSION}}{{IF_SESSION:unattended}}Check web research readiness below before Step 4 and use it in the core review.
+{{/IF_SESSION}}
 {{LEARNINGS_SEARCH}}
 
 {{ASIDE_RESEARCH}}

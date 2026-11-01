@@ -35,6 +35,19 @@ bin/gstack-modules render --host claude \
 3. Excluding a section removes its STOP pointer, its Section-index row and its file. The step becomes `> Not loaded in the <loadout> loadout: skip <trigger>. Do not offer it, and treat it as not run.` Skeleton text that belongs to the section, such as office-hours' Phase 3.5 offer, sits inside `{{IF_SECTION:<id>}}…{{/IF_SECTION}}` in the template and goes with it.
 4. The autoplan runner (`gstack-autoplan`) reads review methodology from the source tree, not from a rendered loadout, so autoplan-runner arms always measure `full` methodology.
 
+## Unattended renders
+
+`--session-kind unattended` (on `bin/gstack-modules render` and on `gen-skill-docs` with `--out-dir`) renders any loadout for one-shot sessions nobody watches. It is a separate axis from the model rung. What it drops and keeps is in [unattended.md](unattended.md#the-unattended-render). The lock records `session_kind`, and the spec gets an `@unattended` suffix with its own `spec_sha256`, so the two kinds never share a preregistered hash. An interactive render (no flag, or `--session-kind interactive`) is byte-identical to today's. The committed tree is always interactive, so an unattended render without an `--out-dir` outside the checkout is refused with `MODULE_SPEC_INVALID`.
+
+```bash
+bin/gstack-modules render --host claude --loadout full --out-dir ~/arms/control
+bin/gstack-modules render --host claude --loadout full --session-kind unattended --out-dir ~/arms/unattended
+```
+
+In a template, text only an interactive session uses sits inside `{{IF_SESSION:interactive}}…{{/IF_SESSION}}` (`{{IF_SESSION:unattended}}` for text only the unattended render keeps). An unpaired or nested guard fails generation.
+
+No install uses this render yet. Setup's default Claude root links the committed tree, so serving it to installs is a separate change that waits on the before/after eval.
+
 ## Changing a loadout
 
 Add or edit an entry under `loadouts` and cite the GSTA-2 run (preregistration, margin, per-rung result) in its `note` and in the PR body. A model-specific loadout that wins a preregistered comparison is allowed even if it breaks the expected nesting (light ⊇ mid ⊇ strong). Committed SKILL.md files are always the `full` render, so the parity suite, the SKILL.md size guard, the size ledger and the catalog and context budgets keep measuring `full`.

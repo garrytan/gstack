@@ -126,6 +126,11 @@ export interface TemplateContext {
    */
   planMode?: boolean;
   /**
+   * Render kind (`gen-skill-docs --session-kind`). Undefined = interactive, the
+   * committed bytes; `unattended` drops interactive ceremony (resolvers/unattended.ts).
+   */
+  sessionKind?: 'interactive' | 'unattended';
+  /**
    * Module loadout filter (modules/loadouts.json, gen-skill-docs --loadout/--modules).
    * Undefined = the `full` loadout: every module renders and committed bytes are unchanged.
    */

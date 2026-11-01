@@ -57,6 +57,42 @@ it, so `headless` keeps its BLOCK semantics.
 An unknown `GSTACK_SESSION_KIND` value coerces to `interactive` and says so:
 `SESSION_KIND: interactive (unknown kind '<x>')`.
 
+### The unattended render
+
+The rules above arrive at run time, but the host has already loaded the whole
+SKILL.md by then. `bin/gstack-modules render --session-kind unattended` (see
+[loadouts.md](loadouts.md#unattended-renders)) renders skills without the text
+only an interactive session uses (GST-825, from GEVA-100's stacks-r1 and
+Terminal-Bench 2 exposure counts):
+
+- **Dropped:** the shared-preamble pointer and the start command's interactive
+  prose, the question format and Question Tuning, plan-mode rules, voice,
+  writing, completeness, confusion, evidence and context sections, Repo
+  Ownership, Search Before Building, Telemetry, Operational Self-Improvement,
+  Prior Learnings and Capture Learnings (and the literal learnings refreshes in
+  /investigate and /qa), /review's Step 3.4 queue status and /ship's Step 21
+  /plan-tune nudge. Aside research becomes one paragraph that sends the same
+  query to WebSearch.
+- **Kept:** the start command (it adds `--render unattended`), short
+  "Unattended rules" that leave every consent, unrecommended question,
+  approval gate, destructive option and off-machine publication pending, the
+  model overlay, the Completion Status Protocol, /investigate's Scope Lock,
+  /review's Step 5.8 record (the review-log row is its parent's record, and
+  later reviews reuse it), and every /ship step its receipt reads: review-log
+  writes, Step 11.5, Step 20 and `gstack-ship-receipt write` and `result`.
+
+The render's rules also name the interactive sections it leaves out, so a step
+that still mentions one ("run Telemetry") skips that part. With `--render
+unattended`, `gstack-skill-start` prints `RENDER_KIND: unattended`. The session
+kind still comes from the environment alone, because every later helper
+(`gstack-review-log`, `gstack-brain-enqueue`, `gstack-ship-receipt`) reads it
+there, so when the environment is not unattended it prints
+`RENDER_KIND_MISMATCH: env=<kind>; launch this render with
+GSTACK_SESSION_KIND=unattended` and changes nothing else. An eval harness sets
+`GSTACK_SESSION_KIND=unattended` on every arm, control included, so the arms
+differ only by the render, and gives each trial its own `GSTACK_STATE_ROOT`,
+because Scope Lock's freeze state lives there.
+
 ## The terminal line
 
 A run that writes a record ends with one line the parent greps:

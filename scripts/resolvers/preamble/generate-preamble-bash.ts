@@ -23,7 +23,8 @@ import { runtimeRootPrelude } from '../runtime-root';
  * sessions refuse a command named by a variable, a `[ -x ] ||` fallback, or a
  * trailing `|| echo`. A missing helper is covered by the degraded-mode prose.
  */
-export function generatePreambleBash(ctx: TemplateContext): string {
+/** The start heading and its one-command fence; `flags` appends to the command. */
+export function generatePreambleStart(ctx: TemplateContext, flags = ''): string {
   const hostConfig = getHostConfig(ctx.host);
   const runtimeRoot = hostConfig.usesEnvVars ? `${runtimeRootPrelude(ctx)}\n` : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';
@@ -40,8 +41,12 @@ export function generatePreambleBash(ctx: TemplateContext): string {
   return `${entry}
 
 \`\`\`bash
-${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${brainHealthFlag}
-\`\`\`
+${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${brainHealthFlag}${flags}
+\`\`\``;
+}
+
+export function generatePreambleBash(ctx: TemplateContext): string {
+  return `${generatePreambleStart(ctx)}
 
 Read the echoed \`KEY: value\` STATUS lines — they drive every preamble rule
 below. **Degraded mode:** if \`SKILL_START_PROTO: 1\` is missing from the output

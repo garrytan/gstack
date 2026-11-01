@@ -41,20 +41,27 @@ SKILL_NAME=""
 MODEL_OVERLAY="none"
 PARENT_PID=""
 BRAIN_HEALTH="no"
+RENDER_KIND=""
+RENDER_SET="no"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skill)       SKILL_NAME="$2"; shift 2 ;;
     --model)       MODEL_OVERLAY="$2"; shift 2 ;;
     --parent-pid)  PARENT_PID="$2"; shift 2 ;;
     --brain-health) BRAIN_HEALTH="yes"; shift ;;
+    --render)      RENDER_SET="yes"; RENDER_KIND="${2:-}"; [ $# -ge 2 ] && shift 2 || shift ;;
     -h|--help)
-      echo 'Usage: gstack-skill-start --skill NAME [--model OVERLAY] [--parent-pid PID] [--brain-health]'
+      echo 'Usage: gstack-skill-start --skill NAME [--model OVERLAY] [--parent-pid PID] [--brain-health] [--render unattended]'
       echo 'Starts a skill session and prints its STATUS lines. --help starts nothing.'
       exit 0 ;;
     *) shift ;;
   esac
 done
 [ -n "$SKILL_NAME" ] || SKILL_NAME="unknown"
+case "$RENDER_SET:$RENDER_KIND" in
+  no:|yes:unattended) ;;
+  *) echo "gstack-skill-start: --render takes unattended (got '$(printf '%s' "$RENDER_KIND" | tr -cd 'a-zA-Z0-9._-')')" >&2; exit 2 ;;
+esac
 
 # Harness pid: walk up from the calling shell past shell wrappers
 # (bin/gstack-harness-pid.sh, shared with bin/gstack-lease so the install
@@ -100,6 +107,15 @@ case "${GSTACK_SESSION_KIND:-}" in
   ''|unattended|spawned|headless|interactive) ;;
   *) [ -z "$_SESSION_KIND_NOTE" ] && _SESSION_KIND_NOTE=" (unknown kind '$(printf '%s' "$GSTACK_SESSION_KIND" | tr -cd 'a-zA-Z0-9._-')')" ;;
 esac
+# An unattended render (gen-skill-docs --session-kind unattended, GST-825)
+# carries no interactive prose. The session kind still comes from the
+# environment alone, because every later helper (review-log, brain-enqueue,
+# ship-receipt) reads it there; a mismatch is named so the parent can fix the
+# launch instead of a render silently changing runtime behavior.
+if [ "$RENDER_KIND" = unattended ]; then
+  echo "RENDER_KIND: unattended"
+  [ "$_SESSION_KIND" = unattended ] || echo "RENDER_KIND_MISMATCH: env=$_SESSION_KIND; launch this render with GSTACK_SESSION_KIND=unattended"
+fi
 # Unattended (plan B1): a parent agent drives this run and reads its artifacts.
 # No prompts, no publishing, no sync: the same suppression spawned gets, plus
 # the writers and sync entrypoints below skip with an explicit line. Keyed on
