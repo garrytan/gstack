@@ -466,6 +466,21 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
   });
 
+  // Value: protects=the reviewer's own Severity and Blocks fields travel beside the collected label in merged.jsonl (GST-766 part a:
+  //   HARN-1 on harness-evals#200 and GSTA-135 on GST-718 saw FIXABLE collected as CRITICAL while the text said "Severity: Low. Blocks:
+  //   no.", and the run record did not show the disagreement); fails_when=a merged line drops the stated fields or they change the
+  //   label; why_new=collect kept only the label; seam=collect; no_claim=which of the two should block (part b, a gate change)
+  test('a finding keeps the severity and Blocks its reviewer stated beside the collected label', () => {
+    const d = tmp();
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
+    const r = collect(path.join(d, 'l.jsonl'), 'adversarial-native', native, path.join(d, 'm.jsonl'));
+    expect(r.lines.map(l => [l.label, l.stated])).toEqual([
+      ['High', { severity: 'High', blocks: 'no' }], ['CRITICAL', { severity: 'Low', blocks: 'no' }], ['CRITICAL', { severity: 'Low', blocks: 'no' }], ['Low', { severity: 'Low', blocks: 'no' }]]);
+    expect(fs.readFileSync(path.join(d, 'm.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l).stated)).toEqual(r.lines.map(l => l.stated));
+    const json = collect(path.join(d, 'l2.jsonl'), 'fix-check', '{"severity":"INFORMATIONAL","path":"a.ts","line":3,"summary":"Severity: High is the wrong word here"}\n', path.join(d, 'm2.jsonl'));
+    expect(json.lines.map(l => [l.label, l.stated])).toEqual([['INFORMATIONAL', undefined]]);
+  });
+
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
   //   voice recorded with --unavailable reads UNAVAILABLE (missing coverage, never a review) without blocking, while --unavailable is
   //   refused for any other reader; fails_when=one outside-voice timeout or one refusal makes VERIFY dirty for good, or --unavailable
