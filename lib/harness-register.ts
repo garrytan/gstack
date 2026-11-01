@@ -546,7 +546,7 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   if (!choice.on) return off(plan);
   const requested = !opts.inherit;
   const foreign = t.name === 'openclaw' ? foreignOpenclawConfig(opts.env, profile) : '';
-  const [why, fix] = dest !== profileSkills(t.name, profile) ? ['this registration uses another skills folder (' + dest + ')', HARNESS_CODES.HARNESS_HOOK_UNSUPPORTED.fix]
+  const [why, fix] = dest !== profileSkills(t.name, profile) ? ['this registration uses another skills folder (' + dest + ')', 'register without --skills-dir to get the hook, or pass --no-start-hook to keep this registration without it']
     : foreign ? ['OPENCLAW_CONFIG_PATH points OpenClaw at ' + foreign + ', outside that profile', 'unset OPENCLAW_CONFIG_PATH or set it to ' + hookConfig('openclaw', profile) + ', then register again'] : ['', ''];
   if (why && (plan.explicit || !prevOn)) {
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);

@@ -528,6 +528,10 @@ describe('start hook: HARN-18 smoke defects (GST-778)', () => {
     expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);
     expect(readLedger(res.ledger)!.meta.start_hook).toBe('off');
     expect(fs.readFileSync(r.config, 'utf8')).toBe(HEALTHY.openclaw);
+    const custom = register({ ...r.o({ skillsDir: path.join(r.d, 'custom', 'skills') }), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } });
+    expect(custom.hook).toMatchObject({ state: 'off', required: true });
+    expect(custom.hook?.fix).toContain('--no-start-hook');
+    expect(register({ ...r.o({ skillsDir: path.join(r.d, 'custom', 'skills'), startHook: false }), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } }).hook).toEqual({ state: 'off' });
   }, 120_000);
 
   test('a fresh harness with no config: turning the hook on creates no config, runs no harness command, and fails with the setup to run first', () => {
