@@ -105,8 +105,9 @@ describe('#3749 retro history is shared across linked worktrees', () => {
     fs.writeFileSync(file!, JSON.stringify({ date: '2026-11-01', window: '7d' }));
 
     git(main, 'worktree', 'remove', '--force', wt);
-    expect(sh(LOAD, main).stdout).toContain(file!);
-    expect(sh(LOAD, main).stdout).toContain(`RETRO_FILE: ${path.join(history, '2026-11-01-2.json')}`);
+    const fromMain = sh(LOAD, main).stdout;
+    expect(fromMain).toContain(file!);
+    expect(fromMain).toContain(`RETRO_FILE: ${path.join(history, '2026-11-01-2.json')}`);
   });
 
   test('migration keeps every snapshot: duplicates collapse, same-name differing snapshots get the next number', () => {
@@ -117,10 +118,31 @@ describe('#3749 retro history is shared across linked worktrees', () => {
 
     const r = sh(LOAD, wt);
     expect(r.status).toBe(0);
-    expect(fs.readdirSync(history).sort()).toEqual(['2026-10-18-1.json', '2026-10-25-1.json', '2026-10-25-2.json']);
+    expect(fs.readdirSync(history).sort()).toEqual(['2026-10-18-1.json', '2026-10-25-1.json', '2026-10-25-2.json', '2026-11-01-1.json']);
     const froms = ['2026-10-25-1.json', '2026-10-25-2.json'].map((f) => JSON.parse(fs.readFileSync(path.join(history, f), 'utf-8')).from).sort();
     expect(froms).toEqual(['main', 'worktree']);
     for (const tree of [main, wt]) expect(fs.existsSync(path.join(tree, '.context', 'retros'))).toBe(false);
+  });
+
+  test('a .context/retros symlinked to the shared history is left alone, so migration cannot delete it', () => {
+    const { wt, history } = layout();
+    const kept = snapshot(history, '2026-10-25-1.json', { date: '2026-10-25', window: '7d' });
+    fs.mkdirSync(path.join(wt, '.context'), { recursive: true });
+    fs.symlinkSync(history, path.join(wt, '.context', 'retros'));
+
+    const r = sh(LOAD, wt);
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(kept, 'utf-8')).toContain('2026-10-25');
+    expect(r.stdout).toContain(`RETRO_PRIOR: ${kept}`);
+  });
+
+  test('RETRO_FILE is reserved, so two runs in different worktrees never get the same path', () => {
+    const { main, wt, history } = layout();
+    const first = sh(LOAD, wt).stdout.match(/^RETRO_FILE: (.+)$/m)?.[1];
+    const second = sh(LOAD, main).stdout.match(/^RETRO_FILE: (.+)$/m)?.[1];
+    expect(first).toBe(path.join(history, '2026-11-01-1.json'));
+    expect(second).toBe(path.join(history, '2026-11-01-2.json'));
+    expect(fs.readFileSync(first!, 'utf-8').trim()).toBe('{}');
   });
 
   test('the gbrain prior-retros query reads the same state-root history', () => {

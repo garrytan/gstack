@@ -35,9 +35,12 @@
 #   state root's projects/<slug>/retros, shared by every worktree of the
 #   repository) and one RETRO_PRIOR line per snapshot, newest first. Moves any
 #   legacy .context/retros/*.json from this worktree and the main checkout
-#   into it first: identical copies collapse, a same-name snapshot that
-#   differs takes the next free number for its date. --next also prints
-#   RETRO_FILE, the next unused <date>-<n>.json path.
+#   into it first: a copy identical to a stored snapshot of the same date
+#   collapses, a same-name snapshot that differs takes the next free number
+#   for its date, and a .context/retros that resolves outside its worktree
+#   is left alone. --next <YYYY-MM-DD> also reserves the next unused
+#   <date>-<n>.json (written as {} so a concurrent run cannot take it) and
+#   prints it as RETRO_FILE.
 
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
@@ -46,11 +49,11 @@ SINCE="7 days ago"
 UNTIL=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base)  BASE="$2"; shift 2 ;;
-    --since) SINCE="$2"; shift 2 ;;
-    --until) UNTIL="$2"; shift 2 ;;
+    --base)  BASE="$2"; shift 2 || break ;;
+    --since) SINCE="$2"; shift 2 || break ;;
+    --until) UNTIL="$2"; shift 2 || break ;;
     --history) HISTORY=1; shift ;;
-    --next)  NEXT_DATE="$2"; shift 2 ;;
+    --next)  NEXT_DATE="$2"; shift 2 || break ;;
     *) shift ;;
   esac
 done
@@ -71,21 +74,37 @@ if [ -n "${HISTORY:-}" ]; then
   fi
   _HD="$_GH/projects/$_SLUG/retros"
   mkdir -p "$_HD" || { echo "RETRO_HISTORY_ERROR: cannot create $_HD"; exit 0; }
+  if [ -n "${NEXT_DATE:-}" ]; then
+    case "$NEXT_DATE" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+      *) echo "RETRO_HISTORY_ERROR: --next takes a YYYY-MM-DD date, got '$NEXT_DATE'"; exit 0 ;;
+    esac
+  fi
+  _HDR=$(cd -P "$_HD" && pwd)
   _TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)
   _MAIN=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
   _MOVED=0
   for _TREE in "$_TOP" "$_MAIN"; do
     [ -n "$_TREE" ] && [ -d "$_TREE/.context/retros" ] || continue
-    for _F in "$_TREE"/.context/retros/*.json; do
-      [ -f "$_F" ] || continue
+    _SRC=$(cd -P "$_TREE/.context/retros" 2>/dev/null && pwd) || continue
+    _TR=$(cd -P "$_TREE" 2>/dev/null && pwd) || continue
+    case "$_SRC" in "$_TR"/*) ;; *) continue ;; esac
+    [ "$_SRC" != "$_HDR" ] || continue
+    for _F in "$_SRC"/*.json; do
+      [ -f "$_F" ] && [ ! -L "$_F" ] || continue
       _B=$(basename "$_F")
+      _DUP=""
+      for _E in "$_HD/$_B" "$_HD/${_B%-*}"-*.json; do
+        [ -f "$_E" ] && cmp -s "$_F" "$_E" && { _DUP=1; break; }
+      done
+      if [ -n "$_DUP" ]; then rm -f "$_F"; continue; fi
       _DEST="$_HD/$_B"
-      if [ -e "$_DEST" ] && cmp -s "$_F" "$_DEST"; then
-        rm -f "$_F"; continue
-      fi
       _N=1
-      while [ -e "$_DEST" ]; do _N=$((_N + 1)); _DEST="$_HD/${_B%-*}-$_N.json"; done
-      mv "$_F" "$_DEST" && _MOVED=$((_MOVED + 1))
+      while [ -e "$_F" ] && [ "$_N" -le 1000 ]; do
+        [ -e "$_DEST" ] || mv -n "$_F" "$_DEST" 2>/dev/null
+        [ -e "$_F" ] || { _MOVED=$((_MOVED + 1)); break; }
+        _N=$((_N + 1)); _DEST="$_HD/${_B%-*}-$_N.json"
+      done
     done
     rmdir "$_TREE/.context/retros" 2>/dev/null || true
   done
@@ -94,7 +113,10 @@ if [ -n "${HISTORY:-}" ]; then
   ls -t "$_HD"/*.json 2>/dev/null | sed 's/^/RETRO_PRIOR: /'
   if [ -n "${NEXT_DATE:-}" ]; then
     _N=1
-    while [ -e "$_HD/$NEXT_DATE-$_N.json" ]; do _N=$((_N + 1)); done
+    until ( set -C; printf '{}\n' > "$_HD/$NEXT_DATE-$_N.json" ) 2>/dev/null; do
+      _N=$((_N + 1))
+      [ "$_N" -le 1000 ] || { echo "RETRO_HISTORY_ERROR: cannot reserve a snapshot file in $_HD"; exit 0; }
+    done
     echo "RETRO_FILE: $_HD/$NEXT_DATE-$_N.json"
   fi
   exit 0

@@ -512,7 +512,7 @@ _RM="$HOME/.claude/skills/gstack/bin/gstack-retro-metrics"
 "$_RM" --history --next "<today>"
 ```
 
-`RETRO_PRIOR:` lines are prior snapshots, newest first. No `RETRO_FILE:` line means a stale helper: skip history and suggest `/gstack-upgrade`.
+`RETRO_PRIOR:` lines are prior snapshots, newest first; a file holding only `{}` is a reservation, not a snapshot. `RETRO_HISTORY_ERROR:` means history is unavailable: tell the user, show its fix, and skip history and the Step 13 save. Otherwise no `RETRO_FILE:` line means a stale helper: skip history and suggest `/gstack-upgrade`.
 
 **If prior retros exist:** Load the most recent one with the same `window` using the Read tool; if none matches, disclose that and skip historical deltas. Calculate deltas for available key metrics and include a **Trends vs Last Retro** section (in `compare` mode use the freshly computed prior period instead):
 ```
@@ -533,7 +533,7 @@ Deep sessions:      3      →    5           ↑2
 
 After computing all metrics (including streak) and loading any prior history for comparison, draft the tweetable summary and the "3 Things to Improve" items using the format in Step 14, then save a JSON snapshot. The Step 14 narrative must reuse this exact summary and these exact items. `streak_days` is the live **team** streak from Step 11 (0 when broken); put the personal streak in `user_streak_days`.
 
-Use the Write tool to save it to Step 12's `RETRO_FILE` with this schema:
+Step 12 reserved `RETRO_FILE` as `{}`: Read it, then use the Write tool to replace it with this schema:
 ```json
 {
   "date": "2026-03-08",
