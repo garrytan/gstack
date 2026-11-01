@@ -585,22 +585,18 @@ describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => 
   const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
   const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
   const command = `cd '${top}' && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
-  // Value: protects=a reader that reviewed the right checkout is not failed for how it wrote its fingerprint; fails_when=the brief asks for "the line <command> prints" (two Sonnet 5.5 low readers then wrote `printed: REVIEWED_TREE: …` and were failed as reported="none"), or a `printed:` prefix lets a wrong tree through;
-  //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts workspaceParagraph and checkReviewedTree via gstack-review-dispatch collect; no_claim=that every model now writes the bare line
-  test('the brief asks for the bare line first and gives the command only as the way to get it', () => {
-    const p = workspaceParagraph(top);
-    expect(p).not.toContain('the line `cd');
-    const bare = p.indexOf('`REVIEWED_TREE: <tree> <toplevel>`');
-    expect(bare).toBeGreaterThan(0);
-    expect(p.indexOf(command)).toBeGreaterThan(bare);
-  });
-
+  // Value: protects=a reader that reviewed the right checkout is not failed for how it wrote its fingerprint; fails_when=a reply that echoes the command and then writes `printed: REVIEWED_TREE: …` (two Sonnet 5.5 low readers) is failed as reported="none", or a `printed:` label lets a wrong tree, toplevel or other label through;
+  //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts checkReviewedTree via gstack-review-dispatch collect; no_claim=the brief's wording, which stays main's until a no-loss replay
   test('the echoed command then a printed: line is read; the same shape with a wrong tree or checkout is still refused', () => {
     const reply = (fingerprint: string) => `${command}\nprinted: REVIEWED_TREE: ${fingerprint}\nNO FINDINGS\n`;
     expect(checkReviewedTree(reply(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
     expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
     expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
     expect(checkReviewedTree(`Note: REVIEWED_TREE: ${tree} ${top}\nNO FINDINGS`, `${tree} ${top}`).reported).toBe('none');
+    for (const line of ['`printed: REVIEWED_TREE: ' + tree + ' ' + top + '`', `**Printed:** REVIEWED_TREE: ${tree} ${top}`]) {
+      expect(checkReviewedTree(line, `${tree} ${top}`).ok, line).toBe(true);
+      expect(checkReviewedTree(line.replace(tree, 'c'.repeat(40)), `${tree} ${top}`).ok, line).toBe(false);
+    }
 
     const out = tmp();
     const ledger = path.join(out, 'review-ledger.jsonl');

@@ -142,7 +142,7 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
  */
 export function workspaceParagraph(dir: string): string {
   const q = `'${dir.replace(/'/g, `'\\''`)}'`;
-  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${q} && \`, and give every file read, search, edit or write an absolute path under ${dir}. Start your final reply with the bare line \`REVIEWED_TREE: <tree> <toplevel>\`, even where this brief limits your output to findings: nothing before it, not the command and not a label. Get the line by running \`cd ${q} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"\` and copy what it prints. A reply without that line, or from another checkout, does not count.`;
+  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${q} && \`, and give every file read, search, edit or write an absolute path under ${dir}. Make the first line of your final reply the line \`cd ${q} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"\` prints, even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
 }
 export const withWorkspace = (text: string, dir: string) => `${text}\n\n${workspaceParagraph(dir)}`;
 /** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
@@ -156,8 +156,10 @@ export function checkoutRoot(): string {
  * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
  */
 function parseTreeLine(line: string): string | null {
-  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '').replace(/^[Pp]rinted:\s+/, '');
+  const label = /^(?:\*\*)?[Pp]rinted:(?:\*\*)?\s+/;
+  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '').replace(label, '');
   for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
+  t = t.replace(label, '');
   const m = /^(?:\*\*REVIEWED_TREE:\*\*|REVIEWED_TREE:)\s+`?([0-9a-f]{40,64})`?\s+(.+)$/.exec(t);
   if (!m) return null;
   const p = m[2]!.length > 2 && m[2]!.startsWith('`') && m[2]!.endsWith('`') ? m[2]!.slice(1, -1) : m[2]!;

@@ -594,6 +594,20 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(started.creates.length).toBeGreaterThan(0);
     const outside = host(path.dirname(wt), env);
     expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const broken = tmp('rp-broken-');
+    fs.writeFileSync(path.join(broken, '.git'), 'garbage\n');
+    const unreadable = host(broken, env);
+    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('STOP: cannot read the directory readers on the shared machine start in: fatal: invalid gitfile format');
+    expect(unreadable.creates.length).toBe(0);
+    const slow = host(wt, env, { pollsToFinish: 30 });
+    let probes = 0;
+    const bash = slow.tools.capy.bash;
+    slow.tools.capy.bash = async (a) => { if (a.command.startsWith('if d=$(git rev-parse')) probes++; return bash(a); };
+    const input = { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(slow, input)).toContain('NEXT: poll');
+    expect(await runPass(slow, input)).toContain('NEXT: poll');
+    expect(probes).toBe(1);
+    expect(await runPass(host(wt, env), { ...input, logStart: [7] })).toStartWith('STOP: input.logStart must be a list');
   }, 240_000);
 
   // Value: protects=a reader that never left the machine's default checkout cannot hand /ship a review of another tree; fails_when=collect merges a reply whose REVIEWED_TREE names the primary checkout while the pass ships a worktree, or a reply with no such line;
