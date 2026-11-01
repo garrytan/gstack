@@ -514,7 +514,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    create whose result was lost by its title and never starts a reader twice; a
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
-   unchanged by the gstack Capy skill. A repeat pass takes `--diff-base` (RANGE_BASE), a
+   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass, none), a
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
    point is found against `origin/<base>` first, as preflight does.

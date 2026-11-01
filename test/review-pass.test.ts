@@ -591,9 +591,9 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.map(c => c.title)).toContain('ship x22s1 red-team');
   }, 240_000);
 
-  // Value: protects=a scoped pass run the old way, with the Capy driver's diffBase set to the fix range, still gives the pending Step 11 voices the merge base and only the Red Team the range (GST-619); fails_when=--diff-base on a scoped step overrides the plan's bases and narrows the voices to the fix range;
-  //   why_new=#3670 merge fix-check (row 454): the driver's diffBase reached the voices on a scoped pass; seam=none; no_claim=a scoped pass after Step 11 ran, which reads the range throughout
-  test('a scoped pass given diffBase keeps the merge base for the Step 11 voices; only the Red Team reads the fix range', async () => {
+  // Value: protects=a scoped pass run through the Capy program as the driver now says, with no diffBase, gives the pending Step 11 voices the merge base and only the Red Team the fix range (GST-619); fails_when=the program sends a scoped pass a base of its own or the voices read the range before Step 11 ran;
+  //   why_new=#3670 merge fix-check (row 454); the driver test "a scoped repeat pass passes no diffBase" is the failing-first half; seam=none; no_claim=an explicit --diff-base, which GST-619 lets win
+  test('a scoped pass run as the driver says keeps the merge base for the Step 11 voices; only the Red Team reads the fix range', async () => {
     const { dir, env } = repo();
     const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
     const mergeBase = sh('git merge-base main HEAD').stdout.trim();
@@ -601,7 +601,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(sh('echo "export const fix = 2;" >> src/a.ts && git commit -qam fix').status).toBe(0);
     const out = path.join(dir, '.state/run/s2');
     const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
-    const res = await runPass(host(dir, env), { base: 'main', out, pass: 'x22s2', diffBase: rangeBase, planFlags });
+    const res = await runPass(host(dir, env), { base: 'main', out, pass: 'x22s2', planFlags });
     expect(res).toContain('next=scoped');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as { diff_base: string; readers: { role?: string; stage: string; diff_base?: string }[] };
     expect(m.diff_base).toBe(mergeBase);
