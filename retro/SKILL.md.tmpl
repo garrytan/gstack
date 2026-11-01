@@ -349,15 +349,16 @@ End the section with: `N markers, M with no trigger.` If none: `No shortcut debt
 
 ### Step 12: Load History & Compare
 
-Load history (shared across worktrees; `<today>` = session-reminder date):
+Load history, shared across worktrees (`<today>`: session-reminder date):
 
 ```bash
 _RM="{{RUNTIME_ROOT}}/bin/gstack-retro-metrics"
 [ -x "$_RM" ] || _RM=".claude/skills/gstack/bin/gstack-retro-metrics"
-"$_RM" --history --next "<today>"
+today="<today>"
+"$_RM" --history --next "$today"
 ```
 
-`RETRO_PRIOR:` lists snapshots, newest first (skip `{}` stubs). On `RETRO_HISTORY_ERROR:` show its fix, skip history and Step 13. No `RETRO_FILE:` otherwise: stale helper; skip history, suggest `/gstack-upgrade`.
+`RETRO_PRIOR:` lists snapshots, newest first (skip `{}` stubs). On `RETRO_HISTORY_ERROR:` show its fix, skip history and Step 13. No `RETRO_FILE:` otherwise: stale helper; suggest `/gstack-upgrade`.
 
 **If prior retros exist:** Load the most recent one with the same `window` using the Read tool; if none matches, disclose that and skip historical deltas. Calculate deltas for available key metrics and include a **Trends vs Last Retro** section (in `compare` mode use the freshly computed prior period instead):
 ```
