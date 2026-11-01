@@ -77,7 +77,7 @@ describe('installed skills serve rendered sections (F5, #2706)', () => {
   test('gstack-relink (the gbrain-refresh path) serves the render, and the checkout again once the render is gone', () => {
     const fx = fixture();
     fs.mkdirSync(path.join(fx.install, 'bin'), { recursive: true });
-    for (const f of ['gstack-relink', 'gstack-config', 'gstack-state-root.sh', 'gstack-install-registry.sh', 'gstack-patch-names']) {
+    for (const f of ['gstack-relink', 'gstack-config', 'gstack-state-root.sh', 'gstack-install-registry.sh', 'gstack-patch-names', 'gstack-skill-name.sh']) {
       fs.copyFileSync(path.join(BIN, f), path.join(fx.install, 'bin', f));
       fs.chmodSync(path.join(fx.install, 'bin', f), 0o755);
     }
@@ -106,7 +106,7 @@ describe('installed skills serve rendered sections (F5, #2706)', () => {
   test('a sections/ directory the user owns is left alone by relink', () => {
     const fx = fixture();
     fs.mkdirSync(path.join(fx.install, 'bin'), { recursive: true });
-    for (const f of ['gstack-relink', 'gstack-config', 'gstack-state-root.sh', 'gstack-install-registry.sh', 'gstack-patch-names']) {
+    for (const f of ['gstack-relink', 'gstack-config', 'gstack-state-root.sh', 'gstack-install-registry.sh', 'gstack-patch-names', 'gstack-skill-name.sh']) {
       fs.copyFileSync(path.join(BIN, f), path.join(fx.install, 'bin', f));
       fs.chmodSync(path.join(fx.install, 'bin', f), 0o755);
     }
