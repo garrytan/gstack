@@ -374,6 +374,13 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
+    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
+    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
+    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
+    BROWSE_DEVICE_UNKNOWN) printf '%s' 'browse-device-unknown' ;;
+    BROWSE_DEVICE_CDP_FAILED) printf '%s' 'browse-device-cdp-failed' ;;
+    BROWSE_TOUCH_NO_DEVICE) printf '%s' 'browse-touch-no-device' ;;
     *) return 1 ;;
   esac
 }

@@ -23,7 +23,7 @@ const COPIED = [
   'autoplan/SKILL.md', // its frontmatter registers the autoplan hook the hooks-row test breaks
   'bin/gstack-launch-probe.sh',
   'bin/gstack-doctor-check.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-runtime-pins.ts', 'lib/runtime-pins.ts',
-  'bin/gstack-windows-bash.ts', 'lib/script-invocation.ts', 'lib/bun-isolation.ts', 'lib/result-codes.ts', 'lib/result-codes-release.ts', 'lib/result-codes-capy.ts', 'lib/result-codes-budget.ts', 'lib/result-codes-eval.ts', 'lib/result-codes-plan.ts', // the windows bash row
+  'bin/gstack-windows-bash.ts', 'lib/script-invocation.ts', 'lib/bun-isolation.ts', 'lib/result-codes.ts', 'lib/result-codes-release.ts', 'lib/result-codes-capy.ts', 'lib/result-codes-budget.ts', 'lib/result-codes-eval.ts', 'lib/result-codes-plan.ts', 'lib/result-codes-browse.ts', // the windows bash row
 ];
 const bases: string[] = [];
 /** Registers the per-test fixture cleanup; each test file calls it at top level (a hook in this module would bind to the first importing file only). */

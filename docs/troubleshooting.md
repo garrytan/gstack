@@ -2135,6 +2135,78 @@ command again.
 
 **Fixed in.** The first release after v1.91.101.0 (#3167).
 
+<a id="browse-session-invalid"></a>
+### ``browse: the session name is not 1-64 letters, digits, dots, colons, underscores or dashes ("<name>"); fix: pick a name like agent-1 ... (BROWSE_SESSION_INVALID)``
+
+**Meaning.** `BROWSE_SESSION` or `--session` holds a name browse will not use
+as a tab owner.
+
+**Fix.** Use a short name such as `agent-1`. An empty `BROWSE_SESSION=` turns
+sessions off and uses the shared active tab.
+
+<a id="browse-session-root-only"></a>
+### ``browse: only the local root token may name a session ... (BROWSE_SESSION_ROOT_ONLY)``
+
+**Meaning.** A paired or scoped agent sent a session name. Sessions are for
+local agents that share the root token; scoped agents already get their own
+tabs.
+
+**Fix.** Run `newtab` and pass the returned `tabId` on every command.
+
+<a id="browse-session-tab-reset"></a>
+### ``browse: this session's tab was closed ... (session <name>'s tab <id> was closed; it was on <url>); fix: open the page again ... (BROWSE_SESSION_TAB_RESET)``
+
+**Meaning.** The tab this session was working in is gone: someone ran
+`closetab` on it, closed the window, or it sat idle past
+`BROWSE_SESSION_IDLE_MINUTES` (default 120). browse refuses reads instead of
+answering from a blank page.
+
+**Fix.** `browse goto <url>` in the same session opens a new tab for it, then
+`snapshot` again before using `@refs`.
+
+<a id="browse-session-limit"></a>
+### ``browse: every session slot is running a command ... (BROWSE_SESSION_LIMIT)``
+
+**Meaning.** `BROWSE_MAX_SESSIONS` sessions (default 16) are all mid-command,
+so browse could not close an idle one to open a tab for a new session.
+
+**Fix.** Retry in a moment, or raise `BROWSE_MAX_SESSIONS`.
+
+<a id="browse-device-unknown"></a>
+### ``browse: no Playwright device has that name, so nothing on the tab changed ("<name>"; nearest: ...); fix: $B device --list (BROWSE_DEVICE_UNKNOWN)``
+
+**Meaning.** `$B device <name>` matches names from Playwright's `devices`
+table, case-insensitively. The name you gave is not in it, so the tab was not
+touched. The line lists the three nearest names.
+
+**Fix.** `$B device --list` prints every name; quote names with spaces
+(`$B device "iPhone 15"`). Add `--landscape` for the rotated profile.
+
+**Fixed in.** The first release after v1.92.30.0 (#3058).
+
+<a id="browse-device-cdp-failed"></a>
+### ``browse: Chromium refused a device emulation call on this tab (<method>: <error>; the tab is partly emulated); fix: $B device off (BROWSE_DEVICE_CDP_FAILED)``
+
+**Meaning.** Phone emulation is three DevTools calls on the tab's own session
+(size, touch, user agent). One failed; the line names it and says whether the
+calls before it already changed the tab.
+
+**Fix.** `$B device off` clears all three, then try the device again. If it
+keeps failing, the tab or browser is gone: `$B restart`.
+
+**Fixed in.** The first release after v1.92.30.0 (#3058).
+
+<a id="browse-touch-no-device"></a>
+### ``browse: touch input needs a phone profile on this tab first ($B tap on this tab); fix: $B device "iPhone 15" (BROWSE_TOUCH_NO_DEVICE)``
+
+**Meaning.** `tap`, `swipe`, `pinch` and `touch` send real touch events,
+which pages only see on a touch device. The current tab has no phone profile.
+
+**Fix.** `$B device "iPhone 15"` (or any name from `$B device --list`) on
+the same tab, then repeat the touch command.
+
+**Fixed in.** The first release after v1.92.30.0 (#3058).
+
 ---
 
 ## Windows

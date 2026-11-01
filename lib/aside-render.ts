@@ -321,10 +321,10 @@ export function serveDir(root: string, nonce: string = randomBytes(16).toString(
 
 // ─── Async spawn (keeps the loopback server's event loop free) ────────────────
 
-async function runProc(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
+async function runProc(cmd: string, args: string[], timeoutMs: number, env?: Record<string, string | undefined>): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
   let child: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
   try {
-    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });
+    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(env ? { env } : {}) });
   } catch (e) {
     return { code: null, stdout: '', stderr: '', error: (e as Error).message };
   }
@@ -529,8 +529,9 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   if (target.kind === 'error') return fail(target.error);
 
   const deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const browseEnv = { ...process.env, BROWSE_SESSION: '' };
   const run = async (args: string[]): Promise<string> => {
-    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())));
+    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), browseEnv);
     log.push(`$ browse ${args.join(' ').slice(0, 300)}\n${r.stdout}${r.stderr}`.trim());
     if (r.error || r.code !== 0) {
       const first = (r.stderr || r.stdout || r.error || '').trim().split('\n')[0];
@@ -647,7 +648,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   } catch (e) {
     return fail((e as Error).message);
   } finally {
-    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000);
+    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000, browseEnv);
     srv?.stop();
     if (work) fs.rmSync(work, { recursive: true, force: true });
   }

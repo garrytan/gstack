@@ -86,7 +86,7 @@ export const commandRoutes: RouteEntry[] = [
           continue;
         }
         const cr = await ctx.commands.handleInternal(
-          { command: cmd.command, args: cmd.args, tabId: cmd.tabId },
+          { command: cmd.command, args: cmd.args, tabId: cmd.tabId, session: cmd.session ?? body.session },
           tokenInfo,
           { skipRateCheck: true, skipActivity: true },
         );

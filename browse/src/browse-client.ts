@@ -42,6 +42,8 @@ export interface BrowseClientOptions {
   token?: string;
   /** Tab id to target (every command can scope to a tab). Default: BROWSE_TAB env or undefined (active tab). */
   tabId?: number;
+  /** Session whose own tab runs every command (root token only; tabId wins when both are set). Default: none. */
+  session?: string;
   /** Per-request timeout in milliseconds. Default: 30_000. */
   timeoutMs?: number;
   /** Override state-file path. Default: BROWSE_STATE_FILE env or <git-root>/.gstack/browse.json. */
@@ -133,6 +135,7 @@ export class BrowseClient {
   readonly port: number;
   readonly token: string;
   readonly tabId?: number;
+  readonly session?: string;
   readonly timeoutMs: number;
 
   constructor(opts: BrowseClientOptions = {}) {
@@ -140,6 +143,7 @@ export class BrowseClient {
     this.port = auth.port;
     this.token = auth.token;
     this.tabId = opts.tabId ?? parseIntegerEnvValue(process.env.BROWSE_TAB);
+    this.session = opts.session;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
@@ -150,7 +154,7 @@ export class BrowseClient {
     const body = JSON.stringify({
       command: cmd,
       args,
-      ...(this.tabId !== undefined && !isNaN(this.tabId) ? { tabId: this.tabId } : {}),
+      ...(this.tabId !== undefined && !isNaN(this.tabId) ? { tabId: this.tabId } : this.session ? { session: this.session } : {}),
     });
 
     let resp: Response;
