@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.92.31.0] - 2026-11-01
+
+**Nine paid ship rule-case flakes from the 2026-10-29 window stop failing correct runs.** Six qa-callers trials and five ship-docsync trials failed on calls the declared interface could not tell apart from a violation, or on a turn budget the actor spent out of order. Each was replayed from its retained capture, and each repair has a free test that fails without it.
+
+### Fixed
+- **qa-callers fixture prompt** (`test/helpers/qa-callers-fixture.ts`): the parent is told that a child starts in the product directory, to write each command exactly as it must run (no "in <dir>" paraphrase, `cd` or `git -C`) and to name each file the child reads as one literal path. Six trials across late-input, plan-checks and small-cli had a child run `git -C <dir> diff` or `cd` into the checklist directory after a paraphrased prompt. The ship caller's scheduling contract now lists Step 9's review-plan command and gate-scan block with the first diff discovery: three late-input trials hit 25 of 25 turns after running the gate scan only after the receipt, or never. The detector is unchanged.
+- **ship-docsync detectors** (`test/helpers/docsync-observer.ts`): a declared read command given `--help` counts as a read that reads nothing, with its operands still checked (current, completion and store trials joined `cat <candidate> --help`). The wrong-path exit-127 excuse covers the docs cap gate (`gstack-ship-receipt docs-caps`) when the declared path then runs (stale-after). A line whose first unpiped `cat` printed the whole phase file still counts as reading it when a later separator failed under zsh (failure).
+- **ship-docsync-completion** (`test/helpers/docsync-contract.ts`): only the accepted docs attempt is held to the strict completion contract; an attempt the parent rejected and re-audited reports only its id, status and edited files.
+
+### Gate integrity
+- `test/helpers/docsync-observer.ts`: three acceptances widen, each pinned to its captured run with negative controls (redirects, pipes into the read, chained mutations, `cd`, wrong subcommands, a binary present at the wrong path, a truncated or errored read).
+- `test/helpers/docsync-contract.ts` and `test/skill-e2e-ship-docsync.test.ts`: an earlier rejected docs attempt is no longer parsed with the accepted attempt's strict contract; a malformed earlier report still throws, and the accepted attempt stays strict.
+
 ## [1.92.30.0] - 2026-11-01
 
 **The free suite's shards finish closer together: slow test files are split and the packer plans from fresh timings.** The committed duration seed was missing more than a hundred free test files, so CI guessed the same time for every shard and the slowest shard ran far past the mean. No product code changed. Every split file runs the same tests as before.
