@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.92.4.0] - 2026-10-31
+
+**A merge train now carries up to five READY PRs instead of three.** That means fewer full gates for the same number of PRs. A short train still leaves one hour after its oldest READY.
+
+### Changed
+- `.gstack/ship-policy.json`: `train.max_size` goes from 3 to 5 (Garry, 2026-10-31). `fill_hours` stays at 1. `test/gstack-ship-policy.test.ts` pins the new value. Four READY PRs wait for the hour, and the fifth fills the train. The example block in docs/ship-policy.md, which shows gstack's own policy, now reads 5.
+
 ## [1.92.3.0] - 2026-10-31
 
 **`gstack-redact` now catches a credential on a diff line (GST-543).** The env.kv rule matched from the start of the line, so the leading `+` or `-` of a diff line stopped the match. `git diff | gstack-redact` returned no finding and exit 0 for `+API_TOKEN=<random value>`. It did the same for a removed line that was indented or used `export`, and for a merge diff's two-column markers (`++`, ` +`). A `diff` code block in a PR body had the same blind spot. Pregate's `secrets` check and the pre-push hook were not affected, because both strip the `+` before scanning.
