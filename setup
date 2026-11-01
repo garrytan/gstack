@@ -600,10 +600,15 @@ if [ "$CODEX_REPO_LOCAL" -eq 1 ]; then
     "$_codex_project"|"$_codex_project"/*) ;;
     *) echo "Refusing: project-local Codex destination resolves outside the project: $CODEX_SKILLS -> $_codex_parent. Use a separate project-local skills directory; setup will not relink it automatically." >&2; exit 1 ;;
   esac
+  _codex_self_host=0
+  if [ "$_codex_project" = "$SOURCE_GSTACK_DIR" ] && [ "$_codex_parent" = "$SOURCE_GSTACK_DIR/.agents/skills" ]; then
+    _codex_self_host=1
+  fi
   _codex_payload="$_codex_parent"
   while :; do
-    if [ "$_codex_payload" = "$SOURCE_GSTACK_DIR" ] \
-      || { [ -f "$_codex_payload/setup" ] && [ -f "$_codex_payload/VERSION" ] && [ -f "$_codex_payload/bin/gstack-relink" ]; }; then
+    if { [ "$_codex_payload" = "$SOURCE_GSTACK_DIR" ] \
+      || { [ -f "$_codex_payload/setup" ] && [ -f "$_codex_payload/VERSION" ] && [ -f "$_codex_payload/bin/gstack-relink" ]; }; } \
+      && ! { [ "$_codex_self_host" -eq 1 ] && [ "$_codex_payload" = "$SOURCE_GSTACK_DIR" ]; }; then
       echo "Refusing: project-local Codex destination overlaps the source tree at $_codex_payload: $CODEX_SKILLS -> $_codex_parent. Use a separate project-local skills directory; setup will not relink it automatically." >&2
       exit 1
     fi
