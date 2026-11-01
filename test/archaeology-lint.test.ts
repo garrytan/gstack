@@ -29,6 +29,7 @@ const ALLOWLIST: AllowEntry[] = [
   { skills: ['landing-report'], anchor: 'feat/payments', reason: 'sample landing-report output (PR number of a sibling workspace)' },
   { skills: ['retro'], anchor: 'Biggest ship: PR #605', reason: 'sample retro output' },
   { skills: ['codex'], anchor: 'OpenAI issues #8545', reason: 'upstream OpenAI Codex issue IDs behind the reasoning-effort default' },
+  { skills: ['captain'], anchor: 'captain/templates/postmortem.md', reason: 'names the postmortem template the controller fills after a revert, a procedure rather than an incident story' },
 ];
 
 /** `#` + 3 or more digits (bare or parenthesized), `PR #N`, `issue #N`, incident stories. */
