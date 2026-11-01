@@ -60,25 +60,34 @@ function trackedSources(): string[] {
   return r.stdout.split('\0').filter(f => f && !/(^|\/)test\//.test(f) && !f.endsWith('.test.ts') && fs.existsSync(path.join(ROOT, f)));
 }
 
+/** The .gstack/tmp entry names one source text can create, each with its offset. */
+function namesIn(text: string): Array<[string, number]> {
+  const out: Array<[string, number]> = [];
+  for (const m of text.matchAll(/\.gstack\/tmp\/([^\s"'`)\]}$;:,|&*\\]*)/g)) out.push([m[1]!.split('/')[0]!.replace(/\.+$/, ''), m.index!]);
+  for (const m of text.matchAll(/['"]\.gstack['"],\s*['"]tmp['"](?:,\s*['"]([^'"]+)['"])?/g)) out.push([m[1] ?? '', m.index!]);
+  for (const m of text.matchAll(/\$\{?TMP_ROOT\}?\/([A-Za-z0-9._<>-]+)/g)) out.push([m[1]!, m.index!]);
+  for (const m of text.matchAll(/\{\{FREE_TEXT_FILE(?::([^}]*))?\}\}/g)) {
+    for (const spec of (m[1] ?? 'TEXT_FILE=text').split(':')) out.push([(spec.split('=')[1] || 'text') + '.XXXXXX', m.index!]);
+  }
+  return out;
+}
+
 /** Every .gstack/tmp entry name a source can create, with where it was seen. */
 function producers(): Map<string, string> {
   const found = new Map<string, string>();
-  const add = (name: string, where: string) => { if (name && !found.has(name)) found.set(name, where); };
   for (const file of trackedSources()) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    const at = (index: number) => file + ':' + (text.slice(0, index).split('\n').length);
-    for (const m of text.matchAll(/\.gstack\/tmp\/([^\s"'`)\]}$;,|&*\\]*)/g)) add(m[1]!.split('/')[0]!.replace(/\.+$/, ''), at(m.index!));
-    for (const m of text.matchAll(/['"]\.gstack['"],\s*['"]tmp['"](?:,\s*['"]([^'"]+)['"])?/g)) add(m[1] ?? '', at(m.index!));
-    for (const m of text.matchAll(/\$\{?TMP_ROOT\}?\/([A-Za-z0-9._<>-]+)/g)) add(m[1]!, at(m.index!));
-    for (const m of text.matchAll(/\{\{FREE_TEXT_FILE(?::([^}]*))?\}\}/g)) {
-      for (const spec of (m[1] ?? 'TEXT_FILE=text').split(':')) add((spec.split('=')[1] || 'text') + '.XXXXXX', at(m.index!));
-    }
+    for (const [name, index] of namesIn(text)) if (name && !found.has(name)) found.set(name, file + ':' + (text.slice(0, index).split('\n').length));
   }
   return found;
 }
 
 describe('gstack-clean producer classification', () => {
   const found = producers();
+
+  test('a path followed by prose punctuation names the file, not the punctuation', () => {
+    expect(namesIn('r.stop(`.gstack/tmp/x.json: ${message}`)').map(([name]) => name)).toEqual(['x.json']);
+  });
 
   test('the scan sees the known producers', () => {
     for (const name of ['restamp-journal.json', 'pregate.json', 'ship-queue', 'autoplan', 'codex-err-XXXXXX']) expect(found.has(name)).toBe(true);
