@@ -16,7 +16,7 @@ export const PLAN_RESULT_CODES = {
   TASKS_SUPERSEDE_REFUSED: {
     anchor: 'tasks-supersede-refused',
     summary: 'gstack-tasks refused a task list that did not validate (a supersede --keep, or the rows file add reads), so no list was moved or written',
-    fix: 'run `gstack-tasks start`, fix the reported line of the rows file it printed (gstack-tasks --help shows the row shapes), then rerun `gstack-tasks add`',
+    fix: 'fix the reported line of .gstack/tmp/tasks-<phase>-rows.jsonl (gstack-tasks --help shows the row shapes), then rerun `gstack-tasks add`',
   },
   REALITY_RECEIPT_UNRESOLVED: {
     anchor: 'reality-receipt-unresolved',

@@ -3,7 +3,6 @@
  * gstack-tasks — a plan review's task list, and its reconciliation across reruns (G2, #1791).
  *
  *   gstack-tasks prior --phase <p> [--branch <b>] [--dir <d>] [--json]
- *   gstack-tasks start --phase <p> [--dir <d>]
  *   gstack-tasks add --phase <p> [--branch <b>] [--dir <d>]
  *   gstack-tasks supersede --phase <p> --keep <list> [--branch <b>] [--dir <d>] [--json]
  *
@@ -16,18 +15,18 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { resolveStateRoot } from '../lib/state-root';
-import { SupersedeRefused, TASK_PHASES, addRows, finishPending, priorSet, readTaskFiles, startRun, supersede, type TaskPhase } from '../lib/tasks-prior';
+import { SupersedeRefused, TASK_PHASES, addRows, finishPending, priorSet, readTaskFiles, rowsFileName, supersede, type TaskPhase } from '../lib/tasks-prior';
 
 const HELP = `gstack-tasks — a plan review's task list across reruns
 
   prior --phase <p> [--json]          the newest earlier list for this phase and branch, and how to reconcile it
-  start --phase <p>                   create this run's empty list and an empty rows file; prints TASKS_FILE: and ROWS_FILE:
-  add --phase <p>                     validate the rows file, append its tasks to the list and its dispositions
-                                      to task-dispositions-<p>-<branch>.jsonl, then supersede this branch's earlier lists
+  add --phase <p>                     validate the rows file, write this run's list (empty: ran, no findings) and its
+                                      dispositions to task-dispositions-<p>-<branch>.jsonl, then supersede this branch's earlier lists
   supersede --phase <p> --keep <list> [--json]   move this branch's reconciled earlier lists out of the aggregate
 
 Every command takes [--dir <d>] (default <state root>/projects/<slug>) and [--branch <b>] (default the current git branch).
-Rows file, one JSON object per line, written with a file-write tool (free text never goes on a command line):
+Rows file <repo>/.gstack/tmp/tasks-<p>-rows.jsonl, one JSON object per line, written with a file-write tool
+(free text never goes on a command line; a missing file means zero rows):
   task         {"id","priority","component","title","source_finding","effort_human","effort_cc"} strings,
                "files" an array of strings, optional "carried_from": "<run_id>/<id>"
   disposition  {"prior": "<run_id>/<id>", "disposition": "done" | "dropped", "reason": "<commit or why>"}
@@ -67,20 +66,15 @@ function rowsDir(fallback: string): string {
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
-  if (!['prior', 'start', 'add', 'supersede'].includes(cmd)) return usage(`unknown command ${cmd}`);
+  if (!['prior', 'add', 'supersede'].includes(cmd)) return usage(`unknown command ${cmd}`);
   const phase = flag(rest, '--phase') as TaskPhase | undefined;
   if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
   const dir = flag(rest, '--dir') ?? path.join(resolveStateRoot(), 'projects', slug('SLUG'));
   const branch = flag(rest, '--branch') ?? (git('branch', '--show-current') || 'unknown');
   const json = rest.includes('--json');
   try {
-    if (cmd === 'start') {
-      const run = startRun(dir, phase, slug('BRANCH'), rowsDir(dir));
-      process.stdout.write(`TASKS_FILE: ${run.file}\nROWS_FILE: ${run.rows}\n`);
-      return EXIT.ok;
-    }
     if (cmd === 'add') {
-      const r = addRows(dir, phase, branch, slug('BRANCH'), git('rev-parse', 'HEAD') || 'unknown');
+      const r = addRows(dir, phase, branch, slug('BRANCH'), git('rev-parse', 'HEAD') || 'unknown', path.join(rowsDir(dir), rowsFileName(phase)));
       process.stdout.write([`ADDED: tasks=${r.tasks} dispositions=${r.dispositions} ${r.file}`, ...r.superseded.map(f => `SUPERSEDED: ${f}`)].join('\n') + '\n');
       return EXIT.ok;
     }
@@ -92,7 +86,7 @@ function main(argv: string[]): number {
       if (json) { process.stdout.write(JSON.stringify(prior ?? { file: null, run_id: null, rows: [] }) + '\n'); return EXIT.ok; }
       if (!prior) { process.stdout.write('PRIOR_TASKS: none\n'); return EXIT.ok; }
       process.stdout.write([`PRIOR_TASKS: ${prior.file} run=${prior.run_id} tasks=${prior.rows.length}`, ...prior.rows.map(r => JSON.stringify(r)),
-        `RECONCILE: decide each task above in this run's rows file. Still needed: list it again with "carried_from": "${prior.run_id}/<id>". Shipped: a disposition row {"prior": "${prior.run_id}/<id>", "disposition": "done", "reason": "<commit>"}. Not wanted: the same with "dropped" and why. gstack-tasks add then retires this list.`].join('\n') + '\n');
+        `RECONCILE: decide each task above in this run's rows file (.gstack/tmp/tasks-${phase}-rows.jsonl). Still needed: list it again with "carried_from": "${prior.run_id}/<id>". Shipped: a disposition row {"prior": "${prior.run_id}/<id>", "disposition": "done", "reason": "<commit>"}. Not wanted: the same with "dropped" and why. gstack-tasks add then retires this list.`].join('\n') + '\n');
       return EXIT.ok;
     }
     const keep = flag(rest, '--keep');

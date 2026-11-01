@@ -778,13 +778,7 @@ Rules:
 
 ### JSONL artifact (write when permitted, including zero tasks)
 
-`/autoplan` aggregates this list. `start` creates it empty ("ran, no findings", distinct from "didn't run") and prints an empty ROWS_FILE:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-tasks start --phase ceo-review
-```
-
-Read ROWS_FILE, then write one JSON object per line into it with your file-write tool (free text never goes in a command): a task is `{"id":"T1","priority":"P1","component":"","title":"","source_finding":"","effort_human":"~2h","effort_cc":"~15min","files":[]}`, plus `"carried_from":"<run_id>/<id>"` when carried; a closed earlier task is `{"prior":"<run_id>/<id>","disposition":"done|dropped","reason":""}`. Then:
+`/autoplan` aggregates this list. With your file-write tool, write one JSON object per line to `.gstack/tmp/tasks-ceo-review-rows.jsonl` at the repo root (no free text in a command; no rows, no file): a task is `{"id":"T1","priority":"P1","component":"","title":"","source_finding":"","effort_human":"~2h","effort_cc":"~15min","files":[]}`, plus `"carried_from":"<run_id>/<id>"` when carried; a closed earlier task is `{"prior":"<run_id>/<id>","disposition":"done|dropped","reason":""}`. Then write the list (empty means "ran, no findings", distinct from "didn't run"):
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-tasks add --phase ceo-review

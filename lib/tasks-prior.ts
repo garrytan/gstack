@@ -15,10 +15,10 @@
  *              phase, another branch's rows, a newer run and an empty legacy
  *              file are left alone. A pending marker written before the
  *              renames lets the next call finish an interrupted supersede.
- *   start/add  the rerun's list: `start` creates it and an empty rows file,
- *              the agent writes task and disposition rows there with its
- *              file-write tool (free text never rides a command line), and
- *              `add` validates, stamps and appends them, then supersedes.
+ *   add        the rerun's list: the agent writes task and disposition rows
+ *              to the rows file with its file-write tool (free text never
+ *              rides a command line); add validates and stamps them, writes
+ *              the list, then supersedes.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -71,65 +71,50 @@ export function finishPending(dir: string, phase: TaskPhase): string[] {
 
 export class SupersedeRefused extends Error {}
 
-/** `tasks-<phase>-<branch slug>-<ts>.jsonl`, created empty (an empty list means "ran, no findings"), a run id that sorts after older ones, and an empty rows file for the agent's file-write tool. The run is recorded so `add` needs no free text on its command line. */
-export function startRun(dir: string, phase: TaskPhase, branchSlug: string, rowsDir: string, now = new Date()): TaskRun {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.mkdirSync(rowsDir, { recursive: true, mode: 0o700 });
-  const iso = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  const slug = branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown';
-  const run: TaskRun = {
-    file: path.join(dir, `tasks-${phase}-${slug}-${iso.slice(0, 8)}-${iso.slice(9, 15)}.jsonl`),
-    run_id: `${iso}-${process.pid}`,
-    rows: path.join(rowsDir, `tasks-${phase}-rows.jsonl`),
-  };
-  fs.appendFileSync(run.file, '');
-  fs.writeFileSync(run.rows, '', { mode: 0o600 });
-  fs.writeFileSync(runRecord(dir, phase), JSON.stringify(run));
-  return run;
-}
+/** Where a plan review writes this run's rows with its file-write tool: one file per phase in the repository's git-excluded \`.gstack/tmp\`, so free text never rides a command line. */
+export const rowsFileName = (phase: TaskPhase) => `tasks-${phase}-rows.jsonl`;
 
-export interface TaskRun { file: string; run_id: string; rows: string }
-const runRecord = (dir: string, phase: string) => path.join(dir, `.tasks-run-${phase}.json`);
 export const TASK_FIELDS = ['id', 'priority', 'component', 'title', 'source_finding', 'effort_human', 'effort_cc'] as const;
 const PRIOR_RE = /^[^/\s]+\/[^/\s]+$/;
 
 /**
- * Validate the rows file the agent wrote for this run (tasks, and dispositions
- * of earlier tasks it closed), stamp each task with this phase, run, branch and
- * commit, append tasks to the run's list and dispositions to
- * `task-dispositions-<phase>-<branch slug>.jsonl`, then supersede this
- * branch's earlier lists. Nothing is written when any row is invalid.
+ * Validate the rows file (tasks, and dispositions of earlier tasks this run
+ * closed), create this run's list `tasks-<phase>-<branch slug>-<ts>.jsonl`
+ * (empty when there are no tasks: "ran, no findings"), stamp each task with
+ * this phase, run, branch and commit, append dispositions to
+ * `task-dispositions-<phase>-<branch slug>.jsonl`, remove the rows file and
+ * supersede this branch's earlier lists. Nothing is written when a row is invalid.
  */
-export function addRows(dir: string, phase: TaskPhase, branch: string, branchSlug: string, commit: string): { file: string; tasks: number; dispositions: number; superseded: string[] } {
-  const rec = runRecord(dir, phase);
-  if (!fs.existsSync(rec)) throw new SupersedeRefused(`no run started for ${phase}: run gstack-tasks start --phase ${phase} first`);
-  const run = JSON.parse(fs.readFileSync(rec, 'utf8')) as TaskRun;
+export function addRows(dir: string, phase: TaskPhase, branch: string, branchSlug: string, commit: string, rows: string, now = new Date()): { file: string; tasks: number; dispositions: number; superseded: string[] } {
+  const iso = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const runId = `${iso}-${process.pid}`;
   const tasks: TaskRow[] = [], dispositions: Record<string, string>[] = [];
-  const lines = fs.existsSync(run.rows) ? fs.readFileSync(run.rows, 'utf8').split('\n') : [];
+  const lines = fs.existsSync(rows) ? fs.readFileSync(rows, 'utf8').split('\n') : [];
   lines.forEach((line, i) => {
     if (!line.trim()) return;
+    const at = `${rows}:${i + 1}`;
     let v: Record<string, unknown>;
-    try { v = JSON.parse(line); } catch { throw new SupersedeRefused(`${run.rows}:${i + 1} is not JSON`); }
-    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new SupersedeRefused(`${run.rows}:${i + 1} is not a JSON object`);
+    try { v = JSON.parse(line); } catch { throw new SupersedeRefused(`${at} is not JSON`); }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new SupersedeRefused(`${at} is not a JSON object`);
     if ('disposition' in v) {
-      if (!(v.disposition === 'done' || v.disposition === 'dropped') || typeof v.prior !== 'string' || !PRIOR_RE.test(v.prior) || typeof v.reason !== 'string' || !v.reason) throw new SupersedeRefused(`${run.rows}:${i + 1} needs prior <run_id>/<id>, disposition done or dropped, and a reason`);
-      dispositions.push({ phase, run_id: run.run_id, branch, prior: v.prior, disposition: v.disposition, reason: v.reason });
+      if (!(v.disposition === 'done' || v.disposition === 'dropped') || typeof v.prior !== 'string' || !PRIOR_RE.test(v.prior) || typeof v.reason !== 'string' || !v.reason) throw new SupersedeRefused(`${at} needs prior <run_id>/<id>, disposition done or dropped, and a reason`);
+      dispositions.push({ phase, run_id: runId, branch, prior: v.prior, disposition: v.disposition, reason: v.reason });
       return;
     }
     const missing = TASK_FIELDS.filter(k => typeof v[k] !== 'string' || !v[k]);
-    if (missing.length) throw new SupersedeRefused(`${run.rows}:${i + 1} is missing ${missing.join(', ')}`);
-    if (!Array.isArray(v.files) || v.files.some(f => typeof f !== 'string')) throw new SupersedeRefused(`${run.rows}:${i + 1} files must be an array of strings`);
-    if (v.carried_from !== undefined && (typeof v.carried_from !== 'string' || !PRIOR_RE.test(v.carried_from))) throw new SupersedeRefused(`${run.rows}:${i + 1} carried_from must be <run_id>/<id>`);
-    tasks.push({ phase, run_id: run.run_id, branch, commit, ...Object.fromEntries(TASK_FIELDS.map(k => [k, v[k]])), files: v.files, ...(v.carried_from ? { carried_from: v.carried_from } : {}) });
+    if (missing.length) throw new SupersedeRefused(`${at} is missing ${missing.join(', ')}`);
+    if (!Array.isArray(v.files) || v.files.some(f => typeof f !== 'string')) throw new SupersedeRefused(`${at} files must be an array of strings`);
+    if (v.carried_from !== undefined && (typeof v.carried_from !== 'string' || !PRIOR_RE.test(v.carried_from))) throw new SupersedeRefused(`${at} carried_from must be <run_id>/<id>`);
+    tasks.push({ phase, run_id: runId, branch, commit, ...Object.fromEntries(TASK_FIELDS.map(k => [k, v[k]])), files: v.files, ...(v.carried_from ? { carried_from: v.carried_from } : {}) });
   });
-  if (tasks.length) fs.appendFileSync(run.file, tasks.map(t => JSON.stringify(t)).join('\n') + '\n');
-  if (dispositions.length) {
-    const slug = branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown';
-    fs.appendFileSync(path.join(dir, `task-dispositions-${phase}-${slug}.jsonl`), dispositions.map(d => JSON.stringify(d)).join('\n') + '\n');
-  }
-  fs.writeFileSync(run.rows, '');
-  const { moved } = supersede(dir, phase, branch, run.file);
-  return { file: run.file, tasks: tasks.length, dispositions: dispositions.length, superseded: moved };
+  fs.mkdirSync(dir, { recursive: true });
+  const slug = branchSlug.replace(/[^A-Za-z0-9._-]/g, '-') || 'unknown';
+  const file = path.join(dir, `tasks-${phase}-${slug}-${iso.slice(0, 8)}-${iso.slice(9, 15)}.jsonl`);
+  fs.appendFileSync(file, tasks.map(t => JSON.stringify(t) + '\n').join(''));
+  if (dispositions.length) fs.appendFileSync(path.join(dir, `task-dispositions-${phase}-${slug}.jsonl`), dispositions.map(d => JSON.stringify(d) + '\n').join(''));
+  fs.rmSync(rows, { force: true });
+  const { moved } = supersede(dir, phase, branch, file);
+  return { file, tasks: tasks.length, dispositions: dispositions.length, superseded: moved };
 }
 
 export function supersede(dir: string, phase: TaskPhase, branch: string, keep: string): { moved: string[]; skipped: Array<{ file: string; reason: string }> } {

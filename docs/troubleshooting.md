@@ -3249,15 +3249,14 @@ from the command's source or docs in the repository instead.
 ### `TASKS_SUPERSEDE_REFUSED`
 
 **Meaning.** `gstack-tasks` refused a task list. Either `add` found a line in
-the rows file that is not a valid task or disposition (or no run was started),
-so nothing was written; or `supersede` was asked to retire the earlier lists
+the rows file (`.gstack/tmp/tasks-<phase>-rows.jsonl`) that is not a valid
+task or disposition, so nothing was written; or `supersede` was asked to retire the earlier lists
 but the new list (`--keep`) is missing, outside the tasks directory, has a
 malformed line, or holds a row for another phase or branch, so nothing was
 moved and both lists stay live.
 
-**Fix.** Run `gstack-tasks start --phase <phase>` if no run is open, fix the
-line the error names in the printed `ROWS_FILE` (`gstack-tasks --help` shows
-both row shapes), and rerun `gstack-tasks add --phase <phase>`.
+**Fix.** Fix the line the error names in the rows file (`gstack-tasks --help`
+shows both row shapes), and rerun `gstack-tasks add --phase <phase>`.
 
 <a id="reality-receipt-unresolved"></a>
 ### `REALITY_RECEIPT_UNRESOLVED`

@@ -124,55 +124,61 @@ describe('gstack-tasks prior and supersede', () => {
   });
 });
 
-describe('gstack-tasks start and add', () => {
+describe('gstack-tasks add', () => {
   const R1 = '20261031T100000Z-1';
-  const startRun = (w: ReturnType<typeof world>) => {
-    const out = tasks(['start', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout;
-    const get = (k: string) => new RegExp(`^${k}: (.+)$`, 'm').exec(out)![1]!;
-    return { list: get('TASKS_FILE'), rows: get('ROWS_FILE') };
+  const rowsFile = (w: ReturnType<typeof world>) => {
+    fs.mkdirSync(path.join(w.repo, '.gstack', 'tmp'), { recursive: true });
+    return path.join(w.repo, '.gstack', 'tmp', 'tasks-eng-review-rows.jsonl');
   };
+  const lists = (w: ReturnType<typeof world>) => fs.readdirSync(w.dir).filter(n => /^tasks-eng-review-.*\.jsonl$/.test(n));
 
   test('a rerun carries one task, closes the other, and the aggregate shows only the reconciled list', () => {
     const w = world();
     const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
     fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n' + row(R1, 'T2', 'add metrics', w.commit) + '\n');
-    expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toMatch(new RegExp(`RECONCILE: .*"carried_from": "${R1}/<id>".*"prior": "${R1}/<id>", "disposition": "done"`));
-    const run = startRun(w);
-    expect(path.basename(run.list)).toMatch(/^tasks-eng-review-feature-x-\d{8}-\d{6}\.jsonl$/);
-    expect(fs.readFileSync(run.list, 'utf8')).toBe('');
-    expect(fs.realpathSync(path.dirname(run.rows))).toBe(fs.realpathSync(path.join(w.repo, '.gstack', 'tmp')));
-    expect(fs.readFileSync(path.join(w.repo, '.git', 'info', 'exclude'), 'utf8')).toContain('/.gstack/tmp/');
+    expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout).toMatch(new RegExp(`RECONCILE: .*tasks-eng-review-rows\\.jsonl.*"carried_from": "${R1}/<id>".*"prior": "${R1}/<id>", "disposition": "done"`));
     const title = 'retry "quoted"\nwith a \\ backslash and $(id)';
     const task = (id: string, t: string, extra = {}) => JSON.stringify({ id, priority: 'P1', component: 'demo', title: t, source_finding: 'f', effort_human: '~1h', effort_cc: '~5min', files: ['a.ts'], ...extra });
-    fs.writeFileSync(run.rows, [task('T1', title, { carried_from: `${R1}/T1` }), JSON.stringify({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit }), task('T2', 'validate the rate limit')].join('\n') + '\n');
+    const rows = rowsFile(w);
+    fs.writeFileSync(rows, [task('T1', title, { carried_from: `${R1}/T1` }), JSON.stringify({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit }), task('T2', 'validate the rate limit')].join('\n') + '\n');
     const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
     expect(add.status).toBe(0);
-    expect(add.stdout).toContain(`ADDED: tasks=2 dispositions=1 ${run.list}`);
+    const list = /^ADDED: tasks=2 dispositions=1 (.+)$/m.exec(add.stdout)![1]!;
+    expect(path.basename(list)).toMatch(/^tasks-eng-review-feature-x-\d{8}-\d{6}\.jsonl$/);
     expect(add.stdout).toContain(`SUPERSEDED: ${prior}`);
-    const written = fs.readFileSync(run.list, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    const written = fs.readFileSync(list, 'utf8').trim().split('\n').map(l => JSON.parse(l));
     expect(written[0]).toMatchObject({ phase: 'eng-review', branch: BRANCH, commit: w.commit, id: 'T1', title, files: ['a.ts'], carried_from: `${R1}/T1` });
     expect(written[0].run_id > R1).toBe(true);
     expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'task-dispositions-eng-review-feature-x.jsonl'), 'utf8'))).toMatchObject({ prior: `${R1}/T2`, disposition: 'done', reason: w.commit, branch: BRANCH });
-    expect(fs.readFileSync(run.rows, 'utf8')).toBe('');
+    expect(fs.existsSync(rows)).toBe(false);
+    expect(fs.readFileSync(path.join(w.repo, '.git', 'info', 'exclude'), 'utf8')).toContain('/.gstack/tmp/');
     const agg = aggregate(w);
     expect(agg).toContain('with a');
     expect(agg).not.toContain('add metrics');
   });
 
-  test('add refuses an invalid rows file and writes nothing; add before start is refused', () => {
+  test('with no rows file, add writes an empty list and retires the earlier one', () => {
     const w = world();
-    expect(tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo).status).toBe(3);
     const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
     fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n');
-    const run = startRun(w);
+    const add = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
+    expect(add.stdout).toMatch(/^ADDED: tasks=0 dispositions=0 /m);
+    expect(lists(w)).toHaveLength(1);
+    expect(fs.existsSync(prior)).toBe(false);
+    expect(aggregate(w)).not.toContain('add retry');
+  });
+
+  test('add refuses an invalid rows file and writes nothing', () => {
+    const w = world();
+    const prior = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(prior, row(R1, 'T1', 'add retry', w.commit) + '\n');
     for (const bad of ['{"id":"T1"}', '{"id":"T1","priority":"P1","component":"c","title":"t","source_finding":"s","effort_human":"h","effort_cc":"c","files":[1]}', '{"prior":"T2","disposition":"done","reason":"x"}', '{"prior":"R/T2","disposition":"maybe","reason":"x"}', 'not json']) {
-      fs.writeFileSync(run.rows, bad + '\n');
+      fs.writeFileSync(rowsFile(w), bad + '\n');
       const r = tasks(['add', '--phase', 'eng-review', '--dir', w.dir], w.repo);
       expect(r.status).toBe(3);
       expect(r.stderr).toContain('TASKS_SUPERSEDE_REFUSED');
     }
-    expect(fs.readFileSync(run.list, 'utf8')).toBe('');
-    expect(fs.existsSync(prior)).toBe(true);
+    expect(lists(w)).toEqual([path.basename(prior)]);
   });
 });
 
@@ -181,10 +187,10 @@ describe('the rendered emit block', () => {
     for (const [skill, phase] of [['plan-eng-review', 'eng-review'], ['plan-ceo-review', 'ceo-review'], ['plan-design-review', 'design-review'], ['plan-devex-review', 'devex-review']] as const) {
       const out = generateTasksSectionEmit({ skillName: skill } as TemplateContext, [phase]);
       expect(out).toContain(`gstack-tasks prior --phase ${phase}`);
-      expect(out).toContain(`\`\`\`bash\n~/.claude/skills/gstack/bin/gstack-tasks start --phase ${phase}\n\`\`\``);
+      expect(out).toContain(`.gstack/tmp/tasks-${phase}-rows.jsonl`);
       expect(out).toContain(`\`\`\`bash\n~/.claude/skills/gstack/bin/gstack-tasks add --phase ${phase}\n\`\`\``);
       expect(out).toContain('"carried_from":"<run_id>/<id>"');
-      expect(out).not.toContain('jq -nc');
+      expect(out.match(/```bash/g)).toHaveLength(1);
     }
   });
 });
