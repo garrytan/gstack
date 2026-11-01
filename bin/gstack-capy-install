@@ -70,6 +70,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$FOR" ] && [ -n "$REQUIRE" ] && { echo "gstack-capy-install: --for and --require are exclusive" >&2; exit 2; }
 [ -z "$FOR" ] && [ -z "$REQUIRE" ] && REQUIRE="claude,codex,patch"
+[ -z "$PROJECT" ] || { _given=$PROJECT; PROJECT=$(CDPATH= cd -- "$_given" 2>/dev/null && { git rev-parse --show-toplevel 2>/dev/null || pwd -P; }) || { echo "gstack-capy-install: --project takes a directory path; '$_given' is not a directory (pass the project checkout's path, not a repo slug)" >&2; exit 2; }; }
 
 say() { echo "gstack-capy-install: $*"; }
 stop() { # CODE MESSAGE FIX — print and exit 3 before ./setup
@@ -148,7 +149,7 @@ STORE=$(gstack_bun_store "$GSTACK_STATE_ROOT")
 done
 INSTALL_VERSION=$(gstack_bun_install_version) || stop BUN_INSTALL_VERSION_INVALID "GSTACK_BUN_INSTALL_VERSION=$INSTALL_VERSION is not a verified Bun at or above gstack's supported minimum $GSTACK_BUN_TESTED (verified archives: $GSTACK_BUN_VERIFIED)" "unset GSTACK_BUN_INSTALL_VERSION, or set it to one of: $GSTACK_BUN_VERIFIED"
 [ -n "$PROJECT" ] || { PROJECT=$(cd "$ORIG_PWD" && git rev-parse --show-toplevel 2>/dev/null || true); [ "$(cd "${PROJECT:-/nonexistent}" 2>/dev/null && pwd -P)" = "$ROOT_REAL" ] && PROJECT=""; }
-PROJECT_REAL=""; [ -n "$PROJECT" ] && PROJECT_REAL=$(cd "$PROJECT" 2>/dev/null && pwd -P)
+PROJECT_REAL=""; [ -n "$PROJECT" ] && PROJECT_REAL=$(cd "$PROJECT" && pwd -P) && [ "$PROJECT_REAL" = "$ROOT_REAL" ] && PROJECT_REAL=""
 VERDICT=$(gstack_install_verdict_path "$GSTACK_STATE_ROOT" "$ROOT_REAL" "$PROJECT_REAL")
 REC_BUN="" REC_VER="" REC_RULE="" REC_BUN_INSTALL="" REC_FOR=""
 if [ -f "$VERDICT" ]; then

@@ -24,6 +24,8 @@ neither does `./setup --local`.
 
 **What it writes.** Copies in the harness's own skills folder, never edits to
 `openclaw.json`, Hermes's `config.yaml` or any context file you did not name.
+The one exception is the [start hook](#start-hook), which you turn on yourself:
+it adds a plugin and enables it through the harness's own commands.
 A context block is opt-in: `gstack-harness register openclaw|hermes|generic
 --context <file>` writes the marked block into that file only, after printing
 the file and its scope (`profile` inside the harness's own home, else
@@ -66,6 +68,30 @@ characters, the part of a description Hermes's skills index shows.
 | Muse Code, Grok Build | nothing: both read `~/.claude/skills`, so the Claude install (`./setup`) is what they see, with Claude tool names | `./setup` | `gstack-harness status` runs `muse skills list` / `grok inspect` and reports *discovered (Claude-rendered, unverified)* | `gstack-uninstall` |
 | Grok Bot, any chat-only skill library | nothing on disk | `gstack-harness register generic --print`, then paste the router and block into the app | ask it for a gstack skill | delete the pasted text |
 | any other harness | the router in an Agent Skills folder you name, and/or a 600-byte routing block between `<!-- gstack:begin harness-routing -->` markers in a context file you name | `gstack-harness register generic --skills-dir <dir>` and/or `--context <file>`; `gstack-harness manifest generic` prints every skill as JSON | the harness's own skill list | `gstack-harness unregister generic` |
+
+<a id="start-hook"></a>
+### Start hook (OpenClaw and Hermes, opt-in)
+
+Every gstack skill starts with a command in its Preamble (`gstack-skill-start`) that sets up the session: whether it runs unattended, questions, consent, upgrade checks. In OpenClaw and Hermes, agents read gstack's skills but almost never run that command (1 start in 29 chances, HARN-18). The start hook is a small `gstack-start` plugin that puts one note of about 210 characters on every user turn, telling the agent to run that command first, exactly as written, with no pipe.
+
+It is off unless you turn it on, because turning it on changes the harness's own settings:
+
+| | OpenClaw | Hermes |
+|---|---|---|
+| Plugin folder | `${OPENCLAW_STATE_DIR:-~/.openclaw}/extensions/gstack-start` (index.js, openclaw.plugin.json, package.json, note.txt) | `${HERMES_HOME:-~/.hermes}/plugins/gstack-start` (plugin.yaml, __init__.py, note.txt) |
+| Hook | `before_prompt_build`, returning the note as `prependContext` | `pre_llm_call`, returning the note as `context` |
+| Settings it changes, through the harness's own CLI | `openclaw config set plugins.entries.gstack-start.hooks.allowConversationAccess true` and `...enabled true` in `openclaw.json`. OpenClaw runs `before_prompt_build` from a plugin it did not bundle only with that grant, which also lets the plugin's hooks see conversation content (the plugin reads only its own note.txt) | `hermes plugins enable gstack-start` adds it to `plugins.enabled` in `config.yaml` (and creates `config.yaml` when there is none) |
+| Check | `openclaw plugins inspect gstack-start --runtime --json` lists `before_prompt_build` under `typedHooks` | `hermes plugins list` shows `gstack-start` enabled |
+
+**Turn it on.** `gstack-harness register openclaw --start-hook` (or `hermes`), or `gstack-config set harness_start_hook on` followed by `./setup`, or `GSTACK_HARNESS_START_HOOK=1 ./setup --host openclaw`. The first of these that is set decides: the `--start-hook`/`--no-start-hook` flag, then `GSTACK_HARNESS_START_HOOK` (`1`/`on` or `0`/`off`), then `harness_start_hook`, then the choice saved in the registration's ledger. Whatever decides, the choice is saved, so refresh and upgrades keep it. The hook goes only into the harness profile's own plugin folder; a registration with a custom `--skills-dir`, or OpenClaw run with `OPENCLAW_CONFIG_PATH` pointing at another config, gets no hook (`HARNESS_HOOK_UNSUPPORTED` when you ask for one). A hook you already turned on stays on when a later run happens to have `OPENCLAW_CONFIG_PATH` set.
+
+**Check it.** The receipt and `gstack-harness status` show `start hook: active` (configured for new sessions; a running OpenClaw gateway or Hermes gateway picks it up when it reloads or restarts), `written` (files in place but not active, with the reason and the command that fixes it), `disabled` (you turned it off in the harness), `unchecked` (a run that left a hook already on alone, or `status --no-check`; `gstack-harness status` checks it) or `off`. When the run that turns the hook on (or `--start-hook`) leaves it inactive, `gstack-harness register` and `./setup --host` exit 4 after registering the skills (`HARNESS_HOOK_INACTIVE`). Later refreshes and upgrades try once more each time, without failing, until the hook is active or you disable the plugin in the harness.
+
+**Turn it off.** `gstack-harness register openclaw --no-start-hook` (or `hermes`), or `gstack-config set harness_start_hook off` followed by `./setup`. Either turns the plugin off through the harness's CLI and removes its folder. You can also switch it off in the harness (`openclaw config set plugins.entries.gstack-start.enabled false`, `hermes plugins disable gstack-start`); gstack then leaves it off and never turns it back on unless you pass `--start-hook` again. `gstack-harness unregister` and `gstack-uninstall` remove it with the rest (Hermes only disables it when its folder holds an edited file or a kept `.edited-*` copy, so your edit survives), and print the harness command to run when the harness CLI is not on `PATH`.
+
+**What it costs.** The note is about 50 tokens and lands on every user turn, and each copy stays in the session's history, so a long session pays more (mostly cache reads). HARN-18's panel measures the added cost per trial. OpenClaw also logs that it cannot verify where the plugin came from, because gstack writes it instead of installing it from npm or ClawHub.
+
+**One owner.** A `gstack-start` folder this registration did not write stops the hook (`HARNESS_HOOK_OWNED_ELSEWHERE`): turn it off from the gstack install that wrote it, or move it aside.
 
 OpenClaw's ACP route below is unchanged: native registration gives OpenClaw's
 own agent gstack's skills; ACP spawns Claude Code with the full install.
@@ -137,6 +163,14 @@ Antigravity only when `agy` is on `PATH` or `~/.gemini/antigravity-cli` exists,
 never for a Gemini-CLI-only `~/.gemini`. The Antigravity 2.0 app and IDE read
 `~/.gemini/config/skills`, which this host does not install.
 
+Gemini CLI loads gstack skills itself when a task matches (`activate_skill`,
+after you approve); ask for `gstack-office-hours`, or list them with
+`/skills list`. Setup writes only `~/.gemini/skills/gstack*` and never
+`~/.agents/skills`, and `--host auto` selects Gemini CLI only when `gemini` is on
+`PATH`. Inside a repo with a project-local Codex install, Gemini CLI uses the
+Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
+load only in trusted folders (`/trust`).
+
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
@@ -206,6 +240,35 @@ call to an OpenAI-compatible gateway instead of `api.openai.com`; egress
 receipts record the gateway host. On Codex, `/design-shotgun` generates mockups
 with Codex's built-in `$imagegen` skill instead, so it needs no
 `OPENAI_API_KEY`; `$D` still builds and serves the comparison board.
+
+### Gemini when there's no OpenAI key
+
+With no OpenAI key, `$D` uses Google's Gemini instead, so people without an
+OpenAI key (or with an OpenAI organization that hasn't passed ID verification)
+get real mockups instead of wireframes. A Gemini key from
+[Google AI Studio](https://aistudio.google.com/apikey) is free to create:
+`export GEMINI_API_KEY=...` or `$D setup --provider gemini`.
+
+| | OpenAI | Gemini |
+|---|---|---|
+| Picked when | an OpenAI key is set (always wins) | no OpenAI key, or `GSTACK_DESIGN_PROVIDER=gemini` |
+| Key | `~/.gstack/openai.json`, then `OPENAI_API_KEY` | `~/.gstack/gemini.json`, then `GEMINI_API_KEY` |
+| Images | `gpt-5.5` driving `gpt-image-2` | `gemini-nano-banana-2.1` (`GSTACK_DESIGN_IMAGE_MODEL`) |
+| Screenshot reading | `gpt-5.5` | `gemini-3.8-flash` (`GSTACK_DESIGN_MODEL`) |
+| Egress ledger sink | `design-openai` | `design-gemini` |
+
+`GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly; when an OpenAI key
+is also set, `$D setup --provider gemini` saves the key and prints that export
+as its last line, because OpenAI still comes first otherwise. A failure on the
+picked provider is never retried on the other one; an OpenAI
+organization-verification error ends with the line that switches to Gemini.
+On Gemini, model overrides must be `gemini-…` names, `--size` must be
+1536x1024, 1024x1024 or 1024x1536 (sent as an aspect ratio), `--quality` is
+ignored, and `OPENAI_BASE_URL` does not apply. On Google's free tier, Gemini
+API prompts and images may be used to improve Google's products; `$D` says so
+once per run. `bun run design/scripts/live-gemini-check.ts` checks a Gemini
+key against the defaults (free model lookups, then one image and one vision
+call).
 
 ## Adding a host
 

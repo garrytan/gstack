@@ -141,6 +141,7 @@ gstack_result_anchor() {
     BROWSER_UNAVAILABLE) printf '%s' 'browser-ensure-failed' ;;
     INSTALL_PREFLIGHT_FAILED) printf '%s' 'capy-install-preflight-failed' ;;
     SETUP_PS1_EMPTY_ARGUMENT) printf '%s' 'setup-ps1-empty-argument' ;;
+    SETUP_DEPS_MIGRATE_FAILED) printf '%s' 'setup-deps-migrate-failed' ;;
     POLICY_SOURCE_UNAVAILABLE) printf '%s' 'policy-source-unavailable' ;;
     POLICY_INVALID) printf '%s' 'policy-invalid' ;;
     POLICY_CONTAINMENT) printf '%s' 'policy-containment' ;;
@@ -282,7 +283,21 @@ gstack_result_anchor() {
     QUEUE_TRAIN_STAMP_MISMATCH) printf '%s' 'queue-train-stamp-mismatch' ;;
     QUEUE_TRAIN_TREE_MISMATCH) printf '%s' 'queue-train-tree-mismatch' ;;
     QUEUE_TRAIN_STALE) printf '%s' 'queue-train-stale' ;;
+    QUEUE_TRAIN_BASE_RED) printf '%s' 'queue-train-base-red' ;;
+    QUEUE_TRAIN_SPEND_CAP) printf '%s' 'queue-train-spend-cap' ;;
+    QUEUE_TRAIN_LAND_METHOD) printf '%s' 'queue-train-land-method' ;;
+    QUEUE_TRAIN_INIT_REFUSED) printf '%s' 'queue-train-init-refused' ;;
+    QUEUE_TRAIN_DOCTOR_FINDINGS) printf '%s' 'queue-train-doctor-findings' ;;
+    QUEUE_BASE_RED_NO_TRAIN) printf '%s' 'queue-base-red-no-train' ;;
+    SHIP_BASE_RED_FIXER) printf '%s' 'ship-base-red-fixer' ;;
     QUEUE_TRAIN_FROZEN) printf '%s' 'queue-train-frozen' ;;
+    QUEUE_WAVE_CONFLICT) printf '%s' 'queue-wave-conflict' ;;
+    QUEUE_WAVE_MOVED) printf '%s' 'queue-wave-moved' ;;
+    QUEUE_WAVE_DUPLICATE) printf '%s' 'queue-wave-duplicate' ;;
+    QUEUE_WAVE_SIZE) printf '%s' 'queue-wave-size' ;;
+    QUEUE_WAVE_UNKNOWN) printf '%s' 'queue-wave-unknown' ;;
+    QUEUE_WAVE_DEPENDENT) printf '%s' 'queue-wave-dependent' ;;
+    QUEUE_WAVE_NOT_MERGED) printf '%s' 'queue-wave-not-merged' ;;
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
     QUEUE_RECEIPT_CONDITIONAL) printf '%s' 'queue-receipt-conditional' ;;
@@ -346,6 +361,7 @@ gstack_result_anchor() {
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
@@ -354,7 +370,11 @@ gstack_result_anchor() {
     PREREG_INCOMPLETE) printf '%s' 'prereg-incomplete' ;;
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
+    EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
+    TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
+    REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
     *) return 1 ;;
   esac
 }

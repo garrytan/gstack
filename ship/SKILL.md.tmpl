@@ -3,8 +3,8 @@ name: ship
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
-  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
+  Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
+  push and create a PR. Use when asked to "ship", "deploy", "deploy this",
   "push to main", "create a PR", "merge and push", or "get it deployed".
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
   is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
@@ -186,9 +186,9 @@ not web services already deployed.
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `skipped` under stamp-at-merge).
+The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge).
 
-**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before editing or continuing; then commit and rerun the preflight.
+**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before any edit; then commit and rerun the preflight.
 
 **Ship policy:** `POLICY:` is `gstack-ship-policy show-effective --base <base>`
 (docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history. `RUNTIME_LINES:` goes
