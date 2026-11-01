@@ -28,6 +28,16 @@
 #   --since  midnight-aligned ISO date ("2026-03-11T00:00:00") or a relative
 #            expression ("24 hours ago"). Default: "7 days ago".
 #   --until  optional window end (compare mode's prior window).
+#
+#   gstack-retro-metrics --history [--next <YYYY-MM-DD>]
+#
+#   Retro history for this project (#3749): prints RETRO_HISTORY_DIR (the
+#   state root's projects/<slug>/retros, shared by every worktree of the
+#   repository) and one RETRO_PRIOR line per snapshot, newest first. Moves any
+#   legacy .context/retros/*.json from this worktree and the main checkout
+#   into it first: identical copies collapse, a same-name snapshot that
+#   differs takes the next free number for its date. --next also prints
+#   RETRO_FILE, the next unused <date>-<n>.json path.
 
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
@@ -39,6 +49,8 @@ while [ $# -gt 0 ]; do
     --base)  BASE="$2"; shift 2 ;;
     --since) SINCE="$2"; shift 2 ;;
     --until) UNTIL="$2"; shift 2 ;;
+    --history) HISTORY=1; shift ;;
+    --next)  NEXT_DATE="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -50,6 +62,43 @@ _BIN="$_SCRIPT_DIR"
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
 _GH="$_gstack_sr_root"
+
+if [ -n "${HISTORY:-}" ]; then
+  _SLUG=$("$_BIN/gstack-slug" --get SLUG 2>/dev/null || true)
+  if [ -z "$_SLUG" ]; then
+    echo "RETRO_HISTORY_ERROR: could not resolve the project slug (gstack-slug failed). fix: reinstall with ./setup or /gstack-upgrade"
+    exit 0
+  fi
+  _HD="$_GH/projects/$_SLUG/retros"
+  mkdir -p "$_HD" || { echo "RETRO_HISTORY_ERROR: cannot create $_HD"; exit 0; }
+  _TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  _MAIN=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  _MOVED=0
+  for _TREE in "$_TOP" "$_MAIN"; do
+    [ -n "$_TREE" ] && [ -d "$_TREE/.context/retros" ] || continue
+    for _F in "$_TREE"/.context/retros/*.json; do
+      [ -f "$_F" ] || continue
+      _B=$(basename "$_F")
+      _DEST="$_HD/$_B"
+      if [ -e "$_DEST" ] && cmp -s "$_F" "$_DEST"; then
+        rm -f "$_F"; continue
+      fi
+      _N=1
+      while [ -e "$_DEST" ]; do _N=$((_N + 1)); _DEST="$_HD/${_B%-*}-$_N.json"; done
+      mv "$_F" "$_DEST" && _MOVED=$((_MOVED + 1))
+    done
+    rmdir "$_TREE/.context/retros" 2>/dev/null || true
+  done
+  echo "RETRO_HISTORY_DIR: $_HD"
+  [ "$_MOVED" -gt 0 ] && echo "RETRO_HISTORY_MIGRATED: $_MOVED from .context/retros"
+  ls -t "$_HD"/*.json 2>/dev/null | sed 's/^/RETRO_PRIOR: /'
+  if [ -n "${NEXT_DATE:-}" ]; then
+    _N=1
+    while [ -e "$_HD/$NEXT_DATE-$_N.json" ]; do _N=$((_N + 1)); done
+    echo "RETRO_FILE: $_HD/$NEXT_DATE-$_N.json"
+  fi
+  exit 0
+fi
 
 echo "RETRO_METRICS_PROTO: 1"
 
