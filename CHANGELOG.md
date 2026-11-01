@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.23.0] - 2026-11-01
+
+- **OpenClaw and Hermes: opt-in start hook.** `gstack-harness register openclaw|hermes --start-hook` (or `gstack-config set harness_start_hook on`, or `GSTACK_HARNESS_START_HOOK=1`) adds a `gstack-start` plugin that puts a one-line note on every user turn telling the agent to run a gstack skill's start command as written. Agents in these harnesses read gstack's skills but ran that command on 1 of 29 chances. gstack turns the plugin on through each harness's own CLI, checks that it is active, and exits 4 when it is not. It is off by default, the choice is saved across upgrades, a plugin you disable in the harness stays off, and `--no-start-hook`, unregister and uninstall take it out. See docs/hosts.md#start-hook.
+
 ## [1.92.22.0] - 2026-11-01
 
 **gstack installs into Gemini CLI, and installs made before v1.91.231.0 finally drop the test and eval packages they never needed.** `./setup --host gemini` puts every gstack skill in `~/.gemini/skills`, where Gemini CLI 0.66.0 lists them (#1247). Separately, `./setup` used to treat any checkout that had TypeScript installed as a contributor's, so every install made before v1.91.231.0 (which ran a full `bun install`) kept about 510 MB of dev packages in `node_modules` forever (#3447).

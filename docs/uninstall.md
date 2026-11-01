@@ -8,7 +8,7 @@ If gstack is installed on your machine:
 ~/.claude/skills/gstack/bin/gstack-uninstall
 ```
 
-This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
+This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the opt-in [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
 
 ## Option 2: Manual removal (no local repo)
 
@@ -71,6 +71,13 @@ command path points into `.claude/skills/gstack/`: the SessionStart auto-update
 hook, the AskUserQuestion PreToolUse/PostToolUse hooks, and the Stop hooks
 (session timeline, plus verify-gate if you opted in). Left in place, they error
 on every matching event once the install directory is gone.
+
+If you turned on the OpenClaw or Hermes [start hook](hosts.md#start-hook),
+manual removal also leaves its `gstack-start` plugin turned on. Turn it off
+with `openclaw config unset plugins.entries.gstack-start` or `hermes plugins
+disable gstack-start`, then delete
+`${OPENCLAW_STATE_DIR:-~/.openclaw}/extensions/gstack-start` or
+`${HERMES_HOME:-~/.hermes}/plugins/gstack-start`.
 
 ## Clean up CLAUDE.md
 

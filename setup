@@ -519,7 +519,8 @@ $_RF_TARGETS
 EOF
   grep -q '	failed	' "$_RF_SUMMARY" && _RF_FAILED=1
   if [ "$HARNESS_AUTO" -eq 1 ] && [ -d "$GSTACK_STATE_ROOT/harness" ]; then
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || _RF_FAILED=1
+    # Exit 4: every registration refreshed; a start hook this run turned on is not active (printed above).
+    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || [ "$?" -eq 4 ] || _RF_FAILED=1
   fi
   echo ""
   if [ "$_RF_FAILED" -eq 1 ]; then
@@ -2442,11 +2443,16 @@ mkdir -p "$HOME/.gstack/projects"
 # OpenClaw and Hermes: gstack-harness copies this checkout's render for the
 # harness into the harness's own skills folder, records every file in a ledger
 # (bin/gstack-uninstall removes exactly those) and never edits harness config
-# (lib/harness-register.ts). Nothing else in this run applies to them.
+# unless the user opted into the start hook (GSTACK_HARNESS_START_HOOK or
+# gstack-config harness_start_hook; lib/harness-start-hook.ts). Exit 4 from
+# register means the skills are registered and the start hook is not active.
+# Nothing else in this run applies to them.
 _gstack_harness() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" "$@"; }
 if [ -n "$INSTALL_HARNESS" ]; then
   _setup_arm_begin "$INSTALL_HARNESS" global "$INSTALL_HARNESS"
-  if ! _HARNESS_JSON="$(_gstack_harness register "$INSTALL_HARNESS" --json --no-registry)"; then
+  _HARNESS_RC=0
+  _HARNESS_JSON="$(_gstack_harness register "$INSTALL_HARNESS" --json --no-registry)" || _HARNESS_RC=$?
+  if [ "$_HARNESS_RC" -ne 0 ] && [ "$_HARNESS_RC" -ne 4 ]; then
     _SETUP_REFUSED="gstack-harness could not register $INSTALL_HARNESS (reason above); nothing was changed for it"
     exit 1
   fi
@@ -2454,6 +2460,7 @@ if [ -n "$INSTALL_HARNESS" ]; then
   _setup_arm_publish "$INSTALL_HARNESS" global - "$_HARNESS_DEST" "$SOURCE_GSTACK_DIR" - -
   log "$(printf '%s\n' "$_HARNESS_JSON" | sed -n 's/.*"receipt":"\([^"]*\)".*/\1/p')"
   _setup_print_summary
+  [ "$_HARNESS_RC" -eq 4 ] && exit 4
   printf '%s' "$_SETUP_ROWS" | _setup_ready_line
   exit 0
 fi

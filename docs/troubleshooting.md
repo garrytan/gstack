@@ -6019,6 +6019,26 @@ The router's description (at most 300 bytes) and the context block (at most 600 
 
 There is no ledger for that harness or id under `$GSTACK_STATE_ROOT/harness`. `gstack-harness status` lists every registration on this machine with its id.
 
+<a id="harness-hook-unsupported"></a>
+### `gstack-harness: <harness> has no start hook` / `the start hook goes into the <harness> profile <dir>, and this registration uses another skills folder` (HARNESS_HOOK_UNSUPPORTED)
+
+The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` set OpenClaw reads a config outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, such a registration just gets no hook, and its receipt says so.
+
+<a id="harness-hook-choice-invalid"></a>
+### `gstack-harness: GSTACK_HARNESS_START_HOOK="<value>" is not on or off` (HARNESS_HOOK_CHOICE_INVALID)
+
+The start hook switch takes `on` or `off` (`GSTACK_HARNESS_START_HOOK` also takes `1` or `0`). Nothing was registered. Fix the value, or unset it so each registration keeps its saved choice.
+
+<a id="harness-hook-owned-elsewhere"></a>
+### `gstack-harness: a gstack-start plugin already exists at <dir> and this registration did not write it` (HARNESS_HOOK_OWNED_ELSEWHERE)
+
+Each harness profile has one start hook, owned by the gstack registration that wrote it, so that removing one install can never take another install's hook away. This folder is not in this registration's ledger: another gstack checkout or state root wrote it, or someone made it by hand. Nothing was written. Run `gstack-harness register <harness> --no-start-hook` from the gstack install that wrote it (its `gstack-harness status` shows the hook), or move the folder aside, then register again.
+
+<a id="harness-hook-inactive"></a>
+### `gstack-harness: <harness> start hook is written: <why>. Turn it on: <command>` (HARNESS_HOOK_INACTIVE, exit 4)
+
+The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
+
 <a id="harness-qm-credentials"></a>
 ### `gstack-harness: no QM admin credential in the environment` / `... needs --yes` (HARNESS_QM_CREDENTIALS)
 
