@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.11.0] - 2026-11-01
+
+- **Design mockups with Gemini when there's no OpenAI key (#990).** `/design-shotgun`, `/design-review`, `/plan-design-review` and `/design-html` used to fall back to HTML wireframes without an OpenAI key, and since OpenAI began requiring ID verification for every image model, even a new OpenAI key often made nothing. The design binary now uses Google's Gemini (`gemini-nano-banana-2.1` for images, `gemini-3.8-flash` for reading screenshots) when no OpenAI key is set. Get a free key at https://aistudio.google.com/apikey, then `export GEMINI_API_KEY=...` or run `$D setup --provider gemini`. OpenAI stays the default whenever its key exists; `GSTACK_DESIGN_PROVIDER=openai|gemini` picks one explicitly, and a failure on one provider is never retried on the other. Google calls are recorded in the egress ledger as `design-gemini` (hash and byte count only). On Google's free tier, prompts and images may be used to improve Google's products, and `$D` says so once per run. `$D setup` now takes `--provider` and `--key-stdin`, so an agent with no terminal can store a key. Thanks to @nbzy1995 for the proposal and to the people in #990, #998, #946, #881 and #777 for the ideas; no outside code was carried over.
+
 ## [1.92.10.0] - 2026-11-01
 
 **/ship's scoped second pass runs again, and its Red Team reviews the fix range while Step 11's voices still read the whole branch.** After a blocking fix on a small range, `gstack-review-plan` plans a scoped pass: one fix-check, the Red Team and the native adversarial pass on the range. `gstack-review-dispatch pass` refused that plan with `BRIEF_RENDER_FAILED: a pass dispatches no fix-check reader`, because a fix-check is not a pass reader. Every scoped pass failed this way, and GEVA-82 rendered its briefs by hand to get through (GST-619). Even past that refusal, the pass would have staged its Red Team on the merge base, because the Capy pass program never passes `--diff-base`.
