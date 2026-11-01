@@ -200,8 +200,9 @@ Two stages with separate clocks, both printed:
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
-  searched for the old value in files that name the constant or its module
-  (the module's file name not followed by another extension, or a path ending
+  searched for the old value in files that name the constant or, when the old
+  value is longer than one character, its module (the module's file name not
+  followed by another extension, or a path ending
   in its stem followed by its own extension, for a JS/TS module also any JS/TS
   extension or `.d.ts`, a sentence-ending `.`, or anything but a word
   character, `.` or `-`; so a sibling `<stem>.txt`, `<stem>-v2.ts` or
