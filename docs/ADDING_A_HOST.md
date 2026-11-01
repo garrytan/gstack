@@ -508,7 +508,7 @@ Key fields:
 | `frontmatter.mode` | `allowlist` (keep only listed) or `denylist` (strip listed) |
 | `frontmatter.descriptionLimit` | Max chars, `null` for no limit |
 | `frontmatter.descriptionLimitBehavior` | `error` (fail build), `truncate`, `warn` |
-| `frontmatter.conditionalFields` | Add fields based on template values (e.g., sensitive → disable-model-invocation) |
+| `frontmatter.conditionalFields` | Add fields based on template values, in allowlist and denylist mode. Two template flags map to `disable-model-invocation: true`: `sensitive` (broad: /ship, /land-and-deploy, /modernize and the safety skills; Copilot and Factory) and `manual_only` (narrow: /land-and-deploy and /modernize only; Claude Code and Cursor, where "ship it" must still start /ship). A host whose docs honor `disable-model-invocation` picks one |
 | `frontmatter.renameFields` | Rename template fields (e.g., voice-triggers → triggers) |
 | `generation.generateMetadata` | Emit `agents/openai.yaml` beside each skill (Codex only today; the format is hardcoded in `gen-skill-docs.ts`). Its `default_prompt` comes from the template's `codex_default_prompt:` frontmatter key, else `Use <name> for this task.` |
 | `pathRewrites` | Literal replaceAll on content. Order matters. Replaces the derived trio. |

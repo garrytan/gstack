@@ -772,6 +772,59 @@ describe('Copilot host render (#393)', () => {
   });
 });
 
+describe('Manual-only skills on Claude Code and Cursor', () => {
+  const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cursor-'));
+  beforeAll(() => {
+    const r = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'cursor', '--out-dir', OUT], { cwd: ROOT, timeout: 120_000 });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+  });
+  afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
+  const frontmatter = (file: string) => {
+    const md = fs.readFileSync(file, 'utf8');
+    return md.slice(0, md.indexOf('\n---', 4));
+  };
+  const rendered: Record<string, (skill: string) => string> = {
+    claude: (skill) => frontmatter(path.join(ROOT, skill, 'SKILL.md')),
+    cursor: (skill) => frontmatter(path.join(OUT, '.cursor', 'skills', `gstack-${skill}`, 'SKILL.md')),
+  };
+  const shipKeys: Record<string, string[]> = {
+    claude: ['name', 'preamble-tier', 'version', 'description', 'allowed-tools', 'triggers'],
+    cursor: ['name', 'description'],
+  };
+
+  const manualOnly = fs.readdirSync(ROOT).filter(dir => /^manual_only: true$/m.test(fs.existsSync(path.join(ROOT, dir, 'SKILL.md.tmpl')) ? fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf8') : ''));
+
+  test('manual_only marks exactly /land-and-deploy and /modernize, and no router line invokes them', () => {
+    expect(manualOnly.sort()).toEqual(['land-and-deploy', 'modernize']);
+    const routers = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf8') + fs.readFileSync(path.join(ROOT, 'bin', 'gstack-skill-start'), 'utf8');
+    for (const skill of manualOnly) {
+      expect(routers).not.toMatch(new RegExp(`invoke \`?/${skill}\\b`));
+    }
+  });
+
+  for (const [host, read] of Object.entries(rendered)) {
+    test(`${host}: /land-and-deploy and /modernize run only when the user types their name`, () => {
+      for (const skill of manualOnly) {
+        expect(read(skill)).toMatch(/^disable-model-invocation: true$/m);
+        expect(read(skill)).not.toContain('manual_only');
+      }
+    });
+
+    test(`${host}: /ship and the safety skills stay model-invocable`, () => {
+      expect([...read('ship').matchAll(/^([\w-]+):/gm)].map(m => m[1])).toEqual(shipKeys[host]);
+      for (const skill of ['careful', 'freeze', 'guard', 'unfreeze']) {
+        expect(read(skill)).not.toContain('disable-model-invocation');
+      }
+    });
+  }
+
+  test('claude and cursor map manual_only, never sensitive, to disable-model-invocation', () => {
+    for (const host of [claude, cursor]) {
+      expect(host.frontmatter.conditionalFields).toEqual([{ if: { manual_only: true }, add: { 'disable-model-invocation': true } }]);
+    }
+  });
+});
+
 describe('Antigravity CLI host render', () => {
   const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-agy-'));
   beforeAll(() => {
