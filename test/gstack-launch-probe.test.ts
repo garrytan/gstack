@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -79,5 +80,22 @@ describe.skipIf(process.platform === 'win32')('gstack-launch-probe.sh classifica
     expect(r.stdout).toContain('broken=[make-pdf/dist/pdf\texit 2');
     expect(r.stdout).toContain('missing=[bin/gstack-global-discover]');
     expect(r.stdout).not.toContain('design/dist/design');
+  });
+
+  // Value: protects=the probe parses under macOS /bin/bash 3.2, so gstack-doctor can source it (#3601);
+  //   fails_when=a case pattern inside $( ) loses its leading (; why_new=the cases above run PATH bash, 5.x on Linux CI; seam=none
+  test('parses under /bin/bash (bash 3.2 on macOS)', () => {
+    const r = spawnSync('/bin/bash', ['-n', PROBE], { encoding: 'utf8', timeout: 30_000 });
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  });
+
+  // Value: protects=a macOS runner executes this file with its /bin/bash 3.2; fails_when=the file leaves the macos-named-regressions list;
+  //   why_new=no other lane has bash 3.2; seam=none
+  test('the macOS lane runs this file', () => {
+    const workflow = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/free-tests.yml'), 'utf8')) as any;
+    const mac = workflow.jobs['macos-named-regressions'];
+    expect(mac['runs-on']).toMatch(/^macos-/);
+    expect((mac.steps as any[]).map(step => String(step.run ?? '')).join('\n')).toContain('test/gstack-launch-probe.test.ts');
   });
 });
