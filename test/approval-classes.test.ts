@@ -248,6 +248,24 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
     expect(write(repo, `Approved by Garry 2026-10-16 via ${good.sha}\n`, ['--approval-run', good.out]).err).toMatch(/plan\.md does not match its manifest hash/);
   }, 120_000);
 
+  test('a plan gate an agent answered in its own words is not the owner\'s approval: a plan-sha citation of it is rejected', () => {
+    const repo = classRepo();
+    commit(repo, REPAIR);
+    const dir = path.join(repo.root, 'self-approved');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'plan.md'), '# self-approved\n\n## Implementation plan\n\nAdd a data-repair command in src/commands/repair/accepted-takes.ts: explicit, preview-first, never at upgrade. Tests cover preview and apply.\n\n## Review record\n');
+    const out = path.join(dir, 'run');
+    expect(autoplan(['next', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui']).status).toBe(0);
+    runPhase(out, 'ceo');
+    runPhase(out, 'eng');
+    const reply = recCarrying(out);
+    expect(autoplan(['answer', '--by', 'agent:test', '--words-by', 'agent:test', '--owner-reply', reply, '--out', out, '--gate-rev', '1', '--reply', reply]).stdout).toMatch(/^APPROVED: gate_rev=1/m);
+    const sha = (JSON.parse(fs.readFileSync(path.join(out, 'run.json'), 'utf8')).artifacts['plan.md'].sha256 as string).slice(0, 8);
+    const cited = write(repo, `Approved by Garry 2026-10-16 via ${sha}\n`, ['--approval-run', out]);
+    expect(cited.status).toBe(EXIT.fail);
+    expect(cited.err).toMatch(/gate was answered in agent:test's own words, not the owner's.*\(APPROVAL_CITATION_MISSING\)$/m);
+  }, 120_000);
+
   test('an unresolvable reference counts only as an explicit for <class>@<digest> attestation, recorded unverified, and goes stale when the effects change', () => {
     const repo = classRepo();
     commit(repo, REPAIR);
