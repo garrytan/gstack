@@ -47,7 +47,7 @@ describe('preflight merge when the base is already in HEAD (GST-691)', () => {
   // Value: protects=an unfinished merge of another branch still stops at Step 3 with its conflicted files named, though the base is in HEAD;
   //   fails_when=the ancestor shortcut reports up to date over an index with unmerged paths and the run tests conflict markers;
   //   why_new=GST-691 /ship adversarial finding 1; seam=git ls-files -u; no_claim=how the agent resolves it
-  test('an unfinished merge with the base already in HEAD still stops on its conflicts', () => {
+  test('an unfinished merge with the base already in HEAD still stops, conflicted or resolved and staged', () => {
     const { f } = guarded();
     f.git('checkout', '-q', '-b', 'other', 'main'); f.write({ 'src/a.ts': 'export const a = 5;\n' }); f.commit('other edits a');
     f.git('checkout', '-q', 'feat'); f.write({ 'src/a.ts': 'export const a = 6;\n' }); f.commit('feat edits a');
@@ -55,5 +55,9 @@ describe('preflight merge when the base is already in HEAD (GST-691)', () => {
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect([r.status, lineOf(r.stdout, 'MERGE')]).toEqual([3, '']);
     expect(r.stdout).toMatch(/STOP: merge conflicts in src\/a\.ts/);
+    f.write({ 'src/a.ts': 'export const a = 7;\n' }); f.git('add', 'src/a.ts');
+    const staged = f.run(PREFLIGHT, ['--base', 'main']);
+    expect([staged.status, lineOf(staged.stdout, 'MERGE')]).toEqual([3, '']);
+    expect(staged.stdout).toContain('STOP: git merge origin/main failed:');
   });
 });
