@@ -1765,32 +1765,13 @@ _deps_migration_start() {
   return 1
 }
 
-# Bun hardlinks node_modules into its shared cache, so removing node_modules
-# frees nothing until the cache entries go. Remove only the bun.lock-pinned Agent
-# SDK entries no other project links to; prints the MB removed.
-_deps_prune_sdk_cache() {
-  local version cache entry kb freed=0
-  version="$(sed -n 's/^    "@anthropic-ai\/claude-agent-sdk": \["@anthropic-ai\/claude-agent-sdk@\([^"]*\)".*/\1/p' bun.lock 2>/dev/null | head -1)"
-  cache="$(bun_cmd pm cache 2>/dev/null)" || cache=""
-  if [ -n "$version" ] && [ -d "$cache/@anthropic-ai" ]; then
-    for entry in "$cache"/@anthropic-ai/claude-agent-sdk*@"$version"@@@*; do
-      [ -d "$entry" ] || continue
-      [ -n "$(find "$entry" -type f -links +1 -print -quit 2>/dev/null)" ] && continue
-      kb="$(du -sk "$entry" 2>/dev/null | cut -f1)"
-      rm -rf "$entry" && freed=$((freed + ${kb:-0}))
-    done
-  fi
-  echo $((freed / 1024))
-}
-
 _deps_migration_finish() {
-  local rc="$1" out="$2" after freed
+  local rc="$1" out="$2" after
   if [ "$rc" -eq 0 ]; then
     rm -rf node_modules.gstack-migrate
     after="$(du -sk node_modules 2>/dev/null | cut -f1)"
-    freed="$(_deps_prune_sdk_cache)"
     _deps_unlock
-    echo "gstack: moved this install to production dependencies: node_modules $(( ${_DEPS_BEFORE_KB:-0} / 1024 )) MB -> $(( ${after:-0} / 1024 )) MB, and removed ${freed} MB of Agent SDK cache no other project uses. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
+    echo "gstack: moved this install to production dependencies: node_modules $(( ${_DEPS_BEFORE_KB:-0} / 1024 )) MB -> $(( ${after:-0} / 1024 )) MB. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
     return 0
   fi
   rm -rf node_modules

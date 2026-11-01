@@ -43,7 +43,7 @@ function sliceFunction(source: string, name: string): string {
 /** install_runtime_deps and the helpers it calls, sliced out of setup in definition order. */
 function depsFunctions(setup: string): string {
   const names = ['bun_cmd', '_deps_role', '_deps_has_dev', '_deps_verified', '_deps_lock', '_deps_unlock', '_deps_recover',
-    '_deps_migration_start', '_deps_prune_sdk_cache', '_deps_migration_finish', 'install_runtime_deps'];
+    '_deps_migration_start', '_deps_migration_finish', 'install_runtime_deps'];
   return names.map((n) => (n === '_deps_unlock' ? setup.split('\n').find((l) => l.startsWith('_deps_unlock() {'))! + '\n' : sliceFunction(setup, n))).join('\n');
 }
 
@@ -427,23 +427,25 @@ exit 0
     expect(leftovers(stale)).toEqual([]);
   });
 
-  // Value: protects=the migration frees the Agent SDK's disk (Bun hardlinks node_modules into its cache) without
-  //   taking cache entries another project still uses;
-  //   fails_when=it removes a cache entry with another link, or leaves the unused ones;
-  //   why_new=no row touched the shared cache; seam=none; no_claim=Bun's own cache layout beyond <name>@<version>@@@<n>
-  test('only Agent SDK cache entries no other project links to are removed', () => {
+  // Value: protects=another project's install that reads the Agent SDK out of Bun's shared cache (Bun's symlink
+  //   backend links each file there with no extra hardlink) keeps working after a gstack migration;
+  //   fails_when=the migration deletes Bun cache entries; why_new=a review reproduced a symlink-backend consumer
+  //   losing its package.json when cache entries with no extra hardlinks were deleted; seam=none; no_claim=Bun's cache layout
+  test('the migration never touches Bun\'s shared cache', () => {
     const base = oldInstall();
     const cache = path.join(base, '.cache');
-    const unused = path.join(cache, '@anthropic-ai', 'claude-agent-sdk-linux-x64@0.2.141@@@1');
-    const shared = path.join(cache, '@anthropic-ai', 'claude-agent-sdk@0.2.141@@@1');
-    const otherVersion = path.join(cache, '@anthropic-ai', 'claude-agent-sdk-linux-x64@0.1.0@@@1');
-    for (const dir of [unused, shared, otherVersion]) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'cli.js'), 'x'.repeat(4096)); }
-    const elsewhere = path.join(base, '.other-project');
-    fs.mkdirSync(elsewhere);
-    fs.linkSync(path.join(shared, 'cli.js'), path.join(elsewhere, 'cli.js'));
-    const r = run(base, migrateBun(base).bun, { CACHE_DIR: cache });
+    const entry = path.join(cache, '@anthropic-ai', 'claude-agent-sdk-linux-x64@0.2.141@@@1');
+    fs.mkdirSync(entry, { recursive: true });
+    fs.writeFileSync(path.join(entry, 'cli.js'), 'x');
+    const consumer = path.join(base, '.symlink-project', 'node_modules', 'sdk');
+    fs.mkdirSync(consumer, { recursive: true });
+    fs.symlinkSync(path.join(entry, 'cli.js'), path.join(consumer, 'cli.js'));
+    const { bun, calls } = migrateBun(base);
+    const r = run(base, bun, { CACHE_DIR: cache });
     expect(r.status, r.stderr).toBe(0);
-    expect([fs.existsSync(unused), fs.existsSync(shared), fs.existsSync(otherVersion)]).toEqual([false, true, true]);
+    expect(has(base, 'typescript')).toBe(false);
+    expect(calls()).toEqual(['install --production --frozen-lockfile']);
+    expect(fs.readFileSync(path.join(consumer, 'cli.js'), 'utf-8')).toBe('x');
   });
 
   test('a checkout outside git with the dev toolchain is a user install', () => {
