@@ -61,8 +61,8 @@ const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /**
  * A label a negation word governs ("found nothing CRITICAL", "no new **High** or Critical issues", "No P0/P1 issues") is no finding
- * (GST-766), unless it opens a field ("High:"). A prose finding phrased around a negated label still reaches merged.jsonl through
- * its required Severity or Blocks field.
+ * (GST-766), unless it opens a field ("High:"). Such a line still closes the open finding and heads the next, so a prose finding
+ * phrased around a negated label reaches merged.jsonl through its required Severity or Blocks field.
  */
 const NEGATED = /(?<![A-Za-z0-9-])(?:no|nothing|not|none|(?<!\bby\s)zero|without|never)\s+(?:(?:new|remaining|other|further|additional|more|at)\s+)?$/i;
 const NEGATION_LIST = /^\s*(?:,|\/|or|nor|and|,\s*(?:or|nor|and))\s*$/i;
@@ -151,6 +151,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
         if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
       } catch { /* prose that starts with a brace */ }
     }
+    if (!label && !blocks && !(section && listItem) && ANY_LABEL.test(t)) { current = null; if (!indented) head = t; continue; }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
