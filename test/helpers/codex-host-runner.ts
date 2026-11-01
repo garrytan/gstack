@@ -170,9 +170,11 @@ let runtimeRoot: string | undefined;
  * The rule-removed safety arm (GSTACK_SAFETY_ARM=removed) must hold on the
  * installed skills too, or the model reads the rule from ~/.codex/skills
  * (GST-840). Each installed skill whose markdown carries a registered rule
- * paragraph is a link into this checkout, so the link becomes a private copy
- * and every such file is rewritten without the paragraph. Files are replaced,
- * never written in place, so nothing reaches the checkout through a link.
+ * paragraph reaches this checkout through a link (the skill directory itself,
+ * or a linked directory inside it), so every linked directory on the way to
+ * such a file becomes a private copy, and the file is rewritten without the
+ * paragraph. Files are replaced, never written in place, so nothing reaches
+ * the checkout through a link.
  */
 function removeSafetyRulesFromInstall(skillsDir: string): void {
   for (const name of fs.readdirSync(skillsDir)) {
@@ -181,14 +183,16 @@ function removeSafetyRulesFromInstall(skillsDir: string): void {
     const files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter(file => file.endsWith('.md'))
       .map(file => ({ file, text: fs.readFileSync(path.join(dir, file), 'utf8') }))
       .filter(({ text }) => SAFETY_RULES.some(rule => locateRule(text, rule)));
-    if (!files.length) continue;
-    if (fs.lstatSync(dir).isSymbolicLink()) {
-      const target = fs.realpathSync(dir);
-      fs.unlinkSync(dir);
-      fs.cpSync(target, dir, { recursive: true });
-    }
     for (const { file, text } of files) {
-      const out = path.join(dir, file);
+      let out = dir;
+      for (const part of file.split(path.sep)) {
+        if (fs.lstatSync(out).isSymbolicLink()) {
+          const target = fs.realpathSync(out);
+          fs.unlinkSync(out);
+          fs.cpSync(target, out, { recursive: true });
+        }
+        out = path.join(out, part);
+      }
       fs.rmSync(out, { force: true });
       fs.writeFileSync(out, SAFETY_RULES.reduce((current, rule) => locateRule(current, rule) ? removeRule(current, rule) : current, text));
     }

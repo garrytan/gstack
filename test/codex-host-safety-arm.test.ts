@@ -60,6 +60,22 @@ describe('Codex host runtime under GSTACK_SAFETY_ARM', () => {
     expect(fs.readFileSync(path.join(checkout, 'SKILL.md'), 'utf8')).toBe(skill);
   });
 
+  // Value: protects=the checkout behind a linked directory inside a real installed skill directory (the ~/.codex/skills/gstack layout);
+  //   fails_when=the strip deletes or rewrites a rule-bearing file through a linked subdirectory instead of copying that directory first;
+  //   why_new=/ship review of GST-840 found readdirSync({ recursive: true }) follows linked subdirectories; seam=prepareCodexHostRuntime;
+  //   no_claim=see the removed case
+  test('removed: a rule file under a linked subdirectory is copied, never written through', () => {
+    const { root, checkout, skill } = presetRoot();
+    const sidecar = path.join(root, 'home', '.codex', 'skills', 'gstack');
+    fs.mkdirSync(sidecar);
+    fs.symlinkSync(checkout, path.join(sidecar, 'linked'));
+    prepare(root, 'removed');
+    expect(fs.lstatSync(sidecar).isSymbolicLink()).toBe(false);
+    expect(fs.lstatSync(path.join(sidecar, 'linked')).isSymbolicLink()).toBe(false);
+    expect(locateRule(fs.readFileSync(path.join(sidecar, 'linked', 'SKILL.md'), 'utf8'), RULE)).toBeNull();
+    expect(fs.readFileSync(path.join(checkout, 'SKILL.md'), 'utf8')).toBe(skill);
+  });
+
   // Value: protects=the shipped-rule arm still runs the install exactly as ./setup left it;
   //   fails_when=the strip also runs for GSTACK_SAFETY_ARM=rule; why_new=negative control for the removed case; seam=prepareCodexHostRuntime;
   //   no_claim=see the removed case
