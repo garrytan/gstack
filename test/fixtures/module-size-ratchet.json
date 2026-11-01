@@ -178,7 +178,9 @@
     { "file": "scripts/gate-cost-replay.ts", "movedFrom": "(new: CLI behind lib/gate-cost.ts: cached report artifacts, merged-PR replay and the train model table, GSTA-49 T0)" },
     { "file": "lib/gate-cost-history.ts", "movedFrom": "(new: red attribution, red-head screen replay, READY times and the READY-arrival train replay, GSTA-49 T0b)" },
     { "file": "lib/pr-wait.ts", "movedFrom": "(new: gstack-pr-wait event logic, GSTA-115 item 1; design ported from tstack pr-wait)" },
-    { "file": "lib/pr-wait-github.ts", "movedFrom": "(new: gstack-pr-wait gh reads, GSTA-115 item 1; design ported from tstack pr-wait)" }
+    { "file": "lib/pr-wait-github.ts", "movedFrom": "(new: gstack-pr-wait gh reads, GSTA-115 item 1; design ported from tstack pr-wait)" },
+    { "file": "lib/repo-state-clean.ts", "movedFrom": "(new: per-repo .gstack cleanup behind bin/gstack-clean, #2627)" },
+    { "file": "lib/result-codes-clean.ts", "movedFrom": "lib/result-codes.ts (the gstack-clean rows, #2627)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },
