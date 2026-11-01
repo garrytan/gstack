@@ -149,7 +149,7 @@ describe('start hook: who decides', () => {
     expect(fs.existsSync(path.join(s.d, 'custom'))).toBe(false);
   });
 
-  test('a plugin folder gstack did not write, or a symlink on the way to it, stops the hook untouched', () => {
+  test('a plugin folder gstack did not write, or a symlink on the way to it, stops an explicit --start-hook with nothing written, and turns an env or config opt-in into hook off', () => {
     const r = rig('openclaw');
     fs.mkdirSync(r.root, { recursive: true });
     fs.writeFileSync(path.join(r.root, 'index.js'), 'mine');
@@ -159,6 +159,11 @@ describe('start hook: who decides', () => {
     fs.mkdirSync(path.join(s.d, 'elsewhere'));
     fs.symlinkSync(path.join(s.d, 'elsewhere'), path.join(s.profile, 'plugins'));
     expect(() => register(s.o({ startHook: true }))).toThrow(expect.objectContaining({ code: 'HARNESS_UNSAFE_DESTINATION' }));
+    expect(fs.readdirSync(path.join(s.d, 'elsewhere'))).toEqual([]);
+    const viaEnv = register({ ...s.o(), env: { ...s.env, GSTACK_HARNESS_START_HOOK: '1' } });
+    expect(viaEnv.hook?.state).toBe('off');
+    expect(viaEnv.hook?.detail).toContain('is a symlink (env asked for the hook');
+    expect(fs.existsSync(path.join(s.profile, 'skills', 'gstack'))).toBe(true);
     expect(fs.readdirSync(path.join(s.d, 'elsewhere'))).toEqual([]);
     expect(r.calls().concat(s.calls())).toEqual([]);
   });

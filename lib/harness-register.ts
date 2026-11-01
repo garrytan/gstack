@@ -547,7 +547,12 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
     return { ...plan, on: false, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' };
   }
-  assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
+  try {
+    assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
+  } catch (e) {
+    if (plan.explicit || prevOn || !(e instanceof HarnessError)) throw e;
+    return { ...plan, on: false, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook; ' + HARNESS_CODES[e.code].fix + ')' };
+  }
   return { ...plan, files: hookFiles(t.name, root) };
 }
 

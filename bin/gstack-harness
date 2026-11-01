@@ -134,7 +134,7 @@ async function main(): Promise<number> {
     }
     case 'refresh': {
       let code = 0;
-      for (const r of refresh(base)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried) receipt(r); code ||= hookFailed(r); }
+      for (const r of refresh(base)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried || r.hook?.detail) receipt(r); code ||= hookFailed(r); }
       return code;
     }
     case 'auto': {
@@ -145,7 +145,7 @@ async function main(): Promise<number> {
         try { const r = register({ ...base, target: TARGETS[n], registry: true }); done.add(r.id); receipt(r); hookFailed(r); }
         catch (e) { if (e instanceof HarnessError) { console.error(e.report()); failed = 1; } else throw e; }
       }
-      try { for (const r of refresh(base, done)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried) receipt(r); hookFailed(r); } }
+      try { for (const r of refresh(base, done)) { if (r.status !== 'unchanged' || r.hook?.required || r.hook?.retried || r.hook?.detail) receipt(r); hookFailed(r); } }
       catch (e) { if (e instanceof HarnessError) { console.error(e.report()); failed = 1; } else throw e; }
       for (const n of d.present.filter(n => !d.inside.includes(n) && TARGETS[n].mechanism === 'skill-folder' && !listLedgers(stateRoot).some(l => l.ledger.meta.target === n))) {
         console.log('gstack-harness: ' + TARGETS[n].displayName + ' is installed here; to give it gstack skills: ' + self + ' register ' + n);
