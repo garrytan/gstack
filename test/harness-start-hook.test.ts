@@ -169,6 +169,17 @@ describe('start hook: who decides', () => {
     expect(r.calls().concat(s.calls())).toEqual([]);
   });
 
+  test('a file, an empty folder or a folder with any non-kept file at the plugin path is still owned elsewhere', () => {
+    for (const make of [(root: string) => fs.writeFileSync(root, 'x'), (root: string) => fs.mkdirSync(path.join(root, 'sub'), { recursive: true }),
+      (root: string) => { fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'note.txt.edited-2026-11-01T06-31-18-911Z'), 'kept'); fs.writeFileSync(path.join(root, 'plugin.yaml'), 'mine'); }]) {
+      const r = rig('hermes');
+      fs.mkdirSync(path.dirname(r.root), { recursive: true });
+      make(r.root);
+      expect(() => register(r.o({ startHook: true }))).toThrow(expect.objectContaining({ code: 'HARNESS_HOOK_OWNED_ELSEWHERE' }));
+      expect(register({ ...r.o(), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } }).hook?.state).toBe('off');
+    }
+  }, 300_000);
+
   test('a profile path with a trailing slash under a symlinked parent still takes the hook and is saved without the slash', () => {
     const r = rig('hermes');
     const link = path.join(tmp(), 'ln');

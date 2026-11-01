@@ -158,8 +158,12 @@ export function inspectHook(t: HookTarget, profile: string, env: Env, home: stri
 }
 
 /** True when a plugin folder holds nothing but the .edited-<stamp> copies gstack kept when it turned the hook off. */
-const onlyKeptEdits = (root: string) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
-  .every(e => e.isDirectory() || (e.isFile() && /\.edited-[0-9T-]+Z$/.test(e.name)));
+function onlyKeptEdits(root: string): boolean {
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(root, { recursive: true, withFileTypes: true }); } catch { return false; }
+  const files = entries.filter(e => !e.isDirectory());
+  return files.length > 0 && files.every(e => e.isFile() && /\.edited-[0-9T-]+Z$/.test(e.name));
+}
 
 /** Checks the plugin folder before anything is written: under the profile, no symlink from the profile down, and not someone else's. */
 export function assertHookRoot(t: HookTarget, profile: string, root: string, recordedRoot: string | undefined, fail: (code: 'HARNESS_UNSAFE_DESTINATION' | 'HARNESS_HOOK_OWNED_ELSEWHERE', msg: string) => never): void {
