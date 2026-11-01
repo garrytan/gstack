@@ -492,9 +492,12 @@ function transformFrontmatter(content: string, host: Host): string {
   const hostConfig = getHostConfig(host);
   const fm = hostConfig.frontmatter;
   const templateFrontmatter = content.startsWith('---\n') ? content.slice(4, content.indexOf('\n---', 4)) : '';
+  const escape = (s: unknown) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const conditionalLines = (fm.conditionalFields || [])
-    .filter(rule => Object.entries(rule.if).every(([k, v]) => new RegExp(`^${k}:\\s*${v}`, 'm').test(templateFrontmatter)))
-    .flatMap(rule => Object.entries(rule.add).map(([key, value]) => `${key}: ${value}\n`))
+    .filter(rule => Object.entries(rule.if).every(([k, v]) => new RegExp(`^${escape(k)}:[ \\t]*${escape(v)}[ \\t]*$`, 'm').test(templateFrontmatter)))
+    .flatMap(rule => Object.entries(rule.add))
+    .filter(([key]) => !new RegExp(`^${escape(key)}:`, 'm').test(templateFrontmatter))
+    .map(([key, value]) => `${key}: ${value}\n`)
     .join('');
 
   if (fm.mode === 'denylist') {
@@ -506,7 +509,7 @@ function transformFrontmatter(content: string, host: Host): string {
         content = content.replace(new RegExp(`^${field}:\\s*.*\\n`, 'm'), '');
       }
     }
-    return conditionalLines ? content.replace('\n---\n', `\n${conditionalLines}---\n`) : content;
+    return conditionalLines ? content.replace('\n---\n', () => `\n${conditionalLines}---\n`) : content;
   }
 
   // Allowlist mode: reconstruct frontmatter with only allowed fields
