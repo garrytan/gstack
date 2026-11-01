@@ -154,6 +154,8 @@ Review each entry before committing the file on the base branch.
 
 `{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
 
+The globs are the union of the working tree's list and the merge base's list (GST-233), so a branch can add entries but never drop one main already has. A test only the merge base's list names prints as `<test> (always_run, merge base .gstack/always-run.json)`. `scripts/test-impact.ts` takes the same union with its `--base` ref and never reuses a result for those tests ([test-impact.md](test-impact.md)).
+
 The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
 
 ## `gstack-pregate`

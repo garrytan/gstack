@@ -23,24 +23,35 @@ import type { Lane } from './workflows';
 /** Whole-tree tests every selection that runs a test must include (GST-98). Kept out of pregate.json so older readers, which reject unknown keys, keep working. */
 export const ALWAYS_RUN_PATH = '.gstack/always-run.json';
 
-/** The tracked test files the `tests` globs in `.gstack/always-run.json` name, and the globs that name none. No file: none. */
-export function alwaysRunTests(repoRoot: string, testFiles: Iterable<string>): { tests: string[]; unmatched: string[] } {
-  const file = path.join(repoRoot, ALWAYS_RUN_PATH);
-  if (!fs.existsSync(file)) return { tests: [], unmatched: [] };
+/** The `tests` globs of one `.gstack/always-run.json` text; `label` names the copy in errors. */
+export function parseAlwaysRun(text: string, label: string = ALWAYS_RUN_PATH): string[] {
   let parsed: unknown;
-  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch (error) { throw new Error(`${ALWAYS_RUN_PATH}: not valid JSON (${(error as Error).message})`); }
+  try { parsed = JSON.parse(text); }
+  catch (error) { throw new Error(`${label}: not valid JSON (${(error as Error).message})`); }
   const globs = (parsed as { tests?: unknown } | null)?.tests;
-  if (!Array.isArray(globs) || globs.some(g => typeof g !== 'string' || !g)) throw new Error(`${ALWAYS_RUN_PATH}: "tests" must be a list of non-empty glob strings`);
+  if (!Array.isArray(globs) || globs.some(g => typeof g !== 'string' || !g)) throw new Error(`${label}: "tests" must be a list of non-empty glob strings`);
+  return globs as string[];
+}
+
+/**
+ * The tracked test files the `tests` globs in `.gstack/always-run.json` name, and the globs that name none. The globs are
+ * the union of the working tree's list and `baseText`, the base branch's copy (GST-233): a branch can add entries but never
+ * drop one main has. `baseOnly` lists the tests only the base list names. No file on either side: none.
+ */
+export function alwaysRunTests(repoRoot: string, testFiles: Iterable<string>, baseText: string | null = null): { tests: string[]; unmatched: string[]; baseOnly: string[] } {
+  const file = path.join(repoRoot, ALWAYS_RUN_PATH);
+  const own = fs.existsSync(file) ? parseAlwaysRun(fs.readFileSync(file, 'utf8')) : [];
+  const base = baseText === null ? [] : parseAlwaysRun(baseText, `${ALWAYS_RUN_PATH} on the base branch`);
   const all = [...testFiles];
   const tests = new Set<string>();
+  const ownTests = new Set<string>();
   const unmatched: string[] = [];
-  for (const glob of globs as string[]) {
+  for (const glob of [...new Set([...own, ...base])]) {
     const hits = all.filter(t => matchesAny([glob], t));
     if (!hits.length) unmatched.push(glob);
-    for (const t of hits) tests.add(t);
+    for (const t of hits) { tests.add(t); if (own.includes(glob)) ownTests.add(t); }
   }
-  return { tests: [...tests].sort(), unmatched };
+  return { tests: [...tests].sort(), unmatched, baseOnly: [...tests].filter(t => !ownTests.has(t)).sort() };
 }
 
 /** A path the branch removed (deleted, or a rename's old name) that owes no lane, with why (`note`) and the files that lost their last test. */
@@ -270,8 +281,8 @@ export function selectLanes(ctx: PregateContext): Selection {
     noLane.push(file);
   }
   if (tests.size || noLane.length || seeds.has(ALWAYS_RUN_PATH)) {
-    const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)));
-    for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${ALWAYS_RUN_PATH})`); }
+    const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)), readAtMergeBase(ctx, ALWAYS_RUN_PATH, ['100644', '100755']));
+    for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${always.baseOnly.includes(t) ? 'merge base ' : ''}${ALWAYS_RUN_PATH})`); }
     for (const glob of always.unmatched) provenance.push(`${ALWAYS_RUN_PATH}: ${glob} matches no test file`);
   }
   const laneSets: Record<string, string[] | '?'> = {};

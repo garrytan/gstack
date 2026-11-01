@@ -1,0 +1,219 @@
+/**
+ * test-impact/key — the cache key and eligibility of one free test file at a tree (GST-167 PR 2, plan d5).
+ *
+ * A key is a sha256 over every input that can change what the test does, read
+ * at the given tree through git (never the working tree):
+ *   - traced: each path the test's strace read set names (lib/test-impact/trace.ts),
+ *     as the sha256 of its bytes from `git cat-file --batch`, `dir`, or `absent`;
+ *   - listed: the sorted entry names of every repo directory the trace listed;
+ *   - graph: the forward import-graph closure of the test (lib/pregate/import-graph.ts),
+ *     capped at MAX_HOPS hops; a closure that reaches the cap is ineligible, never truncated;
+ *   - global: bun.lock, every tsconfig*.json and the pregate `dependencies`;
+ *   - code: KEY_CODE_FILES, the runner, planner, shard engine, graph and key code;
+ *   - runtime and env: the runtime manifest and ENV_ALLOWLIST values.
+ * A test is ineligible (always executed) when it is always_run in the base or the tree list,
+ * has no trace or one older than TRACE_MAX_AGE_MS, its traced run failed or touched the
+ * network, the real HOME, shared /tmp or .git, or its graph walk hit the cap. A tree that
+ * changes any KEY_CODE_FILES file against the base makes every test ineligible.
+ * scripts/test-impact.ts loads this module from the base ref, so a branch cannot change the
+ * rules that decide what it skips.
+ */
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { matchesAny } from '../ship-policy';
+import { PREGATE_CONFIG_PATH } from '../pregate/config';
+import { buildGraph, type Graph } from '../pregate/import-graph';
+import { ALWAYS_RUN_PATH, parseAlwaysRun } from '../pregate/lane-selection';
+import { readTrace } from './trace';
+
+export const MAX_HOPS = 12;
+export const TRACE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Tracer, key, CLI, runner/planner, shard engine and the graph and always-run code the key reads. PR 4 adds its verifier here. */
+export const KEY_CODE_FILES = [
+  'lib/test-impact/trace.ts', 'lib/test-impact/key.ts', 'scripts/test-impact.ts',
+  'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts',
+];
+/** Environment variables whose values a free test may branch on; anything else a test reads is outside the key. */
+export const ENV_ALLOWLIST = ['CI', 'GITHUB_ACTIONS', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'EVALS', 'EVALS_TIER'];
+const TSCONFIG = /(?:^|\/)tsconfig[^/]*\.json$/;
+
+export interface TreeEntry { mode: string; type: string; oid: string }
+export interface TreeIndex { treeish: string; entries: Map<string, TreeEntry>; children: Map<string, string[]> }
+export type InputKind = 'traced' | 'listed' | 'graph' | 'global' | 'code' | 'runtime' | 'env';
+export interface KeyInput { kind: InputKind; path: string; digest: string }
+export interface KeyResult { test: string; eligible: boolean; reasons: string[]; key: string | null; inputs: KeyInput[]; tracedAt: string | null }
+export interface KeyReport { tree: string; base: string | null; keyCodeEdited: string[]; alwaysRunGlobs: { base: string[]; tree: string[] }; results: KeyResult[] }
+export interface KeyOptions {
+  repoRoot: string; tree: string; base?: string | null; tests: string[]; traceDir: string;
+  now?: number; runtime?: Record<string, string>; env?: Record<string, string | undefined>;
+}
+
+function git(repoRoot: string, args: string[], input?: Buffer | string): Buffer {
+  const r = spawnSync('git', args, { cwd: repoRoot, input, timeout: 300_000, maxBuffer: 1024 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.error?.message ?? r.stderr?.toString().trim() ?? r.status}`);
+  return r.stdout;
+}
+
+/** Every path at a tree-ish with its mode, type and object id, and each directory's sorted entry names (`.` is the root). */
+export function readTreeIndex(repoRoot: string, treeish: string): TreeIndex {
+  const entries = new Map<string, TreeEntry>();
+  const children = new Map<string, string[]>();
+  for (const rec of git(repoRoot, ['ls-tree', '-r', '-t', '-z', '--full-tree', treeish]).toString('utf8').split('\0')) {
+    const tab = rec.indexOf('\t');
+    if (tab < 0) continue;
+    const [mode, type, oid] = rec.slice(0, tab).split(' ');
+    const rel = rec.slice(tab + 1);
+    entries.set(rel, { mode: mode!, type: type!, oid: oid! });
+    const parent = path.posix.dirname(rel);
+    children.set(parent, [...(children.get(parent) ?? []), path.posix.basename(rel)]);
+  }
+  for (const list of children.values()) list.sort();
+  return { treeish, entries, children };
+}
+
+/** sha256 of each blob's bytes, read in one `git cat-file --batch`. */
+export function blobDigests(repoRoot: string, oids: Iterable<string>): Map<string, string> {
+  const want = [...new Set(oids)];
+  const out = new Map<string, string>();
+  if (!want.length) return out;
+  const buf = git(repoRoot, ['cat-file', '--batch'], want.join('\n') + '\n');
+  for (let at = 0; at < buf.length;) {
+    const nl = buf.indexOf(10, at);
+    const [oid, type, size] = buf.subarray(at, nl).toString('utf8').split(' ');
+    if (type === 'missing' || size === undefined) throw new Error(`git cat-file: ${oid} missing`);
+    const start = nl + 1;
+    out.set(oid!, createHash('sha256').update(buf.subarray(start, start + Number(size))).digest('hex'));
+    at = start + Number(size) + 1;
+  }
+  return out;
+}
+
+/** A file's text at a tree-ish, or null when the tree has no such blob. */
+export function catText(repoRoot: string, treeish: string, rel: string): string | null {
+  const r = spawnSync('git', ['cat-file', 'blob', `${treeish}:${rel}`], { cwd: repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : null;
+}
+
+/** A tree-ish exported to a fresh temp directory with every file staged, so the import graph (git ls-files) sees exactly that tree. */
+export function materializeTree(repoRoot: string, treeish: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-tree-'));
+  const tar = `${dir}.tar`;
+  try {
+    git(repoRoot, ['archive', '--format=tar', '-o', tar, treeish]);
+    const x = spawnSync('tar', ['-xf', tar, '-C', dir], { timeout: 300_000 });
+    if (x.status !== 0) throw new Error(`tar -xf failed: ${x.stderr?.toString().trim()}`);
+    git(dir, ['init', '-q']);
+    git(dir, ['add', '-A', '-f']);
+    return dir;
+  } catch (error) { fs.rmSync(dir, { recursive: true, force: true }); throw error; }
+  finally { fs.rmSync(tar, { force: true }); }
+}
+
+/** The runtime manifest a key binds: platform, architecture and Bun version. */
+export function runtimeManifest(): Record<string, string> {
+  return { platform: process.platform, arch: process.arch, bun: typeof Bun === 'undefined' ? 'none' : Bun.version };
+}
+
+/**
+ * Files the test reaches through forward graph edges (imports, literals, convention, declarations; `dir/**` expands to the
+ * directory's files), at most `maxHops` edges away. `capped` holds the chain to the first file past the cap; a capped closure
+ * is incomplete, so its test is ineligible.
+ */
+export function forwardClosure(graph: Graph, test: string, maxHops = MAX_HOPS): { files: string[]; capped: string[] | null } {
+  const forward = new Map<string, string[]>();
+  for (const [dep, edges] of graph.reverse) {
+    const targets = dep.endsWith('/**') ? [...graph.files].filter(f => f.startsWith(dep.slice(0, -2))) : [dep];
+    for (const e of edges) forward.set(e.from, [...(forward.get(e.from) ?? []), ...targets]);
+  }
+  const parent = new Map<string, string | null>([[test, null]]);
+  let frontier = [test];
+  for (let hop = 0; frontier.length; hop++) {
+    const next: string[] = [];
+    for (const node of frontier) for (const t of forward.get(node) ?? []) {
+      if (parent.has(t)) continue;
+      if (hop === maxHops) {
+        const chain = [t];
+        for (let n: string | null = node; n !== null; n = parent.get(n) ?? null) chain.unshift(n);
+        return { files: [...parent.keys()].sort(), capped: chain };
+      }
+      parent.set(t, node);
+      next.push(t);
+    }
+    frontier = next;
+  }
+  return { files: [...parent.keys()].sort(), capped: null };
+}
+
+const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+
+/** Keys and eligibility for each test at `tree`, with `base` as the trusted reference for always_run and key code. */
+export function computeKeys(opts: KeyOptions): KeyReport {
+  const { repoRoot, tree, tests } = opts;
+  const base = opts.base ?? null;
+  const now = opts.now ?? Date.now();
+  const treeIdx = readTreeIndex(repoRoot, tree);
+  const baseIdx = base === null ? null : readTreeIndex(repoRoot, base);
+  const keyCodeEdited = baseIdx ? KEY_CODE_FILES.filter(f => treeIdx.entries.get(f)?.oid !== baseIdx.entries.get(f)?.oid) : [];
+  const listText = (ref: string | null, label: string) => { const t = ref === null ? null : catText(repoRoot, ref, ALWAYS_RUN_PATH); return t === null ? [] : parseAlwaysRun(t, `${ALWAYS_RUN_PATH} at ${label}`); };
+  const alwaysRunGlobs = { base: listText(base, base ?? ''), tree: listText(tree, tree) };
+  const alwaysGlobs = [...new Set([...alwaysRunGlobs.base, ...alwaysRunGlobs.tree])];
+  const pregate = catText(repoRoot, tree, PREGATE_CONFIG_PATH);
+  let dependencies: Record<string, string[]> = {};
+  try { dependencies = pregate === null ? {} : (JSON.parse(pregate).dependencies ?? {}); } catch { throw new Error(`${PREGATE_CONFIG_PATH} at ${tree}: not valid JSON`); }
+  let graph: Graph | null = null;
+  if (!keyCodeEdited.length) {
+    const dir = materializeTree(repoRoot, tree);
+    try { graph = buildGraph(dir, { declarations: dependencies }); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  const env = opts.env ?? process.env;
+  const shared: KeyInput[] = [
+    ...[...treeIdx.entries.keys()].filter(p => p === 'bun.lock' || TSCONFIG.test(p)).map(p => ({ kind: 'global' as const, path: p, digest: '' })),
+    { kind: 'global', path: `${PREGATE_CONFIG_PATH}#dependencies`, digest: sha(JSON.stringify(dependencies)) },
+    ...KEY_CODE_FILES.map(p => ({ kind: 'code' as const, path: p, digest: '' })),
+    ...Object.entries(opts.runtime ?? runtimeManifest()).sort().map(([k, v]) => ({ kind: 'runtime' as const, path: k, digest: v })),
+    ...ENV_ALLOWLIST.map(k => ({ kind: 'env' as const, path: k, digest: env[k] === undefined ? 'unset' : sha(env[k]!) })),
+  ];
+  const pending = tests.map(test => {
+    const reasons: string[] = [];
+    if (treeIdx.entries.get(test)?.type !== 'blob') reasons.push(`not a file at ${tree}`);
+    if (keyCodeEdited.length) reasons.push(`the tree edits key code (${keyCodeEdited.join(', ')}); every test runs`);
+    const listed = [alwaysRunGlobs.base.some(g => matchesAny([g], test)) ? `${base}` : '', alwaysRunGlobs.tree.some(g => matchesAny([g], test)) ? tree : ''].filter(Boolean);
+    if (alwaysGlobs.some(g => matchesAny([g], test))) reasons.push(`always_run (${ALWAYS_RUN_PATH} at ${listed.join(' and ')})`);
+    const trace = readTrace(opts.traceDir, test);
+    if (!trace) reasons.push('no trace');
+    else {
+      const age = now - Date.parse(trace.tracedAt);
+      if (!(age <= TRACE_MAX_AGE_MS)) reasons.push(`stale trace (traced ${trace.tracedAt}, limit ${TRACE_MAX_AGE_MS / 86_400_000} days)`);
+      if (trace.exitCode !== 0) reasons.push(`the traced run failed (exit ${trace.exitCode})`);
+      reasons.push(...trace.ineligible);
+    }
+    const closure = graph ? forwardClosure(graph, test) : null;
+    if (closure?.capped) reasons.push(`import graph deeper than ${MAX_HOPS} hops: ${closure.capped.join(' → ')}`);
+    const traced = new Set(trace?.paths ?? []);
+    const files: KeyInput[] = [
+      ...[...traced].map(p => ({ kind: 'traced' as const, path: p, digest: '' })),
+      ...(closure?.files ?? []).filter(p => !traced.has(p)).map(p => ({ kind: 'graph' as const, path: p, digest: '' })),
+      ...Object.keys(trace?.dirs ?? {}).map(d => ({ kind: 'listed' as const, path: d, digest: '' })),
+    ];
+    return { test, reasons, trace, inputs: [...files, ...shared.map(s => ({ ...s }))] };
+  });
+  const blobOf = (p: string) => { const e = treeIdx.entries.get(p); return e?.type === 'blob' ? e.oid : null; };
+  const digests = blobDigests(repoRoot, pending.flatMap(t => t.inputs.filter(i => i.kind !== 'listed' && !i.digest).map(i => blobOf(i.path)).filter((o): o is string => o !== null)));
+  const results = pending.map(({ test, reasons, trace, inputs }) => {
+    for (const i of inputs) {
+      if (i.digest) continue;
+      const e = i.path === '.' ? { type: 'tree', mode: '040000', oid: '' } : treeIdx.entries.get(i.path);
+      if (i.kind === 'listed') i.digest = e?.type === 'tree' ? sha((treeIdx.children.get(i.path) ?? []).join('\0')) : 'absent';
+      else if (!e) i.digest = 'absent';
+      else i.digest = e.type === 'blob' ? `${e.mode}:${digests.get(e.oid)}` : e.type === 'tree' ? 'dir' : `${e.type}:${e.oid}`;
+    }
+    inputs.sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path));
+    const eligible = reasons.length === 0;
+    const key = eligible ? sha([`test\t${test}`, ...inputs.map(i => `${i.kind}\t${i.path}\t${i.digest}`)].join('\n')) : null;
+    return { test, eligible, reasons, key, inputs, tracedAt: trace?.tracedAt ?? null };
+  });
+  return { tree, base, keyCodeEdited, alwaysRunGlobs, results };
+}
