@@ -24,7 +24,8 @@ The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, ge
 - the names in each traced directory listing, at the tree;
 - the test's forward import-graph closure from `lib/pregate/import-graph.ts`, up to 12 hops;
 - `bun.lock`, every `tsconfig*.json` and the `dependencies` in `.gstack/pregate.json`;
-- the key code itself: the tracer, the key, the CLI, the free-test runner and planner (`scripts/test-free-shards.ts`), the shard engine, the import graph and `lib/pregate/lane-selection.ts`;
+- the key code itself: the tracer, the key, the CLI, the free-test runner and planner (`scripts/test-free-shards.ts`) with every repo module it imports (shard engine, HOME guard, CI health, Windows curation, the paid/free split, the state root), the import graph and `lib/pregate/lane-selection.ts`;
+- the bytes of each executable outside the repo the trace ran (git, bash, tar and so on), read on the machine computing the key;
 - the runtime (platform, architecture, Bun version) and the values of `CI`, `GITHUB_ACTIONS`, `TZ`, `LANG`, `LC_ALL`, `NODE_ENV`, `EVALS` and `EVALS_TIER`.
 
 ## What is never reused
@@ -34,7 +35,8 @@ A file is ineligible, so it always runs, when:
 - it is on the always-run list in the base branch's `.gstack/always-run.json` or the tree's (the union, so a branch can add entries but never drop main's);
 - it has no trace, a trace older than 7 days, or a trace whose run failed;
 - its trace shows an inet connect or send to anything other than a loopback port the same run opened, any access under the real HOME other than a PATH tool lookup, shared /tmp state, or a read of the repository's own `.git`;
+- its trace read a repo path the tree doesn't track, such as a build output under `dist/`. A probe of a missing path and a file the run created itself don't count;
 - its import-graph walk reaches the 12-hop cap. The walk fails closed: a deeper chain makes the test ineligible instead of cutting the closure short;
 - the tree changes any key-code file against the base. Then every file runs.
 
-Limits: strace can't see which environment variables a test reads, so only the allowlist above is in the key, and a test that depends on another variable has to read it through a file the trace sees or stay off the reuse path. Timing assertions, flaky history and the shard's execution grouping are for PR 3 and PR 4, which have the receipts to check them against. Windows has no tracer, so the Windows lane stays full.
+Limits: strace can't see which environment variables a test reads, so only the allowlist above is in the key, and a test that depends on another variable has to read it through a file the trace sees or stay off the reuse path. The recorder runs `bun test` directly, not inside the free runner's per-shard sandbox, so PR 3 should record traces through the runner. Timing assertions, flaky history and the shard's execution grouping are for PR 3 and PR 4, which have the receipts to check them against. Windows has no tracer, so the Windows lane stays full.

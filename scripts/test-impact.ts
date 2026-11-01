@@ -110,7 +110,7 @@ async function key(root: string, argv: string[], explain: boolean): Promise<numb
     if (!explain) continue;
     console.log(`  traced at: ${r.tracedAt ?? 'never'}${r.key ? `\n  key: ${r.key}` : ''}`);
     console.log(`  always_run globs: base [${report.alwaysRunGlobs.base.join(', ')}], tree [${report.alwaysRunGlobs.tree.join(', ')}]`);
-    for (const kind of ['traced', 'listed', 'graph', 'global', 'code', 'runtime', 'env'] as const) {
+    for (const kind of ['traced', 'listed', 'graph', 'global', 'code', 'tool', 'runtime', 'env'] as const) {
       const list = r.inputs.filter(i => i.kind === kind);
       if (!list.length) continue;
       console.log(`  ${kind} (${list.length}):`);

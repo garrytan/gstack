@@ -10,10 +10,12 @@
  *     capped at MAX_HOPS hops; a closure that reaches the cap is ineligible, never truncated;
  *   - global: bun.lock, every tsconfig*.json and the pregate `dependencies`;
  *   - code: KEY_CODE_FILES, the runner, planner, shard engine, graph and key code;
+ *   - tool: the bytes of each executable outside the repo the trace ran (git, bash, tar…), read on this machine;
  *   - runtime and env: the runtime manifest and ENV_ALLOWLIST values.
  * A test is ineligible (always executed) when it is always_run in the base or the tree list,
  * has no trace or one older than TRACE_MAX_AGE_MS, its traced run failed or touched the
- * network, the real HOME, shared /tmp or .git, or its graph walk hit the cap. A tree that
+ * network, the real HOME, shared /tmp or .git, it read a repo path the tree does not track (a build
+ * output), or its graph walk hit the cap. A tree that
  * changes any KEY_CODE_FILES file against the base makes every test ineligible.
  * scripts/test-impact.ts loads this module from the base ref, so a branch cannot change the
  * rules that decide what it skips.
@@ -31,10 +33,12 @@ import { readTrace } from './trace';
 
 export const MAX_HOPS = 12;
 export const TRACE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-/** Tracer, key, CLI, runner/planner, shard engine and the graph and always-run code the key reads. PR 4 adds its verifier here. */
+/** Tracer, key, CLI, the runner/planner and every repo module it imports, and the graph and always-run code the key reads. PR 4 adds its verifier here. */
 export const KEY_CODE_FILES = [
   'lib/test-impact/trace.ts', 'lib/test-impact/key.ts', 'scripts/test-impact.ts',
-  'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts',
+  'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts',
+  'scripts/lib/windows-curation.ts', 'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'lib/state-root.ts',
+  'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts',
 ];
 /** Environment variables whose values a free test may branch on; anything else a test reads is outside the key. */
 export const ENV_ALLOWLIST = ['CI', 'GITHUB_ACTIONS', 'TZ', 'LANG', 'LC_ALL', 'NODE_ENV', 'EVALS', 'EVALS_TIER'];
@@ -42,7 +46,7 @@ const TSCONFIG = /(?:^|\/)tsconfig[^/]*\.json$/;
 
 export interface TreeEntry { mode: string; type: string; oid: string }
 export interface TreeIndex { treeish: string; entries: Map<string, TreeEntry>; children: Map<string, string[]> }
-export type InputKind = 'traced' | 'listed' | 'graph' | 'global' | 'code' | 'runtime' | 'env';
+export type InputKind = 'traced' | 'listed' | 'graph' | 'global' | 'code' | 'tool' | 'runtime' | 'env';
 export interface KeyInput { kind: InputKind; path: string; digest: string }
 export interface KeyResult { test: string; eligible: boolean; reasons: string[]; key: string | null; inputs: KeyInput[]; tracedAt: string | null }
 export interface KeyReport { tree: string; base: string | null; keyCodeEdited: string[]; alwaysRunGlobs: { base: string[]; tree: string[] }; results: KeyResult[] }
@@ -148,6 +152,15 @@ export function forwardClosure(graph: Graph, test: string, maxHops = MAX_HOPS): 
 }
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+const toolDigests = new Map<string, string>();
+function toolDigest(file: string): string {
+  let digest = toolDigests.get(file);
+  if (digest === undefined) {
+    try { digest = createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { digest = 'absent'; }
+    toolDigests.set(file, digest);
+  }
+  return digest;
+}
 
 /** Keys and eligibility for each test at `tree`, with `base` as the trusted reference for always_run and key code. */
 export function computeKeys(opts: KeyOptions): KeyReport {
@@ -189,6 +202,8 @@ export function computeKeys(opts: KeyOptions): KeyReport {
       if (!(age <= TRACE_MAX_AGE_MS)) reasons.push(`stale trace (traced ${trace.tracedAt}, limit ${TRACE_MAX_AGE_MS / 86_400_000} days)`);
       if (trace.exitCode !== 0) reasons.push(`the traced run failed (exit ${trace.exitCode})`);
       reasons.push(...trace.ineligible);
+      const untracked = (trace.present ?? []).filter(p => p !== '.' && !treeIdx.entries.has(p));
+      if (untracked.length) reasons.push(`reads paths ${tree} does not track (${untracked.slice(0, 5).join(', ')}${untracked.length > 5 ? ` +${untracked.length - 5} more` : ''})`);
     }
     const closure = graph ? forwardClosure(graph, test) : null;
     if (closure?.capped) reasons.push(`import graph deeper than ${MAX_HOPS} hops: ${closure.capped.join(' → ')}`);
@@ -197,6 +212,7 @@ export function computeKeys(opts: KeyOptions): KeyReport {
       ...[...traced].map(p => ({ kind: 'traced' as const, path: p, digest: '' })),
       ...(closure?.files ?? []).filter(p => !traced.has(p)).map(p => ({ kind: 'graph' as const, path: p, digest: '' })),
       ...Object.keys(trace?.dirs ?? {}).map(d => ({ kind: 'listed' as const, path: d, digest: '' })),
+      ...(trace?.tools ?? []).map(t => ({ kind: 'tool' as const, path: t, digest: toolDigest(t) })),
     ];
     return { test, reasons, trace, inputs: [...files, ...shared.map(s => ({ ...s }))] };
   });

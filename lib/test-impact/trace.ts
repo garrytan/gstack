@@ -11,12 +11,14 @@
  * ineligible with a reason instead: an inet connect or send that is not to a
  * loopback port the trace itself bound, any access under the real HOME other
  * than a PATH tool lookup, shared /tmp state, and reads of the repo's own .git.
+ * Repo paths a call reached (and the run did not create) are listed as `present`, and
+ * executables outside the repo as `tools`, so key.ts can refuse untracked inputs and hash tools.
  * lib/test-impact/key.ts hashes the read set at a tree.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const TRACE_VERSION = 1;
+export const TRACE_VERSION = 2;
 /** `-e trace=` set; strace 6.8 on x86_64 Linux accepts every name (stat and open are the legacy calls static binaries still make). */
 export const TRACE_SYSCALLS = [
   'openat', 'open', 'execve', 'execveat', 'getdents64', 'readlink', 'readlinkat', 'stat', 'lstat', 'newfstatat', 'statx',
@@ -47,7 +49,9 @@ export interface ReadSet {
   dirs: Record<string, string[]>;
   /** Reasons the trace cannot prove the test's inputs; empty when eligible. */
   ineligible: string[];
-  /** Executables outside the repo the run started, sorted (for explain; the runtime manifest covers the toolchain). */
+  /** Repo paths a call reached that the run did not create itself, sorted: key.ts refuses one the tree does not track. */
+  present: string[];
+  /** Executables outside the repo the run started, sorted; key.ts hashes each one's bytes. */
   tools: string[];
 }
 
@@ -126,6 +130,8 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
   for (const p of [repo, tmp, home]) for (let d = path.posix.dirname(p); ; d = path.posix.dirname(d)) { ancestors.add(d); if (d === '/') break; }
   const cwd = new Map<number, string>();
   const paths = new Set<string>();
+  const reached = new Set<string>();
+  const created = new Set<string>();
   const dirs = new Map<string, Set<string>>();
   const reasons = new Set<string>();
   const tools = new Set<string>();
@@ -138,7 +144,7 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
   }
   const cwdOf = (pid: number) => cwd.get(pid) ?? ctx.startCwd ?? repo;
   const absolute = (pid: number, p: string, dir: string | null) => path.posix.normalize(path.posix.isAbsolute(p) ? p : path.posix.join(dir ?? cwdOf(pid), p));
-  const record = (raw: string, kind: 'access' | 'exec' | 'content') => {
+  const record = (raw: string, kind: 'access' | 'exec' | 'content', ok = false, creates = false) => {
     const abs = raw.length > 1 ? raw.replace(/\/+$/, '') : raw;
     if (within(abs, '/proc') || within(abs, '/dev') || within(abs, tmp) || ancestors.has(abs)) return;
     if (within(abs, repo)) {
@@ -147,6 +153,7 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
       if (rel === '.git' && kind === 'access') return;
       if (rel === '.git' || rel.startsWith('.git/')) { reasons.add(`reads the repository's own git state (${rel})`); return; }
       paths.add(rel);
+      if (ok) (creates ? created : reached).add(rel);
       return;
     }
     if (pathDirs.has(path.posix.dirname(abs))) { if (kind === 'exec') tools.add(abs); return; }
@@ -168,14 +175,14 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
         if (p === null || !ok) break;
         const abs = absolute(c.pid, p, null);
         cwd.set(c.pid, abs);
-        record(abs, 'access');
+        record(abs, 'access', true);
         break;
       }
       case 'fchdir': if (ok && dirfd) cwd.set(c.pid, path.posix.normalize(dirfd)); break;
       case 'getdents64': {
         if (!dirfd) break;
         const abs = path.posix.normalize(dirfd);
-        record(abs, 'content');
+        record(abs, 'content', true);
         if (!within(abs, repo)) break;
         const rel = abs === repo ? '.' : abs.slice(repo.length + 1);
         if (/(?:^|\/)(?:node_modules|\.git)(?:\/|$)/.test(rel)) break;
@@ -194,14 +201,15 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
       case 'execve': case 'open': case 'stat': case 'lstat': case 'access': case 'readlink': {
         const p = firstString(c.args);
         if (p === null) break;
-        record(absolute(c.pid, p, null), c.name === 'execve' ? (ok ? 'exec' : 'access') : c.name === 'open' ? 'content' : 'access');
+        record(absolute(c.pid, p, null), c.name === 'execve' ? (ok ? 'exec' : 'access') : c.name === 'open' ? 'content' : 'access', ok, c.name === 'open' && /O_CREAT/.test(c.args));
         break;
       }
       default: {
         if (file === null) break;
         const target = file === '' && dirfd ? path.posix.normalize(dirfd) : absolute(c.pid, file, dirfd);
-        record(target, c.name === 'execveat' ? (ok ? 'exec' : 'access') : c.name === 'openat' ? 'content' : 'access');
-        if (ok && c.retPath && c.name === 'openat' && path.posix.isAbsolute(c.retPath)) record(path.posix.normalize(c.retPath), 'content');
+        const creates = c.name === 'openat' && /O_CREAT/.test(c.args);
+        record(target, c.name === 'execveat' ? (ok ? 'exec' : 'access') : c.name === 'openat' ? 'content' : 'access', ok, creates);
+        if (ok && c.retPath && c.name === 'openat' && path.posix.isAbsolute(c.retPath)) record(path.posix.normalize(c.retPath), 'content', true, creates);
       }
     }
   }
@@ -209,6 +217,7 @@ export function parseStrace(text: string, ctx: TraceContext): ReadSet {
     paths: [...paths].sort(),
     dirs: Object.fromEntries([...dirs].sort(([a], [b]) => a.localeCompare(b)).map(([d, n]) => [d, [...n].sort()])),
     ineligible: [...reasons].sort(),
+    present: [...reached].filter(p => !created.has(p)).sort(),
     tools: [...tools].sort(),
   };
 }

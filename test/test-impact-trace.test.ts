@@ -17,6 +17,8 @@ describe('parseStrace on a captured bun test', () => {
     for (const p of ['test/cap.test.ts', 'lib/data.txt', 'lib/missing.txt', 'bin/tool2', 'bin/tool2-lib.sh', 'package.json', 'test/data']) expect(set.paths).toContain(p);
     expect(set.paths.some(p => p.startsWith('.git') || p.startsWith('/') || p.includes('node_modules'))).toBe(false);
     expect(set.tools).toContain('/usr/local/bin/bun');
+    expect(set.present).toContain('bin/tool2-lib.sh');
+    expect(set.present).not.toContain('lib/missing.txt');
   });
 
   test('a directory listing records its sorted names', () => {

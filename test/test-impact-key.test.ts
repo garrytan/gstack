@@ -35,7 +35,7 @@ function traceFrom(repo: FixtureRepo, test: string, opts: { reads?: string[]; li
   lines.push(...(opts.extra ?? []));
   const dir = path.join(repo.root, 'traces');
   fs.mkdirSync(dir, { recursive: true });
-  const set = parseStrace(lines.join('\n'), { repoRoot: w, home: repo.home, tmpDir: path.join(repo.root, 'run') });
+  const set = parseStrace(lines.join('\n'), { repoRoot: w, home: repo.home, tmpDir: path.join(repo.root, 'run'), sharedTmp: [] });
   const record: TraceRecord = { version: TRACE_VERSION, test, tracedAt: opts.tracedAt ?? '2026-11-01T00:00:00Z', commit: null, exitCode: 0, runtime: RUNTIME, ...set };
   fs.writeFileSync(tracePath(dir, test), JSON.stringify(record));
   return dir;
@@ -92,6 +92,20 @@ describe('test-impact key: what changes it', () => {
     expect(keyAt(repo, 'HEAD', t).key).not.toBe(before.key);
   });
 
+  test('the bytes of an executable outside the repo that the test ran are in the key', () => {
+    const repo = fixture();
+    const tool = path.join(repo.root, 'tools', 'mytool');
+    fs.mkdirSync(path.dirname(tool), { recursive: true });
+    fs.writeFileSync(tool, 'v1');
+    traceFrom(repo, 'test/util.test.js', { extra: [`100 execve("${tool}", ["mytool"], []) = 0`] });
+    const before = keyAt(repo, 'main', 'test/util.test.js');
+    expect(before.inputs).toContainEqual(expect.objectContaining({ kind: 'tool', path: tool }));
+    fs.writeFileSync(tool, 'v2');
+    const fresh = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', `const k = await import(${JSON.stringify(path.join(ROOT, 'lib/test-impact/key.ts'))}); console.log(k.computeKeys({ repoRoot: ${JSON.stringify(repo.work)}, tree: 'main', base: 'main', tests: ['test/util.test.js'], traceDir: ${JSON.stringify(path.join(repo.root, 'traces'))}, now: ${NOW}, runtime: ${JSON.stringify(RUNTIME)}, env: {} }).results[0].key)`], { encoding: 'utf8', timeout: 60_000 });
+    expect(fresh.stdout.trim()).toMatch(/^[0-9a-f]{64}$/);
+    expect(fresh.stdout.trim()).not.toBe(before.key);
+  });
+
   test('a spawned bin that sources a sibling script: the traced sibling is in the key', () => {
     const t = 'test/tool2.test.js';
     const repo = fixture({ 'bin/tool2': '#!/bin/bash\nsource "$(dirname "$0")/tool2-lib.sh"\ngreet\n', 'bin/tool2-lib.sh': 'greet() { echo hi; }\n', [t]: `${NODE_TEST}test('greets', () => require('child_process').spawnSync('bin/tool2', { timeout: 5000 }));\n` });
@@ -129,6 +143,15 @@ describe('test-impact key: ineligible', () => {
     expect(keyAt(repo, 'main', 'test/util.test.js').reasons).toEqual([`reads the real HOME (${repo.home}/.gitconfig)`]);
     expect(keyAt(repo, 'main', 'test/retry.test.js').reasons).toEqual(['network: connect 140.82.112.3:443']);
     expect(keyAt(repo, 'main', 'test/config-read.test.js').eligible).toBe(true);
+  });
+
+  test('a successful read of a path the tree does not track (a build output) is ineligible; a probe or a file the run created is not', () => {
+    const repo = fixture();
+    const w = repo.work;
+    traceFrom(repo, 'test/util.test.js', { reads: ['dist/tool'] });
+    traceFrom(repo, 'test/retry.test.js', { extra: [`100 access("${w}/dist/tool", F_OK) = -1 ENOENT (No such file or directory)`, `100 openat(AT_FDCWD<${w}>, "${w}/out.json", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<${w}/out.json>`, `100 openat(AT_FDCWD<${w}>, "${w}/out.json", O_RDONLY) = 3<${w}/out.json>`] });
+    expect(keyAt(repo, 'main', 'test/util.test.js').reasons).toEqual(['reads paths main does not track (dist/tool)']);
+    expect(keyAt(repo, 'main', 'test/retry.test.js').reasons).toEqual([]);
   });
 
   test('no trace, a stale trace and a failed traced run are ineligible', () => {
