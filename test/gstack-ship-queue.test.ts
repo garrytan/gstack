@@ -193,12 +193,13 @@ describe('gate-ahead, then stamp and verify from a separate clone', () => {
   }, 240_000);
 });
 
-function runAsync(repo: FixtureRepo, args: string[]): Promise<{ status: number | null; out: string }> {
+function runAsync(repo: FixtureRepo, args: string[]): Promise<{ status: number | null; out: string; err: string }> {
   return new Promise(resolve => {
     const child = spawn(BIN('gstack-ship-queue'), [...args, '--base', 'main'], { cwd: repo.work, env: { ...process.env, ...repo.env }, timeout: 120_000 });
-    let out = '';
+    let out = '', err = '';
     child.stdout.on('data', d => { out += d; });
-    child.on('close', status => resolve({ status, out }));
+    child.stderr.on('data', d => { err += d; });
+    child.on('close', status => resolve({ status, out, err }));
   });
 }
 
@@ -207,7 +208,7 @@ describe('gate-ahead attempts', () => {
     const { repo } = twoLanes();
     const args = ['gate-ahead', '--after', '1', '--pr', '2', '--predecessor-ref', 'pr-a', '--allow-repo-commands'];
     const [a, b] = await Promise.all([runAsync(repo, args), runAsync(repo, args)]);
-    expect([a.status, b.status]).toEqual([EXIT.ok, EXIT.ok]);
+    expect([a.status, b.status], `${a.err}\n${b.err}`).toEqual([EXIT.ok, EXIT.ok]);
     const ids = [a, b].map(r => field(line(r.out, 'GATE_AHEAD:'), 'attempt'));
     expect(new Set(ids).size).toBe(2);
     const trees = [a, b].map(r => line(r.out, 'worktree: ').slice(10));
