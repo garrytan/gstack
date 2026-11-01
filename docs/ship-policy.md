@@ -624,7 +624,9 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
   one version section.
 - **After the merge.** `wave settle` finds the wave PR merged into the base
   branch, checks that its merge commit is on that branch and carries its head
-  tree, and walks its chain (train land's stamp commits on top are allowed). A
+  (the head's tree, or the head merged onto the merge's parent when the train
+  merged the PR directly), and walks its chain (train land's stamp or update
+  commits on top are allowed). A
   constituent still at its pin gets a "Landed in wave #W as vX (sha)" comment
   naming any integrator commits or hand-resolved merges that touched its
   files, and is closed. One whose head moved after the wave froze stays open
