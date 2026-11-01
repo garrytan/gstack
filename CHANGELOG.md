@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.92.37.0] - 2026-11-01
+
+**Claude Code review steps now receive a bounded review packet instead of an unbounded repository diff.** Review and ship keep a complete manifest of changed paths, but they send only changed non-`sources/` file content plus the caller's selected specification excerpts. The packet rejects prepared prompts over 1 MiB before reading them, excludes whole source artifacts and their copies, and caps the final payload at 2 MiB with an explicit truncation marker. This prevents large checked-in DOCX files and text extractions from turning a focused code review into a million-token request.
+
+### Changed
+- **Outside review context** (`scripts/resolvers/outside-voice.ts`, `scripts/resolvers/outside-voice-steps.ts`): both review and ship route Claude Code reviews through the same bounded packet builder. The workflow tells callers to supply the changed code and only the cited specification sections; it no longer appends the raw full diff or renders a base ref into shell source.
+- **Packet construction** (`lib/review-context-packet.ts`, `bin/gstack-review-context.ts`): changed and untracked paths are listed, non-source text diffs are included within the byte budget, source bodies and source-copy payloads are omitted, files too large to source-scan fail closed, and validated base commits are resolved without a shell.
+
+### Tests
+- `test/review-context-packet.test.ts` covers tracked and untracked files, unchanged and changed source copies, cross-boundary renames, symlink safety, nested invocation, pre-read prompt rejection, huge diffs, hostile base refs and generated review/ship wiring.
+- Parity and skill-size guards include the generated workflow change and its branch-scoped size-ledger entry.
+
 ## [1.92.36.0] - 2026-11-01
 
 **/ship's review collector keeps every severity label again, so a blocker named after "no CRITICAL issues except" is no longer lost.** v1.92.29.0 (GST-766) skipped any severity word that followed "no", "nothing", "none" and similar words, to stop a reviewer's closing line like "found nothing CRITICAL" from counting as a finding. That also threw away real blockers named in an exception clause: "No CRITICAL issues except the token leak in log.ts:3", "Nothing CRITICAL apart from the auth bypass (auth.ts:9)" and four more wordings collected nothing at all, so the gate never saw them. The collector now reads labels exactly as it did before v1.92.29.0. The reviewer's own Severity and Blocks fields are still recorded beside the label (`stated`), as in v1.92.29.0.

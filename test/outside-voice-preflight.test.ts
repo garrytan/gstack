@@ -302,5 +302,8 @@ test('adversarial DIFF_SIZE counts changed lines from numstat', () => {
   git('commit', '-qm', 'change');
   const r = spawnSync('bash', ['-c', fence![1].replaceAll('<base>', 'main')], { cwd: repo, encoding: 'utf8', timeout: 30_000 });
   expect(r.stderr).toBe('');
-  expect(r.stdout.trim()).toBe('DIFF_SIZE: 5');
+  expect(r.stdout.trim().split('\n')).toEqual([
+    `DIFF_BASE: ${spawnSync('git', ['merge-base', 'origin/main', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim()}`,
+    'DIFF_SIZE: 5',
+  ]);
 });

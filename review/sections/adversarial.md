@@ -9,7 +9,9 @@ Every diff gets the Claude adversarial pass. Add Codex when its preflight is rea
 ```bash
 DIFF_BASE=$(git merge-base origin/<base> HEAD)
 DIFF_TOTAL=$(git diff "$DIFF_BASE" --numstat | awk '{n+=$1+$2} END {print n+0}')
-echo "DIFF_SIZE: $DIFF_TOTAL"
+printf 'DIFF_BASE: %s
+DIFF_SIZE: %s
+' "$DIFF_BASE" "$DIFF_TOTAL"
 ```
 
 **Detect the Codex master switch + tool availability:**
@@ -110,9 +112,9 @@ If `CODEX_MODE` is `ready` or `unverified`:
 
 Outside prompt (supply repository context from the parent):
 
-"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\nReview the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. A finding blocks only if it would fail a test, break production, or lose data or secrets; end each finding with `Severity: Critical|High|Medium|Low` and `Blocks: yes|no`. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
-
-Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
+"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\nReview the changes on this branch against the base branch. Use only the supplied bounded review packet. If it is missing, report missing context; never substitute a raw repository diff or read file bodies under sources/. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. A finding blocks only if it would fail a test, break production, or lose data or secrets; end each finding with `Severity: Critical|High|Medium|Low` and `Blocks: yes|no`. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
+Write a private request below 1 MiB whose first line is `GSTACK_DIFF_BASE: <commit>`, using the exact merge-base commit hash from the diff-size step (or the approved `RANGE_BASE` on a ship rerun). After that header, include only the task, relevant changed non-`sources/` excerpts, and cited spec sections. The builder adds the complete changed-path manifest and capped diff while omitting `sources/` bodies. Substitute the request's shell-quoted path for `<prepared-prompt-file>`; never put a branch name, prompt text, whole spec extraction, DOCX body, or `sources/` body into shell source.
+Write a private bounded review packet request below 1 MiB with only the task, relevant changed non-`sources/` excerpts, and cited spec sections. The builder adds the complete tracked and untracked changed-path list and rename-safe diff with `sources/` bodies omitted, then caps the packet at 2 MiB. Review only that packet; never read whole spec extractions, DOCX files, or `sources/` bodies. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -131,7 +133,10 @@ _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
 trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
-
+# The validated merge-base commit travels in the private prompt, never shell source.
+# The packet builder supplies a rename-safe, byte-capped diff.
+tree_command=(bun --no-env-file --config=/dev/null "$HOME/.claude/skills/gstack/bin/gstack-review-context.ts" --base-from-input --input "$_OUTSIDE_INPUT")
+"${tree_command[@]}" || exit 1
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
 _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
@@ -172,7 +177,7 @@ For other modes, retain the native pass above; do not dispatch it again.
 
 If `CODEX_MODE` is `ready` or `unverified` and either `DIFF_TOTAL >= 200` or the user requested the override above:
 
-Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
+Prepare a structured review prompt whose first line is `GSTACK_DIFF_BASE: <commit>` using the exact merge-base hash, followed by a request for severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
 Run Codex’s built-in structured review with the selected base. It supplies its own prompt and accepts no custom prompt file with --base. Require severity-tagged findings (including native P1:/P2: labels) or an explicit no-findings conclusion; arbitrary prose or a refusal is missing coverage.
 
