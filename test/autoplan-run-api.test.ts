@@ -13,7 +13,7 @@ import { DEFAULT_MAX_TOKENS } from '../lib/outside-voice-api';
 import { AUTOPLAN, ROOT, SMALL_PLAN, env } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-run-api-'));
-let mode: 'ok' | 'cut' | 'bad-outside' = 'ok';
+let mode: 'ok' | 'cut' | 'bad-outside' | 'down' = 'ok';
 let calls = 0;
 let openaiLimits: unknown[] = [];
 let server: ReturnType<typeof Bun.serve>;
@@ -22,6 +22,7 @@ beforeAll(() => {
     port: 0,
     async fetch(req) {
       calls++;
+      if (mode === 'down') return new Response('overloaded', { status: 503 });
       const body = await req.json();
       const prompt = String(body.messages[0].content);
       const m = /INPUT: ([a-z]+) ([0-9a-f]{64})/.exec(prompt.slice(prompt.lastIndexOf('RESULT FORMAT')))!;
@@ -119,5 +120,24 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(retry.status).toBe(3);
     expect(retry.stdout + retry.stderr).toContain('SPEND_CAP_EXCEEDED');
     expect(calls).toBe(0);
+  }, 150_000);
+
+  test('a failed call that reports no usage charges nothing: its attempt stays open and the rerun reuses it at the cap that admitted it', async () => {
+    mode = 'down';
+    const first = await run('down-retry', ['--spend-cap', '8']);
+    expect(first.state.status).toBe('interrupted');
+    const open = first.state.phases.ceo.native.attempts[0];
+    expect(open.state).toBe('dispatched');
+    const before = JSON.parse(fs.readFileSync(path.join(first.out, 'spend.json'), 'utf8'));
+    expect(before.settled).toEqual([]);
+    mode = 'ok';
+    const retry = await run('down-retry', ['--spend-cap', '8']);
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.stdout).toContain(`GSTACK_RESULT: skill=autoplan status=gate_pending run=${retry.out}`);
+    expect(retry.state.phases.ceo.native.attempts.map((a: any) => a.attempt)).toEqual([open.attempt]);
+    const ledger = JSON.parse(fs.readFileSync(path.join(retry.out, 'spend.json'), 'utf8'));
+    expect(ledger.settled.length).toBe(4);
+    expect(ledger.released ?? []).toEqual([]);
+    for (const s of ledger.settled) expect(s.label).toMatch(/^(ceo|eng)\/(native|outside)$/);
   }, 150_000);
 });

@@ -250,11 +250,12 @@ export function nextStep(o: NextOptions): NextResult {
       continue;
     }
     const attempt = `${state.run}-a${++state.attempt_counter}`;
+    const resultFile = path.join(state.out, attemptFile(phase, voice, attempt.slice(state.run.length + 1), 'md'));
+    bindPromptResult(prompts[voice], resultFile);
     const usd = usdFor(voice);
     try { reserve(path.join(state.out, FILES.spend), attempt, usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
     catch (e: any) { if (e.code === 'SPEND_CAP_EXCEEDED') { state.attempt_counter--; writeState(state); throw new RunError('SPEND_CAP_EXCEEDED', e.message, 3); } throw e; }
-    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: path.join(state.out, attemptFile(phase, voice, attempt.slice(state.run.length + 1), 'md')), estimate_usd: usd, dispatched_at: now() };
-    bindPromptResult(row.prompt, row.result);
+    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: resultFile, estimate_usd: usd, dispatched_at: now() };
     journal(state.out, { event: 'dispatched', attempt, phase, voice, snapshot: ps.snapshot, prompt: path.relative(state.out, row.prompt), prompt_sha256: sha256File(row.prompt), prompt_bytes: fs.statSync(row.prompt).size, result: path.relative(state.out, row.result), estimate_usd: usd });
     (v.attempts ??= []).push(row);
     v.attempt = attempt; v.status = 'running';
@@ -420,9 +421,10 @@ export function fitReservation(out: string, phase: Phase, voice: Voice, attempt:
   if (!a || usd <= a.estimate_usd + 1e-9) return;
   const file = path.join(out, FILES.spend);
   release(file, attempt);
-  try { reserve(file, attempt, usd); }
+  const label = `${phase}/${voice}`;
+  try { reserve(file, attempt, usd, { cap: state.spend_cap_usd, label }); }
   catch (e) {
-    reserve(file, attempt, a.estimate_usd);
+    reserve(file, attempt, a.estimate_usd, { label });
     if (e instanceof SpendCapExceeded) throw new RunError('SPEND_CAP_EXCEEDED', `${attempt} (${phase} ${voice}) was admitted at ${a.estimate_usd}; the call it is about to make can cost ${usd}, past the cap ${state.spend_cap_usd}`, 3);
     throw e;
   }

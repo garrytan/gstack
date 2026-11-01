@@ -350,7 +350,8 @@ async function doRun(out: string, rest: string[], json: boolean): Promise<number
       if (res.status !== 'completed' && res.status !== 'unverified') {
         if (voice === 'outside') { withRunLock(out, () => markOutside(out, phase as Phase, 'unavailable', `${res.runner} ${res.status}${res.detail ? `: ${res.detail}` : ''}`)); continue; }
         process.stderr.write(`gstack-autoplan run: native voice ${res.status}${res.reason ? `: ${res.reason}` : ''}${res.detail ? `: ${res.detail}` : ''}\n`);
-        withRunLock(out, () => { retireAttempt(out, phase as Phase, voice, open.attempt, usdOf(voice, res.usage) ?? 'unknown'); const s = readState(out); s.status = 'interrupted'; writeState(s); });
+        const spent = usdOf(voice, res.usage);
+        withRunLock(out, () => { if (spent !== undefined) retireAttempt(out, phase as Phase, voice, open.attempt, spent); const s = readState(out); s.status = 'interrupted'; writeState(s); });
         process.stdout.write(resultLineFor('interrupted', out) + '\n');
         return EXIT.fail;
       }
