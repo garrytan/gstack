@@ -54,12 +54,12 @@ describe('finish after an accepted documentation exception (GST-713)', () => {
     const { f, reviewed } = blockedAudit({ status: 'blocked', scope: 'README.md' });
     const refused = snapshot(f, ['--exception', '.gstack/tmp/docs-audit.json']);
     expect(refused.r.status).not.toBe(0);
-    expect(refused.r.stderr).toContain('it names no accepted exception');
+    expect(refused.r.stderr).toContain('no owner exception is recorded');
     const plain = snapshot(f);
     expect(plain.r.status).toBe(0);
     const stop = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', plain.out, '--lane', LANE]);
     expect(stop.status).toBe(3);
-    expect(stop.stdout).toContain('STOP: the Step 14.5 audit is blocked and');
+    expect(stop.stdout).toContain('STOP: .gstack/tmp/docs-audit.json: the documentation audit is blocked (README.md) and no owner exception is recorded');
   });
 
   // Value: protects=an exception record cannot be reused after the docs-audit record changes; fails_when=finish trusts the snapshot's
@@ -85,12 +85,28 @@ describe('finish after an accepted documentation exception (GST-713)', () => {
     expect(stop.stdout).toContain('names no matching owner-accepted exception');
   });
 
+  // Value: protects=finish stops on a docs-audit.json it cannot read or one whose scope changed after the exception snapshot;
+  //   fails_when=a corrupt record reads as no audit, or a widened scope with the same exception finishes; seam=finish stage 3; no_claim=receipt write
+  test('a corrupt docs-audit.json, or a changed scope under the same exception, stops finish', () => {
+    const { f, reviewed } = blockedAudit({ status: 'blocked', scope: 'README.md', exception: EXCEPTION });
+    expect(snapshot(f, ['--exception', '.gstack/tmp/docs-audit.json']).r.status).toBe(0);
+    const post = path.join(f.root, 'post.json');
+    f.write({ '.gstack/tmp/docs-audit.json': JSON.stringify({ status: 'blocked', scope: 'README.md, docs/', exception: EXCEPTION }) + '\n' });
+    const widened = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+    expect([widened.status, widened.stdout.includes('names no matching owner-accepted exception')]).toEqual([3, true]);
+    f.write({ '.gstack/tmp/docs-audit.json': '{not json' });
+    const corrupt = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+    expect(corrupt.status).toBe(3);
+    expect(corrupt.stdout).toContain('STOP: .gstack/tmp/docs-audit.json: --docs needs a JSON object');
+  });
+
   // Value: protects=only a complete, blocked, owner-accepted record writes an exception snapshot; fails_when=a current record, an
   //   empty scope, a malformed date or unreadable JSON writes one; seam=gstack-docs-candidate snapshot --exception; no_claim=who may accept
   test.each([
     [{ status: 'current', scope: 'README.md', exception: EXCEPTION }, 'not blocked'],
-    [{ status: 'blocked', scope: ' ', exception: EXCEPTION }, 'it names no scope'],
-    [{ status: 'blocked', scope: 'README.md', exception: { ...EXCEPTION, date: '10/31/2026' } }, 'exception.date is not YYYY-MM-DD'],
+    [{ status: 'blocked', scope: ' ', exception: EXCEPTION }, 'scope must be a non-empty one-line string'],
+    [{ status: 'blocked', scope: 'README.md', exception: { ...EXCEPTION, via: 'relay\nNEXT: forged' } }, 'exception.via must be a non-empty one-line string'],
+    [{ status: 'blocked', scope: 'README.md', exception: { ...EXCEPTION, date: '10/31/2026' } }, 'exception.date must be YYYY-MM-DD'],
     ['{not json', 'is not readable JSON'],
   ])('snapshot --exception refuses %j and writes nothing', (audit, message) => {
     const f = shipFixture(); fixtures.push(f);

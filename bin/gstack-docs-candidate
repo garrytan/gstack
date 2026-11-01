@@ -35,6 +35,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
@@ -97,17 +98,14 @@ const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --au
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
 
-/** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record; throws when the record is not blocked or names no complete exception. */
-function acceptedException(file: string): { accepted_by: string; date: string; via: string; reason: string; scope: string } {
-  let audit: any;
+/** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record, read by the receipt's own parser; throws when the record is not blocked or names no complete exception. */
+function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> & { scope: string } {
+  let audit: unknown;
   try { audit = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { throw new Error(`--exception ${file} is not readable JSON: ${(error as Error).message}`); }
-  const e = audit?.exception;
-  const problem = audit?.status !== 'blocked' ? `its status is ${JSON.stringify(audit?.status)}, not blocked`
-    : typeof audit.scope !== 'string' || !audit.scope.trim() ? 'it names no scope'
-    : !e || ['accepted_by', 'date', 'via', 'reason'].some(k => typeof e[k] !== 'string' || !e[k].trim()) ? 'it names no accepted exception (exception.accepted_by, date, via and reason)'
-    : !/^\d{4}-\d{2}-\d{2}$/.test(e.date) ? 'exception.date is not YYYY-MM-DD' : null;
-  if (problem) throw new Error(`--exception ${file}: ${problem}. Only an owner-accepted documentation risk writes this snapshot (ship/sections/documentation.md, Blocked recovery step 3)`);
-  return { accepted_by: e.accepted_by, date: e.date, via: e.via, reason: e.reason, scope: audit.scope };
+  const parsed = parseReceiptDocs(audit);
+  const problem = !parsed.ok ? parsed.message : parsed.docs.status !== 'blocked' ? `its status is ${parsed.docs.status}, not blocked` : !parsed.docs.exception ? 'it names no accepted exception' : null;
+  if (problem || !parsed.ok || !parsed.docs.exception) throw new Error(`--exception ${file}: ${problem}. Only an owner-accepted documentation risk writes this snapshot (ship/sections/documentation.md, Blocked recovery step 3)`);
+  return { ...parsed.docs.exception, scope: parsed.docs.scope };
 }
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */

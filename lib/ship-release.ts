@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
 import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
@@ -223,14 +224,22 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
   if (stale === null) { r.stop(`gstack-docs-candidate compare failed: ${firstLine(cmp.stderr)}; documentation freshness is unknown (stage 3)`); return false; }
   const record = JSON.parse(fs.readFileSync(postFile, 'utf8'));
-  let docsAudit: any = null;
-  try { docsAudit = JSON.parse(fs.readFileSync(path.join(cwd, '.gstack/tmp/docs-audit.json'), 'utf8')); } catch { docsAudit = null; }
-  const blocked = docsAudit?.status === 'blocked';
-  if (blocked || record.exception) {
-    const accepted = blocked && record.exception && ['accepted_by', 'date', 'via', 'reason'].every(k => typeof record.exception[k] === 'string' && record.exception[k] === docsAudit.exception?.[k]);
-    if (!accepted) {
-      r.stop(blocked
-        ? `the Step 14.5 audit is blocked and ${postFile} names no matching owner-accepted exception: get the owner's named-risk answer, write it into .gstack/tmp/docs-audit.json, then snapshot with --exception .gstack/tmp/docs-audit.json (documentation.md Blocked recovery step 3)`
+  const auditFile = path.join(cwd, '.gstack/tmp/docs-audit.json');
+  let docsAudit: ReceiptDocs | null = null;
+  if (fs.existsSync(auditFile)) {
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(auditFile, 'utf8')); } catch { raw = undefined; }
+    const parsed = parseReceiptDocs(raw);
+    if (!parsed.ok) { r.stop(`.gstack/tmp/docs-audit.json: ${parsed.message}; documentation status is unknown (stage 3)`); return false; }
+    docsAudit = parsed.docs;
+  }
+  const accepted = docsAudit?.exception;
+  if (accepted || record.exception) {
+    const same = !!accepted && !!record.exception && docsAudit!.status === 'blocked' && record.exception.scope === docsAudit!.scope
+      && (['accepted_by', 'date', 'via', 'reason'] as const).every(k => record.exception[k] === accepted[k]);
+    if (!same) {
+      r.stop(accepted
+        ? `the Step 14.5 audit is blocked and ${postFile} names no matching owner-accepted exception: snapshot with --exception .gstack/tmp/docs-audit.json (documentation.md Blocked recovery step 3)`
         : `${postFile} names a documentation exception but .gstack/tmp/docs-audit.json is not the blocked record carrying it: rerun Step 14.5`);
       return false;
     }
