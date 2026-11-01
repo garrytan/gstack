@@ -261,6 +261,9 @@ export function markerIgnoredReason(dir: string, underHome: boolean, homes: stri
   if (process.platform !== "win32" && typeof process.geteuid === "function" && st.uid !== process.geteuid()) {
     return "owned by another user";
   }
+  if (["", ".", ".."].includes(sanitizeSlug(basename(dir)))) {
+    return "its folder name has no letter or digit gstack can use in a project name; rename the folder or set GSTACK_PROJECT_SLUG";
+  }
   if (underHome && isHomeOrAbove(dir, homes)) return "at or above $HOME";
   if (existsSync(join(dir, ".git"))) return "";
   let d = dirname(dir);
@@ -312,7 +315,7 @@ export function findProjectMarker(cwd: string): { root: string; ignored: string[
 }
 
 function markerCacheFile(stateRoot: string, root: string): string {
-  return join(stateRoot, "slug-cache", "marker", toMsysPath(root).replace(/\//g, "_"));
+  return join(stateRoot, "slug-cache", "marker", toMsysPath(root).replace(/%/g, "%25").replace(/_/g, "%5f").replace(/\//g, "_"));
 }
 
 /**

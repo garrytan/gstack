@@ -9,10 +9,10 @@ set -e
 # A counted .gstack-project marker (#2649, #1923), found on the cwd chain or
 # from a linked worktree's main checkout, decides identity the way bin/gstack-slug
 # does, so design-doc lookups find docs where skills saved them.
-_gs="$(dirname "$0")/../../bin/gstack-slug"
-if [ -n "$("$_gs" --get PROJECT_MARKER 2>/dev/null || true)" ]; then
-  "$_gs" --get SLUG 2>/dev/null && exit 0
-fi
+_id=$("$(dirname "$0")/../../bin/gstack-slug" --identity 2>/dev/null || true)
+case "$_id" in
+  *"PROJECT_MARKER=/"*) printf '%s\n' "$_id" | sed -n 's/^SLUG=//p'; exit 0 ;;
+esac
 URL=$(git remote get-url origin 2>/dev/null || true)
 _gri_slug=""
 if [ -n "$URL" ]; then

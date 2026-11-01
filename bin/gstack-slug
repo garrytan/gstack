@@ -379,6 +379,9 @@ _marker_reason() {
   if [[ -d "$m" ]]; then echo "a directory, not a file: rmdir '$m' && touch '$m'"; return 0; fi
   [[ -f "$m" ]] || { echo "not a regular file"; return 0; }
   [[ -O "$m" ]] || { echo "owned by another user"; return 0; }
+  case "$(basename "$1" | tr -cd 'a-zA-Z0-9._-')" in
+    ""|.|..) echo "its folder name has no letter or digit gstack can use in a project name; rename the folder or set GSTACK_PROJECT_SLUG"; return 0 ;;
+  esac
   if [[ "$under" -eq 1 ]] && _is_home_or_above "$1"; then echo "at or above \$HOME"; return 0; fi
   [[ ! -e "$1/.git" ]] || return 0
   d=$(dirname "$1")
@@ -429,7 +432,7 @@ _write_cache_entry() { # $1 file, $2 content; atomic, best-effort
 }
 if [[ -n "$MARKER_ROOT" ]]; then
   PROJECT_ROOT="$MARKER_ROOT"
-  MARKER_CACHE="$CACHE_DIR/marker/$(printf '%s' "$MARKER_ROOT" | tr '/' '_')"
+  MARKER_CACHE="$CACHE_DIR/marker/$(printf '%s' "$MARKER_ROOT" | sed -e 's/%/%25/g' -e 's/_/%5f/g' -e 's#/#_#g')"
   _m=$(cat "$MARKER_CACHE" 2>/dev/null || true)
   if [[ "$_m" == v2:* ]]; then
     SLUG=$(printf '%s' "${_m#v2:}" | tr -cd 'a-zA-Z0-9._-')
@@ -968,7 +971,7 @@ case "$MODE" in
       where="${wt:-$root}"
       [[ "$where" == "$MARKER_ROOT" || "$where" == "$MARKER_ROOT"/* ]] || continue
       dst="$AU_TO/$(basename "$f")"
-      if [[ -e "$dst" ]]; then echo "ALREADY $dst"; AU_HAVE=$((AU_HAVE + 1)); continue; fi
+      if [[ -e "$dst" || -L "$dst" ]]; then echo "ALREADY $dst"; AU_HAVE=$((AU_HAVE + 1)); continue; fi
       AU_WANT=$((AU_WANT + 1))
       if [[ "$ADOPT_APPLY" -eq 0 ]]; then echo "WOULD_COPY $f"; continue; fi
       AU_WT="$wt"; [[ "$AU_WT" != "$ID_ROOT" ]] || AU_WT=""
@@ -982,8 +985,10 @@ case "$MODE" in
         NR == 1 && $0 == "---" { infm = 1; print; next }
         infm && $0 == "---" { ids(); print; infm = 0; next }
         infm && (/^remote:/ || /^project_root:/ || /^worktree:/) { next }
-        { print }' "$f" > "$AU_TMP" && touch -r "$f" "$AU_TMP" && mv "$AU_TMP" "$dst"; then
-        echo "COPIED $dst"
+        { print }' "$f" > "$AU_TMP" && touch -r "$f" "$AU_TMP" && ln "$AU_TMP" "$dst" 2>/dev/null; then
+        rm -f "$AU_TMP"; echo "COPIED $dst"
+      elif [[ -e "$dst" || -L "$dst" ]]; then
+        rm -f "$AU_TMP"; echo "ALREADY $dst"; AU_WANT=$((AU_WANT - 1)); AU_HAVE=$((AU_HAVE + 1))
       else
         rm -f "$AU_TMP"; echo "FAILED $f"; AU_RC=1
       fi

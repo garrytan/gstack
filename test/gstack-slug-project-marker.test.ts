@@ -264,6 +264,44 @@ describe('gstack-slug: .gstack-project marker', () => {
     expect(fs.readdirSync(old).length).toBe(3);
   });
 
+  test('--adopt-legacy --under-root never replaces what already sits at the destination name', () => {
+    const { ws, proj, app } = workspace();
+    const old = path.join(state, 'projects', 'me-workspace', 'checkpoints');
+    fs.mkdirSync(old, { recursive: true });
+    fs.writeFileSync(path.join(old, '20261001-120000-inner.md'), `---\nproject_root: ${ws}\nworktree: ${proj}\n---\n## Working on: x\n`);
+    mark(proj);
+    const dest = path.join(state, 'projects', 'org-proj', 'checkpoints');
+    fs.mkdirSync(dest, { recursive: true });
+    fs.symlinkSync(path.join(home, 'saved-elsewhere.md'), path.join(dest, '20261001-120000-inner.md'));
+    const apply = run(SLUG, app, ['--adopt-legacy', '--from', 'me-workspace', '--under-root', '--apply']);
+    expect(apply.stdout).not.toContain('COPIED');
+    expect(fs.lstatSync(path.join(dest, '20261001-120000-inner.md')).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(dest)).toEqual(['20261001-120000-inner.md']);
+  });
+
+  test('a marked folder whose name has no usable letters or digits is ignored, the same in bash and TS', () => {
+    const top = path.join(home, '项目');
+    const backend = repo(path.join(top, 'backend'), 'git@github.com:org/backend.git');
+    fs.mkdirSync(path.join(backend, 'src'));
+    mark(top);
+    expect(slug(path.join(backend, 'src'))).toBe('org-backend');
+    expect(slugFromEnvironment(state, path.join(backend, 'src'))).toBe('org-backend');
+    expect(projectMarkerRoot(top)).toBe('');
+    expect(identity(top)).toMatch(/MARKER_IGNORED=.*folder\\ name/);
+    expect(run(REMOTE_SLUG, path.join(backend, 'src')).stdout.trim()).toBe('org-backend');
+  });
+
+  test('marked folders whose paths differ only by / and _ keep separate slugs', () => {
+    const a = path.join(home, 'team_app');
+    const b = path.join(home, 'team', 'app');
+    for (const d of [a, b]) { fs.mkdirSync(d, { recursive: true }); mark(d); }
+    expect(slug(a)).toBe('team_app');
+    expect(slug(b)).toBe('app');
+    expect(slugFromEnvironment(state, b)).toBe('app');
+    expect(readVersionedSlugCache(state, b)).toBe('app');
+    expect(readVersionedSlugCache(state, a)).toBe('team_app');
+  });
+
   test('--adopt-legacy --under-root refuses where no marker applies', () => {
     const { proj } = workspace();
     const r = run(SLUG, proj, ['--adopt-legacy', '--from', 'me-workspace', '--under-root']);

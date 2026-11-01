@@ -157,10 +157,16 @@ touch path/to/folder/.gstack-project
   keep its own memory gets its own marker; the innermost marker wins.
 
 The marker's contents are ignored. It counts only when it is a regular file
-you own, below your home folder, and either at a repository's top folder or
-in a folder that isn't inside any repository. A marker in a subfolder of a
-repository, a link, a directory, or a marker in your home folder itself is
-ignored, so a repository you clone can't choose another project's memory. Commit
+you own, in a folder whose name has a letter or digit, and either at a
+repository's top folder or in a folder that isn't inside any repository. When
+you work under your home folder, a marker in your home folder itself or above
+it is ignored; outside your home folder (a CI or cloud checkout under
+`/workspace`, say) every folder up to `/` is checked, so keep stray markers out
+of shared parents. A marker in a subfolder of a repository, a link or a
+directory is ignored, so a repository you clone can't choose another project's
+memory. An umbrella without a remote of its own files under its folder name, so
+two umbrellas with the same name (`~/clientA/work` and `~/clientB/work`) share
+one memory: rename one, or pin each with `GSTACK_PROJECT_SLUG`. Commit
 it in a nested repo you share, if you like; it changes nothing for someone who
 clones that repo on its own.
 
