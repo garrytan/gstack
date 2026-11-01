@@ -3,8 +3,9 @@
  * bash finds gstack on Codex and every other `usesEnvVars` host.
  *
  * Those hosts run each fenced block in a fresh shell, so `GSTACK_ROOT`, `B`,
- * `D` and `P` set by an earlier block are gone. The preamble's root resolution and
- * the per-fence prelude come from `runtimeRootPrelude()`; `insertRuntimePreludes()`
+ * `D` and `P` set by an earlier block are gone. The preamble's skill-start fence
+ * comes from `skillStartLines()` and the per-fence prelude from
+ * `runtimeRootPrelude()`; `insertRuntimePreludes()`
  * is the single post-render pass (gen-skill-docs, before rewriteInstallRoot)
  * that puts it into every fence that uses these variables without assigning
  * them. Claude output is returned unchanged.
@@ -13,6 +14,9 @@
  * on a per-install render, the literal install root (no git call); otherwise the
  * repo-local install, then the host's global root (`CODEX_HOME` on Codex). No
  * root prints one line naming what was tried and the setup command, and exits.
+ * The skill-start fence differs (GST-882): an install-root render calls the
+ * literal install root's start script and ignores an exported `GSTACK_ROOT`, and
+ * with no root either render prints that line and lets the call fail.
  */
 import { getHostConfig } from '../../hosts/index';
 import { toShellPath, type TemplateContext } from './types';
