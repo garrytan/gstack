@@ -934,24 +934,43 @@ PYEOF
 # path in the NUL-separated names file $1 whose index blob does not parse
 # (#3763): a git merge can leave conflict markers in a synced JSON file, and
 # committing it spreads an unreadable file to every machine. A path the
-# secret scan already flagged is held for that reason alone.
+# secret scan already flagged is held for that reason alone. One
+# `git cat-file --batch` reads the index blobs; a staged deletion has none.
 append_invalid_json_hits() {
-  python3 - "$GSTACK_HOME" "$1" "$2" <<'PYEOF'
-import json, subprocess, sys
-home, names_path, hits_path = sys.argv[1:4]
+  python3 - "$1" "$2" "$1.json" <<'PYEOF' || return 1
+import sys
+names_path, hits_path, out_path = sys.argv[1:4]
 with open(names_path, "rb") as f:
-    names = [p for p in f.read().decode("utf-8", "surrogateescape").split("\0") if p.endswith(".json")]
+    names = [p for p in f.read().decode("utf-8", "surrogateescape").split("\0") if p.endswith(".json") and "\n" not in p]
 with open(hits_path, encoding="utf-8", errors="surrogateescape") as f:
     flagged = {l.rstrip("\r\n").split("\t", 1)[-1] for l in f if "\t" in l}
+with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
+    for p in names:
+        if p not in flagged:
+            out.write(":" + p + "\n")
+PYEOF
+  [ -s "$1.json" ] || return 0
+  git -C "$GSTACK_HOME" cat-file --batch < "$1.json" > "$1.json.blobs" 2>/dev/null || return 1
+  python3 - "$1.json" "$1.json.blobs" "$2" <<'PYEOF'
+import json, sys
+batch_path, blobs_path, hits_path = sys.argv[1:4]
+with open(batch_path, encoding="utf-8", errors="surrogateescape") as f:
+    names = [l[1:].rstrip("\n") for l in f if l.startswith(":")]
+with open(blobs_path, "rb") as f:
+    data = f.read()
+pos = 0
 with open(hits_path, "a", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
     for p in names:
-        if p in flagged:
+        nl = data.index(b"\n", pos)
+        header = data[pos:nl].split(b" ")
+        pos = nl + 1
+        if header[-1] == b"missing":
             continue
-        blob = subprocess.run(["git", "-C", home, "cat-file", "blob", ":" + p], capture_output=True)
-        if blob.returncode != 0:
-            continue
+        size = int(header[2])
+        blob = data[pos:pos + size]
+        pos += size + 1
         try:
-            json.loads(blob.stdout.decode("utf-8"))
+            json.loads(blob.decode("utf-8"))
         except ValueError:
             out.write("invalid-json\t" + p + "\n")
 PYEOF
