@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.92.35.0] - 2026-11-01
+
+- **A `.gstack/pregate.json` that only raises `timeout_s` no longer changes lane verdicts, `warn: ["lanes"]` no longer lets a failing test pass, and a `[]` declaration no longer skips a deleted test's suite** (GST-775, from gbrain-evals #272 and GBEV-22).
+  - Before, any policy file, even `{"timeout_s": 1800}`, made a touched file with no test lane a hard `PREGATE_NO_LANE` that stopped before any test ran. Now only a policy that declares lanes (a `dependencies`, `empty_lanes`, `selection` or `local` key, even an empty one) does that. A policy with none of them keeps the no-policy verdict: `warn` `PREGATE_NO_POLICY` with a starter, the selected tests run, and a red test is still `PREGATE_LANE_FAILED`. A hand-written policy that sets only `runner`, `guards`, `strays`, `allowlist` or `remote_gate` moves from the hard failure to that warning; add `dependencies` to keep unmapped files failing. See docs/pregate.md#lane-requirements.
+  - `warn: ["lanes"]` used to downgrade the missing-lane failure before the tests ran, so a red test beside an unmapped file passed. Now the selected tests run first. A red lane is `fail`, an unfinished one `incomplete`, a test only a platform lane runs stays `requires-remote`, and only a green run becomes `warn` `PREGATE_NO_LANE` naming the unmapped files.
+  - A `[]` declaration that matches a deleted test (the `"**": []` catch-all) used to clear it before the removed-test handling, so its owning suite did not run. Now the deleted test still runs its owning suite, and a file naming it that a `[]` covers, such as a durations list, counts as covered.
+
 ## [1.92.34.0] - 2026-11-01
 
 - `gstack-ship-queue wave plan` no longer packs the whole READY queue into one area. Shared files now link two PRs into one group only when `git merge-tree` finds a real conflict between them in a code file or skill template. PRs of the same area still pack together as before. Docs, other Markdown and JSON ledgers never link PRs, since most PRs add to them. Before, any shared file linked two PRs, so `docs/troubleshooting.md` and a few ledgers chained 55 READY PRs into eight waves all labeled `setup`. With this change, the 57-PR queue later that day gives five groups split by area. A READY head whose CI is red or still running now prints `NOT_GREEN: #<n> (...)` and stays out of the plan, as `ready` would refuse it. A head whose CI cannot be read fails the plan with `QUEUE_PROOF_MISSING`, the same as an unreadable PR. Renamed files are compared by their real paths (GST-770).
