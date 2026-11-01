@@ -21,7 +21,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = (name: string) => path.join(ROOT, 'bin', name);
 const big = Array.from({ length: 80 }, (_, i) => `exports.f${i} = () => ${i};`).join('\n') + '\n';
 
-interface Fx { root: string; origin: string; clone: string; control: string; noMain: string; home: string; failGh: string; releaseGh: string; env: Record<string, string> }
+interface Fx { root: string; origin: string; clone: string; control: string; noMain: string; alias: string; trunk: string; develop: string; home: string; failGh: string; releaseGh: string; env: Record<string, string> }
 let fx: Fx;
 
 function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = fx.env) {
@@ -51,7 +51,7 @@ beforeAll(() => {
   const failGh = stub(path.join(root, 'gh-fail'), 'exit 1');
   const releaseGh = stub(path.join(root, 'gh-release'), 'echo release');
   const env = { HOME: home, GSTACK_STATE_ROOT: home, GSTACK_HOME: home, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1', PATH: `${failGh}${path.delimiter}${process.env.PATH}` };
-  fx = { root, origin: path.join(root, 'origin.git'), clone: path.join(root, 'clone'), control: path.join(root, 'control'), noMain: path.join(root, 'nomain'), home, failGh, releaseGh, env };
+  fx = { root, origin: path.join(root, 'origin.git'), clone: path.join(root, 'clone'), control: path.join(root, 'control'), noMain: path.join(root, 'nomain'), alias: path.join(root, 'alias'), trunk: path.join(root, 'trunk'), develop: path.join(root, 'develop'), home, failGh, releaseGh, env };
   const seed = path.join(root, 'seed');
   run('git', ['init', '-q', '--bare', '-b', 'main', fx.origin], root);
   run('git', ['init', '-q', '-b', 'main', seed], root);
@@ -80,6 +80,18 @@ beforeAll(() => {
   git(nomainOrigin, 'symbolic-ref', 'HEAD', 'refs/heads/trunk');
   run('git', ['clone', '-q', '--branch', 'pr-branch', nomainOrigin, fx.noMain], root);
   git(fx.noMain, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/pr-branch');
+  git(fx.noMain, 'remote', 'set-url', 'origin', path.join(root, 'offline.git'));
+  run('git', ['clone', '-q', nomainOrigin, fx.trunk], root);
+
+  run('git', ['clone', '-q', fx.origin, fx.alias], root);
+  git(fx.alias, 'checkout', '-q', '-b', 'work', '--track', 'origin/pr-branch');
+  git(fx.alias, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/pr-branch');
+
+  const developOrigin = path.join(root, 'develop.git');
+  run('git', ['clone', '-q', '--bare', fx.origin, developOrigin], root);
+  git(developOrigin, 'branch', 'develop', 'pr-branch');
+  git(developOrigin, 'symbolic-ref', 'HEAD', 'refs/heads/develop');
+  run('git', ['clone', '-q', developOrigin, fx.develop], root);
 });
 afterAll(() => { if (fx) fs.rmSync(fx.root, { recursive: true, force: true }); });
 
@@ -275,6 +287,34 @@ describe('baseContainsHead keeps today\'s result where the branch is not compare
       } finally { git(fx.control, 'checkout', '-q', 'pr-branch'); }
       expect(defaultBaseBranch(fx.noMain)).toEqual({ branch: null, skipped: { remote: 'origin', branch: 'pr-branch' } });
       expect(defaultBaseBranch(fx.control)).toEqual({ branch: 'main', remote: 'origin' });
+    });
+  }, 120_000);
+});
+
+describe('a remote HEAD naming the branch under another name is skipped; a real default branch is kept', () => {
+  // Value: protects=a local branch tracking the PR branch, one cut from its tip, and a detached checkout of it never take the PR
+  //   branch as their base, while a repository whose default is develop or trunk keeps it; fails_when=the skip compares names only,
+  //   so a differently named checkout reads the PR against itself (an empty diff with exit 0), or the skip falls through to a
+  //   stale main or to no base on the default branch itself; why_new=the outside voice and the adversarial pass reproduced both;
+  //   seam=lib/default-base.ts
+  test('upstream, same commit and detached checkouts resolve main; develop and trunk resolve from the remote\'s live HEAD', () => {
+    withEnv(fx.env, () => {
+      expect(defaultBaseBranch(fx.alias).branch).toBe('main');
+      expect(baseContainsHead(fx.alias, 'origin/pr-branch')).toContain('on work, whose commits origin/main lacks; the real base is main');
+      const aliased = bin('gstack-diff-scope', [], fx.alias);
+      expect(aliased.status, aliased.out).toBe(0);
+      expect(aliased.out).toContain('SCOPE_BACKEND=true');
+      git(fx.alias, 'checkout', '-q', '--no-track', '-b', 'work-2', 'origin/pr-branch');
+      try { expect(defaultBaseBranch(fx.alias).branch).toBe('main'); } finally { git(fx.alias, 'checkout', '-q', 'work'); }
+      git(fx.alias, 'checkout', '-q', '--detach', 'origin/pr-branch');
+      try { expect(defaultBaseBranch(fx.alias).branch).toBe('main'); } finally { git(fx.alias, 'checkout', '-q', 'work'); }
+      expect(defaultBaseBranch(fx.trunk)).toEqual({ branch: 'trunk', remote: 'origin', skipped: { remote: 'origin', branch: 'trunk' } });
+      expect(defaultBaseBranch(fx.develop).branch).toBe('develop');
+      for (const cwd of [fx.trunk, fx.develop]) {
+        const onDefault = bin('gstack-diff-scope', [], cwd);
+        expect(onDefault.status, onDefault.out).toBe(0);
+        expect(onDefault.out).not.toContain('=true');
+      }
     });
   }, 120_000);
 });

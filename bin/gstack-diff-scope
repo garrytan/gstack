@@ -5,6 +5,9 @@
 # Or:    gstack-diff-scope <base> --head <sha> → the committed range <base>...<sha> only
 #        (no working tree, no untracked files): what a receipt writer and the
 #        merge queue compute for one commit, from any checkout (GSTA-147).
+# Or:    gstack-diff-scope <base> --head <sha> --merged → the same for a head GitHub
+#        already merged into the base (land resuming a true merge): the empty range
+#        is the answer, so the base-contains-head refusal below does not apply.
 #
 # Output contract (#2526 — all-false must be distinguishable from "we could
 # not look" and from "nothing matched"):
@@ -31,8 +34,9 @@ set -euo pipefail
 
 # Detect the repo's default branch when no arg is given (#703-class
 # platform-agnostic rule, lib/default-base.ts): origin/HEAD unless it names the
-# checked-out branch (a PR flow's clone can point it at the PR branch, GST-511,
-# GST-774) -> the PR's base (gh, 5 s) -> origin/main -> origin/master -> main.
+# checked-out branch, its upstream or HEAD's commit (a PR flow's clone can point
+# it at the PR branch, GST-511, GST-774) -> the PR's base (gh, 5 s) -> the
+# remote's live HEAD (ls-remote, 5 s) -> origin/main -> origin/master -> main.
 # An origin/HEAD skipped that way with nothing past it resolving leaves BASE
 # empty, and that fails closed; so does a default-base.ts that cannot run.
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
@@ -50,7 +54,9 @@ if [ -z "$BASE" ]; then
   esac
 fi
 HEAD_REF=""
+MERGED_HEAD=false
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
+if [ -n "$HEAD_REF" ] && [ "${4:-}" = "--merged" ]; then MERGED_HEAD=true; fi
 
 FRONTEND=false
 BACKEND=false
@@ -108,7 +114,7 @@ fi
 # itself, all false with exit 0 (GST-774). lib/default-base.ts decides whether
 # that is the base branch itself or a fresh branch (today's output) or a
 # refusal; it is asked only when git says the base contains the head.
-if git merge-base --is-ancestor "${HEAD_REF:-HEAD}" "${BASE}" >/dev/null 2>&1; then
+if [ "$MERGED_HEAD" = false ] && git merge-base --is-ancestor "${HEAD_REF:-HEAD}" "${BASE}" >/dev/null 2>&1; then
   _rc=0
   _why=$(_default_base_ts check "$BASE" "${HEAD_REF:-HEAD}" gstack-diff-scope 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then

@@ -1,12 +1,14 @@
 /**
  * default-base — the base branch a command uses when none is given (GST-511), and the
  * refusal every base-relative step shares when its base is the branch itself (GST-774).
- * A remote's HEAD counts only when it names a branch other than the checked-out one: a
- * clone made by a PR flow can point origin/HEAD at the PR branch, and that base diffs
- * the branch against itself, an empty diff every gate passes. Past it: the PR's base
- * from gh (a short timeout, prompts off, any failure ignored; none for a PR from another
- * repository), then `<remote>/main`, then `<remote>/master`. A detached HEAD keeps the
- * remote's HEAD. bin/gstack-diff-scope reads both through this file's command line.
+ * A remote's HEAD counts only when it names a branch other than the checked-out one, its
+ * upstream, or HEAD's own commit: a clone made by a PR flow can point origin/HEAD at the PR
+ * branch, and that base diffs the branch against itself, an empty diff every gate passes.
+ * Past it: the PR's base from gh, then the remote's live HEAD (`git ls-remote --symref`,
+ * which keeps a default branch such as develop or trunk), then `<remote>/main`, then
+ * `<remote>/master`. Both network reads use a 5 s timeout with prompts off and ignore any
+ * failure; gh names no base for a PR from another repository. bin/gstack-diff-scope reads
+ * both through this file's command line.
  */
 import { spawnSync } from 'node:child_process';
 import { resultLine } from './result-codes';
@@ -36,17 +38,23 @@ const ancestor = (cwd: string, a: string, b: string) => spawnSync('git', ['merge
 
 export function defaultBaseBranch(cwd: string, remotes: readonly string[] = ['origin']): DefaultBase {
   const current = read('git', ['symbolic-ref', '--quiet', 'HEAD'], cwd, 30_000).replace(/^refs\/heads\//, '');
+  const upstream = current ? read('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], cwd, 30_000) : '';
+  const headSha = commit(cwd, 'HEAD');
   let skipped: DefaultBase['skipped'];
   for (const remote of remotes) {
     const prefix = `refs/remotes/${remote}/`;
     const target = read('git', ['symbolic-ref', '--quiet', `${prefix}HEAD`], cwd, 30_000);
     if (!target.startsWith(prefix)) continue;
     const branch = target.slice(prefix.length);
-    if (branch !== current) return { branch, remote };
+    if (branch !== current && upstream !== `${remote}/${branch}` && commit(cwd, target) !== headSha) return { branch, remote };
     skipped ??= { remote, branch };
   }
   const pr = current ? read('gh', ['pr', 'view', '--json', 'baseRefName,isCrossRepository', '-q', PR_BASE], cwd, 5_000).split('\n')[0] : '';
   if (pr) return { branch: pr, skipped };
+  if (skipped) {
+    const live = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(read('git', ['ls-remote', '--symref', skipped.remote, 'HEAD'], cwd, 5_000))?.[1];
+    if (live) return { branch: live, remote: skipped.remote, skipped };
+  }
   for (const name of ['main', 'master']) {
     if (remotes.some((remote) => commit(cwd, `refs/remotes/${remote}/${name}`))) return { branch: name, skipped };
   }

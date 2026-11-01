@@ -14,9 +14,11 @@ import { EXIT } from '../lib/headless-artifacts';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { resolveReleaseConflicts } from '../lib/ship-queue-land';
+import { receiptDepthAtHead } from '../lib/ship-receipt-depth';
 import { mergePolicy } from '../lib/ship-policy';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 
+const ROOT = path.resolve(import.meta.dir, '..');
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -564,16 +566,21 @@ describe('land: one pass, base, lock and history', () => {
   }, 90_000);
 
   // Value: protects=a merge-only land interrupted after GitHub merged resumes to LANDED, though a true merge puts the pin inside
-  //   the base; fails_when=the receipt check refuses the merged pin as BASE_CONTAINS_HEAD and the lock is never released;
-  //   why_new=GST-774's base guard, and the shim only squashed; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
-  test('merge-only: a true merge that errored after GitHub merged resumes to LANDED, not BASE_CONTAINS_HEAD', () => {
+  //   the base; fails_when=the receipt check refuses the merged pin as BASE_CONTAINS_HEAD, or its depth check reads the empty
+  //   range as a scope error and raises the depth, and the lock is never released; why_new=GST-774's base guard, and the shim
+  //   only squashed; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
+  test('merge-only: a true merge that errored after GitHub merged resumes to LANDED with a depth-bearing receipt', () => {
     const fx = setup({ ...POLICY, history: 'merge-only' });
-    openPr(fx, '14');
+    const head = openPr(fx, '14');
+    const depth = receiptDepthAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head);
+    expect(depth.depth).toBe('light');
+    fx.write(d => { d.prs['14'].body = shippedBody('14', head, { gstack_version: '1.91.400.0', review_depth: depth }); });
     land(fx, ['--pr', '14']);
     fx.write(d => { d.trueMerge = true; d.mergeErrorAfter = true; });
     expect(land(fx, ['--pr', '14']).err).toContain('HTTP 502');
     const again = land(fx, ['--pr', '14']);
-    expect(again.out).not.toContain('BASE_CONTAINS_HEAD');
+    expect(again.out + again.err).not.toMatch(/BASE_CONTAINS_HEAD|QUEUE_RECEIPT_DEPTH_RAISED/);
+    expect(again.out).toMatch(/^REVIEW_DEPTH: receipt=light required=light /m);
     expect(again.out).toContain('LANDED: ');
   }, 90_000);
 });
