@@ -3261,8 +3261,8 @@ or `REALITY: surface-check finding bun upgrade --version absent on 1.3.14 bin/gs
 else runs. The command must be a gstack bin or one of the listed read-only CLIs
 (git, gh, bun, node, npm, pnpm, yarn, jq, rg, python3, uv, go, cargo, make,
 docker, claude, codex, gemini), found on PATH outside the repository; a gstack
-bin must handle `--help`. Up to two subcommand words are allowed for git, gh,
-docker, cargo, go, npm and uv, each from that CLI's list of built-in names in
+bin must handle `--help`. Subcommand words are allowed for git, gh,
+docker, cargo, go, npm and uv (one word for git, cargo and npm; up to two for gh, docker, go and uv), each from that CLI's list of built-in names in
 `lib/office-hours-probe.ts`; words that run a named program, script, image or
 extension (`uv run`, `docker run`, `go test`, `npm exec`, a gh extension) are
 refused. The probe never runs a shell or a repository-local program (PATH
