@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { frontmatterList } from '../lib/skill-triggers';
 import { QUESTIONS } from '../scripts/question-registry';
 import { generateUpgradeCheck } from '../scripts/resolvers/preamble/generate-upgrade-check';
 
@@ -149,5 +150,41 @@ describe('proactive core set: every surface names the same four skills and three
     expect(surfaces['docs/proactive.md']).toContain('`true` and `false`');
     for (const value of ['all', 'off', 'core']) expect(surfaces['docs/proactive.md']).toContain(`gstack-config set proactive ${value}`);
     expect(routerTmpl.replace(/\s+/g, ' ')).toContain('`gstack-config set proactive core` restores the default');
+  });
+});
+
+/**
+ * Value: protects=the four core skills, the ones gstack routes by plain speech
+ * under the core default, carry their own `triggers:` phrases where hosts read
+ * them: at least one in the Claude catalog one-liner, every one in the full
+ * description other hosts keep, and no core one-liner phrase in another
+ * skill's one-liner; fails_when=a core lead or description loses its trigger
+ * phrases, or a trigger phrase also matches another skill's catalog entry;
+ * why_new=#2118: `triggers:` was metadata no host reads, and no test tied it
+ * to a description; seam=none; no_claim=how a host ranks or picks skills
+ * (static text, no model run)
+ */
+describe('proactive core set: core skills carry their trigger phrases (#2118)', () => {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').toLowerCase();
+  const description = (md: string): string => {
+    const fm = md.slice(0, md.indexOf('\n---', 4));
+    const block = fm.match(/^description:\s*\|\s*\n((?:[ \t]+.*\n|\n)+)/m)?.[1];
+    return norm(block ?? fm.match(/^description:\s*(.+)$/m)?.[1]?.replace(/^"|"$/g, '') ?? '');
+  };
+  const skillDirs = fs.readdirSync(ROOT).filter(dir => fs.existsSync(path.join(ROOT, dir, 'SKILL.md.tmpl')) && fs.existsSync(path.join(ROOT, dir, 'SKILL.md')));
+  const catalog = Object.fromEntries(skillDirs.map(dir => [dir, description(fs.readFileSync(path.join(ROOT, dir, 'SKILL.md'), 'utf-8'))]));
+
+  test.each(CORE.map(s => s.slice(1)))('%s: every trigger phrase is in its full description, and one is in its catalog one-liner that no other one-liner carries', (skill) => {
+    const tmpl = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md.tmpl'), 'utf-8');
+    const triggers = frontmatterList(tmpl, 'triggers').map(norm);
+    expect(triggers.length).toBeGreaterThan(0);
+    const full = description(tmpl);
+    for (const phrase of triggers) expect(full, `${skill} full description lacks "${phrase}"`).toContain(phrase);
+    const inCatalog = triggers.filter(phrase => catalog[skill].includes(phrase));
+    expect(inCatalog.length, `${skill} one-liner "${catalog[skill]}" carries none of ${triggers.join(', ')}`).toBeGreaterThan(0);
+    for (const phrase of inCatalog) {
+      const others = skillDirs.filter(dir => dir !== skill && catalog[dir].includes(phrase));
+      expect(others, `"${phrase}" also in`).toEqual([]);
+    }
   });
 });
