@@ -362,6 +362,24 @@ describe('a bare base name reads origin/<base> when it exists (#3650)', () => {
     git('update-ref', `refs/remotes/origin/${git('rev-parse', 'release/x')}`, 'HEAD');
     expect(scopeAt(dir, git('rev-parse', 'release/x')).SCOPE_BACKEND).toBe('true');
   });
+
+  test('a colliding tag, a fork branch over an explicit remote base, or an unrelated twin never replaces the base (#3650 review)', () => {
+    const { dir, git } = behindBase('main');
+    const upstreamCommit = git('rev-parse', 'origin/main');
+    git('tag', 'origin/main', 'HEAD');
+    expect([scopeAt(dir, 'main').SCOPE_BACKEND, scopeAt(dir, 'main').SCOPE_DOCS]).toEqual(['false', 'true']);
+    git('remote', 'add', 'upstream', 'file:///nonexistent-upstream');
+    git('update-ref', 'refs/remotes/upstream/main', git('rev-parse', 'main'));
+    git('update-ref', 'refs/remotes/origin/upstream/main', 'HEAD');
+    expect(scopeAt(dir, 'upstream/main').SCOPE_BACKEND).toBe('true');
+    git('tag', '-d', 'origin/main');
+    git('checkout', '-q', '--orphan', 'island');
+    git('commit', '-q', '--allow-empty', '-m', 'unrelated');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    expect(scopeAt(dir, 'main').SCOPE_BACKEND).toBe('true');
+    expect(upstreamCommit).not.toBe('');
+  });
 });
 
 describe('uncommitted work is visible (#2299)', () => {

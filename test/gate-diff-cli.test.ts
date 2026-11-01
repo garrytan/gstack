@@ -179,6 +179,33 @@ describe('gstack-gate-diff arguments and exit contract', () => {
     expect(bare.stderr).toContain('gstack-gate-diff: local main is not origin/main; base is origin/main');
   });
 
+  // Value: protects=a ref a contributor controls (a fork's origin/upstream/main branch, a tag named origin/main, another
+  // remote's main) never replaces the base the caller named or a related local base, so it cannot hide a gate edit;
+  // fails_when=resolveBase rewrites remote-qualified names, resolves the twin by its short name, or lets any remote beat a
+  // related local base; why_new=the cases above have one remote and no colliding refs; seam=none; no_claim=nothing about
+  // a remote's HEAD symref.
+  test('a fork branch, a colliding tag or another remote never replaces the base (#3650 review)', () => {
+    const src = repo({ fixture: 'rh1-skip', commit: true });
+    const seed = gitIn(src, ['rev-parse', 'main']).trim();
+    const clone = (remote: string) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-refs-'));
+      repos.push(dir);
+      gitIn(dir, ['clone', '-q', '-o', remote, '--branch', 'feature', `file://${src}`, '.']);
+      return dir;
+    };
+    const named = clone('upstream');
+    gitIn(named, ['remote', 'add', 'origin', 'file:///nonexistent-fork']);
+    gitIn(named, ['update-ref', 'refs/remotes/origin/upstream/main', 'HEAD']);
+    expect(summary(run(named, ['upstream/main']).stdout).tagged).toBe('RH-1:1');
+    const tagged = clone('origin');
+    gitIn(tagged, ['tag', 'origin/main', 'HEAD']);
+    expect(summary(run(tagged, ['main']).stdout).tagged).toBe('RH-1:1');
+    const fork = clone('zfork');
+    gitIn(fork, ['branch', '-f', 'main', seed]);
+    gitIn(fork, ['update-ref', 'refs/remotes/zfork/main', 'HEAD']);
+    expect(summary(run(fork, ['main']).stdout).tagged).toBe('RH-1:1');
+  });
+
   test('a clone whose only remote is upstream resolves the base to upstream/main, and the fix line fetches from upstream', () => {
     const src = repo({ fixture: 'rh1-skip', commit: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gate-diff-upstream-'));
