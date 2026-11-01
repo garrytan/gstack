@@ -11,7 +11,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ROOT, resultOf } from './helpers/autoplan-run-fixture';
+import { ROOT, recCarrying, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, writePlan } from './helpers/autoplan-capy';
 
 const r = capyRunner();
@@ -69,7 +69,8 @@ describe('Capy Captain flow', () => {
     expect(j.brief).toStartWith('**Decision needed:** approve the plan "Retry backoff for the webhook worker".');
     for (const h of ['### Before → after', '### Why it matters', '### What caused this work', '### Big decisions', '### What we need from you']) expect(j.brief).toContain(h);
 
-    const answer = r.ap(['answer', '--out', out, '--gate-rev', String(j.gate_rev), '--reply', 'rec', '--rec-hash', j.rec_hash, '--by', 'agent:GSTA-1', '--owner-reply', 'rec']);
+    const reply = recCarrying(out, 'rec');
+    const answer = r.ap(['answer', '--out', out, '--gate-rev', String(j.gate_rev), '--reply', reply, '--rec-hash', j.rec_hash, '--by', 'agent:GSTA-1', '--owner-reply', reply]);
     expect(answer.status, answer.stderr + answer.stdout).toBe(0);
     expect(answer.stdout).toMatch(/^APPROVED: gate_rev=1/m);
 
@@ -84,7 +85,7 @@ describe('Capy Captain flow', () => {
     expect(bin('gstack-approvals', ['import', '--autoplan', out, '--by', 'Garry'], env, repo).stdout).toMatch(/^APPROVAL_IMPORTED: n=0 skipped=1 /);
     const table = bin('gstack-approvals', ['render'], env, repo).stdout;
     expect(table).toContain('Approve the plan "Retry backoff for the webhook worker"');
-    expect(table).toContain('“rec” (Garry, relayed by agent:GSTA-1) | approved |');
+    expect(table).toContain(`“${reply}” (Garry, relayed by agent:GSTA-1) | approved |`);
     expect(fs.readdirSync(path.join(mirror, 'acme-worker')).length).toBe(1);
   });
 

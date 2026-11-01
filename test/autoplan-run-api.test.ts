@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { DEFAULT_MAX_TOKENS } from '../lib/outside-voice-api';
 import { AUTOPLAN, ROOT, SMALL_PLAN, env } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-run-api-'));
@@ -72,7 +73,7 @@ describe('gstack-autoplan run --native-runner api --runner api', () => {
     expect(ledger.settled.length).toBe(4);
     for (const s of ledger.settled) expect(s.usd).toBeGreaterThan(0);
     expect(openaiLimits.length).toBeGreaterThan(0);
-    for (const limit of openaiLimits) expect(limit).toBe(16_384);
+    for (const limit of openaiLimits) expect(limit).toBe(DEFAULT_MAX_TOKENS);
     calls = 0;
     const zero = await run('zero-cap', ['--spend-cap', '0']);
     expect(zero.status).toBe(3);
