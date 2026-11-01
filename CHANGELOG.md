@@ -1,5 +1,86 @@
 # Changelog
 
+## [1.92.37.0] - 2026-11-01
+
+- **A Red Team finding that quotes `origin/<base>` no longer stops `/ship`'s review** (`lib/review-brief.ts`, GST-797). The renderer checked each finished brief for unfilled slots like `<base>`, `<diff-base>` and `<exclude>` after the reviewers' findings and past learnings had been pasted in, so a finding that quoted one failed the render with `BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>` (seen on #3795). A quoted `<diff-base>` was also quietly swapped for the commit sha. The check now runs on the brief before that text goes in, and the quoted text reaches the reader exactly as written. A slot the section really leaves open still fails the render. A brief whose findings and learnings quote no slot name renders the same bytes as before.
+
+## [1.92.36.0] - 2026-11-01
+
+**/ship's review collector keeps every severity label again, so a blocker named after "no CRITICAL issues except" is no longer lost.** v1.92.29.0 (GST-766) skipped any severity word that followed "no", "nothing", "none" and similar words, to stop a reviewer's closing line like "found nothing CRITICAL" from counting as a finding. That also threw away real blockers named in an exception clause: "No CRITICAL issues except the token leak in log.ts:3", "Nothing CRITICAL apart from the auth bypass (auth.ts:9)" and four more wordings collected nothing at all, so the gate never saw them. The collector now reads labels exactly as it did before v1.92.29.0. The reviewer's own Severity and Blocks fields are still recorded beside the label (`stated`), as in v1.92.29.0.
+
+### Known
+- **A reviewer's closing summary collects at its label again.** Lines like "found nothing CRITICAL" or "Neither finding is CRITICAL." collect as CRITICAL, the same as before v1.92.29.0. They are known phantoms. Each stays CRITICAL in the judged set (lead judgment can fold it only into a finding at least as severe), so it counts toward what blocks. A lost blocker costs more than an extra one.
+
+### Tests
+- `test/review-dispatch.test.ts`: the six exception-clause wordings collect CRITICAL for every reader. GST-766's test that a negated label collects nothing now checks that each of those lines keeps its label. GST-435's label-keeping probes (table rows, FIXABLE, negated subjects, closing summaries kept as known phantoms) are added with their HARN-15 and GEVA-77 fixtures under `test/fixtures/review-ledger/`.
+
+### Docs
+- `docs/review-policy.md` (collect) says a negated severity word still collects at its label.
+
+## [1.92.35.0] - 2026-11-01
+
+- **A `.gstack/pregate.json` that only raises `timeout_s` no longer changes lane verdicts, `warn: ["lanes"]` no longer lets a failing test pass, and a `[]` declaration no longer skips a deleted test's suite** (GST-775, from gbrain-evals #272 and GBEV-22).
+  - Before, any policy file, even `{"timeout_s": 1800}`, made a touched file with no test lane a hard `PREGATE_NO_LANE` that stopped before any test ran. Now only a policy that declares lanes (a `dependencies`, `empty_lanes`, `selection` or `local` key, even an empty one) does that. A policy with none of them keeps the no-policy verdict: `warn` `PREGATE_NO_POLICY` with a starter, the selected tests run, and a red test is still `PREGATE_LANE_FAILED`. A hand-written policy that sets only `runner`, `guards`, `strays`, `allowlist` or `remote_gate` moves from the hard failure to that warning; add `dependencies` to keep unmapped files failing. See docs/pregate.md#lane-requirements.
+  - `warn: ["lanes"]` used to downgrade the missing-lane failure before the tests ran, so a red test beside an unmapped file passed. Now the selected tests run first. A red lane is `fail`, an unfinished one `incomplete`, a test only a platform lane runs stays `requires-remote`, and only a green run becomes `warn` `PREGATE_NO_LANE` naming the unmapped files.
+  - A `[]` declaration that matches a deleted test (the `"**": []` catch-all) used to clear it before the removed-test handling, so its owning suite did not run. Now the deleted test still runs its owning suite, and a file naming it that a `[]` covers, such as a durations list, counts as covered.
+
+## [1.92.34.0] - 2026-11-01
+
+- `gstack-ship-queue wave plan` no longer packs the whole READY queue into one area. Shared files now link two PRs into one group only when `git merge-tree` finds a real conflict between them in a code file or skill template. PRs of the same area still pack together as before. Docs, other Markdown and JSON ledgers never link PRs, since most PRs add to them. Before, any shared file linked two PRs, so `docs/troubleshooting.md` and a few ledgers chained 55 READY PRs into eight waves all labeled `setup`. With this change, the 57-PR queue later that day gives five groups split by area. A READY head whose CI is red or still running now prints `NOT_GREEN: #<n> (...)` and stays out of the plan, as `ready` would refuse it. A head whose CI cannot be read fails the plan with `QUEUE_PROOF_MISSING`, the same as an unreadable PR. Renamed files are compared by their real paths (GST-770).
+
+## [1.92.33.0] - 2026-11-01
+
+**Eleven flaky tests from the 2026-10-31 flaky pass stop failing correct runs, and six more now name their cause when they fail.** Three paid detectors missed correct replies, one product script copied a file git was rewriting, and the free-test reds came from a binary's slow first launch on a fresh Windows runner, a fixture written in two steps and a cleanup that raced the runner's own scanner.
+
+### Fixed
+- **`scripts/ubicloud/ubi-runner.sh`**: `pack` copies the live `.git/index` with `cat` instead of `cp`. Git renames `index.lock` over the index, and GNU cp 9.4 then fails with "replaced while being copied" (Free Tests 41073582974). A loop that swaps the index during 300 packs failed 10 times before and 0 after.
+- **Windows cold first launch** (`test/helpers/warm-first-exec.ts`): `test/land-and-deploy-flow.test.ts`, `test/skill-positional-literals.test.ts`, `test/team-init-hook-shell-neutral.test.ts` and `browse/test/cookie-import-node.test.ts` launch jq, awk or PowerShell once, unasserted, before the timed calls. On 12 fresh windows-latest VMs (run 41205346554) a first launch cost jq 60-250 ms, awk 190-290 ms and PowerShell 1.7-3.1 s more than a warm one, and in every red the file's first launch was the call that hit its kill (Windows Free Tests 41195098239, 41196095371, 41175329114, 41174352235, 41175308095, 41187420609, 41152107410). Every timed call keeps its kill.
+- **`browse/test/terminal-agent-publication-lock.test.ts`**: the preload writes its `ready` file to a temporary name and renames it, so the kill hook never parses a half-written file (Free Tests 41156375412).
+- **`test/qa-only-browser-probe.test.ts`**: on a Windows EBUSY the cleanup asks Restart Manager who holds browse.exe, waits up to 5 s only when the holder is outside the test (the runner's `provjobd.exe`), then removes once more; a test-host holder or a second failure throws with the owners named (Windows Free Tests 41068546881, 41172879765).
+- **`test/strict-output-settlement.test.ts`**: the missing-close case gives its child a 2 s wall instead of 150 ms. It asserts no elapsed time, and a child on a loaded Windows runner took over 150 ms to exit (Windows Free Tests 41164892775).
+
+### Gate integrity
+- **plan-design-with-ui-scope** (`test/skill-e2e-plan-design-with-ui.test.ts`): the focus question also counts when its "All 7" option carries a letter, as in "A) All 7 passes" (paid gates 41178131219 and 41186376825). Both questions are saved as fixtures; the phrase not leading the label, a 4/7 rating and a label without "focus" still count zero.
+- **review-coverage-audit** (`test/helpers/coverage-audit-evidence.ts`): a grep display over two or more literal files after the reads no longer voids the whole call (gate 41149166998). An option, a substitution, a redirect or a tampered read still gets no credit, and a quoted file name with a space stays one operand.
+- **tpa-absent** (`test/helpers/third-party-actions.ts`): the passive pitch's negation check covers only the clause that holds "can be downloaded", so "Aside is not installed but can be downloaded at aside.com" counts once; "cannot", "never", "not something that" and "is not available to download" still count zero. The clause scan is linear: 112 KB of model text takes about 0.2 s, not 7 s.
+
+### Changed
+- Seven tests and helpers gain diagnostics so the next red names its cause. The workflow judge records response bytes and the time of the last byte, so a silent socket and a model thinking on a live connection look different (gate 41185637598); `test/gstack-ship-queue.test.ts` keeps the refusing call's stderr; the ship-budget harness names a call that ended without an exit code; `test/helpers/plan-review-board-feedback.ts`, `test/team-init-hook-shell-neutral.test.ts` and `test/ship-hook-windows-paths.test.ts` print each step's or spawn's time; the ios-qa loopback tests use a listener that drops every connection and a 10 s proxy timeout, so a stuck hop fails as a named 504 instead of a bare 30 s test timeout.
+
+## [1.92.32.0] - 2026-11-01
+
+**Four flakes from the 2026-10-29 flaky pass stop failing correct runs.** Three free-tier tests failed on harness timing (a half-written marker file, a Windows kill that left a process tree behind, a hook kill set at 5 s), and the plan-devex-finding-floor paid case waited out 600 s after a provider error. Each repair has a free test that fails without it.
+
+### Fixed
+- **`browse/test/xvfb.test.ts`**: the welcome marker is written with `atomicWriteSync`, so the test never parses a half-written file (Linux Free Tests 40791645916 and 40847105381: "JSON Parse error: Unexpected EOF").
+- **`test/ship-publication-gates.test.ts`**: each publication block runs under a 27 s case deadline, below bun's 30 s test timeout. A block still running at the deadline, or one whose background child still holds its output, is killed with its whole process tree before cleanup, and the error names the stage and what the earlier stages took. Four Windows runs (40803875149, 40820968738, 40823026209, 40826743317) hit bun's timeout, which killed only the bash child, so cleanup failed with EBUSY and hid the timeout.
+- **`test/hook-scripts.test.ts`**: a hook that is killed or cannot spawn throws with its signal and elapsed time instead of reading as exit 1. Three Windows runs (40792942747, 40805828986, 40816343665) went red at 5.0 to 5.17 s, which was the old kill.
+- **plan-devex-finding-floor** (`test/helpers/pty/screen.ts`, `test/helpers/pty/runners/floor.ts`): the floor runner stops at an idle plan-mode turn and reports a provider error ("API Error: Connection lost mid-response", paid run 40851840940) as `api_error`, instead of waiting out 600 s as `observer_timeout`. A question already on screen is assessed first, and the idle screen must hold still for 10 s, so a question is still credited even when its transcript line lands late. The plan-mode footer counts as idle only without its running "esc to interrupt" segment.
+
+### Changed
+- `browse/test/cookie-import-native.test.ts`: when the real Playwright pipe smoke never reaches `cookie_read`, the failure names the worker's reply and Playwright's launch error. The same failure repeated on PR #3606's Free Tests run 40888372424 (shard 10).
+
+### Gate integrity
+- `test/hook-scripts.test.ts`: the hook spawn kill moves from 5 s to 25 s (`HOOK_SPAWN_TIMEOUT_MS`), under bun's 30 s per-test timeout. Measured from the shard logs of 77 Windows Free Tests runs on 2026-10-29 (40811056776 through 40888378463): 10,608 passing check-careful tests, p95 0.98 s, p99.9 1.85 s, max 4.22 s; the file's first hook test p50 1.54 s, p95 2.14 s, max 4.22 s. The old 5 s kill sat 0.8 s above the slowest pass, and the one red in that set (40816343665) stopped at 5.00 s, the kill itself. 25 s is about six times the slowest pass and stays under bun's 30 s per-test timeout, so a stalled hook is reported by the harness with its signal and elapsed time instead of by bun's generic timeout. The kill lives only in the test (no product code reads it), no test asserts a duration, and the file still runs 266 tests at base and head. A hook slowed into the 5 to 25 s range no longer fails this file.
+- `scripts/harness-version.json`: `test/helpers/pty/runners/floor.ts` and `test/helpers/pty/screen.ts` are recorded as non-behavioral at HARNESS_VERSION 6, so no pass-rate series resets. The floor runner ends on `api_error` only after the idle screen held still for 10 s with no question to credit, and an idle turn with no question stays idle. Such a trial failed before as `observer_timeout` at the deadline and fails now, earlier, as `api_error` or with the idle-turn summary. A running footer still waits for the deadline. The session ledger can now record `failure_cause` `api_error` or `refusal` for such a session, while `failure_class` and pass rates stay the same.
+- `test/ship-publication-gates.test.ts`: the per-block 30 s spawn timeout becomes one 27 s deadline for the whole case, setup included, with a process-tree kill.
+
+### Tests
+- Unit cases for the idle plan-mode turn end with negative controls (a running footer, extra footer text, a cut footer), a `planModeApiErrorIdle` capture in `test/fixtures/pty-idle-turn-end.json`, a POSIX case where a prose finding question printed before the error panel is still credited, also when its transcript line lands after the screen goes idle (it failed as `api_error` before the reorder), and a POSIX case where a block's background child holds its output past the deadline (it hung 30 s before the fix).
+
+## [1.92.31.0] - 2026-11-01
+
+**Nine paid ship rule-case flakes from the 2026-10-29 window stop failing correct runs.** Six qa-callers trials and five ship-docsync trials failed on calls the declared interface could not tell apart from a violation, or on a turn budget the actor spent out of order. Each was replayed from its retained capture, and each repair has a free test that fails without it.
+
+### Fixed
+- **qa-callers fixture prompt** (`test/helpers/qa-callers-fixture.ts`): the parent is told that a child starts in the product directory, to write each command exactly as it must run (no "in <dir>" paraphrase, `cd` or `git -C`) and to name each file the child reads as one literal path. Six trials across late-input, plan-checks and small-cli had a child run `git -C <dir> diff` or `cd` into the checklist directory after a paraphrased prompt. The ship caller's scheduling contract now lists Step 9's review-plan command and gate-scan block with the first diff discovery: three late-input trials hit 25 of 25 turns after running the gate scan only after the receipt, or never. The detector is unchanged.
+- **ship-docsync detectors** (`test/helpers/docsync-observer.ts`): a declared read command given `--help` counts as a read that reads nothing, with its operands still checked (current, completion and store trials joined `cat <candidate> --help`). The wrong-path exit-127 excuse covers the docs cap gate (`gstack-ship-receipt docs-caps`) when the declared path then runs (stale-after). A line whose first unpiped `cat` printed the whole phase file still counts as reading it when a later separator failed under zsh (failure).
+- **ship-docsync-completion** (`test/helpers/docsync-contract.ts`): only the accepted docs attempt is held to the strict completion contract; an attempt the parent rejected and re-audited reports only its id, status and edited files.
+
+### Gate integrity
+- `test/helpers/docsync-observer.ts`: three acceptances widen, each pinned to its captured run with negative controls (redirects, pipes into the read, chained mutations, `cd`, wrong subcommands, a binary present at the wrong path, a truncated or errored read).
+- `test/helpers/docsync-contract.ts` and `test/skill-e2e-ship-docsync.test.ts`: an earlier rejected docs attempt is no longer parsed with the accepted attempt's strict contract; a malformed earlier report still throws, and the accepted attempt stays strict.
+
 ## [1.92.30.0] - 2026-11-01
 
 **The free suite's shards finish closer together: slow test files are split and the packer plans from fresh timings.** The committed duration seed was missing more than a hundred free test files, so CI guessed the same time for every shard and the slowest shard ran far past the mean. No product code changed. Every split file runs the same tests as before.

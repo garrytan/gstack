@@ -35,6 +35,8 @@ export interface PregateContext {
   configLabel: string;
   /** Where the policy came from: the base branch, the unreviewed head, the user-owned file, or nowhere (defaults). */
   configKind: 'base' | 'head' | 'user' | 'none';
+  /** The active policy has a `dependencies`, `empty_lanes`, `selection` or `local` key (config LANE_KEYS); false keeps the no-policy lane verdicts. Absent counts as declared. */
+  policyDeclaresLanes?: boolean;
   /** This run's scratch directory under the state root (lib/pregate/run-scratch.ts): logs and scan files, never os.tmpdir(). */
   scratch: string;
   /** The policy file to edit: the user-owned path when it is the active policy, else `.gstack/pregate.json`. */
