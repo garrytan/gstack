@@ -6,7 +6,7 @@
   "reviewedAt": "2026-09-10T00:00:00.000Z",
   "reviewMethod": "Native OCI manifest inspection plus upstream runtime version metadata; CI rechecks architecture and executable versions before every build.",
   "sbomGenerator": {
-    "source": "docker.io/docker/scout-sbom-indexer:1",
+    "source": "docker.io/docker/scout-sbom-indexer:1.24.0",
     "indexImage": "docker.io/docker/scout-sbom-indexer@sha256:4b67f29eb0d1244ab0f62de867ac5dafd7262fcd7ebbdefa6ec8aacd6b15252d",
     "images": {
       "linux/amd64": "docker.io/docker/scout-sbom-indexer@sha256:dc9450ee50d985e1f5cc60069c91b5f45b4a8a7e9dbcdd33aaab259032a9cab9",

@@ -29,9 +29,10 @@ test('the recorder runs weekly before test-health and on dispatch, read-only exc
   expect(recorder.jobs.propose.permissions).toEqual({ contents: 'write', 'pull-requests': 'write', actions: 'write' });
 });
 
-test('Linux records on the free-suite runner, turns red on any red file, and uploads only a complete recording', () => {
+test('Linux records on the free-suite runner image, turns red on any red file, and uploads only a complete recording', () => {
   const linux = recorder.jobs.linux;
-  expect(linux['runs-on']).toBe(freeTests.jobs['free-suite']['runs-on']);
+  expect(linux['runs-on']).toMatch(/^ubicloud-standard-\d+$/);
+  expect(freeTests.env.FREE_SUITE_RUNNER).toMatch(/^ubicloud-standard-\d+$/);
   const runs = linux.steps.map((step: any) => step.run).filter(Boolean).join('\n');
   expect(runs).toContain('bash scripts/ubicloud/setup-free-suite.sh');
   const record = linux.steps.find((step: any) => step.name === 'Time every free file alone');

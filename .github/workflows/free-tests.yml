@@ -23,6 +23,22 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      free_runner:
+        description: 'Runner-sizing experiments only: Ubicloud runner for the free-suite shards (ubicloud-standard-2, -4 or -8; empty keeps FREE_SUITE_RUNNER). Never cite such a run as a PR or train Free Tests result.'
+        type: string
+        default: ''
+      free_shards:
+        description: 'Runner-sizing experiments only: shard count, 1-40 (empty keeps FREE_SUITE_SHARDS)'
+        type: string
+        default: ''
+
+# The one source of the free-suite runner and shard count. pull_request and
+# push runs never see workflow_dispatch inputs, so free-plan resolves these
+# (or a dispatch override) into outputs that free-suite reads.
+env:
+  FREE_SUITE_RUNNER: ubicloud-standard-4
+  FREE_SUITE_SHARDS: '20'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
 # prefix, so same-name branches from two forks would share one group and a
@@ -43,6 +59,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      runner: ${{ steps.plan.outputs.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -56,9 +73,27 @@ jobs:
       - id: plan
         name: Inventory and balance the complete free suite
         # Warns in the job summary when more than 5 files are unseeded.
+        env:
+          RUNNER_OVERRIDE: ${{ inputs.free_runner }}
+          SHARDS_OVERRIDE: ${{ inputs.free_shards }}
         run: |
-          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards 20)
+          set -euo pipefail
+          runner="${RUNNER_OVERRIDE:-$FREE_SUITE_RUNNER}"
+          shards="${SHARDS_OVERRIDE:-$FREE_SUITE_SHARDS}"
+          case "$runner" in
+            ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8) ;;
+            *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4 or -8"; exit 1 ;;
+          esac
+          case "$shards" in
+            ''|*[!0-9]*) echo "::error::free_shards '$shards' is not a whole number"; exit 1 ;;
+          esac
+          if [ "$shards" -lt 1 ] || [ "$shards" -gt 40 ]; then echo "::error::free_shards $shards is outside 1-40"; exit 1; fi
+          if [ "$runner" != "$FREE_SUITE_RUNNER" ] || [ "$shards" != "$FREE_SUITE_SHARDS" ]; then
+            echo "- Runner-sizing experiment: $shards shards on $runner (defaults $FREE_SUITE_SHARDS on $FREE_SUITE_RUNNER); not a PR or train Free Tests result" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
       - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)
         run: |
           GSTACK_FREE_SEED_BASE="$(git merge-base HEAD origin/main)" bun test test/free-seed-ratchet.test.ts
@@ -329,7 +364,7 @@ jobs:
 
   free-suite:
     needs: free-plan
-    runs-on: ubicloud-standard-8
+    runs-on: ${{ needs.free-plan.outputs.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -476,6 +511,18 @@ jobs:
       - name: Build trusted CSO helper used by free contract tests
         run: bun run build:cso
 
+      # Runner sizing: the suite runs one test at a time, so a shard needs RAM
+      # and disk more than cores. Sample both while it runs and report the peak.
+      - name: Start the memory and disk sampler
+        run: |
+          cat > "$RUNNER_TEMP/sample-resources.sh" <<'EOF'
+          while :; do
+            printf '%s %s %s\n' "$(date +%s)" "$(free -k | awk 'NR == 2 { print $3 }')" "$(df -Pk / | awk 'NR == 2 { print $4 }')"
+            sleep 2
+          done
+          EOF
+          nohup sh "$RUNNER_TEMP/sample-resources.sh" > "$RUNNER_TEMP/resources.log" 2>&1 &
+
       # GSTACK_EXPECT_BINARIES=1 arms make-pdf/test/e2e/ci-prereqs.test.ts:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
@@ -493,6 +540,12 @@ jobs:
           # test/free-tests-workflow-wiring.test.ts.
           GSTACK_FREE_RETRY_FLAKY: "1"
           GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
+
+      - name: Report peak memory and minimum free disk
+        if: always()
+        run: |
+          if [ ! -s "$RUNNER_TEMP/resources.log" ]; then echo "RESOURCES: no samples"; exit 0; fi
+          awk '{ if ($2 > used) used = $2; if (free == "" || $3 < free) free = $3 } END { printf "RESOURCES: peak_used_mib=%d min_free_disk_mib=%d samples=%d\n", used / 1024, free / 1024, NR }' "$RUNNER_TEMP/resources.log" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload strict shard result
         if: always()
