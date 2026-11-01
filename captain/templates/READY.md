@@ -20,6 +20,14 @@ SHIP_RECEIPT: pr=<n> head=<sha12> version=- base=<BASE> tree=<tree> session_kind
 READY_RECEIPT: <path the tool wrote> (<local and notes-ref detail>)
 ```
 
+A wave PR (docs/ship-policy.md#wave-prs) adds two lines after `READY`, and the controller checks
+that every constituent named is one the wave was planned for:
+
+```text
+WAVE: <nonce> area=<area> branch=wave/<nonce> constituents=<k> integrator_commits=<i>
+CONSTITUENTS: #<n>@<sha12>,#<n>@<sha12>,... (heads frozen; fixes go on the wave branch)
+```
+
 Under `changelog_fragments` (docs/ship-policy.md#changelog-fragments) the PR's entry is a
 fragment, `changelog.d/<slug>.md`, never an `[Unreleased]` section or a version, and the
 controller merges with `train land` or `land`, so no slot call follows this block.

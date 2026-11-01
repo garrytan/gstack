@@ -9,6 +9,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
+import { parseUnifiedDiff, stampOnlyLine, versionAtRef } from './restamp';
+import { matchesAny } from './ship-policy';
+import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
 export interface Run { status: number | null; stdout: string; stderr: string }
@@ -96,7 +99,27 @@ export function releasePaths(policy: Record<string, any> | null, cwd: string, re
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
   const fragment = fragmentPath(policy, cwd);
   return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'agents-digest/gstack-AGENTS.md', ...VERSIONED_MANIFESTS.filter(p => versionOnlyEdit(cwd, ref, p)),
-    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths)])];
+    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths),
+    ...stampedFiles(policy, cwd, ref)])];
+}
+
+/**
+ * `stamp_files` paths whose working-tree edit against `ref` is a version stamp alone: every changed line swaps the
+ * old version for the new one under a built-in form or a `stamp_patterns` template (lib/tree-receipt.ts classifyFile).
+ */
+export function stampedFiles(policy: Record<string, any> | null, cwd: string, ref: string): string[] {
+  const globs = Array.isArray(policy?.stamp_files) ? policy.stamp_files.filter((s: unknown): s is string => typeof s === 'string') : [];
+  if (!globs.length) return [];
+  const before = versionAtRef(cwd, ref);
+  if (!('version' in before)) return [];
+  let after = '';
+  try { after = extractVersion(fs.readFileSync(path.join(cwd, before.rel), 'utf8'), before.rel); } catch { return []; }
+  if (!after || after === before.version) return [];
+  const templates = Array.isArray(policy?.stamp_patterns) ? policy.stamp_patterns.filter((s: unknown): s is string => typeof s === 'string') : [];
+  const diff = git(cwd, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', ref]);
+  if (diff.status !== 0) return [];
+  return parseUnifiedDiff(diff.stdout).filter(f => f.status === 'M' && !f.binary && !f.modeChanged && matchesAny(globs, f.path) && f.hunks.length > 0 &&
+    f.hunks.every(h => h.removed.length === h.added.length && h.removed.every((line, i) => stampOnlyLine(line, h.added[i]!, before.version, after, templates)))).map(f => f.path);
 }
 
 /** Under `changelog_fragments`, the branch's own Step 13 entry `<dir>/<branch-slug>.md` (docs/ship-policy.md#changelog-fragments); null without the key. */
