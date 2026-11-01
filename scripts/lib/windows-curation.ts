@@ -406,6 +406,7 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   { file: 'test/setup-hook-syntax-gate.test.ts', reason: '#3088/#3100: runs bin/gstack-hook-check and the setup hook sections through explicit bash with forward-slash paths; never executes a shebang. Its Bun drive-path spelling is the Windows bug it guards' },
   { file: 'test/bun-config-shell-bins.test.ts', reason: '#3415: runs the record bins through lib/script-invocation.ts (Git Bash on Windows) with MSYS path conversion off, the case it guards; its bun and cygpath stand-ins and simulated-OSTYPE cases are skipIf win32' },
   { file: 'test/path-spelling.test.ts', reason: 'sources bin/gstack-path-spelling.sh through explicit bash and checks lib/path-spelling.ts; on Windows it exercises the real Git Bash spellings' },
+  { file: 'test/timeline-stop-hook-stdin.test.ts', reason: '#3628: the hook runs through Bun argv with a stdin pipe held open; the return-within-budget timing must meet real Windows process startup' },
   { file: 'test/state-root-parity.test.ts', reason: 'runs the bash twin and lib/state-root.ts over an env table with PATH empty; no shebang execution, raw-string comparison is platform-neutral' },
   { file: 'test/generator-eexist.test.ts',
     reason: 'E4: runs the generators through Bun argv with the Windows EEXIST emulation preload; no shebang execution' },
