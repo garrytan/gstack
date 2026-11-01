@@ -319,7 +319,7 @@ check_sync() {
         row warn "artifacts sync" "status held${held:+ ($held file(s) held by the secret scanner)}" "$fix"
       fi
       return ;;
-    blocked) row warn "artifacts sync" "status blocked (a re-scan still flags staged content)" "$fix"; return ;;
+    blocked) row warn "artifacts sync" "status blocked (nothing was committed; --status names the cause)" "$fix"; return ;;
     push_failed|error|unknown) row warn "artifacts sync" "status $status" "$fix"; return ;;
   esac
   if [ -n "$case_names" ]; then

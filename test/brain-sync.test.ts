@@ -1161,6 +1161,43 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(drain().status).toBe(0);
       expect(parses(remoteShow(PROFILE).stdout)).toBe(true);
       expect(remoteShow(PROFILE).stdout).not.toContain('<<<<<<<');
+      expect(remoteShow(PROFILE).stdout).toBe('{"sessions":[],"v":"peer"}\n');
+    });
+
+    test('an unfinished merge with a held profile commits nothing until the profile is repaired', () => {
+      init();
+      write(PROFILE, '{"sessions":[],"v":"base"}\n');
+      expect(drain().status).toBe(0);
+      expect(git(['config', 'user.name', 'fixture']).status).toBe(0);
+      expect(git(['config', 'user.email', 'fixture@example.com']).status).toBe(0);
+      const peer = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-peer-'));
+      try {
+        expect(git(['clone', '-q', bareRemote, peer]).status).toBe(0);
+        fs.writeFileSync(path.join(peer, PROFILE), '{"sessions":[],"v":"peer"}\n');
+        expect(git(['add', '-f', '--', PROFILE], peer).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'peer profile'], peer).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], peer).status).toBe(0);
+      } finally {
+        fs.rmSync(peer, { recursive: true, force: true });
+      }
+      fs.writeFileSync(path.join(tmpHome, PROFILE), '{"sessions":[],"v":"local"}\n');
+      expect(git(['commit', '-qam', 'local profile']).status).toBe(0);
+      expect(git(['fetch', '-q', 'origin']).status).toBe(0);
+      const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
+      expect(git(['merge', '--no-edit', `origin/${branch}`]).status).not.toBe(0);
+      run(['gstack-brain-enqueue', PROFILE]);
+      write(CLEAN, '# a plan\n');
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('blocked');
+      expect(remoteShow(PROFILE).stdout).toBe('{"sessions":[],"v":"peer"}\n');
+      expect(remoteFiles()).not.toContain(CLEAN);
+      expect(git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status).toBe(0);
+
+      write(PROFILE, '{"sessions":[],"v":"merged"}\n', false);
+      expect(drain().status).toBe(0);
+      expect(statusJson().status).toBe('ok');
+      expect(remoteShow(PROFILE).stdout).toBe('{"sessions":[],"v":"merged"}\n');
+      expect(remoteFiles()).toContain(CLEAN);
     });
   });
 });
