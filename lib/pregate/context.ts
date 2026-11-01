@@ -17,6 +17,7 @@ import { isRegistryUnavailable, loadRegistryFromBase, loadRegistryFromHead, type
 import { resolveStateRoot } from '../state-root';
 import { RESULT_CODES, TROUBLESHOOTING_DOC, resultLine } from '../result-codes';
 import { runScriptSync, wtreeFingerprint, type InvocationOptions, type WtreeResult } from '../script-invocation';
+import { baseContainsHead } from '../default-base';
 import { policyUnavailableLine, resolveBaseBranch } from '../ship-policy';
 import { headPolicy } from './head-policy';
 import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromUser, type ConfigError, type ConfigLoad, type PregateConfig } from './config';
@@ -48,7 +49,7 @@ export function readTestBackend(env: NodeJS.ProcessEnv, invocation?: InvocationO
   return (r.status === 0 && (r.stdout ?? '').trim()) || 'local';
 }
 export interface ContextRefusal {
-  code: 'POLICY_SOURCE_UNAVAILABLE' | 'PREGATE_CONFIG_INVALID' | 'PREGATE_HEAD_POLICY_LOOSENS' | 'REGEN_REGISTRY_INVALID' | 'WTREE_UNAVAILABLE';
+  code: 'POLICY_SOURCE_UNAVAILABLE' | 'BASE_CONTAINS_HEAD' | 'PREGATE_CONFIG_INVALID' | 'PREGATE_HEAD_POLICY_LOOSENS' | 'REGEN_REGISTRY_INVALID' | 'WTREE_UNAVAILABLE';
   message: string;
   /** A cause-specific fix that replaces the code's own (a gstack-wtree exit names its repair; so does a `--base` that is no origin branch). */
   fix?: string;
@@ -210,6 +211,8 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   const baseRef = `origin/${base}`;
   const baseSha = git(o.repoRoot, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
   if (!baseSha.ok || !baseSha.out) return { refused: notAnOriginBranch(o.repoRoot, base) ?? { code: 'POLICY_SOURCE_UNAVAILABLE', message: `${baseRef} is not a resolvable commit` } };
+  const self = baseContainsHead(o.repoRoot, baseRef);
+  if (self) return { refused: { code: 'BASE_CONTAINS_HEAD', message: self } };
   const head = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
   const mergeBase = git(o.repoRoot, ['merge-base', baseSha.out, 'HEAD']).out || baseSha.out;
   let configLoad: ConfigLoad = loadConfigFromBase(o.repoRoot, base, o.knownChecks);

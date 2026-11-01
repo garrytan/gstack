@@ -19,6 +19,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { baseContainsHead } from './default-base';
 import type { ShipReceipt } from './headless-artifacts';
 import { collectCommit } from './review-collect';
 import { depthOfCommitInput, gateScanNeeded, type Depth } from './review-depth';
@@ -40,9 +41,9 @@ function git(root: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
 }
 
-/** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue. */
-function scopeOfRange(root: string, binDir: string, base: string, head: string): Record<string, string> {
-  const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+/** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue; `merged` (`--merged`) for a head GitHub already merged into the base. */
+function scopeOfRange(root: string, binDir: string, base: string, head: string, merged = false): Record<string, string> {
+  const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head, ...(merged ? ['--merged'] : [])], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
   const scope: Record<string, string> = {};
   for (const l of (sr.stdout ?? '').split('\n')) { const m = /^(SCOPE_[A-Z_]+)=(.*)$/.exec(l); if (m) scope[m[1]!] = m[2]!; }
   if (sr.status !== 0 && !scope.SCOPE_ERROR) scope.SCOPE_ERROR = `exit ${sr.status}`;
@@ -155,10 +156,10 @@ export interface DepthVerdict { ok: boolean; line: string; message?: string }
 
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
 interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string> }
-function headInputs(root: string, baseRef: string, head: string): HeadInputs {
+function headInputs(root: string, baseRef: string, head: string, merged = false): HeadInputs {
   const baseSha = git(root, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
   const baseRev = baseSha.ok ? baseSha.out : baseRef;
-  return { baseSha, c: collectCommit(root, baseRev, head), scope: scopeOfRange(root, BIN_DIR, baseRev, head) };
+  return { baseSha, c: collectCommit(root, baseRev, head), scope: scopeOfRange(root, BIN_DIR, baseRev, head, merged) };
 }
 /** The receipt's recorded gate scan when it names this head; otherwise null (unavailable). */
 const boundScan = (r: ShipReceipt, head: string): number | null => {
@@ -189,16 +190,18 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
 }
 
-/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. */
-export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[]):
+/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed, except for a PR GitHub already merged (`merged`: land resuming after a merge-only true merge), whose depth then reads the range with diff-scope's `--merged`. */
+export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[], merged = false):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
-  | { ok: false; code: ReceiptBindingCode | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
+  | { ok: false; code: ReceiptBindingCode | 'BASE_CONTAINS_HEAD' | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
   const b = bindReceipt(body, pr, accepted);
   if (!b.ok) return b;
+  const self = merged ? null : baseContainsHead(root, baseRef, b.head);
+  if (self) return { ok: false, code: 'BASE_CONTAINS_HEAD', message: self, line: b.line };
   const ancestor = (commit: string) => b.receipt.carry?.ancestry === 'rewritten' || git(root, ['merge-base', '--is-ancestor', commit, b.head]).ok;
   const problems = exceptionProblems(body, b.receipt, ancestor);
   if (problems.length) return { ok: false, code: 'QUEUE_RECEIPT_EXCEPTION_INVALID', message: `the receipt's owner exception does not stand: ${problems.join('; ')}`, line: b.line };
-  const at = headInputs(root, baseRef, b.head);
+  const at = headInputs(root, baseRef, b.head, merged);
   const d = receiptDepthVerdict(root, baseRef, b.receipt, b.head, at);
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
   const targetedLine = receiptTargetedLine(targetedClasses({ ...at.c, scope: at.scope, gateTagged }).classes, b.receipt);

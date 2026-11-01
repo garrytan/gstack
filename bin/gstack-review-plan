@@ -16,12 +16,16 @@
  * FIX_RANGE: (with --range-base), REVIEW_PLAN:, one DEPTH_ERROR: per input that failed
  * the depth closed, one DISPATCH: plus DIFF_CMD: (and DIFF_EXCLUDE: none) per
  * reviewer and one SKIP: per reviewer left out. A plan that fails closed to full
- * exits 0; a diff git cannot list exits 1. Logic: lib/review-depth.ts.
+ * exits 0; a diff git cannot list exits 1, and so does a base that is HEAD or already
+ * contains it while the branch has commits its real base lacks (BASE_CONTAINS_HEAD,
+ * lib/default-base.ts). Logic: lib/review-depth.ts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { baseContainsHead } from '../lib/default-base';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { classifyDiff, diffCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
@@ -102,6 +106,8 @@ function main(): number {
     return EXIT.fail;
   }
   const head = git(['rev-parse', 'HEAD'])?.trim() ?? 'unknown';
+  const self = collected.mergeBase === head ? baseContainsHead(root, git(['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]) ? `origin/${base}` : base) : null;
+  if (self) { process.stderr.write(`${resultLine('gstack-review-plan', 'BASE_CONTAINS_HEAD', self)}; no plan is safer than a plan for a diff compared with itself\n`); return EXIT.fail; }
   const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
   const scopeOf = (args: string[]): Record<string, string> => {
     const run = runScriptSync(path.join(binDir, 'gstack-diff-scope'), args, { encoding: 'utf8', timeout: 60_000 });
