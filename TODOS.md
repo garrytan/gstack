@@ -5,6 +5,7 @@
 ### P3: gstack-clean follow-ups (filed 2026-10-31, GSTA-226 E2, #2627)
 
 - **Codex templates delete their own scratch.** The `/codex` review, challenge and consult blocks leave `codex-err-*`, `codex-resp-*`, `codex-out-*` and `codex-prompt-*` mktemp files under `TMP_ROOT` (which falls back to `.gstack/tmp`) and the `codex-prompt.*` and `codex-focus.*` free-text files in `.gstack/tmp`; `gstack-clean` removes them after 7 days. Delete each file at the end of its block instead. Skill prose for every user, so it needs its own review. **Effort:** S. **Priority:** P3.
+- **`gstack-clean` reclaims `browse-daemon.log.1`.** The browse CLI renames `browse-daemon.log` to `.1` past 10 MB and nothing ever removes the copy. Add it to the browse group (remove when older than an hour and the daemon is not running). **Effort:** S. **Priority:** P3.
 - **Browse hints `gstack-clean` when `.gstack/tmp` is large.** Print one line at daemon start when `.gstack/tmp` or the browse logs pass a size threshold, naming `gstack-clean`. **Effort:** S. **Priority:** P3.
 
 ### P3: GST-421 and GST-412 follow-ups (filed 2026-10-31, from the PR B /ship review)

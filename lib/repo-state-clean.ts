@@ -27,6 +27,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const SCRATCH_PREFIX = 'codex-';
 export const SCRATCH_MIN_AGE_MS = 7 * DAY_MS;
 export const RECENT_MS = 60 * 60 * 1000;
+const LIVENESS_RECHECK_MS = 2000;
 export const LOG_CUT_OVER_BYTES = 1024 * 1024;
 export const LOG_KEEP_BYTES = 256 * 1024;
 export const BROWSE_LOGS = ['browse-console.log', 'browse-network.log', 'browse-dialog.log', 'browse-daemon.log', 'browse-startup-error.log'] as const;
@@ -201,7 +202,11 @@ function evaluate(c: Candidate, dir: string, busy: string | null, opts: CleanOpt
   }
   if (st.isSymbolicLink()) return { ...c, reason: 'is a symlink; left alone' };
   if (!st.isFile()) return c.kind === 'remove' ? { ...c, reason: 'is not a regular file; left alone' } : null;
-  if (path.dirname(fs.realpathSync(c.file)) !== dir) return { ...c, reason: 'resolves outside the folder being cleaned; left alone' };
+  let real: string;
+  try { real = fs.realpathSync(c.file); } catch (e: any) {
+    return e?.code === 'ENOENT' ? null : { ...c, reason: `cannot resolve (${e?.code ?? 'error'})` };
+  }
+  if (path.dirname(real) !== dir) return { ...c, reason: 'resolves outside the folder being cleaned; left alone' };
   if (c.kind === 'remove' && now - st.mtimeMs < SCRATCH_MIN_AGE_MS) return null;
   if (c.kind === 'cut' && st.size <= LOG_CUT_OVER_BYTES) return null;
   if (now - st.mtimeMs < RECENT_MS) return { ...c, reason: 'modified within the last hour' };
@@ -236,7 +241,11 @@ function candidates(target: string, opts: CleanOptions): { list: Candidate[]; sk
   if (tmpStat?.isSymbolicLink()) skips.push({ file: tmp, group: 'tmp', reason: 'tmp/ is a symlink; the tmp group is refused' });
   else if (tmpStat && !tmpStat.isDirectory()) skips.push({ file: tmp, group: 'tmp', reason: 'tmp is not a directory; the tmp group is skipped' });
   else if (tmpStat) {
-    for (const name of fs.readdirSync(tmp).sort()) if (name.startsWith(SCRATCH_PREFIX)) list.push({ file: path.join(tmp, name), group: 'tmp', kind: 'remove' });
+    let names: string[] = [];
+    try { names = fs.readdirSync(tmp).sort(); } catch (e: any) {
+      skips.push({ file: tmp, group: 'tmp', reason: `cannot list (${e?.code ?? 'error'}); the tmp group is skipped` });
+    }
+    for (const name of names) if (name.startsWith(SCRATCH_PREFIX)) list.push({ file: path.join(tmp, name), group: 'tmp', kind: 'remove' });
   }
   for (const name of BROWSE_LOGS) list.push({ file: path.join(target, name), group: 'browse', kind: 'cut' });
   if (opts.auditDays !== null) list.push({ file: path.join(target, AUDIT_LOG), group: 'browse', kind: 'rotate' });
@@ -276,8 +285,16 @@ function rewriteInPlace(file: string, keep: Buffer): void {
 export function applyClean(target: string, planned: Action[], opts: CleanOptions): { done: Done[]; skips: Skip[] } {
   const done: Done[] = [];
   const skips: Skip[] = [];
+  const asked: Partial<Record<Group, { at: number; busy: string | null }>> = {};
+  const busyNow = (group: Group): string | null => {
+    const last = asked[group];
+    if (last && Date.now() - last.at < LIVENESS_RECHECK_MS) return last.busy;
+    const busy = busyFor(group, target);
+    asked[group] = { at: Date.now(), busy };
+    return busy;
+  };
   for (const p of planned) {
-    const fresh = evaluate({ file: p.file, group: p.group, kind: p.kind }, dirOf(p, target), busyFor(p.group, target), opts, Date.now());
+    const fresh = evaluate({ file: p.file, group: p.group, kind: p.kind }, dirOf(p, target), busyNow(p.group), opts, Date.now());
     if (!fresh) continue;
     if (!('bytes' in fresh)) { skips.push(fresh); continue; }
     try {

@@ -1515,9 +1515,10 @@ capacity each), flushed to disk asynchronously via `Bun.write()`:
 - Network: `.gstack/browse-network.log`
 - Dialog: `.gstack/browse-dialog.log`
 
-The browse server appends to these logs (and to `browse-daemon.log`,
-`browse-startup-error.log` and the `browse-audit.jsonl` command audit) for
-the life of the project, and codex scratch files collect in `.gstack/tmp/`.
+The console, network, dialog and startup-error logs start empty at each daemon
+start and can grow while one daemon runs; `browse-daemon.log` and the
+`browse-audit.jsonl` command audit build up across restarts, and codex scratch
+files collect in `.gstack/tmp/`.
 Run `gstack-clean` in the repository to see what it would reclaim, then
 `gstack-clean --apply` to do it: it cuts these logs to their last 256 KB
 once they pass 1 MB, removes `tmp/codex-*` files older than 7 days, and

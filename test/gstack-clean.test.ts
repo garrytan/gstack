@@ -407,6 +407,20 @@ describe('gstack-clean', () => {
     expect(fs.readFileSync(outside).equals(before)).toBe(true);
   });
 
+  test.skipIf(process.getuid?.() === 0)('an unlistable tmp/ skips the tmp group and the browse logs are still cut', () => {
+    const f = fixture();
+    const log = put(path.join(f.gs, 'browse-console.log'), logText(1.2 * 1024 * 1024), 2 * 60 * 60 * 1000);
+    fs.chmodSync(path.join(f.gs, 'tmp'), 0o000);
+    try {
+      const r = run(f, ['--apply']);
+      expect(r.code).toBe(0);
+      expect(r.out).toMatch(/skip +tmp: cannot list/);
+      expect(fs.statSync(log).size).toBeLessThanOrEqual(256 * 1024);
+    } finally {
+      fs.chmodSync(path.join(f.gs, 'tmp'), 0o755);
+    }
+  });
+
   test('a log with no line break in its last 256 KB is left alone', () => {
     const f = fixture();
     put(path.join(f.gs, 'browse-network.log'), 'x'.repeat(1.2 * 1024 * 1024), 2 * 60 * 60 * 1000);
