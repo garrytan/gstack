@@ -206,6 +206,16 @@ describe('Autoplan parent publication guard', () => {
     expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('earlier checkpoint') });
   });
 
+  test('#3651: a rerun checkpoint whose create result carries the cwd-reset footer still retires the old close', () => {
+    const { f, tasks } = completedCycle(), create = checkpointWriter(f);
+    const oldClose = f.events.find(e => e.kind === 'use' && e.toolUseId === 'eng-close')!;
+    create('eng', 'new-generation');
+    (f.events.at(-1) as any).content += '\nShell cwd was reset to /home/user/project';
+    f.read('old-close-replayed', (oldClose as any).input.file_path as string); f.message('Phase 3 complete.');
+    f.input.tool_input = { file_path: tasks }; f.current();
+    expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('earlier checkpoint') });
+  });
+
   for (const status of ['partial', 'failed', 'pending'] as const)
     test(`a ${status} rerun close cannot borrow the first cycle's completed report`, () => {
       const { f, create, tasks } = completedCycle(), rerun = create('eng', 'rerun');
@@ -1596,3 +1606,56 @@ describe('PAX-3638: symlinked plan directory and superseded failed inits', () =>
     expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('(code mutation_pending,') });
   });
 });
+
+describe('#3651: Claude Code cwd-reset footer on a Bash result', () => {
+  const FOOTER = '\nShell cwd was reset to /home/user/project';
+  function withInitTail(tail: string) {
+    const f = fixture();
+    (f.events.find(e => e.kind === 'result' && e.toolUseId === 'init') as any).content += tail;
+    return f;
+  }
+  const ready = (f: ReturnType<typeof fixture>) => { f.message(); f.current(); f.reorder(); return f.evaluate(); };
+
+  test('an init result carrying the footer still binds', () => {
+    expect(ready(withInitTail(FOOTER))).toEqual({ allow: true });
+  });
+
+  for (const [name, tail] of [['other trailing text', '\nunexpected trailing output'], ['two footers', `${FOOTER}${FOOTER}`], ['a footer that is not the last line', `${FOOTER}\n`]] as const)
+    test(`${name} after an init result is init_failed with the re-run hint, not the generic evidence denial`, () => {
+      const decision = ready(withInitTail(tail)) as any;
+      expect(decision.allow).toBe(false);
+      expect(decision.reason).toContain('(code init_failed,');
+      expect(decision.reason).toContain('re-run');
+    });
+
+  test('#3651: the hook path keeps the first binding when an init is re-run after a typed user message', async () => {
+    const footer = '\nShell cwd was reset to /home/user/project';
+    const run = async (tail: string, failed?: unknown) => {
+      const f = fixture(); (f.events[1] as any).content += tail; f.message();
+      if (failed !== undefined) { f.use('bad-init', 'Bash', (f.events[0] as any).input); f.result('bad-init', { content: failed }); }
+      f.use('re-init', 'Bash', (f.events[0] as any).input); f.result('re-init', { content: JSON.stringify({ ...f.init, reused: true }) + tail });
+      f.current();
+      const { rows, record } = f.journal();
+      const at = rows.findIndex(r => Array.isArray(r.message.content) && r.message.content.some((b: any) => b.type === 'tool_use' && ['bad-init', 're-init'].includes(b.id)));
+      (rows[at - 1]!.message as any).stop_reason = 'end_turn';
+      rows.splice(at, 0, record('user', 'Looks good, keep going.', { origin: { kind: 'human' }, promptSource: 'typed', promptId: randomUUID() }));
+      rows.forEach((r, i) => { r.parentUuid = i ? rows[i - 1]!.uuid : null; });
+      fs.writeFileSync(f.input.transcript_path, rows.map(x => JSON.stringify(x)).join('\n') + '\n');
+      return withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    };
+    expect(await run('')).toEqual(OWNED_READ_APPROVAL);
+    expect(await run(footer)).toEqual(OWNED_READ_APPROVAL);
+    expect(await run('', 'unexpected output')).toEqual(OWNED_READ_APPROVAL);
+    expect(await run('', [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toEqual(OWNED_READ_APPROVAL);
+  });
+
+  for (const [name, content] of [['did not parse', undefined], ['had no single text block', [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]]] as const)
+    test(`a later clean init recovers the session after an init whose output ${name}`, () => {
+    const f = withInitTail('\nunexpected trailing output');
+    if (content) (f.events[1] as any).content = content;
+    f.events.splice(2, 0, { ...(structuredClone(f.events[0]!) as any), toolUseId: 'again' },
+      { ...(structuredClone(f.events[1]!) as any), toolUseId: 'again', content: JSON.stringify({ ...f.init, reused: true }) });
+    expect(ready(f)).toEqual({ allow: true });
+  });
+});
+
