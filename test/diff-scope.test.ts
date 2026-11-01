@@ -331,21 +331,36 @@ describe('exit-code contract (#2526)', () => {
 });
 
 describe('a bare base name reads origin/<base> when it exists (#3650)', () => {
-  test('a local main behind origin/main does not widen the scope to upstream commits', () => {
+  function behindBase(base: string) {
     const dir = createRepo(['README2.md']);
     const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString().trim();
     const seed = git('rev-parse', 'main');
-    git('checkout', '-q', 'main');
+    git('checkout', '-q', '-B', base, 'main');
     writeFileSync(join(dir, 'service.py'), 'print(1)\n');
     git('add', '.');
     git('commit', '-qm', 'upstream backend change');
-    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('update-ref', `refs/remotes/origin/${base}`, 'HEAD');
     git('checkout', '-q', 'feature/test');
-    git('rebase', '-q', 'origin/main');
-    git('branch', '-f', 'main', seed);
-    expect(git('diff', '--name-only', 'main...HEAD').split('\n').sort()).toEqual(['README2.md', 'service.py']);
+    git('rebase', '-q', `origin/${base}`);
+    git('branch', '-f', base, seed);
+    expect(git('diff', '--name-only', `${base}...HEAD`).split('\n').sort()).toEqual(['README2.md', 'service.py']);
+    return { dir, git };
+  }
+  const scopeAt = (dir: string, base: string) => Object.fromEntries(spawnSync('bash', [SCRIPT, base], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString().trim().split('\n').map(l => l.split('=')));
+
+  test('a local main behind origin/main does not widen the scope to upstream commits', () => {
+    const { dir } = behindBase('main');
     const scope = runScope(dir);
     expect([scope.SCOPE_BACKEND, scope.SCOPE_DOCS]).toEqual(['false', 'true']);
+  });
+
+  test('a slash-named base reads its remote-tracking twin too, and HEAD or a sha stays as given', () => {
+    const { dir, git } = behindBase('release/x');
+    expect(scopeAt(dir, 'release/x').SCOPE_BACKEND).toBe('false');
+    git('update-ref', 'refs/remotes/origin/HEAD', git('rev-parse', 'release/x'));
+    expect(scopeAt(dir, 'HEAD').SCOPE_DOCS).toBe('false');
+    git('update-ref', `refs/remotes/origin/${git('rev-parse', 'release/x')}`, 'HEAD');
+    expect(scopeAt(dir, git('rev-parse', 'release/x')).SCOPE_BACKEND).toBe('true');
   });
 });
 

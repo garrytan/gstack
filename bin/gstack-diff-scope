@@ -37,10 +37,10 @@ BASE="${1:-$(_default_base)}"
 # A bare branch name reads its remote-tracking twin when there is one: /ship
 # merges against origin/<base>, and a linked worktree or a Capy clone never
 # moves the local branch, so a stale one widens the scope (#3650).
-case "$BASE" in
-  */*|*[~^:@]*) ;;
-  *) git rev-parse --verify -q "refs/remotes/origin/${BASE}^{commit}" >/dev/null 2>&1 && BASE="origin/${BASE}" ;;
-esac
+_NOT_BRANCH='^[0-9a-f]{7,64}$|[~^]|@\{|^[A-Z_]*HEAD$|^refs/'
+if [[ ! "$BASE" =~ $_NOT_BRANCH ]] && git rev-parse --verify -q "refs/remotes/origin/${BASE}^{commit}" >/dev/null 2>&1; then
+  BASE="origin/${BASE}"
+fi
 HEAD_REF=""
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
 
