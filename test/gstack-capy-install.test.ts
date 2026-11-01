@@ -167,6 +167,19 @@ describe('gstack-capy-install', () => {
     expect(fs.existsSync(path.join(f.home, '.gstack-state/install-verdicts'))).toBe(false);
   });
 
+  // Value: protects=the installer keys the verdict by the project's git toplevel, the key pregate admission reads (lib/install-verdict.ts installProject);
+  //   fails_when=--project <repo>/<subdir> writes a verdict at the subdirectory's key, which admission never reads; seam=bin/gstack-capy-install --project
+  test('--project names a subdirectory: the verdict is keyed by its git toplevel, the same file --project <toplevel> writes', () => {
+    const f = fixture();
+    const project = path.join(f.base, 'proj');
+    fs.mkdirSync(path.join(project, 'packages/x'), { recursive: true });
+    sh('git init -q', project);
+    const verdictOf = (r: { stdout: string; status: number | null; stderr: string }) => { expect(r.status, r.stdout + r.stderr).toBe(0); return r.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1]!; };
+    const sub = verdictOf(run(f, ['--for', 'autoplan', '--project', path.join(project, 'packages/x')]));
+    expect(sub).toBe(verdictOf(run(f, ['--for', 'autoplan', '--project', project])));
+    expect(JSON.parse(fs.readFileSync(sub, 'utf8')).project).toBe(fs.realpathSync(project));
+  });
+
   test('preflight: a missing tool stops with exit 3 and INSTALL_PREFLIGHT_FAILED before ./setup runs', () => {
     const f = fixture({ jq: false });
     const r = run(f);
