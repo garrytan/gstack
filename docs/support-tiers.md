@@ -24,7 +24,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 ## Windows CI
 
 - `windows-smoke` is a required check on pull requests.
-- The six-shard Windows free suite (the `Windows Free Tests` workflow) runs nightly on main only and doesn't block merges. A red nightly run gets a fix only when it shows an install, startup or core-workflow break.
+- The six-shard Windows free suite (the `Windows Free Tests` workflow) runs nightly on main, or when someone starts it by hand, and never blocks a pull request. A red nightly run gets a fix only when it shows an install, startup or core-workflow break.
 
 ## What doesn't change
 
