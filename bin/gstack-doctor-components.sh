@@ -362,6 +362,10 @@ gstack_result_anchor() {
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
+    GSTACK_CLEAN_USAGE) printf '%s' 'gstack-clean-usage' ;;
+    GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
+    GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
+    GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
     *) return 1 ;;
   esac
 }
