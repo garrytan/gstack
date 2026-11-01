@@ -390,6 +390,7 @@ export interface PilotStartOptions { out: string; cap: number; n: number; arms: 
 export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?: { code: ResultCodeName; message: string } } {
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
+  if (o.arms.length && o.arms.every(a => isSmallTierModel(armModel(a))) && !dry.checks.frontier?.tier_question) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `every pilot arm is Haiku or Sonnet and ${o.dryRun} records no --tier-question (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test)` } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
   const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
   const keyOf = (a: string) => `${armModel(a).replace(/[^A-Za-z0-9.-]/g, '_')}${armLoadout(a) !== null ? `.${armLoadout(a)!.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}`;

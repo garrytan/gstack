@@ -165,7 +165,9 @@ function doDryRun(rest: string[]): number {
   if (!arms.length) return usage('dry-run needs --arms <model,model>');
   const scope = scopeOf(rest);
   const modelRules = lintModels(rest, arms.map(model => ({ model, scope, where: 'dry-run --arms' })), 'dry-run');
-  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules, tierQuestion: flag(rest, '--tier-question') });
+  const tierQuestion = flag(rest, '--tier-question');
+  if (tierQuestion?.startsWith('--')) return usage('--tier-question needs the question the preregistration asks about that tier, not another flag');
+  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules, tierQuestion });
   const out = flag(rest, '--out');
   if (out) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'dry-run.json'), JSON.stringify(r, null, 2) + '\n'); }
   if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r));

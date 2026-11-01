@@ -133,6 +133,28 @@ describe('dry run', () => {
     expect(frontier.checks.frontier).toMatchObject({ ok: true, small_tier: [] });
     expect(renderDryRun(frontier)).not.toContain('CHECK: frontier');
     expect(['claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6-luna', 'gemini-3.8-flash'].some(isSmallTierModel)).toBe(false);
+    const dryFile = (name: string, r: unknown) => { const f = path.join(d, name); fs.writeFileSync(f, JSON.stringify(r)); return f; };
+    const swapped = startPilot({ out: path.join(d, 'swapped'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('frontier.json', frontier) });
+    expect(swapped.error?.code).toBe('EVAL_DRY_RUN_FAILED');
+    expect(fs.existsSync(path.join(d, 'swapped'))).toBe(false);
+    expect(startPilot({ out: path.join(d, 'asked'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('asked.json', asked) }).error).toBeUndefined();
+    expect(startPilot({ out: path.join(d, 'mixed'), cap: 5, n: 1, arms: ['claude-opus-5-5', 'claude-sonnet-5-5'], dryRun: dryFile('frontier2.json', frontier) }).error).toBeUndefined();
+  });
+
+  test('R54 CLI: --tier-question refuses another flag as its answer', () => {
+    const host = capyHost();
+    try {
+      const rows = path.join(host.base, 'rows.jsonl'); fs.writeFileSync(rows, JSON.stringify({ prompt: 'hello world' }) + '\n');
+      const retry = path.join(host.base, 'retry.txt'); fs.writeFileSync(retry, 'retry\n');
+      const run = (...extra: string[]) => spawnSync(BIN, ['dry-run', '--input', rows, '--arms', 'claude-haiku-4-5', '--retry-prompt', retry, ...extra], { cwd: host.base, env: host.env, encoding: 'utf8', timeout: 30_000 });
+      const flagAnswer = run('--tier-question', '--json');
+      expect(flagAnswer.status).not.toBe(0);
+      expect(flagAnswer.stderr).toContain('--tier-question needs the question');
+      const refused = run();
+      expect(refused.status).not.toBe(0);
+      expect(refused.stderr).toContain('R54');
+      expect(run('--tier-question', 'does the diet hold on Haiku').status).toBe(0);
+    } finally { host.cleanup(); }
   });
 });
 

@@ -1783,9 +1783,11 @@ model they already use.
 **The check.** `gstack-eval-plan dry-run` prints `CHECK: frontier` whenever an arm
 is Haiku or Sonnet. When every arm is one, the dry run fails unless
 `--tier-question "<what the preregistration asks about that tier>"` is passed.
-When only some arms are, it warns. Either way it prices the whole plan on
-`claude-opus-5-5` and `gpt-6.1-sol`, so the budget is checked against frontier
-prices before any arm is swapped.
+When only some arms are, it warns. Either way it prints the whole plan's price
+on `claude-opus-5-5` and `gpt-6.1-sol`. The dry run doesn't enforce that number:
+compare it with the brief cap before any arm is swapped. `pilot start` refuses a
+pilot whose every arm is Haiku or Sonnet unless its dry run recorded a tier
+question.
 
 ## Running evals as an agent: detach
 
