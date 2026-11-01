@@ -18,7 +18,7 @@ The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, ge
 
 ## What the key covers
 
-`lib/test-impact/key.ts` reads everything at the given tree through git, never from the working tree. The graph runs over a checkout of that tree made through a private index, so the tree's own `.gitattributes` can't hide files the way `export-ignore` would in `git archive`. The key is a sha256 over:
+`lib/test-impact/key.ts` reads everything at the given tree through git, never from the working tree. The graph runs over a copy of that tree written blob by blob, with no attribute processing, so the tree's own `.gitattributes` (`export-ignore`, `working-tree-encoding`, filters) can't hide an import from it. The key is a sha256 over:
 
 - each traced path's bytes (read with `git cat-file --batch`), or that it is a directory, or that it is absent;
 - the names in each traced directory listing, at the tree;

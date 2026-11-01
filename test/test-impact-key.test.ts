@@ -80,7 +80,7 @@ describe('test-impact key: what changes it', () => {
     expect(keyAt(repo, 'HEAD', t).key).not.toBe(before.key);
   });
 
-  test('a branch .gitattributes export-ignore cannot hide a graph input', () => {
+  test('a branch .gitattributes (export-ignore, working-tree-encoding) cannot hide a graph input', () => {
     const t = 'test/a.test.ts';
     const repo = fixture({ 'lib/hidden.ts': 'export const x = 1;\n', [t]: "import { x } from '../lib/hidden';\nimport { test } from 'bun:test';\ntest('a', () => x);\n" });
     traceFrom(repo, t);
@@ -89,6 +89,11 @@ describe('test-impact key: what changes it', () => {
     const after = keyAt(repo, 'HEAD', t);
     expect(after.inputs).toContainEqual(expect.objectContaining({ kind: 'graph', path: 'lib/hidden.ts' }));
     expect(after.key).not.toBe(before.key);
+    fs.writeFileSync(path.join(repo.work, '.gitattributes'), `${t} working-tree-encoding=UTF-16LE\n`);
+    fs.writeFileSync(path.join(repo.work, t), Buffer.from(fs.readFileSync(path.join(repo.work, t), 'utf8'), 'utf16le'));
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'utf-16 checkout');
+    expect(keyAt(repo, 'HEAD', t).inputs).toContainEqual(expect.objectContaining({ kind: 'graph', path: 'lib/hidden.ts' }));
   });
 
   test('a file added under a directory the test listed changes the key', () => {

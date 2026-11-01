@@ -105,21 +105,31 @@ export function catText(repoRoot: string, treeish: string, rel: string): string 
 }
 
 /**
- * A tree-ish checked out into a fresh temp directory with every file staged, so the import graph (git ls-files) sees exactly
- * that tree. It goes through a private index and checkout-index, never `git archive`, whose export-ignore and export-subst
- * attributes would let the tree itself hide files from the graph.
+ * A tree-ish written to a fresh temp directory blob by blob from `git cat-file --batch`, with a git index loaded by read-tree,
+ * so the import graph (git ls-files) sees exactly that tree's paths and bytes. Nothing applies attributes: `git archive`
+ * honors export-ignore and checkout-index honors working-tree-encoding and filters, and either would let the tree hide
+ * an import from the graph. Submodules are skipped; symlinks become symlinks.
  */
 export function materializeTree(repoRoot: string, treeish: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-impact-tree-'));
-  const env = { ...process.env, GIT_INDEX_FILE: `${dir}.index` };
   try {
-    git(repoRoot, ['read-tree', treeish], undefined, env);
-    git(repoRoot, ['checkout-index', '-a', '-f', `--prefix=${dir}/`], undefined, env);
+    const blobs = [...readTreeIndex(repoRoot, treeish).entries].filter(([, e]) => e.type === 'blob');
+    const buf = blobs.length ? git(repoRoot, ['cat-file', '--batch'], blobs.map(([, e]) => e.oid).join('\n') + '\n') : Buffer.alloc(0);
+    let at = 0;
+    for (const [rel, e] of blobs) {
+      const nl = buf.indexOf(10, at);
+      const size = Number(buf.subarray(at, nl).toString('utf8').split(' ')[2]);
+      const bytes = buf.subarray(nl + 1, nl + 1 + size);
+      at = nl + 1 + size + 1;
+      const abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      if (e.mode === '120000') fs.symlinkSync(bytes.toString('utf8'), abs);
+      else fs.writeFileSync(abs, bytes, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+    }
     git(dir, ['init', '-q']);
-    git(dir, ['add', '-A', '-f']);
+    git(repoRoot, ['read-tree', treeish], undefined, { ...process.env, GIT_INDEX_FILE: path.join(dir, '.git', 'index') });
     return dir;
   } catch (error) { fs.rmSync(dir, { recursive: true, force: true }); throw error; }
-  finally { fs.rmSync(env.GIT_INDEX_FILE, { force: true }); }
 }
 
 /** The runtime manifest a key binds: platform, architecture and Bun version. */
