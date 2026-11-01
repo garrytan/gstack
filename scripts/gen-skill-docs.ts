@@ -118,6 +118,14 @@ function effectiveSuppressedResolvers(hostConfig: HostConfig, options: RenderOpt
   return new Set(list);
 }
 
+/** The checkout root under any spelling, a symlink to it included; a path that does not exist yet is compared by its nearest existing ancestor. */
+function isCheckoutRoot(dir: string): boolean {
+  let probe = path.resolve(dir);
+  const rest: string[] = [];
+  while (!fs.existsSync(probe) && path.dirname(probe) !== probe) { rest.unshift(path.basename(probe)); probe = path.dirname(probe); }
+  return path.join(fs.realpathSync(probe), ...rest) === fs.realpathSync(ROOT);
+}
+
 /** Parse CLI settings only when executing, never when imported by tests/checks. */
 function parseGenerationArgs(args: string[]): GenerationOptions {
   const value = (flag: string): string | undefined => {
@@ -156,11 +164,11 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   if (badDisabled) throw new Error(`--disabled-skills takes skill names (got ${JSON.stringify(badDisabled)})`);
   const sessionKind = value('--session-kind') ?? 'interactive';
   if (!(SESSION_KINDS as readonly string[]).includes(sessionKind)) throw new Error(`Unknown session kind: ${sessionKind}. Use ${SESSION_KINDS.join(' or ')}.`);
-  if (sessionKind === 'unattended' && (outDir === undefined || path.resolve(outDir) === ROOT)) {
+  if (sessionKind === 'unattended' && (outDir === undefined || isCheckoutRoot(outDir))) {
     throw new ModuleError('MODULE_SPEC_INVALID', '--session-kind unattended needs an --out-dir outside the checkout root; the committed tree is always the interactive render', 'bin/gstack-modules render --host <host> --loadout full --session-kind unattended --out-dir <dir>');
   }
   const modules = selectModules({ loadout: value('--loadout'), modules: value('--modules') });
-  if (modules && (outDir === undefined || path.resolve(outDir) === ROOT)) {
+  if (modules && (outDir === undefined || isCheckoutRoot(outDir))) {
     throw new ModuleError('MODULE_SPEC_INVALID', `--${value('--modules') === undefined ? 'loadout' : 'modules'} with exclusions needs an --out-dir outside the checkout root; the committed tree is always the full render`, 'bin/gstack-modules render --host <host> --modules <spec> --out-dir <dir>');
   }
   const installRoot = value('--install-root');

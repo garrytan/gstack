@@ -94,6 +94,10 @@ describe('session-kind renders', () => {
     expect(investigate).toContain('freeze-state.sh" acquire');
     expect(investigate).not.toContain('Refresh learnings');
     expect(investigate).toContain('## Web research runs in Aside\n\nUnattended runs do not drive the Aside browser');
+    expect(read(dir, 'design-consultation/SKILL.md')).toContain('## Web research runs in Aside\n\nUnattended runs do not drive the Aside browser');
+    const pdf = read(dir, 'make-pdf/SKILL.md');
+    expect(pdf).toContain('## MAKE-PDF SETUP');
+    expect(pdf.indexOf('## MAKE-PDF SETUP')).toBeLessThan(pdf.indexOf('"$P" generate'));
     const ship = read(dir, 'ship/SKILL.md');
     for (const kept of ['## Step 11.5: Bind the reviews', '## Step 20: Persist ship metrics', '## Step 22: Terminal line (every run)', 'gstack-ship-receipt result --pr <pr-number>']) expect(ship).toContain(kept);
     expect(ship).not.toContain('## Step 21');
@@ -134,6 +138,9 @@ describe('session-kind renders', () => {
     expect(inTree.status).not.toBe(0);
     expect(inTree.stderr).toContain('--session-kind unattended needs an --out-dir outside the checkout root');
     expect(run(['--host', 'claude', '--session-kind', 'headless', '--out-dir', arm('bad')]).stderr).toContain('Unknown session kind: headless');
+    const alias = arm('checkout-alias');
+    fs.symlinkSync(ROOT, alias);
+    expect(run(['--host', 'claude', '--session-kind', 'unattended', '--out-dir', alias]).stderr).toContain('--session-kind unattended needs an --out-dir outside the checkout root');
     expect(spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 }).stdout).toBe(before);
     const cli = await modulesMain(['render', '--host', 'claude', '--loadout', 'full', '--session-kind', 'spawned', '--out-dir', arm('bad')]);
     expect(cli.code).toBe(2);
@@ -145,6 +152,7 @@ describe('session-kind renders', () => {
     const text = 'a\n{{IF_SESSION:interactive}}b\n{{/IF_SESSION}}{{IF_SESSION:unattended}}c\n{{/IF_SESSION}}d';
     expect(applySessionGuards(text, ctx())).toBe('a\nb\nd');
     expect(applySessionGuards(text, ctx('unattended'))).toBe('a\nc\nd');
+    expect(() => applySessionGuards('A{{IF_SESSION:interactive}}B{{IF_SESSION:unattended}}C{{/IF_SESSION}}D{{/IF_SESSION}}E', ctx('unattended'))).toThrow('unpaired or nested {{IF_SESSION}} guard');
     expect(() => applySessionGuards('{{IF_SESSION:spawned}}x{{/IF_SESSION}}', ctx())).toThrow('{{IF_SESSION:spawned}} names no session kind');
   });
 });
