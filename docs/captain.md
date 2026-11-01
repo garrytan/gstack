@@ -218,8 +218,9 @@ cases are already in the ledger; the CHANGELOG entry sits under `## [Unreleased]
 the version files at the base's version; the lane declares the head frozen; and an
 `Unverified:` line lists every claim the lane did not check itself (a local test that
 timed out, a paid run skipped, a number a model reported, a review finding set aside on an
-assumption nobody tested), or says `none`. A green PR page is not a READY. A cheap test tier is not merge evidence. The controller refuses a
-block that misses any of this and sends the lane back, never into a train. When the
+assumption nobody tested), or says `none`. A green PR page is not a READY. A cheap test
+tier is not merge evidence. The controller refuses a block that misses any of this and
+sends the lane back, never into a train. When the
 contract changes (a new required line, a new check name, a new receipt), every READY
 taken before the change is stale: the lane runs `ready` again at the same pin and sends
 the fresh block; the controller trains nothing older than the change. The `Unverified:`
