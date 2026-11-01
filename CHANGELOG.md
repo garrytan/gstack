@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.34.0] - 2026-11-01
+
+- `gstack-ship-queue wave plan` no longer packs the whole READY queue into one area. Shared files now link two PRs into one group only when `git merge-tree` finds a real conflict between them in a code file or skill template. PRs of the same area still pack together as before. Docs, other Markdown and JSON ledgers never link PRs, since most PRs add to them. Before, any shared file linked two PRs, so `docs/troubleshooting.md` and a few ledgers chained 55 READY PRs into eight waves all labeled `setup`. With this change, the 57-PR queue later that day gives five groups split by area. A READY head whose CI is red or still running now prints `NOT_GREEN: #<n> (...)` and stays out of the plan, as `ready` would refuse it. A head whose CI cannot be read fails the plan with `QUEUE_PROOF_MISSING`, the same as an unreadable PR. Renamed files are compared by their real paths (GST-770).
+
 ## [1.92.33.0] - 2026-11-01
 
 **Eleven flaky tests from the 2026-10-31 flaky pass stop failing correct runs, and six more now name their cause when they fail.** Three paid detectors missed correct replies, one product script copied a file git was rewriting, and the free-test reds came from a binary's slow first launch on a fresh Windows runner, a fixture written in two steps and a cleanup that raced the runner's own scanner.
