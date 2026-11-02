@@ -108,7 +108,7 @@ Gather context before forming any hypothesis.
 
 Output: **"Root cause hypothesis: ..."** — a specific, testable claim about what is wrong and why.
 
-### Refresh learnings for the hypothesis you just named
+{{IF_SESSION:interactive}}### Refresh learnings for the hypothesis you just named
 
 The top-of-skill learnings pull above is keyed to "debug investigation" broadly. Now that you have a specific hypothesis, re-pull learnings keyed to that hypothesis so prior fixes for the same problem-shape surface.
 
@@ -123,7 +123,7 @@ Worked examples (investigate-specific): good keywords are `auth-cookie`, `sessio
 
 If any learnings come back, name which one applies to your investigation in one sentence. If none come back, continue without reference — the absence of a matching prior learning is itself useful information.
 
----
+{{/IF_SESSION}}---
 
 ## Scope Lock
 
@@ -281,13 +281,13 @@ Status:          DONE | DONE_WITH_CONCERNS | BLOCKED
 ════════════════════════════════════════
 ```
 
-Log the investigation as a learning for future sessions. Use `type: "investigation"` and include the affected files so future investigations on the same area can find this:
+{{IF_SESSION:interactive}}Log the investigation as a learning for future sessions. Use `type: "investigation"` and include the affected files so future investigations on the same area can find this:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"investigate","type":"investigation","key":"ROOT_CAUSE_KEY","insight":"ROOT_CAUSE_SUMMARY","confidence":9,"source":"observed","files":["affected/file1.ts","affected/file2.ts"]}'
 ```
 
-{{LEARNINGS_LOG}}
+{{/IF_SESSION}}{{LEARNINGS_LOG}}
 
 {{GBRAIN_SAVE_RESULTS}}
 

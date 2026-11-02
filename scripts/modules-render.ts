@@ -16,6 +16,7 @@ import { ModuleError, type ModuleSelection } from './modules';
 import type { Host } from './resolvers/types';
 import { getHostConfig } from '../hosts/index';
 import type { Model } from './models';
+import type { SessionKind } from './resolvers/unattended';
 
 export const LOCK_FILE = 'loadout.lock.json';
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -28,6 +29,8 @@ export interface RenderRequest {
   installRoot?: string | null;
   model?: Model | null;
   planMode?: boolean;
+  /** Render kind; unattended drops interactive ceremony (scripts/resolvers/unattended.ts). */
+  sessionKind?: SessionKind;
 }
 
 export interface LoadoutLock {
@@ -42,6 +45,7 @@ export interface LoadoutLock {
   /** The model a --bind-model render bakes into its start lines, and the full root it names. */
   loadout_model: string | null;
   full_root: string | null;
+  session_kind: SessionKind;
   gstack_version: string;
   excluded: string[];
   total_bytes: number;
@@ -130,6 +134,7 @@ export async function renderLoadout(request: RenderRequest): Promise<LoadoutLock
       installRoot: request.installRoot ?? null,
       model: request.model ?? null,
       planMode: request.planMode ?? true,
+      sessionKind: request.sessionKind ?? 'interactive',
       modules: request.selection,
     });
     const errors = result.diagnostics.filter(d => d.kind === 'error').map(d => d.message);
@@ -146,17 +151,20 @@ export async function renderLoadout(request: RenderRequest): Promise<LoadoutLock
       const bytes = fs.readFileSync(path.join(stage, rel));
       return { path: rel, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
     });
+    const unattended = request.sessionKind === 'unattended';
+    const spec = `${request.selection?.spec ?? 'full'}${unattended ? '@unattended' : ''}`;
     const lock: LoadoutLock = {
       schema_version: 1,
       loadout: request.selection?.name ?? 'full',
-      spec: request.selection?.spec ?? 'full',
-      spec_sha256: request.selection?.specSha256 ?? null,
+      spec,
+      spec_sha256: unattended ? createHash('sha256').update(spec).digest('hex') : request.selection?.specSha256 ?? null,
       host: request.host,
       model: request.model ?? getHostConfig(request.host).defaultModel ?? null,
       install_root: request.installRoot ?? null,
       plan_mode: request.planMode ?? true,
       loadout_model: request.selection?.boundModel ?? null,
       full_root: request.selection?.fullRoot ?? null,
+      session_kind: request.sessionKind ?? 'interactive',
       gstack_version: fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf-8').trim(),
       excluded: [...(request.selection?.excluded ?? [])].sort(),
       total_bytes: files.reduce((sum, f) => sum + f.bytes, 0),

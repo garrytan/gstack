@@ -41,7 +41,8 @@ Host and system plan-mode restrictions and the user's current scope take precede
 ${invocation}`;
 }
 
-export function generateCompletionStatus(ctx: TemplateContext): string {
+/** The status vocabulary every render keeps, unattended ones included. */
+export function generateCompletionProtocol(): string {
   return `## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -50,7 +51,11 @@ When completing a skill workflow, report status using one of:
 - **BLOCKED** — cannot proceed; state blocker and what was tried.
 - **NEEDS_CONTEXT** — missing info; state exactly what is needed.
 
-Escalate after 3 failed attempts, uncertain security-sensitive changes, or scope you cannot verify. Format: \`STATUS\`, \`REASON\`, \`ATTEMPTED\`, \`RECOMMENDATION\`.
+Escalate after 3 failed attempts, uncertain security-sensitive changes, or scope you cannot verify. Format: \`STATUS\`, \`REASON\`, \`ATTEMPTED\`, \`RECOMMENDATION\`.`;
+}
+
+export function generateCompletionStatus(ctx: TemplateContext): string {
+  return `${generateCompletionProtocol()}
 
 ## Operational Self-Improvement
 

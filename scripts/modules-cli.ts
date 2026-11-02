@@ -6,6 +6,7 @@
  *   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
  *                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
  *                         [--bind-model <id> --full-root <abs>]
+ *                         [--session-kind interactive|unattended]
  *   gstack-modules resolve [--model <id>] [--loadout <name>]
  *   gstack-modules install --full-root <abs> [--model <id>] [--loadout <name>] [--store <dir>] [--plan-mode on|off]
  *
@@ -28,6 +29,7 @@ import { installLoadout } from './modules-install';
 import { describeResolution, resolveLoadout } from '../lib/model-detect';
 import { resolveStateRoot } from '../lib/state-root';
 import type { Host } from './resolvers/types';
+import { SESSION_KINDS, type SessionKind } from './resolvers/unattended';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const USAGE = `Usage:
@@ -36,6 +38,7 @@ const USAGE = `Usage:
   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
                         [--bind-model <id> --full-root <abs>]
+                        [--session-kind interactive|unattended]
                                             render one loadout and write loadout.lock.json;
                                             --bind-model bakes the start lines an install
                                             for that model serves
@@ -94,14 +97,16 @@ export async function modulesMain(args: string[]): Promise<CliResult> {
       if (installRoot !== undefined && !/^\/[A-Za-z0-9_.@+\/-]*$/.test(installRoot)) throw new ModuleError('MODULE_SPEC_INVALID', '--install-root must be a plain absolute path', 'pass the absolute install root setup would use');
       const bindModel = flag(rest, '--bind-model');
       const fullRoot = flag(rest, '--full-root');
+      const sessionKind = flag(rest, '--session-kind') ?? 'interactive';
+      if (!(SESSION_KINDS as readonly string[]).includes(sessionKind)) throw new ModuleError('MODULE_SPEC_INVALID', `--session-kind takes ${SESSION_KINDS.join(' or ')}`, 'drop it, or pass --session-kind unattended');
       const selected = selectModules({ loadout, modules });
       if ((bindModel === undefined) !== (fullRoot === undefined)) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model and --full-root go together', 'pass both, or neither');
       if (bindModel !== undefined && !selected) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model needs a loadout that excludes something', 'drop --bind-model for the full loadout');
       if (bindModel !== undefined && !MODEL_ID_RE.test(normalizeModelId(bindModel))) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model is not a plain model id', 'pass an id such as claude-opus-5-5');
       if (fullRoot !== undefined && !/^\/[A-Za-z0-9_.@+\/-]*$/.test(fullRoot)) throw new ModuleError('MODULE_SPEC_INVALID', '--full-root must be a plain absolute path', 'pass the full install root, for example --full-root "$HOME/.claude/skills"');
       const selection = selected && bindModel !== undefined ? { ...selected, boundModel: normalizeModelId(bindModel), fullRoot } : selected;
-      const lock = await renderLoadout({ host, selection, outDir, installRoot: installRoot ?? null, model, planMode: planMode !== 'off' });
-      return { code: 0, stdout: `RENDERED: loadout=${lock.loadout} host=${host} files=${lock.files.length} bytes=${lock.total_bytes} excluded=${lock.excluded.length} lock=${path.join(path.resolve(outDir), 'loadout.lock.json')}\n`, stderr: '' };
+      const lock = await renderLoadout({ host, selection, outDir, installRoot: installRoot ?? null, model, planMode: planMode !== 'off', sessionKind: sessionKind as SessionKind });
+      return { code: 0, stdout: `RENDERED: loadout=${lock.loadout}${lock.session_kind === 'unattended' ? ' session_kind=unattended' : ''} host=${host} files=${lock.files.length} bytes=${lock.total_bytes} excluded=${lock.excluded.length} lock=${path.join(path.resolve(outDir), 'loadout.lock.json')}\n`, stderr: '' };
     }
     if (command === 'resolve' || command === 'install') {
       const resolution = resolveLoadout({ loadout: flag(rest, '--loadout'), model: flag(rest, '--model') });

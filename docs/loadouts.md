@@ -79,6 +79,18 @@ When `GSTACK_MODEL` is set to a different model, it adds `LOADOUT_MISMATCH`. A p
 ### Claude Code
 
 `./setup --loadout lite` saves `claude_loadout` and renders the Claude skills into the untracked render dir (`<state root>/render/claude`) through setup's own render, the same path a pinned overlay or `plan_mode_preamble=off` takes, so later upgrades and `gstack-config gbrain-refresh` keep it. `./setup --loadout full` returns to the committed files. A plain `./setup` never selects lite.
+## Unattended renders
+
+`--session-kind unattended` (on `bin/gstack-modules render` and on `gen-skill-docs` with `--out-dir`) renders any loadout for one-shot sessions nobody watches. It is a separate axis from the model rung. What it drops and keeps is in [unattended.md](unattended.md#the-unattended-render). The lock records `session_kind`, and the spec gets an `@unattended` suffix with its own `spec_sha256`, so the two kinds never share a preregistered hash. An interactive render (no flag, or `--session-kind interactive`) is byte-identical to today's. The committed tree is always interactive, so an unattended render without an `--out-dir` outside the checkout is refused with `MODULE_SPEC_INVALID`.
+
+```bash
+bin/gstack-modules render --host claude --loadout full --out-dir ~/arms/control
+bin/gstack-modules render --host claude --loadout full --session-kind unattended --out-dir ~/arms/unattended
+```
+
+In a template, text only an interactive session uses sits inside `{{IF_SESSION:interactive}}…{{/IF_SESSION}}` (`{{IF_SESSION:unattended}}` for text only the unattended render keeps). An unpaired or nested guard fails generation.
+
+No install uses this render yet. Setup's default Claude root links the committed tree, so serving it to installs is a separate change that waits on the before/after eval.
 
 ## Changing a loadout
 

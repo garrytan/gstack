@@ -39,7 +39,8 @@ function loadoutStartFlags(ctx: TemplateContext): string {
   return ` --loadout '${filter.name}' --loadout-model '${filter.boundModel}' --full-root '${filter.fullRoot}'`;
 }
 
-export function generatePreambleBash(ctx: TemplateContext): string {
+/** The start heading and its one-command fence; `flags` appends to the command. */
+export function generatePreambleStart(ctx: TemplateContext, flags = ''): string {
   const hostConfig = getHostConfig(ctx.host);
   const start = hostConfig.usesEnvVars ? skillStartLines(ctx) : null;
   const runtimeRoot = start ? `${start.lookup}\n` : '';
@@ -56,8 +57,12 @@ export function generatePreambleBash(ctx: TemplateContext): string {
   return `${entry}
 
 \`\`\`bash
-${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${loadoutFlags}${brainHealthFlag}
-\`\`\`
+${runtimeRoot}${startCommand} --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}"${loadoutFlags}${brainHealthFlag}${flags}
+\`\`\``;
+}
+
+export function generatePreambleBash(ctx: TemplateContext): string {
+  return `${generatePreambleStart(ctx)}
 
 Read the echoed \`KEY: value\` STATUS lines — they drive every preamble rule
 below. **Degraded mode:** if \`SKILL_START_PROTO: 1\` is missing from the output

@@ -1,0 +1,9 @@
+**`--session-kind unattended` renders gstack's skills without the interactive ceremony, for one-shot sessions nobody watches** (GST-825). GEVA-100 found that Opus ran none of the preamble, question tuning, telemetry, learnings or Aside research in 66 of 66 stacks-r1 review sessions while paying for that text on every request. `bin/gstack-modules render --session-kind unattended` now leaves it out of every always-loaded SKILL.md: /investigate drops from 29.7k to 19.4k characters, /plan-eng-review from 41.2k to 22.5k, /review from 58.8k to 47.3k, and all 63 skills together by 16% (Claude host, full loadout). The start command, short unattended rules that still leave consents, gates and publication pending, the model overlay, completion status, /investigate's Scope Lock, /review's review record and every /ship receipt step stay. Interactive renders and the committed tree are unchanged, and no install uses the new render yet: GEVA-2's before/after eval decides that.
+
+### Added
+- `--session-kind interactive|unattended` on `bin/gstack-modules render` and `gen-skill-docs --out-dir`; `loadout.lock.json` records `session_kind`, and an unattended spec gets its own `spec_sha256`.
+- `gstack-skill-start --render unattended` prints `RENDER_KIND: unattended`, and `RENDER_KIND_MISMATCH` when `GSTACK_SESSION_KIND` is not unattended. The session kind still comes from the environment, so an eval sets `GSTACK_SESSION_KIND=unattended` on every arm.
+- `{{IF_SESSION:interactive}}…{{/IF_SESSION}}` template guards.
+
+### Tests
+- `test/session-kind-render.test.ts`: interactive renders match the default byte for byte; no unattended SKILL.md carries ceremony or names a step it lost; /review, /investigate and /ship keep what they need; codex renders take the kind; the in-tree refusal; the `--render` contract; and an unattended `gstack-ship-receipt write` and `result` whose receipt passes `gstack-ship-queue ready` and `train build`.

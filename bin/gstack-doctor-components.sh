@@ -380,6 +380,7 @@ gstack_result_anchor() {
     CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
     CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
+    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
     BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
     BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
     BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
@@ -392,7 +393,6 @@ gstack_result_anchor() {
     GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
     GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
     GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
-    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
     *) return 1 ;;
   esac
 }
