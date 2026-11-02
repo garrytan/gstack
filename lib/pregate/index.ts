@@ -259,7 +259,7 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
   if (input.runUrl && input.evidence) {
     const repo = input.evidence.repo;
     const invalid = (why: string, fix: string): ClearDecision => ({ refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${why}; ${lane} stays uncleared`, fix });
-    const id = parseRunRef(input.runUrl, repo);
+    const id = parseRunRef(input.runUrl.replace(/[?#].*$/, ''), repo);
     if (id === null) return invalid(`run_ref_invalid — ${JSON.stringify(input.runUrl)} is not a run id or a run URL on ${repo}`, `pass the run's numeric id or https://github.com/${repo}/actions/runs/<id>`);
     let run: ApiRun | null;
     try { run = input.evidence.deps.run(id); }
