@@ -156,6 +156,28 @@ describe('sealed skips what the destination already holds', () => {
     expect(preflight(s).out).toMatch(/^SEALED: refused findings=1 commits=1 skipped=0 /m);
   });
 
+  test('a landed commit still gets the label_join check, because the join can form only on the branch', () => {
+    const s = scratch();
+    const rec = (extra: Record<number, string>) => ['{', '  "id": "r1",', '  "k1": 1,', '  "k2": 2,', '  "k3": 3,', '  "k4": 4,', '  "k5": 5,', '  "k6": 6,', '  "k7": 7', '}'].flatMap((l, i) => extra[i] ? [l, extra[i]!] : [l]).join('\n') + '\n';
+    const labeled = JSON.stringify({ sealed: { paths: ['heldout/**'], label_keys: ['stratum'] } }, null, 2) + '\n';
+    commit(s, { '.gstack/pregate.json': labeled, 'rec.json': rec({}) }, 'labeled policy');
+    sh(s, ['push', '-q', 'origin', 'main']);
+    sh(s, ['checkout', '-q', '-b', 'results']);
+    commit(s, { 'rec.json': rec({ 1: '  "stratum": "decoy",' }) }, 'stratum');
+    const head = commit(s, { 'rec.json': rec({ 1: '  "stratum": "decoy",', 7: '  "head": "abc1234def5678",' }) }, 'head');
+    sh(s, ['checkout', '-q', 'main']);
+    sh(s, ['cherry-pick', head]);
+    sh(s, ['push', '-q', 'origin', 'main']);
+    expect(sh(s, ['show', 'HEAD:rec.json'])).not.toContain('stratum');
+    sh(s, ['checkout', '-q', 'results']);
+    const h = hook(s);
+    expect(h.code).toBe(1);
+    expect(h.err).toMatch(/sealed\.label_join\s+rec\.json/);
+    const p = preflight(s);
+    expect(p.code).toBe(1);
+    expect(p.out).toMatch(/^SEALED: refused findings=1 commits=1 skipped=1 /m);
+  });
+
   test('a landed commit that differs only in bytes that are not UTF-8 is scanned and refuses', () => {
     const s = scratch();
     sh(s, ['checkout', '-q', '-b', 'results']);

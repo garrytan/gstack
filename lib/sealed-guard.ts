@@ -35,7 +35,9 @@
  * for a squash `(#n)` on the base since the merge-base (at most 50 refs, a
  * 20 s budget, fetched from the destination remote), is not rescanned, nor is
  * one whose own `git patch-id --verbatim` and diff equal a base commit's
- * since the merge-base (off above 2,000 base or 400 listed commits). No
+ * since the merge-base (off above 2,000 base or 400 listed commits). A
+ * landed patch skips only the path and text rules: `sealed.label_join` judges
+ * the whole file at the commit, which the base may never have held. No
  * combined-diff matching; any lookup failure scans everything.
  */
 import { spawnSync } from 'node:child_process';
@@ -200,10 +202,11 @@ function textFindings(repoRoot: string, commits: string[], p: SealedPolicy): Sea
   return out;
 }
 
-export function scanCommits(repoRoot: string, commits: string[], policy: SealedPolicy): SealedFinding[] {
-  if (!commits.length) return [];
+export function scanCommits(repoRoot: string, commits: string[], policy: SealedPolicy, joinCommits: string[] = commits): SealedFinding[] {
+  if (!commits.length && !joinCommits.length) return [];
   const seen = new Set<string>();
-  return [...pathFindings(repoRoot, commits, policy), ...textFindings(repoRoot, commits, policy), ...joinFindings(repoRoot, commits, policy)].filter(f => {
+  const own = commits.length ? [...pathFindings(repoRoot, commits, policy), ...textFindings(repoRoot, commits, policy)] : [];
+  return [...own, ...joinFindings(repoRoot, joinCommits, policy)].filter(f => {
     const key = `${f.rule}\0${f.file}\0${f.line ?? ''}\0${f.commit}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -378,8 +381,9 @@ export function evaluateSealed(o: EvaluateOptions): SealedReport {
   const { skipped, notes } = alreadyPublished(o, listed);
   const skip = new Set(skipped.map(k => k.commit));
   const commits = listed.filter(c => !skip.has(c));
+  const held = new Set(skipped.filter(k => k.pr !== undefined).map(k => k.commit));
   let found: SealedFinding[];
-  try { found = scanCommits(o.repoRoot, commits, policy); }
+  try { found = scanCommits(o.repoRoot, commits, policy, listed.filter(c => !held.has(c))); }
   catch (e: any) { return { ...blank, policyLabels: labels, commits: commits.length, skipped, notes, status: 'error', error: `could not read the published commits: ${e.message}` }; }
   const exception = globMatcher(policy.allow_paths, false);
   const exempt: ExemptFinding[] = [];

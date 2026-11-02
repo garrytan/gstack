@@ -1130,7 +1130,9 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--no
   `sealed-guard`) and deletes the fetched refs afterwards. Landed: the commit's
   own `git patch-id --verbatim` equals a base commit's since the merge-base and
   so does its diff, apart from blob ids and line numbers; a merge never matches,
-  and above 2,000 base or 400 listed commits this check is off. Nothing
+  and above 2,000 base or 400 listed commits this check is off. A landed commit
+  skips only the path and text rules: `sealed.label_join` judges the whole file
+  at that commit, which the base may never have held, so it still runs. Nothing
   matches a combined diff, so a parent whose commits were never published is
   scanned whole even when its squash landed. A lookup that fails, runs out of
   time or exceeds a limit prints one line and scans everything. Each PR group
