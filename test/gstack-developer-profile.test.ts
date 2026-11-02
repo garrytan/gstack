@@ -331,6 +331,43 @@ describe('gstack-developer-profile --derive', () => {
     expect(p.inferred.signal_events).toBe(2);
   });
 
+  test('a signal hint on an unregistered id moves its dimension (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(1);
+    expect(p.inferred.hinted_events).toBe(1);
+    expect(p.inferred.values.scope_appetite).toBeGreaterThan(0.5);
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('(hinted)');
+  });
+
+  test('the same unregistered answer without a hint moves nothing (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('an unknown hint, a choice outside the signal and a registered id ignore the hint (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-a', question_summary: 'a?', user_choice: 'expand', signal_key: 'made-up', session_id: 's1' });
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-b', question_summary: 'b?', user_choice: 'maybe', signal_key: 'scope-appetite', session_id: 's2' });
+    logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', signal_key: 'scope-appetite', session_id: 's3' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.contributing_events.architecture_care).toBe(1);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('hinted rows share the per-day cap (#3442)', () => {
+    for (let i = 0; i < 5; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: `plan-ceo-review-q${i}`, question_summary: 'q?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: `s${i}`, ts: '2026-10-31T12:00:00Z' });
+    }
+    runDev('--derive');
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('capped to +0.060');
+  });
+
   test('contributing_events is all zero when no answer matches a signal', () => {
     logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'not-a-mapped-option', session_id: 's1' });
     runDev('--derive');
@@ -621,6 +658,98 @@ describe('gstack-developer-profile --check-mismatch', () => {
     expect(r.stdout).toContain('2 dimension(s) disagree');
     expect(r.stdout).toContain('scope_appetite');
     expect(r.stdout).toContain('autonomy');
+  });
+
+  const deriveWithOneSignal = () => {
+    logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', session_id: 's0' });
+    for (let i = 1; i < 13; i++) {
+      logQuestion({ skill: 'plan-eng-review', question_id: `adhoc-unregistered-${i}`, question_summary: 'x', user_choice: 'anything', session_id: `s${i}` });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    p.declared = { scope_appetite: 0.9 };
+    fs.writeFileSync(file, JSON.stringify(p));
+  };
+
+  test('a declared dimension with no observed evidence is not flagged (#3436)', () => {
+    deriveWithOneSignal();
+    const r = runDev('--check-mismatch');
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain('scope_appetite: declared');
+    expect(r.stdout).toContain('scope_appetite: no observed evidence');
+  });
+
+  test('--gap leaves out a dimension with no observed evidence (#3436)', () => {
+    deriveWithOneSignal();
+    const out = JSON.parse(runDev('--gap').stdout);
+    expect(out.gap.scope_appetite).toBeUndefined();
+    expect(out.low_evidence).toEqual({ scope_appetite: 0 });
+  });
+
+  test('a dimension with 1 or 2 contributing events reports too little evidence', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    p.declared = { scope_appetite: 0.9 };
+    p.inferred.values.scope_appetite = 0.45;
+    p.inferred.sample_size = 10;
+    p.inferred.contributing_events = { scope_appetite: 2 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    const r = runDev('--check-mismatch');
+    expect(r.stdout).toContain('MISMATCH: none');
+    expect(r.stdout).toContain('scope_appetite: too little evidence (2 of 3 events)');
+    expect(JSON.parse(runDev('--gap').stdout).low_evidence).toEqual({ scope_appetite: 2 });
+  });
+
+  test('a dimension with 3 contributing events is compared', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    p.declared = { scope_appetite: 0.9 };
+    p.inferred.values.scope_appetite = 0.45;
+    p.inferred.sample_size = 10;
+    p.inferred.contributing_events = { scope_appetite: 3 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    expect(runDev('--check-mismatch').stdout).toContain('scope_appetite: declared 0.9 vs inferred 0.45 (gap 0.45)');
+    expect(JSON.parse(runDev('--gap').stdout).gap.scope_appetite).toBeCloseTo(0.45, 2);
+  });
+
+  test('three same-day answers that agree with the declaration are not a mismatch', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode?', user_choice: 'expand', session_id: `s${i}`, ts: '2026-10-20T12:00:00Z' });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(3);
+    p.declared = { scope_appetite: 0.9 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    const r = runDev('--check-mismatch');
+    expect(r.stdout).toContain('not enough data');
+    expect(r.stdout).not.toContain('scope_appetite: declared');
+  });
+
+  test('derive stores the gap for a dimension with 3 contributing events', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', session_id: `s${i}`, ts: `2026-10-2${i}T12:00:00Z` });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.architecture_care).toBe(3);
+    p.declared = { architecture_care: 0.1 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    expect(runDev('--derive').status).toBe(0);
+    expect((readProfile() as any).gap.architecture_care).toBeGreaterThan(0.3);
+  });
+
+  test('derive stores no gap for a dimension without evidence', () => {
+    deriveWithOneSignal();
+    expect(runDev('--derive').status).toBe(0);
+    const p = readProfile() as any;
+    expect(p.gap.scope_appetite).toBeUndefined();
   });
 });
 
