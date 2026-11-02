@@ -272,8 +272,10 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     if (!isChangelog) return !!parseVersion(audited.stdout.trim()) && !!parseVersion(now.trim());
     const [atAuditBase, atNowBase] = [auditBase, nowBase].map(b => b ? git(cwd, ['show', `${b}:${p}`]) : null);
     if (atAuditBase?.status !== 0 || atNowBase?.status !== 0) return false;
+    if (atAuditBase.stdout === atNowBase.stdout) return normalizeChangelog(audited.stdout) === normalizeChangelog(now);
+    const kept = mergeChangelogs(audited.stdout, atAuditBase.stdout, atAuditBase.stdout);
     const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
-    return merged !== null && normalizeChangelog(merged) === normalizeChangelog(now);
+    return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
   const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
   let audit: any = null;

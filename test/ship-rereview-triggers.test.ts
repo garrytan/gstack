@@ -584,4 +584,34 @@ describe('a CHANGELOG re-heading after the docs audit (GST-906, GBRA-258, gbrain
       else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
     }
   });
+
+  // Value: protects=the base merge in the carry may only add the base's sections: dropping a header line the audit saw
+  //   stays stale with or without a main merge, and a branch that also corrected a released entry keeps a pure re-heading
+  //   fresh; fails_when=mergeChangelogs' base-wins resolution hides a deleted audited line (DOCS: fresh) or stales a pure
+  //   re-heading; seam=lib/ship-release.ts docsFresh; no_claim=the restamp writer
+  test('the base merge only adds base sections: a dropped audited line stays stale, a corrected released entry stays fresh', () => {
+    const policy = JSON.stringify({ bump: 'patch', queue_mode: 'stamp-at-merge', changelog: 'CHANGELOG.md', stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const released = (entry = '- base entry') => `## [1.0.0.0] - 2026-10-30\n\n${entry}\n`;
+    const log = (header: string, own: string, rest: string) => `# Changelog\n\n${header}${own}\n\n- b ships\n\n${rest}`;
+    const sibling = '## [1.0.1.0] - 2026-11-01\n\n- sibling ships\n\n';
+    const cases = [
+      ['audited header line dropped, no main merge', log('Notice: read this.\n\n', '## [1.0.1.0] - 2026-11-01', released()), false, log('', '## [1.0.2.0] - 2026-11-02', released()), 'stale'],
+      ['audited header line dropped in a main merge', log('Notice: read this.\n\n', '## [1.0.1.0] - 2026-11-01', released()), true, log('', '## [1.0.2.0] - 2026-11-02', sibling + released()), 'stale'],
+      ['released entry corrected, then re-headed', log('', '## [1.0.1.0] - 2026-11-01', released('- base entry, corrected')), false, log('', '## [1.0.2.0] - 2026-11-02', released('- base entry, corrected')), 'fresh'],
+    ] as const;
+    for (const [name, auditedLog, merges, stampedLog, verdict] of cases) {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'CHANGELOG.md': `# Changelog\n\n${released()}` });
+      const reviewed = wtree(f);
+      f.write({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': auditedLog }); f.commit('Steps 12-13: version and CHANGELOG');
+      const post = snapshot(f);
+      if (merges) {
+        f.advanceBase({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': `# Changelog\n\n${sibling}${released()}` });
+        mergeMain(f, { VERSION: '1.0.1.0\n', 'CHANGELOG.md': stampedLog });
+      }
+      f.write({ VERSION: '1.0.2.0\n', 'CHANGELOG.md': stampedLog }); f.commit('slot restamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (verdict === 'fresh') expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 0, expect.stringContaining('DOCS: fresh against the Step 14.5 post-audit snapshot')]);
+      else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
+    }
+  });
 });
