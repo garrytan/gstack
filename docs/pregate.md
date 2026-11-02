@@ -74,7 +74,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 
 | Key | Meaning |
 |---|---|
-| `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
+| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
 | `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
@@ -383,7 +383,7 @@ The record is `.gstack/tmp/pregate.json` (`gstack-artifact validate --as pregate
 (`PREGATE_STALE`: rerun after the final stamp), green (`PREGATE_LANE_FAILED`,
 `PREGATE_INCOMPLETE`, or `PREGATE_ENVIRONMENT` when every incomplete check is
 the machine's) and every `requires-remote` obligation carries a receipt
-(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, then
+(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, wait for it to finish green, then
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>`). The ship
 receipt then carries `pregate` and `requires_remote`. `gstack-pregate verify`
 runs the same check standalone.
@@ -754,17 +754,33 @@ reads `remote-gate tree=<t12> tests=<n> runs=<id>/<attempt>,… profiles=<p>,…
 heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
 stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
 the same way; for such a lane `--run-url` is verified as `--run` is, and
-`--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
-recording, with one check (GSTA-203): when the base config and the GitHub
+`--bundle-lane` is refused. A lane with no profile still clears by
+`--run-url`, with run checks (GSTA-203): when the base config and the GitHub
 origin can be read, `clear` reads the run once and refuses
 `PREGATE_RECEIPT_INVALID` unless it is a run of this repository whose
 workflow file is the lane's own `<workflow.yml>`. A run of another workflow
 refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
 ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
 run gh cannot read refuses with `api_error`, and a URL that is not an Actions
-run URL or id on this repository with `run_ref_invalid`. Only the workflow
-file is checked there, not the job, conclusion or tree; that is what a run
-profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
+run URL or id on this repository with `run_ref_invalid`. A reusable-workflow
+lane (one whose file another workflow calls through `workflow_call`) also clears from a run
+of a caller: a workflow in the branch's own `.github/workflows/` with a job
+that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
+pregate.json's recorded tree, as long as the lane's own job succeeded in the
+run under that calling job (`<calling job> / <lane job>`); else it refuses
+with `caller_job_skipped`. Fix lines only suggest `gh workflow run` for
+a file with a `workflow_dispatch` trigger.
+The run must also
+have finished green (GSTA-203 PR 8): a run that is still queued or running
+refuses with `run_in_progress`, and one that concluded anything but `success`
+(`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line
+says to rerun the workflow and clear with the green run. The check reads the
+run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
+the whole run, not that job or attempt, and the lane records
+`https://github.com/<repo>/actions/runs/<id>/attempts/<n>` for the attempt it
+judged rather than the link you passed. The job (apart from a caller run's
+`<calling job> / <lane job>` above), tree and age are not
+checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
 unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
@@ -781,10 +797,15 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url`, checked only for its workflow file. On main the
-Windows obligation is `windows-smoke.yml/windows-smoke` (the six-shard
+still clears by `--run-url`, checked for its workflow file and a green
+conclusion. On main the free tier's Windows smoke lane is
+`windows-smoke.yml/windows-smoke`, and a `windows-smoke.yml` run clears it.
+Two narrower Windows lanes are owed only when a branch selects their own test
+files: `free-tests.yml/cso-windows-launcher` (cleared by a `free-tests.yml`
+run) and `windows-setup-e2e.yml/windows-setup` (cleared by a
+`windows-setup-e2e.yml` run). The six-shard
 `windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
-obligation), and a `windows-smoke.yml` run clears it. A branch cut before
+obligation. A branch cut before
 `windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
 from its own workflows, and only a `windows-free-tests.yml` run clears that. A
 pull request cut before these
@@ -1093,7 +1114,8 @@ with a timing flake: never raise the bound.
     "answer_markers": ["SEALED ANSWER:"],
     "seed_patterns": ["shuffle_seed=\\d+"],
     "local_paths": true,
-    "case_insensitive": true } }
+    "case_insensitive": true,
+    "label_keys": ["stratum", "decoy_set"] } }
 ```
 
 A repo with a `sealed` key gets a configured local check against accidental
@@ -1101,13 +1123,33 @@ publication whenever the managed pre-push hook (`gstack-redact
 install-prepush-hook`, no reinstall needed) or the standalone preflight runs:
 
 ```
-gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--json]
+gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--no-skip] [--json]
 ```
 
 - **Boundary.** Every commit the push publishes: `git rev-list <local sha>
   --not --remotes=<remote>` (and the remote tip when the ref exists); a
   destination with no refs means everything reachable. `--range` names the
   commits explicitly.
+- <a id="sealed-skip"></a>**Skipped commits.** When the base branch resolves, a
+  listed commit is not rescanned when the destination already holds it or its
+  patch already landed. Held: an ancestor of the destination's own
+  `refs/pull/<n>/head` for a squash commit `(#n)` on the base since the
+  merge-base; the subject is only a hint, the fetched ref is the proof. That
+  lookup lists and fetches at most 50 refs within 20 seconds (receipted, sink
+  `sealed-guard`) and deletes the fetched refs afterwards. Landed: the commit's
+  own `git patch-id --verbatim` equals a base commit's since the merge-base and
+  so does its diff, apart from blob ids and line numbers; a merge never matches,
+  and above 2,000 base or 400 listed commits this check is off. A landed commit
+  skips only the path and text rules: `sealed.label_join` judges the whole file
+  at that commit, which the base may never have held, so it still runs. Nothing
+  matches a combined diff, so a parent whose commits were never published is
+  scanned whole even when its squash landed. A lookup that fails, runs out of
+  time or exceeds a limit prints one line and scans everything. Each PR group
+  and landed commit is listed (`skipped <n> commit(s) the destination already
+  has as refs/pull/<n>/head`, `skipped commit <sha> (its patch landed on the
+  base as <sha>)`), the `SEALED:` line counts them as `skipped=<n>` (its
+  `commits=` counts the commits scanned), and `--no-skip` scans every listed
+  commit. The pre-push hook and `gstack-pregate sealed` skip the same way.
 - **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
   adds, renames or copies, whatever its content (binary, empty, deleted again
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
@@ -1139,11 +1181,60 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   sealed data. Each exempt path is listed on every push (`exempt <rule>
   <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
   `exempt=<n>` on the `SEALED:` line.
-- **Version skew.** A gstack older than the release whose CHANGELOG adds
-  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
-  unknown keys, so every push and `gstack-pregate run` in the repository
-  fail on that machine. Raise `min_gstack_version` in
-  `.gstack/ship-policy.json` to that release before landing either key.
+- **Label joins.** Off unless `label_keys` names at least one field. Then
+  `sealed.label_join` refuses a published record that puts a label field next
+  to an identifier, the way a panel row with `stratum` beside `head` and
+  `plan_bytes` tells a model under test which unit it is. A record is a JSON
+  object at any depth (its own fields plus one level of nested objects, named
+  like `meta.head`), a JSONL or NDJSON line, a CSV or TSV row, or a row of a
+  Markdown pipe table (CSV and TSV cells may be quoted). Field names and table headers are compared after
+  trimming, lowercasing and turning spaces and hyphens into underscores
+  (`Tree SHA-256` is `tree_sha_256`); this is the rule's own normalization,
+  separate from `case_insensitive`. An identifier is a field whose name
+  matches an `identifier_keys` glob (`*` is the only wildcard; the default
+  is `head`, `head_sha`, `sha`, `commit`, `tree`, `tree_sha*`, `*_sha`,
+  `*_sha256`, `sha256`, `digest`, `*_digest`, `hash`, `*_hash`,
+  `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value (or a
+  list holding one) of 7 to 64 hex characters with at least one digit and
+  one letter a to f. An
+  object key of that shape counts as an identifier of the object it holds
+  (shown as `(key)`), so a map keyed by sha joins too. Numbers count only
+  through the field name. A field can be both a label and an identifier, and
+  a record joins when it has a label field and a different identifier field,
+  so adding identifier names to `label_keys` never hides a join. Both lists take bare field names: a nested field
+  matches by its own name (`stratum`, never `meta.stratum`). For each supported file a commit adds,
+  modifies, renames or copies, the guard fingerprints every joined record
+  (sha256 over its label and identifier fields and their values, kept in
+  memory) and compares the set with the parent's version of the file (the
+  rename or copy source; every parent for a merge). A fingerprint no parent
+  has is a finding, so unchanged records and formatting-only edits stay clear,
+  and a replaced, added or widened record refuses even when the count stays
+  the same. A file whose text never names a label key, ignoring double
+  quotes (so `"Strat"um` still names `stratum`), cannot hold a join, so
+  it is skipped without parsing (a commented `tsconfig.json` passes). A file
+  with a `\u` escape, which could spell a label key, is always parsed, so a
+  commented one is `sealed.label_join_unchecked`. A
+  supported file over 4 MiB, one that names a label key and does not parse (one bad
+  JSONL line is enough), one nested deeper than 64 levels, or a blob git
+  cannot read is `sealed.label_join_unchecked`. It refuses too, and the
+  `SEALED:` line counts it as `unchecked=<n>`. Findings print field names
+  (`keys=`, label fields first), never values; `--json` carries them as
+  `keys`. `allow_paths` never exempt either rule; a base-branch waiver does.
+  Both lists are the union of the base branch's and the pushed policy's, each
+  resolved to its default first, so a push can turn the rule on or widen it
+  but never turn it off or narrow it. Without `label_keys` the guard reads no
+  file contents and its output is unchanged. Known limits: joins across files,
+  joins by reference inside a file (a `decoy_set` list naming units described
+  elsewhere), a map from an identifier straight to a label value with no
+  label field name, columnar JSON (`columns` plus `rows`), labels encoded in
+  file names, and prose.
+- **Version skew.** A gstack older than the release that adds a `sealed` key
+  refuses it as unknown, so every push and `gstack-pregate run` in the
+  repository fail on that machine. `allow_paths` and `case_insensitive` came
+  with the release whose CHANGELOG adds `sealed.allow_paths`; `label_keys`
+  and `identifier_keys` came with the release whose CHANGELOG adds
+  `sealed.label_join`. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing the key.
 - **Policy.** The union of the destination base branch's `sealed` and the
   pushed commit's: a push can tighten it, never relax it (`allow_paths` come
   from the base branch alone, and a pushed deny glob cannot override one). The

@@ -246,8 +246,10 @@ result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
 head: /ship runs before every READY ([details](#ship-before-ready)). It also
 refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
-what the head needs and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-exception the receipt records does not stand ([the ship receipt](#ship-receipt)).
+what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` when a targeted class
+the head needs has no done targeted pass in the receipt, and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner exception the receipt records
+does not stand ([the ship receipt](#ship-receipt)).
 Send the block as printed.
 
 **2. Lane behind another PR: gate ahead.** Gate the tree the queue will have
@@ -683,8 +685,10 @@ slot. The queue enforces this at every step from the PR body alone:
   head being READY'd (or its `pr` is another PR); the informational
   `SHIP_RECEIPT:` line still prints. It refuses `QUEUE_RECEIPT_DEPTH_RAISED`
   (with a `REVIEW_DEPTH:` line) when the receipt records a review depth below
-  what the head needs, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-  exception it records does not stand ([the ship receipt](#ship-receipt)).
+  what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` (with a
+  `REVIEW_TARGETED:` line) when a targeted class the head needs has no done
+  targeted pass in the receipt, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an
+  owner exception it records does not stand ([the ship receipt](#ship-receipt)).
   There is no flag around it.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
@@ -803,9 +807,10 @@ its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
 `QUEUE_RECEIPT_MISSING` and `QUEUE_RECEIPT_STALE` (the PR body has no /ship
 receipt for the pin; see [/ship before READY](#ship-before-ready)),
-`QUEUE_RECEIPT_DEPTH_RAISED` and `QUEUE_RECEIPT_EXCEPTION_INVALID` (the
-receipt's review depth is below what the pin needs, or an owner exception it
-records does not stand; see [the ship receipt](#ship-receipt)),
+`QUEUE_RECEIPT_DEPTH_RAISED`, `QUEUE_RECEIPT_TARGETED_MISSING` and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` (the receipt's review depth is below what
+the pin needs, a targeted class the pin needs has no done targeted pass, or an
+owner exception it records does not stand; see [the ship receipt](#ship-receipt)),
 `QUEUE_NOT_READY` (no READY receipt at that head), `QUEUE_TRAIN_CONFLICT` (the printed
 `QUEUE_TRAIN_CONFLICT: train <id> stopped at #<pr> (conflicts: <files>) after
 merging #<a>,#<b>; nothing dispatched, no branch pushed; fix: …` line names
@@ -1268,11 +1273,11 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
-`gstack-review-scope summary --since <REVIEW_SINCE>` reads the branch's review-log
-rows for this invocation and writes the counters the ship receipt carries
+`gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
+rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,
-blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`
-and `est_input_tokens` when the run recorded them, printed on the receipt summary
+blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`,
+`est_input_tokens`, `unrecorded` and `ledgers_read` when the run recorded them, printed on the receipt summary
 line as `passes=<n> blocking_found=<k> deferred=<m>`, so a scorecard can track
 passes per PR.
 
@@ -1286,8 +1291,9 @@ instead of `defer`. `review_scope: all` is the opt-back to the earlier loop:
 every finding is `scope: fix` on every pass, reviewers read the whole diff each
 time, and only the three-cycle fix cap stops the loop. `show-effective` prints the choice as a `ship: review_scope …`
 line, and the codes a refusal ends with are
-[`REVIEW_SCOPE_INPUT`](troubleshooting.md#review-scope-input) and
-[`REVIEW_SCOPE_RANGE`](troubleshooting.md#review-scope-range).
+[`REVIEW_SCOPE_INPUT`](troubleshooting.md#review-scope-input),
+[`REVIEW_SCOPE_RANGE`](troubleshooting.md#review-scope-range) and
+[`REVIEW_SCOPE_LEDGER`](troubleshooting.md#review-scope-ledger).
 
 <a id="base-red"></a>
 ## `base_red`: pausing /ship on a red base

@@ -23,6 +23,12 @@
 #                        question_id, the clicked UI label is mapped to its
 #                        registered option key (#2623) and kept in choice_label.
 #                        Unmatched labels and other sources stay as given.
+#   signal_key         — optional SIGNAL_MAP key an unregistered question_id's
+#                        answer speaks to (#3442; `gstack-question-preference
+#                        --signal-keys` lists them). Kept only when it is a
+#                        signal key and the id is unregistered; the choice is
+#                        then mapped to that signal's option keys. A dropped
+#                        hint logs the row anyway (QLOG_SIGNAL_KEY_DROPPED).
 #   recommended        — option key the agent recommended (optional; mapped
 #                        the same way on hook-captured events)
 #   followed_recommendation — bool (optional — computed if both present)
@@ -197,6 +203,32 @@ if (j.source === 'hook') {
   }
 }
 
+// A signal hint on an unregistered id (#3442) is kept only when it names a
+// SIGNAL_MAP key; the choice is then mapped to that signal's option keys
+// (exact key or its own words). A dropped hint never fails the log.
+if (j.signal_key !== undefined) {
+  const { SIGNAL_MAP, resolveHintedOptionKey } = await import(process.env.GSTACK_SCRIPTS_DIR + '/psychographic-signals.ts');
+  const { getQuestion } = await import(process.env.GSTACK_SCRIPTS_DIR + '/question-registry.ts');
+  const hint = typeof j.signal_key === 'string' ? j.signal_key.toLowerCase() : '';
+  let reason = '';
+  if (!Object.hasOwn(SIGNAL_MAP, hint)) reason = 'it is not a signal key; list them with gstack-question-preference --signal-keys';
+  else if (getQuestion(j.question_id)) reason = 'a registered id keeps its own signal';
+  if (reason) {
+    process.stderr.write('gstack-question-log: logged the answer without its signal_key: ' + reason + ' (QLOG_SIGNAL_KEY_DROPPED)\n');
+    delete j.signal_key;
+  } else {
+    j.signal_key = hint;
+    const key = resolveHintedOptionKey(hint, j.user_choice);
+    if (key !== undefined && key !== j.user_choice) {
+      j.choice_label = j.user_choice;
+      j.user_choice = key;
+    }
+    if (j.recommended !== undefined) {
+      j.recommended = resolveHintedOptionKey(hint, j.recommended) ?? j.recommended;
+    }
+  }
+}
+
 // followed_recommendation — compute if both sides present. An __unknown__
 // choice means extraction failed, not that the user rejected the
 // recommendation — leave the field absent so metrics can't be poisoned.
@@ -233,6 +265,7 @@ if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
   fi
   exit 1
 fi
+grep -h 'QLOG_SIGNAL_KEY_DROPPED' "$TMPERR" >&2 || true
 
 LOG_FILE="$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
 

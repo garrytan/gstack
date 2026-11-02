@@ -37,6 +37,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { runBin } from './spawn-bin';
 import { logHookError as sharedLogHookError } from './hook-log';
+import { parseQidMarker } from '../../../scripts/qid-marker';
 
 interface HookStdin {
   session_id?: string;
@@ -65,7 +66,6 @@ interface ExtractedQuestion {
   door_type?: string;
 }
 
-const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
 
 function logHookError(msg: string): void {
@@ -103,13 +103,14 @@ function extractQuestionId(
   skill: string,
   questionText: string,
   options: string[],
-): { id: string; marker_present: boolean; stripped_question: string } {
-  const match = questionText.match(MARKER_RE);
-  if (match) {
+): { id: string; signal_key?: string; marker_present: boolean; stripped_question: string } {
+  const marker = parseQidMarker(questionText);
+  if (marker) {
     return {
-      id: match[1],
+      id: marker.id,
+      ...(marker.signal_key ? { signal_key: marker.signal_key } : {}),
       marker_present: true,
-      stripped_question: questionText.replace(MARKER_RE, '').trim(),
+      stripped_question: marker.stripped,
     };
   }
   return {
@@ -289,7 +290,7 @@ async function main(): Promise<void> {
     if (!qText) continue;
 
     const opts = optionLabels(q.options || []);
-    const { id, stripped_question } = extractQuestionId(skill, qText, opts);
+    const { id, signal_key, stripped_question } = extractQuestionId(skill, qText, opts);
     const recommended = extractRecommended(stripped_question, opts);
     const summary = stripped_question.slice(0, 200);
     const choice = choices[i] || { choice: '__unknown__' };
@@ -305,6 +306,7 @@ async function main(): Promise<void> {
       tool_use_id: stdin.tool_use_id?.slice(0, 128),
     };
     if (recommended) payload.recommended = recommended.slice(0, 64);
+    if (signal_key) payload.signal_key = signal_key;
     if (choice.free_text) payload.free_text = String(choice.free_text);
 
     spawnLog(payload, stdin.cwd);

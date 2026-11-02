@@ -264,6 +264,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
     fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
   },
+  QUEUE_RECEIPT_TARGETED_MISSING: {
+    anchor: 'queue-receipt-targeted-missing',
+    summary: 'the head touches money, gate, auth or secret code that needs the targeted reader, and the PR body’s /ship receipt records no done targeted pass covering every required class (none recorded, failed, not run, or other classes)',
+    fix: 'run /ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
+  },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
     summary: 'GitHub’s refs/pull/<n>/merge is missing or still merges an older head than the PR’s: the PR conflicts with the base (a CHANGELOG-only conflict counts), so a screen dispatched on it would plan no cases and report success',
@@ -359,6 +364,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'review-scope-range',
     summary: 'gstack-review-scope could not read the diff it scopes findings against: the base or the range base does not resolve, or the range base is not an ancestor of HEAD',
     fix: 'fetch origin/<base>, check --range-base against the saved pass heads, and start a full pass (--pass 1) when history was rewritten',
+  },
+  REVIEW_SCOPE_LEDGER: {
+    anchor: 'review-scope-ledger',
+    summary: 'gstack-review-scope summary could not count the dispatch ledgers: none was named (no --run, --ledger or --no-ledger), --run holds no review-ledger.jsonl, or a ledger, its merged file or its judged set is unreadable or changed since judge',
+    fix: 'pass --run <run dir> (the directory the review passes wrote) or each --ledger <f>; --no-ledger only when no reader ran through gstack-review-dispatch; restore or re-collect a ledger file that moved',
   },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',

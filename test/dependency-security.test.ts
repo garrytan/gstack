@@ -6,7 +6,7 @@ import AdmZip from "adm-zip";
 import sharp from "sharp";
 
 describe("security dependency overrides", () => {
-  for (const [name, minimum] of [["sharp", "0.35.4"], ["adm-zip", "0.6.1"]]) {
+  for (const [name, minimum] of [["sharp", "0.35.4"], ["adm-zip", "0.6.1"], ["qs", "6.16.1"], ["@hono/node-server", "2.1.3"]]) {
     test(`${name} resolves only versions at or above ${minimum}`, async () => {
       const lock = await Bun.file(join(import.meta.dir, "../bun.lock")).text();
       const versions = [...lock.matchAll(new RegExp(`"${name}@([^"]+)"`, "g"))];
