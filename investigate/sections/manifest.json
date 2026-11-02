@@ -2,7 +2,7 @@
   "$schema": "https://gstack.dev/schemas/section-manifest.json",
   "skill": "investigate",
   "version": 1,
-  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's Phase 2 pattern table and the Arguments table decide WHEN to read a recipe; no machine predicate here (plan D3).",
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's Recipes list and the Arguments table decide WHEN to read a recipe; no machine predicate here (plan D3).",
   "sections": [
     {
       "id": "flake",
@@ -32,7 +32,7 @@
       "id": "backlog",
       "file": "backlog.md",
       "title": "Backlog mode: classify each open issue still_open / already_fixed <commit> / partially_fixed / owned_elsewhere, read-only table, no closing",
-      "trigger": "running `/investigate --backlog` (read-only issue triage instead of Phases 1–5)"
+      "trigger": "running `/investigate --backlog` (read-only issue triage instead of a fix)"
     },
     {
       "id": "blast-radius",

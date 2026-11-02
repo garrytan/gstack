@@ -93,7 +93,7 @@ describe('session-kind renders', () => {
     expect(investigate).toContain('## Scope Lock');
     expect(investigate).toContain('freeze-state.sh" acquire');
     expect(investigate).not.toContain('Refresh learnings');
-    expect(investigate).toContain('## Web research runs in Aside\n\nUnattended runs do not drive the Aside browser');
+    expect(investigate).not.toContain('Web research runs in Aside');
     expect(read(dir, 'design-consultation/SKILL.md')).toContain('## Web research runs in Aside\n\nUnattended runs do not drive the Aside browser');
     const pdf = read(dir, 'make-pdf/SKILL.md');
     expect(pdf).toContain('## MAKE-PDF SETUP');

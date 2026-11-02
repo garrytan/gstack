@@ -69,8 +69,8 @@ Terminal-Bench 2 exposure counts):
   prose, the question format and Question Tuning, plan-mode rules, voice,
   writing, completeness, confusion, evidence and context sections, Repo
   Ownership, Search Before Building, Telemetry, Operational Self-Improvement,
-  Prior Learnings and Capture Learnings (and the literal learnings refreshes in
-  /investigate and /qa), /review's Step 3.4 queue status and /ship's Step 21
+  Prior Learnings and Capture Learnings (and the literal learnings refresh in
+  /qa), /review's Step 3.4 queue status and /ship's Step 21
   /plan-tune nudge. Aside research becomes one paragraph that sends the same
   query to WebSearch.
 - **Kept:** the start command (it adds `--render unattended`), short

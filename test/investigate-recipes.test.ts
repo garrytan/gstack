@@ -2,7 +2,7 @@
  * Plan D3: investigate recipes and backlog mode. Pins the carve shape (manifest
  * ids, STOP pointers, the Arguments table routing `--backlog`), the tokens each
  * recipe must carry (commands, the `## Flake evidence` section, the four backlog
- * classes, the never-retry rule), the Phase 1 additions, the benchmark
+ * classes, the never-retry rule), the How to work lessons, the benchmark
  * `git update-index --refresh` line, and that an external host gets the recipes
  * inlined. Prose is not pinned.
  */
@@ -24,7 +24,7 @@ describe('investigate carve', () => {
     expect(CARVE_GUARDS.investigate!.expectedSections).toEqual(manifest.sections.map(s => s.file));
     for (const s of manifest.sections) expect(fs.existsSync(path.join(ROOT, 'investigate', 'sections', `${s.file}.tmpl`))).toBe(true);
   });
-  test('the skeleton routes: Arguments table with --backlog before the first STOP, one STOP per recipe, recipes after the Phase 2 pattern table', () => {
+  test('the skeleton routes: Arguments table with --backlog before the first STOP, one STOP per recipe, recipes between the Scope Lock and the Report', () => {
     const args = skeleton.indexOf('## Arguments');
     const firstStop = skeleton.indexOf('> **STOP.**');
     expect(args).toBeGreaterThan(0);
@@ -32,15 +32,15 @@ describe('investigate carve', () => {
     expect(skeleton).toMatch(/\| `\/investigate --backlog \[<issue numbers or gh query>\]` \| Read-only triage/);
     for (const id of RECIPES) expect(skeleton).toContain(`sections/${id}.md`);
     expect(skeleton.match(/> \*\*STOP\.\*\*/g)!.length).toBe(RECIPES.length);
-    const recipes = skeleton.indexOf('### Recipes');
-    expect(recipes).toBeGreaterThan(skeleton.indexOf('## Phase 2: Pattern Analysis'));
-    expect(recipes).toBeLessThan(skeleton.indexOf('## Phase 3: Hypothesis Testing'));
+    const recipes = skeleton.indexOf('## Recipes');
+    expect(recipes).toBeGreaterThan(skeleton.indexOf('## Scope Lock'));
+    expect(recipes).toBeLessThan(skeleton.indexOf('## Report'));
     expect(skeleton).not.toContain('## Flake recipe');
   });
-  test('Phase 1 additions: call sites before calling two queries duplicates; update-index before timing git in a worktree (investigate and benchmark)', () => {
-    const phase1 = skeleton.slice(skeleton.indexOf('## Phase 1: Root Cause Investigation'), skeleton.indexOf('## Scope Lock'));
-    expect(phase1).toMatch(/Before calling two queries, helpers or code paths duplicates, read their call sites/);
-    expect(phase1).toContain('`git update-index --refresh`');
+  test('How to work lessons: call sites before calling two queries duplicates; update-index before timing git in a worktree (investigate and benchmark)', () => {
+    const how = skeleton.slice(skeleton.indexOf('## How to work'), skeleton.indexOf('## Scope Lock'));
+    expect(how).toMatch(/Before calling two queries, helpers or code paths duplicates, read their call sites/);
+    expect(how).toContain('`git update-index --refresh`');
     const benchmark = read('benchmark/SKILL.md');
     expect(benchmark).toContain('git update-index --refresh >/dev/null 2>&1 || true');
     expect(benchmark).toMatch(/before timing anything that spawns git/);
@@ -95,7 +95,7 @@ describe('recipe tokens', () => {
     expect(backlog).toMatch(/no `gh issue close`/);
     expect(backlog).not.toMatch(/gh issue close <n>/);
   });
-  test('blast-radius: the one safety fact, the five-rung ladder, look where grep stops, confirmed and cleared risks apart, the Phase 4 pointer and the shared-premise red flag', () => {
+  test('blast-radius: the one safety fact, the five-rung ladder, look where grep stops, confirmed and cleared risks apart, the Recipes pointer and the shared-premise red flag', () => {
     const blast = read('investigate/sections/blast-radius.md');
     expect(blast).toContain('## Blast radius');
     expect(blast).toContain('**Name the one fact it is safe because of.**');
@@ -104,11 +104,11 @@ describe('recipe tokens', () => {
     expect(blast).toContain('**Keep confirmed risks and cleared risks apart.**');
     expect(blast).toContain('the word "unproven"');
     const skeleton = read('investigate/SKILL.md');
-    const phase4 = skeleton.slice(skeleton.indexOf('## Phase 4: Implementation'), skeleton.indexOf('## Phase 5: Verification & Report'));
-    expect(phase4).toContain('sections/blast-radius.md');
-    expect(phase4.indexOf('sections/blast-radius.md')).toBeLessThan(phase4.indexOf('**Fix the root cause, not the symptom.**'));
-    const phase3 = skeleton.slice(skeleton.indexOf('## Phase 3: Hypothesis Testing'), skeleton.indexOf('## Phase 4: Implementation'));
-    expect(phase3).toMatch(/Two fixes that shared one premise failed the same gate — write the premise down in one sentence and test it before a third fix/);
+    const recipes = skeleton.slice(skeleton.indexOf('## Recipes'), skeleton.indexOf('## Report'));
+    expect(recipes).toContain('sections/blast-radius.md');
+    const how = skeleton.slice(skeleton.indexOf('## How to work'), skeleton.indexOf('## Scope Lock'));
+    expect(how).toMatch(/search the generic error class, library and version, never the raw error text, hostnames, IPs, file paths, SQL, customer data or secrets/);
+    expect(how).toMatch(/Two fixes that shared one premise failed the same gate — write the premise down in one sentence and test it before a third fix/);
   });
 });
 
