@@ -314,6 +314,20 @@ network.
 
 **Expected result.** `OUTSIDE_STATUS: completed`.
 
+<a id="outside-review-truncated"></a>
+### `... outside review unavailable: the reviewer hit its output token limit and the response is cut off (...)`
+
+**Meaning.** The api runner's provider stopped at the output token limit
+(Anthropic `stop_reason: max_tokens`, OpenAI `finish_reason: length`), so the
+review ends mid-sentence and its findings may be missing.
+
+**Fix.** Re-run with a larger `--max-tokens` (`gstack-outside-voice run` or
+`gstack-autoplan run`), or shorten the prompt. `gstack-autoplan run` sends a
+default of 16384 to both providers, and OpenAI counts reasoning tokens toward
+it; `gstack-outside-voice run` sends that default to Anthropic only.
+
+**Expected result.** `OUTSIDE_STATUS: completed`.
+
 <a id="outside-review-missing-markers"></a>
 ### `... outside review unavailable: the response lacks the markers this gate requires (...)`
 
@@ -549,6 +563,25 @@ local `origin/<base>` at `<rev>`.
 
 **Fix.** Run `git fetch origin <base>` outside the sandbox and rerun /review if
 the base has moved.
+
+<a id="review-content-changed"></a>
+### `review_freshness: STALE content changed during review: the tree moved from <start> to <end> while <skill> ran ...` / **Review records missing or mismatched**
+
+**Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
+its logged row: an edit, commit or merge landed while reviewers were still reading. The
+reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
+cannot repair it.
+
+**Fix.** Keep the checkout frozen (no edits, commits, merges or pushes) from a pass's start
+until every reviewer in it has returned and its row is logged. If the mid-pass change was
+your own fix to that pass's findings, log the pass with `"converged":false` and the fix
+as `"action":"fixed"`. `gstack-review-plan` then picks the repeat: one fix-check reading
+the touched hunks when every fix is below the blocking floor, and 11.5 accepts that
+fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tree.
+
+**Expected result.** `gstack-review-read` shows both records at one tree with
+`review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
 
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
@@ -847,7 +880,11 @@ pick a new `--output`), then copy the recovery file to where you want it.
 **Meaning.** On Codex, Factory, OpenCode, Cursor, Copilot and Kiro every bash
 block finds gstack on its own: an exported `GSTACK_ROOT` (with `bin/` and
 `lib/`), then a repo-local install, then the host's global install
-(`$CODEX_HOME/skills/gstack` on Codex). None existed.
+(`$CODEX_HOME/skills/gstack` on Codex). None existed. A skill installed for one
+folder (Hermes, or the Codex install `./setup` writes) is the exception for its
+first block: that block runs the folder's own `bin/gstack-skill-start` and
+ignores an exported `GSTACK_ROOT`. When the folder is missing, the block prints
+this line and its start command then fails.
 
 **Fix.**
 
@@ -1941,6 +1978,18 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 
 **Fix.** In the execute program that runs the command, read
 `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
+
+<a id="meter-scope-parent"></a>
+### `gstack-ship-budget: ... (METER_SCOPE_PARENT)`
+
+**Meaning.** `start` was told the run is a subagent (`--subagent` or `GSTACK_SHIP_SUBAGENT=1`) reading
+`"this"` (`--reading-from this`), the root thread's counter, which also holds every sibling lane, and
+asked for `--meter-scope self`. A self scope would print that counter as the run's own cost. Exit 2;
+no run started.
+
+**Fix.** Start with `--meter-scope tree`. Every cost line then prints
+`METER: tree (root counter, upper bound)`. Exact per-run cost comes from a root replay thread
+(`docs/ship-budget.md`).
 
 <a id="budget-reading-rejected"></a>
 ### `gstack-ship-budget: ... (BUDGET_READING_REJECTED)`
@@ -3200,9 +3249,14 @@ or pass `--force-gate <reason>` in `/ship` to run the full gate again.
 **Meaning.** The bundle (or ledger record) lacks a committed tree id, runtime
 versions, lockfile hashes or the command hash, so no reuse decision can rest on
 it. Imported assertions without verification count as unknown too.
+`gstack-tree-receipt` also fails with this code when git cannot produce the
+diff between the gated and current heads (a missing object, a timeout): the
+error names git's reason, and a failed diff is never read as no change.
 
 **Fix.** Rebuild the bundle on the gate machine after the lanes ran on a
-committed head: `gstack-evidence bundle --out <file> --label <lane>...`.
+committed head: `gstack-evidence bundle --out <file> --label <lane>...`. For
+the tree receipt, fix what git's reason names (fetch a missing head with
+`git fetch origin <sha>`), then rerun.
 
 <a id="evidence-bundle-invalid"></a>
 ### `EVIDENCE_BUNDLE_INVALID`
@@ -3298,6 +3352,42 @@ result.
 
 **Fix.** Run `gstack-autoplan status --out <dir>` and submit for the attempt
 the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
+
+<a id="ceo-only-conflict"></a>
+### `CEO_ONLY_CONFLICT`
+
+**Meaning.** `gstack-autoplan next --ceo-only` was combined with `--ui`,
+`--developer-tool` or `--agent-primary` (on the command line or in the plan's
+`gstack-autoplan-scope` marker), each of which adds a phase a CEO-only run
+never opens; or the marker names `--ceo-only` (the mode is a command-line
+choice for one run, so a plan can't pin it); or the plan is `<out>/ceo-review.md`
+(directly, through a symlink or a hard link), the report the run would write
+over it. The finish checks that last case again before it writes the report.
+
+**Fix.** Drop the conflicting flag (or the marker token), move the plan out of
+the report path, or run the full review without `--ceo-only`.
+
+<a id="ceo-only-after-init"></a>
+### `CEO_ONLY_AFTER_INIT`
+
+**Meaning.** `next --ceo-only` named a run directory that already holds a full
+review run. A run keeps the mode it started with.
+
+**Fix.** Start the CEO-only run in a new `--out` directory, passing
+`--ceo-only` on its first `next`.
+
+<a id="ceo-only-no-gate"></a>
+### `CEO_ONLY_NO_GATE`
+
+**Meaning.** `answer`, `recommend` or `revise` was run on a CEO-only run, or
+`gstack-approvals import` was pointed at one. A CEO-only
+run writes no gate, ends `status=reviewed` and is never approved, so there is
+nothing to answer, change or import. (`budget` and `close --deferred` still
+work: they are how a budget-stopped CEO-only run recovers.)
+
+**Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
+full review in a new directory: `gstack-autoplan next --out <new dir> --plan
+<file>` without `--ceo-only`.
 
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`
@@ -3633,9 +3723,12 @@ never runs them: declare `"**/integration_test/**": []` (and
 them. A `[]` declaration added only on the branch is refused under
 `--policy-from head` ([`PREGATE_HEAD_POLICY_LOOSENS`](#pregate-head-policy-loosens)),
 so land it in its own PR first.
-With no policy anywhere (no base copy, no user-owned file) an unmapped file is
+With no policy anywhere (no base copy, no user-owned file), or a policy with no
+`dependencies`, `empty_lanes`, `selection` or `local` key (a timeout-only file), an unmapped file is
 the warning [`PREGATE_NO_POLICY`](#pregate-no-policy) with a starter policy
-printed, not this error; `gstack-pregate init` writes that draft and lists the
+printed, not this error. Under `warn: ["lanes"]` it is a `warn` with this code,
+given only after the selected tests ran green (a red lane is still
+`PREGATE_LANE_FAILED`); `gstack-pregate init` writes that draft and lists the
 files it could not place. `--explain` prints every mapping and why. For a file with no lane it also prints the import
 specifiers in test files that resolved to no repo file (for example a
 `tsconfig.json` `paths` alias such as `@/lib/x` whose target is missing) and any
@@ -3773,8 +3866,9 @@ differing path is a change.
 ### `PREGATE_NO_POLICY`
 
 **Meaning.** The repository has no pregate policy yet (no `.gstack/pregate.json`
-on the base branch and no user-owned `<state root>/projects/<slug>/pregate.json`)
-and a touched file maps to no test lane. Under no policy that is a `warn`, not
+on the base branch and no user-owned `<state root>/projects/<slug>/pregate.json`),
+or its policy declares no lanes (no `dependencies`, `empty_lanes`, `selection` or `local` key, a
+timeout-only file for example), and a touched file maps to no test lane. Under no policy that is a `warn`, not
 `PREGATE_NO_LANE`: the selected tests still ran (a red lane is still `fail`),
 and the table printed a starter policy drafted from the repository
 (`PREGATE_STARTER:` lines: runner, test directories, CI lanes, the JSON between
@@ -3785,7 +3879,8 @@ Details: [docs/pregate.md](pregate.md#no-policy).
 overwrite an existing file without `--force`), edit each `TODO` (a test that
 names the file, a `dependencies` entry, or `[]` for a file with no behaviour),
 run `gstack-pregate validate`, then commit `.gstack/pregate.json` on the base
-branch. From then on an unmapped file is `PREGATE_NO_LANE`.
+branch. When a policy already exists, add the starter's `dependencies` to it
+instead. From then on an unmapped file is `PREGATE_NO_LANE`.
 
 <a id="pregate-environment"></a>
 ### `PREGATE_ENVIRONMENT`
@@ -4621,7 +4716,10 @@ train still building, running or merging, `train watch` on an unknown record,
 unreadable run), `verify --pr <n> --train <nonce>` when main's tree mismatches
 and whether a slot merged on GitHub cannot be read (so whether the queue must
 freeze is unknown; it never answers "nothing merged" from an unreadable
-state), `train land` when the base or the train branch cannot be fetched or
+state), `verify --pr <n> --train <nonce>` when GitHub does not report the PR
+MERGED and it is not a release-only PR whose stamp-only diff already matches
+main, or when it could not read the PR's current head (`--no-fetch` or a failed
+fetch), without freezing the queue, `train land` when the base or the train branch cannot be fetched or
 the record's T0 and S_1..S_k are not the gated head's first-parent chain
 (each S_i's second parent slot i's pin), `train land` when main's tree is the
 slot's S_i but GitHub does not report the PR as MERGED (a record whose slot
@@ -4727,14 +4825,60 @@ the name already landed. Then rerun.
 <a id="queue-land-locked"></a>
 ### `QUEUE_LAND_LOCKED`
 
-**Meaning.** Another `gstack-ship-queue land` holds the repository land lock
-(`refs/notes/gstack-land`), or took it from under this run, so this one would
-race it for the next version. The line names the holder, its PR and phase.
+**Meaning.** Another `gstack-ship-queue land`, or a `train land` slot, holds the
+repository land lock (`refs/notes/gstack-land`), or took it from under this run,
+so this one would race it onto main. The line names the holder: `#<pr>` for a
+land, `train <nonce> slot <i> (#<pr>)` for a train, with its holder and phase. A
+train keeps the lock in phase `between` from one merged slot to the next, so no
+standalone land slips in between slots.
 
 **Fix.** Wait for the holder to finish. If it crashed, rerun with
-`--break-lock`; that is refused while the holder entered a push or a merge
-less than 10 minutes ago. A lock in phase `drift` is released by landing its
-repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)).
+`--break-lock`, which prints the holder (`LOCK_HOLDER:`). That is refused while
+the holder entered a push or a merge less than 10 minutes ago, while a train is
+between slots for less than 10 minutes, and for a live train run unless you also
+pass `--break-train-lock`. A lock in phase `drift` is released by landing its
+repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)); a lock in phase `freeze` is
+released by the verify that clears the freeze
+([QUEUE_TRAIN_FROZEN](#queue-train-frozen)). If that release push failed, the
+next `land` or `train land` takes the lock over once the freeze record it fetches
+shows the freeze cleared after the lock was written; `--break-lock` never does.
+
+<a id="queue-train-unstamped"></a>
+### `QUEUE_TRAIN_UNSTAMPED`
+
+**Meaning.** `verify --pr <n> --train <nonce>` found the slot head it would let
+merge without its own stamp: the head's `VERSION` is not above main's, or its
+CHANGELOG's top section is not headed with that version directly above main's
+top release (or keeps an `[Unreleased]` section main does not have). The line
+names the rule, the head's version and main's. Train 33 merged #3527 this way
+(a no-commit base merge, a restamp whose files were never staged, a bare
+commit) and shipped it under #3526's version. Nothing was merged.
+
+**Fix.** On the lane, run `gstack-restamp --next` on the head, commit what
+restamp staged, push, and rerun the verify.
+
+<a id="restamp-not-staged"></a>
+### `RESTAMP_NOT_STAGED`
+
+**Meaning.** `gstack-restamp` wrote the stamp but `git add` failed, so a bare
+`git commit` would leave the stamp out. The files stay written, and
+`.gstack/tmp/restamp-staging.json` records what is still to stage.
+
+**Fix.** Clear what blocked `git add` (a stale `.git/index.lock`, for
+example) and rerun `gstack-restamp`; the rerun is a noop that stages the files
+it wrote. When any of them changed since restamp wrote it (you committed by
+hand, switched branches or merged the base), the marker is stale: the noop
+rerun drops it and stages nothing, and a stamp still owed is restamped as usual.
+
+<a id="restamp-unstaged-edits"></a>
+### `RESTAMP_UNSTAGED_EDITS`
+
+**Meaning.** A file `gstack-restamp` would stamp holds unstaged edits of yours.
+Restamp stages what it writes, so those edits would ride along in the stamp
+commit. Nothing was written.
+
+**Fix.** Stage (`git add`) or stash your own edits to the named files, then
+rerun `gstack-restamp`.
 
 <a id="queue-land-conflict"></a>
 ### `QUEUE_LAND_CONFLICT`
@@ -5585,7 +5729,9 @@ compare (a receipt written before `head_tree`, whose head is not in this
 clone), the PR was retargeted to the base after its stack parent landed but
 the receipt records no `product_patch_id` and `origin/<parent>` no longer
 resolves, so the reviewed range cannot be recomputed, or git could not
-compare the two product diffs or read the working tree's status. It also refuses when an owner exception the receipt records
+compare the two product diffs (including when carry cannot create its temp
+directory under `.git/gstack-patch-id`; the message names it) or read the
+working tree's status. It also refuses when an owner exception the receipt records
 no longer stands, and, for a receipt from a gstack that records review
 depth, when HEAD needs a deeper review than the receipt records, `--head` is
 not the checked-out HEAD, or the receipt records `gstack_version` without
@@ -5678,6 +5824,10 @@ the tree it is bound to. Finish also stops this way for test code changed since
 review with no gate edit (`tests=N`): the packet holds those test hunks, and the
 reviewer checks that each test still tests what it did. A packet that cannot be
 written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
+`carry --dry-run` reports this code without writing the packet, and only when
+none of carry's other checks would refuse; carry without `--dry-run` writes it.
+In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
+route (Step 1.4)`.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

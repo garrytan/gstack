@@ -1,5 +1,5 @@
 /**
- * Result codes for the browse daemon's per-agent features: per-session tabs
+ * Result codes for the browse daemon's tabs: tab recovery, per-session tabs
  * (#1961) and phone emulation with touch input (#3058). Kept beside
  * lib/result-codes.ts (which spreads this table into RESULT_CODES) so the
  * owner module stays within the module-size ratchet; the same rules apply:
@@ -8,6 +8,12 @@
 import type { ResultCode } from './result-codes';
 
 export const BROWSE_RESULT_CODES = {
+  // Fix wave 2026-10-15, PR 1a (items 7 and 11).
+  BROWSE_TAB_UNRECOVERABLE: {
+    anchor: 'browse-tab-unrecoverable',
+    summary: 'every tab was closed outside browse and a new one could not be opened, because the browser or its context is gone',
+    fix: 'run `browse restart` (`$B restart` in a gstack skill); `browse status` and `browse stop` keep working',
+  },
   // Per-session tabs (#1961).
   BROWSE_SESSION_INVALID: {
     anchor: 'browse-session-invalid',
