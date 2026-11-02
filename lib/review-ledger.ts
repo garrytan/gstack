@@ -84,22 +84,26 @@ const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Sever
 const FIELD_LABELS = new RegExp(ANY_LABEL.source, 'gi');
 const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:\\w[\\w./-]*:\\d+(?:[-–:,]\\s*\\d+)*[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$|(?<=[A-Z]{3})[\\s,(.])`, 'u');
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
+/** A reader's `Blocks` field as it can lower a count (GST-1031): its colon required, so prose ("blocks no other writer") never does. */
+const BLOCKS_FIELD = /(?<![A-Za-z0-9])Blocks\**\s*:\s*\**\s*(yes|no)(?![A-Za-z0-9-])/gi;
+export const statesNoBlocks = (raw: string) => { const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
- * A summary candidate (GST-1031): a prose finding that names a severity in passing ("so nothing is CRITICAL", "the test covers the
- * CRITICAL fix") with no lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE tag, and no file:line or exception clause in
- * any sentence naming a label. It still collects at its label (a blocker named in another sentence stays on record, GST-435); lead
+ * A summary candidate (GST-1031): a prose finding whose every severity word is denied ("so nothing is CRITICAL", "No CRITICAL issues")
+ * or names a fix ("the test covers the CRITICAL fix"), with no lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE tag,
+ * and no file:line or exception clause in any sentence naming a label. A defect called CRITICAL ("this is CRITICAL") is none. It still collects at its label (a blocker named in another sentence stays on record, GST-435); lead
  * judgment may lower it with a reason, which judge records as dismissed. "No CRITICAL issues except the token leak in log.ts:3" is no candidate.
  */
 const SENTENCE = /(?<=[.!?])\s+/;
 const EXCEPTION = /(?<![A-Za-z])(?:except|but|other than|apart from|aside from|besides|unless|save for)(?![A-Za-z])/i;
 const PATH_LOCUS = /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/;
-export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
+const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+)?|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+)[*\`]*(?:${LABELS})(?![A-Za-z0-9])`, 'gi');
+export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.test(t.replace(DENIED_OR_FIXED, ' ')) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
 export function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
   const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
-  const said = [...raw.matchAll(STATED_BLOCKS)].map(m => m[1]!.toLowerCase());
+  const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase());
   const blocks = said.includes('yes') ? 'yes' : said.at(-1);
   return severity || blocks ? { ...(severity ? { severity } : {}), ...(blocks ? { blocks } : {}) } : undefined;
 }
@@ -209,7 +213,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const relaxed = fixableRaises && role === 'adversarial-native' ? parseFindings(reader, output, false) : undefined;
   const statesSeverity = (raw: string) => { const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && !!rank(ls[0]); };
   return out.map((f, i) => {
-    const own = relaxed?.length === out.length && relaxed[i]!.raw === f.raw && BLOCKS_NO.test(f.raw) && statesSeverity(f.raw) ? relaxed[i]!.label : undefined;
+    const own = relaxed?.length === out.length && relaxed[i]!.raw === f.raw && statesNoBlocks(f.raw) && statesSeverity(f.raw) ? relaxed[i]!.label : undefined;
     return { label: own ?? (unblocked(f) ? f.label : 'CRITICAL'), raw: f.raw };
   });
 }
@@ -363,7 +367,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
     for (const id of o.ids as string[]) {
       const line = lines.find(l => l.id === id) ?? fail(`collected id ${id} is missing from ${String(o.merged)}`);
       ranks.set(id, rank(line.label) ?? 0);
-      if (stated(line.raw)?.blocks === 'no') unblocking.set(id, rank(line.label) ?? 0);
+      if (statesNoBlocks(line.raw)) unblocking.set(id, rank(line.label) ?? 0);
       raws.set(id, line.raw);
       loci.set(id, lineLocus(line.raw));
     }

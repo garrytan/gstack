@@ -596,9 +596,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
-   instruction lives in a reviewer brief that changes only after a no-loss replay. A CRITICAL whose own text states
-   `Blocks: no` (and no `Blocks: yes`) is not counted as a blocker by the ledger count, the review-log count or classify
-   (GST-1031); lead judgment that raises such a line above its label counts it again.
+   instruction lives in a reviewer brief that changes only after a no-loss replay. A CRITICAL whose own text writes the
+   field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
+   review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
+   its label counts it again.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`

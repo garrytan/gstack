@@ -72,7 +72,9 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
   });
   test('negative controls: a locus, an exception clause, a lead label, a field or a JSON finding is no candidate and keeps its label', () => {
     for (const line of ['No CRITICAL issues except the token leak in log.ts:3.', 'Nothing else is CRITICAL, but the retry loop never ends.', 'The token leak in log.ts:3 is CRITICAL.',
-      'The leak in bin/gstack-log:3 is CRITICAL.', 'CRITICAL: the retry loop never ends.', 'The retry loop never ends. Severity: High', 'Not checked. Blocks: no. CRITICAL', '{"severity":"CRITICAL","summary":"x"}']) {
+      'The leak in bin/gstack-log:3 is CRITICAL.', 'CRITICAL: the retry loop never ends.', 'The retry loop never ends. Severity: High', 'Not checked. Blocks: no. CRITICAL', '{"severity":"CRITICAL","summary":"x"}',
+      'The retry loop in the upload handler never ends, which is CRITICAL.', 'Path traversal in the download route lets any user read arbitrary files; this is CRITICAL.',
+      'The session token is written to the debug log on every request, a CRITICAL leak.', 'Nothing guards the write path the failure of which is CRITICAL']) {
       expect([line, summaryCandidate(line)]).toEqual([line, false]);
       expect(parseFindings('fix-check', line).length).toBe(1);
     }
@@ -105,6 +107,15 @@ describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {
     expect(run()).toEqual(['outside-voice#2', 'outside-voice#3']);
     const promote = ['outside-voice#1', 'outside-voice#2', 'outside-voice#3'].map(id => JSON.stringify({ id, severity: 'CRITICAL' })).join('\n') + '\n' + JSON.stringify({ id: 'outside-voice#4', severity: 'CRITICAL', reason: 'it loses rows' }) + '\n';
     expect(run(promote)).toEqual(['outside-voice#2', 'outside-voice#3', 'outside-voice#4']);
+  });
+  test('a verb "blocks no" is no Blocks field: the located CRITICAL still counts, on the ledger and in a native finding', () => {
+    for (const out of ['CRITICAL: The lock in queue.ts:40 blocks no other writer, so two passes lose findings.\n', '1. **CRITICAL** — cache.ts:12 evicts on read; it blocks no request with a stale token.\n', '- CRITICAL src/auth.ts:9 token check is skipped; it blocks no attacker.\n']) {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031v-'));
+      const c = collect(path.join(d, 'l.jsonl'), 'outside-voice', out, path.join(d, 'm.jsonl'));
+      expect([out, c.lines[0]!.stated?.blocks, ledgerBlockers(path.join(d, 'l.jsonl')).map(b => b.id)]).toEqual([out, undefined, ['outside-voice#1']]);
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+    expect(labels('adversarial-native', '**1. Race in a.ts:3. FIXABLE.**\nIt blocks no attacker.\nSeverity: Low.', true)).toEqual(['CRITICAL']);
   });
   test('classify and the row count key on Blocks, and a raw holding both Blocks: yes and no blocks', () => {
     expect(isBlocking({ severity: 'CRITICAL', stated: { severity: 'Critical', blocks: 'no' } })).toBe(false);
