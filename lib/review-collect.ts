@@ -20,6 +20,8 @@ export interface Collected extends ClassInput {
   errors: DepthError[];
   deleted: string[];
   stampOnly: string[];
+  /** Paths the diff creates (untracked files included): their added lines are the whole file. */
+  created: string[];
   /** Added lines per path, for scanNumbers. */
   added: Record<string, string[]>;
   /** Deleted lines per path, for the targeted classes (lib/review-targeted.ts). */
@@ -54,11 +56,11 @@ export function loadRegistryAt(root: string, sha: string): RegistryInfo {
 }
 
 /** Numstat, deletions and the -U0 patch for `range` (`[mergeBase, head]` or `[mergeBase]` for the working tree). */
-function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added' | 'removed'> {
+function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'created' | 'added' | 'removed'> {
   const numstat = git(root, ['diff', '--numstat', '-z', '--no-renames', ...range]);
   const status = git(root, ['diff', '--name-status', '-z', '--no-renames', '--diff-filter=D', ...range]);
   const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...range]);
-  const empty = { perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} };
+  const empty = { perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} };
   for (const [r, what] of [[numstat, '--numstat'], [status, '--name-status'], [patch, '-U0']] as const) {
     if (!r.ok) { errors.push({ code: 'numstat_failed', detail: oneLine(r.err || 'git diff failed'), input: `git diff ${what} ${range.join(' ')}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' }); return empty; }
   }
@@ -73,6 +75,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
   const added: Record<string, string[]> = {};
   const removed: Record<string, string[]> = {};
   const changed: Record<string, string[]> = {};
+  const created: string[] = [];
   let cur = '';
   let minus = '';
   let inHunk = false;
@@ -80,7 +83,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     if (line.startsWith('diff --git ')) { inHunk = false; cur = ''; minus = ''; continue; }
     if (!inHunk) {
       if (line.startsWith('--- ')) minus = line === '--- /dev/null' ? '' : line.slice(6).replace(/\t$/, '');
-      else if (line.startsWith('+++ ')) cur = line === '+++ /dev/null' ? minus : line.slice(6).replace(/\t$/, '');
+      else if (line.startsWith('+++ ')) { cur = line === '+++ /dev/null' ? minus : line.slice(6).replace(/\t$/, ''); if (!minus && cur && !scratch(cur)) created.push(cur); }
       else if (line.startsWith('@@')) inHunk = true;
       continue;
     }
@@ -90,7 +93,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     if (line[0] === '+' || line[0] === '-') (changed[cur] ??= []).push(line);
   }
   const stampOnly = perPath.map(e => e.path).filter(p => p.endsWith('package.json') && !!changed[p]?.length && changed[p]!.every(l => /^[+-]\s*"version"\s*:\s*"[^"]*"\s*,?\s*$/.test(l)));
-  return { perPath, deleted, stampOnly, added, removed };
+  return { perPath, deleted, stampOnly, created, added, removed };
 }
 
 /** More data candidates than this keep every data file code: the consumer scan is not run. */
@@ -158,7 +161,7 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   const mb = git(root, ['merge-base', baseSha, headSha]);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || 'no merge base'), input: `git merge-base ${baseSha} ${headSha}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase, headSha], errors);
@@ -176,7 +179,7 @@ export function collectLive(root: string, base: string): Collected {
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || `no merge base with ${ref}`), input: `git merge-base ${ref} HEAD`, repair: `fetch the base first (git fetch origin ${base})` });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase], errors);
@@ -190,7 +193,7 @@ export function collectLive(root: string, base: string): Collected {
     const text = binary ? '' : buf.toString('utf8');
     const lines = text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0;
     diff.perPath.push({ path: p, lines, binary });
-    if (!binary) diff.added[p] = text.split('\n');
+    if (!binary) { diff.added[p] = text.split('\n'); diff.created.push(p); }
   }
   const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [mergeBase], true, root, errors);
   return result(diff, { root, registry, errors, mergeBase, untracked, consumed });
