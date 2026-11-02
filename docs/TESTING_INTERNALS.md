@@ -1020,7 +1020,9 @@ first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reap
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
-state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). `run`, `verify`
+state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). When the usage read fails (`usage` exits 1 on an
+unreadable VM list or size and skips a VM that 404s), the preflight retries
+within `UBI_QUOTA_WAIT`, then logs and leaves the decision to the API. `run`, `verify`
 and `ssh NAME COMMAND` stream the remote output through a watchdog: a heartbeat
 line every `UBI_HEARTBEAT` seconds (300), and a command silent for
 `UBI_IDLE_TIMEOUT` seconds (1800) or older than `UBI_RUN_TIMEOUT` (0, unlimited)
@@ -1551,7 +1553,7 @@ refresh to a maintainer.
   (`ubicloud-standard-4`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
-  dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
+  dispatches Free Tests, Windows Smoke and Quality gate on it. Those
   dispatched runs are the seed PR's checks, and Free Tests supplies the required
   `free-tests` check. GitHub holds the pull_request runs of a token-opened PR as
   "action required" until someone approves them. A file that fails while recording turns its
@@ -1565,6 +1567,13 @@ refresh to a maintainer.
 
 ### Windows free lane
 
+Windows has minimal support ([support tiers](support-tiers.md)). The required
+PR check is `windows-smoke.yml`: one `windows-latest` job runs `./setup`, starts
+the core skills, drives `/browse` on gstack's own browser, and runs the short
+test list in its last step, where each file's reason sits beside it.
+`test/windows-native-workflows.test.ts` keeps that list Windows-safe and fast.
+
+The curated suite below runs nightly on main and on dispatch, never on a PR.
 `windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),
 runs one strict serial shard per `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
