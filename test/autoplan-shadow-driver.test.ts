@@ -391,6 +391,16 @@ describe('the switch through the driver, and the spend cap', async () => {
 });
 
 describe('the reader over many runs', () => {
+  test('two runs that share a run id are both counted; the same folder listed twice is counted once', () => {
+    const copy = path.join(TMP, 'fail-copy', 'run');
+    fs.cpSync(path.join(TMP, 'fail', 'run'), copy, { recursive: true });
+    expect(readRun(copy).run).toBe(readRun(path.join(TMP, 'fail', 'run')).run);
+    const list = path.join(TMP, 'runs-same-id.txt');
+    fs.writeFileSync(list, [path.join(TMP, 'fail', 'run'), copy, copy].join('\n') + '\n');
+    const r = exported(['--runs', list], baseEnv({ GSTACK_CAPY: '' }));
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).counts.status).toEqual({ failed: 14 });
+  });
   test('missing, failed, malformed, retrospective and recorded rows; dedupe across a repeated entry; CEO_ONLY_NO_GATE', () => {
     const e = baseEnv({ GSTACK_CAPY: '' });
     const { out: missing } = start('reader-missing', e);

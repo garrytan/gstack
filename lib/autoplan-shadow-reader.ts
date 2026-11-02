@@ -33,7 +33,7 @@ export interface ShadowExport { rows: ShadowExportRow[]; counts: Record<string, 
 
 const readRows = (file: string) => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as Record<string, any>);
 
-/** Every answered revision of every run, deduped by run, gate_rev and item. */
+/** Every answered revision of every run, deduped by run folder, gate_rev and item (two runs can share a run id). */
 export function exportShadow(dirs: string[]): ShadowExport {
   const rows = new Map<string, ShadowExportRow>();
   const refused: ShadowExport['refused'] = [];
@@ -41,6 +41,7 @@ export function exportShadow(dirs: string[]): ShadowExport {
     let state;
     try { state = readState(dir); } catch (e: any) { refused.push({ run: dir, code: e.code ?? 'RUN_NOT_INITIALIZED', detail: `${dir}: ${e.detail ?? e.message}` }); continue; }
     if (state.ceo_only) { refused.push({ run: state.run, code: 'CEO_ONLY_NO_GATE', detail: `${dir} is CEO-only run ${state.run}: no gate, nothing answered` }); continue; }
+    const key = fs.realpathSync(dir);
     const decisions = readDecisions(dir).filter(r => r.gate_rev >= 1);
     const journal = readJournal(dir);
     for (const rev of [...new Set(decisions.map(r => r.gate_rev))].sort((a, b) => a - b)) {
@@ -65,7 +66,7 @@ export function exportShadow(dirs: string[]): ShadowExport {
           owner: { chosen: d.chosen ?? null, status: d.status, owner_mode: d.owner_mode ?? null, owner_named: d.owner_named ?? null, carried: !!(d.carried_from || d.carried_gate_from), carried_from: d.carried_from ?? d.carried_gate_from ?? null,
             answered_role: d.answered_role ?? null, answered_by: d.answered_by ?? null, rec_hash_at_answer: d.rec_hash ?? null, rec_hash_at_record: s?.rec_hash ?? null },
         };
-        rows.set(`${row.run}|${rev}|${item}`, row);
+        rows.set(`${key}|${rev}|${item}`, row);
       }
     }
   }
