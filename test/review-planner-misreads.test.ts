@@ -125,7 +125,8 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
   // Value: protects=only an SVG made of drawing elements is data: anything that loads, links or declares outside that set stays code;
   //   fails_when=an external image or stylesheet, an entity declaration, an external DTD, an animation or a CSS url() to another document reads as docs,
   //   including through a CSS escape or a zero-padded character reference (review pass 1 findings) or behind a stray quote that
-  //   pairs with a later one (review pass 2 finding), or any CSS beyond declarations and url(#id) (Step 11 finding: image-set());
+  //   pairs with a later one (review pass 2 finding), or any CSS beyond declarations and url(#id) (Step 11 finding: image-set()),
+  //   including CSS behind a character-reference </style> or comment, or an HTML-only comment end (GST-940);
   //   seam=collectCommit + depthOfCommitInput
   test.each([
     ['an external image', '  <image href="https://x.test/pixel.png" width="1" height="1"/>'],
@@ -153,6 +154,11 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['a style attribute cross-fade()', '  <rect style="fill:cross-fade(url(https://x.test/a.png), url(#m0), 50%)"/>'],
     ['a style element whose </style> hides in a comment', '  <style>svg{fill:<!-- </style> -->image-set("https://x.test/p.png" 1x)}</style>'],
     ['a style element whose </style> hides in CDATA', '  <style><![CDATA[ /* </style> */ svg{fill:image-set("https://x.test/p.png" 1x)} ]]></style>'],
+    ['a character-reference </style> in a style element', '  <style>&#60;/style>rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
+    ['a hex character-reference </style> in a style element', '  <style>&#x3C;/style>rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
+    ['a character-reference comment in a style element', '  <style>&#60;!-- rect{fill:image-set("https://x.test/p.png" 1x)} --></style>'],
+    ['CSS after an HTML empty comment in a style element', '  <style><!-->rect{fill:image-set("https://x.test/p.png" 1x)}--></style>'],
+    ['CSS after an HTML --!> comment end in a style element', '  <style><!-- --!>rect{fill:image-set("https://x.test/p.png" 1x)} --></style>'],
   ])('%s keeps the SVG code', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) })).class).toBe('code');
