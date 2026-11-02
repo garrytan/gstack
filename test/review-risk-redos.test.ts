@@ -4,6 +4,7 @@
  * class it repeats, and the rewritten rm rule matches exactly the lines R51's pattern matched.
  */
 import { describe, expect, test } from 'bun:test';
+import { SVG_REFUSED, svgDrawing } from '../lib/review-depth';
 import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECRET_PATH, SECURITY_LINE, matchRisk } from '../lib/review-risk';
 
 const L = 100_000;
@@ -69,5 +70,33 @@ describe('the rm rule matches what R51 matched', () => {
     expect(security('fs.rmSync(dir, /*' + 'x'.repeat(501) + '*/ { recursive: true, force: true });')).toBe(true);
     expect(security('fs.rmSync(dir, /*' + 'x'.repeat(5_000_000) + '*/ { recursive: true });')).toBe(true);
     expect(security('fs.rmSync(dir, { force: true });')).toBe(false);
+  });
+});
+
+describe('svgDrawing in linear time', () => {
+  // Value: protects=gstack-review-plan and the commit collector behind ship-queue ready, train build and land never stall on one
+  //   changed SVG; fails_when=a whole-text SVG pattern backtracks quadratically on a long whitespace run, or the linear url()
+  //   refusal reads any url( differently from #3838's pattern; seam=SVG_REFUSED's url() entry and svgDrawing
+  const old = /url\(\s*(?!['"]?\s*#)/i;
+  test('a 1 MB whitespace run in url(), an attribute, a style element and an href returns in under 250 ms each', () => {
+    const pad = ' '.repeat(1_000_000);
+    const cases = [
+      ['<svg><rect fill="url(' + pad + '#a)"/></svg>', true], ['<svg><rect fill="url(' + pad + 'x)"/></svg>', false],
+      ['<svg><rect fill' + pad + '="red"/></svg>', true], ['<svg><style>rect{fill:url(' + pad + '#a)}</style></svg>', true],
+      ['<svg><use href="' + pad + '#a"/></svg>', true], ['<svg>' + pad + '</svg>', true],
+    ] as const;
+    const wrong = cases.map(([s, want], i) => { let got = !want; const t = ms(() => { got = svgDrawing(s); }); return [i, got === want, Math.round(t)] as const; }).filter(([, ok, t]) => !ok || t >= 250);
+    expect(wrong).toEqual([]);
+  }, 60_000);
+  test("the url() refusal matches #3838's pattern on 60,000 seeded short strings and the hand-picked edges", () => {
+    const url = SVG_REFUSED.find(r => r.source.startsWith('url'))!;
+    let x = 911;
+    const next = (n: number) => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) % n; };
+    const parts = ['url(', 'URL(', ' ', '\t', '\n', '#', "'", '"', 'a', '#a', ')', 'http:', '(', 'u'];
+    const lines = Array.from({ length: 60_000 }, () => Array.from({ length: next(8) + 1 }, () => parts[next(parts.length)]).join(''));
+    const edges = ['url(#a)', 'url( #a)', "url('#a')", "url( '#a')", 'url(  "#a")', 'url("  #a")', 'url(\t#a)', 'url(x)', 'url( x)', "url('http://x')", 'url(', 'url( ', "url('')"];
+    expect([...lines, ...edges].filter(s => url.test(s) !== old.test(s))).toEqual([]);
+    expect(lines.filter(s => old.test(s)).length).toBeGreaterThan(1000);
+    expect(lines.filter(s => /url\(/i.test(s) && !old.test(s)).length).toBeGreaterThan(100);
   });
 });
