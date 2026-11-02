@@ -150,7 +150,9 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   const model = request.boundModel ? resolveModel(request.boundModel) : null;
   const selection: ModuleSelection = { ...request.selection, boundModel: request.boundModel ?? undefined, fullRoot: request.boundModel ? request.fullRoot : undefined };
   const gbrainDetected = loadGbrainOverride(true);
-  const disabledSkills = (readConfigKey('disabled_skills') ?? '').replace(/["']/g, '').split(/[\s,]+/).filter(n => /^\/?[a-z0-9-]+$/.test(n)).sort();
+  const disabledSkills = [...new Set((readConfigKey('disabled_skills') ?? '').replace(/["']/g, '').split(/[\s,]+/)
+    .map(n => n.replace(/^\//, '')).filter(n => n !== 'gstack' && n !== 'gstack-upgrade')
+    .map(n => n.replace(/^gstack-/, '')).filter(n => /^[a-z0-9-]+$/.test(n)))].sort();
   const identity = {
     loadout: selection.name,
     excluded: [...selection.excluded].sort(),
@@ -179,7 +181,7 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   }
   const stage = `${final}.stage-${process.pid}-${randomBytes(4).toString('hex')}`;
   try {
-    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: request.fullRoot && request.fullRoot !== path.join(os.homedir(), '.claude/skills') ? path.join(request.fullRoot, 'gstack') : null, model, planMode, modules: selection, respectDetection: gbrainDetected, disabledSkills });
+    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: request.fullRoot && request.fullRoot !== path.join(os.homedir(), '.claude/skills') ? path.join(request.fullRoot, 'gstack') : null, model, planMode, modules: selection, gbrainDetected, disabledSkills });
     const errors = result.diagnostics.filter(d => d.kind === 'error').map(d => d.message);
     if (result.exitCode !== 0 || errors.length) {
       throw new ModuleError('RENDER_FAILED', `gen-skill-docs failed: ${errors.join('; ') || 'exit 1'}`, 'fix the named template or module, then rerun; side effects: none, safe to retry');

@@ -19,7 +19,12 @@ import { LOCK_FILE } from '../scripts/modules-render';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadout-install-'));
-afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+const savedState = { GSTACK_HOME: process.env.GSTACK_HOME, GSTACK_STATE_ROOT: process.env.GSTACK_STATE_ROOT };
+process.env.GSTACK_HOME = process.env.GSTACK_STATE_ROOT = path.join(tmp, 'empty-state');
+afterAll(() => {
+  for (const [key, value] of Object.entries(savedState)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 const FULL_ROOT = '/opt/claude/skills';
 const lite = selectModules({ loadout: 'lite' })!;
 const run = (...args: string[]) => {
@@ -93,10 +98,14 @@ describe('gstack-modules install', () => {
       return r.stdout.match(/^SKILL_ROOT: (.+)$/m)![1];
     };
     const plain = install();
-    fs.writeFileSync(path.join(state, 'gbrain-detection.json'), JSON.stringify({ gbrain_local_status: 'ok' }));
     fs.writeFileSync(path.join(state, 'config.yaml'), 'disabled_skills: qa\n');
+    const onlyDisabled = install();
+    expect(onlyDisabled).not.toBe(plain);
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'disabled_skills: "/qa, gstack-qa gstack-upgrade"\n');
+    expect(install()).toBe(onlyDisabled);
+    fs.writeFileSync(path.join(state, 'gbrain-detection.json'), JSON.stringify({ gbrain_local_status: 'ok' }));
     const set = install();
-    expect(set).not.toBe(plain);
+    expect(set).not.toBe(onlyDisabled);
     const officeHours = (root: string) => fs.readFileSync(path.join(root, 'office-hours/SKILL.md'), 'utf-8');
     expect(officeHours(set).split('gbrain').length).toBeGreaterThan(officeHours(plain).split('gbrain').length);
     const router = fs.readFileSync(path.join(set, 'SKILL.md'), 'utf-8');
