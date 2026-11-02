@@ -57,12 +57,16 @@ const NO_LOSS_REPLAYS = {
   'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
   'GST-257': "GST-257 PR 1 dispatch-superset no-loss check (test/review-targeted.test.ts): on every fixture diff the branch dispatches main's reviewers at 8be7f21 unchanged plus only the targeted reader, and over the last 100 non-release commits on main it lost none; adds the targeted role and brief to the G1 and L bytes, whose existing reviewer text is unchanged",
   'GST-850': "GST-850 dispatch-superset no-loss check: on the 26 GSTA-167 no-loss units the branch plan (wider security and money classes, write-up text in the batched diff) drops no reviewer role main dispatches, so no saved blocker can be lost, and over the last 100 main commits no commit with a gate or risk class drops depth (test/review-risk-routing.test.ts, test/review-risk-linear.test.ts); reviewer text is unchanged",
+  'GST-911-redos': "GST-911 ReDoS fix verdict-identity no-loss check (wave review-e7b551ebd865): SVG_REFUSED's url() entry, rewritten to run in linear time, refuses exactly the strings #3838's pattern refused (test/review-risk-redos.test.ts: 60,000 seeded strings and the hand-picked edges, and every SVG blob in the repository's history, with zero differences); SVG_MARKUP now refuses a DOCTYPE naming any document but W3C's SVG DTD (test/review-planner-misreads.test.ts), which only keeps more SVGs code and so drops no reviewer; GST-911's no-loss replay holds unchanged; reviewer text is unchanged",
+  'GST-911': "GST-911 no-loss replay (GSTA-249/13): the planner over the last 100 first-parent main commits to f5cb6ec1e, origin/main's code against this branch, gate scan fixed at 0, changes no commit's depth, class, risk classes, targeted classes or SCOPE_AUTH; the three misreads (a drawing-only SVG, a session-named data file, a bare base) are proven on fixtures (test/review-planner-misreads.test.ts), where every SVG that can run script stays code with the security class; reviewer text is unchanged",
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
+  'GST-898': "GST-898 verdict-identity no-loss check: the linear rm rule, and the rmSync rule (which also raises security on any call with more than 500 characters before its closing parenthesis), give the same verdict as R51's on every changed line of the last 100 main commits (69,023 lines, a563f47 back 100 first-parent commits) and on 60,000 seeded lines per rule (test/review-risk-redos.test.ts), and no commit changes depth, class or risk class, so every diff dispatches main's reviewers unchanged; reviewer text is unchanged",
+  'GST-967': "GST-967 dispatch-superset no-loss check (test/review-depth.test.ts, 'GST-967 dispatch-superset no-loss check'): over 1,440 planReview cases the branch plans exactly what main planned at 1022f4f except the 71 gate-class stops before Step 11, which add only Step 11's adversarial, outside and targeted voices, so no reviewer main dispatches is dropped or re-efforted; the brief bodies lib/review-brief.ts cuts from the ship sections hash to main's; only the lead's repeat-decision and Step 11 instructions changed; reviewer text is unchanged",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: 'b7ca291a1cc63750bfb9710a4c12fd971523b9598da2a32ef80fb258eb0eceab', replay: 'L' },
-    'ship/sections/adversarial.md': { sha: 'd776ee5bc6e0c13930f8f4de05bad2f1ed9e52bc9fc5df80ae3ba7680455b2bb', replay: 'GST-257' },
+    'ship/sections/review-army.md': { sha: '7c58dfd1bf1f16f967186a4872191cb16ebff3be81a50ebbf19067020af3ec53', replay: 'GST-967' },
+    'ship/sections/adversarial.md': { sha: '5d712bb568573931108a79b1bd40b74db6189610f47c547099c13098ef67bef8', replay: 'GST-967' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
@@ -79,8 +83,8 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '839205a409014fb2cca6988a01aa04c98c495d8d24bd94895a86bf7794627338', replay: 'GST-850' },
-    'lib/review-risk.ts': { sha: '18f0330ddfda0032eb93516b0eb941fa4244e0a68b028e19c436c74609093b03', replay: 'GST-850' },
+    'lib/review-depth.ts': { sha: 'c5fd958b6c9a1116be9fc3418844239c01168476abb72c1db85bc26ab0adf4b4', replay: 'GST-967' },
+    'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
