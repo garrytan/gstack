@@ -631,6 +631,8 @@ One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(d
 
 **Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (`.dart` files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
 
+**PR type.** The checklist starts by naming the kind of PR from the changed paths: docs-only, CI/infra, scripts/tooling, application or mixed, and the review's first line says which (`PR type: <type>`). Application and mixed diffs run every category as before. A CI/infra, scripts/tooling or docs-only diff always gets Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit; every other category with nothing to check is listed once, in one line, as not applicable, and never counts as passed. Repo Conventions & Platform Fit flags new files that don't match the languages and tools the repo already uses or the platforms its CI runs on, such as a `.bat` build script in a bash-and-Makefile repo.
+
 ### Example
 
 Suppose the smart listing flow is implemented and the tests are green.
