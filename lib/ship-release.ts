@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { normalizeChangelog } from './changelog-check';
+import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
@@ -221,8 +221,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
 
 /**
  * Step 16 stage 3. Test code, paths only the base or a stamp moved, a slot restamp after the audit (the CHANGELOG's heading
- * move or re-heading, the version file's version, each against the audited bytes; GST-906), and --docs-requested fixes the
- * audit's own result asked for do not stale the audit (GST-391).
+ * move or re-heading after the restamp writer's own merge of the base's CHANGELOG into the audited one, the version file's
+ * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
+ * stale the audit (GST-391).
  */
 function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
@@ -268,7 +269,11 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     if (audited?.status !== 0) return false;
     let now: string;
     try { now = fs.readFileSync(path.join(cwd, p), 'utf8'); } catch { return false; }
-    return isChangelog ? normalizeChangelog(audited.stdout) === normalizeChangelog(now) : !!parseVersion(audited.stdout.trim()) && !!parseVersion(now.trim());
+    if (!isChangelog) return !!parseVersion(audited.stdout.trim()) && !!parseVersion(now.trim());
+    const [atAuditBase, atNowBase] = [auditBase, nowBase].map(b => b ? git(cwd, ['show', `${b}:${p}`]) : null);
+    if (atAuditBase?.status !== 0 || atNowBase?.status !== 0) return false;
+    const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
+    return merged !== null && normalizeChangelog(merged) === normalizeChangelog(now);
   });
   const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
   let audit: any = null;
