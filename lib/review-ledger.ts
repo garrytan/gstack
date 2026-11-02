@@ -164,7 +164,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
-    if (afterGap && current?.heading && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t)) {
+    if (afterGap && current?.heading && !current.fields.size && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !LEAD_LABEL.test(t) && !LOCUS.test(t)) {
       current.raw += ` | ${t}`;
       if (blocks) current.label = 'CRITICAL';
       else if (label) current.label = stronger(current.label, label);

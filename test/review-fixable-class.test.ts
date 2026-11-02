@@ -49,6 +49,12 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(parseFindings('adversarial-native', output, false).map(f => f.label)).toEqual(['Medium', 'Low']);
     expect(parseFindings('adversarial-native', output, true).map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
   });
+  test('a labeled or located paragraph after a numbered heading stays its own finding (#149 joins only plain body text)', () => {
+    for (const raises of [true, false]) {
+      expect(parseFindings('outside-voice', '### 1. P2 race in a.ts:3\n\nP0: also data loss in b.ts:9\n\nSeverity: Medium', raises).map(f => f.label)).toEqual(['P2', 'P0']);
+      expect(parseFindings('outside-voice', '### 1. P2 race in a.ts:3\n\nBody.\n\nP1: second issue in b.ts:9', raises).map(f => f.label)).toEqual(['P2', 'P1']);
+    }
+  });
   test('collect reads the class from --manifest and defaults to the gate class without one', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst987-'));
     const out = path.join(dir, 'native.txt');
