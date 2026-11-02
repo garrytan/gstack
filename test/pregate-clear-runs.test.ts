@@ -73,12 +73,12 @@ function check(repo: FixtureRepo, runs: FakeRun[], over: Partial<RunCheck> = {})
   return { repo: 'fx/fx', deps, profiles: PROFILES, gateRuns: GATE_RUNS, now: NOW, inventory: () => ['test/a.test.ts', 'test/b.test.ts'], ...over };
 }
 
-/** A check whose only readable run is 300, a successful run of `workflow` on `head`. */
-function runOfWorkflow(repo: FixtureRepo, head: string, workflow: string): RunCheck {
+/** A check whose only readable run is 300, a run of `workflow` on `head` (completed with success unless `state` says otherwise). */
+function runOfWorkflow(repo: FixtureRepo, head: string, workflow: string, state: Pick<ApiRun, 'status' | 'conclusion'> & Partial<Pick<ApiRun, 'run_attempt'>> = { status: 'completed', conclusion: 'success' }): RunCheck {
   const c = check(repo, []);
   const run = (id: number): ApiRun => {
     if (id !== 300) throw new Error('HTTP 404');
-    return { id, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'pull_request', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
+    return { id, run_attempt: 1, ...state, event: 'pull_request', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
   };
   return { ...c, deps: { ...c.deps, run } };
 }
@@ -168,7 +168,7 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(profiled.receipt).toStartWith(`run tree=${file.tree.slice(0, 12)} tests=5 runs=200/1 profiles=${PLATFORM} `);
     const failed = clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts'], conclusion: 'failure' }], { profiles: { ...PROFILES, [PLATFORM]: PROFILES.test! } }) }, repo.work);
     expect('refused' in failed && failed.refused).toBe('PREGATE_RECEIPT_INVALID');
-    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts'] }]) }, repo.work)).toEqual({ receipt: url, attested: false });
+    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts'] }]) }, repo.work)).toEqual({ receipt: `${url}/attempts/1`, attested: false });
     const bundled = clearDecision(file, PLATFORM, { bundleLane: 'macos', evidence: check(repo, [], { profiles: { ...PROFILES, [PLATFORM]: PROFILES.test! } }) }, repo.work);
     expect('refused' in bundled && `${bundled.refused}: ${bundled.message}`).toBe(`usage: ${PLATFORM} has a run profile on the base branch; clear it with --run <id|url>, which verifies the run`);
     expect(clearDecision(file, PLATFORM, { bundleLane: 'macos', evidence: check(repo, []) }, repo.work)).toEqual({ receipt: 'bundle-lane:macos', attested: false });
@@ -199,11 +199,28 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const url = 'https://github.com/fx/fx/actions/runs/300';
     const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'b.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/b.yml, not .github/workflows/a.yml; ${PLATFORM} stays uncleared; fix: clear ${PLATFORM} with a run of its own workflow: gh workflow run a.yml --ref <branch>, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`);
-    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work)).toEqual({ receipt: url, attested: false });
-    for (const copied of [`${url}/job/9?pr=3806`, `${url}/job/9#step:3:1`]) expect(clearDecision(file, PLATFORM, { runUrl: copied, evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work)).toEqual({ receipt: copied, attested: false });
+    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work)).toEqual({ receipt: `${url}/attempts/1`, attested: false });
+    for (const copied of [`${url}/job/9?pr=3806`, `${url}/job/9#step:3:1`]) expect(clearDecision(file, PLATFORM, { runUrl: copied, evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work)).toEqual({ receipt: `${url}/attempts/1`, attested: false });
     expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://github.com/fx/fx/actions/runs/301', evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=api_error — reading run 301 failed: HTTP 404; ${PLATFORM} stays uncleared; fix: check gh auth status and that gh can read fx/fx's Actions runs, then rerun the same clear`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://ci.example.com/runs/300', evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_ref_invalid — "https://ci.example.com/runs/300" is not a run id or a run URL on fx/fx; ${PLATFORM} stays uncleared; fix: pass the run's numeric id or https://github.com/fx/fx/actions/runs/<id>`);
     expect(clearDecision(file, PLATFORM, { runUrl: url }, repo.work)).toEqual({ receipt: url, attested: false });
+  }, 120_000);
+
+  test('a lane with no profile refuses a --run-url run of its own workflow that failed, was cancelled or is still running, and still clears from a green one (GSTA-203 PR 8)', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const base = await pregateAt(repo);
+    const PLATFORM = 'a.yml/job';
+    const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'a.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
+    const url = 'https://github.com/fx/fx/actions/runs/300';
+    const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
+    const rerun = `fix: rerun a.yml (gh run rerun 300, or gh workflow run a.yml --ref <branch>), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`;
+    for (const conclusion of ['failure', 'cancelled', 'timed_out']) {
+      expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'a.yml', { status: 'completed', conclusion }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_not_success — run 300 attempt 1 concluded ${conclusion}; ${PLATFORM} stays uncleared; ${rerun}`);
+    }
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: `${url}/job/9?pr=1`, evidence: runOfWorkflow(repo, head, 'a.yml', { status: 'in_progress', conclusion: null }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_in_progress — run 300 attempt 1 is in_progress; ${PLATFORM} stays uncleared; fix: wait for run 300 to finish green (or rerun a.yml if it fails), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
+    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'a.yml') }, repo.work)).toEqual({ receipt: `${url}/attempts/1`, attested: false });
+    expect(clearDecision(file, PLATFORM, { runUrl: `${url}/attempts/1?pr=1`, evidence: runOfWorkflow(repo, head, 'a.yml', { status: 'completed', conclusion: 'success', run_attempt: 2 }) }, repo.work)).toEqual({ receipt: `${url}/attempts/2`, attested: false });
   }, 120_000);
 
   test('on this repository\'s own workflows the Windows obligation is windows-smoke.yml/windows-smoke: a windows-smoke.yml run clears it, a run of any other workflow is refused (GSTA-203)', async () => {
@@ -218,7 +235,7 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const base = await pregateAt(repo);
     const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: smoke!.id, platform: 'windows', workflow: smoke!.workflow, job: smoke!.job, tests: smoke!.testFiles, receipt: null }] };
     const url = 'https://github.com/fx/fx/actions/runs/300';
-    expect(clearDecision(file, smoke!.id, { runUrl: url, evidence: runOfWorkflow(repo, head, 'windows-smoke.yml') }, repo.work)).toEqual({ receipt: url, attested: false });
+    expect(clearDecision(file, smoke!.id, { runUrl: url, evidence: runOfWorkflow(repo, head, 'windows-smoke.yml') }, repo.work)).toEqual({ receipt: `${url}/attempts/1`, attested: false });
     for (const other of ['windows-free-tests.yml', 'free-tests.yml']) {
       const d = clearDecision(file, smoke!.id, { runUrl: url, evidence: runOfWorkflow(repo, head, other) }, repo.work);
       expect('refused' in d && `${d.refused}: ${d.message}`).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/${other}, not .github/workflows/windows-smoke.yml; windows-smoke.yml/windows-smoke stays uncleared`);
