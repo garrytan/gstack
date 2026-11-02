@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.93.1.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` accepts a reusable-workflow lane's caller run.** A lane whose workflow file runs only through `workflow_call` (gbrain's `native-locks.yml`, run as a job of `test.yml`) was refused `workflow_mismatch` for every run since v1.92.62.0, because GitHub reports the caller's file as the run's workflow. A run of a workflow in the branch's own `.github/workflows/` with a job that says `uses: ./.github/workflows/<lane workflow>` now clears the lane, a job link inside that run too, as long as the lane's own job succeeded under the calling job (`<calling job> / <lane job>`, else `caller_job_skipped`), with callers read at pregate.json's recorded tree; the red and unfinished-run refusals still apply. Fix lines only suggest `gh workflow run` for a file with a `workflow_dispatch` trigger; otherwise they name the callers. An unrelated workflow still refuses. `test/pregate-clear-runs.test.ts` failed before the fix (GST-971).
+
 ## [1.93.0.0] - 2026-11-02
 
 **`gstack-clean` reclaims the throwaway files that pile up in a repository's `.gstack/` folder, and changes nothing unless you pass `--apply`** (#2627). Until now nothing removed old codex scratch files or trimmed the browse logs, so the folder only grew (the reporter measured 8.3 MB in six weeks), and the only way out was deleting the whole folder, which also deletes your cookies, Chromium profile and browser skills.
