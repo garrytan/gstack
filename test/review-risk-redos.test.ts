@@ -18,7 +18,7 @@ describe('linear time on hostile input', () => {
   //   or on a line of repeated anchors; seam=every pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE, MONEY_LINE and SECRET_PATH
   const hostile = [
     run('rm -', 'r'), run('rm -', 'f'), run('rm -r', 'r'), run('rm -f', 'a'), run('rm\t-', 'r'), run('rm ', ' '), run('rm -', 'r', '1'), run('rm -', 'rf', '_'), run('', 'rm -r '),
-    run('', 'rmSync('), run('rmSync(', ' '), run('rmSync(', 'recursive '), run('rmSync(', 'recursive: '),
+    run('', 'rmSync('), run('rmSync(', ' '), run('rmSync(', 'recursive '), run('rmSync(', 'recursive: '), run('', '.rm('), run('.rm(', ' '), run('.rm(', 'recursive: '),
     run('shell', ' '), run('shell:', ' '), run('shell=', ' '), run('', '; '), run(';', ' '), run('; eval', ' '), run('eval', ' '), run('', ';eval '),
     run('execSync', ' '), run('child_process.exec', ' '), run('os.system', ' '), run('new', ' '), run('new Function', ' '),
     run('spawn(', ' '), run('Bun.spawn(', ' '), run('Bun.spawn([', ' '), run('innerHTML', ' '),
@@ -57,19 +57,28 @@ describe('the rm rule matches what R51 matched', () => {
     expect(lines.filter(s => r51.test(s)).length).toBeGreaterThan(1000);
     expect(edges.filter(s => rm.test(s))).toEqual(['rm -rf /', 'rm -fr x', 'rm -rvf x', 'rm -rf-x', 'rm -rrf', 'rm -ffr', 'rm -rfr', 'rm\t\t-rf', 'sudo rm -rf "$DIR"']);
   });
-  test('the rmSync rule matches what R51 matched on 60,000 seeded short lines, and padding past its window still raises security', () => {
+  test('the rmSync rule matches every line R51 matched on 60,000 seeded short lines, and padding past its window still raises security', () => {
     x = 898;
     const r51Sync = /\brmSync\s*\([^)]*recursive\s*:\s*true/;
     const rmSync = SECURITY_LINE.find(r => r.source.startsWith(String.raw`\brmSync`))!;
     const parts = ['rmSync(', 'rmSync (', 'xrmSync(', 'recursive', ':', ' ', 'true', ')', 'a', 'recursive: true', 'rmSync', '(', '\t'];
     const lines = Array.from({ length: 60_000 }, () => Array.from({ length: next(9) + 1 }, () => parts[next(parts.length)]).join(''));
-    expect(lines.filter(s => rmSync.test(s) !== r51Sync.test(s))).toEqual([]);
+    expect(lines.filter(s => r51Sync.test(s) && !rmSync.test(s))).toEqual([]);
     expect(lines.filter(s => r51Sync.test(s)).length).toBeGreaterThan(1000);
     expect(security('fs.rmSync(dir, { recursive: true, force: true });')).toBe(true);
     expect(security('fs.rmSync(' + 'a'.repeat(480) + ', { recursive: true })')).toBe(true);
     expect(security('fs.rmSync(dir, /*' + 'x'.repeat(501) + '*/ { recursive: true, force: true });')).toBe(true);
     expect(security('fs.rmSync(dir, /*' + 'x'.repeat(5_000_000) + '*/ { recursive: true });')).toBe(true);
     expect(security('fs.rmSync(dir, { force: true });')).toBe(false);
+  });
+  test('a recursive rm or rmSync whose first argument is a call, or whose arguments hold a ), raises security (GST-942)', () => {
+    // Value: protects=a recursive delete written the common way keeps the security class; fails_when=the rule stops at the first
+    //   ) inside the first argument or a comment, or skips the async fs.rm; seam=matchRisk on one added line
+    const recursive = ['fs.rmSync(path.join(dir, "x"), { recursive: true, force: true });', 'fs.rmSync(dir, /* ) */ { recursive: true });',
+      'fs.rmSync(path.resolve(root, name), { recursive: true });', 'await fs.promises.rm(path.join(dir, "x"), { recursive: true });',
+      'await fs.rm(dir, { recursive: true })'];
+    expect(recursive.filter(l => !security(l))).toEqual([]);
+    expect(['fs.rm(path.join(dir, "x"), { force: true });', 'const rm = (a) => a; rm(x, { recursive: true });', 'farm(x, { recursive: true });'].filter(security)).toEqual([]);
   });
 });
 
