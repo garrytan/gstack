@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectCommit, collectLive } from '../lib/review-collect';
-import { depthOfCommitInput } from '../lib/review-depth';
+import { depthOfCommitInput, svgDrawing } from '../lib/review-depth';
 import { targetedClasses } from '../lib/review-targeted';
 import { receiptDepthAtHead, receiptDepthVerdict } from '../lib/ship-receipt-depth';
 
@@ -149,6 +149,8 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['a CSS import of a bare string', '  <style>@import "https://x.test/a.css";</style>'],
     ['a style element import', '  <style>@import url("https://x.test/a.css");</style>'],
     ['a style attribute cross-fade()', '  <rect style="fill:cross-fade(url(https://x.test/a.png), url(#m0), 50%)"/>'],
+    ['a style element whose </style> hides in a comment', '  <style>svg{fill:<!-- </style> -->image-set("https://x.test/p.png" 1x)}</style>'],
+    ['a style element whose </style> hides in CDATA', '  <style><![CDATA[ /* </style> */ svg{fill:image-set("https://x.test/p.png" 1x)} ]]></style>'],
   ])('%s keeps the SVG code', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) })).class).toBe('code');
@@ -165,6 +167,36 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     const named = plan(fx, fx.commit({ 'assets/icon.svg': chart(3), 'src/icon.ts': "export const icon = new URL('./icon.svg', import.meta.url);\n" }));
     expect(named.class).toBe('code');
     expect(named.runtime).toBeGreaterThan(3);
+  }, 60_000);
+
+  // Value: protects=the drawing check reads a file up to the collector's 8 MB cap in linear time; fails_when=a run of unclosed
+  //   style tags (480 KB) takes over 100 ms or reads as a drawing (review pass notes on #3838); seam=svgDrawing
+  test('a 480 KB run of unclosed <style tags is refused in under 100 ms', () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg">' + '<style'.repeat(80_000);
+    const t0 = performance.now();
+    expect(svgDrawing(svg)).toBe(false);
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  // Value: protects=every verdict holds at 1 MB and 8 MB, the collector's cap: a long drawing stays data and a load placed after
+  //   a long run of CSS, base64 or text is still refused (JavaScriptCore has returned no match on a quantified group over
+  //   megabytes before, GST-898); fails_when=any verdict flips at size; seam=svgDrawing
+  test.each([1_000_000, 8_000_000])('verdicts hold at %d characters', size => {
+    const H = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">';
+    const bad = 'image-set("https://x.test/p.png" 1x)';
+    const fill = (unit: string) => unit.repeat(Math.ceil(size / unit.length));
+    expect(svgDrawing(H + '<defs><style type="text/css">*{stroke-linejoin: round}</style></defs>' + fill('<use xlink:href="#m0" x="5" style="fill: #1f77b4" clip-path="url(#p1)"/>') + '</svg>')).toBe(true);
+    expect(svgDrawing(H + '<image href="data:image/png;base64,' + fill('AAAA') + '"/></svg>')).toBe(true);
+    for (const svg of [
+      H + fill('<rect x="1" style="fill: #1f77b4"/>') + '<style>rect{fill:' + bad + '}</style></svg>',
+      H + '<rect style="' + fill('fill: #000; ') + 'fill:' + bad + '"/></svg>',
+      H + '<style>' + fill('rect{fill:#000} ') + 'svg{fill:' + bad + '}</style></svg>',
+      H + '<style><![CDATA[ /* </style> */ ' + fill('rect{fill:#000} ') + 'svg{fill:' + bad + '} ]]></style></svg>',
+      H + '<style>' + fill('rect{fill:#000} ') + '<!-- </style> -->svg{fill:' + bad + '}</style></svg>',
+      H + '<image href="data:image/png;base64,' + fill('AAAA') + '"/><image href="https://x.test/p.png"/></svg>',
+      H + "<text>z='" + fill('abc ') + "</text><image href=\"https://x.test/p.png\"/><text>'</text></svg>",
+      H + fill('<style'),
+    ]) expect(svgDrawing(svg)).toBe(false);
   }, 60_000);
 });
 
