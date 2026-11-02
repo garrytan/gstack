@@ -1619,7 +1619,7 @@ reproduce command. If the file passes serially, add it to `SLOW_UNDER_LOAD` in
 `scripts/lib/shard-jobs.ts` with that run id and a reason. Never raise the
 timeout. `SLOW_UNDER_LOAD` is empty today.
 
-The Windows lane stays at `WINDOWS_FREE_JOBS: '1'`. In GSTA-203's A/B, k = 2
+The nightly Windows lane stays at `WINDOWS_FREE_JOBS: '1'`. In GSTA-203's A/B, k = 2
 made the slowest Windows shard faster, but two of three runs needed the flaky
 retry for file-lock cleanup errors (`EBUSY` in
 `browse/test/stealth-webdriver.test.ts` and a native fixture cleanup in
