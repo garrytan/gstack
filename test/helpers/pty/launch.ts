@@ -15,8 +15,12 @@ import { trustDialogInput } from '../pty-trust-dialog';
 import { resolveClaudeBinary } from './binary';
 import { createPtyScreen, screenPanelEnd, stripAnsi } from './screen';
 import { appendSessionLedger, sessionKey } from '../session-ledger';
+import { newTranscriptSessionId, pricedTranscript, ptyTranscriptCostUsd, transcriptFiles } from './transcript-cost';
 
 export interface ClaudePtyOptions {
+  /** Price this session's ledger row from the transcript Claude writes under the hermetic config dir (default true).
+   * false for a caller that must never read model transcripts, such as the native AskUserQuestion capture. */
+  priceTranscript?: boolean;
   /** Register the repo's shipped skills in the child's user scope via
    * hermeticSkillsConfigDir(). Required by any test that types a /skill
    * slash command; without it hermetic claude rejects the command as
@@ -129,6 +133,9 @@ export interface ClaudePtySession {
    * the dir name ends in `/.claude` by contract).
    */
   hermeticConfigDir: string | null;
+  /** This session's cost from its transcript (the caller's --session-id, else the one transcript this launch created
+   * for its cwd); undefined when unpriced, ambiguous or opted out. Never throws. */
+  transcriptCostUsd?(): number | undefined;
   /** Owned HOME/.gstack created by the seeded launcher; absent for caller overrides. */
   hermeticSkillStateRoot?: string;
   /** Owned pre-tool identity record, removed by close(). */
@@ -249,7 +256,8 @@ export async function launchClaudePty(
       recorded = true;
       const elapsed = performance.now() - startedMono;
       appendSessionLedger({ key: sessionKey('pty', undefined), runner: 'pty', started_at: startedAt, budget_ms: timeoutMs,
-        elapsed_ms: elapsed, end: elapsed >= timeoutMs ? 'session_timeout' : 'completed', ...screenPanelEnd(handle.visibleText()), billed: false });
+        elapsed_ms: elapsed, end: elapsed >= timeoutMs ? 'session_timeout' : 'completed', ...screenPanelEnd(handle.visibleText()), billed: false,
+        ...pricedTranscript(handle) });
     }
     return close();
   } });
@@ -263,6 +271,8 @@ interface LaunchSetup {
   hermeticSkillStateRoot: string | undefined;
   autoplanArtifactStateRoot: string | undefined;
   autoplanEngTestPlanStateRoot: string | undefined;
+  /** What prices the transcript: the caller's session id, else the transcripts present before spawn. */
+  transcript: { sessionId: string | undefined; before: Set<string>; cwd: string } | undefined;
 }
 
 function prepareLaunch(opts: ClaudePtyOptions): LaunchSetup {
@@ -319,7 +329,13 @@ function prepareLaunch(opts: ClaudePtyOptions): LaunchSetup {
 
   const autoplanEngTestPlanStateRoot = opts.approveAutoplanArtifactEdits && opts.autoplanArtifactState !== undefined
     ? hermeticSkillStateRoot : undefined;
-  return { args, childEnv, hermetic, hermeticSkillStateRoot, autoplanArtifactStateRoot, autoplanEngTestPlanStateRoot };
+  const extra = opts.extraArgs ?? [];
+  const pinned = extra.findIndex(arg => /^--session-id(=|$)/.test(arg));
+  const sessionId = pinned < 0 ? undefined : extra[pinned].startsWith('--session-id=') ? extra[pinned].slice('--session-id='.length) : extra[pinned + 1];
+  const resumes = extra.some(arg => /^(--resume|--continue|-r|-c)(=|$)/.test(arg));
+  const transcript = hermetic && childEnv.CLAUDE_CONFIG_DIR && opts.priceTranscript !== false && !resumes
+    ? { sessionId, before: transcriptFiles(childEnv.CLAUDE_CONFIG_DIR), cwd: opts.cwd ?? process.cwd() } : undefined;
+  return { args, childEnv, hermetic, hermeticSkillStateRoot, autoplanArtifactStateRoot, autoplanEngTestPlanStateRoot, transcript };
 }
 
 interface LaunchRecorders {
@@ -568,6 +584,11 @@ function sessionHandle(pty: PtyProcess, launch: LaunchSetup, wallTimer: ReturnTy
     exited: () => pty.exited,
     exitCode: () => pty.exitCode,
     hermeticConfigDir: launch.hermetic ? launch.childEnv.CLAUDE_CONFIG_DIR ?? null : null,
+    transcriptCostUsd: () => {
+      const { transcript, childEnv } = launch;
+      return transcript && ptyTranscriptCostUsd(childEnv.CLAUDE_CONFIG_DIR,
+        transcript.sessionId ?? newTranscriptSessionId(childEnv.CLAUDE_CONFIG_DIR, transcript.before, transcript.cwd));
+    },
     hermeticSkillStateRoot: launch.hermeticSkillStateRoot,
     pendingPlanReadyFile: pendingExit?.file,
     pendingQuestionFile: pendingQuestion?.file,
