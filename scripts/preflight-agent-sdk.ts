@@ -21,6 +21,7 @@ import '../lib/conductor-env-shim';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
 import { resolveClaudeBinary } from '../lib/claude-bin';
+import { sdkSystemPrompt } from '../test/helpers/sdk-system-prompt';
 
 const USAGE = `Usage: bun run scripts/preflight-agent-sdk.ts [--live]
 
@@ -94,7 +95,7 @@ async function main() {
         prompt: 'say pong',
         options: {
           model: 'claude-opus-4-7',
-          systemPrompt: '',
+          ...sdkSystemPrompt({ type: 'sdk-default', reason: 'connectivity probe with no tools: checks the event stream shape, not skill behavior' }),
           tools: [],
           permissionMode: 'bypassPermissions',
           allowDangerouslySkipPermissions: true,
