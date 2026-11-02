@@ -17,7 +17,7 @@ export interface ChangedLiteral { name: string; old: string; new: string; file: 
 /** A consumer line a `pregate-literal:` marker waived; `added` when the merge-base file lacks the marker. */
 export interface LiteralWaiver { at: string; reason: string; added: boolean }
 
-const MARKER = /pregate-literal:[ \t]*([A-Za-z_]\w*)=(\S+)[ \t]+(\S.*?)[ \t]*(?:\*\/[ \t]*)?$/;
+const MARKER = /pregate-literal:[ \t]*([A-Za-z_]\w*)=(\S+)[ \t]+((?!\*\/)\S.*?)[ \t]*(?:\*\/[ \t]*)?$/;
 
 /** The marker in this line's trailing comment (`//`, `#` or `/*` outside a string), or null. */
 function markerIn(line: string): { marker: string; name: string; value: string; reason: string } | null {
@@ -153,8 +153,8 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
       return extended;
     };
     const waiver = (i: number) => {
-      const m = markerIn(lines[i]!) ?? (i > 0 && comment(lines[i - 1]!) ? markerIn(lines[i - 1]!) : null);
-      if (!m || m.name !== change.name || unquote(m.value) !== value) return false;
+      const m = [markerIn(lines[i]!), i > 0 && comment(lines[i - 1]!) ? markerIn(lines[i - 1]!) : null].find(c => c && c.name === change.name && unquote(c.value) === value);
+      if (!m) return false;
       const before = baseText?.(rel);
       waived?.push({ at: `${rel}:${i + 1}`, reason: m.reason, added: typeof before !== 'string' || !before.includes(m.marker) });
       return true;
