@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.63.0] - 2026-11-02
+
+**A slot restamp after the docs audit no longer stops `finish` with `DOCS: stale (CHANGELOG.md)` (GST-906).** When a PR lost its merge slot after Step 14.5, the new slot's restamp re-heads the CHANGELOG entry and moves VERSION, and on the lost-slot path it merges main first. `gstack-ship-release finish` read all of that as a docs change, so the only ways forward were a third docs audit, which the policy forbids, or an owner-accepted named risk. Reported by GBRA-258 on gbrain #8372.
+
+### Fixed
+- **Step 16's docs check carries a restamp.** The CHANGELOG counts as unchanged when it differs from the audited copy only by the heading move or re-heading. After a main merge, the audited copy is first merged with main's CHANGELOG by the same `mergeChangelogs` call the restamp writer makes, and that merge may only add main's sections. The version file counts as unchanged when it held a bare version at the audit and still does.
+- **Anything else still stales the audit.** That includes an entry edit, a dropped or edited main section, a dropped line the audit saw, and an audited CHANGELOG that git never held.
+
 ## [1.92.62.0] - 2026-11-02
 
 - **`gstack-pregate clear --run-url` checks the run's workflow.** On a lane with no run profile, `clear` used to record any URL as the receipt, so a `windows-smoke.yml` run could clear `windows-free-tests.yml/windows-free-shard` on a branch cut before #3806. When the base config and the GitHub origin can be read, `clear` now reads the run and refuses `PREGATE_RECEIPT_INVALID` (`workflow_mismatch`) unless its workflow file is the lane's own; a run gh cannot read (`api_error`) or a URL that is not an Actions run on this repository (`run_ref_invalid`) refuses too, and each refusal names its own fix. A run of the lane's own workflow clears as before, including a job link copied with `?pr=` or `#step`. `test_backend/*` lanes, `--bundle-lane` and non-GitHub origins are unchanged. On main the Windows obligation is `windows-smoke.yml/windows-smoke`, and a test now checks that against the repository's own workflows. The `ready` conflict hint now says to clear each lane with a run of that lane's own workflow. `test/pregate-clear-runs.test.ts` covers the mismatch, the matching control, the unreadable run, the non-run URL and the copied job links; each failed before its fix.
