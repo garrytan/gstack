@@ -70,11 +70,16 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
       fs.rmSync(d, { recursive: true, force: true });
     }
   });
+  test('coordinated denials are candidates', () => {
+    for (const line of ['No CRITICAL or HIGH findings remain.', 'Nothing CRITICAL or HIGH remains.', 'No CRITICAL/HIGH findings.', 'No CRITICAL, HIGH or MEDIUM issues.', 'Nothing at CRITICAL severity remains.', 'No CRITICAL — the fix is sound.'])
+      expect([line, summaryCandidate(line)]).toEqual([line, true]);
+  });
   test('negative controls: a locus, an exception clause, a lead label, a field or a JSON finding is no candidate and keeps its label', () => {
     for (const line of ['No CRITICAL issues except the token leak in log.ts:3.', 'Nothing else is CRITICAL, but the retry loop never ends.', 'The token leak in log.ts:3 is CRITICAL.',
       'The leak in bin/gstack-log:3 is CRITICAL.', 'CRITICAL: the retry loop never ends.', 'The retry loop never ends. Severity: High', 'Not checked. Blocks: no. CRITICAL', '{"severity":"CRITICAL","summary":"x"}',
       'The retry loop in the upload handler never ends, which is CRITICAL.', 'Path traversal in the download route lets any user read arbitrary files; this is CRITICAL.',
-      'The session token is written to the debug log on every request, a CRITICAL leak.', 'Nothing guards the write path the failure of which is CRITICAL']) {
+      'The session token is written to the debug log on every request, a CRITICAL leak.', 'Nothing guards the write path the failure of which is CRITICAL',
+      'There is no CRITICAL lock around the refund write, so two workers double-pay.', 'The patch closes the CRITICAL window only on Linux; on macOS the race remains.']) {
       expect([line, summaryCandidate(line)]).toEqual([line, false]);
       expect(parseFindings('fix-check', line).length).toBe(1);
     }
@@ -116,6 +121,10 @@ describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {
       fs.rmSync(d, { recursive: true, force: true });
     }
     for (const raises of [true, false]) expect(labels('adversarial-native', '**1. Race in a.ts:3. FIXABLE.**\nIt blocks no attacker.\nSeverity: Low.', raises)).toEqual(['CRITICAL']);
+    const q = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031y-'));
+    const y = collect(path.join(q, 'l.jsonl'), 'outside-voice', 'CRITICAL: auth.ts:9 skips authentication. The previous note said `Blocks: no`. Blocks yes.\n', path.join(q, 'm.jsonl'));
+    expect([y.lines[0]!.stated?.blocks, ledgerBlockers(path.join(q, 'l.jsonl')).map(b => b.id)]).toEqual(['yes', ['outside-voice#1']]);
+    fs.rmSync(q, { recursive: true, force: true });
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031j-'));
     collect(path.join(d, 'l.jsonl'), 'specialist', JSON.stringify({ severity: 'CRITICAL', path: 'lib/auth.ts', line: 9, summary: 'the old guard, which a reader marked `Blocks: no`, is gone so any caller gets admin' }) + '\n', path.join(d, 'm.jsonl'));
     expect(ledgerBlockers(path.join(d, 'l.jsonl')).map(b => b.id)).toEqual(['specialist#1']);

@@ -85,7 +85,7 @@ const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:\\w[\
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
 /** A prose reader's `Blocks` field as it can lower a count (GST-1031): its colon required, so prose ("blocks no other writer") never does, and a JSON finding (no Blocks field in its schema) never has one. */
 const BLOCKS_FIELD = /(?<![A-Za-z0-9])Blocks\**\s*:\s*\**\s*(yes|no)(?![A-Za-z0-9-])/gi;
-export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{')) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
+export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOCKS_YES.test(raw)) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
  * A summary candidate (GST-1031): a prose finding whose every severity word is denied ("so nothing is CRITICAL", "No CRITICAL issues")
  * or names a fix ("the test covers the CRITICAL fix"), with no lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE tag,
@@ -95,7 +95,8 @@ export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{')) return
 const SENTENCE = /(?<=[.!?])\s+/;
 const EXCEPTION = /(?<![A-Za-z])(?:except|but|other than|apart from|aside from|besides|unless|save for)(?![A-Za-z])/i;
 const PATH_LOCUS = /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/;
-const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+)?|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+)[*\`]*(?:${LABELS})(?![A-Za-z0-9])`, 'gi');
+const LABEL_LIST = `[*\`]*(?:${LABELS})[*\`]*(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*[*\`]*(?:${LABELS})[*\`]*)*(?![A-Za-z0-9])`;
+const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+)?${LABEL_LIST}(?=\\s*(?:issues?|findings?|problems?|regressions?|bugs?|defects?|blockers?|concerns?|items?|severity|impact|remains?|to\\s+report|here|found|introduced|[.;:,!?)—–-]|$))|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+${LABEL_LIST}\\s+(?:fix|finding|issue|bug|defect|blocker)(?:e?s)?(?![A-Za-z]))`, 'gi');
 export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.test(t.replace(DENIED_OR_FIXED, ' ')) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
@@ -103,7 +104,7 @@ export function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
   const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
   const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase());
-  const blocks = said.includes('yes') ? 'yes' : said.at(-1);
+  const blocks = said.includes('yes') || (said.length && BLOCKS_YES.test(raw)) ? 'yes' : said.at(-1);
   return severity || blocks ? { ...(severity ? { severity } : {}), ...(blocks ? { blocks } : {}) } : undefined;
 }
 
