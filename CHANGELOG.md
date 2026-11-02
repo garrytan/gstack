@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.93.2.0] - 2026-11-02
+
+**Native cookie import now waits for its browser to actually exit before it reports cleanup, and three more flaky tests from the 2026-11-01 flaky pass are repaired.** Windows drops a Job's process count to zero while terminated Edge processes are still shutting down and still hold the profile's files, so cleanup that trusted the count returned early and the next profile reset failed with a sharing violation.
+
+### Fixed
+- **`browse/src/cookie-import-native-job.ts`, `browse/src/cookie-import-native-worker.ts`, `browse/src/cookie-import-native.ts`**: the supervisor holds a handle to every process it sees in the import's Job and counts a process as active until that handle signals exit, not only until the Job's counter drops. The cleanup budget is now 20 s (was 5 s), because terminated Edge took up to 17.8 s to exit on a loaded Windows runner and 2 to 57 ms idle; an idle import returns as soon as its processes are gone. The parent's kill timer allows 2 s beyond that budget. Cleanup that still cannot confirm the exit reports `native_cleanup_failed`, as before. The real-Edge tests take their kill timers and time limits from the same constant.
+- **`.gstack/pregate.json`**: the local pregate lane runs `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI and the remote pregate already use, so a case that takes 5 s on a busy machine no longer fails only locally. The runner string is part of the pregate trust grant, so each machine records trust again on its first run after this change (the crew's remote pregate already passes `--allow-repo-commands`).
+- **`test/gstack-ship-receipt.test.ts`**: the full `write` case, about 62 git calls, gets a 15 s timeout instead of bun's 5 s default.
+- **`test/helpers/coverage-audit-evidence.ts`**: the plan-eng coverage audit detector credits complete reads placed by a literal `wc -c` byte count over in-cwd files, as it already did for `wc -l` (train gate 41209768188).
+
+### Changed
+- `test/helpers/docsync-contract.ts` names the missing `documentation_section` when a document-release completion fails the contract, so the next paid red says which field was absent.
+
 ## [1.93.1.0] - 2026-11-02
 
 - **`gstack-pregate clear --run-url` accepts a reusable-workflow lane's caller run.** A lane whose workflow file runs only through `workflow_call` (gbrain's `native-locks.yml`, run as a job of `test.yml`) was refused `workflow_mismatch` for every run since v1.92.62.0, because GitHub reports the caller's file as the run's workflow. A run of a workflow in the branch's own `.github/workflows/` with a job that says `uses: ./.github/workflows/<lane workflow>` now clears the lane, a job link inside that run too, as long as the lane's own job succeeded under the calling job (`<calling job> / <lane job>`, else `caller_job_skipped`), with callers read at pregate.json's recorded tree; the red and unfinished-run refusals still apply. Fix lines only suggest `gh workflow run` for a file with a `workflow_dispatch` trigger; otherwise they name the callers. An unrelated workflow still refuses. `test/pregate-clear-runs.test.ts` failed before the fix (GST-971).
