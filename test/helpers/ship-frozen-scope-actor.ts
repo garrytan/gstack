@@ -190,7 +190,7 @@ function reviewRows(repo: string, env: NodeJS.ProcessEnv) {
 }
 
 function loopSummary(repo: string, env: NodeJS.ProcessEnv, since: string) {
-  return JSON.parse(command(repo, env, path.join(ROOT, 'bin/gstack-review-scope'), ['summary', '--since', since, '--json']).stdout.trim());
+  return JSON.parse(command(repo, env, path.join(ROOT, 'bin/gstack-review-scope'), ['summary', '--no-ledger', '--since', since, '--json']).stdout.trim());
 }
 
 export async function shipFrozenScopeFailures(fixture: ReturnType<typeof createShipFrozenScopeFixture>, result: Pick<AgentSdkResult, 'exitReason'>) {

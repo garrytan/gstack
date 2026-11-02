@@ -120,3 +120,13 @@ printf 200
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 60_000);
 });
+
+describe('CI runs these cases on the BSD userland itself', () => {
+  // Value: protects=the cases above run where /usr/bin/tar and /usr/bin/awk are the BSD tools; fails_when=macos-named-regressions stops naming this file, so Linux CI (no bsdtar or one-true-awk installed) skips every case and a #3680 or #3679 regression ships green; why_new=the file was only in the Linux free suite; seam=.github/workflows/free-tests.yml; no_claim=the job's runner image or its tool versions
+  test('free-tests.yml macos-named-regressions names this file', () => {
+    const workflow = Bun.YAML.parse(readFileSync(join(ROOT, '.github/workflows/free-tests.yml'), 'utf8')) as any;
+    const mac = workflow.jobs['macos-named-regressions'];
+    expect(mac['runs-on']).toMatch(/^macos-/);
+    expect((mac.steps as any[]).map(step => String(step.run ?? '')).join('\n')).toContain('test/regression-issue3680-ubicloud-bsd-userland.test.ts');
+  });
+});
