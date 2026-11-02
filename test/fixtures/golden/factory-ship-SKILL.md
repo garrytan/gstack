@@ -522,7 +522,7 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun flag
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
-`VERSION: skipped` (fragments) or `VERSION: <v> kept (…; no write)` ends Step 12 with
+`VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
 `NEW_VERSION` unset: Step 13 follows its `NEXT:`; Steps 18 and 20 take NO_VERSION's branch.
 
 1. **Classify state** — pure reader, never writes:
@@ -650,7 +650,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 3. Use `<type>: <summary>` (feat/fix/chore/refactor/docs) and a brief body; fixing a
    user-named issue adds a `Fixes: #<n>` trailer. Leave VERSION, CHANGELOG/fragment, TODOS.md
    and the digest uncommitted: Step 16's `finish` commits them last with
-   `--trailer 'Co-Authored-By: Factory Droid <droid@users.noreply.github.com>'`. No Git tag.
+   `--trailer 'Co-Authored-By: Factory Droid <droid@users.noreply.github.com>'`. Do not add a Git tag.
 
 ---
 
