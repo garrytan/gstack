@@ -87,7 +87,8 @@ const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg\b[^>[]*>)/i;
  */
 const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\(\s*(?!['"]?\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
 /** A drawing's CSS, a style element's text or a style attribute's value, holds declarations only: no @ rule and no function but url(#id). */
-const SVG_STYLE = /<(?:[A-Za-z_][\w.-]*:)?style\b[^>]*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?style\s*>|$)/gi;
+const SVG_STYLE_OPEN = /<(?:[A-Za-z_][\w.-]*:)?style\b/gi;
+const SVG_STYLE_CLOSE = /^<\/(?:[A-Za-z_][\w.-]*:)?style\s*>/i;
 const SVG_CSS_REF = /url\(\s*(['"]?)#[\w.:-]*\1\s*\)/gi;
 const SVG_CSS_REFUSED = /[@(]/;
 /** An href or src value a drawing may hold: a same-document reference, or a raster image inline. */
@@ -95,15 +96,42 @@ const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+
 
 /**
  * Whether an SVG's whole text is a drawing (GST-911): every element in SVG_ELEMENTS, no event handler, every href or src a
- * same-document reference or an inline raster image, CSS of declarations only (SVG_STYLE), and nothing SVG_REFUSED names, read after character references are
+ * same-document reference or an inline raster image, CSS of declarations only, and nothing SVG_REFUSED names, read after character references are
  * decoded. Every name= in the text is read, so a stray quote cannot hide a later attribute inside its value; an unquoted value
- * stops at the next =, which keeps the scan linear. Anything else, an SVG that can run code included, stays code.
+ * stops at the next =, which keeps the scan linear. A style element's CSS is walked with indexOf to its closing tag, dropping
+ * comments and reading CDATA as CSS, so neither can hide a closing tag; any other markup inside it, or a style element that never
+ * closes, refuses. Anything else, an SVG that can run code included, stays code.
  */
 export function svgDrawing(text: string): boolean {
   const t = decodeCharRefs(text);
   if (SVG_REFUSED.some(r => r.test(t)) || svgActive(t)) return false;
   const cssDrawing = (css: string) => !SVG_CSS_REFUSED.test(css.replace(SVG_CSS_REF, ''));
-  for (const m of t.matchAll(SVG_STYLE)) if (!cssDrawing(m[1]!)) return false;
+  for (let at = 0; ;) {
+    SVG_STYLE_OPEN.lastIndex = at;
+    const open = SVG_STYLE_OPEN.exec(t);
+    if (!open) break;
+    let i = t.indexOf('>', open.index) + 1;
+    if (!i) return false;
+    let css = '';
+    for (;;) {
+      const lt = t.indexOf('<', i);
+      if (lt === -1) return false;
+      css += t.slice(i, lt);
+      if (t.startsWith('<!--', lt)) {
+        i = t.indexOf('-->', lt + 4) + 3;
+        if (i === 2) return false;
+      } else if (t.startsWith('<![CDATA[', lt)) {
+        const end = t.indexOf(']]>', lt + 9);
+        if (end === -1) return false;
+        css += t.slice(lt + 9, end);
+        i = end + 3;
+      } else if (SVG_STYLE_CLOSE.test(t.slice(lt, lt + 256))) {
+        at = lt + 1;
+        break;
+      } else return false;
+    }
+    if (!cssDrawing(css)) return false;
+  }
   for (let at = t.indexOf('<'); at !== -1; at = t.indexOf('<', at + 1)) {
     if (SVG_MARKUP.test(t.slice(at, at + 512))) continue;
     const tag = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)/.exec(t.slice(at, at + 256));
@@ -120,7 +148,7 @@ export function svgDrawing(text: string): boolean {
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT, SVG_ELEMENTS: [...SVG_ELEMENTS],
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE: [SVG_STYLE], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
