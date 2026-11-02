@@ -1,5 +1,186 @@
 # Changelog
 
+## [1.92.70.0] - 2026-11-02
+
+**Five free-test files stop rebuilding the same git repositories for every test: they spend 17–24 s less in summed per-file runtime, with every assertion intact.** Each test still gets its own private copy of the fixture.
+
+### Tests
+- `test/helpers/git-fixture-template.ts` (new): builds a git fixture once per test file and copies it per test with `fs.cpSync`. The adopter rewrites every path-bearing file (remote URLs, alternates, state roots), and the copy is then scanned for any remaining reference to the template, so a test can never push into or read from the shared template. `test/git-fixture-template.test.ts` pins two-copy isolation and the leak scan.
+- `test/release-cut.test.ts` (~10 s to ~6 s), `test/train-backstop.test.ts` (~4 s to ~1.6 s), `test/restamp-mentions.test.ts` (via `test/helpers/restamp-fixture.ts`), `test/pregate-user-policy.test.ts` (via `test/helpers/pregate-fixture.ts`) and `test/held-install-recovery.test.ts` (~33 s to ~22 s) use the template. Test and `expect()` counts are unchanged in every file.
+- `test/helpers/restamp-fixture.ts` turns off auto-maintenance (`maintenance.auto=false`, `gc.auto=0`) in the bare origin the ship-queue train tests push to.
+- `test/test-of-test-ratchet.test.ts`: one BASELINE row for the new helper test, which tests a test helper by design.
+
+## [1.92.69.0] - 2026-11-02
+
+**Background `--derive` runs no longer drop /office-hours sessions or fail with ENOENT when they overlap (#3437).** `gstack-question-log` starts a background `gstack-developer-profile --derive` after every append, and a multi-question AskUserQuestion logs several rows at once. Every derive wrote the same `developer-profile.json.tmp` and rewrote the whole profile without a lock. On main at 3bfe566, 30 rounds of 8 overlapping derives plus one `--log-session` saw 9 of 270 runs fail with `ENOENT` on rename, and 2 of the 30 sessions disappeared. With this change the same run has 0 failures and keeps 30 of 30 sessions.
+
+### Fixed
+- **`bin/gstack-developer-profile`**: `--derive`, `--log-session`, `--reconcile` and `--migrate` hold `developer-profile.json.lock` from before they read the profile until after they rename it, and each writes its own `mktemp` file. The owner file names the holder's process ID, and the lock is ownership-checked on release. A lock is taken over when its holder process is gone, or once it is 5 minutes old even if a process with that ID is running, since no writer takes that long and the ID may have been reused. Takeovers go one at a time under `developer-profile.json.lock.takeover`, so two waiters can't both take over. A writer that can't get the lock within 10 seconds writes nothing and exits 5. An unwritable state directory is reported right away instead of after the wait. A relative state root is anchored once, so the lock is released under the same path it was taken. Windows drive-letter roots stay as they are.
+### Removed
+- **`scripts/psychographic-signals.ts`**: `applySignal` and `newDimensionTotals`, which lost their last production caller when `--derive` moved onto `accumulateSignals` (#3435), and their three unit tests.
+
+### Not covered yet
+- `gstack-distill-apply` and /plan-tune's declared edits still write the profile without the lock.
+
+### Tests
+- `test/gstack-developer-profile.test.ts`: a directory at the old fixed temp path; a held lock blocking `--derive` and `--log-session`; takeover of an ownerless stale lock, of a dead holder's lock, and of a 5-minute-old lock whose process ID is alive; a takeover already in progress; a takeover that can't remove the lock still giving up; a relative state root; and 6 rounds of 6 derives plus a `--log-session` keeping every session. Each test failed on the code before its fix.
+
+## [1.92.68.0] - 2026-11-02
+
+**`/health` now finds its tools with gstack's detector, the same one `/verify` uses, and a test proves it still finds every check it found before.** /health Step 1 used to carry its own shell block for detecting a type checker, linter, test runner, knip, shellcheck and gbrain, a second copy of the list in `lib/checks.ts`. It now runs `gstack-checks detect --for health`. Scoring, the gbrain sub-score and history are unchanged. GST-116, PR 2 of 2.
+
+### Changed
+- **`gstack-checks detect --for health`** prints one `DIMENSION <name> <command>  (<source>)` line per tool, or `DIMENSION <name> none  (<reason>)` so Step 2 can record the category as skipped with its reason. A `## Health Stack` section in CLAUDE.md still wins row for row, test rows included. Otherwise it applies /health's own rules, including a knip or shellcheck found on PATH and gbrain when `~/.gbrain/config.json` exists. It reads files and PATH and runs nothing.
+
+### Tests
+- `test/health-detect-no-loss.test.ts` runs the old Step 1 block, frozen verbatim in `test/fixtures/health-detect-legacy.sh`, beside the new detector on 16 fixture repos and two PATH and HOME setups. Every check the old block printed must still be found. Dropping the knip or gbrain rule fails the test.
+
+## [1.92.67.0] - 2026-11-02
+
+**`./setup` no longer starts a handful of processes per skill just to read its name (#2120).** On Windows 11 on ARM64, Git Bash runs under x64 emulation, and its `fork()` can deadlock when a script starts hundreds of short-lived processes in a row. Setup did exactly that: `gstack-patch-names` and setup's skill-linking loops ran `grep | sed | tr` and `basename` for every skill. The reporter counted about 220 process starts on a full install. Thanks to @habassa5, who traced the hang to those loops.
+
+### Fixed
+- **Skill names are read with bash builtins.** A new sourced helper, `bin/gstack-skill-name.sh`, reads the `name:` line with a `read` loop. It gives the same result as the old pipeline on CRLF files, files with no final newline, and files with no `name:` line. `gstack-patch-names`, setup's Claude skill linker, its two cleanup loops and `gstack-uninstall` use it. They use parameter expansion instead of `basename`. `sed` and `mv` run only for a skill that is actually renamed.
+- **What is not fixed yet.** Setup still starts `ln`, `mkdir` and `cp` per skill, and the linkers for Cursor, OpenCode, Copilot, Factory, Agy and Kiro still run `basename` per skill. Nobody has confirmed on a Windows ARM64 machine that the hang is gone.
+
+## [1.92.66.0] - 2026-11-02
+
+**The secrets check reads Python and Dart string context from what git diffed, and a quote inside an interpolation no longer ends a string (GST-738).** env.kv's source-syntax exemption treats a `password:` line as code only when it sits outside every string. Two inputs could make the scanner place a committed string's contents outside a string. One was a working copy that no longer matched what git diffed. The other was a quote inside an f-string or Dart `${…}` expression. A scoped review pass now applies an explicit `--diff-base` to its Red Team as well.
+
+### Fixed
+- **`lib/pregate/checks/secrets.ts`:** a changed Python or Dart file's whole text comes from a full-context `git diff`, never from the working copy. A `diff.suppressBlankEmpty` setting can't shift its lines.
+- **`lib/redact-patterns.ts`:** a Python f-string's `{…}`, or t-string's, and a non-raw Dart string's `${…}` are read as code. Their nested strings count as strings, and a quote or comment inside them doesn't end the outer string. A Python format spec, such as `{n:#x}`, is text, and `\{` still opens a field. A `password:` line inside a Dart `/* */` comment is now read as text, not code. An expression left open, or nested more than 256 deep, runs to the end of the file, so the exemption fails closed.
+- **`bin/gstack-review-dispatch`:** `pass --diff-base` now sets the scoped Red Team's base too.
+
+## [1.92.65.0] - 2026-11-02
+
+- **Every /ship reviewer brief now starts with the `REVIEWED_TREE` step instead of saving it for the last paragraph** (`lib/review-brief.ts`, GST-897). Before, the brief only asked for the fingerprint line in its closing paragraph, after the whole diff and a rule that the reply ends with its `Recommendation:` line. On GST-850, two gpt-6.1-sol outside-voice replies never ran the command, so `collect` refused both (`COLLECT_WRONG_TREE reported="none"`) and their findings were lost. Other readers misread "the line <command> prints" and pasted the command instead of its output. Now the brief opens with "First step, before anything else: run `cd <checkout> && echo "REVIEWED_TREE: …"`", says the command outputs one `REVIEWED_TREE: <tree hash> <path>` line, and asks the reader to copy that output line, not the command, as the first line of its reply. The closing paragraph repeats the request with "(the output, not the command)". `collect` is unchanged and still refuses a reply without the line, and the dispatcher never stamps the tree for a reader.
+
+### Tests
+- `test/review-dispatch.test.ts`: the rendered outside-voice brief's first line is the step, running its command prints a line `collect` accepts, and both captured GST-850 replies (`test/fixtures/review-wrong-tree/`) are still refused with `COLLECT_WRONG_TREE`. On main this test fails because the brief's first line is the filesystem boundary paragraph.
+
+## [1.92.64.0] - 2026-11-02
+
+**/ship's Step 11 outside voice now defaults to the model it was tested with, and a same-family outside voice is refused.** On a lane running an Anthropic model, the pass program uses `openai/gpt-6.1-sol` at medium reasoning when no outside-voice model is given. That is the pairing no-loss rounds 3 to 6 and A3668 ran. Until now the lane picked the model (gpt-6-astra in replays 6c, 7e and 8g), and the only check was that some model was given, so a Claude outside voice beside a Claude native voice would have run as "outside" (GSTA-167 plan R2 and O2).
+
+### Changed
+- **Outside-voice default, Anthropic lanes only** (`lib/capy-review-pass.js`): with no `models['outside-voice']` and an `anthropic/` `laneModel`, the voice runs on `openai/gpt-6.1-sol` at medium. Any other lane, or no lane identity, still stops with "none was given", because an OpenAI lane's pairing is not certified.
+- **Same-family STOP**: an outside voice whose provider (the part before `/`, compared without regard to case) matches the lane model or the native voice's model stops the pass before either voice is created. The check runs again on every rerun of the same manifest and before a queued voice is started. An outside voice with no provider prefix, or with no lane model and no native model to compare against, also stops.
+- **Voices resume on the models they were dispatched with**: the pass records each Step 11 voice's model and the lane model in `voice-models.json` in the pass directory before creating it. A rerun with different inputs starts a queued voice on its recorded model and checks it against the recorded native model, so it can't pair two voices of one family.
+- **Overrides are labeled**: each outside voice prints an `OUTSIDE_VOICE:` line when it is created or started from the queue, saying whether it is the certified configuration. A different model or reasoning level still runs, marked "outside the certified configuration".
+- **Step 14.5 docs audit runs once on Sonnet 5.5** (`ship/DRIVER.md`). In replay C5 the docs audit first ran on a smaller model whose reply lacked its JSON line, then ran again on Sonnet, which wasted 1.55M tokens. To stay under the driver's 12 KB cap, one sentence that repeated Phase 4 and 5 ("A fix repeats Phases 3-4.") was removed.
+
+### Tests
+- `test/review-pass.test.ts`: six new fake-host cases: a same-family override stops; a rerun or a queued start still refuses it; a queued voice resumes on its recorded model; a missing lane identity, an unprefixed id or an unprefixed lane stops; an Anthropic lane gets the certified default with every brief byte-identical to naming that model; an override with changed reasoning runs and is labeled uncertified. The Step 11 case now passes `laneModel: undefined` to keep its "none was given" check, since an Anthropic lane gets the default.
+- `test/ship-driver.test.ts`: the audit-reader assertion names Step 14.5's Sonnet 5.5 run.
+
+## [1.92.63.0] - 2026-11-02
+
+**A slot restamp after the docs audit no longer stops `finish` with `DOCS: stale (CHANGELOG.md)` (GST-906).** When a PR lost its merge slot after Step 14.5, the new slot's restamp re-heads the CHANGELOG entry and moves VERSION, and on the lost-slot path it merges main first. `gstack-ship-release finish` read all of that as a docs change, so the only ways forward were a third docs audit, which the policy forbids, or an owner-accepted named risk. Reported by GBRA-258 on gbrain #8372.
+
+### Fixed
+- **Step 16's docs check carries a restamp.** The CHANGELOG counts as unchanged when it differs from the audited copy only by the heading move or re-heading. After a main merge, the audited copy is first merged with main's CHANGELOG by the same `mergeChangelogs` call the restamp writer makes, and that merge may only add main's sections. The version file counts as unchanged when it held a bare version at the audit and still does.
+- **Anything else still stales the audit.** That includes an entry edit, a dropped or edited main section, a dropped line the audit saw, and an audited CHANGELOG that git never held.
+
+## [1.92.62.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` checks the run's workflow.** On a lane with no run profile, `clear` used to record any URL as the receipt, so a `windows-smoke.yml` run could clear `windows-free-tests.yml/windows-free-shard` on a branch cut before #3806. When the base config and the GitHub origin can be read, `clear` now reads the run and refuses `PREGATE_RECEIPT_INVALID` (`workflow_mismatch`) unless its workflow file is the lane's own; a run gh cannot read (`api_error`) or a URL that is not an Actions run on this repository (`run_ref_invalid`) refuses too, and each refusal names its own fix. A run of the lane's own workflow clears as before, including a job link copied with `?pr=` or `#step`. `test_backend/*` lanes, `--bundle-lane` and non-GitHub origins are unchanged. On main the Windows obligation is `windows-smoke.yml/windows-smoke`, and a test now checks that against the repository's own workflows. The `ready` conflict hint now says to clear each lane with a run of that lane's own workflow. `test/pregate-clear-runs.test.ts` covers the mismatch, the matching control, the unreadable run, the non-run URL and the copied job links; each failed before its fix.
+
+## [1.92.61.0] - 2026-11-02
+
+- **The security class reaches outbound URLs, archives and every `child_process` spelling** (GST-850). `lib/review-risk.ts` now flags any call to an outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici, `requests`, `httpx`, urllib), `new URL` from input, redirect toggles, proxy settings and host allowlists; tar, zip and unzip extraction, `path.join` or `resolve` on request or entry input, and `'..'` checks; and any changed line that names the `child_process` module. The new rules parse no import clause or call arguments, and a test holds each under 100 ms on 200,000-character hostile lines.
+- **The money class reads metering and charge code.** Paths and lines naming meter, metering, metered, charge, billable, billed or credits, plus token usage, a billing proxy and cost or charge clients, now route to the money reader. gbrain-evals #289, which changed a metering proxy and billing clients and read `required=none`, is now a regression test that reads money. "costume", a CLI's usage text and a plain proxy do not count.
+- **When a diff publishes numbers, the batched specialist reads the write-up's text files** instead of leaving docs out of its diff. The collector records the files a diff creates.
+- **UI text and SVGs stay code (light).** An allowlist docs path for chart SVGs and locale values was built and dropped for review cost: its first review round found a new bypass class in each version. Every bypass found so far is a test row that classes as code.
+- Replayed on the 26 GSTA-167 no-loss units, no unit loses a reviewer role. The replay checked which reviewers get dispatched, not R51's re-scored findings. Over the last 100 main commits, 3 move from light to full and no commit with a gate or risk class drops depth.
+
+## [1.92.60.0] - 2026-11-02
+
+Free test shards can now run their files as several sub-shards side by side inside one CI job. `bun run scripts/test-free-shards.ts --ci-run <plan> --shard <i> --result <file> --jobs <k>` splits the shard into k parts that each run in their own sandboxed `bun test` process. The default stays at 1, so CI runs exactly as before until a workflow opts in. Bad `--jobs` values stop with `FREE_JOBS_INVALID`, a sub-shard that runs out of time prints `FREE_SUBSHARD_TIMEOUT` with a serial reproduce command, and every CI shard result now records per-file test and `expect()` counts. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
+
+## [1.92.59.0] - 2026-11-02
+
+**`test:health` and the factory scorecard leave reused main pushes out of their free-suite flake counts (#3725).** Since #3709, a main push whose merged pull request already passed on the same tree reuses that run. It finishes green, runs no shards and uploads nothing, so both readers counted it as a run with zero flakes. As reuse grows, that pulls real flake rates under the 5% bar, and `bun run test:health --enforce` stops flagging files without any error.
+
+### Fixed
+- **One rule for both readers** (`reuseChecker` in `scripts/lib/ci-history.ts`). A run with no artifacts and a green `reuse` job is a reused main push. `readCiFlakeLedgers` leaves it out of the window and its denominator and fills the window with older runs, so it still holds 20 runs that ran their shards. `readFreeRetries` in `lib/factory-scorecard.ts` leaves it out of the free-retry count. Both reports name how many runs they left out.
+- **Bounded and visible.** A run with any artifact costs no extra call. A run with none costs one job listing, at most 40 per read. Past that cap, or when a listing fails, the run counts as it did before and the report says so.
+
+### Tests
+- `test/test-health-report.test.ts`: reused runs among real flaky runs (2 flaky of 20 real runs, with 30 reused) failed on the old code with 2/45 = 4.4%, which passed the 5% bar; now 2/20 = 10% fails it. The lookup cap and a failed lookup both count the run as before, and the report says so.
+- `test/factory-scorecard.test.ts`: two reused runs in the window failed on the old code ("in 1 of 5 runs"); now the free-retry line matches the real runs only ("in 1 of 3 runs") and names the 2 runs it left out.
+
+## [1.92.58.0] - 2026-11-02
+
+**A parent agent can now run the CEO-only review through the driver: `gstack-autoplan next --ceo-only` (GST-537).** `/autoplan --ceo-only` only worked inside a Claude Code session, so a crew or eval harness driving `gstack-autoplan` from another host had to run the whole review and stop at the approval gate. Now the same review-only run works from the driver on any host.
+
+### Added
+- **`gstack-autoplan next --ceo-only`** (first `next` only): opens the CEO phase alone. When it closes, the run prints `REVIEWED:`, writes `<dir>/ceo-review.md` with the same sections as the skill path (hashed in `run.json`), and ends `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`. It writes no gate, never edits the plan and never approves anything.
+- **Decision rows with status `auto_kept`**: each item a gate would have asked is recorded as kind `auto`, the plan's direction kept, with no answer time. An item only the owner can accept (a Critical finding left open when CEO closed deferred) is left undecided, with no chosen option, and the report lists it as left open for the owner. Tasks in a CEO-only run wait on no decision. `run.json` now accepts `reviewed`, and `gstack-artifact validate` passes a finished CEO-only run.
+- **Coded refusals**: `--ceo-only` beside `--ui`, `--developer-tool` or `--agent-primary` (on the command line or in the plan's scope marker), a scope marker that names `--ceo-only`, or a plan that is the report file `<dir>/ceo-review.md` (directly, through a symlink or a hard link) refuses with `CEO_ONLY_CONFLICT`, so the report never overwrites the plan; on a directory that holds a full run, `CEO_ONLY_AFTER_INIT`. `answer`, `recommend`, `revise` and `gstack-approvals import` refuse a CEO-only run with `CEO_ONLY_NO_GATE`. A CEO-only run stopped by `--spend-cap` recovers the usual way: `budget` then `resume`, or `close --deferred`, which ends it `reviewed`.
+
+### Fixed
+- `gstack-approvals import --autoplan` no longer imports from a run whose `run.json` is present but not valid JSON; it refuses with `ARTIFACT_INVALID_JSON` instead of guessing the run's identity.
+
+## [1.92.57.0] - 2026-11-02
+
+**Hermes can start gstack skills again (GST-882).** On stock Hermes, the Tirith scanner flagged every gstack skill's first command as HIGH ("Nested executable body could not be resolved"), so `gstack-skill-start` was denied in 8 of 8 trials. Tirith-only findings can't go on Hermes's permanent allowlist, so there was no workaround. The start line Tirith couldn't follow was a grouped fallback that picked the script through a variable.
+
+### Fixed
+- **The skill-start line on Codex, Hermes and the other env-var hosts is plain shell.** A skill installed for one folder (Hermes, and the Codex install `./setup` writes) now checks for that folder's `bin/gstack-skill-start` and then runs it by its literal path. Tirith 0.4.2 allows that line where it blocked the old one. A checked-in render keeps the same lookup order (an exported `GSTACK_ROOT`, then the repo's own install, then the global one) as plain lines, without the `{ …; exit 1;}` group. When no install exists, both print the same "no install found" line with the setup command, and the start command then fails.
+- **An install-root render's first block no longer honors an exported `GSTACK_ROOT`.** Tirith blocks any start command picked through a variable. Later blocks still honor it. `docs/troubleshooting.md` names this exception.
+
+### Tests
+- `test/skill-start-plain.test.ts`: on every host and both render kinds, the start fence has no grouped fallback, and a missing install fails loudly under `bash -u`. The install-root start command is a literal path that runs, and a checked-in render finds the global install. On each env-var host, the start lookup picks the same root as later blocks for global, repo-local and exported installs.
+
+## [1.92.56.0] - 2026-11-02
+
+**`gstack-ship-receipt write` records the session kind on Windows.** Without `--session-kind` or `GSTACK_SESSION_KIND`, it asks the `gstack-session-kind` bash helper. It used to spawn that helper by path, which never starts on Windows, so every /ship receipt there carried no `session_kind`. It now starts the helper through `lib/script-invocation.ts`, which uses Git Bash on Windows. This is the /ship half of #3541.
+
+### Fixed
+- **`bin/gstack-ship-receipt`** starts `gstack-session-kind` with `runScriptSync`.
+
+### Tests
+- `test/ship-receipt-session-kind.test.ts` (windows-free-tests too): a receipt written without a session kind records what `gstack-session-kind` prints.
+
+## [1.92.55.0] - 2026-11-02
+
+- **`/ship` finish no longer stops on a branch whose restamp moved its own stale stamp after a lost slot** (`gstack-ship-release finish`, GST-895). When a branch loses its merge slot, merges main and runs `gstack-restamp --next`, the restamp moves the branch's own `since:` rows from the lost version to the new one. Finish only accepted a moved version at or above the reviewed tree's VERSION, which now came from main, so it read those rows as a behavior change and stopped with "insert 5–11.5 → 12–14 → 16" (gbrain #8134 on 1.92.46.0). Now a line the branch added itself, by the same rule restamp uses (added since the merge base with main, and not added by main), may move any version newer than the branch's fork point, and finish routes it as release metadata. A row main carries, a row main edited after the merge, and a branch row at or before the fork point still stop. Only `stamp_files` paths count, and nothing else on the line may change.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: after a lost slot, a merge of main and a restamp, the branch's moved row routes as metadata; moving main's own row, a merged main row that main later edited, a branch row at the fork version, or one older than the fork point each stop. The first case fails on main with `behavior=1`.
+
+## [1.92.54.0] - 2026-11-02
+
+**`train land` and a single-PR `land` can no longer publish onto main at the same time, and a slot that forgot its version bump can no longer merge (#3599, #3531; GSTA-157).** Before, `train land` took no lock, so it and `land` could both read the same main and publish a combined tree neither tested. And train 33's `verify --train` said "may merge" for #3527's head after a bare commit dropped the stamp that restamp had written but not staged, so #3527 shipped under #3526's version.
+
+### Fixed
+- **`train land` takes the shared land lock** (`refs/notes/gstack-land`, now in lib/ship-queue-land-lock.ts) as `train <nonce> slot <i> (#<pr>)`. Whichever of `land` and `train land` starts second refuses with `QUEUE_LAND_LOCKED`, naming the holder. Once a slot has merged, the train keeps the lock in phase `between` until its last slot lands, through a refusal on the next slot too, so no single land slips in between slots and sets off a freeze. A stop that freezes the queue leaves the lock in phase `freeze`, which only the admitted repair train takes over while the freeze lasts; once the freeze is cleared, the next `land` or `train land` takes over a freeze lock whose release push failed. A lock ref deleted on origin now reads as no lock, not as this clone's cached copy.
+- **`--break-lock` prints the holder** (`LOCK_HOLDER:`), keeps land's staleness, mid-push and drift rules, never breaks a `freeze` lock, waits 10 minutes on a `between` lock, and refuses a live train run's lock unless `--break-train-lock` is also given. `train land` accepts both flags.
+- **`verify --train` checks the slot stamp itself**: the head's VERSION must be above main's and its CHANGELOG headed with that version directly above main's top release, or it refuses with the new `QUEUE_TRAIN_UNSTAMPED`, naming the rule and both versions. It prints `STAMP_VERSION:` from the head.
+- **`verify --train` calls a PR merged only when GitHub reports it MERGED.** An open release-only PR (#3530's shape) now gets the pre-merge check, and any other open or unreadable PR refuses with `QUEUE_PROOF_MISSING` without freezing the queue. So does a verify that could not read the PR's current head (`--no-fetch` or a failed fetch), instead of judging the unstamped pin.
+- **`gstack-restamp` stages the files it writes** and prints `STAGED:`. It refuses before writing when a stamp file holds unstaged edits of your own (`RESTAMP_UNSTAGED_EDITS`); when staging fails, it says `RESTAMP_NOT_STAGED` and the next run stages the files.
+- Two comments in lib/ship-queue-train-gate.ts now say "one spend cap per command gate across every prefix of the train", which is what the code does.
+
+### Tests
+- `test/ship-queue-land-lock.test.ts`: two writers racing one lock sha, the four lock read states, owner kinds, the `--break-lock` rules, and both lock directions, the between phase, refusal and resume, and the freeze lock's repair takeover through `bin/gstack-ship-queue`.
+- `test/ship-queue-train.test.ts`: the #3527 and #3530 shapes, the CHANGELOG rule, a claim-at-open pin, and no false freeze. `test/gstack-restamp-queue.test.ts`: staging after a no-commit merge, the unstaged-edits refusal, and a staging failure and its rerun.
+
+## [1.92.53.0] - 2026-11-02
+
+**`reap` and `up` now destroy only your own Ubicloud VMs (GST-573).** Before, every `up` destroyed any VM in the project whose TTL had ended, whoever created it, which broke the rule that cloud deletes stay with the owner who made the resource. Now reap destroys only the caller's own expired VMs and its own old TTL-less ones, and only counts other owners' expired VMs in its log (`reap: left N expired VMs of other owners; only their owners reap them`).
+
+### Changed
+- **Owner-scoped reap.** Another owner's VM, even an expired one, and an untagged one are never reaped. A lane's leftover VM is destroyed by that owner's own next `up` or `reap`, so a lane that never runs again leaves its VM until someone with that owner runs `reap` or `down`.
+
+## [1.92.52.0] - 2026-11-02
+
+**/ship on Capy runs Exploratory QA again.** Since v1.91.345.0 (#3648) the driver sent Step 9.2.1 out as a QA reader subagent, but the section says only the parent runs report-only discovery, so the reader refused on every pass ("parent-only") and the parent ran the probes afterward anyway, an extra reader call each pass (the C4-36 and C5-36 replays).
+
+### Fixed
+- **The parent runs Step 9.2.1's probes itself, as the section says.** Phase 3 does the section's method Reads and no probe; Phase 4's one program runs the smoke and plan checks after Step 8.1 collects the plan checks and before Scope Check, dedup and Fix-First, and the record's Checks heading carries the `Exploratory QA:` line. The call count is unchanged, and the section text is untouched.
+- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists Steps 7, 8 and 14.5 as extras, not Step 9.2.1.
+
 ## [1.92.51.0] - 2026-11-01
 
 **PRs no longer wait on the six-shard Windows suite. A short `windows-smoke` check is the required Windows check, and the full suite runs nightly on main.** Windows has minimal support (docs/support-tiers.md). Since 2026-11-01 06:00 UTC, Windows Free Tests finished last on 71 of 73 PR heads, with a wall time of 892 s at p50 and 1,886 s at p90 over 71 green PR runs, and each run used about 59 Windows runner-minutes. The new smoke check finished in 198 s on this PR (run 41325664750). With smoke in its place, the slowest required check on a PR drops from 892 s to 562 s at p50 and from 1,877 s to 1,193 s at p90.

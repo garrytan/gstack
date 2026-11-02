@@ -144,16 +144,27 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
   }
 }
 
+const quoted = (dir: string) => `'${dir.replace(/'/g, `'\\''`)}'`;
+const treeCommand = (dir: string) => `cd ${quoted(dir)} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
+
+/**
+ * The opening step every dispatched brief carries (GST-897): the fingerprint command and what to copy from it. A reader that
+ * follows a findings-only output format can skip a request that only closes a long brief (gpt-6.1-sol did on GST-850), and
+ * "the line <command> prints" was read as the command itself, so the step comes first and names the output line.
+ */
+export function workspaceStep(dir: string): string {
+  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.`;
+}
+
 /**
  * The closing paragraph every dispatched brief carries (GST-482): a reader on a shared machine starts in that machine's working
- * directory, and every command runs in a fresh shell, so the brief names the checkout under review and asks for a fingerprint
- * measured there. It is appended after the section's render, so the brief before it stays byte for byte what renderBrief returns.
+ * directory, and every command runs in a fresh shell, so the brief names the checkout under review and asks again for the
+ * fingerprint workspaceStep opens with. The section's render sits between the two, byte for byte what renderBrief returns.
  */
 export function workspaceParagraph(dir: string): string {
-  const q = `'${dir.replace(/'/g, `'\\''`)}'`;
-  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${q} && \`, and give every file read, search, edit or write an absolute path under ${dir}. Make the first line of your final reply the line \`cd ${q} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"\` prints, even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
 }
-export const withWorkspace = (text: string, dir: string) => `${text}\n\n${workspaceParagraph(dir)}`;
+export const withWorkspace = (text: string, dir: string) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir)}`;
 /** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
 export function checkoutRoot(): string {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });

@@ -10,47 +10,13 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { cleanup } from './helpers/restamp-fixture';
 import {
-  GREEN_GATE, RED_GATE, TRAIN_POLICY, line, nonceOf, openPr, queue, readyReceipt, shippedBody, trainFixture, trainJson, type TrainFixture,
+  GREEN_GATE, RED_GATE, TRAIN_POLICY, fragmentPr, line, nonceOf, openPr, queue, readyReceipt, shippedBody, trainFixture, trainJson, wrapLand as wrap, type TrainFixture,
 } from './helpers/ship-queue-train-fixture';
 
 const POLICY = { ...TRAIN_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const fixtures: TrainFixture[] = [];
 afterEach(() => { while (fixtures.length) cleanup(fixtures.pop()!.repo); });
 
-/** pr view reads the head from origin's branch; pr edit and pr merge act on origin; any commit without recorded CI reads green. */
-function wrap(fx: TrainFixture): void {
-  const dir = path.join(fx.repo.root, 'gh-land-wrap');
-  fs.mkdirSync(dir, { recursive: true });
-  const shim = path.join(fx.repo.root, 'gh-train-shim', 'shim.js');
-  fs.writeFileSync(path.join(dir, 'gh'), [
-    '#!/usr/bin/env node',
-    "const fs=require('fs');const cp=require('child_process');const D=process.env.LAND_WRAP_DATA;const a=process.argv.slice(2);",
-    "const d=JSON.parse(fs.readFileSync(D,'utf8'));const save=()=>fs.writeFileSync(D,JSON.stringify(d));",
-    "const g=(...x)=>cp.execFileSync('git',['--git-dir',d.origin,...x],{encoding:'utf8',timeout:30000}).trim();",
-    "const rev=r=>{try{return g('rev-parse','--verify','--quiet',r)}catch{return ''}};",
-    "if(a[0]==='pr'&&a[1]==='view'&&d.prs[a[2]]){const p=d.prs[a[2]];const h=rev('refs/heads/'+p.headRefName);if(h)p.headRefOid=h;save();console.log(JSON.stringify(p));process.exit(0)}",
-    "if(a[0]==='pr'&&a[1]==='edit'){(d.labels=d.labels||{})[a[2]]=a[a.indexOf('--add-label')+1];save();process.exit(0)}",
-    "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];if(rev('refs/heads/'+p.headRefName)!==want){console.error('Head branch was modified');process.exit(1)}",
-    "  const before=rev('main');let tree=rev(want+'^{tree}');",
-    "  if(d.outsideOnMerge){const blob=cp.execFileSync('git',['--git-dir',d.origin,'hash-object','-w','--stdin'],{input:'outside\\n',encoding:'utf8',timeout:30000}).trim();",
-    "    const ls=g('ls-tree',before+'^{tree}')+'\\n100644 blob '+blob+'\\toutside.txt';const ot=cp.execFileSync('git',['--git-dir',d.origin,'mktree'],{input:ls+'\\n',encoding:'utf8',timeout:30000}).trim();",
-    "    g('update-ref','refs/heads/main',g('commit-tree',ot,'-p',before,'-m','outside'));tree=g('merge-tree','--write-tree','--merge-base='+before,rev('main'),want).split('\\n')[0];d.outsideOnMerge=false}",
-    "  g('update-ref','refs/heads/main',g('commit-tree',tree,'-p',rev('main'),'-m','squash #'+a[2]));p.state='MERGED';save();process.exit(0)}",
-    "const paged=/commits\\/([0-9a-f]+)\\/(check-runs|status)\\?.*page=(\\d+)/.exec(a[1]||'');",
-    "if(a[0]==='api'&&paged&&!(d.ci||{})[paged[1]]&&!((d.statuses||{})[paged[1]])){const list=paged[2]==='check-runs'?[{name:'free-tests',status:'completed',conclusion:'success',id:1,completed_at:'2026-10-26T00:00:00Z'}]:[];const key=paged[2]==='check-runs'?'check_runs':'statuses';console.log(JSON.stringify(paged[3]==='1'?{total_count:list.length,state:'success',[key]:list}:{total_count:list.length,[key]:[]}));process.exit(0)}",
-    `const r=cp.spawnSync('node',[${JSON.stringify(shim)},D,...a],{stdio:'inherit',timeout:120000});process.exit(r.status??1);`,
-    '',
-  ].join('\n'), { mode: 0o755 });
-  fx.env.PATH = `${dir}:${fx.env.PATH}`;
-  (fx.env as Record<string, string>).LAND_WRAP_DATA = fx.dataFile;
-}
-
-function fragmentPr(fx: TrainFixture, pr: string, fragment = `- #${pr} change\n`): string {
-  const head = openPr(fx, pr, { file: `changelog.d/pr-${pr}.md`, text: fragment, changelog: false });
-  fx.repo.git('push', '-q', 'origin', `${head}:refs/heads/pr-${pr}`);
-  readyReceipt(fx, pr, head);
-  return head;
-}
 function stampedTrain(gate = GREEN_GATE, policy: Record<string, unknown> = POLICY) {
   const fx = trainFixture(policy, 'gstack-train-land-'); fixtures.push(fx); wrap(fx);
   const h1 = fragmentPr(fx, '1');
@@ -190,10 +156,15 @@ describe('stamped trains: build and land', () => {
   }, 300_000);
 
   test('a failed stamp push with the branch still at the pin fails retryably instead of reporting a move', () => {
-    const { fx, nonce } = stampedTrain();
+    const { fx, h1, nonce } = stampedTrain();
     expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
     const hook = path.join(fx.repo.origin, 'hooks', 'pre-receive');
     fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const refused = land(fx, nonce, '1');
+    expect(refused.err).toMatch(/the land lock push to origin failed and the lock there is unchanged; nothing was pushed.*\(QUEUE_NOT_READY\)/);
+    expect(refused.err).not.toContain('another lander');
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-1')).toBe(h1);
+    fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do [ "$ref" = refs/heads/pr-1 ] && exit 1; done\nexit 0\n', { mode: 0o755 });
     const failed = land(fx, nonce, '1');
     expect(failed.err).toMatch(/the stamp push failed and pr-1 still reads.*\(QUEUE_NOT_READY\)/);
     expect(failed.err).not.toContain('QUEUE_TRAIN_MOVED');

@@ -11,6 +11,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { mergeChangelogs, normalizeChangelog } from './changelog-check';
+import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
@@ -217,7 +219,12 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   return by;
 }
 
-/** Step 16 stage 3. Test code, paths only the base moved, and --docs-requested fixes the audit's own result asked for do not stale the audit (GST-391). */
+/**
+ * Step 16 stage 3. Test code, paths only the base or a stamp moved, a slot restamp after the audit (the CHANGELOG's heading
+ * move or re-heading after the restamp writer's own merge of the base's CHANGELOG into the audited one, the version file's
+ * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
+ * stale the audit (GST-391).
+ */
 function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
   let stale: string[] | null = null;
@@ -253,7 +260,24 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   if (!atAudit || (nowDiff && nowDiff.status !== 0)) { r.stop(`git could not list the paths the branch touched against ${baseRef}; documentation freshness is unknown (stage 3)`); return false; }
   const branchAtAudit = new Set([...atAudit, ...record.staged, ...record.unstaged, ...record.untracked]);
   const branchNow = new Set([...(nowDiff ? nul(nowDiff.stdout) : []), ...nul(git(cwd, ['ls-files', '-z', '--others', '--exclude-standard']).stdout)]);
-  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
+  const changelog = shipPolicy(cwd, base)?.changelog;
+  const versionFile = versionAtRef(cwd, 'HEAD');
+  const restamped = stale.filter(p => {
+    const isChangelog = p === changelog;
+    if (!isChangelog && !('rel' in versionFile && p === versionFile.rel)) return false;
+    const audited = typeof record.hashes?.[p] === 'string' ? git(cwd, ['cat-file', 'blob', record.hashes[p]]) : null;
+    if (audited?.status !== 0) return false;
+    let now: string;
+    try { now = fs.readFileSync(path.join(cwd, p), 'utf8'); } catch { return false; }
+    if (!isChangelog) return !!parseVersion(audited.stdout.trim()) && !!parseVersion(now.trim());
+    const [atAuditBase, atNowBase] = [auditBase, nowBase].map(b => b ? git(cwd, ['show', `${b}:${p}`]) : null);
+    if (atAuditBase?.status !== 0 || atNowBase?.status !== 0) return false;
+    if (atAuditBase.stdout === atNowBase.stdout) return normalizeChangelog(audited.stdout) === normalizeChangelog(now);
+    const kept = mergeChangelogs(audited.stdout, atAuditBase.stdout, atAuditBase.stdout);
+    const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
+    return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
+  });
+  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
   for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
@@ -285,17 +309,17 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const r = new Report();
   const list = lanes(argv) as { label: string; command: string }[];
   const policy = shipPolicy(cwd, base);
-  if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD'), flag('--trailer'), r)) return r;
+  if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD', base), flag('--trailer'), r)) return r;
   for (const cmd of all('--build')) {
     const b = sh(cwd, cmd);
     r.add(`BUILD: ${b.status === 0 ? 'ok' : `FAIL exit=${b.status}`} ${cmd.slice(0, 120)}`);
     if (b.status !== 0) return r.stop(`Build failed or prerequisite missing: ${firstLine(b.stderr || b.stdout)}; repair it, then repeat stage 1`);
   }
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
-  const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
+  const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
   const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed') }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!)], all('--docs-requested'), flag('--docs-result'), r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;

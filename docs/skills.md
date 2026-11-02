@@ -662,7 +662,7 @@ Instead of guessing and patching, it traces data flow, matches against known bug
 
 ## `/verify`
 
-`/verify` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/verify` predicts a green pre-gate.
+`/verify` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/verify` predicts a green pre-gate. `/health` finds its tools with the same detector (`gstack-checks detect --for health`), which adds its test, knip, shellcheck and gbrain dimensions.
 
 It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and sends a stubborn red to `/investigate`. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/ship`. It never reviews, bumps versions, pushes or opens a PR.
 
@@ -1006,8 +1006,8 @@ VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
 (`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
-visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
-made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+visible to everyone; every `up` first reaps its own owner's VMs whose TTL ended,
+and those with no TTL once they are 4 hours old, never another owner's; every run
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
@@ -1030,7 +1030,7 @@ Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         gstack-ubi verify  (.gstack/ubicloud.json: bootstrap.sh, "bash scripts/verify.sh", standard-16)
         ubi-runner: reap: no expired VMs
         ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3 (standard-16)
-        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
+        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
         ubi-runner: heartbeat: command 300s elapsed, last output 2s ago
         ubi-runner: command exited 0 after 1140s
         ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3
