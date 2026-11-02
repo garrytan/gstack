@@ -48,6 +48,11 @@ export const GATE_OUTCOMES = {
     summary: 'the reviewer declined to review',
     fix: 're-run the review; if it declines again, review the change natively',
   },
+  truncated: {
+    state: 'unavailable', anchor: 'outside-review-truncated',
+    summary: 'the reviewer hit its output token limit and the response is cut off',
+    fix: 're-run with a larger --max-tokens (or a smaller prompt); a cut-off response never counts as a review',
+  },
   missing_markers: {
     state: 'unavailable', anchor: 'outside-review-missing-markers',
     summary: 'the response lacks the markers this gate requires',

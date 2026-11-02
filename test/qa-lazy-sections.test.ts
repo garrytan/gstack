@@ -570,7 +570,8 @@ describe('installed QA pointers', () => {
               'set -e', `IS_WINDOWS=${copy ? 1 : 0}`, `SKILL_PREFIX=${prefix}`, 'QUIET=1',
               '_FOREIGN_SKIPPED_ENTRIES=()', '_BACKED_UP_SKILL_MDS=()', '_SKILL_BACKUP_ROOT="$HOME/backups"',
               'GSTACK_USER_RENDER_DIR="$HOME/absent-render"',
-              'GSTACK_STATE_ROOT="$HOME/.gstack"', '_SKILL_COPIES_FILE="$GSTACK_STATE_ROOT/skill-copies.tsv"', helpers,
+              'GSTACK_STATE_ROOT="$HOME/.gstack"', '_SKILL_COPIES_FILE="$GSTACK_STATE_ROOT/skill-copies.tsv"',
+              `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`, helpers,
               'log() { :; }', '_browser_hint() { :; }', 'bun_cmd() { :; }', install,
             ].join('\n');
             const runInstall = () => runBashScript(script, {

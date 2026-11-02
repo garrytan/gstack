@@ -310,8 +310,10 @@ describe('selectTests', () => {
     // The formerly keyless periodic AUQ probes drive the CEO skill too.
     expect(result.selected).toContain('auq-consistency');
     expect(result.selected).toContain('auq-verbose-vs-carved-ab');
-    expect(result.selected.length).toBe(21);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
+    // /autoplan --ceo-only runs plan-ceo-review's Phase 1 and its 0E mode rule.
+    expect(result.selected).toContain('autoplan-ceo-only');
+    expect(result.selected.length).toBe(22);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 22);
   });
 
   test('global touchfile triggers ALL tests', () => {
