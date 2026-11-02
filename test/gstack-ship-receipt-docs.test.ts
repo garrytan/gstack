@@ -218,6 +218,19 @@ describe('carry follow-ups: git floor, named refusal, branch-touched walk, digit
     expect(stampOnlyText({ before: 'left-pad since: 1.2.3\n', after: 'left-pad since: 1.2.4.0\n', oldVersion: '1.2.3.0', newVersion: '1.2.4.0' })).toBe(false);
   });
 
+  // GST-963: the carry shares the stage's bound, so a key version the branch added at its fork version (older than the
+  // pin's VERSION after a base merge) is a stamp on the branch's own line and a hand edit on any other.
+  test('stampOnlyText takes the fork-version bound only on a line the branch added', () => {
+    const templates = ["_KEY_VERSION = '{version}'"];
+    const mine = "export const MINE_KEY_VERSION = '1.2.3.0';";
+    const before = `${mine}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n`;
+    const moved = (text: string) => ({ before, after: text, oldVersion: '1.2.4.0', newVersion: '1.2.5.0', templates });
+    const side = { fork: '1.2.3.0', added: new Set([mine]) };
+    expect(stampOnlyText({ ...moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))), side })).toBe(true);
+    expect(stampOnlyText(moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))))).toBe(false);
+    expect(stampOnlyText({ ...moved(before.replace("BASE_KEY_VERSION = '1.2.3.0'", "BASE_KEY_VERSION = '1.2.5.0'")), side })).toBe(false);
+  });
+
   test('planCarry names at most CARRY_NAMED_PATHS paths', () => {
     const many = Array.from({ length: CARRY_NAMED_PATHS + 3 }, (_, i) => `src/f${i}.ts`);
     const plan = planCarry({ from: 'a'.repeat(40), head: 'b'.repeat(40), changed: many.map(p => ({ path: p, class: 'product' as const })), productPatchId: { from: 'x', head: 'y' }, testPatchId: { from: '', head: '' }, changedProduct: many, mergeCommits: 0, rangeDiff: '' });
