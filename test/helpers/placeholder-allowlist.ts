@@ -41,6 +41,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<clean|flagged>': { grammar: oneOf('clean', 'flagged'), what: 'semantic review outcome' },
   '<N|null>': { grammar: /^(?:[0-9]+(?:\.[0-9]+)?|null)$/, what: 'health score or null' },
   '<platform>': { grammar: oneOf('github', 'gitlab', 'unknown'), what: 'detected git platform' },
+  '<fix|fp|already-fixed>': { grammar: oneOf('fix', 'fp', 'already-fixed'), what: 'review-bot triage outcome' },
+  '<category>': { grammar: oneOf('race-condition', 'null-check', 'error-handling', 'style', 'type-safety', 'security', 'performance', 'correctness', 'other'), what: 'review-bot finding category (CATEGORIES in lib/review-bots.ts)' },
   '<effort-level>': { grammar: /^[a-z]*$/, what: "the request's /codex --effort level, or empty for none (the probe validates the level)", quoted: true },
 
   // Ids, keys and numbers.
@@ -114,7 +116,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<reply-file-name>': { grammar: ID, what: 'basename of the mktemp reply file printed by the previous block' },
   '<redact-file-name>': { grammar: ID, what: 'basename of the mktemp draft file printed by the free-text block' },
   '<approach-file-name>': { grammar: ID, what: 'basename of the mktemp approach file printed by the free-text block' },
-  '<greptile-dir>': { grammar: PATH, what: 'mktemp directory printed by the Greptile fetch block' },
+  '<bot-dir>': { grammar: PATH, what: 'REVIEW_BOTS_DIR printed by gstack-review-bots fetch' },
   '<SNAPSHOT_TOOL>': { grammar: QUOTED, what: 'snapshot tool path printed by autoplan', quoted: true },
   '<SOURCE_PLAN>': { grammar: QUOTED, what: 'plan path', quoted: true },
   '<ACTIVE_PLAN>': { grammar: QUOTED, what: 'plan path', quoted: true },

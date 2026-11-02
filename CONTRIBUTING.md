@@ -1037,4 +1037,4 @@ When you're happy with your skill edits:
 /ship
 ```
 
-This runs tests, reviews the diff, triages Greptile comments (with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.
+This runs tests, reviews the diff, triages the comments of every review bot you configured (Greptile's with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.

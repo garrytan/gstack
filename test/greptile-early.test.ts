@@ -21,7 +21,7 @@ interface Call { cmd: string; args: string[]; file?: string }
 function fixture(opts: {
   files?: Record<string, string>;
   visibility?: string;
-  comments?: Array<{ login: string; created: string }>;
+  comments?: Array<{ login: string; type?: string; created: string }>;
   openPrs?: Array<{ number: number; url: string }>;
   checks?: Array<{ name: string; status: string; app: string }>;
   reviews?: Array<{ login: string; commit: string }>;
@@ -103,12 +103,24 @@ describe("detection (CEO-8, DX-10)", () => {
   });
 
   test("a Greptile comment counts only within 90 days", () => {
-    const recent = fixture({ comments: [{ login: "greptile-apps[bot]", created: new Date(NOW - 10 * DAY).toISOString() }] });
+    const recent = fixture({ comments: [{ login: "greptile-apps[bot]", type: "Bot", created: new Date(NOW - 10 * DAY).toISOString() }] });
     expect(value(recent.run("detect").out, "GREPTILE_SIGNAL")).toBe("comment");
-    const old = fixture({ comments: [{ login: "greptile-apps[bot]", created: new Date(NOW - 120 * DAY).toISOString() }, { login: "octocat", created: new Date(NOW - DAY).toISOString() }] });
+    const old = fixture({ comments: [{ login: "greptile-apps[bot]", type: "Bot", created: new Date(NOW - 120 * DAY).toISOString() }, { login: "octocat", type: "User", created: new Date(NOW - DAY).toISOString() }] });
     const r = old.run("detect");
     expect(value(r.out, "GREPTILE_SIGNAL")).toBe("none");
     expect(value(r.out, "GREPTILE_EARLY")).toBe("off");
+  });
+
+  test("a human account named like Greptile is no signal (#3122)", () => {
+    const f = fixture({ comments: [{ login: "greptile-ci", type: "User", created: new Date(NOW - DAY).toISOString() }, { login: "notgreptile[bot]", type: "Bot", created: new Date(NOW - DAY).toISOString() }] });
+    expect(value(f.run("detect").out, "GREPTILE_SIGNAL")).toBe("none");
+  });
+
+  test("early review is off when greptile is in neither review-bot list (#3122)", () => {
+    const f = fixture({ files: { ".greptile/config.json": "{}" }, config: "pr_wait_gating_bots: coderabbit\npr_wait_advisory_bots: none\n" });
+    const r = f.run("detect");
+    expect(value(r.out, "GREPTILE_EARLY")).toBe("off");
+    expect(value(r.out, "GREPTILE_EARLY_REASON")).toBe("greptile is not in pr_wait_gating_bots or pr_wait_advisory_bots");
   });
 
   test("without Greptile nothing changes", () => {

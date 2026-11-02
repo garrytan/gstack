@@ -7,26 +7,25 @@ the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FI
 
 **Rules.** Each phase below is one call: one program (Capy: an execute program; else a
 script) that runs the bins, reads, dispatches and waits, returning only result lines and reader
-outputs; print them verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
-gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
+outputs, printed verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
+gates, the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
 there, come back. Unattended, take a question's recommended option (log it); gate
-dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
+dispositions and approvals stay pending, ending the run. Keep a private invocation record (`--record`): write its six headings at Phase 1; fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
 
-**Reviewers are the sections' own.** Every audit, specialist, Red Team, QA, fix-check, adversarial,
-outside-voice and documentation brief, its severity and confidence rules and gates come from its
-section verbatim (placeholders filled); this file
+**Reviewers are the sections' own.** Every reviewer brief, its severity and confidence rules
+and gates come from its section verbatim (placeholders filled); this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
 file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 14.5) cannot block, so each runs at low effort on a small model,
 Step 14.5 once on Sonnet 5.5; findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
-section read or a fix-check, plus a keep-alive per 200 s waited.
+section read or fix-check, plus a keep-alive per 200 s waited.
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
@@ -36,7 +35,7 @@ A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
-call resumes the poll. Lanes, pregate and `finish` run in background. Never end the turn while
+call resumes the poll. Lanes, pregate, `finish` run in background. Never end the turn while
 readers run (each wakes it). A small waiting child saves nothing. Past 100 minutes, stop. Returns:
 ≤32 KB per program; split longer reads at headings, each byte once, before first use: phase programs
 end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - its output>`; on
@@ -44,12 +43,12 @@ end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - i
 
 **One program per pass.** Each review pass, Step 11 and the Step 14.5 audit is one program, and the
 parent makes no other call while it runs: (1) `gstack-review-dispatch pass`: `gstack-review-plan --base <base>`
-with the pass's flags, then its staged manifest (Step 14.5 has one reader, `docs`); (2) `gstack-review-log --start
+with the pass's flags, then its staged manifest (Step 14.5: one reader, `docs`); (2) `gstack-review-log --start
 <skill>` once per row the step logs; (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
 subagent per reader on its rendered file;
 (5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`
 has not run); (6) `note` with the reading pair; a later batch (the Red Team,
-given the specialists' collected lines) repeats (3)-(6); (7) the collect: return only each reader's
+on the specialists' collected lines) repeats (3)-(6); (7) the collect: return only each reader's
 final output and status, via `collect`; it never walks the dispatch steps call by call.
 
 ## 1. Load: Step 0
@@ -61,12 +60,12 @@ Install check, this file.
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
 `gstack-ship-preflight --base <base> --lane <label>=<command>...` (AGENTS.md or CLAUDE.md test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. A lane passes on `tests_ran: N` with exit 0; `tests_ran: 0` is ZERO-RUN, a failed lane; `unknown`
-is `count unavailable`. In-branch failures stop; after a repair, rerun `--tests-only`.
+is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
-record `evals: none affected`. Steps 6.5 and 10 run if `gstack-greptile-early detect` finds
+record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
-(`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map, the
+(`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map,
 plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`. Programs read the todos and
 commits files and `sections/test-coverage.md` or `sections/plan-completion.md` only when its reader is
 `needed`.
@@ -93,7 +92,7 @@ pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done`: that program ru
 ## 5. Voices, bind and version: Steps 11, 11.5, 12
 
 Judge the voices; missing outside coverage is `unavailable`, never clean; queued fixes rerun Phases
-3-4. Then `gstack-review-dispatch verify` (`VERIFY: clean`) and `gstack-review-read`: the final Step 9 row and Step 11 native row (or `CURRENT` freshness
+3-4. Then `gstack-review-dispatch verify` (`VERIFY: clean`) and `gstack-review-read`: the final Step 9 and Step 11 native rows (or `CURRENT` freshness
 after a planned skip) agree on `wtree`, `start_wtree`, `end_wtree`; save that tree and base `<b>`. Then
 `gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR, MAJOR, `BUMP_ANSWER_REQUIRED`:
 approvals; `VERSION: skipped|kept`: no write.
@@ -112,7 +111,7 @@ Commit in bisectable chunks; `gstack-ship-release finish --base <base> --reviewe
 --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH;
 STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` and each `tests_ran`. Then
 `gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:`
-(pushed or ALREADY_PUSHED). Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
+(pushed, ALREADY_PUSHED). Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
 
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 
