@@ -1116,11 +1116,14 @@ cmd_down() {
 # subdirectory of a work tree ships the same file set without a .git: git's
 # local transport fetches only from a repository's root, and the whole
 # repository's .git would show the VM every file outside the subdirectory as
-# deleted (GST-935).
+# deleted (GST-935). A directory git ignores has no such file set and is
+# taken whole, like a non-git directory.
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
-  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -n "$(git -C "$src" rev-parse --show-prefix)" ]; then
+  if ! git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 || git -C "$src" check-ignore -q .; then
+    COPYFILE_DISABLE=1 tar -C "$src" -czf - .
+  elif [ -n "$(git -C "$src" rev-parse --show-prefix)" ]; then
     (
       cd "$src"
       export COPYFILE_DISABLE=1
@@ -1131,7 +1134,7 @@ cmd_pack() {
         | tar --null -T - -cf - \
         | gzip -c
     )
-  elif git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  else
     head=$(git -C "$src" rev-parse --verify -q HEAD) || die "pack: $src has no commits; the VM needs a HEAD to fingerprint"
     branch=$(git -C "$src" symbolic-ref -q --short HEAD || true)
     tmp=$(mktemp -d)
@@ -1182,8 +1185,6 @@ cmd_pack() {
         && gzip -c "$tmp/files.tar"
     )
     rm -rf "$tmp"; trap - EXIT
-  else
-    COPYFILE_DISABLE=1 tar -C "$src" -czf - .
   fi
 }
 
@@ -1408,8 +1409,10 @@ cmd_run() {
       for n in ${passes[@]+"${passes[@]}"}; do printf 'export %s=%q\n' "$n" "${!n}"; done; } \
       | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
     cmd_sync "$name" "$src" "$dest"
-    # A subdirectory of a checkout uploads the whole .git with only its own
-    # files, so its tree is compared VM to VM (tiers) but not to this side.
+    # A subdirectory of a checkout ships without a .git, and its local tree
+    # (a scratch repository, blind to the parent's ignore rules) can count
+    # files pack leaves out, so it is compared VM to VM (tiers) but not to
+    # this side.
     if [ -z "$(git -C "$src" rev-parse --show-prefix 2>/dev/null)" ]; then
       vmt=$(vm_tree "$name" "$qdest") || vmt=unavailable
       if [ "$vmt" != "$TREE" ]; then

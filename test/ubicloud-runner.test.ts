@@ -385,7 +385,7 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
     const d = mkdtempSync(join(tmpdir(), 'ubi-pack-subdir-'));
     try {
       const sh = (cmd: string, cwd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd, timeout: 30_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }); expect(r.exitCode, `${cmd}\n${r.stderr.toString()}`).toBe(0); return r.stdout.toString(); };
-      sh('git init -q repo && cd repo && echo top > top && mkdir -p sub/nested && echo a > sub/a && echo b > sub/nested/b && echo g > sub/gone && echo "*.log" > sub/.gitignore && git add -A && git commit -qm one && git worktree add -q ../wt', d);
+      sh('git init -q repo && cd repo && echo top > top && echo ign/ > .gitignore && mkdir -p sub/nested ign && echo i > ign/i && echo a > sub/a && echo b > sub/nested/b && echo g > sub/gone && echo "*.log" > sub/.gitignore && git add -A && git commit -qm one && git worktree add -q ../wt', d);
       const tree = (dir: string) => sh('find . -type f | sort', dir).split('\n').filter(Boolean);
       for (const checkout of ['repo', 'wt']) {
         const sub = join(d, checkout, 'sub');
@@ -395,6 +395,9 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
         expect(tree(vm)).toEqual(['./.gitignore', './a', './nested/b', './new']);
         expect(readFileSync(join(vm, 'a'), 'utf8')).toBe('edited\n');
       }
+      // A directory git ignores lists no files, so it is taken whole instead of shipping an empty archive.
+      sh(`mkdir -p repo/ign/deep && echo d > repo/ign/deep/d && mkdir vm-ign && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack repo/ign | tar -xzf - -C vm-ign`, d);
+      expect(tree(join(d, 'vm-ign'))).toEqual(['./deep/d', './i']);
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 60_000);
 
