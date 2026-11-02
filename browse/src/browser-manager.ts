@@ -2216,11 +2216,16 @@ export class BrowserManager {
       // tell that the other two paths strip.
       const launchArgs: string[] = ['--hide-crash-restore-bubble', ...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs(), ...this.proxyLaunchArgs()];
       if (extensionPath) {
-        launchArgs.push(`--disable-extensions-except=${extensionPath}`);
-        launchArgs.push(`--load-extension=${extensionPath}`);
+        // Same rule as launchHeaded(): a custom build that bakes the extension
+        // in crashes when it is loaded twice. Real Google Chrome silently
+        // ignores --load-extension, so it runs without the sidebar in both paths.
+        if (!isCustomChromium()) {
+          launchArgs.push(`--disable-extensions-except=${extensionPath}`);
+          launchArgs.push(`--load-extension=${extensionPath}`);
+          console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
+        }
         // Auth token is served via POST /extension-token (pinned-origin
         // bootstrap, no file write needed). /health is liveness-only.
-        console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
@@ -2234,27 +2239,33 @@ export class BrowserManager {
       fs.mkdirSync(userDataDir, { recursive: true });
       cleanSingletonLocks(userDataDir);
 
-      // Self-heal probe (#2242): handoff always launches the Playwright-cache
-      // bundle (this launchPersistentContext call passes no executablePath),
-      // so a bundle poisoned by the old in-place rebrand would GPU-crash here
-      // exactly like launchHeaded(). Same probe, same contract: a
-      // GSTACK_CHROMIUM_PATH bundle is never passed in. The rethrown typed
-      // error surfaces through the outer catch as the actionable
-      // "Cannot open headed browser" message, headless browser untouched.
-      try {
-        probePoisonedChromiumBundle(chromium.executablePath());
-      } catch (err: unknown) {
-        if (err instanceof PoisonedBundleError) throw err;
-        // Probe failures (no bundle yet, EACCES) fall through to launch.
+      // Same custom-binary support as launchHeaded(). GStack Browser.app and
+      // wrappers point GSTACK_CHROMIUM_PATH at their own bundle.
+      const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
+      // Self-heal probe (#2242): without a custom path, handoff launches the
+      // Playwright-cache bundle, so a bundle poisoned by the old in-place
+      // rebrand would GPU-crash here exactly like launchHeaded(). Same probe,
+      // same contract: a GSTACK_CHROMIUM_PATH bundle belongs to the
+      // wrapper/embedder and is never probed. The rethrown typed error surfaces
+      // through the outer catch as the actionable "Cannot open headed browser"
+      // message, headless browser untouched.
+      if (!executablePath) {
+        try {
+          probePoisonedChromiumBundle(chromium.executablePath());
+        } catch (err: unknown) {
+          if (err instanceof PoisonedBundleError) throw err;
+          // Probe failures (no bundle yet, EACCES) fall through to launch.
+        }
       }
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
       // The handoff path (headless → headed re-launch) takes the same
       // anti-detection posture.
       const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
-      // XProtect self-heal wrapper (P0 #2554): handoff always launches the
-      // Playwright-cache bundle (no executablePath), so the heal applies
-      // exactly as in launch()/launchHeaded().
+      // XProtect self-heal wrapper (P0 #2554), scoped exactly as in
+      // launch()/launchHeaded(): it heals the Playwright-cache bundle only,
+      // and never a GSTACK_CHROMIUM_PATH bundle.
       newContext = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
         headless: false,
         ...(this.xvfb ? { env: { ...process.env, DISPLAY: this.xvfb.display } } : {}),
@@ -2268,10 +2279,11 @@ export class BrowserManager {
         chromiumSandbox: shouldEnableChromiumSandbox(),
         args: launchArgs,
         viewport: null,
+        ...(executablePath ? { executablePath } : {}),
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
-      }));
+      }), { usesCustomExecutable: Boolean(executablePath) });
       if (this.closing) {
         await newContext.close().catch(() => {});
         throw new Error('Browser is shutting down');
