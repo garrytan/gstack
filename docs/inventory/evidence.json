@@ -178,8 +178,22 @@
       "seed": "GEVA-2, 2026-11-02: health: untested (never measured)"
     },
     "investigate": {
-      "status": "untested",
+      "status": "no-effect",
       "grandfathered": true,
+      "sources": [
+        "GST-814 (HARN-1, 2026-11-02)",
+        "org-gstack-gbrain handoffs/HARN-14/hard-follow-2026-11/decision-rule.md"
+      ],
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "prompt": "preset",
+      "scope": "skill step procedure follow rate: 0 of 46 gstack sessions ran any step (0 of 30 on the claude_code preset); body loaded every time; the outcome check voided at ceiling (no-gstack fixed 8 of 8)",
+      "masked": true,
+      "r48": {
+        "verdict": "CUT-CANDIDATE",
+        "ref": "GST-938 (GSTA-251 plans hooks-or-drop)"
+      },
       "plan": "R3 (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-01-geva-101-r48-follow-ups-prereg (#112, main f0b81c0) and its amendment (open PR #133), told /investigate vs no gstack on SWE-bench Verified, preset, Opus 5.5 then GPT-6.1 Sol",
       "prior": [
         {
@@ -216,10 +230,6 @@
           "note": "Haiku 5.5: gstack minus none +3.5 [-12.3, +20.0]"
         }
       ],
-      "r48": {
-        "verdict": "FIX-METHOD",
-        "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); R3 is the fix"
-      },
       "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)"
     },
     "ios-clean": {
