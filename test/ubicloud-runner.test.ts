@@ -395,6 +395,11 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
         expect(tree(vm)).toEqual(['./.gitignore', './a', './nested/b', './new']);
         expect(readFileSync(join(vm, 'a'), 'utf8')).toBe('edited\n');
       }
+      // A subdirectory the checkout ignores lists no files; pack refuses it instead of shipping an empty archive.
+      sh('echo scratch/ > .gitignore && mkdir -p scratch/job && echo s > scratch/job/f', join(d, 'repo'));
+      const ignored = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'pack', 'scratch/job'], { cwd: join(d, 'repo'), timeout: 30_000 });
+      expect(ignored.exitCode).toBe(1);
+      expect(ignored.stderr.toString()).toContain('pack: git lists no files under');
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 60_000);
 

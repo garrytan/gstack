@@ -1116,11 +1116,16 @@ cmd_down() {
 # subdirectory of a work tree ships the same file set without a .git: git's
 # local transport fetches only from a repository's root, and the whole
 # repository's .git would show the VM every file outside the subdirectory as
-# deleted (GST-935).
+# deleted (GST-935). A subdirectory git lists no files under (one the parent
+# ignores) is refused rather than shipped empty: cmd_run keys the run on the
+# local files and skips the tree check for a subdirectory, so an empty upload
+# would pass on content that never ran.
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
   if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -n "$(git -C "$src" rev-parse --show-prefix)" ]; then
+    [ -n "$(git -C "$src" ls-files -co --exclude-standard | head -n 1)" ] \
+      || die "pack: git lists no files under $src (ignored by its checkout, or empty); nothing to ship"
     (
       cd "$src"
       export COPYFILE_DISABLE=1
