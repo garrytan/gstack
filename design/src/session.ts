@@ -6,9 +6,12 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import type { ProviderName } from "./auth";
 
 export interface DesignSession {
   id: string;
+  /** The provider that made the images; absent in sessions written before Gemini support, meaning openai. */
+  provider?: ProviderName;
   lastResponseId: string;
   originalBrief: string;
   feedbackHistory: string[];
@@ -38,14 +41,16 @@ export function createSession(
   responseId: string,
   brief: string,
   outputPath: string,
+  provider: ProviderName = "openai",
 ): DesignSession {
   const id = createSessionId();
   const session: DesignSession = {
     id,
+    provider,
     lastResponseId: responseId,
     originalBrief: brief,
     feedbackHistory: [],
-    outputPaths: [outputPath],
+    outputPaths: [path.resolve(outputPath)],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -73,7 +78,7 @@ export function updateSession(
 ): void {
   session.lastResponseId = responseId;
   session.feedbackHistory.push(feedback);
-  session.outputPaths.push(outputPath);
+  session.outputPaths.push(path.resolve(outputPath));
   session.updatedAt = new Date().toISOString();
 
   fs.writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2));

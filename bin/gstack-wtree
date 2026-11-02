@@ -7,7 +7,8 @@
 # that index. An untracked `.bun/` folder at the repository root (Bun's install
 # cache, which a test run can create) is left out so a passing run does not
 # look like a mid-run edit (GST-421); tracked files under it still count, and a
-# tree without that folder hashes exactly as a plain `git add -A` would.
+# tree without that folder (or with it gitignored) hashes exactly as a plain
+# `git add -A` would.
 # Properties that make this the right staleness fingerprint, vs
 # `git rev-parse HEAD^{tree}`:
 #
@@ -87,7 +88,14 @@ if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>
 else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi
-if ! ERR=$(git -C "$TOP" add -u 2>&1 >/dev/null) || ! ERR=$(git -C "$TOP" add -A -- . ':(exclude,top).bun' 2>&1 >/dev/null); then
+# The exclude is added only when the root .bun/ exists and is not ignored: an
+# exclude pathspec naming an ignored path makes `git add -A` exit 1 (GST-449),
+# and an ignored .bun/ stays out of a plain `git add -A` anyway. --no-index
+# asks the ignore rules alone; without it a tracked file under .bun/ makes git
+# call .bun not ignored.
+EXCLUDE_BUN=""
+if [ -e "$TOP/.bun" ] && ! git -C "$TOP" check-ignore --no-index -q .bun 2>/dev/null; then EXCLUDE_BUN=':(exclude,top).bun'; fi
+if ! ERR=$(git -C "$TOP" add -u 2>&1 >/dev/null) || ! ERR=$(git -C "$TOP" add -A -- . ${EXCLUDE_BUN:+"$EXCLUDE_BUN"} 2>&1 >/dev/null); then
   echo "gstack-wtree: cannot stage the working tree: $(printf '%s' "$ERR" | head -1)" >&2
   exit 1
 fi

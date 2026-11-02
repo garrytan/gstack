@@ -6,9 +6,20 @@
 
 import fs from "fs";
 import path from "path";
-import { openaiUrl, requireApiKey } from "./auth";
+import { requireProvider } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
-import { imageRequestBody, modelRejectionHint } from "./models";
+import { modelRejectionHint } from "./models";
+import {
+  asProvider,
+  DesignImageError,
+  geminiFailure,
+  geminiSwitchFix,
+  imageRequest,
+  isOpenAiVerificationError,
+  readImage,
+  type DesignAuth,
+  type DesignRequest,
+} from "./provider";
 import { parseBrief } from "./brief";
 import { normalizeIntFlag } from "./flag-utils";
 import { checkMockup, type CheckResult } from "./check";
@@ -85,7 +96,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * has aborted no new attempt starts.
  */
 export async function requestVariantImage(
-  apiKey: string,
+  auth: DesignAuth,
   prompt: string,
   size: string,
   quality: string,
@@ -96,9 +107,10 @@ export async function requestVariantImage(
   const MAX_RETRY_AFTER_MS = 60_000; // cap honored Retry-After to bound stalls
   let lastError = "";
   let skipLeadingDelay = false;
-  let body: string;
+  const provider = asProvider(auth);
+  let request: DesignRequest;
   try {
-    body = imageRequestBody(prompt, { size, quality });
+    request = imageRequest(provider, { prompt, size, quality });
   } catch (err: any) {
     return { error: err.message, retryable: false };
   }
@@ -118,15 +130,10 @@ export async function requestVariantImage(
 
     let response: Response;
     try {
-      response = await receiptedFetch("variants-image-request", openaiUrl("responses"), {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body,
+      response = await receiptedFetch("variants-image-request", request.url, {
+        ...request.init,
         signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
-      }, fetchFn);
+      }, fetchFn, request.receipt);
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === "AbortError") return { error: signal?.aborted ? DEADLINE_ERROR : "Timeout (240s)", retryable: true };
@@ -138,9 +145,9 @@ export async function requestVariantImage(
     if (response.status === 429) {
       lastError = "Rate limited (429)";
       const retryAfter = response.headers.get("retry-after");
+      let waitMs: number | null = null;
       if (retryAfter) {
         const trimmed = retryAfter.trim();
-        let waitMs: number | null = null;
         if (/^\d+$/.test(trimmed)) {
           // delta-seconds (RFC 7231)
           waitMs = Math.min(Number.parseInt(trimmed, 10) * 1000, MAX_RETRY_AFTER_MS);
@@ -151,32 +158,42 @@ export async function requestVariantImage(
             waitMs = Math.min(Math.max(0, dateMs - Date.now()), MAX_RETRY_AFTER_MS);
           }
         }
-        if (waitMs !== null) {
-          if (waitMs > 0) {
-            await sleep(waitMs, signal);
-          }
-          // Honored Retry-After (incl. 0 / past date "retry now") — skip the
-          // next iteration's leading exponential sleep so we don't double-wait.
-          skipLeadingDelay = true;
+      }
+      if (provider.provider === "gemini") {
+        // Gemini puts its delay in the body (RetryInfo), and a daily or zero quota never refills in time.
+        const failure = geminiFailure(provider, 429, await response.text(), "image");
+        if (!failure.retryable) return { error: failure.message, retryable: false };
+        if (failure.retryAfterMs !== undefined) waitMs = Math.min(failure.retryAfterMs, MAX_RETRY_AFTER_MS);
+      }
+      if (waitMs !== null) {
+        if (waitMs > 0) {
+          await sleep(waitMs, signal);
         }
+        // Honored Retry-After (incl. 0 / past date "retry now") — skip the
+        // next iteration's leading exponential sleep so we don't double-wait.
+        skipLeadingDelay = true;
       }
       continue;
     }
 
     if (!response.ok) {
       const error = await response.text();
-      if (response.status === 403 && error.includes("organization must be verified")) {
-        return { error: "OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify.", retryable: false };
+      if (provider.provider === "gemini") {
+        const failure = geminiFailure(provider, response.status, error, "image");
+        return { error: failure.message, retryable: failure.retryable };
+      }
+      if (isOpenAiVerificationError(response.status, error)) {
+        return { error: `OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify.\n${geminiSwitchFix()}`, retryable: false };
       }
       return { error: `API error (${response.status}): ${error.slice(0, 200)}${modelRejectionHint(response.status, error, "image")}`, retryable: response.status >= 500 };
     }
 
     try {
-      const data = await response.json() as any;
-      const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-      if (!imageItem?.result) return { error: "No image data in response", retryable: true };
-      return { imageData: imageItem.result };
+      const image = readImage(provider, await response.json());
+      if (!image) return { error: "No image data in response", retryable: true };
+      return { imageData: image.imageData };
     } catch (err: any) {
+      if (err instanceof DesignImageError) return { error: err.message, retryable: err.retryable };
       return { error: signal?.aborted ? DEADLINE_ERROR : `Unreadable API response: ${err.message}`, retryable: true };
     }
   }
@@ -193,7 +210,7 @@ export async function requestVariantImage(
  * production code uses the global fetch by default.
  */
 export async function generateVariant(
-  apiKey: string,
+  apiKey: DesignAuth,
   prompt: string,
   outputPath: string,
   size: string,
@@ -225,7 +242,7 @@ interface VariantJob {
 }
 
 /** Launch jobs 1.5s apart, wait for all, and fold them into run accounting. */
-async function runVariantJobs(apiKey: string, quality: string, jobs: VariantJob[]): Promise<{
+async function runVariantJobs(apiKey: DesignAuth, quality: string, jobs: VariantJob[]): Promise<{
   acct: RunAccounting;
   errors: string[];
 }> {
@@ -330,7 +347,7 @@ export interface BatchVariant {
 }
 
 export interface BatchOptions {
-  apiKey: string;
+  apiKey: DesignAuth;
   outputDir: string;
   size: string;
   quality: string;
@@ -428,7 +445,7 @@ async function variantsFromBriefsFile(options: VariantsOptions): Promise<ExitCod
   }
   const entries = readBriefsFile(options.briefsFile);
   if (options.count !== undefined) console.error(`warning: --count is ignored with --briefs-file; generating ${entries.length} variants, one per entry.`);
-  const apiKey = requireApiKey();
+  const apiKey = requireProvider();
 
   console.error(`Generating ${entries.length} variants from ${options.briefsFile}...`);
   const startTime = Date.now();
@@ -449,10 +466,10 @@ async function variantsFromBriefsFile(options: VariantsOptions): Promise<ExitCod
  */
 export async function variants(options: VariantsOptions): Promise<ExitCode> {
   if (options.briefsFile !== undefined) return variantsFromBriefsFile(options);
-  let apiKey: string;
+  let apiKey: DesignAuth;
   let baseBrief: string;
   try {
-    apiKey = requireApiKey();
+    apiKey = requireProvider();
     baseBrief = options.briefFile
       ? parseBrief(options.briefFile, true)
       : parseBrief(options.brief!, false);
@@ -510,7 +527,7 @@ const VIEWPORT_CONFIGS: Record<string, { size: string; suffix: string; desc: str
 };
 
 async function generateResponsiveVariants(
-  apiKey: string,
+  apiKey: DesignAuth,
   baseBrief: string,
   outputDir: string,
   viewports: string,

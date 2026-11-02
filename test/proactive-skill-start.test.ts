@@ -10,7 +10,8 @@
  * not know, and the config default when gstack-config is missing beside the
  * script; and the off-only surfaces (the first-run and first-loop tips, the
  * CLAUDE.md routing offer) fire under core and not under off, by running the
- * script; fails_when=gstack-skill-start stops consulting gstack-config, the
+ * script, and the offered routing section is the core four under core and every
+ * rule under all; fails_when=gstack-skill-start stops consulting gstack-config, the
  * default moves back to true, a legacy or junk value leaks into STATUS, the
  * missing-config fallback literal drifts from lookup_default, or a tip or the
  * routing offer fires under off; why_new=proactive-config.test.ts exercises
@@ -28,6 +29,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { runBin } from './helpers/run-bin';
+import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -114,6 +116,36 @@ describe('gstack-skill-start PROACTIVE status line', () => {
       }
     }
   });
+
+  test('the offered section follows the setting: core offers the four core rules and the scoping line, all offers every rule (#3446)', () => {
+    const offered = (config: string): string => {
+      const state = freshState(config);
+      fs.writeFileSync(path.join(state, '.proactive-prompted'), '');
+      try {
+        const out = runStart(path.join(BIN, 'gstack-skill-start'), state);
+        const block = out.slice(out.indexOf('GSTACK_INSTRUCTION_BEGIN: routing-injection '));
+        return block.slice(block.indexOf('## Skill routing\n'), block.indexOf('\nIf B:')).trim();
+      } finally {
+        fs.rmSync(state, { recursive: true, force: true });
+      }
+    };
+    const rulesOf = (section: string) => section.split('\n').filter(line => /^- .+→ invoke \//.test(line));
+    const shipped = readShippedSkillRouting();
+    const core = offered('update_check: false\n');
+    expect(rulesOf(core)).toEqual([
+      '- Product ideas/brainstorming → invoke /office-hours',
+      '- QA/testing site behavior → invoke /qa',
+      '- Code review/diff check → invoke /review',
+      '- Ship/deploy/PR → invoke /ship',
+    ]);
+    expect(core).toContain('Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).');
+    expect(core.split('\n').filter(line => line.includes('→'))).toEqual(rulesOf(core));
+    expect(core.startsWith(shipped.instruction)).toBe(true);
+    for (const config of ['update_check: false\nproactive: all\n', 'update_check: false\nproactive: true\n']) {
+      expect(offered(config), config).toBe(shipped.section);
+    }
+    expect(rulesOf(shipped.section).length).toBeGreaterThan(4);
+  }, 60_000);
 
   test('a stored off answers the one-time proactive prompt: no prompt block, marker written; core still asks once telemetry was answered', () => {
     const cases: Array<[string, boolean]> = [

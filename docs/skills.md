@@ -962,8 +962,15 @@ blank (`PREREG_INCOMPLETE`). `arms` resolves the `eval-arms` model role against
 `lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`
 runs every row through the stub model for $0 and flags malformed rows
 (`EVAL_DRY_RUN_FAILED`); `pilot start|settle|release|report` runs three priced
-items, records actual spend, extrapolates to the full set against the cap
-(`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question shows.
+items, records actual spend, extrapolates each priced arm to the full set against
+the cap (`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question
+shows. An arm on a subscription with no extra charge is declared with
+`pilot start --seat-metered <arm,...>`: it reserves $0, settles as `unknown`, and
+stays out of the projection until one of its attempts settles a real charge.
+A run stops at the first quota or rate-limit error on such an arm.
+`results --check <prereg> <results.md>` refuses a finished results file unless one
+table holds a filled row for every arm, each `<model>#no-gstack` row beside its
+variants (`EVAL_REPORT_NO_GSTACK_ROW`); no number leaves the run before it passes.
 The skill's closing section lists the tier-3 items (instrument audit, steady
 state, sealed paths, off-machine persistence, memory preflight, power tables, QA
 soak) as `tier 3, after P7`; none of them run yet.
@@ -999,8 +1006,8 @@ VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
 (`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
-visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
-made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+visible to everyone; every `up` first reaps its own owner's VMs whose TTL ended,
+and those with no TTL once they are 4 hours old, never another owner's; every run
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
@@ -1023,7 +1030,7 @@ Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         gstack-ubi verify  (.gstack/ubicloud.json: bootstrap.sh, "bash scripts/verify.sh", standard-16)
         ubi-runner: reap: no expired VMs
         ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3 (standard-16)
-        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
+        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
         ubi-runner: heartbeat: command 300s elapsed, last output 2s ago
         ubi-runner: command exited 0 after 1140s
         ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3

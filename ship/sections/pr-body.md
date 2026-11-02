@@ -224,7 +224,8 @@ rm -f .gstack/tmp/review-loop.json
 ~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json --body "$PR_BODY_FILE"
 ```
 
-`--docs` reads the record Step 14.5 saved (`{status, scope[, exception]}`): the
+A Step 5 red-base pause adds `--base-red <pause file>` (a conditional receipt the queue
+refuses, `QUEUE_RECEIPT_CONDITIONAL`). `--docs` reads the record Step 14.5 saved (`{status, scope[, exception]}`): the
 receipt carries it as `docs`, and a `blocked` status without the owner's exception,
 or a body missing the exception line, is `DOCS_AUDIT_BLOCKED` with nothing written.
 When the owner accepted a stop after a fix-check edit, add

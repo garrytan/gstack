@@ -208,6 +208,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   the same model; every reviewer keeps full.
 # Docs: docs/model-policy.md
 #
+# harness_start_hook:       # on | off. on: ./setup and gstack-harness add the
+#                           #   gstack-start plugin to OpenClaw and Hermes registrations
+#                           #   (a one-line note on every turn to run the start
+#                           #   command of a skill; edits openclaw.json or config.yaml via the
+#                           #   harness CLI). off: takes it out. Absent = each
+#                           #   registration keeps its saved choice (default off).
+#                           #   GSTACK_HARNESS_START_HOOK=1|0 overrides it. Docs: docs/hosts.md
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Outside review (Codex or Claude Code by harness): sends
 #                           #   the review prompt and repository content to that model.
@@ -368,6 +376,7 @@ lookup_default() {
     agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
+    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice (docs/hosts.md#start-hook)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
@@ -833,6 +842,10 @@ $_gstack_legacy_root"
       echo "Error: review_effort_tiers '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
+    if [ "$KEY" = "harness_start_hook" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: harness_start_hook '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged. fix: gstack-config unset harness_start_hook keeps each registration's saved choice (docs/hosts.md#start-hook)" >&2
+      exit 1
+    fi
     if [ "$KEY" = "codex_effort" ]; then
       case "$VALUE" in
         minimal|low|medium|high|xhigh|max|ultra) ;;
@@ -1100,7 +1113,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1125,7 +1138,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

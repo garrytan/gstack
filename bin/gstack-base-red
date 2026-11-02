@@ -1,0 +1,88 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-base-red — /ship Step 5's red-base proof and pause (docs/ship-policy.md#base-red).
+ *
+ *   gstack-base-red classify --failures <evidence.json> [--base <branch>] [--head <sha>] [--pause] [--json]
+ *   gstack-base-red wait --pause <file> [--timeout <s>] [--poll <s>] [--json]
+ *
+ * `classify` reads the base branch's `base_red` policy (never the working tree),
+ * prints one BASE_RED: or IN_BRANCH: line per failure and a BASE_RED_VERDICT:
+ * line, and with --pause writes the pause record when every failure is
+ * base-red (PAUSE: <file>). Exit 0 only for base-red; 1 in-branch.
+ * `wait` returns 0 (BASE_GREEN: <sha>) once a new base head passes the
+ * paused cases, 3 on timeout or an expired pause. Logic: lib/base-red.ts.
+ */
+import * as fs from 'node:fs';
+import { classifyBaseRed, classifyLines, parseEvidence, readPause, waitBaseGreen, writePause } from '../lib/base-red';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLineWithDocs } from '../lib/result-codes';
+import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
+import { git } from '../lib/ship-queue-gate';
+
+const HELP = `gstack-base-red — prove a Step 5 failure is the base branch's own, and pause /ship on it
+
+  classify --failures <evidence.json> [--base <branch>] [--head <sha>] [--pause] [--json]
+      evidence: { "lane": "<Step 5 label>", "total": <failures the lane reported>,
+                  "failures": [{ "id": "<test name>", "file": "<test file>", "signature": "<first error line>" }] }
+  wait --pause <file> [--timeout <s>] [--poll <s>] [--json]
+
+${exitTableHelp()}`;
+
+const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const say = (json: boolean, lines: string[], value: unknown) => process.stdout.write(json ? JSON.stringify(value) + '\n' : lines.join('\n') + '\n');
+
+function policyFor(repoRoot: string, base: string, cmd: string) {
+  git(repoRoot, ['fetch', '--no-tags', '-q', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]);
+  const load = loadPolicyFromBase(repoRoot, base);
+  if (isUnavailable(load)) { process.stderr.write(policyUnavailableLine(cmd, base, load.detail) + '\n'); return 'unavailable' as const; }
+  if (load.errors.length) { process.stderr.write(`${cmd}: ${load.source.label} is invalid (${load.errors[0]!.message} at ${load.errors[0]!.path}); every failure stays in-branch\n`); return null; }
+  return load.policy.base_red;
+}
+
+function classify(args: string[], json: boolean, repoRoot: string): number {
+  const file = flag(args, '--failures');
+  if (!file) { process.stderr.write(`gstack-base-red classify: --failures <evidence.json> is required\n${HELP}\n`); return EXIT.usage; }
+  let raw: unknown;
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { process.stderr.write(`gstack-base-red classify: cannot read ${file}: ${e.message}\n`); return EXIT.usage; }
+  const evidence = parseEvidence(raw);
+  if (typeof evidence === 'string') { process.stderr.write(`gstack-base-red classify: ${file}: ${evidence}\n`); return EXIT.usage; }
+  const base = resolveBaseBranch(repoRoot, flag(args, '--base'));
+  const policy = policyFor(repoRoot, base, 'gstack-base-red classify');
+  if (policy === 'unavailable') return EXIT.fail;
+  const r = classifyBaseRed({ repoRoot, base, head: flag(args, '--head') ?? 'HEAD', evidence, policy });
+  const lines = classifyLines(r);
+  if (r.code !== 'BASE_RED' && r.code !== 'IN_BRANCH') process.stderr.write(resultLineWithDocs('gstack-base-red classify', r.code, r.detail) + '\n');
+  let pause: string | undefined;
+  if (r.code === 'BASE_RED' && args.includes('--pause')) {
+    const branch = git(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).out || r.head;
+    pause = writePause(repoRoot, branch, r, evidence).file;
+    lines.push(`PAUSE: ${pause}`);
+  }
+  say(json, lines, { ...r, pause });
+  return r.code === 'BASE_RED' ? EXIT.ok : EXIT.fail;
+}
+
+function wait(args: string[], json: boolean, repoRoot: string): number {
+  const file = flag(args, '--pause');
+  if (!file) { process.stderr.write(`gstack-base-red wait: --pause <file> is required\n${HELP}\n`); return EXIT.usage; }
+  const pause = readPause(file);
+  if (typeof pause === 'string') { process.stderr.write(`gstack-base-red wait: ${pause}\n`); return EXIT.usage; }
+  const policy = policyFor(repoRoot, pause.base, 'gstack-base-red wait');
+  if (!policy || policy === 'unavailable') { process.stderr.write(resultLineWithDocs('gstack-base-red wait', 'BASE_RED_UNCONFIGURED', `origin/${pause.base} no longer declares a usable base_red`) + '\n'); return EXIT.refused; }
+  const timeoutSec = Number(flag(args, '--timeout') ?? 21600);
+  const pollSec = Number(flag(args, '--poll') ?? 120);
+  if (!(timeoutSec > 0) || !(pollSec >= 5)) { process.stderr.write('gstack-base-red wait: --timeout must be > 0 and --poll >= 5 seconds\n'); return EXIT.usage; }
+  const r = waitBaseGreen({ repoRoot, pause, policy, timeoutSec, pollSec });
+  if (r.code === 'BASE_GREEN') { say(json, [`BASE_GREEN: origin/${pause.base} ${r.sha} passes ${pause.cases.length} paused case(s) after ${r.checked} base head(s); resume with /ship --resume <record>`], r); return EXIT.ok; }
+  process.stderr.write(resultLineWithDocs('gstack-base-red wait', r.code, r.detail) + '\n');
+  say(json, [`BASE_RED_WAIT: ${r.code} last base ${r.sha.slice(0, 12)} (${r.checked} head(s) checked)`], r);
+  return EXIT.refused;
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+const json = rest.includes('--json');
+const repoRoot = git(process.cwd(), ['rev-parse', '--show-toplevel']).out || process.cwd();
+if (cmd === 'classify') process.exit(classify(rest, json, repoRoot));
+if (cmd === 'wait') process.exit(wait(rest, json, repoRoot));
+process.stdout.write(HELP + '\n');
+process.exit(cmd === '--help' || cmd === '-h' ? EXIT.ok : EXIT.usage);

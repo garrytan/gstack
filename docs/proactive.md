@@ -34,21 +34,23 @@ needed, because every skill reads `PROACTIVE` from `gstack-skill-start` at the
 start of each run and the router (`/gstack`) applies it to its routing rules. A
 value gstack does not know (a hand-edited `proactive: maybe`) reads as `core`.
 
-Two surfaces follow the setting only in part. The first is the `## Skill routing`
-section gstack offers to append to your project's CLAUDE.md. Under `off` the offer is
-not made, because those rules are the auto-invocation you turned off (a section
-already in CLAUDE.md stays; delete it yourself). Under `core` the offered
-section still lists every routing rule and tells the host to invoke any
-matching skill. If you accepted it before the `core` default, trim that section
-to the four core rules (or delete it and let gstack offer it again); making the
-offered section follow `core` is tracked in #3446.
+The `## Skill routing` section gstack offers to append to your project's
+CLAUDE.md follows the setting too. Under `core` it lists only the four core
+rules and says the other skills run when you type them or a running skill
+hands off to them; under `all` it lists
+every routing rule; under `off` it is not offered, because those rules are the
+auto-invocation you turned off. gstack offers the section once per project and
+never edits it afterwards. So a section you accepted earlier, or under another
+setting, stays as it is: trim it to match (the core four are /office-hours,
+/review, /qa and /ship), or delete it and let gstack offer it again.
 
-The second is the full skill descriptions, which a `--catalog-mode=full` build
-and the non-Claude hosts keep. Non-core skills still say "Proactively suggest
-when ..." there, and that text does not change with the setting, so a host
-that picks skills from those descriptions can still reach them under `core`.
-The default Claude build uses one-line descriptions without that sentence.
-#3446 tracks that too.
+Skill descriptions cannot change with the setting, so they are written for the
+`core` default. Only the four core skills say "Proactively suggest ..." in the
+full descriptions that a `--catalog-mode=full` build and the non-Claude hosts
+keep. The other skills keep their "Use when asked to ..." sentences, which
+describe asks. On those hosts, `all` therefore loses the proactive hint the
+non-core descriptions used to carry; the router's routing rules still apply when
+`/gstack` runs.
 
 gstack asks once, after the telemetry question, which of the three you want;
 if you stored `off` before that, it takes the answer as given and does not ask.

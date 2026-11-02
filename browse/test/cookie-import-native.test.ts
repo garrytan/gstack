@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { release, tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -358,6 +358,7 @@ describe('production Node Playwright worker', () => {
     const { chromium } = require('playwright');
     const fixture = mkdtempSync(path.join(root, 'pipe-'));
     const observation = path.join(fixture, 'launch.json');
+    const launchError = path.join(fixture, 'launch-error.txt');
     const playwrightEntry = path.join(fixture, 'instrumented-playwright.cjs');
     writeFileSync(playwrightEntry, `
       const cp = require('node:child_process');
@@ -369,9 +370,14 @@ describe('production Node Playwright worker', () => {
       };
       const { chromium } = require(${JSON.stringify(require.resolve('playwright'))});
       exports.chromium = { async launchPersistentContext(root, options) {
-        const context = await chromium.launchPersistentContext(root, options);
-        await context.addCookies([{ name: 'synthetic', value: 'synthetic', domain: 'example.test', path: '/' }]);
-        return context;
+        try {
+          const context = await chromium.launchPersistentContext(root, options);
+          await context.addCookies([{ name: 'synthetic', value: 'synthetic', domain: 'example.test', path: '/' }]);
+          return context;
+        } catch (error) {
+          require('node:fs').writeFileSync(${JSON.stringify(launchError)}, String(error?.stack ?? error));
+          throw error;
+        }
       } };
     `);
     const result = spawnSync(node!, ['--input-type=commonjs', '-e', NATIVE_COOKIE_NODE_SCRIPT], {
@@ -383,7 +389,8 @@ describe('production Node Playwright worker', () => {
     expect(result.status).toBe(0);
     const progress = expectNativeProgress(result.stderr);
     expect(progress).toContainEqual({ stage: 'browser_launch' });
-    expect(progress).toContainEqual({ stage: 'cookie_read' });
+    const launchFailure = existsSync(launchError) ? readFileSync(launchError, 'utf8') : '(no launch error recorded)';
+    expect(progress, `worker reply: ${result.stdout.trim()}; Playwright launch error: ${launchFailure}`).toContainEqual({ stage: 'cookie_read' });
     expect(JSON.parse(result.stdout).cookies).toHaveLength(1);
     const launched = JSON.parse(readFileSync(observation, 'utf8'));
     expect(launched.args).toContain('--remote-debugging-pipe');

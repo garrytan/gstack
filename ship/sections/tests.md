@@ -213,8 +213,9 @@ Only commit if there are changes. Stage the bootstrap's own files by name (confi
 **Run it:** `~/.claude/skills/gstack/bin/gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...`
 (or the Step 1 call with lanes). It runs the free pre-gate first, before any lane, eval or
 remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, strays, literals;
-stage 2 the selected lanes under pipefail), then every lane in parallel inside the evidence
-ledger, and prints `PREGATE:` and one `LANE: <label> <state> exit= tests_ran= log=` line each.
+stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger (one at
+a time on 4 or fewer cores unless `--lanes serial|parallel`), and prints `PREGATE:`, `LANES:` and
+one `LANE: <label> <state> exit= tests_ran= log=` line each.
 `fail` or `incomplete` blocks: fix, rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
 after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.
@@ -368,7 +369,33 @@ esac && rm -f "$TITLE_FILE" "$BODY_FILE"
 - Continue with the workflow.
 - Note in output: "Pre-existing test failure skipped: <test-name>"
 
-**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 6.
+**Red base (before T3).** When T1 calls every failure likely pre-existing,
+prove it before asking: write `.gstack/tmp/base-red.json` with your file-write tool
+(`{"lane":"<label>","total":<failures the lane reported>,"failures":[{"id":"<test
+name>","file":"<test file>","signature":"<first error line>"}]}`), then run
+
+```bash
+~/.claude/skills/gstack/bin/gstack-base-red classify --failures .gstack/tmp/base-red.json --base <base> --pause
+```
+
+It reads `base_red` from the base branch's ship policy and reruns those files at
+the base head and at HEAD in scratch worktrees. Exit 0 with `BASE_RED_VERDICT:
+base-red` and `PAUSE: <file>`: skip T3, record the pause file and its cases in
+the invocation record, and continue to Step 6; Step 16 treats exactly these cases
+as this run's waived failures (any other failure is new), and the receipt write
+adds `--base-red <pause file>`, so Step 22 ends `SHIP_PAUSED` with
+`status=incomplete` instead of READY. Exit 1 (`IN_BRANCH:` lines,
+`BASE_RED_UNCONFIGURED`, `BASE_RED_UNNAMED`, `BASE_RED_REPRO_ERROR`): continue T3
+as written.
+
+**Resume a red-base pause.** A parent waits with `gstack-base-red wait --pause
+<file>` (a background operation; `BASE_GREEN:` once a new base head passes the
+cases), then runs `/ship --resume <record>`: if HEAD is still the paused head,
+rerun this Step 5 on HEAD merged with the new base in a scratch worktree (never a
+pushed base merge); all green rewrites the receipt without `--base-red` and runs
+Step 22. Any failure is triaged here as new; a moved HEAD starts /ship fresh.
+
+**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, skipped, or base-red and paused), continue to Step 6.
 
 **If all pass:** Report each lane's pass count (or `count unavailable`) in one line and continue to Step 6.
 

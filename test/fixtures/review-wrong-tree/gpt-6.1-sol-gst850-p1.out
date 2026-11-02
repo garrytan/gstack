@@ -1,0 +1,11 @@
+1. **Escaped executable URLs bypass the locale checks** — `lib/review-allowlist.ts:143–145,188–192`. Changing a consumed locale JSON value from `"Continue"` to `"java\nscript:alert(1)"` returns `docs` with zero reviewers. Checks inspect the escaped source, but JSON decoding followed by URL parsing produces `javascript:`. A translated `href` can therefore gain script execution without security review. Validate decoded values, including URL normalization. Severity: High | Blocks: yes
+
+2. **SVG attribute interpolation is still executable template content** — `lib/review-allowlist.ts:35–44`. `<svg><text class="{{run()}}">Label</text></svg>` returns `docs` with zero reviewers. AngularJS `templateUrl`/`$compile` consumers evaluate that attribute. Numeric references also bypass the text check: `<text>&#123;&#123;run()&#125;&#125;</text>` is accepted. Reject interpolation in attributes and inspect decoded text, or reject numeric references. Severity: High | Blocks: yes
+
+3. **YAML type changes qualify as string-only edits** — `lib/review-allowlist.ts:163`. `label: Save` → `label: null` or `label: false` returns `docs` with zero reviewers. Native YAML parsing produces null/boolean, not strings; the null reproduction crashes a string consumer. Require string-valued scalars on both sides. Severity: Medium | Blocks: yes
+
+4. **Named gettext placeholders aren't preserved** — `lib/review-allowlist.ts:115,188–192`. `msgstr "Hello %(name)s"` → `msgstr "Hello %(password)s"` is accepted as docs because neither placeholder matches `PLACEHOLDER`. Formatting with the original arguments raises `KeyError('password')`, reproduced with Python. Recognize named percent placeholders or reject unfamiliar percent syntax. Severity: Medium | Blocks: yes
+
+5. **The new import scanner is quadratic** — `lib/review-risk.ts:72,107`. A valid comment containing repeated `import {` forces rescanning from every occurrence. At this HEAD, 128 KB took 1.04 seconds and 524 KB took 13.35 seconds for one `matchRisk` call; the planner calls it twice. Larger attacker-controlled comments can stall review and queue validation. Use a forward-only scanner. Severity: Medium | Blocks: yes
+
+Recommendation: request changes because escaped locale URLs can introduce executable javascript: links while scheduling zero reviewers.

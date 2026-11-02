@@ -65,10 +65,12 @@ A run that writes a record ends with one line the parent greps:
 GSTACK_RESULT: skill=<name> status=<status> run=<dir>
 ```
 
-`status` is one of `complete`, `gate_pending`, `incomplete`, `interrupted` or
-`refused`; `run` is where the run's record is. `/autoplan`
+`status` is one of `complete`, `reviewed`, `gate_pending`, `incomplete`,
+`interrupted` or `refused`; `run` is where the run's record is. `/autoplan`
 always ends `gate_pending` when it reaches the final gate, because the gate is
-written and never approved. Pure queries (`gstack-artifact schema`,
+written and never approved. `/autoplan --ceo-only` ends `reviewed`: it runs the
+CEO phase alone, asks nothing, writes no gate and approves nothing (see
+[CEO-only runs](#ceo-only-runs)). Pure queries (`gstack-artifact schema`,
 `gstack-gate render`) print no result line.
 
 Not every workflow writes this line or a run directory today:
@@ -148,8 +150,12 @@ The other endings, each greppable: when gh cannot read the PR,
 `GSTACK_RESULT: skill=ship status=incomplete run=-` (exit 1); a receipt that is
 missing or names another head, `GSTACK_RESULT: skill=ship status=refused run=-`
 with `QUEUE_RECEIPT_MISSING` or `QUEUE_RECEIPT_STALE` on stderr (exit 3), the
-line a run that stops before publication prints itself; and `result --pr <n>`
-refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head.
+line a run that stops before publication prints itself; `result --pr <n>`
+refuses `QUEUE_RECEIPT_STALE` when HEAD is not the PR's pushed head; and a
+receipt with a `base_red` block (Step 5 paused on a red base) prints
+`SHIP_PAUSED: base-red …` on stderr, writes the run record and ends
+`GSTACK_RESULT: skill=ship status=incomplete run=<dir>` (exit 1): the lane is
+waiting on the base, not failed ([base_red](ship-policy.md#base-red)).
 
 The one publication the unattended rules allow: when an open PR for the branch
 exists and HEAD is its pushed head, Step 18 takes the pr-body section's
@@ -224,6 +230,14 @@ credits outside coverage. A parent reads the rows with
 `gstack-review-read` and treats `outside_status: unavailable` as missing
 coverage, not as a clean outside review.
 
+The pass program (`lib/capy-review-pass.js`) picks the outside voice's model
+when `input.models['outside-voice']` is empty and the lane model is
+`anthropic/`: `openai/gpt-6.1-sol` at medium reasoning, the pairing the no-loss
+rounds ran. Any other lane must name a model. An outside voice from the same
+provider as the lane model or the native voice stops the pass (`STOP:`) before
+either voice is created, including on a rerun, and each outside voice prints an
+`OUTSIDE_VOICE:` line saying whether it is the certified configuration.
+
 ### The carry across a base merge or a test-only fix
 
 When the parent merges the base in or fixes a test after the receipt was
@@ -233,8 +247,13 @@ and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from
 `GSTACK_RESULT: skill=ship status=complete run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
-counters are kept, because the reviewed product diff is unchanged. `CARRY:
-current` means nothing moved. `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
+counters are kept, because the reviewed product diff is unchanged or its only
+difference passed a scoped review. `CARRY: current` means nothing moved.
+`CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)` means the base edited context
+next to reviewed hunks. Carry without `--dry-run` writes the packet the
+refusal names (a dry run writes none), one fix-check reviewer reads it, and a
+clean record reruns carry with `--scoped-review <record.json>`
+([troubleshooting](troubleshooting.md#receipt-carry-scoped-review)). `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
 `(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused
 result line means the product diff changed, or history was rewritten onto a
 tree no review saw, so /ship runs again;
@@ -248,7 +267,7 @@ tree no review saw, so /ship runs again;
 | File | Schema | Contents |
 |------|--------|----------|
 | `run.json` | `run` v1 | The manifest: `run` id, `status`, `required_phases`, each phase's `native` and `outside` outcome (`status`, `model`, `provider`), input `snapshot` hashes, `counts`, every artifact's `path` (relative to the run directory) and `sha256`, `session_kind`, `gate_rev`, `deviations`, `consumed_by`. |
-| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`. |
+| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`. |
 | `findings.jsonl` | `findings` v1 | One row per reviewer finding: `id`, `phase`, `voice` (`native`/`outside`), `model`, `severity`, `title`, `disposition`, `plan_items`, `native_counterpart` (string or null), `source`. Rows share the review-log row shape, so `gstack-review-log --findings` derives review status from this file. |
 | `tasks.jsonl` | `tasks` v2 | Implementation tasks with `id`, `title`, `status`, `depends_on`, `findings` (ids in `findings.jsonl`), `blocked_by`, `acceptance`, optional `pr`/`item`/`tier`. |
 | `timing.json` | `timing` v1 | Per-phase `started_at`, `ended_at`, `wall_s`, `outside_s`, `native_s`; `started_at` and `total_wall_s` for the run; the Phase 0 `estimate`. |
@@ -365,7 +384,14 @@ the plan.
    refuses to open without one (`CONSENSUS_MISSING`).
 3. **Loop `next` until `status=gate_pending`.** Eng always runs last. The gate
    (`gate.json`, `gate_rev`) lists user challenges as approval items,
-   disagreements as auto items and `p1` plan approval; nothing is approved.
+   disagreements as auto items, each open Critical or High finding as an
+   auto item (a twin pair is one item; `a` applies the reviewer's fix to the
+   plan and is recommended, `b` carries it into the build as a blocking task)
+   and `p1` plan approval; nothing is approved. An unanswered auto item whose
+   recommendation changes the plan keeps the plan's direction, so only `rec`,
+   `p1b` (approve with the recommended changes) or an explicit `<id>a` applies
+   a fix; a finding carried with `b` stays
+   open, so a rerun that raises it again asks again.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)
@@ -376,12 +402,18 @@ the plan.
    means an agent relayed them, and then `--owner-reply` (or `-` for stdin,
    `--owner-reply-file <path>`) stores the owner's words verbatim
    (`OWNER_REPLY_REQUIRED`); owner words that parse to different choices are
-   refused (`GATE_OWNER_REPLY_MISMATCH`). An unattended run refuses an answer
+   refused (`GATE_OWNER_REPLY_MISMATCH`). The words default to the owner's: an
+   agent that answers in its own words (a Captain deciding on its own
+   authority) must pass `--words-by agent:<id>` with its own `--by` id. They
+   are then recorded as `answer_words` with `words_by`, never as
+   `owner_reply`; a later gate never carries them (`CARRY: no`), and
+   `gstack-approvals import` lists that row under the agent, not the owner.
+   An unattended run refuses an answer
    without `--by` (`ANSWER_BY_REQUIRED`, exit 3) and records the value as
    `answered_by` on every decision row and in the review record's gate line,
    so a gate an agent closed is distinguishable from one the owner closed.
    `gstack-autoplan recommend` changes one recommendation before relay; it
-   bumps the gate's `rec_rev`, and a later `rec` needs the `--rec-hash` from
+   bumps the gate's `rec_rev`, and a later `rec` or `p1b` needs the `--rec-hash` from
    the render the owner saw (`GATE_REC_STALE`). Every `GATE:` line is followed
    by `GATE_SPEND:` and `GATE_REC_COST:` (also `gate_cost` in `--json`; see
    `autoplan/DRIVER.md`).
@@ -431,7 +463,19 @@ Concurrency and recovery: every state write is a locked read-modify-write
 (`test/autoplan-run-recovery.test.ts`, `test/autoplan-run-concurrency.test.ts`,
 `test/autoplan-answer-invalidation.test.ts`). `--spend-cap` admits each attempt
 through `spend.json` (`SPEND_CAP_EXCEEDED` refuses, exit 3); host-subagent
-spend is `unknown` and counted in `worst_case`. `--deadline <min>` makes the
+spend is `unknown` and counted in `worst_case`. Under a cap, in any session
+kind (or unattended on Capy), each host-subagent attempt, and each api attempt
+whose model has no price, reserves the default per voice unless
+`next --estimate-usd <n>` sets the reservation, which the run keeps for later
+phases (`run` reserves an api attempt's priced worst case, prompt bytes / 3
+input tokens plus the output limit, and settles it at its token usage; every
+native call that went out and bound no result, whether it failed, was cancelled,
+had its result refused, or was in flight when the process died (the next `run`
+finds it), settles at its usage, or at its full reservation when the usage is
+unknown, while one refused before anything was sent, such as with no API key,
+keeps its attempt open for the rerun, and a failed outside call leaves the phase
+native-only and stays counted at its reservation); `submit
+--usage-usd <n>` settles an attempt at its real cost. `--deadline <min>` makes the
 `run` subcommand cancel the children it started and marks the run
 `interrupted`.
 
@@ -511,9 +555,8 @@ A gate revision after the first (`gate_rev` 2 and later, written after a
 it when nothing new needs their decision. `gstack-autoplan` prints
 `CARRIED: gate_rev=<n> <- gate_rev=<m> words="<their words>" by=<relayer> reason=<why>`,
 then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
-all of: the earlier gate approved (`p1a` or `p1b`) with `rec` or "do it"
-(not item tokens), no item there left pending, and the owner's words
-recorded; that gate was not itself carried; every accepted change incorporated
+all of: the earlier gate approved (`p1a` or `p1b`), no item there left
+pending, and the owner's words recorded; that gate was not itself carried; every accepted change incorporated
 or settled; the plan file's bytes equal those recorded at the gate or at the
 `revise` that took the changes (any later edit refuses, an ELI5-only one
 included); no urgent or
@@ -521,6 +564,13 @@ outside-plan finding open; and every new gate item one of the cases below.
 Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
 goes to the owner as before. `--no-carry-forward` on the first `next` turns it
 off for the run.
+
+An earlier answer given item by item (`<id><option>` tokens, not `rec` or "do
+it") carries only what the owner already answered: every item on the new gate
+must be carried by origin (the same proposal, so the same choice), and only an
+unreviewed post-cap delta (below) may be new. The carry replays the owner's own
+`p1` choice and records their tokens verbatim as its basis; any new or changed
+item, "do it" cases included, goes to the owner.
 
 - **"do it".** When the owner's words were "do it" (their words, not a
   `captain:` relay of them), a new `auto` item that changes no scope, cost or
@@ -550,6 +600,64 @@ Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
 and `gstack-owner-brief render --captain` opens with "Nothing pending.
 Carried forward from gate_rev <m>", followed by any items taken under "do it"
 without being shown to the owner.
+
+## CEO-only runs
+
+`/autoplan --ceo-only` runs the CEO review by itself and asks nothing. It runs
+in the session that invokes the skill and needs Claude Code: other hosts inline
+autoplan's sections and do not carry this one yet. A parent agent on any host
+gets the same run from the driver with `gstack-autoplan next --ceo-only` (see
+below). It is for a harness or a crew that wants the strategy pass without the
+full gauntlet, such as an eval comparing gstack's CEO review with a plain
+prompt.
+
+- **What runs:** Phase 0, the outside-reviewer preflight and the CEO phase.
+  Design, DX, Eng and the final gate do not run.
+- **How it decides:** every question takes its recommendation and is logged in
+  the Decision Audit Trail. The review mode comes from plan-ceo-review's 0E
+  rule (file count, then greenfield, added capability or fix), not autoplan's
+  fixed SELECTIVE EXPANSION, and the mode line says `CEO-only run`. Consent,
+  destructive and irreversible options take the conservative choice.
+- **What it never does:** apply a user challenge (the plan's direction stays;
+  each challenge is listed), chain to another skill, promote the CEO plan, or
+  approve anything.
+- **One model:** add `--no-outside` to skip the outside voice, so every
+  reviewer runs on the host model.
+- **Where it writes:** the run directory (`.gstack/tmp/autoplan/` in the
+  repository), the reviewed plan, and CEO plans and task files under
+  `GSTACK_STATE_ROOT`. Point that variable inside a trial folder to keep every
+  write there.
+- **What it leaves:** the reviewed plan (its original is kept at the restore
+  point), `<run dir>/ceo-review.md` (user challenges, scope added,
+  conservative choices, findings and the audit trail), and the last line
+  `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`.
+
+`test/skill-e2e-autoplan-ceo-only.test.ts` runs it on a plan that makes the
+interactive CEO review ask a question and fails if this mode asks anything.
+
+**From the driver.** `gstack-autoplan next --out <dir> --plan <file>
+--ceo-only` opens only the CEO phase; the parent dispatches and submits its
+voices as usual. When CEO closes, the run prints `REVIEWED:` and ends
+`GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`, with
+`<dir>/ceo-review.md` in the same sections, hashed in `run.json`. Each item a
+gate would have asked becomes a `decisions.jsonl` row of kind `auto` and status
+`auto_kept` (nobody answered: the plan's direction is kept, and a round-cap item
+only the owner can accept, such as a Critical left open, stays undecided with
+no chosen option), and tasks are blocked on no decision. An open Critical or
+High finding, which a full gate asks about, gets no row: nobody decides it, and
+it stays in the report's Findings and in `tasks.jsonl` for the owner. The driver never edits the plan, writes no `gate.json` and never
+approves, so `gstack-artifact validate` accepts the run as it stands.
+
+- The flag goes on the first `next` only. It refuses beside `--ui`,
+  `--developer-tool` or `--agent-primary` on the command line or in the plan's
+  scope marker, when the marker names it, and on a plan at the report path
+  (`CEO_ONLY_CONFLICT`); a directory that holds a full run refuses it
+  (`CEO_ONLY_AFTER_INIT`).
+- `answer`, `recommend` and `revise` refuse a CEO-only run, and so does
+  `gstack-approvals import` (`CEO_ONLY_NO_GATE`): there is no gate to answer and
+  nothing was approved. A run stopped by `--spend-cap` recovers as a full run
+  does: `budget` then `resume`, or `close --phase ceo --deferred`, which ends
+  it `reviewed`.
 
 ## Owner brief
 

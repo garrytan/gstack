@@ -112,12 +112,58 @@ describe('W7a flake ledger reader', () => {
     const client = fakeClient([
       [/workflows\/free-tests\.yml\/runs/, () => ({ workflow_runs: runs })],
       [/runs\/100\/artifacts/, () => ({ artifacts: [{ id: 1, name: 'flake-ledger-3', size_in_bytes: 10 }, { id: 2, name: 'free-result-3', size_in_bytes: 10 }] })],
-      [/runs\/101\/artifacts/, () => ({ artifacts: [{ id: 3, name: 'flake-ledger-7', size_in_bytes: 10, expired: true }] })],
-      [/runs\/\d+\/artifacts/, () => ({ artifacts: [] })],
+      [/runs\/101\/artifacts/, () => ({ artifacts: [{ id: 3, name: 'flake-ledger-7', size_in_bytes: 10, expired: true }, { id: 4, name: 'free-result-7', size_in_bytes: 10 }] })],
+      [/runs\/\d+\/artifacts/, () => ({ artifacts: [{ id: 5, name: 'free-result-1', size_in_bytes: 10 }] })],
     ], { 1: { 'flake-ledger.jsonl': ledger('test/a.test.ts') + ledger('test/a.test.ts') } });
     const window = readCiFlakeLedgers({ client, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
     expect(window).toMatchObject({ runs: 20, flakyRuns: 1, enforceable: true, files: [{ file: 'test/a.test.ts', flakyRuns: 1, entries: 2, rate: 0.05, failing: false }] });
     expect(client.calls[0]).toContain('branch=main');
+  });
+
+  // A reused main push (#3709) uploads no artifact and its reuse job succeeds; a real run uploads free-plan and free-result-*.
+  const reuseClient = (runs: ReturnType<typeof run>[], kind: (id: number) => 'reused' | 'real' | 'flaky', jobs?: () => unknown) => fakeClient([
+    [/workflows\/free-tests\.yml\/runs/, () => ({ workflow_runs: runs })],
+    [/runs\/\d+\/artifacts/, apiPath => {
+      const k = kind(Number(/runs\/(\d+)\/artifacts/.exec(apiPath)![1]));
+      return { artifacts: k === 'reused' ? [] : [{ id: 8, name: 'free-plan', size_in_bytes: 10 },
+        ...(k === 'flaky' ? [{ id: 9, name: 'flake-ledger-3', size_in_bytes: 10 }] : [])] };
+    }],
+    [/runs\/\d+\/attempts\/1\/jobs/, jobs ?? (() => ({ jobs: [{ id: 1, name: 'reuse', conclusion: 'success' }, { id: 2, name: 'free-plan', conclusion: 'skipped' },
+      { id: 3, name: 'free-tests', conclusion: 'success' }] }))],
+  ], { 9: { 'flake-ledger.jsonl': ledger('test/a.test.ts') } });
+
+  test('reused main pushes that ran no shards stay out of the window and its denominator; the window refills with older runs that ran shards (#3725)', () => {
+    // Value: protects=test:health --enforce still flags a file flaky in >5% of runs that executed shards when main pushes reuse their PR's run; fails_when=a reused run (no artifacts, reuse job green) counts as a zero-flake run again; why_new=#3725, after #3709 reused runs diluted 2/20 (10%) to 2/45 (4.4%); seam=GhClient fake; no_claim=the live artifact retention
+    const recent = Array.from({ length: 45 }, (_, i) => run(200 + i, { created_at: day(1 + i * 0.1) }));
+    const older = Array.from({ length: 10 }, (_, i) => run(300 + i, { created_at: day(10 + i) }));
+    const client = reuseClient([...recent, ...older], id => (id === 200 || id === 203 ? 'flaky' : id < 300 && (id - 200) % 3 !== 0 ? 'reused' : 'real'));
+    const window = readCiFlakeLedgers({ client, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
+    expect(window).toMatchObject({ runs: 20, flakyRuns: 2, skipped: 30, enforceable: true, since: day(14),
+      files: [{ file: 'test/a.test.ts', flakyRuns: 2, rate: 0.1, failing: true }] });
+    expect(window.note).toBeUndefined();
+    expect(client.calls.filter(call => call.includes('/artifacts')).length).toBe(50);
+    expect(client.calls.filter(call => call.includes('/jobs')).length).toBe(30);
+    expect(flakeCheck(window)).toMatchObject({ status: 'fail', detail: 'test/a.test.ts: flaky in 2/20 main runs (10.0% > 5%); 30 reused main push(es) left out' });
+  });
+
+  test('the reuse check spends at most 40 job listings; past the cap or on a failed listing a run counts as before, and the report says so', () => {
+    // Value: protects=the reuse lookups stay bounded and fail toward the pre-#3725 count visibly; fails_when=lookups are uncapped, or a capped or failed lookup drops the run or stays silent; why_new=#3725 adds a per-run job listing; seam=GhClient fake; no_claim=none beyond protects
+    const runs = [...Array.from({ length: 20 }, (_, i) => run(400 + i, { created_at: day(1 + i * 0.1) })),
+      ...Array.from({ length: 60 }, (_, i) => run(500 + i, { created_at: day(8 + i * 0.5) }))];
+    const kind = (id: number) => (id === 400 ? 'flaky' : id === 401 ? 'real' : 'reused');
+    const client = reuseClient(runs, kind);
+    const window = readCiFlakeLedgers({ client, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
+    expect(window).toMatchObject({ runs: 20, flakyRuns: 1, skipped: 40, enforceable: true, since: day(8 + 39 * 0.5),
+      files: [{ file: 'test/a.test.ts', rate: 0.05, failing: false }] });
+    expect(window.note).toBe('18 run(s) with no artifacts not checked for main-push reuse (cap of 40 job listings reached); counted as before #3725');
+    expect(client.calls.filter(call => call.includes('/jobs')).length).toBe(40);
+    expect(client.calls.filter(call => call.includes('/artifacts')).length).toBe(60);
+    expect(flakeCheck(window).detail).toBe('no file above 5% over 20 main runs; 40 reused main push(es) left out; ' + window.note);
+
+    const failing = reuseClient(runs, kind, () => { throw new Error('gh api failed: HTTP 502: Bad Gateway'); });
+    const unchecked = readCiFlakeLedgers({ client: failing, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
+    expect(unchecked).toMatchObject({ runs: 20, skipped: 0, since: day(1 + 19 * 0.1), files: [{ file: 'test/a.test.ts', rate: 0.05 }] });
+    expect(unchecked.note).toStartWith('18 run(s) with no artifacts not checked for main-push reuse (GitHub API server error');
   });
 
   test('the job-summary table names files, counts and shards', () => {
@@ -188,8 +234,8 @@ describe('collectHealth over recorded fixture data', () => {
         { id: 4, name: 'redispatch', conclusion: 'skipped', started_at: null, completed_at: null }] })],
       [/workflows\/free-tests\.yml\/runs/, () => ({ workflow_runs: [run(60), run(61, { conclusion: 'failure' })] })],
       [/runs\/60\/artifacts/, () => ({ artifacts: [{ id: 61, name: 'flake-ledger-2', size_in_bytes: 10 }] })],
-      [/runs\/61\/artifacts/, () => ({ artifacts: [] })],
-      [/workflows\/windows-free-tests\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
+      [/runs\/61\/artifacts/, () => ({ artifacts: [{ id: 62, name: 'free-result-1', size_in_bytes: 10 }] })],
+      [/workflows\/windows-smoke\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
     ], {
       11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback', e2e: ['gate-a', 'gate-b'], judges: ['judge-a'],
         shadow: { e2e: ['gate-a', 'gate-b'], wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0 } } }) },
@@ -218,7 +264,7 @@ describe('collectHealth over recorded fixture data', () => {
     expect(value('census-redispatch').value).toBe('0 of 1 census(es) re-dispatched; longest paid slice job 20.0 min');
     expect(value('quarantine-evidence').value).toContain('insufficient evidence (not the same as healthy)');
     expect(value('free-flaky-pass-rate').value).toStartWith('50.0% (1/2 main runs');
-    expect(value('free-wall').value).toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) 0.0 min (1 runs)');
+    expect(value('free-wall').value).toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) 0.0 min (1 runs)');
     expect(value('free-serial').value).toBe('3 s over 3 files');
     for (const entry of report.metrics.filter(entry => entry.id !== 'net-complexity')) {
       expect(entry.rule.length).toBeGreaterThan(10);
@@ -287,10 +333,10 @@ describe('collectHealth over recorded fixture data', () => {
     const pr = (id: number, minutes: number, extra: Record<string, unknown> = {}) => run(id, { event: 'pull_request', head_branch: `pr-${id}`,
       run_started_at: day(1), updated_at: new Date(Date.parse(day(1)) + minutes * 60_000).toISOString(), ...extra });
     expect(wall([pr(70, 6), pr(71, 7), pr(74, 8), pr(72, 30, { conclusion: 'failure' }), run(73, { event: 'workflow_dispatch', run_started_at: day(3), updated_at: day(1) })]).value)
-      .toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) 7.0 min (3 runs)');
+      .toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) 7.0 min (3 runs)');
     expect(wall([run(73, { event: 'workflow_dispatch', run_started_at: day(3), updated_at: day(1) })]).value)
-      .toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) no successful PR runs in window');
-    expect(wall([]).rule).toContain('workflow_dispatch duration recordings excluded');
+      .toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) no successful PR runs in window');
+    expect(wall([]).rule).toContain('workflow_dispatch runs excluded');
   });
 
   test('a rate-limited API degrades every remote metric to a named unavailable reason, never 0, and keeps the issue open', () => {
