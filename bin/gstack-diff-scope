@@ -63,6 +63,7 @@ if [ -n "$HEAD_REF" ] && [ "${4:-}" = "--merged" ]; then MERGED_HEAD=true; fi
 # the scope (#3650). A remote-qualified name is taken as given.
 _NOT_BRANCH='^[0-9a-f]{7,64}$|[~^]|@\{|^[A-Z_]*HEAD$|^refs/'
 _QUALIFIED=false
+case "$BASE" in origin/*) _QUALIFIED=true ;; esac
 for _remote in $(git remote 2>/dev/null); do
   case "$BASE" in "$_remote"/*) _QUALIFIED=true ;; esac
 done

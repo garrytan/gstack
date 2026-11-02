@@ -311,7 +311,7 @@ Also check `RETRO_REF`: if it is not `origin/<default>` (local-only repo, missin
 **Optional inputs** (Read each file the script marks `present`):
 
 - `RETRO_CONTEXT: present` → Read the path it prints. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
-- `REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present` → Read each printed path (column 6: the bot; old rows are Greptile's). Filter to the window. Per bot, count `fix`, `fp`, `already-fixed`; signal = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines; with none in the window, skip the row.
+- `REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present` → Read each printed path (column 6: bot; old rows Greptile's). Filter to the window. Per bot, count `fix`, `fp`, `already-fixed`; signal = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines; with none in the window, skip the row.
 - `TODOS_FILE: present` → Read `TODOS.md`. Compute: total open TODOs (exclude the `## Completed` section), P0/P1 count, P2 count, items completed this period (Completed entries dated within the window), items added this period (cross-reference `COMMIT:` lines that touched TODOS.md).
 - `SKILL_USAGE_LOG: present` → Read the path it prints. Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
 - `EUREKA_LOG: present` → Read the path it prints. Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
