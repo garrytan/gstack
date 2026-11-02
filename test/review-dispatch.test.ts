@@ -685,12 +685,16 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     // line's start; and a long run of marks before a label stays linear.
     const p2: Array<[string, string]> = [['1. CRITICAL missing auth. Severity: Low', 'CRITICAL'], ['1. CRITICAL, missing auth on DELETE. Severity: Low', 'CRITICAL'],
       ['1. CRITICAL (api.ts:10) missing auth. Severity: Low', 'CRITICAL'], ['1. The P0 pilot table drops a row (t.md:3) Severity: Low', 'Low'],
-      ['1. The P0 pilot table drops a row\nSeverity Low', 'Low'], ['1. The P0 pilot table drops a row\n**Severity** Low', 'Low']];
+      ['1. The P0 pilot table drops a row\nSeverity Low', 'Low'], ['1. The P0 pilot table drops a row\n**Severity** Low', 'Low'],
+      ['1. Bypass x.ts:3 is CRITICAL (Severity: Low in pass 1)', 'CRITICAL'], ['Still open: x.ts:3 is CRITICAL, Severity: Low in pass 1 understated it', 'CRITICAL'],
+      ['1. lib/x.ts:42-58 CRITICAL: drops rows. Severity: Low', 'CRITICAL'], ['1. lib/x.ts:42:7 CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
+      ['1. (lib/x.ts:42, 50) CRITICAL: drops rows. Severity: Low', 'CRITICAL']];
     for (const [output, label] of p2) expect([output, parseFindings('outside-voice', output).map(f => f.label)]).toEqual([output, [label]]);
     const t0 = performance.now();
     for (const run of ['='.repeat(60), '-'.repeat(60), '|' + '-'.repeat(60) + '|', '🔴'.repeat(60), '. '.repeat(60), '-.'.repeat(60), '`'.repeat(60)])
       for (const tail of [' P0 pilot table', ' High-risk', ' CRITICAL findings follow', ' a.ts:3 P0 pilot']) parseFindings('outside-voice', run + tail + '. Severity: Low');
-    expect(performance.now() - t0).toBeLessThan(500);
+    parseFindings('outside-voice', '-'.repeat(16000) + ' P0 pilot table. Severity: Low');
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside

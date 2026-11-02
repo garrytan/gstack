@@ -69,17 +69,17 @@ export interface Stated { severity?: string; blocks?: string }
 const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
 /**
  * A finding's own `Severity` field: at the line's start (its colon optional there, "Severity Low"), or after a separator with its colon
- * ("1. Drops rows (q.ts:7). Severity: Low", "(t.md:3) Severity: Low", "- Severity: P0"). With one present a severity word in the body never raises the label (GST-976); prose that mentions a
- * severity ("pass 1 had Severity: Low", "filed at severity low") is not a field.
+ * ("1. Drops rows (q.ts:7). Severity: Low", "(t.md:3) Severity: Low", "- Severity: P0"), its label closing the clause. With one present a severity word in the body never raises the label (GST-976); prose that mentions a
+ * severity ("pass 1 had Severity: Low", "filed at severity low", "(Severity: Low in pass 1)") is not a field.
  */
-const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:)\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
+const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:)\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks))`, 'gi');
 /**
  * A label leading its line past list, quote, heading, emphasis and emoji marks (one mark per step, so a long divider stays linear)
  * and an optional file:line, closed by a mark or a separator, or by a space, comma or parenthesis after an all-caps word ("[P0] …",
  * "1. **High**: …", "### CRITICAL: …", "1. api.ts:10 CRITICAL: …", "1. CRITICAL missing auth"): the reader's own label, which a
  * Severity field never lowers. "P0 pilot …" is not one.
  */
-const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:[\\w./-]+:\\d+[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$|(?<=[A-Z]{3})[\\s,(.])`, 'u');
+const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:\\w[\\w./-]*:\\d+(?:[-–:,]\\s*\\d+)*[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$|(?<=[A-Z]{3})[\\s,(.])`, 'u');
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
 function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
