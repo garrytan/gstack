@@ -744,7 +744,10 @@ predictions with his answers.
   checkpoint taken at a gate holds its record. A whole-gate carry asks nothing,
   so it gets no shadow. Interactive `/autoplan` and CEO-only runs write none.
   A shadow failure (`budget`, `no_key`, `timeout`, `http`, `network`,
-  `truncated`, `unsafe_dir`, `locked`) never blocks the gate or the answer.
+  `truncated`, `unsafe_dir`, `locked`, `internal`) never blocks the gate or the answer. A
+  failure while publishing the record (`locked` or `internal`) is journaled
+  (`shadow_failed`) under the run lock and never throws; if the lock stays
+  taken, the lease expires and the next command settles that revision.
 - **The lease.** The run lock is not held during the call: the command takes
   a lease (`shadow/r<rev>.pending`, with its pid, host and deadline) under the
   lock, calls the model, then retakes the lock (waiting up to 30 seconds) to
@@ -763,7 +766,8 @@ predictions with his answers.
   version, the page's tokens and cost, and `audit`. It is written once per
   revision with a link, so a second writer never overwrites it, and its sha256
   is journaled (`shadow_recorded`). `gstack-artifact validate <run.json>`
-  checks each record against that hash and its schema.
+  checks each record against that hash and its schema, and reports a
+  journaled revision whose record file is missing as `ARTIFACT_STALE`.
 - **The 10% audit mark.** A `decide` row carries `audit: true` when
   sha256(salt + decision id) mod 1000 < 100, with the salt drawn once per run
   into `shadow/salt`. Nothing routes on it yet; the live switch that lets the
