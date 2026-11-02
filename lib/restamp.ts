@@ -525,7 +525,9 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
 /**
  * The stamp_paths stage. An explicit old version (the branch's own stamp, or
  * `--was`) is rewritten on every line of every stamp file; a tentative one
- * (a mention newer than the fork version) only on lines the branch added.
+ * (a mention newer than the fork version, or of the fork version itself: a
+ * row written at the version the branch forked from instead of a next one,
+ * GST-963) only on lines the branch added.
  * With no explicit version the branch's VERSION equals the base's: either it
  * never stamped, or it stamped X and the base reached X on its own (a PR that
  * lost its slot and merged the base). Then a stamp-form mention of the base
@@ -548,6 +550,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
   const tentative = new Set(tentativeMentions(new Map([...added].map(([rel, own]) => [rel, own.text])), plan.forkVersion, plan.newVersion, templates).filter(v => !explicit.has(v)));
   const equalBase = !o.was && !plan.branchStamp && plan.baseVersion !== plan.newVersion ? plan.baseVersion : null;
   if (equalBase) tentative.add(equalBase);
+  if (plan.forkVersion !== plan.newVersion && !explicit.has(plan.forkVersion)) tentative.add(plan.forkVersion);
   const moved = new Map<string, number>();
   const baseSide: string[] = [];
   let touched = 0;
@@ -590,7 +593,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
   const baseOwnNote = baseOwn.length ? `; ${baseOwn.reduce((n, [, own]) => n + own.notOwn, 0)} line(s) the base added since the fork point are the base's, not this branch's, and stay (${baseOwn.map(([rel, own]) => `${rel}: ${own.notOwn}`).join('; ')})` : '';
   sp.detail = (olds.length
     ? `${total} mention(s) in ${touched} file(s) (${olds.join(', ')} -> ${plan.newVersion})${equalNote}`
-    : `${searched}no tentative mention newer than the fork version ${plan.forkVersion}${equalBase ? ` and none of base ${equalBase} on a line this branch added` : ''}${equalNote}`) + baseOwnNote;
+    : `${searched}no tentative mention at or newer than the fork version ${plan.forkVersion}${equalBase ? ` and none of base ${equalBase} on a line this branch added` : ''}${equalNote}`) + baseOwnNote;
 }
 
 function applyToBranch(o: RestampOptions, staging: string, wtree: string, files: string[], journal: Journal, journalPath: string): JournalWrite[] {

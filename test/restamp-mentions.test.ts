@@ -157,7 +157,7 @@ describe('a PR whose VERSION already equals the base (gbrain #7640)', () => {
     expect(r.status).toBe(EXIT.ok);
     const sp = stageDetail(r.out, 'stamp_paths')!;
     expect(sp[1]).toBe('skipped');
-    expect(sp[2]).toBe('no tentative mention newer than the fork version 1.2.3.0 and none of base 1.2.3.0 on a line this branch added; VERSION equals base 1.2.3.0, so 1.2.3.0 moved only on lines this branch added and stayed on the base\'s own lines (src/notice.ts: 0 moved, 1 kept)');
+    expect(sp[2]).toBe('no tentative mention at or newer than the fork version 1.2.3.0 and none of base 1.2.3.0 on a line this branch added; VERSION equals base 1.2.3.0, so 1.2.3.0 moved only on lines this branch added and stayed on the base\'s own lines (src/notice.ts: 0 moved, 1 kept)');
     expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.3.0', 'base_row'), "  { since: 'TBD', id: 'mine', text: 'mine' },"]));
     expect(r.out).not.toMatch(/^[-+]  \{ since: '1\.2\.3\.0'/m);
   });
@@ -250,5 +250,34 @@ describe('a PR whose VERSION already equals the base (gbrain #7640)', () => {
     expect(r.status).toBe(EXIT.ok);
     expect(stageDetail(r.out, 'stamp_paths')![2]).toBe('2 mention(s) in 1 file(s) (1.2.4.0 -> 1.2.5.0)');
     expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.5.0', 'other'), row('1.2.3.0', 'base_row'), '', '', '', row('1.2.5.0', 'mine')]));
+  });
+});
+
+describe('a branch-added row left at the fork version after the base moved (GST-963, GBRA-277, gbrain #8425)', () => {
+  // Value: protects=a stamp-form row the branch added at its fork version (not a tentative next version) is its own
+  //   stale stamp once the base has moved past the fork, so --next moves it; the base's rows at that version, and a
+  //   branch-added row older than the fork, stay; fails_when=the stage skips with "no tentative mention newer than the
+  //   fork version" and leaves the row at the fork version (gbrain #8425), or moves a base row or a pre-fork row;
+  //   seam=lib/restamp.ts rewriteStampPaths; no_claim=finish's route (test/ship-rereview-triggers.test.ts)
+  test.each([['with the since: template', true], ['built-in quoted form alone', false]])('%s: the fork-version row moves, the base rows and an older branch row stay', (_, templates) => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-fork-row-', policy: policy(templates) }); repos.push(repo);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-mine');
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), '', row('1.2.2.0', 'older'), '', row('1.2.3.0', 'mine')]));
+    repo.git('commit', '-qam', 'mine: a row at the fork version');
+    makePr(repo, 'pr-other');
+    write(repo, NOTICE, notice([row('1.2.4.0', 'other'), row('1.2.3.0', 'base_row')]));
+    repo.git('commit', '-qam', 'other row');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-mine');
+    mergeMain(repo);
+    expect(readFile(repo, 'VERSION')).toBe('1.2.4.0\n');
+    const r = restamp(repo, ['--next']);
+    expect(r.status).toBe(EXIT.ok);
+    expect(stageDetail(r.out, 'stamp_paths')![1]).toBe('done');
+    expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.4.0', 'other'), row('1.2.3.0', 'base_row'), '', row('1.2.2.0', 'older'), '', row('1.2.5.0', 'mine')]));
   });
 });

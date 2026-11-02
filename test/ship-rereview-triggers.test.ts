@@ -206,7 +206,8 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
   // Value: protects=after a lost slot and a merge of the base, the restamp moves the branch's own stale stamp (older
   //   than the reviewed tree's VERSION, newer than its fork point) and finish routes that line as a stamp; a row the
   //   base carries (another PR's release at the same version), a merged base row the base later edited, or a branch row
-  //   at or older than the fork point, moved the same way still stops;
+  //   older than the fork point, moved the same way still stops; a branch row at the fork version is the branch's own
+  //   stale stamp and routes as metadata (GST-963, gbrain #8425);
   //   fails_when=stampedFiles floors every moved version at the reviewed tree's VERSION (behavior=1 on gbrain #8134) or
   //   drops the floor for base lines; seam=lib/ship-bin-common.ts stampedFiles; no_claim=the restamp writer
   const policy = JSON.stringify({ stamp_files: ['VERSION', 'src/notice.ts'], stamp_patterns: ["since: '{version}'"] });
@@ -239,7 +240,7 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
     const atFork = lostSlot('1.0.0.0');
     atFork.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], ['1.0.3.0', 'mine']) }); atFork.f.commit('moves a row at the fork version');
     const a = finish(atFork.f, atFork.reviewed, atFork.post, ['--reviewed-base', atFork.reviewedBase]);
-    expect([a.status, lineOf(a.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    expect([lineOf(a.stdout, 'ROUTE'), lineOf(a.stdout, 'DOCS')]).toEqual([expect.stringMatching(/ behavior=0 docs=0 metadata=2 tests=0 /), expect.not.stringContaining('src/notice.ts')]);
 
     const edited = lostSlot('1.0.1.0');
     edited.f.advanceBase({ VERSION: '1.0.2.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs, edited']) }); edited.f.git('fetch', '-q', 'origin');
