@@ -115,7 +115,11 @@ describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {
       expect([out, c.lines[0]!.stated?.blocks, ledgerBlockers(path.join(d, 'l.jsonl')).map(b => b.id)]).toEqual([out, undefined, ['outside-voice#1']]);
       fs.rmSync(d, { recursive: true, force: true });
     }
-    expect(labels('adversarial-native', '**1. Race in a.ts:3. FIXABLE.**\nIt blocks no attacker.\nSeverity: Low.', true)).toEqual(['CRITICAL']);
+    for (const raises of [true, false]) expect(labels('adversarial-native', '**1. Race in a.ts:3. FIXABLE.**\nIt blocks no attacker.\nSeverity: Low.', raises)).toEqual(['CRITICAL']);
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031j-'));
+    collect(path.join(d, 'l.jsonl'), 'specialist', JSON.stringify({ severity: 'CRITICAL', path: 'lib/auth.ts', line: 9, summary: 'the old guard, which a reader marked `Blocks: no`, is gone so any caller gets admin' }) + '\n', path.join(d, 'm.jsonl'));
+    expect(ledgerBlockers(path.join(d, 'l.jsonl')).map(b => b.id)).toEqual(['specialist#1']);
+    fs.rmSync(d, { recursive: true, force: true });
   });
   test('classify and the row count key on Blocks, and a raw holding both Blocks: yes and no blocks', () => {
     expect(isBlocking({ severity: 'CRITICAL', stated: { severity: 'Critical', blocks: 'no' } })).toBe(false);

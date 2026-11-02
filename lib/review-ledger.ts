@@ -59,7 +59,6 @@ const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)\d+[.)]\s/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
-const BLOCKS_NO = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*no(?![A-Za-z0-9-])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
@@ -84,9 +83,9 @@ const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Sever
 const FIELD_LABELS = new RegExp(ANY_LABEL.source, 'gi');
 const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:\\w[\\w./-]*:\\d+(?:[-–:,]\\s*\\d+)*[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$|(?<=[A-Z]{3})[\\s,(.])`, 'u');
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
-/** A reader's `Blocks` field as it can lower a count (GST-1031): its colon required, so prose ("blocks no other writer") never does. */
+/** A prose reader's `Blocks` field as it can lower a count (GST-1031): its colon required, so prose ("blocks no other writer") never does, and a JSON finding (no Blocks field in its schema) never has one. */
 const BLOCKS_FIELD = /(?<![A-Za-z0-9])Blocks\**\s*:\s*\**\s*(yes|no)(?![A-Za-z0-9-])/gi;
-export const statesNoBlocks = (raw: string) => { const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
+export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{')) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
  * A summary candidate (GST-1031): a prose finding whose every severity word is denied ("so nothing is CRITICAL", "No CRITICAL issues")
  * or names a fix ("the test covers the CRITICAL fix"), with no lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE tag,
@@ -209,7 +208,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || BLOCKS_NO.test(f.raw);
+  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw);
   const relaxed = fixableRaises && role === 'adversarial-native' ? parseFindings(reader, output, false) : undefined;
   const statesSeverity = (raw: string) => { const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && !!rank(ls[0]); };
   return out.map((f, i) => {
