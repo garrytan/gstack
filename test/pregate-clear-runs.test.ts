@@ -223,6 +223,29 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(clearDecision(file, PLATFORM, { runUrl: `${url}/attempts/1?pr=1`, evidence: runOfWorkflow(repo, head, 'a.yml', { status: 'completed', conclusion: 'success', run_attempt: 2 }) }, repo.work)).toEqual({ receipt: `${url}/attempts/2`, attested: false });
   }, 120_000);
 
+  test('a reusable-workflow lane (workflow_call only) clears from a run of a caller whose job uses ./.github/workflows/<lane workflow>; an unrelated workflow still refuses, and no fix line dispatches a workflow without workflow_dispatch (GST-971)', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const base = await pregateAt(repo);
+    const wf = (name: string, text: string) => { fs.mkdirSync(path.join(repo.work, '.github/workflows'), { recursive: true }); fs.writeFileSync(path.join(repo.work, '.github/workflows', name), text); };
+    wf('r.yml', 'name: Reusable\non:\n  workflow_call:\n    inputs:\n      scope:\n        type: string\njobs:\n  job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo reusable\n');
+    wf('c.yml', 'name: Caller\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  native:\n    uses: ./.github/workflows/r.yml\n    with:\n      scope: full\n');
+    wf('u.yml', 'name: Unrelated\non: [push, workflow_dispatch]\njobs:\n  other:\n    uses: ./.github/workflows/other.yml\n');
+    const PLATFORM = 'r.yml/job';
+    const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'r.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
+    const url = 'https://github.com/fx/fx/actions/runs/300';
+    const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: `${url}/job/9`, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'u.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/u.yml, not .github/workflows/r.yml or a workflow that calls it (c.yml); ${PLATFORM} stays uncleared; fix: clear ${PLATFORM} with a run of its own workflow or of a workflow that calls it (c.yml): gh workflow run c.yml --ref <branch>, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', { status: 'completed', conclusion: 'failure' }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_not_success — run 300 attempt 1 concluded failure; ${PLATFORM} stays uncleared; fix: rerun c.yml (gh run rerun 300, or gh workflow run c.yml --ref <branch>), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', { status: 'in_progress', conclusion: null }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_in_progress — run 300 attempt 1 is in_progress; ${PLATFORM} stays uncleared; fix: wait for run 300 to finish green (or rerun c.yml if it fails), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
+    wf('c.yml', 'name: Caller\non:\n  pull_request:\njobs:\n  native:\n    uses: "./.github/workflows/r.yml" # reusable\n');
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'u.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/u.yml, not .github/workflows/r.yml or a workflow that calls it (c.yml); ${PLATFORM} stays uncleared; fix: clear ${PLATFORM} with a run of its own workflow or of a workflow that calls it (c.yml): neither r.yml nor its callers have a workflow_dispatch trigger, so push a commit that starts c.yml, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', { status: 'completed', conclusion: 'failure' }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_not_success — run 300 attempt 1 concluded failure; ${PLATFORM} stays uncleared; fix: rerun c.yml (gh run rerun 300), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+  }, 120_000);
+
   test('on this repository\'s own workflows the Windows obligation is windows-smoke.yml/windows-smoke: a windows-smoke.yml run clears it, a run of any other workflow is refused (GSTA-203)', async () => {
     const lanes = discoverLanes(path.resolve(import.meta.dir, '..'), 'linux');
     const owed = lanes.filter(l => l.tier === 'platform' && l.platform === 'windows' && l.runsTests && !l.manual);
