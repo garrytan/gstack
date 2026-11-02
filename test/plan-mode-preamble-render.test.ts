@@ -62,7 +62,7 @@ describe('every installed-skill render carries the plan-mode arg', () => {
 });
 
 describe('gstack-relink router re-render', () => {
-  const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
+  const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
   const SAFE = '## Plan Mode Safe Operations';
 
   function relinkFixture() {

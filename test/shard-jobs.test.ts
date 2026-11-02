@@ -10,11 +10,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  collectFreeTestFiles, createFreeCiPlan, eligibleFreeRetryFiles, parseCliOptions, runFreeShard, TREE_MUTATING, verifyFreeCiResults,
+  collectFreeTestFiles, createFreeCiPlan, eligibleFreeRetryFiles, parseCliOptions, runFreeShard, TREE_MUTATING, validateFreeCiPlan, verifyFreeCiResults,
   type FreeCiResult, type FreeShardOutcome,
 } from '../scripts/test-free-shards';
 import {
-  assertSoloSeedSample, assignSubShards, ciRunContext, FREE_JOBS_INVALID, mergeSubShardOutcomes, parseJobsFlag, parseJunitCounts,
+  assertSoloSeedSample, assignSubShards, ciRunContext, FREE_JOBS_INVALID, mergeSubShardOutcomes, parseJobsFlag, parseJunitCounts, plannedShardJobs, plannedShardJobsProblem,
   readJunitReport, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems, subShardTimeoutText, validateJobsForShard, type CiShardDeps, type RunShardOptions,
 } from '../scripts/lib/shard-jobs';
 
@@ -89,6 +89,52 @@ describe('--jobs validation (FREE_JOBS_INVALID)', () => {
   });
 });
 
+describe('per-shard k in the plan (--ci-plan --shard-jobs)', () => {
+  test('--shard-jobs belongs to --ci-plan only and takes the same positive whole numbers', () => {
+    const base = ['--ci-plan', 'plan.json', '--shards', '4'];
+    expect(parseCliOptions([...base, '--shard-jobs', '2']).shardJobs).toBe(2);
+    expect('shardJobs' in parseCliOptions(base)).toBe(false);
+    for (const raw of ['0', '2.5', 'x']) expect(() => parseCliOptions([...base, '--shard-jobs', raw])).toThrow(`${FREE_JOBS_INVALID}: --shard-jobs needs a positive whole number`);
+    expect(() => parseCliOptions(['--shard-jobs', '2'])).toThrow(`${FREE_JOBS_INVALID}: --shard-jobs needs --ci-plan`);
+    expect(() => parseCliOptions(['--ci-run', 'p.json', '--shard', '1', '--result', 'r.json', '--shard-jobs', '2'])).toThrow(FREE_JOBS_INVALID);
+  });
+
+  test('each shard plans min(k, its parallel files); the exclusive shard and one-file shards stay one child, and k = 1 keeps the plan id', () => {
+    const withExclusive = [...files, EXCLUSIVE];
+    const plain = createFreeCiPlan(withExclusive, 3, durations, 'revision-a');
+    expect(createFreeCiPlan(withExclusive, 3, durations, 'revision-a', 1)).toEqual(plain);
+    expect(plain.shards.every(shard => !('jobs' in shard))).toBe(true);
+    const planned = createFreeCiPlan(withExclusive, 3, durations, 'revision-a', 4);
+    expect(planned.id).not.toBe(plain.id);
+    expect(planned.shards.map(shard => shard.files)).toEqual(plain.shards.map(shard => shard.files));
+    const exclusiveShard = planned.shards.at(-1)!;
+    expect(exclusiveShard.files).toEqual([EXCLUSIVE]);
+    expect('jobs' in exclusiveShard).toBe(false);
+    for (const shard of planned.shards.slice(0, -1)) expect(shard.jobs).toBe(Math.min(4, shard.files.length) > 1 ? Math.min(4, shard.files.length) : undefined);
+    expect(() => validateFreeCiPlan(planned, withExclusive, 'revision-a')).not.toThrow();
+    expect(plannedShardJobs(['a', 'b', 'c'], 2, file => file === 'a')).toBe(2);
+    expect(plannedShardJobs(['a', 'b'], 4, file => file === 'a')).toBeUndefined();
+    expect(plannedShardJobs([], 4, () => false)).toBeUndefined();
+  });
+
+  test('a plan whose per-shard k is out of range is invalid, and every shard result must have run at its planned k', () => {
+    const isSerial = (file: string) => file === EXCLUSIVE;
+    expect(plannedShardJobsProblem({ shard: 1, files }, isSerial)).toBeNull();
+    expect(plannedShardJobsProblem({ shard: 1, files, jobs: 7 }, isSerial)).toBeNull();
+    for (const jobs of [1, 0, 8, 2.5, '2']) expect(plannedShardJobsProblem({ shard: 1, files, jobs }, isSerial)).toContain('CI shard 1 plans --jobs');
+    expect(plannedShardJobsProblem({ shard: 2, files: [EXCLUSIVE, files[0]], jobs: 2 }, isSerial)).toContain('for 1 parallel file(s)');
+    const plan = createFreeCiPlan(files, 1, durations, 'revision-a', 2);
+    expect(plan.shards[0].jobs).toBe(2);
+    const tampered = structuredClone(plan);
+    tampered.shards[0].jobs = 99;
+    expect(() => validateFreeCiPlan(tampered, files, 'revision-a')).toThrow();
+    const k1: FreeCiResult = { planId: plan.id, revision: 'revision-a', outcome: passed(plan.shards[0].files), retry: null };
+    expect(() => verifyFreeCiResults(plan, [k1])).toThrow('CI shard 1 ran at --jobs 1; the plan says 2');
+    const plainPlan = createFreeCiPlan(files, 1, durations, 'revision-a');
+    expect(() => verifyFreeCiResults(plainPlan, [{ ...k1, planId: plainPlan.id }])).not.toThrow();
+  });
+});
+
 describe('k = 1 golden: PR 2 changes nothing in CI', () => {
   test('one child over the whole planned shard with the same wall, one retry pass, and the same result keys', async () => {
     const h = harness(files);
@@ -160,7 +206,8 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
       summary: { testsRan: 16, filesRan: 8, sawTerminalSummary: true } });
     expect(result.subShards!.map(record => record.status)).toEqual(['passed', 'passed', 'passed', 'passed']);
     expect(h.retries).toHaveLength(1);
-    expect(() => verifyFreeCiResults(h.plan, [result])).not.toThrow();
+    expect(() => verifyFreeCiResults({ ...h.plan, shards: [{ ...h.shard, jobs: 3 }] }, [result])).not.toThrow();
+    expect(() => verifyFreeCiResults(h.plan, [result])).toThrow('CI shard 1 ran at --jobs 3; the plan says 1');
   });
 
   test('failures from every sub-shard are collected first, so k never multiplies the five-file retry cap', async () => {
@@ -263,7 +310,7 @@ describe('k > 1: merge, rejection and one retry pass per CI shard', () => {
   });
 
   test('--ci-verify rejects tampered sub-shard records', () => {
-    const plan = createFreeCiPlan(files, 1, durations, 'revision-a');
+    const plan = createFreeCiPlan(files, 1, durations, 'revision-a', 2);
     const shard = plan.shards[0];
     const assignments = assignSubShards(plan.id, shard, 2, () => false, packFiles => [packFiles.slice(0, 3), packFiles.slice(3)]);
     const merged = mergeSubShardOutcomes(shard, assignments.map(assignment => ({ assignment, outcome: passed(assignment.files) })), 10);
