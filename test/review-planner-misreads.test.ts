@@ -123,7 +123,7 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
   }, 60_000);
 
   // Value: protects=only an SVG made of drawing elements is data: anything that loads, links or declares outside that set stays code;
-  //   fails_when=an external image or stylesheet, an entity declaration, an animation or a CSS url() to another document reads as docs,
+  //   fails_when=an external image or stylesheet, an entity declaration, an external DTD, an animation or a CSS url() to another document reads as docs,
   //   including through a CSS escape or a zero-padded character reference (review pass 1 findings) or behind a stray quote that
   //   pairs with a later one (review pass 2 finding), or any CSS beyond declarations and url(#id) (Step 11 finding: image-set());
   //   seam=collectCommit + depthOfCommitInput
@@ -134,6 +134,8 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['an animation', '  <animate attributeName="x" from="0" to="10" dur="1s"/>'],
     ['a stylesheet processing instruction', '<?xml-stylesheet href="https://x.test/a.css"?>'],
     ['an entity declaration', '<!DOCTYPE svg [ <!ENTITY e SYSTEM "file:///etc/passwd"> ]>'],
+    ['an external DTD', '<!DOCTYPE svg SYSTEM "https://x.test/a.dtd">'],
+    ['an external DTD behind the SVG public identifier', '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "https://x.test/a.dtd">'],
     ['a CSS-escaped import', '  <style>@\\69mport "https://x.test/a.css";</style>'],
     ['a CSS-escaped url()', '  <rect style="fill: u\\72l(https://x.test/a.svg#g)"/>'],
     ['a zero-padded character reference import', '  <style>@&#0000000000105;mport "https://x.test/a.css";</style>'],

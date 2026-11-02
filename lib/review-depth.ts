@@ -79,8 +79,8 @@ const SVG_ELEMENTS = new Set([
   'fepointlight', 'fespecularlighting', 'fespotlight', 'fetile', 'feturbulence',
   'rdf', 'work', 'agent', 'type', 'date', 'format', 'creator', 'description', 'license',
 ]);
-/** Markup a drawing may hold besides elements: comments, CDATA, the XML declaration, and a DOCTYPE with no internal subset. */
-const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg\b[^>[]*>)/i;
+/** Markup a drawing may hold besides elements: comments, CDATA, the XML declaration, and a DOCTYPE that names no document but W3C's SVG DTD. */
+const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg(?:\s+PUBLIC\s+(["'])-\/\/W3C\/\/DTD SVG [\w .]+\/\/EN\1\s+(["'])https?:\/\/www\.w3\.org\/[\w.\/-]+\.dtd\2)?\s*>)/i;
 /**
  * What a drawing never holds: a named entity beyond the five XML ones, a backslash (a CSS escape such as @\69mport), a CSS
  * import, a url() to another document, a CSS expression or binding.

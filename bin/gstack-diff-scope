@@ -53,8 +53,9 @@ fi
 
 # The base as a commit (GST-884, mirroring lib/gate-diff/git.ts resolveBase from
 # GST-883): a branch name reads refs/remotes/<base> (origin/main as given), then
-# refs/remotes/<remote>/<base> that shares history with the head (origin first),
-# then refs/heads/<base>, all by full ref name, so a stale local main never widens
+# refs/remotes/origin/<base> that shares history with the head, then refs/heads/<base>
+# that does, then another remote's twin that does, then refs/heads/<base> as it is,
+# all by full ref name and in resolveBase's order, so a stale local main never widens
 # the scope and a tag named main or origin/main cannot stand in for the branch.
 # A sha, a relative ref (HEAD~1, main^2, @{u}) or a full refs/ name resolves as
 # given. Prints nothing when nothing resolves.
@@ -64,14 +65,15 @@ _is_branch_name() {
 }
 _commit() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
 _resolve_base() {
-  local ref="$1" head="$2" sha remote
+  local ref="$1" head="$2" sha loc remote
   if ! _is_branch_name "$ref"; then _commit "$ref"; return; fi
   sha=$(_commit "refs/remotes/$ref") && { echo "$sha"; return; }
-  for remote in $(git remote 2>/dev/null | grep -x origin; git remote 2>/dev/null | grep -vx origin); do
-    sha=$(_commit "refs/remotes/$remote/$ref") || continue
+  loc=$(_commit "refs/heads/$ref")
+  for remote in $(git remote 2>/dev/null | grep -x origin) ${loc:+:local} $(git remote 2>/dev/null | grep -vx origin); do
+    if [ "$remote" = :local ]; then sha=$loc; else sha=$(_commit "refs/remotes/$remote/$ref") || continue; fi
     git merge-base "$sha" "$head" >/dev/null 2>&1 && { echo "$sha"; return; }
   done
-  sha=$(_commit "refs/heads/$ref") && { echo "$sha"; return; }
+  [ -n "$loc" ] && { echo "$loc"; return; }
   _commit "$ref"
 }
 

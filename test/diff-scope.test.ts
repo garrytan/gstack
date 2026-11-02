@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs'
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { resolveBase } from '../lib/gate-diff/git';
 
 const SCRIPT = join(import.meta.dir, '..', 'bin', 'gstack-diff-scope');
 
@@ -379,6 +380,18 @@ describe('a bare base name reads origin/<base> when it exists (#3650)', () => {
     git('checkout', '-q', 'feature/test');
     expect(scopeAt(dir, 'main').SCOPE_BACKEND).toBe('true');
     expect(upstreamCommit).not.toBe('');
+  });
+
+  test('with origin/main unrelated, a related local main comes before a related other remote, the base resolveBase picks', () => {
+    const { dir, git } = behindBase('main');
+    git('remote', 'add', 'upstream', 'file:///nonexistent-upstream');
+    git('update-ref', 'refs/remotes/upstream/main', git('rev-parse', 'origin/main'));
+    git('checkout', '-q', '--orphan', 'island');
+    git('commit', '-q', '--allow-empty', '-m', 'unrelated');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    expect(resolveBase('main', dir, 'HEAD')?.sha).toBe(git('rev-parse', 'main'));
+    expect(scopeAt(dir, 'main').SCOPE_BACKEND).toBe('true');
   });
 });
 
