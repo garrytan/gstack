@@ -400,16 +400,25 @@ function reportDir(): Record<string, any> {
   const excluded = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, 'utf8') : '';
   if (!excluded.split(/\r?\n/).includes('/.gstack/tmp/')) fs.appendFileSync(excludeFile, `${excluded && !excluded.endsWith('\n') ? '\n' : ''}/.gstack/tmp/\n`);
   const parent = path.join(repoRoot, '.gstack', 'tmp', 'qa-reports');
-  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  for (const dir of [path.join(repoRoot, '.gstack'), path.dirname(parent), parent]) {
+    try {
+      if (fs.lstatSync(dir).isSymbolicLink()) throw new QaEvidenceError(`report-dir refuses the linked ${path.relative(repoRoot, dir)}`);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw error;
+      fs.mkdirSync(dir, { mode: 0o700 });
+    }
+  }
+  const ignored = spawnSync('git', ['check-ignore', '-q', path.join(parent, 'report.md')], { cwd: repoRoot, encoding: 'utf8', timeout: 5000 });
+  if (ignored.status !== 0) throw new QaEvidenceError('report-dir: .gstack/tmp is not git-ignored here (a .gitignore rule overrides info/exclude)');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   for (let n = 1; ; n++) {
     const dir = path.join(parent, `run-${stamp}${n > 1 ? `-${n}` : ''}`);
     try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (error: any) { if (error?.code === 'EEXIST') continue; throw error; }
-    return { action: 'report-dir', status: 'complete', reportDir: dir, exitCode: 0 };
+    return { action: 'report-dir', status: 'complete', reportDir: qaEvidenceRoot(dir), exitCode: 0 };
   }
 }
 
-const QA_EVIDENCE_USAGE = 'report-dir (prints a fresh git-excluded report root for /review and /ship) | capture ROOT ID [--public] --deadline FILE|--timeout-ms MS [--after PREVIOUS_CAPTURE --hypothesis TEXT] -- COMMAND ARGS (--after publishes checkpoint ID linking PREVIOUS_CAPTURE to this probe; required after the first complete capture unless a checkpoint was published) | checkpoint ROOT ID CAPTURE OBSERVATION_COMMAND HYPOTHESIS NEXT_COMMAND | checkpoint ROOT ID INTENT_FILE | materialize ROOT ANNOTATIONS (annotations: {evidence: [{capture, command, contract, expected, classification: pass|superseded|product-defect|fail|setup-blocked|blocked|inconclusive}], limits: [..]}; revision, runtime, cwd and learning are filled in)';
+const QA_EVIDENCE_USAGE = 'report-dir (prints a fresh git-excluded report root for /ship QA) | capture ROOT ID [--public] --deadline FILE|--timeout-ms MS [--after PREVIOUS_CAPTURE --hypothesis TEXT] -- COMMAND ARGS (--after publishes checkpoint ID linking PREVIOUS_CAPTURE to this probe; required after the first complete capture unless a checkpoint was published) | checkpoint ROOT ID CAPTURE OBSERVATION_COMMAND HYPOTHESIS NEXT_COMMAND | checkpoint ROOT ID INTENT_FILE | materialize ROOT ANNOTATIONS (annotations: {evidence: [{capture, command, contract, expected, classification: pass|superseded|product-defect|fail|setup-blocked|blocked|inconclusive}], limits: [..]}; revision, runtime, cwd and learning are filled in)';
 
 export async function qaEvidenceMain(args: string[]): Promise<number> {
   return withQaReceiptOutput(false, 'qa-evidence-receipt', value => value.event === 'observation'
@@ -422,7 +431,9 @@ export async function qaEvidenceMain(args: string[]): Promise<number> {
         return 0;
       }
       if (action === 'report-dir' && args.length === 1) {
-        emit('stdout', reportDir());
+        let created: Record<string, any>;
+        try { created = reportDir(); } catch (error: any) { throw error instanceof QaEvidenceError ? error : new QaEvidenceError(`report-dir failed: ${error?.code ?? 'unknown error'}`); }
+        emit('stdout', created);
         return 0;
       }
       const root = qaEvidenceRoot(reportRoot);

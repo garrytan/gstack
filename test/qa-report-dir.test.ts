@@ -61,6 +61,32 @@ test('each report-dir call owns a fresh run so a second QA run never overwrites 
   expect(fs.readdirSync(second)).toEqual([]);
 });
 
+test('report-dir refuses a linked .gstack instead of creating directories through it', () => {
+  const f = product();
+  const elsewhere = fs.mkdtempSync(path.join(ROOT, 'elsewhere-'));
+  fs.symlinkSync(elsewhere, path.join(f.root, '.gstack'));
+  const r = f.tool('gstack-qa-evidence', 'report-dir');
+  expect(r.status).toBe(2);
+  expect(r.stderr).toContain('report-dir refuses the linked .gstack');
+  expect(fs.readdirSync(elsewhere)).toEqual([]);
+});
+
+test('report-dir refuses when a product .gitignore un-ignores .gstack/tmp', () => {
+  const f = product();
+  fs.writeFileSync(path.join(f.root, '.gitignore'), '!/.gstack/tmp/\n!/.gstack/tmp/**\n');
+  const r = f.tool('gstack-qa-evidence', 'report-dir');
+  expect(r.status).toBe(2);
+  expect(r.stderr).toContain('.gstack/tmp is not git-ignored here');
+});
+
+test('report-dir names the filesystem cause when .gstack is not a directory', () => {
+  const f = product();
+  fs.writeFileSync(path.join(f.root, '.gstack'), 'not a directory\n');
+  const r = f.tool('gstack-qa-evidence', 'report-dir');
+  expect(r.status).toBe(2);
+  expect(r.stderr).toContain('report-dir failed: ENOTDIR');
+});
+
 test('report-dir refuses outside a git work tree instead of guessing a location', () => {
   const outside = fs.mkdtempSync(path.join(ROOT, 'plain-'));
   const r = spawnSync(process.execPath, [path.join(BIN, 'gstack-qa-evidence'), 'report-dir'], { cwd: outside, encoding: 'utf8', timeout: 15_000, env: { ...process.env, GIT_CEILING_DIRECTORIES: ROOT } });
@@ -71,7 +97,7 @@ test('report-dir refuses outside a git work tree instead of guessing a location'
 
 test('/ship Step 9.2.1 resolves REPORT_DIR through report-dir, not the product tree', () => {
   const ctx: TemplateContext = { host: 'claude', skillName: 'ship', tmplPath: '', paths: HOST_PATHS.claude };
-  expect(RESOLVERS.QA_REVIEW(ctx)).toContain('that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded');
+  expect(RESOLVERS.QA_REVIEW(ctx)).toContain('set it to the `reportDir` that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded');
   const rendered = fs.readFileSync(path.resolve(import.meta.dir, '../ship/sections/review-army.md'), 'utf8');
   expect(rendered).toContain('gstack-qa-evidence report-dir` prints: git-excluded');
 });

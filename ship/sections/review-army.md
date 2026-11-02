@@ -594,7 +594,7 @@ If the Red Team fails or times out, confirm it stopped and record its review as 
 
 Only the parent runs report-only discovery.
 Never overwrite another run's reports. Batch only independent Reads.
-Without a caller REPORT_DIR, use the `reportDir` that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded, so QA never changes the reviewed tree.
+Without a caller REPORT_DIR, set it to the `reportDir` that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded, so QA never changes the reviewed tree.
 
 **1. Load methods before any QA or explicit-verification probe.**
 
