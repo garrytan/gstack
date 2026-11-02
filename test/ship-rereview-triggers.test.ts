@@ -705,6 +705,19 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
     expect([off.status, off.stdout]).toEqual([3, expect.stringContaining(`STOP: --review-loop-exception: fix_check.head eeeeeeeeeeee is not HEAD or an ancestor of it`)]);
     const bad = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { reason: '' })}`]);
     expect([bad.status, bad.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: review_loop_exception.reason must be a non-empty one-line string')]);
+    const missing = finish(f, reviewed, post, ['--review-loop-exception', `@${path.join(f.root, 'no-such-record.json')}`]);
+    expect([missing.status, missing.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: ')]);
+  });
+
+  // Value: protects=fix_check.files only narrows the frozen scope; fails_when=a listed path the branch never touched at the
+  //   fix-check routes as accepted, or a touched path the list leaves out is accepted anyway; seam=finish's route
+  test('fix_check.files narrows the accepted scope and cannot add a path the branch had not touched at the fix-check', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/new.ts': 'export const n = 1;\n' }); f.commit('a new file after the fix-check');
+    const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: ['src/x.ts', 'src/new.ts'] } })}`]);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0 accepted=1$/);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toStartWith('REVIEW_LOOP_EXCEPTION: accepted src/x.ts (');
+    expect([r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
   });
 });
 

@@ -32,7 +32,7 @@ export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (s
       Step 15's release commit, Step 16 stages 1-4 (your builds, the reviewed-tree route, docs freshness,
       each lane's receipt run once if stale) and the pregate on the stamped tree; --reviewed-base (the merge base
       saved with the reviewed tree) routes paths only the base moved as base=, and an adjacent base edit as context=;
-      --review-loop-exception (the record write takes) routes paths the branch touched at fix_check.head and changed since as accepted=
+      --review-loop-exception (the record write takes) routes paths the branch touched at fix_check.head (narrowed to fix_check.files when listed) and changed since as accepted=
   push --branch <branch-name> [--gate-open <n>] [--gate-open-approved]
       Step 17 after its guard block: the saved-branch check, the open-gate check, the sealed guard, the idempotency check, git push -u
 
@@ -201,9 +201,11 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     const head = loop.fix_check.head;
     const since = touchedPaths(cwd, head, now);
     const fork = git(cwd, ['merge-base', baseRef, head]).stdout.trim();
-    const scope = loop.fix_check.files ? new Set(loop.fix_check.files) : fork ? touchedPaths(cwd, fork, head) : null;
-    if (!since || !scope) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
-    by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && scope.has(p)).sort();
+    const atHead = fork ? touchedPaths(cwd, fork, head) : null;
+    if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
+    const listed = loop.fix_check.files;
+    const forced = new Set([...gated, ...(packetBody?.over ?? [])]);
+    by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && atHead.has(p) && (!listed || listed.includes(p)) && !forced.has(p)).sort();
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
