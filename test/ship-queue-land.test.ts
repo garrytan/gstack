@@ -591,7 +591,12 @@ describe('land: one pass, base, lock and history', () => {
     const fx = setup({ ...POLICY, history: 'merge-only', review_exclude_paths: ['data/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION });
     const head = openPr(fx, '15', { edit: work => { fs.mkdirSync(path.join(work, 'data', 'a'), { recursive: true }); fs.writeFileSync(path.join(work, 'data', 'a', 'result.json'), '{"ok": true}\n'); } });
     fx.repo.git('checkout', '-q', '--detach', head);
-    const { depth, exclude } = receiptReviewAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head);
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'ready-state');
+    let review: ReturnType<typeof receiptReviewAtHead>;
+    try { review = receiptReviewAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head); }
+    finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    const { depth, exclude } = review;
     fx.repo.git('checkout', '-q', '--detach', 'origin/main');
     const recorded = receiptExclude(exclude);
     expect(recorded?.excluded).toBe(1);

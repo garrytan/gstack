@@ -359,5 +359,27 @@ describe('a branch cannot hide code under a base pattern', () => {
       expect(x.kept).toContainEqual({ path: 'receipts/a/shot.png', reason: 'consumer-scan-unavailable' });
     } finally { fs.chmodSync(gz, 0o644); }
   }, 120_000);
+
+  // Value: protects=the receipt (head blobs) and the plan (live files) agree on binary content past 256 MB of blobs; fails_when=
+  //   one git cat-file --batch read stops at its buffer and later blobs fall through to kept code, so the digests differ and
+  //   receipt write refuses on every rerun; why_new=/ship review of the GST-508 wave (Red Team, reproduced at 280 MB); seam=binaryContent
+  test('head mode reads each blob\'s first 8,000 bytes, so blobs after 256 MB of others are still binary', () => {
+    const repo = census();
+    fs.mkdirSync(path.join(repo.work, 'receipts/big'), { recursive: true });
+    const big = Buffer.alloc(270 * 1024 * 1024);
+    fs.writeFileSync(path.join(repo.work, 'receipts/big/a.dat'), big);
+    big[big.length - 1] = 1;
+    fs.writeFileSync(path.join(repo.work, 'receipts/big/c.dat'), big);
+    fs.writeFileSync(path.join(repo.work, 'receipts/big/b.dat'), GZ);
+    commit(repo, {});
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const atHead = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    const l = collectLive(repo.work, 'origin/main');
+    const live = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: l.mergeBase!, perPath: l.perPath, added: l.added, classRoot: repo.work, gateTagged: new Set(), context: 'test' });
+    expect(atHead.state === 'active' && [...atHead.excluded].filter(p => p.startsWith('receipts/big/')).sort()).toEqual(['receipts/big/a.dat', 'receipts/big/b.dat', 'receipts/big/c.dat']);
+    expect(atHead.state === 'active' && live.state === 'active' && atHead.record.digest).toBe(live.state === 'active' ? live.record.digest : 'none');
+  }, 180_000);
 });
 

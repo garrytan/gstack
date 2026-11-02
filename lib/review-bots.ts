@@ -53,7 +53,7 @@ export interface BotComment {
 interface GhUser { login?: string; type?: string }
 interface GhItem {
   id: number; user?: GhUser | null; body?: string | null; html_url?: string; path?: string;
-  line?: number | null; position?: number | null; in_reply_to_id?: number | null; submitted_at?: string | null;
+  line?: number | null; position?: number | null; in_reply_to_id?: number | null; submitted_at?: string | null; subject_type?: string | null;
 }
 interface HistoryRow { repo: string; type: string; pattern: string; category: string; bot: string }
 
@@ -144,7 +144,7 @@ function fetch(env: ReviewBotsEnv, args: string[]): number {
     records.push({ id: item.id, bot, source, url: item.html_url ?? "", body: item.body ?? "", suppress_candidates: [], ...extra });
   for (const c of line as GhItem[]) {
     const bot = ownerOf(c, bots);
-    if (bot && c.in_reply_to_id == null && c.position != null) add(c, bot, "line", { path: c.path, line: c.line ?? null });
+    if (bot && c.in_reply_to_id == null && (c.position != null || c.subject_type === "file")) add(c, bot, "line", { path: c.path, line: c.line ?? null });
   }
   for (const c of top as GhItem[]) {
     const bot = ownerOf(c, bots);

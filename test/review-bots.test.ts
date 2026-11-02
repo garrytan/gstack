@@ -109,6 +109,16 @@ describe("fetch", () => {
     expect(r.calls.filter(c => c[0] === "gh" && c[1] === "api").every(c => c.includes("--paginate") && !c.includes("--slurp"))).toBe(true);
   });
 
+  test("a file-level bot comment (no line position) is triaged; an outdated line comment is not", () => {
+    const r = run({ line: [[
+      { id: 1, user: bot("coderabbitai[bot]"), path: "auth.ts", line: null, position: null, subject_type: "file", html_url: "u1", body: "missing authorization check" },
+      { id: 2, user: bot("coderabbitai[bot]"), path: "a.ts", line: 4, position: null, subject_type: "line", html_url: "u2", body: "outdated" },
+    ]] }, "fetch");
+    expect(r.code).toBe(0);
+    expect(r.records.map(c => [c.id, c.source, c.path])).toEqual([[1, "line", "auth.ts"]]);
+    expect(r.text).toContain("coderabbit=1");
+  });
+
   test("humans named like a bot and deleted accounts are never triaged", () => {
     const r = run({ top: [[
       { id: 1, user: human("greptile-ci"), body: "fp please" },

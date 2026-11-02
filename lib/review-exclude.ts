@@ -141,18 +141,11 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
     const sha = real(m.newSha) ? m.newSha : real(m.oldSha) ? m.oldSha : '';
     if (sha) bySha.set(sha, [...(bySha.get(sha) ?? []), p]);
   }
-  if (!bySha.size) return out;
-  const r = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: [...bySha.keys()].join('\n') + '\n', timeout: 120_000, maxBuffer: MAX_BUFFER });
-  const buf = r.stdout ?? Buffer.alloc(0);
-  let at = 0;
-  while (at < buf.length) {
-    const nl = buf.indexOf(10, at);
-    if (nl < 0) break;
-    const [sha, , size] = buf.subarray(at, nl).toString('utf8').split(' ');
-    const n = Number(size);
-    if (!Number.isFinite(n)) { at = nl + 1; continue; }
-    if (buf.subarray(nl + 1, nl + 1 + Math.min(n, 8000)).includes(0)) for (const p of bySha.get(sha!) ?? []) out.add(p);
-    at = nl + 1 + n + 1;
+  for (const [sha, paths] of bySha) {
+    const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd: i.root, timeout: 30_000, maxBuffer: 8000 });
+    const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
+    const binary = read && (r.stdout ?? Buffer.alloc(0)).subarray(0, 8000).includes(0);
+    for (const p of paths) if (!read) unread.add(p); else if (binary) out.add(p);
   }
   return out;
 }
