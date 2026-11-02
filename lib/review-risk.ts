@@ -59,7 +59,7 @@ export const SECURITY_LINE = [
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */
-export const SECURITY_JOINED = [/\brm(?:Sync)?\s*\([\s\S]{0,500}?recursive\s*:\s*true/];
+export const SECURITY_JOINED = [/\brm(?:Sync)?\s*\((?:[\s\S]{0,500}?recursive\s*:\s*true|[^)]{501})/];
 export const SVG_PATH = /\.svg$/i;
 /** SVG text that can run code, read decoded and again with whitespace removed (java&#9;script: is javascript:); a file's changed lines are read joined, so a split attribute still counts. */
 export const SVG_ACTIVE = [/<(?:[\w.-]+:)?(?:script|foreignObject)\b/i, /(?:^|[\s"'/])on[a-z]+\s*=/i, /(?:java|vb)script:|data:text\/html/i];

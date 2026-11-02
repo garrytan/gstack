@@ -87,6 +87,7 @@ describe('the rm rule matches what R51 matched', () => {
     const split = (lines: string[]) => matchRisk({ codePaths: ['src/clean.ts'], added: { 'src/clean.ts': lines }, removed: {}, scopeAuth: false }).has('security');
     expect(split(['  fs.rmSync(path.join(root, "build-output-cache"), {', '    recursive: true,', '    force: true,', '  });'])).toBe(true);
     expect(split(['  await fs.promises.rm(', '    path.join(root, "cache"),', '    { recursive: true },', '  );'])).toBe(true);
+    expect(split(['  fs.rmSync(', '    dir,', '    /*' + 'x'.repeat(510) + '*/', '    { recursive: true },', '  );'])).toBe(true);
     expect(split(['  fs.rmSync(path.join(root, "file"), {', '    force: true,', '  });'])).toBe(false);
   });
 });
