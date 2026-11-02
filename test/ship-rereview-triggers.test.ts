@@ -718,6 +718,23 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
     expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0 accepted=1$/);
     expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toStartWith('REVIEW_LOOP_EXCEPTION: accepted src/x.ts (');
     expect([r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
+    const none = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: [] } })}`]);
+    expect([none.status, none.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: fix_check.files lists no paths')]);
+  });
+
+  // Value: protects=a test weakened after the fix-check is never owner-accepted, with or without --reviewed-base;
+  //   fails_when=finish accepts a gate-edited test (a .skip, a removed assertion) because no base sides were given; seam=finish's route
+  test('a gate-edited test after the fix-check still routes as behavior under the exception', () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); });\n" });
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    const post = snapshot(f);
+    f.write({ 'test/x.test.ts': "import { test } from 'bun:test';\ntest.skip('a', () => {});\n" }); f.commit('weaken the test after the fix-check');
+    for (const extra of [[], ['--reviewed-base', reviewedBase]]) {
+      const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`, ...extra]);
+      expect([r.status, lineOf(r.stdout, 'ROUTE'), r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/x.test.ts)')]).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
+    }
   });
 });
 

@@ -204,7 +204,8 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     const atHead = fork ? touchedPaths(cwd, fork, head) : null;
     if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
     const listed = loop.fix_check.files;
-    const forced = new Set([...gated, ...(packetBody?.over ?? [])]);
+    const unscanned = [...by.behavior, ...by.docs].filter(isTestCode);
+    const forced = new Set([...gated, ...(packetBody?.over ?? []), ...(gateEditedPaths(cwd, reviewed, now, unscanned) ?? unscanned)]);
     by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && atHead.has(p) && (!listed || listed.includes(p)) && !forced.has(p)).sort();
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
@@ -332,6 +333,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
     try { raw = JSON.parse(loopArg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, loopArg.slice(1)), 'utf8') : loopArg); } catch (e) { return r.stop(`--review-loop-exception: ${firstLine((e as Error).message)}`); }
     const parsed = parseReviewLoopException(raw);
     if (!parsed.ok) return r.stop(`--review-loop-exception: ${parsed.message}`);
+    if (Array.isArray((raw as { fix_check?: { files?: unknown } }).fix_check?.files) && !parsed.exception.fix_check.files) return r.stop('--review-loop-exception: fix_check.files lists no paths; omit it to accept the paths the branch touched at fix_check.head');
     if (git(cwd, ['merge-base', '--is-ancestor', parsed.exception.fix_check.head, 'HEAD']).status !== 0) return r.stop(`--review-loop-exception: fix_check.head ${parsed.exception.fix_check.head.slice(0, 12)} is not HEAD or an ancestor of it`);
     loop = parsed.exception;
   }
