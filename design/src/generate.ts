@@ -1,10 +1,12 @@
 /**
- * Generate UI mockups via OpenAI Responses API with image_generation tool.
+ * Generate UI mockups with the picked provider: OpenAI's Responses API with
+ * the image_generation tool, or Gemini's generateContent.
  */
 
-import { openaiUrl, requireApiKey } from "./auth";
+import { requireProvider, type ProviderKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
-import { imageRequestBody, modelRejectionHint } from "./models";
+import { modelRejectionHint } from "./models";
+import { geminiFailure, geminiSwitchFix, imageRequest, isOpenAiVerificationError, readImage } from "./provider";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
@@ -38,57 +40,48 @@ export interface GenerateResult extends RunAccounting {
 }
 
 /**
- * Call OpenAI Responses API with image_generation tool.
+ * One image call on the picked provider.
  * Returns the response ID and base64 image data.
  */
 async function callImageGeneration(
-  apiKey: string,
+  provider: ProviderKey,
   prompt: string,
   size: string,
   quality: string,
 ): Promise<{ responseId: string; imageData: string }> {
+  const request = imageRequest(provider, { prompt, size, quality });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
-    const response = await receiptedFetch("generate-image-request", openaiUrl("responses"), {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: imageRequestBody(prompt, { size, quality }),
-      signal: controller.signal,
-    });
+    const response = await receiptedFetch("generate-image-request", request.url, { ...request.init, signal: controller.signal }, globalThis.fetch, request.receipt);
 
     if (!response.ok) {
       const error = await response.text();
-      if (response.status === 403 && error.includes("organization must be verified")) {
+      if (provider.provider === "gemini") throw new Error(geminiFailure(provider, response.status, error, "image").message);
+      if (isOpenAiVerificationError(response.status, error)) {
         throw new Error(
           "OpenAI organization verification required.\n"
           + "Go to https://platform.openai.com/settings/organization to verify.\n"
-          + "After verification, wait up to 15 minutes for access to propagate.",
+          + "After verification, wait up to 15 minutes for access to propagate.\n"
+          + geminiSwitchFix(),
         );
       }
       throw new Error(`API error (${response.status}): ${error.slice(0, 200)}${modelRejectionHint(response.status, error, "image")}`);
     }
 
     const data = await response.json() as any;
+    const image = readImage(provider, data);
 
-    const imageItem = data.output?.find((item: any) =>
-      item.type === "image_generation_call"
-    );
-
-    if (!imageItem?.result) {
+    if (!image) {
       throw new Error(
-        `No image data in response. Output types: ${data.output?.map((o: any) => o.type).join(", ") || "none"}`
+        provider.provider === "openai"
+          ? `No image data in response. Output types: ${data.output?.map((o: any) => o.type).join(", ") || "none"}`
+          : "No image data in response"
       );
     }
 
-    return {
-      responseId: data.id,
-      imageData: imageItem.result,
-    };
+    return image;
   } finally {
     clearTimeout(timeout);
   }
@@ -104,7 +97,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
   let selected: GenerateAttempt | null = null;
 
   try {
-    const apiKey = requireApiKey();
+    const provider = requireProvider();
     const prompt = options.briefFile
       ? parseBrief(options.briefFile, true)
       : parseBrief(options.brief!, false);
@@ -118,14 +111,14 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
       }
 
       const startTime = Date.now();
-      const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality);
+      const { responseId, imageData } = await callImageGeneration(provider, prompt, size, quality);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       const outcome = persistImage(imageData, options.output);
       const savedPath = recordOutcome(acct, outcome);
       if (!savedPath) break;
 
-      const session = createSession(responseId, prompt, savedPath);
+      const session = createSession(responseId, prompt, savedPath, provider.provider);
       const entry: GenerateAttempt = { path: savedPath, sessionFile: sessionPath(session.id), responseId };
       attempts.push(entry);
       console.error(`Generated (${elapsed}s, ${outcome.ok ? (outcome.bytes / 1024).toFixed(0) : 0}KB) → ${savedPath}`);
@@ -135,7 +128,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
         break;
       }
 
-      const checked = await checkMockup(savedPath, prompt);
+      const checked = await checkMockup(savedPath, prompt, { apiKey: provider });
       entry.check = checked;
       if (checked.pass) {
         console.error(checked.status === "skipped" ? `Quality check: SKIPPED — ${checked.issues}` : `Quality check: PASS`);

@@ -241,7 +241,12 @@ keeps the lease. `bin/gstack-lease list` shows `alive|dead|stale`, and
    clone too, through `GSTACK_CAPY_CLONED`).
 2. Preflight: `git`, `curl`, `node`, `jq`, then Bun. The project's pins
    (`--project <path>`, default the git toplevel of the current directory) are
-   read with the doctor's own parser (`bin/gstack-runtime-pins.ts`: engines,
+   read (a `--project` inside a repository resolves to that repository's git
+   toplevel, so `--project <repo>/<subdir>` means `<repo>`; outside a repository
+   it resolves to the directory's real path, and a value that is not a
+   directory, such as a repo slug, exits 2 with a usage error before anything
+   runs; the pins, the doctor and the install verdict all use the resolved
+   directory) with the doctor's own parser (`bin/gstack-runtime-pins.ts`: engines,
    packageManager, `.tool-versions`, `.bun-version` and CI `bun-version:` lanes
    for this platform). CI exact pins for this platform are alternatives: a
    repository may test several Bun versions (gstack's own CI pins 1.4.2 and

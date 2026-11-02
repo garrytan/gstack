@@ -27,7 +27,7 @@ import { NON_DOWNGRADABLE, PREGATE_CONFIG_PATH, userPolicyAbsent } from './confi
 import { sha256, withFingerprint } from './context';
 import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnlyTree } from './remote-receipt';
 import { resolveBaseBranch } from '../ship-policy';
-import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
+import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
@@ -37,12 +37,12 @@ export const PREGATE_TIER2 = ['ratchets', 'lint', 'links', 'hermetic', 'patches'
 
 export interface RunOptions { stage: Stage | 'all'; only?: string[]; run?: string }
 
-/** Apply the repo's `warn` downgrades: never `secrets`, and never a lane that could run here and failed. */
+/** Apply the repo's `warn` downgrades: never `secrets`. `lanes` applies its own (a touched file with no lane, after the selected tests ran), so nothing it fails is downgraded here. */
 export function applyDowngrades(ctx: PregateContext, result: CheckResult, def: CheckDef): CheckResult {
   if (result.status !== 'fail') return result;
   if (!def.downgradable || (NON_DOWNGRADABLE as readonly string[]).includes(def.id)) return result;
   if (!ctx.config.warn.includes(def.id)) return result;
-  if (def.id === 'lanes' && result.code === 'PREGATE_LANE_FAILED') return { ...result, detail: `${result.detail} (required lane; warn downgrade does not apply)` };
+  if (def.id === 'lanes') return result.code === 'PREGATE_LANE_FAILED' ? { ...result, detail: `${result.detail} (required lane; warn downgrade does not apply)` } : result;
   return { ...result, status: 'warn', detail: `${result.detail} (downgraded to warn by ${ctx.configLabel})` };
 }
 
@@ -217,7 +217,10 @@ export type ClearDecision = { receipt: string; attested: boolean; substitution?:
  * tree and the substitution recorded; when any differing path is not a stamp,
  * the tree mismatch refuses as before. A `test_backend/<backend>` obligation
  * has no machine-checkable receipt, so its run URL is recorded as attested.
- * Platform lanes take a run URL or an evidence-bundle lane label.
+ * Platform lanes take a run URL or an evidence-bundle lane label. When the run
+ * evidence is readable, a run URL must name a run of this repository whose
+ * workflow file is the lane's own; a run of another workflow, an unreadable
+ * run or a URL that is not an Actions run refuses (GSTA-203).
  *
  * `--run` (and `--run-url` on a lane the base branch profiles) goes to
  * clearByRuns, which accepts only verified Actions runs; a profiled lane
@@ -252,6 +255,17 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
   if (target.workflow === 'test_backend') {
     if (!input.runUrl) return { refused: 'usage', message: `${lane} clears with --run-url <url>` };
     return { receipt: `attested:${input.runUrl}`, attested: true };
+  }
+  if (input.runUrl && input.evidence) {
+    const repo = input.evidence.repo;
+    const invalid = (why: string, fix: string): ClearDecision => ({ refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${why}; ${lane} stays uncleared`, fix });
+    const id = parseRunRef(input.runUrl.replace(/[?#].*$/, ''), repo);
+    if (id === null) return invalid(`run_ref_invalid — ${JSON.stringify(input.runUrl)} is not a run id or a run URL on ${repo}`, `pass the run's numeric id or https://github.com/${repo}/actions/runs/<id>`);
+    let run: ApiRun | null;
+    try { run = input.evidence.deps.run(id); }
+    catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
+    const want = `.github/workflows/${target.workflow}`;
+    if (run?.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`, `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);
   if (!receipt) return { refused: 'usage', message: `${lane} clears with --run-url <url> or --bundle-lane <label>` };

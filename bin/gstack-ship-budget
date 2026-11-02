@@ -38,7 +38,7 @@ const ctx = { env: process.env, cwd: process.cwd() };
 const commands: Record<string, () => Outcome> = {
   start: () => cmdStart(rest, ctx), note: () => cmdNote(rest, ctx), check: () => cmdCheck(rest, ctx), settle: () => cmdSettle(rest, ctx), release: () => cmdSettle(rest, ctx, true),
   handoff: () => cmdHandoff(rest, ctx), launch: () => cmdLaunch(rest, ctx), 'verify-handoff': () => cmdVerifyHandoff(rest, ctx), return: () => cmdReturn(rest, ctx),
-  reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx), calls: () => cmdCalls(rest),
+  reconcile: () => cmdReconcile(rest, ctx), resume: () => cmdResume(rest, ctx), close: () => cmdClose(rest, ctx), calls: () => cmdCalls(rest, ctx),
 };
 if (!command || command === '--help' || command === '-h' || !commands[command]) {
   const lines = (await Bun.file(import.meta.path).text()).split('\n');
