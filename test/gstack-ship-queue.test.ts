@@ -370,7 +370,7 @@ describe('ready', () => {
     const pregate = pregateFor(repo, head);
     const shim = (body: string) => ghQueueShim(repo, { prs: { '1': { headRefOid: head, url: 'https://github.com/o/r/pull/1', body } }, checks: { [head]: green } });
     const base = repo.git('rev-parse', 'origin/main');
-    const depth = { gstack_version: '1.92.61.0', review_depth: { depth: 'full' as const, class: 'code', runtime_lines: 1, rules: '551486253e156572', base, registry: base, gate_scan: { tagged: 0, head }, reasons: ['runtime=1'], risk: [] } };
+    const depth = { gstack_version: '1.92.61.0', review_depth: { depth: 'full' as const, class: 'code' as const, runtime_lines: 1, rules: '551486253e156572', base, registry: base, gate_scan: { tagged: 0, head }, reasons: ['runtime=1'], risk: [] } };
     const targeted = (status: 'done' | 'failed') => ({ ...depth, review_targeted: { classes: ['auth' as const], rules: 'r', brief_sha: 'a'.repeat(64), product_patch_id: 'p', status, findings: 0, raised_by: 'targeted' } });
     const legacy = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(shippedBody('1', head, depth)));
     expect(line(legacy.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=auth receipt=legacy verdict=missing');
