@@ -118,7 +118,7 @@ repo with a release script, docs mentions and a mirror would set them.
 gstack itself no longer follows these steps. Since #3654 (v1.91.342.0) its
 policy sets [`changelog_fragments`](#changelog-fragments), so a gstack PR adds
 a fragment and never a version, and trains merge through
-[`train land`](#stamped-trains-under-changelog_fragments-train-land). The steps
+[`train land`](#train-land). The steps
 below are for a repo on `stamp-at-merge` whose policy has no
 `changelog_fragments`. Who does what there, for the PR author and for the
 thread running the merge queue:
