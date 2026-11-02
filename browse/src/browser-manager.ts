@@ -1231,7 +1231,7 @@ export class BrowserManager {
     const scope = this.tabScope.getStore();
     if (scope) {
       scope.tabId = id;
-      this.activeTabId = activeBefore;
+      if (this.activeTabId === id) this.activeTabId = activeBefore;
     } else this.activeTabId = id;
 
     // Record tab ownership for multi-agent isolation

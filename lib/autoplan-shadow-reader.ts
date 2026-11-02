@@ -82,15 +82,20 @@ export function renderShadowExport(r: ShadowExport): string[] {
 /** The private check behind gstack-artifact validate: each shadow record matches its journaled sha256 and its rows the schema. */
 export function validateShadow(runDir: string): ValidationError[] {
   const dir = shadowDir(runDir);
+  const journal = readJournal(runDir);
+  const missing = (present: Set<number>): ValidationError[] => [...new Set(journal.filter(r => r.event === 'shadow_recorded').map(r => Number(r.gate_rev)))]
+    .filter(rev => !present.has(rev))
+    .map(rev => ({ code: 'ARTIFACT_STALE', path: `shadow/${path.basename(recordFile(runDir, rev))}`, message: `the journal records gate_rev ${rev}, but its shadow record is missing` }));
   let st: fs.Stats;
-  try { st = fs.lstatSync(dir); } catch { return []; }
+  try { st = fs.lstatSync(dir); } catch { return missing(new Set()); }
   if (!st.isDirectory()) return [{ code: 'ARTIFACT_PATH_ESCAPE', path: 'shadow', message: 'the shadow folder is a symlink or not a directory' }];
   const errors: ValidationError[] = [];
-  const journal = readJournal(runDir);
+  const present = new Set<number>();
   for (const name of fs.readdirSync(dir)) {
     const m = RECORD_RE.exec(name);
     if (!m) continue;
     const rev = Number(m[1]);
+    present.add(rev);
     const rel = `shadow/${name}`;
     const bytes = fs.readFileSync(path.join(dir, name));
     const recorded = journal.filter(r => r.event === 'shadow_recorded' && r.gate_rev === rev).at(-1);
@@ -104,7 +109,7 @@ export function validateShadow(runDir: string): ValidationError[] {
       if (problem) errors.push({ code: 'ARTIFACT_SCHEMA', path: `${rel}:${i + 1}`, message: problem });
     });
   }
-  return errors;
+  return [...errors, ...missing(present)];
 }
 
 function rowProblem(r: Record<string, any>, rev: number): string | undefined {

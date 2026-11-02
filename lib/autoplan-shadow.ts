@@ -417,6 +417,8 @@ function publish(out: string, claim: ShadowClaim, r: { rows?: Array<Record<strin
     }, { waitMs: RELOCK_MS });
   } catch (e: any) {
     const code = e instanceof RunError && e.code === 'RUN_LOCKED' ? 'locked' : 'internal';
+    if (!resultRow(readJournal(out), rev)) journal(out, { event: 'shadow_failed', gate_rev: rev, code, detail: String(e?.message ?? e).slice(0, 500), attempts, usd, retrospective: claim.retrospective });
+    dropLease(out, rev);
     return { status: 'failed', code, line: `SHADOW: failed ${code} (${e?.message ?? e}); the gate stands` };
   }
 }
