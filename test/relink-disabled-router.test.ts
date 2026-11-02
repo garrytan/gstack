@@ -12,7 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
+const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
 
 let tmp: string;
 let install: string;
