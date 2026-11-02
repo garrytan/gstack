@@ -1233,13 +1233,17 @@ both values; prose that quotes no counter is not a claim. The `## Approvals`
 block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
-is not a `pass` claim. Text you write under the heading after that block, and
-a `## Approvals` example inside a code fence, are still checked. The
-`Review-loop exception: …` line the receipt's own exception requires is
-skipped the same way (GST-977): it quotes the owner's reason, so "outside 1 and
-2 skip detector" is not a `2 skip` claim. Only a line that matches the rendered
-line exactly is skipped, inside a code fence too, as the receipt check accepts
-a fenced copy; the same words inside a longer line are still checked. Data PRs (evals,
+is not a `pass` claim. Text you write under the heading after that block is
+still checked. The `Review-loop exception: …` line (GST-977) and the
+`Documentation exception: …` line (GST-983) the receipt's own exceptions
+require are skipped the same way: they quote the owner's reason, so "outside 1
+and 2 skip detector" is not a `2 skip` claim. Only a line that matches the
+rendered line exactly is skipped; the same words inside a longer line are still
+checked. A closed code fence is skipped too (GST-984): pasted test output
+("113 pass, 0 fail") and quoted code are evidence, not this PR's counters, so
+put a count you mean as a claim outside the fence. A line like ```` ```npm test``` ran ````
+opens no fence, and a fence that never closes stays prose, along with the rest
+of the body. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-scope"></a>
