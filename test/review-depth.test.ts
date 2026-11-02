@@ -107,7 +107,7 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect(table).toContain('| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner\'s recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |');
     const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
     expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
-    expect(rule3).toContain('`gstack-review-plan --grant <approval id>`');
+    expect(rule3).toContain('`gstack-review-plan --grant <approval id> --range-base <round 2\'s PASS_HEAD>`');
   });
 });
 

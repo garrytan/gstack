@@ -104,11 +104,13 @@ incomplete coverage, which blocks until the reviewer is rerun.
    notes" without them (GST-967). A third round is the owner's
    grant of one scoped fix-check (recorded in `review_loop_exception`), never the
    loop's: once `gstack-approvals add` records the grant (its ask or scope
-   naming `review_loop_exception`), `gstack-review-plan --grant <approval id>`
+   naming `review_loop_grant` and the stop head's sha),
+   `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
    plans that fix-check in place of the stop after a round-2 full pass with a
-   fixed blocking finding or a gate-class edit, and refuses any other row. A
-   fix-check never earns another, so the grant cannot repeat, and a stop after a
-   round-2 fix-check still goes to the owner. The cap approves nothing.
+   fixed blocking finding or a gate-class edit, and refuses any other row,
+   including a grant for a stop head before `--range-base` (an earlier /ship).
+   A fix-check never earns another, so the grant cannot repeat, and a stop after
+   a round-2 fix-check still goes to the owner. The cap approves nothing.
 
 <a id="transitions"></a>
 ### Transitions

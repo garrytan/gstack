@@ -56,9 +56,9 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --targeted-ran <id>       the TARGETED line's targeted_patch_id (the whole committed diff, tests included) when the targeted
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again
   --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved,
-                            its ask or scope naming review_loop_exception): the stop after a round-2 full pass with a fixed blocking
-                            finding or a gate-class edit plans that fix-check instead; a fix-check never earns another; an id the
-                            branch's record does not hold that way is refused (exit 3)
+                            its ask or scope naming review_loop_grant and the stop head's sha, at or after --range-base and at or
+                            before HEAD; needs --range-base): the stop after a round-2 full pass with a fixed blocking finding or a
+                            gate-class edit plans that fix-check instead; a fix-check never earns another; any other row is refused (exit 3)
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
 Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data) or any DEPTH_ERROR;
@@ -102,13 +102,17 @@ function main(): number {
   if (has('--grant') && (!grant || grant.startsWith('-'))) { process.stderr.write('gstack-review-plan: --grant needs the approval id gstack-approvals add printed\n'); return EXIT.usage; }
   const rangeBase = flag('--range-base');
   if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD)\n'); return EXIT.usage; }
+  if (grant && !rangeBase) { process.stderr.write('gstack-review-plan: --grant needs --range-base (round 2\'s PASS_HEAD), which binds the grant to the stop it answers\n'); return EXIT.usage; }
   const root = git(['rev-parse', '--show-toplevel'])?.trim();
   if (!root) { process.stderr.write('gstack-review-plan: run it inside a git checkout\n'); return EXIT.fail; }
   process.chdir(root);
   if (grant) {
     const loc = locate({ cwd: root, env: process.env });
-    const rows = 'file' in loc ? readRecord(loc).rows : [];
-    if (!rows.some(r => r.id === grant && r.outcome === 'approved' && `${r.ask} ${r.scope}`.includes('review_loop_exception'))) { process.stderr.write(`gstack-review-plan: --grant ${grant}: no approved row ${grant} naming review_loop_exception in this branch's approval record (${'file' in loc ? 'gstack-approvals list' : loc.message}); record the owner's grant with gstack-approvals add --ask '... (review_loop_exception)' first\n`); return EXIT.refused; }
+    const row = ('file' in loc ? readRecord(loc).rows : []).find(r => r.id === grant && r.outcome === 'approved' && `${r.ask} ${r.scope}`.includes('review_loop_grant'));
+    const passHead = git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim();
+    const ancestor = (a: string, d: string) => git(['merge-base', '--is-ancestor', a, d]) !== null;
+    const stopHead = row && passHead ? `${row.ask} ${row.scope}`.match(/\b[0-9a-f]{7,40}\b/g)?.map(s => git(['rev-parse', '--verify', '--quiet', `${s}^{commit}`])?.trim()).find(s => s && ancestor(passHead, s) && ancestor(s, 'HEAD')) : undefined;
+    if (!stopHead) { process.stderr.write(`gstack-review-plan: --grant ${grant}: no approved row ${grant} naming review_loop_grant and this invocation's stop head (a commit at or after --range-base ${rangeBase}, at or before HEAD) in this branch's approval record (${'file' in loc ? 'gstack-approvals list' : loc.message}); record the owner's grant with gstack-approvals add --ask '... (review_loop_grant <stop head sha>)' first\n`); return EXIT.refused; }
   }
   const collected = collectLive(root, base);
   if (collected.errors.length) {
