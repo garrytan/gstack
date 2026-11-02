@@ -230,7 +230,8 @@
           "note": "Haiku 5.5: gstack minus none +3.5 [-12.3, +20.0]"
         }
       ],
-      "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)"
+      "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)",
+      "note": "Only Opus 5.5 (claude-opus-5-5) was measured; GPT-6.1 Sol was not, so this verdict covers one of the two frontier models ETHOS.md 9 names."
     },
     "ios-clean": {
       "status": "untested",
