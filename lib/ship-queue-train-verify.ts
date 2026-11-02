@@ -34,7 +34,7 @@ import { genericBackstop } from './ship-queue-train-gate';
 const Q = 'gstack-ship-queue';
 
 function sameModuloStamps(env: TrainEnv, gated: string, current: string): { same: boolean; detail: string } {
-  const r = buildReceipt({ repoRoot: env.ctx.repoRoot, gated, current, policy: env.policy.policy, policyLabel: env.policy.source.label });
+  const r = buildReceipt({ repoRoot: env.ctx.repoRoot, gated, current, policy: env.policy.policy, policyLabel: env.policy.source.label, baseRef: `${gated}^1` });
   if ('error' in r) return { same: false, detail: r.error };
   return { same: r.tree === 'same-modulo-stamps', detail: r.tree === 'same-modulo-stamps' ? `same modulo stamps (${r.files.length} stamp file(s))` : `differs: ${r.residual.slice(0, 8).join(', ')}` };
 }
@@ -79,7 +79,7 @@ function mergedIn(env: TrainEnv, t: TrainRecord, i: number, head: string, main: 
   const after = t.prefixes[i + 1]!;
   const root = env.ctx.repoRoot;
   if (!git(root, ['merge-base', '--is-ancestor', main, head]).ok) return { same: false, detail: `does not contain main ${main.slice(0, 12)}` };
-  const r = buildReceipt({ repoRoot: root, gated: after.commit, current: head, policy: env.policy.policy, policyLabel: env.policy.source.label });
+  const r = buildReceipt({ repoRoot: root, gated: after.commit, current: head, policy: env.policy.policy, policyLabel: env.policy.source.label, baseRef: `${after.commit}^1` });
   if ('error' in r) return { same: false, detail: r.error };
   const stamps = `${r.files.filter(f => f.verdict === 'stamp').length} stamp file(s)`;
   if (r.tree === 'same-modulo-stamps') return { same: true, detail: `T${after.index} with main merged in, same modulo stamps (${stamps})` };
@@ -105,7 +105,7 @@ function published(env: TrainEnv, t: TrainRecord, i: number, main: string): { sa
   const post = sameModuloStamps(env, after.commit, main);
   if (post.same) return post;
   const cl = env.policy.policy.changelog;
-  const r = buildReceipt({ repoRoot: env.ctx.repoRoot, gated: after.commit, current: main, policy: env.policy.policy, policyLabel: env.policy.source.label });
+  const r = buildReceipt({ repoRoot: env.ctx.repoRoot, gated: after.commit, current: main, policy: env.policy.policy, policyLabel: env.policy.source.label, baseRef: `${after.commit}^1` });
   if ('error' in r || !cl || r.residual.some(f => f !== cl)) return post;
   const parent = git(env.ctx.repoRoot, ['rev-parse', '--verify', '-q', `${main}^`]).out;
   if (!parent || !sameModuloStamps(env, t.prefixes[i]!.commit, parent).same) return { same: false, detail: `${post.detail}; main's parent ${parent.slice(0, 12) || '(none)'} is not T${t.prefixes[i]!.index} modulo stamps` };
