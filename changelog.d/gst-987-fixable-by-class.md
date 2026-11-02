@@ -2,4 +2,4 @@
 
 ### Fixed
 
-- On a review whose class is not gate and that carries no risk reason (security, secrets, auth, money, user data), a native adversarial finding marked FIXABLE with its own `Severity: Medium` or `Severity: Low` now collects at that severity instead of CRITICAL. Gate and risk reviews, depth errors and any collect without a pass manifest keep collecting FIXABLE as CRITICAL, and a FIXABLE finding with no Severity field still collects as CRITICAL. (GST-987)
+- On a code or docs review with no risk reason (security, secrets, auth, money, user data), no depth error and no history or floor escalation, a native adversarial finding marked FIXABLE that states its own `Severity: Medium` or `Severity: Low` and `Blocks: no` now collects at that severity instead of CRITICAL. Gate and risk reviews, and any collect without this pass's manifest, keep collecting FIXABLE as CRITICAL, and so does a FIXABLE finding without `Blocks: no` or without a Severity field. (GST-987)

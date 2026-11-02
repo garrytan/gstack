@@ -58,6 +58,7 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
+const BLOCKS_NO = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*no(?![A-Za-z0-9])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
@@ -102,8 +103,8 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
  * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
- * With fixableRaises false (a review outside the gate class with no risk reason, GST-987) a native finding's own Severity field decides
- * and FIXABLE beside it raises nothing; a native finding with no Severity field still collects FIXABLE as CRITICAL.
+ * With fixableRaises false (a code or docs review with no risk, error, history or floor reason, GST-987) a native FIXABLE finding that
+ * states `Blocks: no` collects at its own Severity field; one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL.
  */
 export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string };
@@ -152,7 +153,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = named(heading[1]!); current = null; head = ''; continue; }
+    if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
       try {
@@ -178,7 +179,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  return out.map(({ label, raw }) => ({ label, raw }));
+  const unblocked = (label: string, raw: string) => fixableRaises || role !== 'adversarial-native' || !(label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(raw)) || BLOCKS_NO.test(raw);
+  return out.map(({ label, raw }) => ({ label: unblocked(label, raw) ? label : 'CRITICAL', raw }));
 }
 
 /**

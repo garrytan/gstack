@@ -20,8 +20,8 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
   //   its weaker label (b3ddd6c) or a field whose clause runs on stops counting and a body P0 raises the finding (f3810d4);
   //   why_new=three GST-976 review rounds each found a shape the row tables missed; seam=parseFindings; no_claim=that main's label was
   //   right (it is the floor), or coverage of stored private reader outputs (checked outside the repo). GST-987: the gate class (and every
-  //   risk class) keeps this rule; outside it the native voice's FIXABLE no longer counts as a raise, so a fielded finding collects at its
-  //   field unless a lead, a label heading or Blocks: yes raises it
+  //   risk class) keeps this rule; outside it the native voice's FIXABLE beside Blocks: no no longer counts as a raise, so such a fielded
+  //   finding collects at its field unless a lead, a label heading or Blocks: yes raises it
   test.each([['gate', true], ['code', false]] as const)('every pinned input, reader fixture and generated field shape (%s class)', (_cls, raises) => {
     const { entries, shapes } = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/main-labels.json'), 'utf8'));
     const { bodies, fields: tails, joins, readers, generated } = shapes;
@@ -37,7 +37,7 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
         findings++;
         const fields = [...f.raw.matchAll(FIELD)].map(m => (m[1] ?? m[2])!);
         const single = fields.length === 1 && fields[0]!.match(LABEL)!.length === 1 ? fields[0]!.match(LABEL)![0] : undefined;
-        const raised = /Blocks:?\**:?\s*\**\s*yes/i.test(f.raw) || (raises && e.reader.startsWith('adversarial-native') && /FIXABLE/.test(f.raw)) || (raises ? LEAD : LEAD_NO_FIXABLE).test(f.raw) || HEADING.test(output);
+        const raised = /Blocks:?\**:?\s*\**\s*yes/i.test(f.raw) || (e.reader.startsWith('adversarial-native') && /FIXABLE/.test(f.raw) && (raises || !/Blocks:?\**:?\s*\**\s*no\b/i.test(f.raw))) || (raises ? LEAD : LEAD_NO_FIXABLE).test(f.raw) || HEADING.test(output);
         const ok = single === undefined ? (rank(f.label) ?? 0) >= (rank(e.main[i]) ?? 0)
           : (rank(f.label) ?? 0) >= (rank(single) ?? 0) && (raised || (rank(f.label) ?? 0) === (rank(single) ?? 0));
         if (!ok) bad.push(`${e.reader} main=${e.main[i]} got=${f.label} field=${single ?? '-'} ${JSON.stringify(f.raw.slice(0, 100))}`);

@@ -533,8 +533,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167) unless collect `--manifest` names this
    ledger's pass and its plan is the code or docs class with only `runtime=<n>` depth reasons (no `risk:`, `error:`,
    `history:` or `floor:` reason). On such a plan a native finding's own `Severity` field decides and FIXABLE beside it
-   raises nothing; a native finding with no `Severity` field, or one whose field names only FIXABLE or INVESTIGATE, still
-   collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
+   raises nothing once it also states `Blocks: no`; a native FIXABLE finding without `Blocks: no`, with no `Severity` field,
+   or whose field names only FIXABLE or INVESTIGATE still collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's

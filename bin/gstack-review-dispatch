@@ -330,7 +330,8 @@ function main(): number {
       return EXIT.ok;
     }
     const mf = flag('--manifest');
-    const plan = mf ? readManifest(mf) : undefined;
+    let plan: ReturnType<typeof readManifest> | undefined;
+    try { plan = mf ? readManifest(mf) : undefined; } catch (e) { process.stderr.write(`gstack-review-dispatch collect: ${(e as Error).message}; native FIXABLE collects as CRITICAL\n`); }
     const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree, fixableRaises(plan && path.resolve(plan.ledger) === path.resolve(ledger) ? plan.plan_lines : undefined));
     if (tree && !tree.ok) {
       if (mf) { const m = readManifest(mf); markReader(m, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, m); }

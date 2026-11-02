@@ -31,6 +31,9 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(parseFindings('adversarial-native', 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', false).map(f => f.label)).toEqual(['Medium']);
     expect(parseFindings('adversarial-native', 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: yes', false).map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', '1. Race in a.ts:3. Severity: FIXABLE', false).map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', '1. FIXABLE: race in store.ts:40. Severity: High', false).map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', '1. FIXABLE: race in store.ts:40\nSeverity: High\nBlocks: no', false).map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('adversarial-native', '## FIXABLE\n1. Leak in a.ts:3. Severity: Low. Blocks: no\n2. Race in b.ts:4', false).map(f => f.label)).toEqual(['Low', 'CRITICAL']);
   });
   test('collect reads the class from --manifest and defaults to the gate class without one', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst987-'));
