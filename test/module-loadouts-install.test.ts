@@ -64,7 +64,8 @@ describe('gstack-modules install', () => {
     expect(landing).toContain(`${FULL_ROOT}/gstack/bin/`);
     expect(landing).not.toContain('~/.claude/skills/gstack/bin/');
     expect(lock).toMatchObject({ kind: 'install', loadout: 'lite', loadout_model: 'claude-opus-5-5', full_root: FULL_ROOT });
-    expect(lock.excluded).toHaveLength(11);
+    expect(lock.excluded).toHaveLength(10);
+    expect(lock.excluded).not.toContain('preamble:evidence');
     expect(lock.excluded).not.toContain('preamble:upgrade-check');
     expect(lock.excluded).not.toContain('preamble:brain-sync');
     expect(JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), 'utf-8')).identity.source_tree).toBe(sourceTree(ROOT));
@@ -79,6 +80,28 @@ describe('gstack-modules install', () => {
     const explicit = fs.readFileSync(path.join(c.root, 'qa/SKILL.md'), 'utf-8');
     expect(explicit).toContain('--skill "qa" --model "claude"\n');
     expect(explicit).not.toContain('--loadout');
+  }, 240_000);
+
+  test('the lite tree keeps the install settings the full render uses: gbrain detection and disabled_skills, both in the identity (GST-944)', () => {
+    const state = path.join(tmp, 'settings-state');
+    const store = path.join(tmp, 'settings');
+    fs.mkdirSync(state, { recursive: true });
+    const install = () => {
+      const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(ROOT, 'bin/gstack-modules'), 'install', '--model', 'claude-opus-5-5', '--full-root', FULL_ROOT, '--store', store], { cwd: ROOT, encoding: 'utf-8', timeout: 120_000, env: { ...process.env, GSTACK_HOME: state, GSTACK_STATE_ROOT: state } });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).not.toContain('LOADOUT_FALLBACK');
+      return r.stdout.match(/^SKILL_ROOT: (.+)$/m)![1];
+    };
+    const plain = install();
+    fs.writeFileSync(path.join(state, 'gbrain-detection.json'), JSON.stringify({ gbrain_local_status: 'ok' }));
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'disabled_skills: qa\n');
+    const set = install();
+    expect(set).not.toBe(plain);
+    const officeHours = (root: string) => fs.readFileSync(path.join(root, 'office-hours/SKILL.md'), 'utf-8');
+    expect(officeHours(set).split('gbrain').length).toBeGreaterThan(officeHours(plain).split('gbrain').length);
+    const router = fs.readFileSync(path.join(set, 'SKILL.md'), 'utf-8');
+    expect(router).toContain('Disabled on this install (never invoke or suggest them): `/qa`.');
+    expect(fs.readFileSync(path.join(plain, 'SKILL.md'), 'utf-8')).not.toContain('Disabled on this install');
   }, 240_000);
 
   test('concurrent publishers of one identity agree on one folder; a tampered folder is refused, not reused', async () => {

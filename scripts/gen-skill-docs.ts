@@ -94,7 +94,7 @@ export interface GenerationResult {
 }
 
 /** Canonical generation never reads local detection state unless opted in. */
-function loadGbrainOverride(respectDetection: boolean): boolean {
+export function loadGbrainOverride(respectDetection: boolean): boolean {
   if (!respectDetection) return false;
   const stateDir = resolveStateRoot();
   try {
