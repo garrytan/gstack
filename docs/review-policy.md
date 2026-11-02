@@ -98,9 +98,19 @@ incomplete coverage, which blocks until the reviewer is rerun.
    finishes with its open notes listed in the PR body and receipt, or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
    unverified, or a round-2 fix edited a gate-class path, naming it (path,
-   severity, problem). A third round is the owner's
+   severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
+   class a stop waits for Step 11's adversarial, outside and targeted voices
+   (`NEXT: voices`), so gate code never reaches the owner's "ship with open
+   notes" without them (GST-967). A third round is the owner's
    grant of one scoped fix-check (recorded in `review_loop_exception`), never the
-   loop's. The cap approves nothing.
+   loop's: once `gstack-approvals add` records the grant (its ask or scope
+   naming `review_loop_grant` and the stop head's sha),
+   `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
+   plans that fix-check in place of the stop after a round-2 full pass with a
+   fixed blocking finding or a gate-class edit, and refuses any other row,
+   including a grant for a stop head before `--range-base` (an earlier /ship).
+   A fix-check never earns another, so the grant cannot repeat, and a stop after
+   a round-2 fix-check still goes to the owner. The cap approves nothing.
 
 <a id="transitions"></a>
 ### Transitions
@@ -122,11 +132,18 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
 | a fix-check that found nothing blocking | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
+| a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
+| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
 Red Team and no outside voice run on it.
+
+`NEXT: voices` runs Step 11 as `done` does, from the last full pass's
+manifest; /ship then asks the plan again with `--adversarial-ran` (a blocking
+finding the voices queued counts as `--blocking-open`, never a new Step 9), and
+the stop or the granted fix-check it names stands.
 
 <a id="scoped-pass"></a>
 A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both
@@ -384,10 +401,11 @@ block without new floor words. The reader is read-only, and `NO FINDINGS` is a
 result. `gstack-review-dispatch render --role targeted --classes <classes>`
 renders its brief; `verify --targeted-out <file>` writes the record that
 `gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
-`gstack-ship-queue ready` and `train build` print
+`gstack-ship-queue ready`, `train build` and `land` print
 `REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
-verdict=ok|missing` and refuse nothing yet; enforcement comes in a later
-release.
+verdict=ok|missing|failed` and refuse
+[`QUEUE_RECEIPT_TARGETED_MISSING`](troubleshooting.md#queue-receipt-targeted-missing)
+when a required class has no done pass covering it.
 
 Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 21, gate 18, auth 3 and secret 8. The gate class first used the gate paths,
@@ -539,10 +557,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
-   wherever they stand, headings and table rows included; a top-level list item under a
+   wherever they stand, headings and table rows included, except that a line with its own `Severity` field takes that
+   field's label (any letter case; a field stating more than one label, "High/Critical", counts as none), so a severity word in the finding's text does not raise it, and a label leading the line stays its floor (GST-976); a top-level list item under a
    label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
-   second line for the same field starts another: `Severity` raises its label,
+   second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line

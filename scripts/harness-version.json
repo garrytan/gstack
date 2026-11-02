@@ -34,7 +34,7 @@
     "test/helpers/pty-screen.ts": {"blob":"4f77569f9ce11f9cee9f347216e468cd7c956820","since":6},
     "test/helpers/pty/auq.ts": {"blob":"16e5ea2bb5b9f28f44808a1a09024dbd3e6f28c4","since":6},
     "test/helpers/pty/binary.ts": {"blob":"404d7515076d5c00804f89e23ea69296312c00e1","since":6},
-    "test/helpers/pty/boundaries.ts": {"blob":"c5520118da36f96f60a3c9720751bb57a669865c","since":6,"nonBehavioral":"Widens the plan-eng-review first-review severity annotation from [P0-3] to [P0-3|CRITICAL|INFORMATIONAL] (#3349). Only a question carrying the new labels can change verdict, and only the changed plan-eng-review prompt asks for them; every case that runs it owns that generated SKILL.md, which this change also edits, so those cases already start their own series. No other case's input or verdict can change."},
+    "test/helpers/pty/boundaries.ts": {"blob":"c09b69611fb22ddf093adb2baa83434494e5f8fa","since":6,"nonBehavioral":"Widens the two plan-eng-review boundary predicates' qid regex to also accept the optional ;signal=<key> hint suffix (#3442). Only a question carrying that suffix can change verdict, and only the changed question-tuning resolver asks for it; every case that runs a skill with that resolver owns its generated SKILL.md, which this change also edits, so those cases already start their own series. No other case's input or verdict can change."},
     "test/helpers/pty/classify.ts": {"blob":"3f2daa12ff6484f96b8d28d910a50231c4bb3ae8","since":6},
     "test/helpers/pty/fake-session.ts": {"blob":"554e064ef259b8444280eddfe9b0db93c66a8202","since":6},
     "test/helpers/pty/judge.ts": {"blob":"81c5bb4c48ab928aca2f186a1ade9df7169d7fbe","since":6},

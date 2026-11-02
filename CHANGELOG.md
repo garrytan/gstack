@@ -1,6 +1,32 @@
 # Changelog
 
-## [Unreleased]
+## [1.93.10.0] - 2026-11-02
+
+### Changed
+
+- Evals test frontier models (R54). /eval-plan and docs/TESTING_INTERNALS.md#frontier-models-under-test now say that models under test are Opus 5.5 and GPT-6.1 Sol, plus at most one named low-cost primary. Haiku and Sonnet aren't stand-ins for a frontier model, and a Haiku- or Sonnet-only result can't carry a KEEP, FIX-METHOD or CUT-CANDIDATE verdict. Judges, review voices and housekeeping models keep their models. `gstack-eval-plan dry-run` refuses a plan whose every arm is Haiku or Sonnet unless `--tier-question` names what it asks about that tier, warns on a mixed plan, and prices the whole plan on frontier models. `pilot start` refuses a Haiku- or Sonnet-only pilot unless its dry run recorded that tier question.
+
+### Fixed
+
+- Agent SDK evals can no longer run on the SDK's bare stub prompt by accident. Every `runAgentSdkTest` and direct SDK `query()` caller now passes Claude Code's preset or names why it doesn't. The runner refuses a missing, empty or bare-string prompt, and a free tripwire test scans test/ and scripts/ for the same mistake. docs/TESTING_INTERNALS.md#agent-sdk-system-prompt says to record which prompt each arm used, and to treat a null result from an arm on the stub as FIX-METHOD.
+
+**A test that keeps flaking while someone fixes it can be quarantined instead of skipped, and it still can't turn a red run green.** `gstack-flaky quarantine add` puts the test in `.gstack/quarantine.json` with an owner, a ledger link and an expiry. The test keeps running on every run and is never counted as a pass. When every test an attempt failed is quarantined, the whole command may run again, up to 3 attempts, and the run is green only when an attempt gets the runner's own full green verdict, so a coverage threshold or another failure outside the report stays red. Before this, a test that flaked every few runs either went red on every PR or got skipped and forgotten.
+
+### Added
+- **Quarantine registry, `gstack-flaky quarantine add|renew|release|check|report`** (`.gstack/quarantine.json`, GSTA-158 P2): a quarantined test that fails all 3 attempts is a `hard-break` (red), a quarantined id missing from a run that included its file is red, and quarantined tests are listed (`FLAKY_RESULT … quarantined=<n>`) and ledgered (`quarantined-pass`, `quarantined-fail`, `hard-break`) on every run. Tests that are not quarantined keep their one rerun.
+- **Entries are owned and expire**: owner, ledger link, class (`detector`, `harness`, `timing`, `model-latency`; `product` and `infra` refused), evidence, 7 days by default and 14 at most, one renewal of up to 7 days with new evidence and the owner named again. An expired entry stops applying with no edit and prints the renew and release commands. Live entries are capped at 10% of the suite (at least 1, and 5 under 50 tests).
+- **`run --base <ref>`** reads the registry from the base branch, so a change cannot quarantine the test it breaks. **`check --base`** refuses an entry added in the change that edits its test's file, an entry removed without a release record, a removed release record and rewritten history. **`report --ledger <file|dir>`** lists entries soonest-expiring first and marks those with 10 consecutive clean passes ready to release. gstack's own `CASE_QUARANTINE` / `EVAL_POLICY` is unchanged and shares no schema with it.
+
+### Docs
+- `docs/flaky.md#quarantine`: commands, rules, expiry, cap, classes, the `CASE_QUARANTINE` separation and the daily-pass `gh run download` + `report` loop. `captain/templates/automation-flaky-pass.md` and `docs/captain.md` run `report` and fix expiring entries first.
+
+### Tests
+- `test/quarantine.test.ts`: add refusals (cap, more than 14 days, no evidence, product or infra class, unknown id), one renewal and future-dated renewals, release, `check --base` against git fixtures (non-ASCII paths included), expiry, a hard break across 3 attempts, the false-green regression (exit 1 from outside the report while only a quarantined test fails stays red), missing ids with their file present or absent, and the registry read from the base branch.
+
+### Gate integrity
+- `test/flaky-run.test.ts`: the exact `FLAKY_RESULT` line it expects gains the new `quarantined=0` field. No other assertion, threshold or skip changed.
+
+- `docs/support-tiers.md` describes Windows CI as it works now. `windows-smoke` is the required Windows check on pull requests, and the six-shard `windows-free-tests` suite runs nightly on main or by hand and never blocks a pull request. The page was written before #3806 landed, so it still said these changes were coming.
 
 **The train gate's paid report now prices the trials it used to call "cost unknown".** 32 of 139 gate trials had no cost on every gate since Oct 26, so the report's total understated a gate by about $7.50 (GSTA-150 audit). All four causes are fixed.
 
@@ -13,6 +39,86 @@
 
 ### Tests
 - `test/paid-report-cost.test.ts`: pricing arithmetic, streamed dedupe, `caseCost`, `recordE2E`'s `cost_case_id`, a two-case shard whose label-named records bind by cost without changing the failed record, class or model. `test/paid-report-census.test.ts`: a record-less trial's streamed cost reaches the trial and the verdict total once. `test/paid-report-cost.test.ts` also prices a PTY session, its inline sidechains and subagent files once per message id, leaves a foreign session, a missing or unreadable transcript or an unpriced model unknown, and claims only the one new transcript for a launch's cwd. `test/helpers/claude-pty-runner.launch.unit.test.ts`: a real launch prices the transcript it created without adding an argument, and an opted-out launch prices nothing.
+
+## [1.93.9.0] - 2026-11-02
+
+**`gstack-ship-receipt read --check-prose` no longer reads the required Review-loop exception line as counter claims (GST-977).** `write --review-loop-exception` requires the PR body to carry the whole `Review-loop exception: …` line word for word, but the prose check read that line as prose. On gstack-evals #139 the owner's reason "outside 1 and 2 skip detector" was read as a `2 skip` claim against the receipt's 70 skips, so no body could pass both checks.
+
+### Fixed
+- **`lib/ship-receipt-prose.ts`:** the line that matches the receipt's own exception exactly (the same test `write` applies) is skipped, like the rendered `## Approvals` block. A copy of that exact line inside a code fence is skipped too, as `write` accepts one. The same words inside a longer line, or a line for a different exception, are still checked.
+
+### Tests
+- `test/ship-receipt-prose.test.ts`: the #139 exception text passes `--check-prose` beside a matching `70 skip` claim, and a wrong number elsewhere still fails. On main the same body failed with `gate.unit.skip body=2 receipt=70`.
+
+## [1.93.8.0] - 2026-11-02
+
+**/ship now runs Step 11's voices before any gate-class stop, and a recorded owner grant runs its fix-check.** On a gate-class change, a blocker fixed in review round 2 used to stop the run for the owner before Step 11 ran. If the owner then chose "ship with open notes", gate code shipped with no adversarial, outside or targeted review (C6-36 after-opus). `gstack-review-plan` now answers `NEXT: voices` for any gate-class stop while Step 11 has not run. /ship runs Step 11 as it does on `done`, asks the plan again with `--adversarial-ran`, and the stop then stands. The round cap still limits fix rounds; it no longer skips the required voices. Second, the owner's grant of one scoped fix-check after round 2 had no way in: the plan took no grant input, and the pass program printed `PASS: none next=stop`. Now `gstack-review-plan --grant <approval id>` checks that the branch's `gstack-approvals` record holds that id as an approved grant naming `review_loop_grant` and this run's stop head (exit 3 for any other row, a grant recorded for an earlier /ship on the branch included), and plans the one fix-check in place of the stop after a round-2 full pass. The pass program then dispatches that fix-check like any other. A fix-check never earns another, so the grant cannot repeat. After `NEXT: voices`, a blocking finding the voices queue goes back to the plan as `--blocking-open` instead of starting a new review pass.
+
+### Tests
+- `test/review-depth.test.ts`: a gate-class round-2 blocker fix plans `voices` (adversarial, outside and targeted) before every stop and stops once they ran. A grant plans one fix-check after round 2, after the voices on gate class, and never a second. The transitions table and rule 3 in `docs/review-policy.md` say both. All four failed at main 1022f4f.
+- `test/review-plan-cli.test.ts`: `--grant` with a recorded grant prints `NEXT: fix-check`; an unrelated approval, an unrecorded id, a `review_loop_exception` acceptance row or a grant for an earlier head exits 3; after a fix-check the grant never plans another. Failed at main 1022f4f (`NEXT: stop`).
+- `test/review-depth.test.ts`: an invariant over every transitions-table state (gate class or not, Step 11 run or not, grant or not) and a dispatch-superset no-loss check against main's plans.
+- `test/review-pass.test.ts`: the pass program runs the granted fix-check reader instead of `PASS: none next=stop`. Failed at main 1022f4f.
+
+### Docs
+- `docs/review-policy.md`: rule 3 and two new rows in the transitions table. `ship/DRIVER.md`, `ship/sections/review-army.md` and `ship/sections/adversarial.md` route `voices` and `--grant`.
+
+## [1.93.7.0] - 2026-11-02
+
+**A version stamp the branch added at its fork point's version now counts as stale after the base moves (GST-963).** On gbrain #8425, a branch added a row that named the fork point's version. After main moved past it, `gstack-restamp` skipped the row ("no tentative mention") and `gstack-ship-release finish` routed the line as a behavior change, so the stamp kept the old version and the docs stage flagged a product edit.
+
+### Fixed
+- **`lib/restamp.ts`:** a stamp_patterns match on a branch-added line that names the fork point's version is rewritten to the new version, like a mention of a newer tentative version. Lines the branch did not add, and versions below the fork point, are left alone.
+- **`lib/ship-bin-common.ts`:** finish routes such a line as metadata (a stamp file), not behavior.
+- **One stamp bound for the writer and the stamp checks** (`lib/stamp-only.ts` `stampOnlyLine` with the branch's side): the tree receipt behind `gstack-ship-queue stamp`, `verify` and the gate-ahead replay, the merge train's stamp and verify checks (read against the slot's predecessor), and finish's route now accept a moved version on a line the branch added at or above the fork-point version. Before, the tree receipt and the carry still floored every line at the gated head's VERSION, so the stamp commit the writer now makes would have read `TREE: changed` and stopped the train with `QUEUE_STAMP_NOT_STAMP_ONLY`. The same move on a base line is still refused, unless that base line's text duplicates a line the branch added (GST-979). The tree receipt and the train checks also accept the move when the branch's own VERSION already equals the new version, as it does in a train slot that kept its claim. Two gaps remain, tracked in GST-980: the /ship receipt carry can still refuse the move (`RECEIPT_CARRY_PRODUCT_CHANGED`), and when the branch keeps its VERSION claim, carry and finish still route the move as behavior.
+
+### Tests
+- `test/restamp-mentions.test.ts`: a branch-added row at the fork version after the base moved is restamped and its file is routed as metadata. On main, the stage reports `skipped` and ROUTE counts the file as behavior.
+- `test/ship-rereview-triggers.test.ts`: the GST-895 fork-version case now routes as metadata.
+- `test/restamp-mentions.test.ts`: `gstack-tree-receipt` reads the GST-963 stamp commit as `same-modulo-stamps` (it read `TREE: changed` before the shared bound), refuses the same move on a base row, and still accepts the GST-895 lost-slot stamp. `test/gstack-ship-receipt-docs.test.ts`: the carry takes the fork-version bound only on the branch's own line.
+- `test/ship-queue-train-stamp.test.ts`: a pin claiming 1.2.4.0 with a row left at the base's 1.2.3.0 stamps, and the row moves to 1.2.4.0. Without the train checks' bound, `stampChain` refused it with `QUEUE_TRAIN_STAMP_MISMATCH`. On main it stamped, but the row stayed at 1.2.3.0.
+
+## [1.93.6.0] - 2026-11-02
+
+**/plan-tune now learns from answers to questions that aren't in its registry, when the skill says which preference the question is about (#3442).** Before, an answer to an ad-hoc question id such as `plan-ceo-review-add-caching` moved no dimension, because only registered ids carry a signal. Most logged answers are on ad-hoc ids, so inferred values stayed near 0.5.
+
+### Added
+- **Signal hints at ask time:** a skill can write `<gstack-qid:{id};signal={key}>` in the question and `"signal_key":"<key>"` in the `gstack-question-log` row, choosing the key from the fixed list that `gstack-question-preference --signal-keys` prints. `--derive` uses the hint only when the id has no registry entry, the key is a known signal, and the answer matches one of that signal's options, by the exact key or the key's own words. Hinted answers fall under the same per-day cap as registered ones.
+- **`hinted_events`** in the profile, and `(hinted)` on `--trace` rows, so you can see which answers came from hints.
+
+### Changed
+- One shared marker parser (`scripts/qid-marker.ts`) now serves the log hook, the preference hook and the Codex session import. A hint never changes auto-decide or one-way-door handling. An unknown hint, or a hint on a registered id, is dropped with `QLOG_SIGNAL_KEY_DROPPED`, and the row is still logged.
+
+### Tests
+- New tests that fail on main check that derive moves a dimension for a hinted ad-hoc answer and not for an unhinted one. Unknown keys, choices outside the signal, and registered ids ignore the hint. Hinted answers share the per-day cap. The hooks and the Codex import carry the hint into the log.
+
+## [1.93.5.0] - 2026-11-02
+
+**The weekly OSV scan is clean again: qs and @hono/node-server are pinned past two Medium advisories (#3843).** The 2026-11-02 scan (run 41406416003) flagged qs 6.16.0 (GHSA-6pq8-jhm2-2vcw, CVSS 6.3, a `qs.stringify` comma-format crash) and @hono/node-server 2.1.1 (GHSA-rmxm-3fg6-px4f, CVSS 5.3, a `serveStatic` double decode that skips middleware). Both reach gstack only through the dev and test toolchain (`@anthropic-ai/claude-agent-sdk` pulls in `@modelcontextprotocol/sdk`), and nothing setup, the build or an installed skill runs loads either one. Installs set up since v1.91.231.0 don't contain them at all. Older installs and contributor checkouts that still carry the dev toolchain get the patched versions on their next `./setup`.
+
+### Fixed
+- **`package.json` overrides**: `qs` is pinned to 6.16.2 and `@hono/node-server` to 2.1.6, the newest patch releases inside the ranges express, body-parser and the MCP SDK ask for. `bun.lock` now holds one copy of each, and the separate `body-parser/qs` entry is gone.
+
+### Tests
+- `test/dependency-security.test.ts`: the lockfile floor check now covers `qs >= 6.16.1` and `@hono/node-server >= 2.1.3`. Both cases failed on main.
+
+## [1.93.4.0] - 2026-11-02
+
+**/ship's finding collector reads severity from a finding's own Severity field, so a severity word in the finding's text no longer raises it.**
+
+### Fixed
+
+- When a reader's finding carries its own `Severity:` field, the collector uses that field. A word like "P0" in the finding's text (a plan phase name, for example) no longer makes it a blocker the reader marked `Blocks: no`. A label leading the line (`CRITICAL:`, `[P0]`, `- High:`, a label heading) still sets the floor, `Blocks: yes` still makes a finding CRITICAL, and the native voice's FIXABLE still collects as CRITICAL. A field that names more than one label ("High/Critical") counts as no field, and a lowercase `severity:` keeps its label. Lines with no Severity field collect as before. (GST-976)
+
+## [1.93.3.0] - 2026-11-02
+
+**The queue now refuses a head whose required targeted review is missing or failed (GST-966).** On gstack-evals#140, the receipt showed `REVIEW_TARGETED: required=auth receipt=legacy verdict=missing` and `gstack-ship-queue ready` still exited 0, so a skipped required reader looked the same as a clean one.
+
+### Fixed
+- **`lib/ship-receipt-depth.ts`:** `ready`, `train build` and `land` refuse `QUEUE_RECEIPT_TARGETED_MISSING` when the head needs a targeted class (money, gate, auth or secret) that no done targeted pass in the receipt covers: no pass recorded, a failed or unrun pass, or a pass on other classes. The line says `verdict=failed` when the recorded pass failed. A head that needs no targeted class passes as before. `train build` and `land` print the `REVIEW_TARGETED:` line with the refusal.
+
+### Tests
+- `test/gstack-ship-queue.test.ts`: `ready` on an auth head with #140's receipt shape (missing) and with a failed pass refuses with the new code; a done pass and a head that needs no class pass. On main the missing case exits 0.
 
 ## [1.93.2.0] - 2026-11-02
 
