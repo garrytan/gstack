@@ -4,7 +4,7 @@
   "slot": 4,
   "holder": "cox.local:2152",
   "started_at": "2026-11-02T03:23:52.512Z",
-  "phase": "waiting",
+  "phase": "merging",
   "journal": "train/gate.train-be750e85fe31-a563f476793b-19672e/slot-4",
-  "phase_at": "2026-11-02T03:33:57.908Z"
+  "phase_at": "2026-11-02T03:34:08.399Z"
 }
