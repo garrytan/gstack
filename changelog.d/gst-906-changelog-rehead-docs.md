@@ -1,5 +1,0 @@
-**A slot restamp after the docs audit no longer stops `finish` with `DOCS: stale (CHANGELOG.md)` (GST-906).** When a PR lost its merge slot after Step 14.5, the new slot's restamp re-heads the CHANGELOG entry and moves VERSION, and on the lost-slot path it merges main first. `gstack-ship-release finish` read all of that as a docs change, so the only ways forward were a third docs audit, which the policy forbids, or an owner-accepted named risk. Reported by GBRA-258 on gbrain #8372.
-
-### Fixed
-- **Step 16's docs check carries a restamp.** The CHANGELOG counts as unchanged when it differs from the audited copy only by the heading move or re-heading. After a main merge, the audited copy is first merged with main's CHANGELOG by the same `mergeChangelogs` call the restamp writer makes, and that merge may only add main's sections. The version file counts as unchanged when it held a bare version at the audit and still does.
-- **Anything else still stales the audit.** That includes an entry edit, a dropped or edited main section, a dropped line the audit saw, and an audited CHANGELOG that git never held.
