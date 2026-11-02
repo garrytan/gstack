@@ -300,7 +300,7 @@ describe('literals (pure)', () => {
   });
   // Value: protects=a test that keeps an old value on purpose (the refused input after a minimum-version bump) can waive that one line
   //   with a `pregate-literal: NAME=value reason` comment, while every other old-value line, a marker for another constant or value,
-  //   a marker with no reason (a bare `*/` closer is not a reason) and marker text inside a string still count, and a line marked
+  //   a marker with no reason (a bare `*/`, `**/` or `* */` closer is not a reason) and marker text inside a string still count, and a line marked
   //   for one constant can still be waived for another by the comment line above; fails_when=the waiver widens past its line or a stray
   //   marker clears a real consumer (#3490, gbrain#7690); why_new=the only escape was warn: ["literals"] for every constant;
   //   seam=none; no_claim=the policy file (no key exists; see the config test)
@@ -322,6 +322,9 @@ describe('literals (pure)', () => {
       'test/two-above.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "// pregate-literal: MIN_RUNTIME='1.4.0' too far above", '', "expect(checkRuntime('1.4.0')).toBe('refused');", ''].join(nl),
       'test/all-waived.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); # pregate-literal: MIN_RUNTIME='1.4.0' refused input", ''].join(nl),
       'test/block-no-reason.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); /* pregate-literal: MIN_RUNTIME='1.4.0' */", ''].join(nl),
+      'test/block-stars.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); /* pregate-literal: MIN_RUNTIME='1.4.0' **/", ''].join(nl),
+      'test/block-star-space.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); /* pregate-literal: MIN_RUNTIME='1.4.0' * */", ''].join(nl),
+      'test/block-stars-reason.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "expect(checkRuntime('1.4.0')).toBe('refused'); /* pregate-literal: MIN_RUNTIME='1.4.0' refused input **/", ''].join(nl),
       'test/two-constants.test.ts': ["import { MIN_RUNTIME } from '../src/runtime';", "// pregate-literal: MIN_RUNTIME='1.4.0' lower bound of the refused range", "expect(inRange('1.4.0', '2.0.0')).toBe(false); /* pregate-literal: MAX_RUNTIME='2.0.0' upper bound */", ''].join(nl),
     };
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
@@ -329,12 +332,13 @@ describe('literals (pure)', () => {
     const waived: LiteralWaiver[] = [];
     const base = (rel: string) => rel === 'test/runtime.test.ts' ? files[rel]!.split(nl).slice(0, 2).join(nl) : null;
     expect(consumersOf(root, Object.keys(files), change, base, waived)).toEqual([
-      'test/runtime.test.ts:5', 'test/other-name.test.ts:2', 'test/other-value.test.ts:2', 'test/no-reason.test.ts:2', 'test/in-string.test.ts:2', 'test/two-above.test.ts:4', 'test/block-no-reason.test.ts:2',
+      'test/runtime.test.ts:5', 'test/other-name.test.ts:2', 'test/other-value.test.ts:2', 'test/no-reason.test.ts:2', 'test/in-string.test.ts:2', 'test/two-above.test.ts:4', 'test/block-no-reason.test.ts:2', 'test/block-stars.test.ts:2', 'test/block-star-space.test.ts:2',
     ]);
     expect(waived).toEqual([
       { at: 'test/runtime.test.ts:2', reason: 'refused input below the minimum', added: false },
       { at: 'test/runtime.test.ts:4', reason: 'the oldest runtime we still name in the error', added: true },
       { at: 'test/all-waived.test.ts:2', reason: 'refused input', added: true },
+      { at: 'test/block-stars-reason.test.ts:2', reason: 'refused input', added: true },
       { at: 'test/two-constants.test.ts:3', reason: 'lower bound of the refused range', added: true },
     ]);
     fs.rmSync(root, { recursive: true, force: true });

@@ -17,7 +17,7 @@ export interface ChangedLiteral { name: string; old: string; new: string; file: 
 /** A consumer line a `pregate-literal:` marker waived; `added` when the merge-base file lacks the marker. */
 export interface LiteralWaiver { at: string; reason: string; added: boolean }
 
-const MARKER = /pregate-literal:[ \t]*([A-Za-z_]\w*)=(\S+)[ \t]+((?!\*\/)\S.*?)[ \t]*(?:\*\/[ \t]*)?$/;
+const MARKER = /pregate-literal:[ \t]*([A-Za-z_]\w*)=(\S+)[ \t]+([^\s*].*?)[ \t]*(?:\*+\/[ \t]*)?$/;
 
 /** The marker in this line's trailing comment (`//`, `#` or `/*` outside a string), or null. */
 function markerIn(line: string): { marker: string; name: string; value: string; reason: string } | null {
