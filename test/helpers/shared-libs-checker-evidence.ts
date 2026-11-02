@@ -99,7 +99,7 @@ export async function capture(change: string, prepared?: PathEligibilityFixture,
     branch: fixtureGit(f, 'symbolic-ref', '--quiet', '--short', 'HEAD'), wtree: fixtureWorkingTree(f),
     startedAt: receipt.review_start.started_at, finding: current, reusable: change === 'unchanged',
     coveredPaths: receipt.snapshot.covered_paths,
-    ...(prepared ? { sources: Object.fromEntries(current!.evidence_paths.map((file: string) => [file, fs.readFileSync(path.join(f.repo, file), 'utf8')])) } : {}) };
+    sources: Object.fromEntries(current!.evidence_paths.map((file: string) => [file, fs.readFileSync(path.join(f.repo, file), 'utf8')])) };
   return { f, current, token, receipt, events, checkAt, finishAt, expected, prepared, resumed, prerequisites, ...(declared ? { questions } : {}) };
 }
 

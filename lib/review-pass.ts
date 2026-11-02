@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
-import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from './review-targeted';
+import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
 
 export const STAGES = ['first', 'specialists', 'red-team', 'voices'] as const;
 export type Stage = typeof STAGES[number];
@@ -179,7 +179,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       let brief: string;
       try { brief = fs.readFileSync(checklist, 'utf8'); } catch { throw new BriefError(`cannot read the targeted brief ${checklist}`); }
       Object.assign(slots, { checklist, brief, classes: (r.classes ?? []).join(','), diff_base: r.diff_base ?? m.diff_base });
-      targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, patch_id: targetedPatchId(process.cwd(), slots.diff_base!) };
+      targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, ...targetedRead(process.cwd(), slots.diff_base!) };
     }
     const text = withWorkspace(renderBrief(role, slots, t), workdir);
     const file = path.join(briefs, briefFile(role, r.name));
