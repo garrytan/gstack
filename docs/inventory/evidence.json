@@ -114,7 +114,7 @@
     "devex-review": {
       "status": "untested",
       "grandfathered": true,
-      "plan": "none",
+      "plan": "GEVA-2 registry row R56-11 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
       "seed": "GEVA-2, 2026-11-02: devex-review: untested (never measured)"
     },
     "diagram": {
@@ -415,7 +415,7 @@
     "retro": {
       "status": "untested",
       "grandfathered": true,
-      "plan": "none",
+      "plan": "GEVA-2 registry row R56-12 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
       "seed": "GEVA-2, 2026-11-02: retro: untested (never measured)"
     },
     "review": {
