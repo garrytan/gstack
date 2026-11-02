@@ -179,6 +179,29 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect([viaRun.status, viaRun.err]).toEqual([EXIT.fail, expect.stringContaining('origin is not a github.com repository')]);
   }, 120_000);
 
+  test('a lane with no profile refuses a --run-url run of another workflow, or one that cannot be read, and still clears from a run of its own workflow (GSTA-203)', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const base = await pregateAt(repo);
+    const PLATFORM = 'a.yml/job';
+    const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'a.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
+    const ranWorkflow = (workflow: string): RunCheck => {
+      const c = check(repo, []);
+      const run = (id: number): ApiRun => {
+        if (id !== 300) throw new Error('HTTP 404');
+        return { id, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'pull_request', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
+      };
+      return { ...c, deps: { ...c.deps, run } };
+    };
+    const url = 'https://github.com/fx/fx/actions/runs/300';
+    const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}` : `cleared ${d.receipt}`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: ranWorkflow('b.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/b.yml, not .github/workflows/a.yml; ${PLATFORM} stays uncleared`);
+    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: ranWorkflow('a.yml') }, repo.work)).toEqual({ receipt: url, attested: false });
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://github.com/fx/fx/actions/runs/301', evidence: ranWorkflow('a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=api_error — reading run 301 failed: HTTP 404; ${PLATFORM} stays uncleared`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://ci.example.com/runs/300', evidence: ranWorkflow('a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_ref_invalid — "https://ci.example.com/runs/300" is not a run id or a run URL on fx/fx; ${PLATFORM} stays uncleared`);
+    expect(clearDecision(file, PLATFORM, { runUrl: url }, repo.work)).toEqual({ receipt: url, attested: false });
+  }, 120_000);
+
   test('a lane the base profiles never falls back to an unverified record when the GitHub origin cannot be read', async () => {
     const repo = fixture({ run_profiles: PROFILES, remote_gate_runs: GATE_RUNS });
     const file = await pregateAt(repo);
