@@ -5,6 +5,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
 import { summarizeReviewLoop } from '../lib/review-scope';
+import { sectionTexts } from '../lib/review-brief';
+import { createHash } from 'node:crypto';
 
 const ROOT = path.join(import.meta.dir, '..');
 const none = scanNumbers({});
@@ -107,6 +109,47 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
     expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
     expect(rule3).toContain('`gstack-review-plan --grant <approval id>`');
+  });
+});
+
+/**
+ * The GST-967 dispatch-superset no-loss check (crew rule 2026-10-30; replay 'GST-967' in test/review-packets-removed.test.ts).
+ * On a 1,440-case grid (five diffs: light, standard, gate, docs, tests; passes 0-2; last none, full or fix-check; every mix of
+ * the four fix flags; Step 11 run or not), main's planReview at 1022f4f (v1.92.81.0) hashes to MAIN_PLANS. The branch's plan,
+ * with each voices step read back as main's stop (its reason is the parenthesised tail, no dispatch), hashes to the same value,
+ * and every voices step is a gate-class stop before Step 11 that adds exactly Step 11's three voices. No grant is passed (main
+ * takes none). The brief bodies lib/review-brief.ts cuts from the ship sections hash to MAIN_SECTIONS, main's value.
+ */
+const MAIN_PLANS = '9d13d6bae86bfc9207ce7e0cec8da5b33db2518c1653e8e009160a98b0f04c89';
+const MAIN_SECTIONS = 'a2b999aa2de2c4cdbb953aeb0a4fac6a67e01a2c5d74121e191b95781e68e345';
+describe('GST-967 dispatch-superset no-loss check', () => {
+  // Value: protects=the no-loss rule for review-depth changes: GST-967 drops, renames and re-efforts no reviewer main dispatches on any grid case, and changes no brief body; fails_when=a non-stop plan changes, a voices step appears off gate class or after Step 11, it dispatches anything but the three voices, or a brief body moves;
+  //   why_new=GST-967; seam=planReview, sectionTexts; no_claim=what the added voices find (they only add coverage)
+  test('the grid matches main except gate-class stops before Step 11, which add only the three voices; brief bodies are main\'s', () => {
+    const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex');
+    const fixtures: Record<string, Partial<PlanInput>> = {
+      light: { paths: ['src/app.ts'], scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' }, gateTagged: 0, diffLines: 120 },
+      standard: { paths: ['src/app.ts'], scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' }, gateTagged: 0, diffLines: 120, floor: 'standard' },
+      gate: { paths: ['src/app.ts'], scope: { SCOPE_BACKEND: 'true' }, gateTagged: 1, diffLines: 120, targeted: { classes: ['gate'] } },
+      docs: { paths: ['README.md'], scope: {}, gateTagged: null, diffLines: 30 },
+      tests: { paths: ['test/a.test.ts'], scope: { SCOPE_TESTS: 'true' }, gateTagged: 0, diffLines: 40 },
+    };
+    const rows: unknown[] = [];
+    let voices = 0;
+    for (const [name, f] of Object.entries(fixtures)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
+      const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
+      const p = planReview({ ...f, numbers: none, history, adversarialRan } as PlanInput);
+      let { step, reason } = p.next;
+      let dispatches = p.dispatches;
+      if (step === 'voices') {
+        voices++;
+        expect([p.class, adversarialRan, dispatches.map(d => `${d.role}:${d.effort}`)]).toEqual(['gate', false, ['adversarial-native:full', 'outside-voice:host', 'targeted:full']]);
+        [step, reason, dispatches] = ['stop', reason.slice(reason.indexOf('--adversarial-ran (') + '--adversarial-ran ('.length, -1), []];
+      }
+      rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, step, reason, dispatches, skipped: p.skipped });
+    }
+    expect([rows.length, voices, sha(rows)]).toEqual([1440, 71, MAIN_PLANS]);
+    expect(sha(sectionTexts(ROOT))).toBe(MAIN_SECTIONS);
   });
 });
 
