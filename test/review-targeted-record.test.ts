@@ -227,7 +227,12 @@ describe('write and carry refuse a receipt the queue\'s targeted verdict refuses
   //   refuses a covered or legacy one; seam=gstack-ship-receipt carry
   test('carry: an uncovered versioned receipt is refused; a covered or legacy one carries', () => {
     const { repo, head } = moneyBranch();
-    const depth = receiptDepthAtHead(repo.work, 'main', path.join(ROOT, 'bin'), head);
+    const saved = { HOME: process.env.HOME, GSTACK_HOME: process.env.GSTACK_HOME, GSTACK_STATE_DIR: process.env.GSTACK_STATE_DIR };
+    Object.assign(process.env, { HOME: repo.home, GSTACK_HOME: repo.home, GSTACK_STATE_DIR: repo.home });
+    let depth: ReturnType<typeof receiptDepthAtHead>;
+    try { depth = receiptDepthAtHead(repo.work, 'main', path.join(ROOT, 'bin'), head); } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
     const versioned = { schema_version: 1, pr: 5, head, base: 'main', gstack_version: '1.92.75.0', review_depth: depth };
     const covered = { ...versioned, review_targeted: { classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), product_patch_id: 'p', status: 'done', findings: 0, raised_by: 'targeted' } };
     commit(repo, 'test/charge.test.ts', 'test("cap", () => {});\n', 'test only');
