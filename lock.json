@@ -1,8 +1,5 @@
 {
-  "pr": "3868",
-  "holder": "cox.local:3158",
-  "started_at": "2026-11-02T16:10:58.135Z",
-  "phase": "merging",
-  "journal": ".gstack/tmp/ship-queue/land/3868.json",
-  "phase_at": "2026-11-02T16:19:56.121Z"
+  "released": true,
+  "by": "cox.local:3158",
+  "at": "2026-11-02T16:20:05.843Z"
 }
