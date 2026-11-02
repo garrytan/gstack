@@ -1,5 +1,77 @@
 # Changelog
 
+## [1.92.82.0] - 2026-11-02
+
+**`gstack-review-dispatch verify` now catches a merged findings file edited after collect.** Verify used to compare only output hashes and line counts. So a `merged.jsonl` row whose label was lowered, or whose text was replaced with another line's summary, passed with `VERIFY: clean` once the judge agreed with the edited row. Verify now re-parses each reader's unchanged output and checks every merged row against the finding at its index, label and raw text byte for byte. A mismatch prints `merged_line_differs` on the OUTPUT and JUDGE rows, and verify is dirty. A missing output file or an output event with no file recorded (even for a reply with no findings), a judgment run on a copy of the merged file, merged rows that collect never wrote, and an output whose finding count no longer matches its recorded ids are dirty too. A reply refused for naming the wrong checkout is still allowed to hold findings collect never merged, but only when verify re-checks its tree line and finds it wrong.
+
+### Known
+- Deleting a whole output event together with its merged rows still verifies clean, because the ledger keeps no anchor for it. It is listed for the structured-findings plan.
+
+### Tests
+- `test/review-dispatch.test.ts`: a forged label, a summary copied onto a blocker's id, a deleted output file, a judgment on a forged copy and an extra merged row all verify dirty. Each verified clean at main c830c9b.
+- `test/review-dispatch.test.ts`: an output event edited to look like a wrong-tree refusal (no ids, `review: false`, `tree_ok: false`) verifies dirty, even after a re-sent brief is answered, and so does one edited to drop its file and ids. A real wrong-tree reply stays `NOT_REVIEWED` until a re-sent brief gets a review, then verifies clean.
+
+### Docs
+- `docs/review-policy.md` (verify) describes the per-row check.
+
+## [1.92.81.0] - 2026-11-02
+
+**`gstack-ship-release finish` now accepts the owner's edit after a fix-check instead of asking for another review round (GST-965).** On gbrain #8425, the fix-check found a blocker, the owner's pre-agreed fallback was applied and "then ship" was granted. Finish still classed the edit as behavior and stopped with `insert 5–11.5 → 12–14 → 16`, a third round the R51 cap forbids, so /ship could not get through Step 16 without running its stages by hand.
+
+### Added
+- **`finish --review-loop-exception <json|@file>`** (`lib/ship-release.ts`) takes the same record `gstack-ship-receipt write --review-loop-exception` takes. Paths changed since `fix_check.head` that the branch already touched at that commit (narrowed to the record's `fix_check.files` when it lists them) route as `accepted=` on the `ROUTE:` line, a `REVIEW_LOOP_EXCEPTION:` line names them with the owner, date and channel, and the docs stage carries them (`accepted=` in the DOCS line). A path outside that scope and a gate-edited test (with or without `--reviewed-base`) still route as behavior, and with `--reviewed-base` so does a file too large for the scoped review. A malformed record, or a `fix_check.head` that is not HEAD or an ancestor of it, stops before the release commit. Without the flag nothing changes.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: an owner fallback edit to a source file and a doc after the fix-check stops without the record and passes Step 16 with it; a new file outside the scope (even when `fix_check.files` lists it), a fix-check head off the branch, a malformed record, an unreadable record file and an empty `fix_check.files` stop; a `fix_check.files` list narrows what is accepted; a test weakened after the fix-check stops with and without `--reviewed-base`.
+
+## [1.92.80.0] - 2026-11-02
+
+**On a Capy machine, the git fixture tests no longer fail locally because of Capy's git shim log.** Capy's `/usr/bin/git` shim appends to `$HOME/.capy/git-shim.log`, so each fixture home that ran git during its template build ended up with a log naming the template. The leak scan in `test/helpers/git-fixture-template.ts` flagged it, and 34 tests in `test/train-backstop.test.ts`, `test/restamp-mentions.test.ts` and `test/pregate-user-policy.test.ts` failed on every Capy lane, though they passed on the remote gate.
+
+### Tests
+- `templateReferences` skips `.capy/git-shim.log`. Nothing reads that file back, and every other file is still scanned.
+- `test/git-fixture-template.test.ts` plants the shim log in a template's `home/.capy/` (the copy succeeds), and plants `home/.capy/state.json` as a control (the copy still throws).
+
+## [1.92.79.0] - 2026-11-02
+
+**/plan-tune no longer reports a mismatch between your stated and observed preferences when it has no observed answers behind it (#3436).** `--check-mismatch` compared a declared value against an inferred value that had never moved from its 0.5 starting point, so a strong declaration with no matching answers printed `scope_appetite: declared 0.9 vs inferred 0.5 (gap 0.4)` even though no logged answer touched that dimension.
+
+### Fixed
+- **`bin/gstack-developer-profile`**: `--check-mismatch`, `--gap` and the gap that `--derive` stores compare a dimension only when at least 3 logged answers moved it. `--check-mismatch` still needs 10 logged answers overall before it reports anything. Below the 3-answer floor, `--check-mismatch` prints `no observed evidence` or `too little evidence (n of 3 events)` instead of a gap, and `--gap` lists the dimension under a new `low_evidence` field. A profile derived before `contributing_events` existed keeps the old behavior until its next derive.
+- **/plan-tune "Show gap"**: says "not enough observed answers yet" for those dimensions instead of calling them drift.
+
+### Tests
+- `test/gstack-developer-profile.test.ts`: a declared dimension with no evidence is not flagged by `--check-mismatch` or `--gap` (both failed on main), 1 or 2 events report too little evidence, 3 events are compared, three same-day answers that agree with the declaration still report not enough data, and `--derive` stores no gap without evidence.
+
+## [1.92.78.0] - 2026-11-02
+
+**Seven flaky tests from the 2026-11-01 flaky pass stop failing correct runs, and six more now name their cause when they fail.** One product lock broke a fresh lock it had misjudged as abandoned, a /ship lane tripped the free runner's home check with its own log, and the rest were fixtures that raced their own setup, leaned on wall-clock sleeps or read the caller's state root.
+
+### Fixed
+- **`bin/gstack-codex-probe`**: a waiter that cannot read an owner-less lock's age (the holder removed it in that instant, or `stat -f` printed filesystem text on Linux) now treats the lock as fresh instead of abandoned, so it no longer deletes a live owner's lock on a misread age and the probe no longer ends `MODEL_PROBE_INCONCLUSIVE` (Free Tests 41216564482, 41235671867, 41263831361). A stat stub for both race windows fails without the fix; 64 stress runs went from 2 failures to 0.
+- **`scripts/lib/free-home-guard.ts`, `bin/gstack-evidence`**: `gstack-evidence run` names its own lane log in `GSTACK_EVIDENCE_LOG`, and the real-home tripwire ignores exactly that file, so a /ship lane no longer trips over its own output. A foreign write under the home's `~/.gstack` still fails.
+- **`test/autoplan-publication-guard.test.ts`**: the render-root cases clear the state-root variables they don't name, so a `GSTACK_STATE_ROOT` exported by the gstack launch file no longer picks the root. Three cases failed every time under that variable, and the lookalike controls passed for the wrong reason.
+- **`test/gstack-design-detect.test.ts`**: the directory scan proves one batch by counting engine calls instead of sleeping near the 1,500 ms detect timeout (macOS job 124813933194). The product timeout is unchanged.
+- **`test/pregate-regate.test.ts`**: the two fixtures are built once and copied per test through the `gitFixtureTemplate` helper from #3586, so 8 builds become 2.
+- **`test/ship-queue-train.test.ts`**: the planted seam has its own name, so the fixture's own background `git maintenance` lock no longer collides with it (EEXIST, Free Tests 41288253305, 41288417894), and the test now holds a real `maintenance.lock` beside it.
+- **`test/ship-budget.test.ts`**: the fake child writes its args to a temporary file and renames it, so the poll never reads an empty file (Free Tests 41242243205).
+
+### Changed
+- `scripts/test-free-shards.ts` names the recorded browser child it never saw in the daemon's process tree, and whether it was still alive, when it fails a shard for unconfirmed ownership (Free Tests 41264845860 shard 7). The shard still fails.
+- `test/bootstrap-retention-shard.test.ts`, `test/office-hours-attempt.test.ts`, `test/session-update-autostash.test.ts`, `test/shard-engine.test.ts` and `test/auq-parallel.test.ts` print the process state, exit status or cleanup events behind their assertion, so the next red names its cause.
+
+## [1.92.77.0] - 2026-11-02
+
+**The weekly marathon evals can run /design-motion again: the CI eval image now ships ffmpeg (#3687).** The `design-motion-showcase` case joined the marathon tier on 2026-10-26, and its first scheduled run (Actions run 41200316994, main @ 088bfc5) failed 0/3. Every trial built and captured the page, then stopped at `FFMPEG_MISSING`, because the image had no ffmpeg and the skill rightly refuses to export before its checks run. The model did nothing wrong; the case could not pass on that image.
+
+### Fixed
+- **`.github/docker/Dockerfile.ci`** installs Ubuntu's `ffmpeg` (6.1.1, with `ffprobe`). The build fails if that ffmpeg lacks a filter or encoder the motion checks and exports use (`psnr`, `gblur`, `palettegen`, `paletteuse`, `signalstats`, `tile`, `libx264`, `gif`).
+- **`test/ci-image-cli-pin.test.ts`** fails the free suite if the image stops installing ffmpeg or stops checking it.
+
+The macOS `macos-named-regressions` CI job now runs `test/regression-issue3680-ubicloud-bsd-userland.test.ts`, so the ubi-runner cases for #3680 (bsdtar) and #3679 (macOS awk) run on a real Mac against `/usr/bin/tar` and `/usr/bin/awk`. Before, the file ran only on Linux CI, where bsdtar and one-true-awk aren't installed, so every case skipped and a regression in either could merge green. A new wiring test fails if the macOS job stops naming the file.
+
+The Linux free suite now runs on 10 `ubicloud-standard-8` machines, each running its tests as 4 sandboxed sub-shards side by side, instead of main's 20 `ubicloud-standard-4` machines (set by #3710) running one file at a time. Both use 80 vCPUs per run. In a 3-run A/B at one commit against that main setup, the slowest shard dropped from 389–450 s to 224–258 s and the Ubicloud cost per run dropped from about $0.39 to $0.32 at premium prices, with the same per-file test counts and no new failures. The CI plan now stores each shard's sub-shard count (`--ci-plan --shard-jobs k`), keeps the exclusive host-state shard at one child, and `--ci-verify` rejects a shard that ran at a different count. The nightly Windows suite stays at one child per shard, because two sub-shards made Windows file-lock cleanup failures show up in two of three runs. Dispatch-only `free_jobs` and `windows_jobs` inputs exist for future experiments. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
+
 ## [1.92.76.0] - 2026-11-02
 
 **/retro now remembers its history across git worktrees, so a run in a linked worktree compares against last week instead of announcing "First retro recorded".** Retro snapshots used to live in `.context/retros/` inside the working tree. A worktree (Conductor, Claude Code) saw none of the main checkout's history, and its own snapshot was deleted along with the worktree (#3749).

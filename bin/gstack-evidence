@@ -400,7 +400,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   try {
     if (shell && !shell.ok) throw new Error(shell.error);
     const spawnArgv = shell?.ok ? [shell.cmd, ...shell.argv] : cmdArgv;
-    proc = Bun.spawn(spawnArgv, { stdin: "inherit", stdout: "pipe", stderr: "pipe" });
+    proc = Bun.spawn(spawnArgv, { stdin: "inherit", stdout: "pipe", stderr: "pipe", env: log ? { ...process.env, GSTACK_EVIDENCE_LOG: log.path } : process.env });
   } catch (e: any) {
     // Spawn failure (ENOENT on argv-direct form): record exit 127, propagate 127.
     exitCode = 127;
