@@ -233,8 +233,9 @@ Two stages with separate clocks, both printed:
   comment line directly above it:
   `// pregate-literal: MIN_RUNTIME='1.4.0' refused input below the minimum`
   (`#` and `/*` comments work too). The marker waives only that line, and only
-  when it names the changed constant and its old value and gives a reason; text
-  inside a string is not a marker. Every other line in the file is still
+  when it names the changed constant and its old value and gives a reason (a
+  reason cannot start with `*`, so a bare `*/`, `**/` or `* */` closer is not
+  one); text inside a string is not a marker. Every other line in the file is still
   checked. The check lists each waived line as
   `waived: <file>:<line>: <NAME> <old> (<reason>)`, adding `marker added on
   this branch` when the merge-base file lacks the marker. The policy has no
