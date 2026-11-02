@@ -131,9 +131,10 @@ export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
 /**
  * `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here.
  * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules, and the
- * record binds only when it equals the receipt's, so a record verified before a product change never vouches for it (GST-986).
+ * record binds when it equals the receipt's, or when `classesSince` reads no targeted class in what changed after the read (the
+ * docs and TODOS.md /ship commits after Step 11), so a record never vouches for targeted-class code it did not read (GST-986).
  */
-export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
+export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
   if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by, head }');
   const v = value as Record<string, unknown>;
@@ -145,7 +146,7 @@ export function parseReviewTargeted(value: unknown, productPatchId: string, prod
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
   if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
   const read = productPatchOf(v.head);
-  if (read !== productPatchId) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
+  if (read !== productPatchId && classesSince?.(v.head)?.length !== 0) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
@@ -235,6 +236,14 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
  * publish (#3854). Classes that failed closed on an input this checkout cannot read (no origin base, no gate scan) are reported,
  * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
  */
+/** The targeted classes of what changed from `from` to `head`; null when `from` is not an ancestor of `head` or a class input is unreadable. */
+export function targetedClassesSince(root: string, from: string, head: string): readonly TargetedClass[] | null {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
+  const at = headInputs(root, from, head);
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged: gateScanNeeded(at.c.paths, at.c.root) ? null : 0 });
+  return t.errors.length ? null : t.classes;
+}
+
 export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
   const at = headInputs(root, baseRef, head);
   const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);

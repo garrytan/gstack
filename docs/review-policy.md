@@ -378,8 +378,11 @@ renders its brief; `verify --targeted-out .gstack/tmp/targeted.json` writes the 
 (Step 19, the handoff and the driver pass it when the file exists). The record is `done` when
 the reader got its brief verbatim and its reply was collected on a committed diff, whatever
 happened to HEAD after, and it names the commit it read (`head`). `write` binds it only while
-that commit's product patch is the receipt's: a product change after the read refuses with
-`RECEIPT_INVALID`, and a test-only or version commit still binds. `write` and `carry` also
+that commit's product patch is the receipt's, or while nothing changed after the read carries a
+targeted class: a money, gate, auth or secret change after the read refuses with
+`RECEIPT_INVALID`, and a test, version, docs or TODOS.md commit (Steps 14 and 14.5) still
+binds. A verify whose ledger has no targeted render removes `--targeted-out`, so an earlier
+run's record never reaches Step 19. `write` and `carry` also
 refuse a receipt whose head needs a class no `done` record covers (`RECEIPT_INVALID`,
 `RECEIPT_CARRY_REFUSED`), so /ship never publishes a receipt the queue would refuse.
 `gstack-ship-queue ready` and `train build` print
@@ -413,7 +416,7 @@ puts in the receipt:
 | `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record whose read commit has another product patch, and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record whose read commit has another product patch when a change after the read carries a targeted class, and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,

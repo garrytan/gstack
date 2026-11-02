@@ -364,7 +364,7 @@ function main(): number {
     if (record) {
       process.stdout.write(`TARGETED_RECORD: classes=${record.classes.join(',')} status=${record.status} findings=${record.findings} brief=${record.brief_sha.slice(0, 12)} rules=${record.rules} read=${record.head?.slice(0, 12) ?? 'none'}\n`);
       if (flag('--targeted-out')) fs.writeFileSync(flag('--targeted-out')!, JSON.stringify(record) + '\n');
-    }
+    } else if (flag('--targeted-out')) fs.rmSync(flag('--targeted-out')!, { force: true });
     process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);
     return v.clean ? EXIT.ok : EXIT.fail;
   }
