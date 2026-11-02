@@ -65,8 +65,8 @@ const NO_LOSS_REPLAYS = {
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: '12f0e686fc50bccdcd5d0ee30b1f2925e47cde11ac83c008916114029e17cce5', replay: 'GST-967' },
-    'ship/sections/adversarial.md': { sha: 'd83e95536d8e380c13e6282b93fd6a7deaa77dc1584e7325bd87b1601d1f44fb', replay: 'GST-967' },
+    'ship/sections/review-army.md': { sha: 'c22f1da7f5ce7ecfd8d83fdaa135ed2fd1207d7db6f04321bd92b1524fd70c94', replay: 'GST-967' },
+    'ship/sections/adversarial.md': { sha: '5d712bb568573931108a79b1bd40b74db6189610f47c547099c13098ef67bef8', replay: 'GST-967' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
@@ -83,7 +83,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '7768bfa3e31b914432dbebd3dcc574ae132d1edd5b7dee23dea3d2d1465aae07', replay: 'GST-967' },
+    'lib/review-depth.ts': { sha: 'c5fd958b6c9a1116be9fc3418844239c01168476abb72c1db85bc26ab0adf4b4', replay: 'GST-967' },
     'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
 };
 

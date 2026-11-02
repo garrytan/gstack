@@ -6,9 +6,9 @@ with neither line, take decision 3 of Finish the adversarial phase. On `DISPATCH
 (`gstack-review-dispatch render --role targeted --classes <TARGETED classes> --base <base> --diff-base <merge base>`, the merge base on every pass, never RANGE_BASE) like the voices; `verify --targeted-out` feeds the receipt's `--review-targeted`. Under a token cap,
 reserve the planned voices as one batch (`gstack-ship-budget check --next dispatch:<roles>`)
 and add `--reservation <id>` to the `--start adversarial-review` call below.
-After `NEXT: voices` (gate class: Step 11 before any stop), decision 3 of Finish the adversarial phase
-reruns Step 9's repeat decision with `--adversarial-ran` instead; its `NEXT:` (the stop, or the owner's
-granted fix-check) stands.
+After `NEXT: voices` (gate class: Step 11 before any stop), Finish the adversarial phase takes neither
+decision 2 nor 3: rerun Step 9's repeat decision with `--adversarial-ran` (a queued blocking finding as
+`--blocking-open`); its `NEXT:` (the stop, or the owner's granted fix-check) stands.
 
 {{ADVERSARIAL_STEP}}
 

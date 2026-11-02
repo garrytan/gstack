@@ -62,15 +62,19 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).not.toContain('NEXT: stop');
     expect(run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'fix-check', '--fixed-below', '--blocking-open']).stdout).toContain('NEXT: stop');
   });
-  // Value: protects=a grant the owner recorded with gstack-approvals is something the plan can use: --grant <id> plans the one scoped fix-check after round 2, a fix-check already counted keeps it from repeating, and an id the record does not hold is refused; fails_when=the CLI ignores the grant and prints NEXT: stop (C6-36 after-opus-grant), accepts an unrecorded id, or grants a second fix-check;
+  // Value: protects=a grant the owner recorded with gstack-approvals is something the plan can use: --grant <id> plans the one scoped fix-check after a round-2 full pass, the fix-check never earns another, and an id the record does not hold as a review_loop_exception grant is refused; fails_when=the CLI ignores the grant and prints NEXT: stop (C6-36 after-opus-grant), accepts an unrelated approval or an unrecorded id, or grants a second fix-check;
   //   why_new=GST-967; seam=bin/gstack-review-plan; no_claim=who may grant (the owner's words are the approval record's)
   test('GST-967: --grant <id> names a recorded approval and plans its one scoped fix-check after round 2; an unrecorded id is refused', () => {
     const r = repo({ 'src/a.ts': 'export const a = 1;\n' });
     const env: NodeJS.ProcessEnv = { ...process.env, GSTACK_STATE_ROOT: r.state, GSTACK_APPROVALS_MIRROR: '0' };
     delete env.GSTACK_APPROVALS_DIR;
-    const add = spawnSync(path.join(path.dirname(BIN), 'gstack-approvals'), ['add', '--ask', 'Owner grant: one scoped fix-check after round 2', '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
-    expect(add.status, add.stderr).toBe(0);
-    const id = JSON.parse(add.stdout).added[0] as string;
+    const add = (ask: string) => {
+      const a = spawnSync(path.join(path.dirname(BIN), 'gstack-approvals'), ['add', '--ask', ask, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
+      expect(a.status, a.stderr).toBe(0);
+      return JSON.parse(a.stdout).added[0] as string;
+    };
+    const id = add('Owner grant: one scoped fix-check after round 2 (review_loop_exception)');
+    const unrelated = add('Approve the plan for the README rewrite');
     const plan = (a: string[]) => spawnSync(BIN, ['--base', 'main', '--gate-tagged', '0', ...a], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
     const capStop = ['--pass', '2', '--last', 'full', '--fixed-blocking'];
     expect(plan(capStop).stdout).toContain('NEXT: stop');
@@ -78,12 +82,14 @@ describe('gstack-review-plan', () => {
     expect(granted.status, granted.stderr).toBe(0);
     expect(granted.stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
     expect(granted.stdout).toContain('DISPATCH: fix-check fix-check effort=full');
-    expect(plan(['--pass', '2', '--last', 'fix-check', '--fixed-blocking', '--grant', id, '--fix-checks', '1']).stdout).toContain('NEXT: stop');
-    const uncounted = plan(['--pass', '1', '--last', 'fix-check', '--fixed-blocking', '--grant', id]);
-    expect([uncounted.status, uncounted.stderr]).toEqual([2, expect.stringContaining('--fix-checks')]);
-    const unknown = plan([...capStop, '--grant', 'a-000000000000']);
-    expect([unknown.status, unknown.stdout]).toEqual([3, '']);
-    expect(unknown.stderr).toContain('no approved row a-000000000000');
+    expect(plan(['--pass', '2', '--last', 'fix-check', '--fixed-blocking', '--grant', id]).stdout).toContain('NEXT: stop');
+    expect(plan(['--pass', '1', '--last', 'fix-check', '--fixed-blocking', '--grant', id]).stdout).toContain('NEXT: stop');
+    for (const other of ['a-000000000000', unrelated]) {
+      const refused = plan([...capStop, '--grant', other]);
+      expect([refused.status, refused.stdout]).toEqual([3, '']);
+      expect(refused.stderr).toContain(`no approved row ${other} naming review_loop_exception`);
+    }
+    expect(plan([...capStop, '--grant', '--json']).status).toBe(2);
   });
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });

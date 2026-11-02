@@ -5,7 +5,7 @@
  *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full|fix-check] [--fixed-blocking] [--fixed-below]
  *                      [--blocking-open] [--touched-gate] [--critical-found] [--adversarial-ran] [--gate-tagged <n>] [--gated a,b] [--force a,b|all]
  *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--range-base <sha>] [--pass1-depth light|standard|full] [--no-tiers]
- *                      [--targeted-ran <targeted_patch_id>] [--grant <approval id> [--fix-checks <n>]] [--json]
+ *                      [--targeted-ran <targeted_patch_id>] [--grant <approval id>] [--json]
  *   gstack-review-plan --fix-check-prompt --fix-list <file> --hunks <file> --tests <file> [--callers <file>]
  *
  * Reads the diff against the merge base with <ref> (committed, tracked uncommitted
@@ -55,11 +55,10 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full
   --targeted-ran <id>       the TARGETED line's targeted_patch_id (the whole committed diff, tests included) when the targeted
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again
-  --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved):
-                            a round-2 stop for a fixed blocking finding or a gate-class edit plans that fix-check instead
-                            (review_loop_exception); an id the branch's approval record does not hold approved is refused (exit 3)
-  --fix-checks <n>          fix-checks already run, the one that just finished included (default 1 after --last fix-check, else 0);
-                            required with --grant after --last fix-check, so a granted fix-check never repeats
+  --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved,
+                            its ask or scope naming review_loop_exception): the stop after a round-2 full pass with a fixed blocking
+                            finding or a gate-class edit plans that fix-check instead; a fix-check never earns another; an id the
+                            branch's record does not hold that way is refused (exit 3)
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
 Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data) or any DEPTH_ERROR;
@@ -99,11 +98,8 @@ function main(): number {
   if (!Number.isInteger(pass) || pass < 0) { process.stderr.write('gstack-review-plan: --pass needs an integer >= 0\n'); return EXIT.usage; }
   const floor = flag('--depth-floor') as Depth | undefined;
   if (has('--depth-floor') && floor !== 'standard' && floor !== 'full') { process.stderr.write('gstack-review-plan: --depth-floor must be standard or full (a floor only raises the depth)\n'); return EXIT.usage; }
-  const fixChecks = flag('--fix-checks') === undefined ? undefined : Number(flag('--fix-checks'));
-  if (has('--fix-checks') && (fixChecks === undefined || !Number.isInteger(fixChecks) || fixChecks < 0)) { process.stderr.write('gstack-review-plan: --fix-checks needs an integer >= 0\n'); return EXIT.usage; }
   const grant = flag('--grant');
   if (has('--grant') && (!grant || grant.startsWith('-'))) { process.stderr.write('gstack-review-plan: --grant needs the approval id gstack-approvals add printed\n'); return EXIT.usage; }
-  if (grant && last === 'fix-check' && fixChecks === undefined) { process.stderr.write('gstack-review-plan: --grant after --last fix-check needs --fix-checks <n> (fix-checks run so far), so a granted fix-check never repeats\n'); return EXIT.usage; }
   const rangeBase = flag('--range-base');
   if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD)\n'); return EXIT.usage; }
   const root = git(['rev-parse', '--show-toplevel'])?.trim();
@@ -112,7 +108,7 @@ function main(): number {
   if (grant) {
     const loc = locate({ cwd: root, env: process.env });
     const rows = 'file' in loc ? readRecord(loc).rows : [];
-    if (!rows.some(r => r.id === grant && r.outcome === 'approved')) { process.stderr.write(`gstack-review-plan: --grant ${grant}: no approved row ${grant} in this branch's approval record (${'file' in loc ? 'gstack-approvals list' : loc.message}); record the owner's words with gstack-approvals add first\n`); return EXIT.refused; }
+    if (!rows.some(r => r.id === grant && r.outcome === 'approved' && `${r.ask} ${r.scope}`.includes('review_loop_exception'))) { process.stderr.write(`gstack-review-plan: --grant ${grant}: no approved row ${grant} naming review_loop_exception in this branch's approval record (${'file' in loc ? 'gstack-approvals list' : loc.message}); record the owner's grant with gstack-approvals add --ask '... (review_loop_exception)' first\n`); return EXIT.refused; }
   }
   const collected = collectLive(root, base);
   if (collected.errors.length) {
@@ -162,7 +158,7 @@ function main(): number {
   const plan = planReview({
     ...collected, scope, gateTagged, targeted: { classes: targeted.classes, ran: !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch }, numbers: scanNumbers(added), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks },
+    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant },
   });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {

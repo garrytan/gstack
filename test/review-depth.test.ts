@@ -88,24 +88,23 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect([p.class, p.next.step, roles(p)]).toEqual(['gate', 'voices', ['adversarial-native:adversarial:full', 'outside-voice:outside-voice:host', 'targeted:targeted:full']]);
     expect(planReview(base({ gateTagged: 1, adversarialRan: true, targeted: { classes: ['gate'] }, history: h })).next.step).toBe('stop');
   });
-  test('a recorded grant dispatches one scoped fix-check after round 2, after the gate-class voices, and never a second', () => {
+  test('a recorded grant dispatches one scoped fix-check after a round-2 full pass, after the gate-class voices, and never a second', () => {
     const g = { ...capStop, granted: 'a-feb4aba31633' };
     expect(nextStep(g)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-feb4aba31633') });
     expect(roles(planReview(base({ history: g })))).toEqual(['fix-check:fix-check:full']);
     expect(nextStep({ ...g, gate: true }).step).toBe('voices');
     expect(nextStep({ ...g, gate: true, adversarialRan: true }).step).toBe('fix-check');
     expect(nextStep({ ...g, fixedBlocking: false, fixedBelow: true, touchedGate: true }).step).toBe('fix-check');
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1', fixChecks: 1 }).step).toBe('fix-check');
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
     expect(nextStep({ ...g, blockingOpen: true }).step).toBe('stop');
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', granted: 'a-1' }).step).toBe('done');
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1', fixChecks: 2 }).step).toBe('stop');
   });
   test('docs/review-policy.md\'s transitions table and rule 3 say both', () => {
     const doc = fs.readFileSync(path.join(ROOT, 'docs', 'review-policy.md'), 'utf8');
     const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('A **fix-check** is one reviewer'));
     expect(table).toContain("| a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |");
-    expect(table).toContain('| a round-2 stop for a fixed blocking finding or a gate-class edit, with the owner\'s recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |');
+    expect(table).toContain('| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner\'s recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |');
     const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
     expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
     expect(rule3).toContain('`gstack-review-plan --grant <approval id>`');
@@ -115,18 +114,17 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
 /**
  * GST-967's safety property, as a permanent invariant over the transitions table (Captain, 2026-11-02: the invariant is the
  * gate, a reader the second check). Every state: passes 0-3, each last step, every mix of the four fix flags, gate class or
- * not, Step 11 run or not, grant recorded or not, fix-checks counted or defaulted.
+ * not, Step 11 run or not, grant recorded or not.
  */
 describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; a recorded grant always gets its fix-check', () => {
-  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant always turns a round-2 stop for a fixed finding into exactly one fix-check while changing nothing else; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
+  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant always turns the stop after a round-2 full pass with a fixed finding into exactly one fix-check while changing nothing else, so it never repeats; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
   //   why_new=GST-967 (three earlier fixes failed open and a reviewer caught each after the fact); seam=nextStep, planReview; no_claim=the parent following NEXT
   test('every state of the table holds the property', () => {
     let states = 0, voices = 0, grants = 0;
     for (const fullPasses of [0, 1, 2, 3]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++)
-      for (const gate of [false, true]) for (const adversarialRan of [false, true]) for (const fixChecks of [undefined, 0, 1, 2]) {
-        const h = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), gate, adversarialRan, fixChecks };
+      for (const gate of [false, true]) for (const adversarialRan of [false, true]) {
+        const h = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), gate, adversarialRan };
         const plain = nextStep(h), granted = nextStep({ ...h, granted: 'a-1' });
-        const rounds = fullPasses + (fixChecks ?? (last === 'fix-check' ? 1 : 0));
         const ungatedStop = nextStep({ ...h, gate: false }).step === 'stop';
         states++;
         for (const n of [plain, granted]) {
@@ -134,12 +132,12 @@ describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; 
           if (n.step === 'voices') expect([gate, adversarialRan, ungatedStop]).toEqual([true, false, true]);
         }
         if (plain.step === 'voices') voices++;
-        const owed = ungatedStop && !h.blockingOpen && rounds === FULL_PASS_CAP && (!gate || adversarialRan);
+        const owed = ungatedStop && !h.blockingOpen && last === 'full' && fullPasses === FULL_PASS_CAP && (!gate || adversarialRan);
         if (owed) grants++;
         expect([granted.step === 'fix-check' && plain.step !== 'fix-check', granted.step === plain.step]).toEqual([owed, !owed]);
         if (owed) expect(granted.reason).toContain('a-1');
       }
-    expect(states).toBe(4 * 3 * 16 * 2 * 2 * 4);
+    expect(states).toBe(4 * 3 * 16 * 2 * 2);
     expect([voices > 0, grants > 0]).toEqual([true, true]);
     const gatePlan = (o: Partial<PlanInput>) => planReview(base({ gateTagged: 1, targeted: { classes: ['gate'] }, ...o }));
     for (const fullPasses of [1, 2]) for (const last of ['full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) {

@@ -103,11 +103,12 @@ incomplete coverage, which blocks until the reviewer is rerun.
    (`NEXT: voices`), so gate code never reaches the owner's "ship with open
    notes" without them (GST-967). A third round is the owner's
    grant of one scoped fix-check (recorded in `review_loop_exception`), never the
-   loop's: once `gstack-approvals add` records the grant,
-   `gstack-review-plan --grant <approval id>` plans that fix-check in place of a
-   round-2 stop for a fixed blocking finding or a gate-class edit (with
-   `--fix-checks <n>` after a fix-check), and refuses an id the branch's record
-   does not hold approved. The cap approves nothing.
+   loop's: once `gstack-approvals add` records the grant (its ask or scope
+   naming `review_loop_exception`), `gstack-review-plan --grant <approval id>`
+   plans that fix-check in place of the stop after a round-2 full pass with a
+   fixed blocking finding or a gate-class edit, and refuses any other row. A
+   fix-check never earns another, so the grant cannot repeat, and a stop after a
+   round-2 fix-check still goes to the owner. The cap approves nothing.
 
 <a id="transitions"></a>
 ### Transitions
@@ -130,7 +131,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a fix-check that found nothing blocking | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
-| a round-2 stop for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
+| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
@@ -138,9 +139,9 @@ logged as a `review-fix-check` row, so it never counts as a pass. No army, no
 Red Team and no outside voice run on it.
 
 `NEXT: voices` runs Step 11 as `done` does, from the last full pass's
-manifest; /ship then asks the plan again with `--adversarial-ran` (plus the
-flags of any fixes the voices queued), and the stop or the granted fix-check it
-names stands.
+manifest; /ship then asks the plan again with `--adversarial-ran` (a blocking
+finding the voices queued counts as `--blocking-open`, never a new Step 9), and
+the stop or the granted fix-check it names stands.
 
 <a id="scoped-pass"></a>
 A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both

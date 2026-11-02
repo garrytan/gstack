@@ -344,8 +344,6 @@ export interface History {
   adversarialRan?: boolean;
   /** The approval id of the owner's recorded grant of one scoped fix-check after round 2 (review_loop_exception). */
   granted?: string;
-  /** Fix-checks already run, the step that just finished included; default 1 after a fix-check, else 0. */
-  fixChecks?: number;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -358,14 +356,14 @@ export interface NextStep { step: Step; reason: string }
  * one): after round 2, below-floor fixes finish with notes, and a blocker open or fixed
  * there, or a gate-class edit there, stops for the owner, whose grant may add one scoped fix-check.
  * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
- * and the owner's recorded grant (`granted`) turns a round-2 stop for a fixed finding into its one fix-check.
+ * and the owner's recorded grant (`granted`) turns the stop after a round-2 full pass with a fixed finding into its
+ * one fix-check; a fix-check never earns another, so the grant cannot repeat.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
   const n = loopStep(h, depth);
   if (n.step !== 'stop') return n;
   if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's voices (adversarial, outside, targeted) run before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
-  const rounds = h.fullPasses + (h.fixChecks ?? (h.last === 'fix-check' ? 1 : 0));
-  if (h.granted && !h.blockingOpen && rounds === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
+  if (h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
   return n;
 }
 

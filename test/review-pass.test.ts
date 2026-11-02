@@ -744,7 +744,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   //   why_new=GST-967; seam=the pass program; no_claim=the fix-check reviewer's verdict
   test('GST-967: a recorded grant after round 2 runs its one scoped fix-check through the program', async () => {
     const { dir, env } = repo();
-    const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', 'Owner grant: one scoped fix-check after round 2', '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env: { ...env, GSTACK_APPROVALS_MIRROR: '0' }, encoding: 'utf8', timeout: 60_000 });
+    const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', 'Owner grant: one scoped fix-check after round 2 (review_loop_exception)', '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env: { ...env, GSTACK_APPROVALS_MIRROR: '0' }, encoding: 'utf8', timeout: 60_000 });
     expect(add.status, add.stderr).toBe(0);
     const id = JSON.parse(add.stdout).added[0] as string;
     const files = path.join(dir, '.state/gfc');
