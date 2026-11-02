@@ -324,7 +324,7 @@ describe('the targeted role end to end on a fixture repository', () => {
     fs.mkdirSync(logDir, { recursive: true });
     const row = { skill: 'review', via: 'ship', timestamp: '2026-10-30T10:00:00Z', status: 'clean', review_scope: 'frozen', findings: [], dispatches: [{ role: 'specialist' }, { role: 'adversarial-native' }, { role: 'targeted' }] };
     fs.writeFileSync(path.join(logDir, 'feat-reviews.jsonl'), JSON.stringify(row) + '\n');
-    const summary = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-30T09:00:00Z', '--json']);
+    const summary = runBin(repo, 'gstack-review-scope', ['summary', '--no-ledger', '--since', '2026-10-30T09:00:00Z', '--json']);
     expect(summary.status, summary.err).toBe(0);
     expect(JSON.parse(summary.out).dispatches).toEqual({ specialist: 1, 'adversarial-native': 1, targeted: 1 });
 

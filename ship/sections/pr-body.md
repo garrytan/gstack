@@ -220,7 +220,7 @@ per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
 
 ```bash
 rm -f .gstack/tmp/review-loop.json
-~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --out .gstack/tmp/review-loop.json &&
+~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json &&
 ~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json $([ -s .gstack/tmp/targeted.json ] && echo --review-targeted @.gstack/tmp/targeted.json) --body "$PR_BODY_FILE"
 ```
 
@@ -235,7 +235,9 @@ When `gstack-review-dispatch verify` printed `REVIEW_EXCLUDE_RECORD: digest=<d>`
 a digest that no longer matches HEAD is `RECEIPT_INVALID field=review_exclude`: rerun the review, not the write.
 
 The summary reads this branch's review log for the invocation's passes (its
-`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). The `&&`
+`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). Here every
+finding reaches a row through Step 9.4; a run whose readers were collected by
+`gstack-review-dispatch` (ship/DRIVER.md) passes `--run <run dir>` instead. The `&&`
 matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `write`
 record a stale or empty loop file.
 

@@ -328,6 +328,8 @@ export function parseReviewLoop(value: unknown): ReviewLoopReceipt | undefined {
   if (n('fix_checks') !== undefined) out.fix_checks = n('fix_checks');
   if (n('rounds') !== undefined) out.rounds = n('rounds');
   if (n('est_input_tokens') !== undefined) out.est_input_tokens = n('est_input_tokens');
+  if (n('unrecorded')) out.unrecorded = n('unrecorded');
+  if (n('ledgers_read')) out.ledgers_read = n('ledgers_read');
   if (v.dispatches && typeof v.dispatches === 'object' && !Array.isArray(v.dispatches)) {
     const d = Object.fromEntries(Object.entries(v.dispatches as Record<string, unknown>)
       .filter(([k, c]) => /^[a-z][a-z0-9-]{0,39}$/.test(k) && typeof c === 'number' && Number.isInteger(c) && c >= 0).slice(0, 12)) as Record<string, number>;

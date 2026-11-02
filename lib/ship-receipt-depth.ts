@@ -44,6 +44,8 @@ function git(root: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
 }
 
+/** A base as a commit; origin/<branch> reads refs/remotes/origin/<branch> by its full name, so a tag named origin/main cannot stand in for it (GST-884). */
+const baseCommit = (root: string, ref: string) => git(root, ['rev-parse', '--verify', '--quiet', `${/^origin\//.test(ref) ? `refs/remotes/${ref}` : ref}^{commit}`]);
 /** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue; `merged` (`--merged`) for a head GitHub already merged into the base. */
 function scopeOfRange(root: string, binDir: string, base: string, head: string, merged = false): Record<string, string> {
   const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head, ...(merged ? ['--merged'] : [])], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
@@ -85,7 +87,7 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
 /** receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508). */
 export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string): { depth: ReceiptDepth; exclude: Exclusion } {
   const branch = base.replace(/^origin\//, '');
-  const baseSha = git(repoRoot, ['rev-parse', '--verify', '--quiet', `origin/${branch}^{commit}`]);
+  const baseSha = baseCommit(repoRoot, `origin/${branch}`);
   const baseRev = baseSha.ok ? baseSha.out : branch;
   const ref = baseSha.ok ? `origin/${branch}` : branch;
   const sha = baseSha.ok ? baseSha.out : (git(repoRoot, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`]).out || null);
@@ -194,7 +196,7 @@ export interface DepthVerdict { ok: boolean; line: string; message?: string }
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
 interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string>; x: Exclusion }
 function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt, merged = false): HeadInputs {
-  const baseSha = git(root, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
+  const baseSha = baseCommit(root, baseRef);
   const baseRev = baseSha.ok ? baseSha.out : baseRef;
   const c = collectCommit(root, baseRev, head);
   const tagged = r && boundScan(r, head) !== null ? new Set(r.review_exclude?.gate_tagged ?? []) : null;

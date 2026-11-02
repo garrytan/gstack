@@ -85,37 +85,56 @@ export function isShallow(cwd: string): boolean {
 
 /**
  * The base as a ref that resolves here and, when `head` is given, shares
- * history with it. A bare branch name (`main`; never a sha, a relative ref or
- * `refs/`) yields to its remote-tracking branch whenever that shares history
- * with HEAD, the base gstack-review-plan's path list reads: a local `main`
- * behind origin would count commits the base already has (GST-462), and one
- * ahead of or diverged from it would leave out commits the branch lands. A
- * missing or unrelated local branch yields to any remote's; otherwise only
- * origin's counts. A remote-qualified ref (`origin/main`) is read as
- * `refs/remotes/origin/main` when that exists. Tracking branches are read by
- * their full names, so a tag or a fetched branch called `origin/main` cannot
- * stand in. `local` says why a tracking branch won.
+ * history with it. A bare branch name resolves to origin's tracking branch
+ * (`refs/remotes/origin/main` for `main`), the base /ship merges against and
+ * the one review-collect's collectLive and review-dispatch read: a stale local
+ * `main` behind it would scan upstream commits the branch only inherited
+ * (#3650, GST-883), so a local branch that differs says how: `behind` it,
+ * `ahead` of it (commits the branch would land unscanned) or `diverged` (GST-462).
+ * Without a related origin twin the related local branch wins over any other
+ * remote, so a fork's branch cannot replace it; it is `fallback` when origin
+ * lacks the branch or shares no history with HEAD (named as `unrelatedRemote`),
+ * and plain with no origin. Another remote's tracking branch is used only when
+ * no related local branch exists. A clone that checked out only the feature
+ * branch has no local `main` (`missing`); a local `main` that shares no
+ * history with HEAD is `unrelated`, so the fix line's fetch into the tracking
+ * ref is a fix and not a loop. Branches are read by their full names
+ * (`refs/heads/`, `refs/remotes/`), so a tag named `main` or `origin/main`
+ * cannot stand in for them, and a remote-qualified name (`upstream/main`) is
+ * taken as given.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'ahead' | 'diverged' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'ahead' | 'diverged' | 'fallback'; unrelatedRemote?: string } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
+  const direct = () => resolvesToCommit(ref, cwd);
+  if (!isBranchName(ref)) { const sha = direct(); return sha ? { ref, sha } : null; }
+  const qualified = resolvesToCommit(`refs/remotes/` + ref, cwd);
+  if (qualified) return { ref, sha: qualified };
+  const local = resolvesToCommit(`refs/heads/` + ref, cwd);
   const remotes = remoteNames(cwd);
-  const direct = resolvesToCommit(ref, cwd);
-  if (remotes.some((remote) => ref.startsWith(`${remote}/`))) {
-    const sha = resolvesToCommit(`refs/remotes/${ref}`, cwd) ?? direct;
-    return sha ? { ref, sha } : null;
-  }
-  if (!isBranchName(ref)) return direct ? { ref, sha: direct } : null;
-  const local = !direct ? 'missing' : !related(direct) ? 'unrelated' : null;
+  const localRelated = !!local && related(local);
+  const twin = (remote: string) => {
+    const sha = resolvesToCommit(`refs/remotes/` + remote + '/' + ref, cwd);
+    if (!sha || !related(sha)) return null;
+    const tracking = remote + '/' + ref;
+    if (sha === local) return { ref: tracking, sha };
+    if (!local || !localRelated) return { ref: tracking, sha, local: !local ? 'missing' as const : 'unrelated' as const };
+    const fork = mergeBase(local, sha, cwd);
+    return { ref: tracking, sha, local: fork === local ? 'behind' as const : fork === sha ? 'ahead' as const : 'diverged' as const };
+  };
+  const hasOrigin = remotes.includes('origin');
+  const origin = hasOrigin ? twin('origin') : null;
+  if (origin) return origin;
+  const originRef = resolvesToCommit(`refs/remotes/origin/` + ref, cwd);
+  const fallback = hasOrigin ? { local: 'fallback' as const, ...(originRef ? { unrelatedRemote: 'origin/' + ref } : {}) } : {};
+  if (localRelated) return { ref, sha: local!, ...fallback };
   for (const remote of remotes) {
-    if (!local && remote !== 'origin') continue;
-    const sha = resolvesToCommit(`refs/remotes/${remote}/${ref}`, cwd);
-    if (!sha || !related(sha)) continue;
-    if (sha === direct) return { ref, sha };
-    if (local) return { ref: `${remote}/${ref}`, sha, local };
-    const fork = mergeBase(direct!, sha, cwd);
-    return { ref: `${remote}/${ref}`, sha, local: fork === direct ? 'behind' : fork === sha ? 'ahead' : 'diverged' };
+    if (remote === 'origin') continue;
+    const other = twin(remote);
+    if (other) return other;
   }
-  return direct ? { ref, sha: direct } : null;
+  if (local) return { ref, sha: local, ...(remotes.length ? { local: 'fallback' as const, ...(originRef ? { unrelatedRemote: 'origin/' + ref } : {}) } : {}) };
+  const sha = direct();
+  return sha ? { ref, sha } : null;
 }
 
 /** A word for a printed shell line: as is when it is plain, single-quoted otherwise (ref names may hold `;`, `$`, `(`, `{1,2}`). */

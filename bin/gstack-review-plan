@@ -126,7 +126,8 @@ function main(): number {
     return status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   };
   const gateTagsOf = (args: string[]): number | null => { const g = runGateDiff(args); return tagCount(g.stdout, g.status); };
-  const scope = scopeOf([base]);
+  const diffBase = collected.mergeBase ?? base;
+  const scope = scopeOf([diffBase]);
   const ref = git(['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]) !== null ? `origin/${base}` : base;
   const baseSha = collected.registry.sha ?? git(['rev-parse', '--verify', '-q', `${ref}^{commit}`])?.trim() ?? '';
   const policy = baseSha ? loadPolicyAt(root, baseSha, ref) : null;
@@ -134,11 +135,11 @@ function main(): number {
   let tagged: Set<string> | null = null;
   let gateTagged: number | null;
   if (declares) {
-    const g = runGateDiff([base, '--format', 'jsonl']);
+    const g = runGateDiff([diffBase, '--format', 'jsonl']);
     gateTagged = tagCount(g.stdout, g.status);
     tagged = gateTagged === null ? null : new Set((g.stdout ?? '').split('\n').slice(1).flatMap(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return h.path && h.tags?.length ? [h.path] : []; } catch { return []; } }));
     if (flag('--gate-tagged') !== undefined) gateTagged = Number(flag('--gate-tagged'));
-  } else gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
+  } else gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([diffBase]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const exclusion: Exclusion = !baseSha || !collected.mergeBase ? { state: 'none' } : reviewExclude({ root, baseSha, ref, mergeBase: collected.mergeBase, perPath: collected.perPath, added: collected.added, classRoot: root, gateTagged: tagged, context: 'gstack-review-plan' });
   if (exclusion.state === 'refused') { for (const l of exclusion.lines) process.stderr.write(l + '\n'); return exclusion.code === 'REVIEW_DIFF_UNREADABLE' ? EXIT.fail : EXIT.refused; }
@@ -175,7 +176,7 @@ function main(): number {
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed,
+    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings,
       ...(exclusion.state === 'head-only' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
     return EXIT.ok;
   }

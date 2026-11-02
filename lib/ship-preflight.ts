@@ -132,7 +132,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
   let runtime = 'unknown';
   try {
     const j = JSON.parse(plan.stdout);
-    const c = classifyDiff({ paths: j.paths, perPath: j.per_path, stampOnly: j.stamp_only, registry: j.registry, consumed: j.consumed, root: cwd, gateTagged: 0 });
+    const c = classifyDiff({ paths: j.paths, perPath: j.per_path, stampOnly: j.stamp_only, registry: j.registry, consumed: j.consumed, drawings: j.drawings, root: cwd, gateTagged: 0 });
     runtime = String(c.runtimeLines ?? 'unknown');
   } catch { /* unknown */ }
   r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 9 and 12 boundaries)`);
