@@ -628,7 +628,7 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     expect(config.stdout).toContain("is the owner's agent_model (config)");
 
     const modulesBefore = f.calls().filter(l => l.startsWith('modules ')).length;
-    for (const evalEnv of [{ GSTACK_EVAL_DIR: path.join(f.home, 'evals') }, { EVALS_RUN_ID: 'r1' }]) {
+    for (const evalEnv of [{ GSTACK_EVAL_DIR: path.join(f.home, 'evals') }, { EVALS_RUN_ID: 'r1' }] as Record<string, string>[]) {
       const ev = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, ...evalEnv });
       expect(ev.status, ev.stdout + ev.stderr).toBe(0);
       expect(ev.stdout).not.toMatch(/^(LOADOUT|LOADOUT_ASSUMED|SKILL_ROOT):/m);
