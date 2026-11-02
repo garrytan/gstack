@@ -11,4 +11,4 @@
 - `test/restamp-mentions.test.ts`: a hand move of a base row whose text the branch duplicates reads `TREE: changed`, and the carry follows the fork-version row stamp but still refuses a product edit beside it, a hand version edit on a base line of the same file, and a mode change.
 - `test/gstack-ship-receipt-docs.test.ts`, `test/ship-rereview-triggers.test.ts`: the carry classifier and finish accept the kept-claim row move and refuse a base row moved the same way.
 
-On main, all five new tests fail.
+On main, five of the seven new tests fail. The other two, the carry's refusals of a base-line version edit and a mode change, pass on main, which refuses every such carry; they fail on the broader first version of this fix.
