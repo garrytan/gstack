@@ -1,10 +1,10 @@
 {
-  "pr": "3827",
+  "pr": "3823",
   "train": "gate.train-be750e85fe31-a563f476793b-19672e",
-  "slot": 4,
-  "holder": "cox.local:2152",
-  "started_at": "2026-11-02T03:23:52.512Z",
-  "phase": "between",
-  "journal": "train/gate.train-be750e85fe31-a563f476793b-19672e/slot-4",
-  "phase_at": "2026-11-02T03:34:24.791Z"
+  "slot": 5,
+  "holder": "cox.local:3586",
+  "started_at": "2026-11-02T03:34:30.690Z",
+  "phase": "stamping",
+  "journal": "train/gate.train-be750e85fe31-a563f476793b-19672e/slot-5",
+  "phase_at": "2026-11-02T03:34:30.690Z"
 }
