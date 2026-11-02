@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promptHash, sectionTexts, withWorkspace } from '../lib/review-brief';
-import { CHUNK_CHARS, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
+import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -85,6 +85,13 @@ describe('pass manifest', () => {
     markReader(m, 'specialist/testing', 'created');
     expect(() => markReader(m, 'specialist/testing', 'intent')).toThrow(/cannot become intent/);
     expect(m.readers[0]).toMatchObject({ state: 'created', path: '4' });
+  });
+
+  // Value: protects=an unreadable extra prompt stops as a BriefError naming the reader; fails_when=a directory prompt_file throws a raw
+  //   EISDIR from the QA guard's read (GST-450 adversarial #4); seam=none
+  test('a directory extra prompt stops as an unreadable prompt file, not a raw read error', () => {
+    const d = manifest([spec('testing')], { extras: [{ name: 'plan', prompt_file: tmp('rp-qa-') }] });
+    expect(() => renderStage(d, 'specialists', texts, () => '')).toThrow(/cannot read audit\/plan's prompt file/);
   });
 
   test('a brief over 1 MiB with invalid UTF-8 in its diff travels in bounded chunks that rejoin to the rendered sha', () => {
@@ -504,16 +511,33 @@ describe('Capy pass program (fake host, real bins)', () => {
     const elsewhere = tmp('rp-cwd-');
     const out = path.join(dir, '.state/run/p1');
     fs.mkdirSync(out, { recursive: true });
-    fs.writeFileSync(path.join(out, 'qa.prompt.md'), 'QA brief');
+    fs.writeFileSync(path.join(out, 'plan.prompt.md'), 'Plan completion brief');
     const h = host(elsewhere, env, { lateSummary: true });
     const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
-      extras: [{ name: 'qa', prompt_file: path.join(out, 'qa.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
+      extras: [{ name: 'plan', prompt_file: path.join(out, 'plan.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
-    expect(h.creates.find(c => c.title === 'ship x13p1 audit/qa')!.prompt).toBe(withWorkspace('QA brief', fs.realpathSync(dir)));
+    expect(h.creates.find(c => c.title === 'ship x13p1 audit/plan')!.prompt).toBe(withWorkspace('Plan completion brief', fs.realpathSync(dir)));
   }, 180_000);
 
-
+  // Value: protects=Step 9.2.1's probes stay the parent's, as its section says, so QA coverage is never a subagent's refusal; fails_when=the
+  //   pass program dispatches a QA extra (C4-36, C5-36: the QA reader refused both passes, "parent-only", and the parent ran the probes after it);
+  //   why_new=extras took any prompt (GST-450); seam=the pass program; no_claim=the parent's probes themselves (DRIVER Phase 4)
+  test('a QA extra, by name or by its section\'s parent-only brief, stops the pass before any reader is created', async () => {
+    const section = fs.readFileSync(path.join(ROOT, 'ship/sections/review-army.md'), 'utf8');
+    expect(section).toContain(PARENT_ONLY_QA);
+    const brief = section.slice(section.indexOf('### Step 9.2.1'), section.indexOf('### Step 9.3'));
+    for (const [name, text] of [['qa', 'QA brief'], ['exploratory', brief]] as const) {
+      const { dir, env } = repo();
+      const out = path.join(dir, '.state/run/p1');
+      fs.mkdirSync(out, { recursive: true });
+      fs.writeFileSync(path.join(out, name + '.prompt.md'), text);
+      const h = host(dir, env);
+      const res = await runPass(h, { base: 'main', out, pass: 'x14p1', planFlags: ['--depth-floor', 'full'],
+        extras: [{ name, prompt_file: path.join(out, name + '.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
+      expect([name, res.includes('STOP:'), res.includes("Step 9.2.1 is the parent's report-only discovery"), h.creates.length]).toEqual([name, true, true, 0]);
+    }
+  }, 240_000);
 
   test('decision 3.5 runs in the program: one fix-check reader whose prompt is the render CLI brief byte for byte, sent and collected', async () => {
     const { dir, env } = repo();
@@ -704,8 +728,8 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     const out = path.join(dir, '.state/run/p2');
     const extras = path.join(dir, '.state/extras.json');
     fs.mkdirSync(path.join(dir, '.state'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.state/qa.md'), 'QA the fix.\n');
-    fs.writeFileSync(extras, JSON.stringify([{ name: 'qa', prompt_file: path.join(dir, '.state/qa.md') }]));
+    fs.writeFileSync(path.join(dir, '.state/plan.md'), 'Check the plan items against the fix.\n');
+    fs.writeFileSync(extras, JSON.stringify([{ name: 'plan', prompt_file: path.join(dir, '.state/plan.md') }]));
     const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
     const p = bin(dir, env, args);
     expect(p.status, p.stdout + p.stderr).toBe(0);
@@ -727,7 +751,7 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     const s = scoped([]);
     expect(s.m.next).toBe('scoped');
     expect(s.m.diff_base).toBe(s.mergeBase);
-    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['outside-voice', null], ['audit/qa', null]]);
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['outside-voice', null], ['audit/plan', null]]);
     settle(s, 'specialists');
     const m = settle(s, 'red-team');
     const redTeam = fs.readFileSync(m.readers.find(r => r.reader === 'red-team')!.file!, 'utf8');
@@ -745,7 +769,7 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
   test('after Step 11 ran (--adversarial-ran), the whole scoped pass reads the fix range', () => {
     const s = scoped(['--adversarial-ran']);
     expect(s.m.diff_base).toBe(s.rangeBase);
-    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['audit/qa', null]]);
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['audit/plan', null]]);
   }, 120_000);
 });
 
