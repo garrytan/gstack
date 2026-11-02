@@ -150,11 +150,10 @@ describe('write binds a targeted record only to the product patch the reader rea
     expect(old.err).toContain('review_targeted.head');
   });
 
-  // Value: protects=/ship's Steps 14 and 14.5 commit TODOS.md and docs after the Step 11 read, and those commits carry no targeted
-  //   class, so the record still binds (pass 1 Red Team CRITICAL on this PR: every money, gate, auth or secret ship whose doc audit
-  //   edited a file stopped at Step 19 with RECEIPT_INVALID); a money edit after the read is still refused; fails_when=write
-  //   refuses a docs-only change after the read or accepts a class-bearing one; seam=gstack-ship-receipt write --review-targeted
-  test('a docs and TODOS.md commit after the read binds; a money edit after it is refused', () => {
+  // Value: protects=a record binds only to the product patch the reader read, so a docs or TODOS.md commit after the read (which
+  //   changes the product patch) is refused like a money edit; binding docs-only commits is planned under GST-1031 with a full
+  //   review; fails_when=write binds a record whose read product patch is not the receipt's; seam=gstack-ship-receipt write --review-targeted
+  test('a docs and TODOS.md commit after the read is refused; a money edit after it is refused', () => {
     const { repo, base, head } = moneyBranch();
     const record = path.join(repo.root, 'targeted.json');
     expect(verify(repo, targetedRead(repo, base, 'h1', 'NO FINDINGS'), record).status).toBe(0);
@@ -162,13 +161,30 @@ describe('write binds a targeted record only to the product patch the reader rea
     commit(repo, 'docs/charges.md', '# Charges\n\nThe cap is enforced per run.\n', 'Step 14.5 docs');
     commit(repo, 'TODOS.md', '# TODOS\n\n- [x] enforce the cap\n', 'Step 14 TODOS');
     const docs = write(repo, ['--review-targeted', `@${record}`]);
-    expect(docs.status, docs.err).toBe(EXIT.ok);
-    expect(JSON.parse(docs.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+    expect(docs.status).toBe(EXIT.fail);
+    expect(docs.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
 
     commit(repo, 'src/charge.ts', 'export const spend_cap_usd = 50;\n', 'money edit after verify');
     const stale = write(repo, ['--review-targeted', `@${record}`]);
     expect(stale.status).toBe(EXIT.fail);
     expect(stale.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+  });
+
+  // Value: protects=a code edit after the read that drops a cap's enforcing line carries no money token, so the classifier tags
+  //   nothing, but the product patch the reader read is gone and the record must not bind (targeted gate reader on this PR at
+  //   071532752, CRITICAL lib/ship-receipt-depth.ts:153); fails_when=write binds a record whose read product patch is not the
+  //   receipt's; seam=gstack-ship-receipt write --review-targeted
+  test('a code edit after the read that removes an enforcing line with no money token is refused', () => {
+    const { repo, base } = moneyBranch();
+    commit(repo, 'src/runner.ts', 'export function run(spent: number, limit: number) {\n  if (spent > limit) throw new Error("over");\n}\n', 'enforce the limit');
+    const head = repo.git('rev-parse', 'HEAD');
+    const record = path.join(repo.root, 'targeted.json');
+    expect(verify(repo, targetedRead(repo, base, 'h1', 'NO FINDINGS'), record).status).toBe(0);
+    expect(write(repo, ['--review-targeted', `@${record}`]).status).toBe(EXIT.ok);
+    commit(repo, 'src/runner.ts', 'export function run(spent: number, limit: number) {\n}\n', 'drop the enforcing line');
+    const dropped = write(repo, ['--review-targeted', `@${record}`]);
+    expect(dropped.status).toBe(EXIT.fail);
+    expect(dropped.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
   });
 
   // Value: protects=a test edit after the read that skips a case is gate-class work the reader never saw, so the record does not

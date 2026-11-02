@@ -133,10 +133,10 @@ export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
 
 /**
  * `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here.
- * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules, and the
- * record binds when `classesSince` reads no targeted class in what changed after the read (the docs and TODOS.md /ship commits
- * after Step 11; a test change the gate scan tags is gate class though the product patch leaves tests out), so a record never
- * vouches for targeted-class work it did not read (GST-986); without `classesSince` it binds only on an equal product patch.
+ * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules. The
+ * record binds only on an equal product patch, and with `classesSince` also only when nothing changed after the read carries a
+ * targeted class (a test change the gate scan tags is gate class though the product patch leaves tests out), so a record never
+ * vouches for work it did not read (GST-986).
  */
 export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
@@ -150,7 +150,7 @@ export function parseReviewTargeted(value: unknown, productPatchId: string, prod
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
   if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
   const read = productPatchOf(v.head);
-  if (classesSince ? classesSince(v.head)?.length !== 0 : read !== productPatchId) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
+  if (read !== productPatchId || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }

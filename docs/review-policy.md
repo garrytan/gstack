@@ -404,10 +404,10 @@ renders its brief; `verify --targeted-out .gstack/tmp/targeted.json` writes the 
 (Step 19, the handoff and the driver pass it when the file exists). The record is `done` when
 the reader got its brief verbatim and its reply was collected on a committed diff, whatever
 happened to HEAD after, and it names the commit it read (`head`). `write` binds it only while
-that commit is an ancestor of HEAD and nothing changed after it carries a targeted class, with
-the gate scan run over that range: a money, gate, auth or secret change after the read refuses
-with `RECEIPT_INVALID`, a test edit the gate scan tags (a skipped case) included, while a
-version, docs, TODOS.md (Steps 14 and 14.5) or untagged test commit still binds. Every verify
+that commit is an ancestor of HEAD, its product patch is the receipt's, and nothing changed
+after it carries a targeted class, with the gate scan run over that range: any product change
+after the read refuses with `RECEIPT_INVALID`, docs and TODOS.md commits included, and so
+does a test edit the gate scan tags (a skipped case). Every verify
 removes `--targeted-out` before it writes a record, so an earlier run's record never reaches
 Step 19. `write` and `carry` (which rescans the gate at the new head) also
 refuse a receipt whose head needs a class no `done` record covers (`RECEIPT_INVALID`,
