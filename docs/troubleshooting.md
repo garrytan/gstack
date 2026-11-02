@@ -570,6 +570,9 @@ the base has moved.
 **Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
 its logged row: an edit, commit or merge landed while reviewers were still reading. The
 reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Review records fingerprint with `gstack-wtree --review`, which skips untracked root dot-folders
+that hold no tracked file (never `.github/` or `.gstack/`), so a test lane's scratch folder alone
+does not move the tree.
 Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
 cannot repair it.
 
@@ -2592,12 +2595,24 @@ case with `bun run eval:pass-rates --headroom --case <id>`.
 <a id="cost-unknown"></a>
 ### `cost unknown (no billing captured for any of <N> trial(s))` / `cost $<x> known + <N> of <M> trial(s) cost unknown`
 
-**Meaning.** PTY and Codex sessions record no billing, so their cost is
-unknown. So is a trial in a multi-case shard whose result records are named by
-a display label rather than the case id, because no record can be attributed
-to it (a one-case shard's records are its case's). Only the known sum is
-shown. A train verdict's `ATTEMPT:` line reports the same as `cost=$<x> known
-+ <n> of <m> case(s) cost unknown`, a bare `cost=$<x>` only when every case
+**Meaning.** Some trials' cost was not captured, so only the known sum is
+shown. A trial is cost-unknown when it ran a PTY session whose transcript
+could not be priced (a non-hermetic or resumed launch, the native
+AskUserQuestion capture, two new transcripts for one cwd, no transcript or
+usage, or a model with no price row), a
+Codex session that completed no turn or whose model has no price row, a
+`claude -p` session that ended without a result, or an aborted Agent SDK
+session whose streamed usage could not be priced (no usage, or a model with no
+price row). A PTY or aborted Agent SDK session that does price counts its
+`streamed_cost_usd` instead. A trial is also unknown when no record and no
+session can be attributed to it, for example a multi-case shard's
+display-label record without `cost_case_id` (a one-case shard's records are
+its case's); a model-free case (`timeline-event-flow`) is a known $0. A panel
+trial (`behavior`, `judge`) is unknown whenever any of its sessions billed
+nothing, even one with a priced `streamed_cost_usd`. The rules are in
+[Failure causes and details](TESTING_INTERNALS.md#failure-causes). A train
+verdict's `ATTEMPT:` line reports the same as `cost=$<x> known + <n> of <m>
+case(s) cost unknown`, a bare `cost=$<x>` only when every case
 in the train record is priced, and no cost at all when none is.
 
 **Fix.** None needed; this is informational.
@@ -3920,7 +3935,10 @@ and the table prints `environment: <kind> — <evidence>`. A test that failed an
 whose log also names a connection error is **not** this code: the runner's own
 summary counted a failure, so it is `PREGATE_LANE_FAILED` with `cause:
 "diff"`; nor is a runner, guard or gate script whose own binary is present but
-exits 127. `proof: "launch"` is certain (the command could not start, its
+exits 127. One exception: a Playwright lane where every test failed and
+Playwright says its browsers are not installed is `missing-binary` with
+`proof: "output"` (`npx playwright install`); a partial install stays the
+diff's failure. `proof: "launch"` is certain (the command could not start, its
 binary is off PATH, the runtime or a gstack tool refused); `proof: "output"`
 means a rule matched the command's text before any test was counted, which the
 diff's own output could have written, so the line says `(inferred from output)`
