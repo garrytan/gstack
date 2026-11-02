@@ -85,7 +85,7 @@ const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg(?:\s+PUBLIC\s+(["
  * What a drawing never holds: a named entity beyond the five XML ones, a backslash (a CSS escape such as @\69mport), a CSS
  * import, a url() to another document, a CSS expression or binding.
  */
-export const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\((?!\s*#|['"]\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
+export const SVG_REFUSED: readonly RegExp[] = Object.freeze([/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\((?!\s*#|['"]\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i]);
 /** A drawing's CSS, a style element's text or a style attribute's value, holds declarations only: no @ rule and no function but url(#id). */
 const SVG_STYLE_OPEN = /<(?:[A-Za-z_][\w.-]*:)?style\b/gi;
 const SVG_STYLE_CLOSE = /^<\/(?:[A-Za-z_][\w.-]*:)?style\s*>/i;
