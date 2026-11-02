@@ -71,6 +71,23 @@ describe('git fixture template', () => {
     expect(() => leaky.copy()).toThrow(/still references its template [^\n]*\n.*config/);
   });
 
+  test("Capy's git shim log in a fixture home (home/.capy/git-shim.log) is not a leak; any other file naming the template still is", () => {
+    const plant = (rel: string) => gitFixtureTemplate({ prefix: 'gstack-fixture-template-shim-', build: (root) => {
+      const meta = build(root);
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), '# capy git shim v2: ts cwd ppid parent verb\n2026-11-02T02:15:30Z\t' + path.join(root, 'work') + '\t1\tbun\tcat-file\n');
+      return meta;
+    }, rebind: (copy, tpl) => rebindGitDir(path.join(copy, 'work', '.git'), tpl, copy) });
+    const shim = plant(path.join('home', '.capy', 'git-shim.log'));
+    const other = plant(path.join('home', '.capy', 'state.json'));
+    try {
+      const c = shim.copy();
+      roots.push(c.root);
+      expect(git(path.join(c.root, 'work'), 'remote', 'get-url', 'origin')).toBe(path.join(c.root, 'origin.git'));
+      expect(() => other.copy()).toThrow(/still references its template [^\n]*\n.*state\.json/);
+    } finally { shim.dispose(); other.dispose(); }
+  });
+
   test('native, forward-slash, backslash-escaped and Git Bash spellings are each rewritten, and each one left behind is found', () => {
     const to = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-fixture-spellings-'));
     roots.push(to);

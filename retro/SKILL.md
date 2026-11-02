@@ -18,8 +18,8 @@ gbrain:
   context_queries:
     - id: prior-retros
       kind: filesystem
-      # /retro writes .context/retros/*.json (repo-local; see Step 13).
-      glob: ".context/retros/*.json"
+      # /retro writes its history here, shared by every worktree (Step 13).
+      glob: "{gstack_state_root}/projects/{repo_slug}/retros/*.json"
       sort: mtime_desc
       limit: 5
       render_as: "## Prior retros for this project"
@@ -72,9 +72,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -504,12 +504,16 @@ End the section with: `N markers, M with no trigger.` If none: `No shortcut debt
 
 ### Step 12: Load History & Compare
 
-Before saving the new snapshot, check for prior retro history:
+Load history, shared across worktrees (`<today>`: session-reminder date):
 
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-ls -t .context/retros/*.json 2>/dev/null
+_RM="$HOME/.claude/skills/gstack/bin/gstack-retro-metrics"
+[ -x "$_RM" ] || _RM=".claude/skills/gstack/bin/gstack-retro-metrics"
+today="<today>"
+"$_RM" --history --next "$today"
 ```
+
+`RETRO_PRIOR:` lists snapshots, newest first (skip `{}` stubs). On `RETRO_HISTORY_ERROR:` show its fix, skip history and Step 13. No `RETRO_FILE:` otherwise: stale helper; suggest `/gstack-upgrade`.
 
 **If prior retros exist:** Load the most recent one with the same `window` using the Read tool; if none matches, disclose that and skip historical deltas. Calculate deltas for available key metrics and include a **Trends vs Last Retro** section (in `compare` mode use the freshly computed prior period instead):
 ```
@@ -530,20 +534,7 @@ Deep sessions:      3      →    5           ↑2
 
 After computing all metrics (including streak) and loading any prior history for comparison, draft the tweetable summary and the "3 Things to Improve" items using the format in Step 14, then save a JSON snapshot. The Step 14 narrative must reuse this exact summary and these exact items. `streak_days` is the live **team** streak from Step 11 (0 when broken); put the personal streak in `user_streak_days`.
 
-```bash
-mkdir -p .context/retros
-```
-
-Determine the next unused sequence number for today (substitute the session-reminder date for `<today>`):
-```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-today="<today>"
-next=1
-while [ -e ".context/retros/${today}-${next}.json" ]; do next=$((next + 1)); done
-# Save as .context/retros/${today}-${next}.json
-```
-
-Use the Write tool to save the JSON file with this schema:
+Read Step 12's reserved `RETRO_FILE`, then Write it with this schema:
 ```json
 {
   "date": "2026-03-08",
@@ -945,7 +936,7 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Never compare teammates against each other negatively. Each person's section stands on its own.
 - Size the report to the window and the team: every section carries specific evidence, and a section with nothing to say is cut, not padded
 - Use markdown tables and code blocks for data, prose for narrative
-- Output the narrative directly to the conversation; the only report file is the JSON snapshot (`.context/retros/` for repo retros, `$GSTACK_STATE_ROOT/retros/` for global)
+- Output the narrative directly to the conversation; the only report file is the JSON snapshot (`$GSTACK_STATE_ROOT/projects/<slug>/retros/` for repo retros, `$GSTACK_STATE_ROOT/retros/` for global)
 
 ## Important Rules
 
@@ -957,4 +948,4 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Treat merge commits as PR boundaries
 - Do not read CLAUDE.md or unrelated docs — this skill is self-contained; the CHANGELOG and optional inputs explicitly named above are exceptions
 - On first run (no prior retros), skip saved-history comparisons gracefully; explicit `compare` mode still computes its prior window
-- **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not `.context/retros/`). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".
+- **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not the per-project history). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".

@@ -127,6 +127,17 @@
         }
       }
     },
+    "models": {
+      "type": "object",
+      "description": "Exact model id (a dated -YYYYMMDD snapshot or -latest also matches) to loadout name. Checked before rungs; anything unmatched uses the rung default.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+$"
+      }
+    },
     "default": {
       "type": "object",
       "additionalProperties": false,
