@@ -23,7 +23,7 @@ import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
 import { carryLines, voidPendingCheck } from './autoplan-carry';
-import { atCap, escalateLine, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
+import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
 import { diffStat, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { normalizeRevision, reviewHash, scaffold } from './autoplan-plan-text';
@@ -112,9 +112,7 @@ function approveOrRegate(state: RunState, at: string): string[] {
   if (pendingDeltas(state).length) {
     finishGate(state);
     const carried = carryLines(state);
-    if (state.status !== 'gate_pending') return carried;
-    const escalate = escalateLine(state);
-    return [...carried, `GATE: gate_rev=${state.gate_rev} (a plan change after a round cap needs the owner) render with: gstack-gate render ${path.join(state.out, 'gate.json')}`, ...(escalate ? [escalate] : [])];
+    return carried;
   }
   return [...approve(state, at), `APPROVED: gate_rev=${state.gate_rev} (every accepted change is in the plan or settled)`];
 }
