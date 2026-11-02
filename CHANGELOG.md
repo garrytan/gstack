@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.74.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` needs a green run.** On a lane with no run profile, a run of the lane's own workflow that failed, was cancelled or timed out now refuses `PREGATE_RECEIPT_INVALID` (`run_not_success`), and one still queued or running refuses `run_in_progress`. The fix line says to rerun the workflow and clear with the green run. The check reads the run's newest attempt, so a job or attempt link is judged by the whole run, and the lane records the attempt it judged (`…/actions/runs/<id>/attempts/<n>`) instead of the link you passed. A green run still clears. docs/pregate.md now names `windows-smoke.yml/windows-smoke` as the free tier's Windows smoke lane, beside the narrower `free-tests.yml/cso-windows-launcher` and `windows-setup-e2e.yml/windows-setup` lanes. `test/pregate-clear-runs.test.ts` failed before the fix.
+
 ## [1.92.73.0] - 2026-11-02
 
 ### Fixed
