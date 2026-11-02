@@ -61,11 +61,12 @@ const NO_LOSS_REPLAYS = {
   'GST-911': "GST-911 no-loss replay (GSTA-249/13): the planner over the last 100 first-parent main commits to f5cb6ec1e, origin/main's code against this branch, gate scan fixed at 0, changes no commit's depth, class, risk classes, targeted classes or SCOPE_AUTH; the three misreads (a drawing-only SVG, a session-named data file, a bare base) are proven on fixtures (test/review-planner-misreads.test.ts), where every SVG that can run script stays code with the security class; reviewer text is unchanged",
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
   'GST-898': "GST-898 verdict-identity no-loss check: the linear rm rule, and the rmSync rule (which also raises security on any call with more than 500 characters before its closing parenthesis), give the same verdict as R51's on every changed line of the last 100 main commits (69,023 lines, a563f47 back 100 first-parent commits) and on 60,000 seeded lines per rule (test/review-risk-redos.test.ts), and no commit changes depth, class or risk class, so every diff dispatches main's reviewers unchanged; reviewer text is unchanged",
+  'GST-967': "GST-967 dispatch-superset no-loss check (test/review-depth.test.ts, 'GST-967 dispatch-superset no-loss check'): over 1,440 planReview cases the branch plans exactly what main planned at 1022f4f except the 71 gate-class stops before Step 11, which add only Step 11's adversarial, outside and targeted voices, so no reviewer main dispatches is dropped or re-efforted; the brief bodies lib/review-brief.ts cuts from the ship sections hash to main's; only the lead's repeat-decision and Step 11 instructions changed; reviewer text is unchanged",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: 'b7ca291a1cc63750bfb9710a4c12fd971523b9598da2a32ef80fb258eb0eceab', replay: 'L' },
-    'ship/sections/adversarial.md': { sha: 'd776ee5bc6e0c13930f8f4de05bad2f1ed9e52bc9fc5df80ae3ba7680455b2bb', replay: 'GST-257' },
+    'ship/sections/review-army.md': { sha: '7c58dfd1bf1f16f967186a4872191cb16ebff3be81a50ebbf19067020af3ec53', replay: 'GST-967' },
+    'ship/sections/adversarial.md': { sha: '5d712bb568573931108a79b1bd40b74db6189610f47c547099c13098ef67bef8', replay: 'GST-967' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
@@ -82,7 +83,7 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '166dd7b1148a272b345dd9d2ceccd14348cc59c52ef9c88109436f6f61cf6b69', replay: 'GST-911-redos' },
+    'lib/review-depth.ts': { sha: 'c5fd958b6c9a1116be9fc3418844239c01168476abb72c1db85bc26ab0adf4b4', replay: 'GST-967' },
     'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
 };
 
