@@ -7,7 +7,7 @@
  *
  * Flow:
  *   1. Parse command + flags from argv
- *   2. Resolve auth (~/. gstack/openai.json → OPENAI_API_KEY → guided setup)
+ *   2. Resolve the provider (GSTACK_DESIGN_PROVIDER, then an OpenAI key, then a Gemini key; see auth.ts)
  *   3. Execute command (API call → write PNG/HTML)
  *   4. Print result JSON to stdout
  */
@@ -18,7 +18,7 @@ import { checkCommand } from "./check";
 import { compare } from "./compare";
 import { variants } from "./variants";
 import { iterate } from "./iterate";
-import { resolveApiKey, saveApiKey } from "./auth";
+import { resolveProvider, saveApiKey, type ProviderName } from "./auth";
 import { extractDesignLanguage, updateDesignMd } from "./memory";
 import { diffMockups, verifyAgainstMockup } from "./diff";
 import { evolve } from "./evolve";
@@ -86,38 +86,64 @@ function printUsage(): void {
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
   console.log(`\n${OUTPUT_CONTRACT}`);
-  console.log("\nAuth: ~/.gstack/openai.json, then OPENAI_API_KEY env var");
-  console.log("If OPENAI_API_KEY matches a current-directory .env file, the source is reported before billing.");
-  console.log("Setup: $D setup");
+  console.log("\nAuth: OpenAI (~/.gstack/openai.json, then OPENAI_API_KEY) when set, else Gemini (~/.gstack/gemini.json, then GEMINI_API_KEY).");
+  console.log("GSTACK_DESIGN_PROVIDER=openai|gemini picks one explicitly. Free Gemini key: https://aistudio.google.com/apikey");
+  console.log("If a key matches a current-directory .env file, the source is reported before billing.");
+  console.log("Setup: $D setup [--provider openai|gemini] [--key-stdin]");
 }
 
-async function runSetup(): Promise<void> {
-  const existing = resolveApiKey();
+const KEY_PREFIX: Record<ProviderName, string> = { openai: "sk-", gemini: "AIza" };
+const KEY_PAGE: Record<ProviderName, string> = { openai: "https://platform.openai.com/api-keys", gemini: "https://aistudio.google.com/apikey" };
+
+async function readStdinKey(): Promise<string> {
+  const reader = Bun.stdin.stream().getReader();
+  const { value } = await reader.read();
+  reader.releaseLock();
+  return new TextDecoder().decode(value).trim();
+}
+
+/**
+ * Store a key (prompted, or piped with --key-stdin) and smoke-test the
+ * provider it belongs to. --provider or --key-stdin stores the new key even
+ * when another provider's key already resolves; with neither, an existing key
+ * is smoke-tested as before.
+ */
+async function runSetup(flags: Record<string, string | boolean>): Promise<void> {
+  const requested = flags.provider;
+  if (requested !== undefined && requested !== "openai" && requested !== "gemini") {
+    console.error("--provider must be openai or gemini.");
+    process.exit(1);
+  }
+  let provider = requested as ProviderName | undefined;
+  const existing = provider || flags["key-stdin"] ? null : resolveProvider();
   if (existing) {
-    console.log("Existing API key found. Running smoke test...");
+    provider = existing.provider;
+    console.log(`Existing ${provider === "gemini" ? "Gemini" : "OpenAI"} key found. Running smoke test...`);
   } else {
-    console.log("No API key found. Please enter your OpenAI API key.");
-    console.log("Get one at: https://platform.openai.com/api-keys");
-    console.log("(Needs image generation permissions)\n");
-
-    // Read from stdin
-    process.stdout.write("API key: ");
-    const reader = Bun.stdin.stream().getReader();
-    const { value } = await reader.read();
-    reader.releaseLock();
-    const key = new TextDecoder().decode(value).trim();
-
-    if (!key || !key.startsWith("sk-")) {
-      console.error("Invalid key. Must start with 'sk-'.");
+    if (!flags["key-stdin"] && !process.stdin.isTTY) {
+      console.error("No terminal to type a key into.");
+      console.error("Fix: printf %s \"$KEY\" | $D setup --provider gemini --key-stdin (or --provider openai), or set GEMINI_API_KEY / OPENAI_API_KEY.");
       process.exit(1);
     }
-
-    saveApiKey(key);
-    console.log("Key saved to ~/.gstack/openai.json (0600 permissions).");
+    if (!flags["key-stdin"]) {
+      console.log(provider
+        ? `Enter your ${provider === "gemini" ? "Gemini" : "OpenAI"} API key (get one at ${KEY_PAGE[provider]}).`
+        : `No API key found. Enter an OpenAI key (sk-…, ${KEY_PAGE.openai}) or a free Gemini key (AIza…, ${KEY_PAGE.gemini}).`);
+      process.stdout.write("API key: ");
+    }
+    const key = await readStdinKey();
+    provider ??= key.startsWith(KEY_PREFIX.gemini) ? "gemini" : "openai";
+    if (!key || !key.startsWith(KEY_PREFIX[provider])) {
+      console.error(`Invalid key. A${provider === "openai" ? "n OpenAI" : " Gemini"} key starts with '${KEY_PREFIX[provider]}'.`);
+      process.exit(1);
+    }
+    saveApiKey(key, provider);
+    console.log(`Key saved to ~/.gstack/${provider}.json (0600 permissions).`);
   }
 
-  // Smoke test
   console.log("\nRunning smoke test (generating a simple image)...");
+  const shellProvider = process.env.GSTACK_DESIGN_PROVIDER;
+  process.env.GSTACK_DESIGN_PROVIDER = provider;
   const smoke = await generate({
     brief: "A simple blue square centered on a white background. Minimal, geometric, clean.",
     output: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gstack-design-smoke-")), "smoke-test.png"),
@@ -126,10 +152,21 @@ async function runSetup(): Promise<void> {
   });
   if (smoke.exitCode !== 0) {
     console.error(`\nSmoke test FAILED: ${smoke.failures.map(f => f.reason).join("; ")}`);
-    console.error("Check your API key and organization verification status.");
+    console.error(provider === "gemini"
+      ? "Check your Gemini key and its quota in Google AI Studio."
+      : "Check your API key and organization verification status.");
     process.exit(1);
   }
   console.log("\nSmoke test PASSED. Design generation is working.");
+  if (shellProvider === undefined) delete process.env.GSTACK_DESIGN_PROVIDER;
+  else process.env.GSTACK_DESIGN_PROVIDER = shellProvider;
+  let next: ProviderName | null = null;
+  try { next = resolveProvider()?.provider ?? null; } catch { /* an invalid shell setting fails the next run with its own Fix line */ }
+  if (next !== provider) {
+    const label = provider === "gemini" ? "Gemini" : "OpenAI";
+    console.log(`Note: later $D runs will not use this ${label} key yet${next ? `; ${next === "gemini" ? "Gemini" : "OpenAI"} is picked first` : ""}.`);
+    console.log(`Fix: export GSTACK_DESIGN_PROVIDER=${provider} (add it to your shell profile to keep it).`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -199,7 +236,7 @@ async function main(): Promise<void> {
     }
 
     case "setup":
-      await runSetup();
+      await runSetup(flags);
       break;
 
     case "variants":

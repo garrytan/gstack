@@ -9,9 +9,14 @@
  * Preregistered (GSTA-173, 2026-10-30) before the first paid run: the arms,
  * tasks, checks, PANEL_TRIALS, the INFRA classes in classifyCell, the spend
  * reservations and the wording rule in suggestionLine. None of them change
- * after a result is seen.
+ * after a result is seen. test/fixtures/model-panel/PREREG.md (GST-468)
+ * supersedes that preregistration for runs after the commit that added it:
+ * each model also runs as `<model>#no-gstack` (no skill folder, no routing
+ * line), and the arm identity keys every cell. The published GSTA-173 line
+ * stays tied to its run (2026-10-30-0105).
  */
 import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -21,6 +26,7 @@ import { GATEWAY_MODELS, foreignModels, gatewayOverrides } from './providers/gat
 import { estimateCostUsd, pricingRow } from './pricing';
 
 export const PANEL_FIXTURES = path.join(ROOT, 'test', 'fixtures', 'model-panel');
+export const PANEL_PREREG = path.join(PANEL_FIXTURES, 'PREREG.md');
 export const PANEL_TRIALS = 3;
 export const PANEL_MAX_TURNS = 40;
 export const PANEL_TIMEOUT_MS = 8 * 60_000;
@@ -33,8 +39,12 @@ export const PANEL_USEFULNESS_FLOOR = 0.6;
 export const PANEL_SPEND_CAP_USD = 15;
 
 export type PanelArmId = 'opus' | 'sonnet' | 'particle' | 'deepseek';
+export type PanelLoadout = 'skill' | 'no-gstack';
 export interface PanelArm {
   id: PanelArmId;
+  /** `<model>` for the skill arm, `<model>#no-gstack` for its plain twin; the key of every ledger attempt, test name, row and results line. */
+  identity: string;
+  loadout: PanelLoadout;
   label: string;
   model: string;
   route: 'anthropic' | 'openrouter';
@@ -42,16 +52,23 @@ export interface PanelArm {
   reserveUsd: number;
 }
 
-export const PANEL_ARMS: PanelArm[] = [
+const PANEL_MODELS: Array<Omit<PanelArm, 'identity' | 'loadout'>> = [
   { id: 'opus', label: 'Opus 5.5', model: 'claude-opus-5-5', route: 'anthropic', reserveUsd: 2.0 },
   { id: 'sonnet', label: 'Sonnet 5.5', model: 'claude-sonnet-5-5', route: 'anthropic', reserveUsd: 1.0 },
   { id: 'particle', label: 'particle-1', model: GATEWAY_MODELS.particle, route: 'openrouter', reserveUsd: 0.15 },
   { id: 'deepseek', label: 'DeepSeek V4.1 Flash', model: GATEWAY_MODELS.deepseek, route: 'openrouter', reserveUsd: 0.15 },
 ];
 
+export const PANEL_ARMS: PanelArm[] = PANEL_MODELS.flatMap((m) => [
+  { ...m, identity: m.model, loadout: 'skill' as const },
+  { ...m, identity: m.model + '#no-gstack', loadout: 'no-gstack' as const, label: m.label + ' (no gstack)' },
+]);
+
 export interface PanelTask {
   /** E2E_TOUCHFILES / E2E_TIERS key. */
   id: string;
+  /** The project the fixture imitates; the candidate's folder is named after it. */
+  project: string;
   fixture: string;
   check: string;
   reference: string;
@@ -66,6 +83,7 @@ const LEAVE = '\n\nLeave your changes uncommitted in the working tree.';
 export const PANEL_TASKS: PanelTask[] = [
   {
     id: 'model-panel-bugfix',
+    project: 'receipt-lib',
     fixture: path.join(ARM_FIXTURES, 'bugfix-decoys'),
     check: check('bugfix-decoys'),
     reference: reference('bugfix-decoys'),
@@ -73,6 +91,7 @@ export const PANEL_TASKS: PanelTask[] = [
   },
   {
     id: 'model-panel-crud',
+    project: 'notes-api',
     fixture: path.join(ARM_FIXTURES, 'crud-endpoint'),
     check: check('crud-endpoint'),
     reference: reference('crud-endpoint'),
@@ -80,6 +99,7 @@ export const PANEL_TASKS: PanelTask[] = [
   },
   {
     id: 'model-panel-review',
+    project: 'user-directory',
     fixture: fixture('review-seeded-bug'),
     check: check('review-seeded-bug'),
     reference: reference('review-seeded-bug'),
@@ -87,6 +107,7 @@ export const PANEL_TASKS: PanelTask[] = [
   },
   {
     id: 'model-panel-changelog',
+    project: 'trail-notes',
     fixture: fixture('changelog'),
     check: check('changelog'),
     reference: reference('changelog'),
@@ -94,6 +115,7 @@ export const PANEL_TASKS: PanelTask[] = [
   },
   {
     id: 'model-panel-investigate',
+    project: 'hike-report',
     fixture: fixture('investigate'),
     check: check('investigate'),
     reference: reference('investigate'),
@@ -103,22 +125,44 @@ export const PANEL_TASKS: PanelTask[] = [
 
 export interface CellDirs { dir: string; seedSha: string }
 
-/** Fresh copy of the task fixture with the build-discipline skill installed (every arm alike) and one seed commit. */
-export function setupCell(task: PanelTask, label: string): CellDirs {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'panel-' + label + '-'));
+/**
+ * Fresh copy of the task fixture in a folder named after its project, one
+ * seed commit by a neutral author, and for the skill loadout the
+ * build-discipline skill plus its routing line. The no-gstack cell gets the
+ * plain CLAUDE.md alone.
+ */
+export function setupCell(task: PanelTask, loadout: PanelLoadout): CellDirs {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), task.project + '-'));
   copyDirSync(task.fixture, dir);
-  const skillDir = path.join(dir, '.claude', 'skills', SKILL_NAME);
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), buildBehavioralSkill());
-  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Project\n\nSmall fixture repo for one ticket.\n\n## Skill routing\n\nBefore working on any ticket, invoke the ' + SKILL_NAME + ' skill via the Skill tool and follow it while you work.\n');
+  const claudeMd = '# Project\n\nSmall fixture repo for one ticket.\n';
+  if (loadout === 'skill') {
+    const skillDir = path.join(dir, '.claude', 'skills', SKILL_NAME);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), buildBehavioralSkill());
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMd + '\n## Skill routing\n\nBefore working on any ticket, invoke the ' + SKILL_NAME + ' skill via the Skill tool and follow it while you work.\n');
+  } else {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMd);
+  }
   if (!fs.existsSync(path.join(dir, '.gitignore'))) fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules/\n');
   run('git', ['init', '-b', 'main'], dir);
-  run('git', ['config', 'user.email', 'model-panel@example.com'], dir);
-  run('git', ['config', 'user.name', 'Model Panel'], dir);
+  run('git', ['config', 'user.email', 'sam@example.com'], dir);
+  run('git', ['config', 'user.name', 'Sam Rivera'], dir);
   run('git', ['config', 'commit.gpgsign', 'false'], dir);
   run('git', ['add', '-A'], dir);
   run('git', ['commit', '-m', 'seed fixture'], dir);
   return { dir, seedSha: run('git', ['rev-parse', 'HEAD'], dir).trim() };
+}
+
+/** The spend-ledger attempt and the runner's test name of one cell, both keyed by the arm identity. */
+export function cellKeys(task: PanelTask, arm: PanelArm, trial: number, runId: string): { attempt: string; testName: string } {
+  return { attempt: task.id + ':' + arm.identity + ':' + trial + ':' + runId, testName: task.id + '-' + arm.identity + '-t' + trial };
+}
+
+/** One panel campaign: the run id that resumes it and the sha256 of the PREREG.md it was run under. */
+export interface PanelCampaign { runId: string; preregSha: string }
+
+export function panelPreregSha(): string {
+  return createHash('sha256').update(fs.readFileSync(PANEL_PREREG)).digest('hex');
 }
 
 /** Overlay the task's reference answer (selftest only). */
@@ -201,9 +245,11 @@ export function classifyCell(arm: PanelArm, exitReason: string, usage: CellUsage
   return { verdict: 'scored' };
 }
 
-export interface PanelRow {
+export interface PanelRow extends PanelCampaign {
   task: string;
-  arm: PanelArmId;
+  /** The arm identity. */
+  arm: string;
+  loadout: PanelLoadout;
   model: string;
   route: PanelArm['route'];
   trial: number;
@@ -217,8 +263,13 @@ export interface PanelRow {
 }
 
 export interface ArmSummary {
-  arm: PanelArmId;
+  /** The arm identity. */
+  arm: string;
+  id: PanelArmId;
+  loadout: PanelLoadout;
+  model: string;
   label: string;
+  consulted: number;
   passes: number;
   completed: number;
   infra: number;
@@ -237,15 +288,24 @@ export function wilson(passes: number, n: number): { low: number; high: number }
   return { low: Math.max(0, (c - m) / d), high: Math.min(1, (c + m) / d) };
 }
 
-export function summarize(rows: PanelRow[]): ArmSummary[] {
+/** Per-arm summary of one campaign's rows; rows of any other run or preregistration are ignored, and a cell recorded twice is refused. */
+export function summarize(rows: PanelRow[], campaign: PanelCampaign): ArmSummary[] {
+  const current = rows.filter((r) => r.runId === campaign.runId && r.preregSha === campaign.preregSha);
+  const seen = new Set<string>();
+  for (const r of current) {
+    const key = r.task + ' ' + r.arm + ' t' + r.trial;
+    if (seen.has(key)) throw new Error('duplicate cell ' + key + ' in campaign ' + campaign.runId);
+    seen.add(key);
+  }
   return PANEL_ARMS.map((arm) => {
-    const mine = rows.filter((r) => r.arm === arm.id);
+    const mine = current.filter((r) => r.arm === arm.identity);
     const scored = mine.filter((r) => r.verdict !== 'infra');
     const passes = scored.filter((r) => r.verdict === 'pass').length;
     const priced = mine.filter((r) => r.costUsd !== null);
     const { low, high } = wilson(passes, scored.length);
     return {
-      arm: arm.id, label: arm.label, passes, completed: scored.length, infra: mine.length - scored.length, cells: mine.length,
+      arm: arm.identity, id: arm.id, loadout: arm.loadout, model: arm.model, label: arm.label, consulted: mine.filter((r) => r.consulted).length,
+      passes, completed: scored.length, infra: mine.length - scored.length, cells: mine.length,
       passRate: scored.length ? passes / scored.length : 0, low, high,
       costPerTaskUsd: priced.length ? priced.reduce((s, r) => s + (r.costUsd ?? 0), 0) / priced.length : 0,
     };
@@ -260,18 +320,46 @@ const money = (usd: number) => '$' + (usd < 0.1 ? usd.toFixed(3) : usd.toFixed(2
  * It quotes raw pass counts and measured cost per task; it never says
  * "comparable" or "better", says "no measured difference" only when the
  * Wilson intervals overlap, and calls particle-1 cheapest only among the
- * arms measured.
+ * arms measured. It reads the four skill arms only, so the no-gstack arms
+ * never change the line.
  */
-export function suggestionLine(summaries: ArmSummary[], measuredOn: string): { line: string | null; reason: string } {
-  const by = (id: PanelArmId) => summaries.find((s) => s.arm === id)!;
+export function suggestionLine(all: ArmSummary[], measuredOn: string): { line: string | null; reason: string } {
+  const summaries = all.filter((x) => x.loadout === 'skill');
+  const by = (id: PanelArmId) => summaries.find((s) => s.id === id)!;
   const p = by('particle'), s = by('sonnet'), o = by('opus'), d = by('deepseek');
   const thin = summaries.filter((x) => x.completed < PANEL_MIN_COMPLETED);
   if (thin.length) return { line: null, reason: 'INCOMPLETE: ' + thin.map((x) => x.label + ' ' + x.completed + '/' + x.cells).join(', ') + ' completed cells (need ' + PANEL_MIN_COMPLETED + ')' };
   const vsSonnet = p.high < s.low ? 'below Sonnet 5.5 on this panel' : p.low > s.high ? 'above Sonnet 5.5 on this panel' : 'no measured difference from Sonnet 5.5 on this panel';
-  const cheapest = summaries.every((x) => x.arm === 'particle' || p.costPerTaskUsd < x.costPerTaskUsd);
+  const cheapest = summaries.every((x) => x.id === 'particle' || p.costPerTaskUsd < x.costPerTaskUsd);
   const counts = 'particle-1 passed ' + p.passes + '/' + p.completed + ' tasks on gstack\'s model panel (Sonnet 5.5 ' + s.passes + '/' + s.completed + ', Opus 5.5 ' + o.passes + '/' + o.completed + ', DeepSeek V4.1 Flash ' + d.passes + '/' + d.completed + ')';
   const cost = ' at ' + money(p.costPerTaskUsd) + ' per task vs ' + money(s.costPerTaskUsd) + ' for Sonnet 5.5' + (cheapest ? ', the cheapest of the four models measured' : '');
   const where = ' (' + vsSonnet + '; measured ' + measuredOn + ' in Claude Code via OpenRouter).';
   if (p.passRate < PANEL_USEFULNESS_FLOOR) return { line: null, reason: 'below the usefulness floor: ' + counts + cost + where };
   return { line: counts + cost + where + ' Worth trying for low-stakes steps; keep blocking reviewers on your main model.', reason: 'ok' };
+}
+
+/**
+ * results.md for one campaign: one table, one row per arm identity (no-gstack
+ * arms beside their skill arms), first cell the identity, so it passes
+ * `gstack-eval-plan results --check` against PREREG.md. An arm with no cells
+ * renders dashes, which the check refuses; an arm under PANEL_MIN_COMPLETED
+ * scored cells says INCOMPLETE beside its count.
+ */
+export function renderResults(summaries: ArmSummary[], meta: PanelCampaign & { measuredOn: string }): string {
+  const lines = [
+    '# Model panel results',
+    '',
+    'Campaign ' + meta.runId + ', measured ' + meta.measuredOn + ', preregistration test/fixtures/model-panel/PREREG.md sha256 ' + meta.preregSha + '.',
+    'Research instrument; gates nothing. The panel is near ceiling, so a no-gstack row that matches its skill row says nothing about skill value.',
+    '',
+    '| arm | loadout | passed | 95% interval | infra | cost per task | skill consulted |',
+    '|---|---|---|---|---|---|---|',
+  ];
+  for (const s of summaries) {
+    const cells = s.cells === 0
+      ? ['—', '—', '—', '—', '—', '—']
+      : [s.loadout, s.passes + '/' + s.completed + (s.completed < PANEL_MIN_COMPLETED ? ' INCOMPLETE' : ''), (s.low * 100).toFixed(0) + '-' + (s.high * 100).toFixed(0) + '%', String(s.infra), money(s.costPerTaskUsd), s.consulted + '/' + s.cells];
+    lines.push('| `' + s.arm + '` | ' + cells.join(' | ') + ' |');
+  }
+  return lines.join('\n') + '\n';
 }

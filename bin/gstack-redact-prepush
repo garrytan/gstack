@@ -686,13 +686,15 @@ function main() {
   // as public-strict (HIGH blocks regardless either way).
   // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
   // scanned rather than blocked unscanned on the engine's size cap.
-  // Scanned per file so a pattern can use the file's type (#3048).
+  // Scanned per file so a pattern can use the file's type (#3048). A Dart or
+  // Python file's added lines go without their path: their source-syntax
+  // exemption needs the whole file to see a triple-quoted string (#3630).
   // An allowlisted span is found by scanning with and without the entries,
   // so the report names exactly what they suppressed.
   const allowed: string[] = [];
   const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
   for (const { part, allowlist } of parts) {
-    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file ? { sourcePath: part.file } : {}) };
+    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
     const findings = scanAddedLines(part.text, opts);
     const kept = allowlist.length
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
