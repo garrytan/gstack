@@ -187,7 +187,7 @@ elements and RDF metadata, CSS made of declarations only (no `@` rule and no
 function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
 `image()`, `element()` and every other CSS load), no backslash escape, every
 `href` a same-file `#` reference or an inline raster image, no event handler and no
-entity declaration, read after character references are decoded; anything else, a
+entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded; anything else, a
 script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
