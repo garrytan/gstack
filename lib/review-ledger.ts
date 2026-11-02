@@ -72,7 +72,7 @@ const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\
  * ("1. Drops rows (q.ts:7). Severity: Low", "(t.md:3) Severity: Low", "- Severity: P0"), its label closing the clause. With one present a severity word in the body never raises the label (GST-976); prose that mentions a
  * severity ("pass 1 had Severity: Low", "filed at severity low", "(Severity: Low in pass 1)") is not a field.
  */
-const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*:/→—–]|-\\s|Blocks)))`, 'gi');
+const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks)))`, 'gi');
 /**
  * A label leading its line past list, quote, heading, emphasis and emoji marks (one mark per step, so a long divider stays linear)
  * and an optional file:line, closed by a mark or a separator, or by a space, comma or parenthesis after an all-caps word ("[P0] …",
@@ -114,7 +114,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
-  const fieldOf = (t: string) => strongestOf([...t.matchAll(SEVERITY_FIELD)].map(m => m[1] ?? m[2]!));
+  const fieldOf = (t: string) => strongestOf([...t.matchAll(SEVERITY_FIELD)].flatMap(m => [...(m[1] ?? m[2]!).matchAll(ALL_LABELS)].map(l => l[1]!)));
   const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
   const labelOf = (t: string) => {
