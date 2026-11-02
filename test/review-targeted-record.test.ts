@@ -92,6 +92,21 @@ describe('verify records the targeted reader\'s outcome and the commit it read (
     repo.git('checkout', '--', 'src/charge.ts');
     expect(recordLine(verify(repo, dirty).out)).toStartWith('TARGETED_RECORD: classes=money status=failed ');
   });
+
+  // Value: protects=a run whose ledger holds no targeted render leaves no record for Step 19 to pass, so an earlier run's
+  //   .gstack/tmp/targeted.json never reaches write (pass 1 Red Team note on this PR); fails_when=verify leaves the stale file;
+  //   seam=gstack-ship-receipt write's input via gstack-review-dispatch verify --targeted-out
+  test('verify with no targeted render removes a stale --targeted-out file', () => {
+    const { repo, base } = moneyBranch();
+    const out = path.join(repo.root, 'plain');
+    const render = runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'specialist', '--name', 'testing', '--diff-base', base, '--out', out]);
+    expect(render.status, render.err).toBe(0);
+    const record = path.join(repo.root, 'targeted.json');
+    fs.writeFileSync(record, '{"stale":true}\n');
+    const v = verify(repo, path.join(out, 'review-ledger.jsonl'), record);
+    expect(recordLine(v.out)).toBe('');
+    expect(fs.existsSync(record)).toBe(false);
+  });
 });
 
 describe('write binds a targeted record only to the product patch the reader read (item 2)', () => {
@@ -121,6 +136,27 @@ describe('write binds a targeted record only to the product patch the reader rea
     const old = write(repo, ['--review-targeted', JSON.stringify(headless)]);
     expect(old.status).toBe(EXIT.fail);
     expect(old.err).toContain('review_targeted.head');
+  });
+
+  // Value: protects=/ship's Steps 14 and 14.5 commit TODOS.md and docs after the Step 11 read, and those commits carry no targeted
+  //   class, so the record still binds (pass 1 Red Team CRITICAL on this PR: every money, gate, auth or secret ship whose doc audit
+  //   edited a file stopped at Step 19 with RECEIPT_INVALID); a money edit after the read is still refused; fails_when=write
+  //   refuses a docs-only change after the read or accepts a class-bearing one; seam=gstack-ship-receipt write --review-targeted
+  test('a docs and TODOS.md commit after the read binds; a money edit after it is refused', () => {
+    const { repo, base, head } = moneyBranch();
+    const record = path.join(repo.root, 'targeted.json');
+    expect(verify(repo, targetedRead(repo, base, 'h1', 'NO FINDINGS'), record).status).toBe(0);
+
+    commit(repo, 'docs/charges.md', '# Charges\n\nThe cap is enforced per run.\n', 'Step 14.5 docs');
+    commit(repo, 'TODOS.md', '# TODOS\n\n- [x] enforce the cap\n', 'Step 14 TODOS');
+    const docs = write(repo, ['--review-targeted', `@${record}`]);
+    expect(docs.status, docs.err).toBe(EXIT.ok);
+    expect(JSON.parse(docs.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+
+    commit(repo, 'src/charge.ts', 'export const spend_cap_usd = 50;\n', 'money edit after verify');
+    const stale = write(repo, ['--review-targeted', `@${record}`]);
+    expect(stale.status).toBe(EXIT.fail);
+    expect(stale.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
   });
 });
 
