@@ -60,7 +60,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
-| Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted` |
+| Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
 | Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
 | No-gstack arm | required with `stack: loaded`: `arms:`, `inputs:`, `prompt:`, `panel:`, `report:` (below) |
 
@@ -176,7 +176,14 @@ anything else (`EVAL_DRY_RUN_FAILED`).
 `--out`): admission is `spent + reserved + unknown + estimate <= cap`, under a file lock
 shared with any concurrent worker. Run each `PILOT_ATTEMPT:` through the project's own
 eval command, then settle it with the actual cost from the provider's usage field, or
-`unknown` when the call was seat-metered or CLI-metered:
+`unknown` when the call was seat-metered or CLI-metered.
+
+An arm on a subscription with no extra charge (say `claude -p` on a seat) is declared at
+start with `--seat-metered <arm,...>`, each also in `--arms`. Its attempts hold none of the
+cap, settle as `unknown` and get a `PILOT_SEAT_METERED:` line instead of a projection; an
+arm that settles a real charge is projected as priced. The first quota or rate-limit error
+on such an arm ends the run: no retry, no new attempt; release the unstarted ones. Settle
+each attempt, then report:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-eval-plan pilot settle --out <outdir> --attempt <attempt-id> --usd <usd|unknown>
@@ -185,8 +192,9 @@ eval command, then settle it with the actual cost from the provider's usage fiel
 
 `pilot report` prints the spend table (`spent`, `reserved`, `unknown charges`, the worst case
 with one in-flight call per worker, the worst-case overrun against the cap) and
-`PILOT_PROJECTION:` — mean cost per item, its sample deviation, the projection to
-`--total` items across the arms, and a 95% band. Regenerate the table at every later gate
+one `PILOT_ARM:` line per money arm (its own mean, deviation, projection and band), then
+`PILOT_PROJECTION:` — the arms summed: cost per item, deviation, the projection to
+`--total` items, and a 95% band. Regenerate the table at every later gate
 of the run. Stop and report, without asking for approval, when the pilot missed a bar from
 the preregistration, when `status=budget_exhausted`, or when `verdict=exceeds`.
 

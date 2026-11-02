@@ -35,18 +35,18 @@ describe('gstack-review-plan', () => {
   });
   test('--json carries the class, the next step, every dispatch with its effort and the audit effort; --no-tiers renders specialists and audits at host effort', () => {
     const r = repo({ 'src/a.ts': Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
-    const plan = JSON.parse(run(r, ['--json']).stdout);
+    const plan = JSON.parse(run(r, ['--json', '--depth-floor', 'standard']).stdout);
     expect(plan).toMatchObject({ class: 'code', next: { step: 'full' }, pass: 0 });
     expect(plan.dispatches.filter((d: any) => d.role === 'specialist').map((d: any) => d.effort)).toEqual(expect.arrayContaining(['medium']));
     expect(plan.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'medium')).toBe(true);
     expect(plan.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
     expect(plan.audit_effort).toBe('light');
-    expect(run(r, []).stdout).toContain('DISPATCH: specialist batched effort=medium checklists=testing,security,state-machines');
-    const host = JSON.parse(run(r, ['--json', '--no-tiers']).stdout);
+    expect(run(r, ['--depth-floor', 'standard']).stdout).toContain('DISPATCH: specialist batched effort=medium checklists=testing,security,state-machines');
+    const host = JSON.parse(run(r, ['--json', '--no-tiers', '--depth-floor', 'standard']).stdout);
     expect(host.audit_effort).toBe('host');
     expect(host.dispatches.filter((d: any) => d.role === 'specialist').every((d: any) => d.effort === 'host')).toBe(true);
     expect(host.dispatches.find((d: any) => d.role === 'adversarial-native').effort).toBe('full');
-    expect(run(r, ['--no-tiers']).stdout).toContain('DISPATCH: specialist batched effort=host checklists=testing,security,state-machines');
+    expect(run(r, ['--no-tiers', '--depth-floor', 'standard']).stdout).toContain('DISPATCH: specialist batched effort=host checklists=testing,security,state-machines');
   });
   test('a below-floor fix after pass 1 plans one fix-check', () => {
     const r = run(repo({ 'src/a.ts': 'export const a = 1;\n' }), ['--pass', '1', '--last', 'full', '--fixed-below']);
@@ -132,7 +132,7 @@ describe('gstack-review-plan: review depth', () => {
     const r = repo({ 'src/a.ts': code(10), 'test/a.test.ts': code(200) });
     const out = run(r, []).stdout;
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
-    expect(out).toMatch(/^REVIEW_DEPTH: light runtime_lines=10 rules=[0-9a-f]{16} reasons=runtime=10<=50 codes=none$/m);
+    expect(out).toMatch(/^REVIEW_DEPTH: light runtime_lines=10 rules=[0-9a-f]{16} reasons=runtime=10 codes=none$/m);
     expect(out).toContain(`GATE_SCAN: tagged=0 head=${head}`);
     expect(out).toContain('DISPATCH: specialist batched effort=full checklists=testing,security,state-machines,red-team');
     expect(out).toContain('DISPATCH: adversarial-native adversarial effort=full reason=backtest inconclusive (GSTA-147 D5)');
@@ -149,7 +149,7 @@ describe('gstack-review-plan: review depth', () => {
   });
   test('--json carries depth, runtime_lines, rules, errors, gate_scan and every dispatch\'s exclude array', () => {
     const r = repo({ 'src/a.ts': code(80), 'README.md': '# y\n' });
-    const plan = JSON.parse(run(r, ['--json']).stdout);
+    const plan = JSON.parse(run(r, ['--json', '--depth-floor', 'standard']).stdout);
     expect(plan).toMatchObject({ depth: 'standard', step_depth: 'standard', runtime_lines: 80, errors: [], codes: [], gate_scan: { tagged: 0 } });
     expect(plan.rules).toMatch(/^[0-9a-f]{16}$/);
     expect(plan.dispatches.find((d: any) => d.name === 'batched').exclude).toEqual([':(exclude)README.md']);
@@ -157,7 +157,7 @@ describe('gstack-review-plan: review depth', () => {
   });
   test('--depth-floor full raises a light diff, never lowers a full one, and an invalid floor is a usage error', () => {
     const r = repo({ 'src/a.ts': code(5) });
-    expect(run(r, ['--depth-floor', 'full']).stdout).toMatch(/^REVIEW_DEPTH: full runtime_lines=5 .*reasons=runtime=5<=50,floor:full /m);
+    expect(run(r, ['--depth-floor', 'full']).stdout).toMatch(/^REVIEW_DEPTH: full runtime_lines=5 .*reasons=runtime=5,floor:full /m);
     const gate = repo({ 'src/a.ts': code(5), '.github/workflows/ci.yml': 'on: push\n' });
     expect(run(gate, ['--depth-floor', 'standard']).stdout).toMatch(/^REVIEW_DEPTH: full /m);
     expect(run(r, ['--depth-floor', 'light']).status).toBe(2);
@@ -190,7 +190,7 @@ describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
     const out = run(r, [...pass2, '--range-base', rangeBase]).stdout;
     expect(out).toMatch(/^REVIEW_PLAN: class=code pass=2 next=scoped dispatches=3 /m);
     expect(out).toContain(`FIX_RANGE: runtime_lines=24 base=${rangeBase}`);
-    expect(out).toMatch(/^NEXT: scoped \(a blocking finding was fixed on a standard diff with 24 runtime lines in the fix range/m);
+    expect(out).toMatch(/^NEXT: scoped \(a blocking finding was fixed on a light diff with 24 runtime lines in the fix range/m);
     expect(out).toContain('DISPATCH: fix-check fix-check effort=full');
     expect(out).toContain('DISPATCH: red-team red-team effort=full');
     expect(out).toContain('DISPATCH: adversarial-native adversarial effort=full');
@@ -221,7 +221,7 @@ describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
     fs.writeFileSync(path.join(r.dir, 'src', 'b.ts'), code(2, 'b'));
     git('add', '.'); git('commit', '-qm', 'fix: revert the workflow edit');
     const out = run(r, [...pass2, '--range-base', rangeBase]).stdout;
-    expect(out).toMatch(/^REVIEW_DEPTH: standard /m);
+    expect(out).toMatch(/^REVIEW_DEPTH: light .* step=standard$/m);
     expect(out).toMatch(/^NEXT: full \(a blocking finding was fixed and a fix touched a gate-class path/m);
     expect(JSON.parse(run(r, [...pass2, '--range-base', rangeBase, '--json']).stdout)).toMatchObject({ next: { step: 'full' }, fix_range: { touched_gate: true } });
   }, 30_000);

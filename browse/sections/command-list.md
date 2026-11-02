@@ -95,15 +95,20 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
 | `cookie-import-browser [browser] [--domain d] [--profile p] [--all] [--clear-storage] [--verify-auth]` | Copy cookies from chrome, chromium, brave, edge, Windows-only opera, opera-gx, or macOS-only comet or arc. Omitted browser retains legacy comet; select the intended browser explicitly. --domain requires a matching current page; no scope flag opens the picker. --profile is the source directory; ambiguous profiles require selection. --all explicitly selects every non-expired cookie and cannot accompany --domain or --clear-storage. Storage is preserved unless --clear-storage resets captured-origin localStorage (shared across context tabs) and target-tab sessionStorage. --verify-auth requires daemon GSTACK_COOKIE_AUTH_SELECTOR and GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY before startup; missing config rejects before mutation. Verified means an exact visible identity match, not cookie counts or HTTP 200. Windows native extraction remains disabled pending qualification. |
+| `device [<name> [--landscape] | off | --list]` | Emulate a phone on the current tab only: size, pixel ratio, touch support (pointer: coarse) and user agent from Playwright's devices table (names match case-insensitively). Other tabs stay desktop. No name prints the active profile or "none"; --list prints every name; off (or reset, auto) restores. viewport and responsive refuse while a device is active. |
 | `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |
 | `header <name>:<value>` | Set custom request header (colon-separated, sensitive values auto-redacted) |
 | `hover <sel>` | Hover element |
+| `pinch <@ref|selector|x y> <scale>` | Two-finger pinch around an element's center or x y: scale above 1 spreads the fingers (zoom in), below 1 brings them together. Needs $B device first. |
 | `press <key>` | Press a Playwright keyboard key against the focused element. Names are case-sensitive: Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown. Modifiers combine with +: Shift+Enter, Control+A, Meta+K. Single printable chars (a, A, 1) work too. Full key list: https://playwright.dev/docs/api/class-keyboard#keyboard-press |
 | `scroll [sel|@ref]` | With a selector, smooth-scrolls the element into view. Without a selector, jumps to page bottom. No --by/--to amount option; for pixel-precise scrolling use `js window.scrollTo(0, N)`. |
 | `select <sel> <val>` | Select dropdown option by value, label, or visible text |
 | `style <sel> <prop> <value> | style --undo [N]` | Modify CSS property on element (with undo support) |
+| `swipe <@ref|selector|x y> <up|down|left|right> [--distance <px>] [--ms <n>]` | One-finger swipe from an element's center or x y; the finger moves in the given direction (default 300px over 300ms, 10 moves). Needs $B device first. |
+| `tap <@ref|selector|x y> [--hold <ms>]` | Touch and release at an element's center (scrolled into view) or at x y. Needs $B device first. |
+| `touch [down|move <finger 0-9> <x> <y> | up <finger> | cancel]` | Hold, move and lift numbered fingers for multi-finger flows (hold a joystick with finger 0, tap fire with finger 1). Lifting one finger leaves the others down. No action lists held fingers; cancel releases all. Navigation and device off cancel held fingers. Needs $B device first. |
 | `type [--selector <sel>] [--] <text>` | Send keystrokes to the focused element, or to <sel> with --selector (focuses it first). Text that starts with -- goes after a -- separator. |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |

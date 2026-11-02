@@ -13,8 +13,9 @@
  *                 depends on it; source code and test trees never do)
  *   selection     `<workflow.yml>/<job>` → the runner-owned command that lists
  *                 the lane's test files when the matrix is planner-computed
- *   warn          check ids downgraded to warn (never `secrets`; `lanes` keeps
- *                 its required-lane and requires-remote verdicts)
+ *   warn          check ids downgraded to warn (never `secrets`; `lanes`
+ *                 downgrades only a touched file with no lane, after the
+ *                 selected tests ran: a red lane stays `fail`)
  *   strays.allow  root files or new top-level directories that are intentional
  *   local         `<workflow.yml>/<job>` lanes a local run satisfies (a
  *                 platform-agnostic toolchain, or a repo whose CI is off):
@@ -48,6 +49,11 @@
  *                 anchored at the finding (lib/pregate/allowlist.ts); never
  *                 `env.value` (a configured credential's real value) and never
  *                 the whole `secret` category
+ *
+ * A policy declares lanes when it has a `dependencies`, `empty_lanes`,
+ * `selection` or `local` key (LANE_KEYS), even an empty one; only then is a touched file with no lane
+ * the hard PREGATE_NO_LANE. A policy without either (a timeout-only file)
+ * keeps the no-policy lane verdicts (lib/pregate/checks/lanes.ts).
  *
  * A repo that keeps `.gstack/` out of git can hold the same file at
  * `<state root>/projects/<slug>/pregate.json` (lib/state-root.ts), honoured
@@ -254,17 +260,20 @@ export function validateConfig(raw: unknown, knownChecks: readonly string[] = []
   return errors;
 }
 
-export function parseConfig(text: string, knownChecks: readonly string[] = []): { config: PregateConfig; errors: ConfigError[] } {
+/** The keys that declare lanes: with either present, a touched file with no lane is PREGATE_NO_LANE. */
+export const LANE_KEYS = ['dependencies', 'empty_lanes', 'selection', 'local'] as const;
+
+export function parseConfig(text: string, knownChecks: readonly string[] = []): { config: PregateConfig; errors: ConfigError[]; declaresLanes: boolean } {
   let raw: unknown;
   try { raw = JSON.parse(text); }
-  catch (e: any) { return { config: DEFAULT_CONFIG, errors: [{ code: 'PREGATE_CONFIG_INVALID', path: PREGATE_CONFIG_PATH, message: `not valid JSON: ${e.message}` }] }; }
+  catch (e: any) { return { config: DEFAULT_CONFIG, errors: [{ code: 'PREGATE_CONFIG_INVALID', path: PREGATE_CONFIG_PATH, message: `not valid JSON: ${e.message}` }], declaresLanes: false }; }
   const errors = validateConfig(raw, knownChecks);
-  if (errors.length) return { config: DEFAULT_CONFIG, errors };
+  if (errors.length) return { config: DEFAULT_CONFIG, errors, declaresLanes: false };
   const o = raw as Partial<PregateConfig>;
-  return { config: { $schema: o.$schema, runner: o.runner ?? null, dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, timeout_s: o.timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [], run_profiles: o.run_profiles ?? {}, remote_gate_runs: o.remote_gate_runs ?? null }, errors: [] };
+  return { declaresLanes: LANE_KEYS.some(k => k in o), config: { $schema: o.$schema, runner: o.runner ?? null, dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, timeout_s: o.timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [], run_profiles: o.run_profiles ?? {}, remote_gate_runs: o.remote_gate_runs ?? null }, errors: [] };
 }
 
-export type ConfigLoad = { config: PregateConfig; errors: ConfigError[]; present: boolean; label: string; kind: 'base' | 'head' | 'user' | 'none'; /** sha256 of the user file's bytes (kind 'user' only). */ digest?: string } | { unavailable: true; base: string; detail: string };
+export type ConfigLoad = { config: PregateConfig; errors: ConfigError[]; present: boolean; label: string; kind: 'base' | 'head' | 'user' | 'none'; /** sha256 of the user file's bytes (kind 'user' only). */ digest?: string; /** The policy has a LANE_KEYS key; absent under kind 'none'. */ declaresLanes?: boolean } | { unavailable: true; base: string; detail: string };
 
 function git(cwd: string, args: string[]): { ok: boolean; out: string } {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
@@ -333,12 +342,13 @@ export function explainConfig(): string {
     'dependencies: glob → test files the import graph cannot see (subprocess targets, runtime reads, generated inputs); [] declares no lane needed',
     'empty_lanes: extra globs treated as docs/no-tests when nothing else maps them. Built-in, with or without this file: any Markdown file the import graph maps to no test (a quoted path, a join() of path segments, an import, or a dependencies entry), plus README/CHANGELOG/CONTRIBUTING/LICENSE/AGENTS/CLAUDE and licence text under any name; assets (images, fonts, media) and allowlisted tool config take their own empty lane. Source code and files under a test directory never qualify. A test that reads the file still selects that test',
     'selection: <workflow.yml>/<job> → the runner-owned command that lists that lane’s test files when its matrix is planner-computed',
-    `warn: check ids downgraded to warn; never ${NON_DOWNGRADABLE.join(', ')}; lanes keeps its required-lane and requires-remote verdicts`,
+    `warn: check ids downgraded to warn; never ${NON_DOWNGRADABLE.join(', ')}; lanes downgrades only a touched file with no lane, after the selected tests ran (a red lane stays fail)`,
+    `lane requirements: a policy with any of ${LANE_KEYS.join(', ')} (even empty) makes a touched file with no lane PREGATE_NO_LANE; a policy with none of them (timeout_s only, say) keeps the no-policy warning (PREGATE_NO_POLICY) and starter`,
     'strays.allow: root files or new top-level directories that are intentional',
     'local: <workflow.yml>/<job> lanes a local run satisfies (platform-agnostic toolchain, or CI off); their tests run here, not requires-remote',
     'guards: [{ id, when: [globs], command, fix?, timeout_s? }]: each guard whose globs match a touched file runs in its own process (--allow-repo-commands); a failure fails pregate with the guard id and fix; never downgradable',
     `serial_patterns: test-file globs the lanes check runs one process per file, apart from the unit files (default ${DEFAULT_SERIAL_PATTERNS.join(', ')})`,
-    'sealed: { paths, transcripts, answer_markers, seed_patterns, local_paths, allow_paths, case_insensitive, visibility }: sealed or eval output the pre-push hook and `gstack-pregate sealed` refuse to publish to a public destination; allow_paths (base branch only) exempt publishable files from the path globs (docs/pregate.md#sealed)',
+    'sealed: { paths, transcripts, answer_markers, seed_patterns, local_paths, allow_paths, case_insensitive, label_keys, identifier_keys, visibility }: sealed or eval output the pre-push hook and `gstack-pregate sealed` refuse to publish to a public destination; allow_paths (base branch only) exempt publishable files from the path globs; label_keys turns on sealed.label_join, which refuses a published record that puts one of those fields next to an identifier (identifier_keys globs, or a hex value) (docs/pregate.md#sealed)',
     'price_file: repo-relative path of the GSTACK_EVAL_CALLS v1 call-plan file `gstack-eval-plan price-gate` prices a paid gate from; never executed (docs/eval-calls.md)',
     'stall_timeout_s: seconds without test output before the lanes check kills the runner\'s process group and records it incomplete (default 300; 0 disables; --stall-timeout overrides)',
     'timeout_s: seconds each runner process may take (the unit-file group, each serial file, each guard without its own timeout_s, and the remote gate\'s deadline) when --timeout is not passed; 1 to 3600, default 600',

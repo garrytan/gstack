@@ -257,6 +257,13 @@ the same three paths. An errored init is skipped, so a later successful init
 still binds. This denial applies when no init ever succeeded, or when an
 errored init follows a good one.
 
+An init whose output is not its JSON result (extra text, or no single text
+block) also counts as failed, and the message adds "without a leading cd" to
+the re-run hint. The one exception is the `Shell cwd was reset to <dir>` line
+Claude Code adds as the last line of a Bash result when the command's `cd`
+left the session's folder: the guard removes exactly that line before reading
+an init or checkpoint result (#3651).
+
 <a id="init-unbindable"></a>
 ### `init_unbindable`
 Init ran through a shell variable, substitution, chaining, a pipe or a

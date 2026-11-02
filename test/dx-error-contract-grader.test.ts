@@ -21,8 +21,8 @@ describe('dx-error-contract-review grader (free controls for the paid case)', ()
   });
 
   test('the grader keys on the title and severity shapes the product prompt asks for', () => {
-    expect(DX_ERROR_COMPACT).toContain('as a Critical finding titled "CAP4:<path>:<item>"');
-    expect(DX_ERROR_COMPACT).toContain('as a High finding titled "CAP6:<path>:<item>"');
+    expect(DX_ERROR_COMPACT).toContain('as a Critical finding titled "CAP4:<path>:<item> <what fails>"');
+    expect(DX_ERROR_COMPACT).toContain('as a High finding titled "CAP6:<path>:<item> <what fails>"');
     const rows = DX_ERROR_ITEMS.map((item, index) => ({ id: `F${index}`, severity: 'High', title: `CAP6:P1:${item} gap` }));
     expect(capFindings(fence(rows)).map(cap => cap.item)).toEqual([...DX_ERROR_ITEMS]);
   });
