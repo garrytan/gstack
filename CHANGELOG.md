@@ -1,5 +1,79 @@
 # Changelog
 
+## [1.92.64.0] - 2026-11-02
+
+**/ship's Step 11 outside voice now defaults to the model it was tested with, and a same-family outside voice is refused.** On a lane running an Anthropic model, the pass program uses `openai/gpt-6.1-sol` at medium reasoning when no outside-voice model is given. That is the pairing no-loss rounds 3 to 6 and A3668 ran. Until now the lane picked the model (gpt-6-astra in replays 6c, 7e and 8g), and the only check was that some model was given, so a Claude outside voice beside a Claude native voice would have run as "outside" (GSTA-167 plan R2 and O2).
+
+### Changed
+- **Outside-voice default, Anthropic lanes only** (`lib/capy-review-pass.js`): with no `models['outside-voice']` and an `anthropic/` `laneModel`, the voice runs on `openai/gpt-6.1-sol` at medium. Any other lane, or no lane identity, still stops with "none was given", because an OpenAI lane's pairing is not certified.
+- **Same-family STOP**: an outside voice whose provider (the part before `/`, compared without regard to case) matches the lane model or the native voice's model stops the pass before either voice is created. The check runs again on every rerun of the same manifest and before a queued voice is started. An outside voice with no provider prefix, or with no lane model and no native model to compare against, also stops.
+- **Voices resume on the models they were dispatched with**: the pass records each Step 11 voice's model and the lane model in `voice-models.json` in the pass directory before creating it. A rerun with different inputs starts a queued voice on its recorded model and checks it against the recorded native model, so it can't pair two voices of one family.
+- **Overrides are labeled**: each outside voice prints an `OUTSIDE_VOICE:` line when it is created or started from the queue, saying whether it is the certified configuration. A different model or reasoning level still runs, marked "outside the certified configuration".
+- **Step 14.5 docs audit runs once on Sonnet 5.5** (`ship/DRIVER.md`). In replay C5 the docs audit first ran on a smaller model whose reply lacked its JSON line, then ran again on Sonnet, which wasted 1.55M tokens. To stay under the driver's 12 KB cap, one sentence that repeated Phase 4 and 5 ("A fix repeats Phases 3-4.") was removed.
+
+### Tests
+- `test/review-pass.test.ts`: six new fake-host cases: a same-family override stops; a rerun or a queued start still refuses it; a queued voice resumes on its recorded model; a missing lane identity, an unprefixed id or an unprefixed lane stops; an Anthropic lane gets the certified default with every brief byte-identical to naming that model; an override with changed reasoning runs and is labeled uncertified. The Step 11 case now passes `laneModel: undefined` to keep its "none was given" check, since an Anthropic lane gets the default.
+- `test/ship-driver.test.ts`: the audit-reader assertion names Step 14.5's Sonnet 5.5 run.
+
+## [1.92.63.0] - 2026-11-02
+
+**A slot restamp after the docs audit no longer stops `finish` with `DOCS: stale (CHANGELOG.md)` (GST-906).** When a PR lost its merge slot after Step 14.5, the new slot's restamp re-heads the CHANGELOG entry and moves VERSION, and on the lost-slot path it merges main first. `gstack-ship-release finish` read all of that as a docs change, so the only ways forward were a third docs audit, which the policy forbids, or an owner-accepted named risk. Reported by GBRA-258 on gbrain #8372.
+
+### Fixed
+- **Step 16's docs check carries a restamp.** The CHANGELOG counts as unchanged when it differs from the audited copy only by the heading move or re-heading. After a main merge, the audited copy is first merged with main's CHANGELOG by the same `mergeChangelogs` call the restamp writer makes, and that merge may only add main's sections. The version file counts as unchanged when it held a bare version at the audit and still does.
+- **Anything else still stales the audit.** That includes an entry edit, a dropped or edited main section, a dropped line the audit saw, and an audited CHANGELOG that git never held.
+
+## [1.92.62.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` checks the run's workflow.** On a lane with no run profile, `clear` used to record any URL as the receipt, so a `windows-smoke.yml` run could clear `windows-free-tests.yml/windows-free-shard` on a branch cut before #3806. When the base config and the GitHub origin can be read, `clear` now reads the run and refuses `PREGATE_RECEIPT_INVALID` (`workflow_mismatch`) unless its workflow file is the lane's own; a run gh cannot read (`api_error`) or a URL that is not an Actions run on this repository (`run_ref_invalid`) refuses too, and each refusal names its own fix. A run of the lane's own workflow clears as before, including a job link copied with `?pr=` or `#step`. `test_backend/*` lanes, `--bundle-lane` and non-GitHub origins are unchanged. On main the Windows obligation is `windows-smoke.yml/windows-smoke`, and a test now checks that against the repository's own workflows. The `ready` conflict hint now says to clear each lane with a run of that lane's own workflow. `test/pregate-clear-runs.test.ts` covers the mismatch, the matching control, the unreadable run, the non-run URL and the copied job links; each failed before its fix.
+
+## [1.92.61.0] - 2026-11-02
+
+- **The security class reaches outbound URLs, archives and every `child_process` spelling** (GST-850). `lib/review-risk.ts` now flags any call to an outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici, `requests`, `httpx`, urllib), `new URL` from input, redirect toggles, proxy settings and host allowlists; tar, zip and unzip extraction, `path.join` or `resolve` on request or entry input, and `'..'` checks; and any changed line that names the `child_process` module. The new rules parse no import clause or call arguments, and a test holds each under 100 ms on 200,000-character hostile lines.
+- **The money class reads metering and charge code.** Paths and lines naming meter, metering, metered, charge, billable, billed or credits, plus token usage, a billing proxy and cost or charge clients, now route to the money reader. gbrain-evals #289, which changed a metering proxy and billing clients and read `required=none`, is now a regression test that reads money. "costume", a CLI's usage text and a plain proxy do not count.
+- **When a diff publishes numbers, the batched specialist reads the write-up's text files** instead of leaving docs out of its diff. The collector records the files a diff creates.
+- **UI text and SVGs stay code (light).** An allowlist docs path for chart SVGs and locale values was built and dropped for review cost: its first review round found a new bypass class in each version. Every bypass found so far is a test row that classes as code.
+- Replayed on the 26 GSTA-167 no-loss units, no unit loses a reviewer role. The replay checked which reviewers get dispatched, not R51's re-scored findings. Over the last 100 main commits, 3 move from light to full and no commit with a gate or risk class drops depth.
+
+## [1.92.60.0] - 2026-11-02
+
+Free test shards can now run their files as several sub-shards side by side inside one CI job. `bun run scripts/test-free-shards.ts --ci-run <plan> --shard <i> --result <file> --jobs <k>` splits the shard into k parts that each run in their own sandboxed `bun test` process. The default stays at 1, so CI runs exactly as before until a workflow opts in. Bad `--jobs` values stop with `FREE_JOBS_INVALID`, a sub-shard that runs out of time prints `FREE_SUBSHARD_TIMEOUT` with a serial reproduce command, and every CI shard result now records per-file test and `expect()` counts. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
+
+## [1.92.59.0] - 2026-11-02
+
+**`test:health` and the factory scorecard leave reused main pushes out of their free-suite flake counts (#3725).** Since #3709, a main push whose merged pull request already passed on the same tree reuses that run. It finishes green, runs no shards and uploads nothing, so both readers counted it as a run with zero flakes. As reuse grows, that pulls real flake rates under the 5% bar, and `bun run test:health --enforce` stops flagging files without any error.
+
+### Fixed
+- **One rule for both readers** (`reuseChecker` in `scripts/lib/ci-history.ts`). A run with no artifacts and a green `reuse` job is a reused main push. `readCiFlakeLedgers` leaves it out of the window and its denominator and fills the window with older runs, so it still holds 20 runs that ran their shards. `readFreeRetries` in `lib/factory-scorecard.ts` leaves it out of the free-retry count. Both reports name how many runs they left out.
+- **Bounded and visible.** A run with any artifact costs no extra call. A run with none costs one job listing, at most 40 per read. Past that cap, or when a listing fails, the run counts as it did before and the report says so.
+
+### Tests
+- `test/test-health-report.test.ts`: reused runs among real flaky runs (2 flaky of 20 real runs, with 30 reused) failed on the old code with 2/45 = 4.4%, which passed the 5% bar; now 2/20 = 10% fails it. The lookup cap and a failed lookup both count the run as before, and the report says so.
+- `test/factory-scorecard.test.ts`: two reused runs in the window failed on the old code ("in 1 of 5 runs"); now the free-retry line matches the real runs only ("in 1 of 3 runs") and names the 2 runs it left out.
+
+## [1.92.58.0] - 2026-11-02
+
+**A parent agent can now run the CEO-only review through the driver: `gstack-autoplan next --ceo-only` (GST-537).** `/autoplan --ceo-only` only worked inside a Claude Code session, so a crew or eval harness driving `gstack-autoplan` from another host had to run the whole review and stop at the approval gate. Now the same review-only run works from the driver on any host.
+
+### Added
+- **`gstack-autoplan next --ceo-only`** (first `next` only): opens the CEO phase alone. When it closes, the run prints `REVIEWED:`, writes `<dir>/ceo-review.md` with the same sections as the skill path (hashed in `run.json`), and ends `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`. It writes no gate, never edits the plan and never approves anything.
+- **Decision rows with status `auto_kept`**: each item a gate would have asked is recorded as kind `auto`, the plan's direction kept, with no answer time. An item only the owner can accept (a Critical finding left open when CEO closed deferred) is left undecided, with no chosen option, and the report lists it as left open for the owner. Tasks in a CEO-only run wait on no decision. `run.json` now accepts `reviewed`, and `gstack-artifact validate` passes a finished CEO-only run.
+- **Coded refusals**: `--ceo-only` beside `--ui`, `--developer-tool` or `--agent-primary` (on the command line or in the plan's scope marker), a scope marker that names `--ceo-only`, or a plan that is the report file `<dir>/ceo-review.md` (directly, through a symlink or a hard link) refuses with `CEO_ONLY_CONFLICT`, so the report never overwrites the plan; on a directory that holds a full run, `CEO_ONLY_AFTER_INIT`. `answer`, `recommend`, `revise` and `gstack-approvals import` refuse a CEO-only run with `CEO_ONLY_NO_GATE`. A CEO-only run stopped by `--spend-cap` recovers the usual way: `budget` then `resume`, or `close --deferred`, which ends it `reviewed`.
+
+### Fixed
+- `gstack-approvals import --autoplan` no longer imports from a run whose `run.json` is present but not valid JSON; it refuses with `ARTIFACT_INVALID_JSON` instead of guessing the run's identity.
+
+## [1.92.57.0] - 2026-11-02
+
+**Hermes can start gstack skills again (GST-882).** On stock Hermes, the Tirith scanner flagged every gstack skill's first command as HIGH ("Nested executable body could not be resolved"), so `gstack-skill-start` was denied in 8 of 8 trials. Tirith-only findings can't go on Hermes's permanent allowlist, so there was no workaround. The start line Tirith couldn't follow was a grouped fallback that picked the script through a variable.
+
+### Fixed
+- **The skill-start line on Codex, Hermes and the other env-var hosts is plain shell.** A skill installed for one folder (Hermes, and the Codex install `./setup` writes) now checks for that folder's `bin/gstack-skill-start` and then runs it by its literal path. Tirith 0.4.2 allows that line where it blocked the old one. A checked-in render keeps the same lookup order (an exported `GSTACK_ROOT`, then the repo's own install, then the global one) as plain lines, without the `{ …; exit 1;}` group. When no install exists, both print the same "no install found" line with the setup command, and the start command then fails.
+- **An install-root render's first block no longer honors an exported `GSTACK_ROOT`.** Tirith blocks any start command picked through a variable. Later blocks still honor it. `docs/troubleshooting.md` names this exception.
+
+### Tests
+- `test/skill-start-plain.test.ts`: on every host and both render kinds, the start fence has no grouped fallback, and a missing install fails loudly under `bash -u`. The install-root start command is a literal path that runs, and a checked-in render finds the global install. On each env-var host, the start lookup picks the same root as later blocks for global, repo-local and exported installs.
+
 ## [1.92.56.0] - 2026-11-02
 
 **`gstack-ship-receipt write` records the session kind on Windows.** Without `--session-kind` or `GSTACK_SESSION_KIND`, it asks the `gstack-session-kind` bash helper. It used to spawn that helper by path, which never starts on Windows, so every /ship receipt there carried no `session_kind`. It now starts the helper through `lib/script-invocation.ts`, which uses Git Bash on Windows. This is the /ship half of #3541.
