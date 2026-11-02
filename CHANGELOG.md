@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.52.0] - 2026-11-02
+
+**/ship on Capy runs Exploratory QA again.** Since v1.91.345.0 (#3648) the driver sent Step 9.2.1 out as a QA reader subagent, but the section says only the parent runs report-only discovery, so the reader refused on every pass ("parent-only") and the parent ran the probes afterward anyway, an extra reader call each pass (the C4-36 and C5-36 replays).
+
+### Fixed
+- **The parent runs Step 9.2.1's probes itself, as the section says.** Phase 3 does the section's method Reads and no probe; Phase 4's one program runs the smoke and plan checks after Step 8.1 collects the plan checks and before Scope Check, dedup and Fix-First, and the record's Checks heading carries the `Exploratory QA:` line. The call count is unchanged, and the section text is untouched.
+- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists Steps 7, 8 and 14.5 as extras, not Step 9.2.1.
+
 ## [1.92.51.0] - 2026-11-01
 
 **PRs no longer wait on the six-shard Windows suite. A short `windows-smoke` check is the required Windows check, and the full suite runs nightly on main.** Windows has minimal support (docs/support-tiers.md). Since 2026-11-01 06:00 UTC, Windows Free Tests finished last on 71 of 73 PR heads, with a wall time of 892 s at p50 and 1,886 s at p90 over 71 green PR runs, and each run used about 59 Windows runner-minutes. The new smoke check finished in 198 s on this PR (run 41325664750). With smoke in its place, the slowest required check on a PR drops from 892 s to 562 s at p50 and from 1,877 s to 1,193 s at p90.
