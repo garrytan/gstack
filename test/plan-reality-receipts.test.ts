@@ -16,11 +16,17 @@ import { receiptTokens, resolveReceipts } from '../lib/plan-reality-receipts';
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-plan-reality');
 
+function gitOk(cwd: string, ...args: string[]) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} exited ${r.status} (signal ${r.signal}, error ${r.error?.message ?? 'none'}): ${r.stderr}`);
+  return r;
+}
+
 function fixtureRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reality-receipts-'));
   fs.mkdirSync(path.join(dir, 'lib'));
   fs.writeFileSync(path.join(dir, 'lib', 'a.ts'), 'one\ntwo\nthree\n');
-  spawnSync('git', ['init', '-q'], { cwd: dir, timeout: 10_000 });
+  gitOk(dir, 'init', '-q');
   return dir;
 }
 
@@ -99,10 +105,9 @@ describe('resolveReceipts', () => {
 
   test('a commit sha in the repository resolves; an absent one is unverifiable', () => {
     const dir = fixtureRepo();
-    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', timeout: 10_000 });
-    git('add', '.');
-    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'seed');
-    const sha = git('rev-parse', 'HEAD').stdout.trim();
+    gitOk(dir, 'add', '.');
+    gitOk(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'seed');
+    const sha = gitOk(dir, 'rev-parse', 'HEAD').stdout.trim();
     const out = resolveReceipts(parseRealityLines(`REALITY: numbers pass ok ${sha.slice(0, 10)} abcdef1234`), { roots: [dir] });
     expect(out.map(r => r.outcome)).toEqual(['resolved', 'unverifiable']);
   });

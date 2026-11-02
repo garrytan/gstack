@@ -3,7 +3,7 @@
  * (lib/review-targeted.ts, docs/review-policy.md#targeted-pass-on-money-gate-auth-and-secret-code).
  * The classifier, the plan's TARGETED and DISPATCH lines, the dispatch-superset no-loss check
  * against main's reviewers, the production path from render to the receipt and the review-loop
- * summary, and the queue's report-only REVIEW_TARGETED line.
+ * summary, and the queue's REVIEW_TARGETED verdict (refused when a required class is uncovered, GST-966).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -15,7 +15,7 @@ import { classifyDiff, planReview, scanNumbers, type PlanInput } from '../lib/re
 import { raisedBy, summarizeReviewLoop } from '../lib/review-scope';
 import { TARGETED_RULES, targetedBrief, targetedBriefSha, targetedClasses, type TargetedClass, type TargetedInput } from '../lib/review-targeted';
 import { carryReceipt, extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
-import { bindShippedReceipt, parseReviewTargeted, receiptTargetedLine } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, parseReviewTargeted, receiptTargetedVerdict } from '../lib/ship-receipt-depth';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { checkoutTree } from '../lib/review-brief';
@@ -298,14 +298,14 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(verify.status, verify.out).toBe(0);
     expect(verify.out).toContain(`TARGETED_RECORD: classes=money status=done findings=1 brief=${targetedBriefSha().slice(0, 12)} rules=${TARGETED_RULES}`);
     expect(verify.out).toContain('VERIFY: clean');
+    expect(JSON.parse(fs.readFileSync(record, 'utf8')).head).toBe(head);
     fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 50;\n');
     repo.git('commit', '-qam', 'later product change the reader never read');
-    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain('TARGETED_RECORD: classes=money status=failed findings=0');
+    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain(`TARGETED_RECORD: classes=money status=done findings=1 brief=${targetedBriefSha().slice(0, 12)} rules=${TARGETED_RULES} read=${head.slice(0, 12)}`);
+    const later = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', `@${record}`, '--json']);
+    expect(later.status).not.toBe(0);
+    expect(later.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
     repo.git('reset', '-q', '--hard', head);
-    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 7;\n');
-    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain('TARGETED_RECORD: classes=money status=failed findings=0');
-    repo.git('checkout', '--', 'src/charge.ts');
-    expect(runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', ledger]).out).toContain('TARGETED_RECORD: classes=money status=done findings=1');
 
     const body = path.join(repo.root, 'body.md');
     const write = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', `@${record}`, '--body', body, '--json']);
@@ -316,8 +316,8 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(rebound.status).not.toBe(0);
     expect(rebound.err).toContain("write binds the pass to the receipt's product_patch_id");
     const plain = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--json']);
-    expect(plain.status, plain.err).toBe(0);
-    expect(JSON.parse(plain.out)).not.toHaveProperty('review_targeted');
+    expect(plain.status).not.toBe(0);
+    expect(plain.err).toContain('REVIEW_TARGETED: required=money receipt=legacy verdict=missing');
 
     const slug = runBin(repo, 'gstack-slug', ['--get', 'SLUG']).out.trim();
     const logDir = path.join(repo.home, 'projects', slug);
@@ -333,28 +333,34 @@ describe('the targeted role end to end on a fixture repository', () => {
     expect(ok).toMatchObject({ ok: true, targetedLine: 'REVIEW_TARGETED: required=money receipt=money verdict=ok' });
     const { review_targeted: _drop, ...legacy } = receipt;
     const missing = bindShippedReceipt(repo.work, 'origin/main', renderReceiptBlock(legacy as ShipReceipt), undefined, [head]);
-    expect(missing).toMatchObject({ ok: true, targetedLine: 'REVIEW_TARGETED: required=money receipt=legacy verdict=missing' });
+    expect(missing).toMatchObject({ ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', targetedLine: 'REVIEW_TARGETED: required=money receipt=legacy verdict=missing' });
     const failed = bindShippedReceipt(repo.work, 'origin/main', renderReceiptBlock({ ...receipt, review_targeted: { ...receipt.review_targeted!, status: 'failed' } }), undefined, [head]);
-    expect(failed).toMatchObject({ ok: true, targetedLine: 'REVIEW_TARGETED: required=money receipt=none verdict=missing' });
+    expect(failed).toMatchObject({ ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', targetedLine: 'REVIEW_TARGETED: required=money receipt=none verdict=failed' });
   }, 180_000);
 });
 
 describe('the receipt record and the queue line', () => {
   const record = { classes: ['gate', 'money'], rules: TARGETED_RULES, brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted' };
   test('parseReviewTargeted binds the receipt\'s product patch, orders the classes and refuses a malformed record', () => {
-    expect(parseReviewTargeted(record, 'p1')).toEqual({ ok: true, targeted: { ...record, classes: ['money', 'gate'], product_patch_id: 'p1' } as any });
-    for (const bad of [{ ...record, classes: ['cost'] }, { ...record, status: 'skipped' }, { ...record, findings: -1 }, { ...record, brief_sha: 'abc' }, { ...record, extra: 1 }, null]) expect(parseReviewTargeted(bad, 'p1').ok).toBe(false);
+    const read = { ...record, head: 'c'.repeat(40) };
+    const patchOf = (head: string) => (head === read.head ? 'p1' : undefined);
+    expect(parseReviewTargeted(read, 'p1', patchOf)).toEqual({ ok: true, targeted: { ...record, classes: ['money', 'gate'], product_patch_id: 'p1' } as any });
+    for (const bad of [{ ...read, classes: ['cost'] }, { ...read, status: 'skipped' }, { ...read, findings: -1 }, { ...read, brief_sha: 'abc' }, { ...read, extra: 1 }, record, { ...read, head: 'abc' }, null]) expect(parseReviewTargeted(bad, 'p1', patchOf).ok).toBe(false);
+    expect(parseReviewTargeted(read, 'p2', patchOf)).toMatchObject({ ok: false, message: expect.stringContaining(`the targeted reader read ${'c'.repeat(12)}, whose product patch p1 is not this receipt's p2`) });
   });
-  // Value: protects=PR 1's queue only reports; fails_when=the line misreads a legacy, failed or partial receipt as covered, or a
-  //   receipt without classes as required; seam=receiptTargetedLine (the line ready and train build print)
-  test('REVIEW_TARGETED reports ok, missing and legacy', () => {
+  // Value: protects=the queue refuses an uncovered required class (GST-966); fails_when=the verdict misreads a legacy, failed or partial
+  //   receipt as covered, or a receipt without classes as required; seam=receiptTargetedVerdict (what ready, train build and land refuse on)
+  test('REVIEW_TARGETED reports ok, missing, failed and legacy', () => {
     const r = (rt?: object) => ({ schema_version: 1, head: 'h', base: 'main', ...(rt ? { review_targeted: { ...record, product_patch_id: 'p', ...rt } } : {}) }) as ShipReceipt;
-    expect(receiptTargetedLine([], r())).toBe('REVIEW_TARGETED: required=none receipt=legacy verdict=ok');
-    expect(receiptTargetedLine(['money'], r())).toBe('REVIEW_TARGETED: required=money receipt=legacy verdict=missing');
-    expect(receiptTargetedLine(['money'], r({}))).toBe('REVIEW_TARGETED: required=money receipt=gate,money verdict=ok');
-    expect(receiptTargetedLine(['money', 'secret'], r({}))).toBe('REVIEW_TARGETED: required=money,secret receipt=gate,money verdict=missing');
-    expect(receiptTargetedLine(['gate'], r({ status: 'failed' }))).toBe('REVIEW_TARGETED: required=gate receipt=none verdict=missing');
-    expect(receiptTargetedLine([], r({ classes: [], status: 'not-run' }))).toBe('REVIEW_TARGETED: required=none receipt=none verdict=ok');
+    expect(receiptTargetedVerdict([], r())).toEqual({ ok: true, line: 'REVIEW_TARGETED: required=none receipt=legacy verdict=ok' });
+    expect(receiptTargetedVerdict(['money'], r())).toEqual({ ok: true, line: 'REVIEW_TARGETED: required=money receipt=legacy verdict=missing (legacy receipt, written before receipts recorded review_targeted; accepted)' });
+    const current = { ...r(), gstack_version: '1.92.61.0' } as ShipReceipt;
+    expect(receiptTargetedVerdict(['money'], current)).toMatchObject({ ok: false, line: 'REVIEW_TARGETED: required=money receipt=legacy verdict=missing', message: expect.stringContaining('records no targeted pass') });
+    expect(receiptTargetedVerdict(['money'], r({}))).toEqual({ ok: true, line: 'REVIEW_TARGETED: required=money receipt=gate,money verdict=ok' });
+    expect(receiptTargetedVerdict(['money', 'secret'], r({}))).toMatchObject({ ok: false, line: 'REVIEW_TARGETED: required=money,secret receipt=gate,money verdict=missing', message: expect.stringContaining('on secret, but the receipt covers gate,money only') });
+    expect(receiptTargetedVerdict(['gate'], r({ status: 'failed' }))).toMatchObject({ ok: false, line: 'REVIEW_TARGETED: required=gate receipt=none verdict=failed', message: expect.stringContaining('targeted pass failed') });
+    expect(receiptTargetedVerdict(['gate'], r({ status: 'not-run' }))).toMatchObject({ ok: false, line: 'REVIEW_TARGETED: required=gate receipt=none verdict=missing', message: expect.stringContaining('did not run') });
+    expect(receiptTargetedVerdict([], r({ classes: [], status: 'not-run' }))).toEqual({ ok: true, line: 'REVIEW_TARGETED: required=none receipt=none verdict=ok' });
   });
   test('a carry keeps review_targeted with the unchanged product patch', () => {
     const receipt = { schema_version: 1, head: 'a'.repeat(40), base: 'main', product_patch_id: 'p', review_targeted: { ...record, product_patch_id: 'p' } } as ShipReceipt;

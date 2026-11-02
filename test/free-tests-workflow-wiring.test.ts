@@ -19,6 +19,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'node:child_process';
+import {
+  DEFAULT_WALL_TIMEOUT_MS, FLAKY_RETRY_CAP, ciPlanMatrix, collectFreeTestFiles, createFreeCiPlan,
+  loadFreeTestDurations, wallTimeoutForPackedShard, wallTimeoutForShard,
+} from '../scripts/test-free-shards';
 
 const WORKFLOW = path.resolve(import.meta.dir, '..', '.github', 'workflows', 'free-tests.yml');
 
@@ -234,5 +238,31 @@ describe('free-tests workflow wiring', () => {
     // by checkout would hand that code whatever the repo default allows.
     expect(source).toMatch(/permissions:\s*\n\s*contents:\s*read/);
     expect(source).toMatch(/persist-credentials:\s*false/);
+  });
+  test('every free-suite job timeout covers its shard\'s runner wall, flaky retry and setup (#3850)', () => {
+    // GitHub must never kill a free-suite job before the runner's own wall can
+    // name the hung file and its flaky-retry pass can run: that kill uploads no
+    // result and leaves red CI with no attribution. The job timeout therefore
+    // follows the real plan for the committed duration seed and the live
+    // FREE_SUITE_SHARDS / FREE_SUITE_JOBS, never a hand-picked number.
+    const workflow = Bun.YAML.parse(source) as any;
+    const setupSeconds = Number(workflow.env.FREE_SUITE_SETUP_SECONDS);
+    expect(Number.isInteger(setupSeconds) && setupSeconds > 0).toBe(true);
+    const plan = createFreeCiPlan(collectFreeTestFiles(), Number(workflow.env.FREE_SUITE_SHARDS),
+      loadFreeTestDurations() ?? {}, 'wiring', Number(workflow.env.FREE_SUITE_JOBS));
+    const declared = workflow.jobs['free-suite']['timeout-minutes'];
+    const emitted = ciPlanMatrix(plan, setupSeconds);
+    if (!('include' in emitted)) throw new Error('the CI matrix carries no per-shard timeouts');
+    const short = plan.shards.flatMap(shard => {
+      const neededMs = wallTimeoutForPackedShard(shard.predictedMs, DEFAULT_WALL_TIMEOUT_MS, shard.files.length)
+        + wallTimeoutForShard(FLAKY_RETRY_CAP) + setupSeconds * 1000;
+      const minutes = declared === '${{ matrix.timeout_minutes }}'
+        ? emitted.include.find(entry => entry.shard === shard.shard)?.timeout_minutes ?? 0
+        : Number(declared);
+      return minutes * 60_000 >= neededMs ? [] : [`shard ${shard.shard}: ${minutes} min < ${Math.ceil(neededMs / 1000)} s`];
+    });
+    expect(short).toEqual([]);
+    const planStep = workflow.jobs['free-plan'].steps.find((step: any) => step.id === 'plan');
+    expect(planStep.run).toContain('--job-setup-seconds "$FREE_SUITE_SETUP_SECONDS"');
   });
 });
