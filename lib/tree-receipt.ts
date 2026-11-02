@@ -128,8 +128,9 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
     return changed('changelog', folded.length ? 'entry text is not exactly the deleted fragments folded under the new heading' : 'entry text changed (only a heading move or re-heading is a stamp)');
   }
   const rule = matchesAny(policy.stamp_paths, f.path) ? 'stamp_paths' : matchesAny(policy.release_outputs, f.path) ? 'release_outputs' : matchesAny(policy.stamp_files, f.path) ? 'stamp_files' : null;
-  if (oldV && newV && oldV !== newV && rule) {
-    const bad = stampOnlyHunks(f.hunks, oldV, newV, policy.stamp_patterns, side?.(f.path));
+  const own = rule ? side?.(f.path) : undefined;
+  if (oldV && newV && (oldV !== newV || own) && rule) {
+    const bad = stampOnlyHunks(f.hunks, oldV, newV, policy.stamp_patterns, own);
     return bad ? changed(rule, bad.why, bad.line) : stamp(rule);
   }
   return changed('other', `${f.hunks.length} hunk(s) outside every stamp rule`);

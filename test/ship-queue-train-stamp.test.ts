@@ -136,4 +136,19 @@ describe('stamped train prefixes', () => {
     const product = tamper('a.txt', () => 'not a\n');
     expect(stampMismatch(o, merged, product, o.plain[2]!.tree)).toContain('a.txt');
   }, 60_000);
+
+  // Value: protects=the train's stamp check bounds a branch-added row the same way the train restamp writes it, so a pin
+  //   with a row left at the fork version still stamps; fails_when=stampMismatch reads that row against the pin's own
+  //   VERSION and refuses the moved row; seam=lib/ship-queue-train-stamp.ts stampMismatch baseRef (GST-963)
+  test('a pin claiming 1.2.4.0 with a stamp_paths row left at the base 1.2.3.0 stamps, and the row moves (GST-963)', () => {
+    const r = makeFixtureRepo({ policy: POLICY, prefix: 'train-stamp-' }); repos.push(r);
+    pin(r, 'f', 'origin/main', '- f change\n');
+    fs.writeFileSync(path.join(r.work, 'VERSION'), '1.2.4.0\n');
+    fs.writeFileSync(path.join(r.work, 'docs', 'f.md'), '// since: 1.2.3.0\n');
+    r.git('add', '-A'); r.git('commit', '-q', '-m', 'f: claims 1.2.4.0, row at the fork version');
+    const out = stampChain(chain(r, [['1', r.git('rev-parse', 'HEAD')]]));
+    if ('code' in out) throw new Error(`${out.code}: ${out.message}`);
+    expect(out.stamped.map(s => s.version)).toEqual(['1.2.4.0']);
+    expect(show(r, out.stamped[0]!.commit + ':docs/f.md')).toBe('// since: 1.2.4.0');
+  }, 60_000);
 });

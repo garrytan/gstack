@@ -304,7 +304,7 @@ describe('a branch-added row left at the fork version after the base moved (GST-
 
   // Value: protects=the four stamp checks share one bound, so a stamp the writer makes is one the train accepts;
   //   fails_when=the tree receipt (stamp, verify, gate-ahead replay) reads a moved fork-version row, or a base row at that
-  //   version moved by hand, the same way; seam=lib/restamp.ts stampOnlyLine with the branch side
+  //   version moved by hand, the same way; seam=lib/stamp-only.ts stampOnlyLine with the branch side
   test('the tree receipt accepts the moved branch row and refuses the same move on a base row', () => {
     const repo = makeFixtureRepo({ prefix: 'restamp-fork-row-receipt-', policy: receiptPolicy(true) }); repos.push(repo);
     write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
