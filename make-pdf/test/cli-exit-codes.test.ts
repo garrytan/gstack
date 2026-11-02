@@ -36,6 +36,7 @@ const ROOT = path.resolve(import.meta.dir, "..", "..");
 const CLI = path.join(ROOT, "make-pdf", "src", "cli.ts");
 const TYPES = path.join(ROOT, "make-pdf", "src", "types.ts");
 const isWin = process.platform === "win32";
+const isMac = process.platform === "darwin";
 
 let tmp: string;
 /** PATH for children: nothing on it (no `aside`, no `browse`, no `pdftotext`). */
@@ -316,7 +317,7 @@ describe.skipIf(isWin)("cli.ts through fake browsers (GSTACK_BROWSE_BIN + a scru
     expect(fs.existsSync(out)).toBe(false);
   });
 
-  test("Aside answers the probe but cannot run the script: the PDF comes from gstack's browser, stderr says so, exit 0", () => {
+  test.skipIf(!isMac)("Aside answers the probe but cannot run the script: the PDF comes from gstack's browser, stderr says so, exit 0", () => {
     const out = path.join(tmp, "mid-run", "out.pdf");
     const r = runCli(["generate", inputMd, out, "--quiet"], {
       env: childEnv({ PATH: fakeAsideBin, GSTACK_SKIP_ASIDE: undefined, GSTACK_BROWSE_BIN: browseOk }),
@@ -324,6 +325,17 @@ describe.skipIf(isWin)("cli.ts through fake browsers (GSTACK_BROWSE_BIN + a scru
     expect(r.code).toBe(ExitCode.Success);
     expect(r.stdout).toBe(`${out}\n`);
     expect(r.stderr).toContain("Aside was unavailable mid-run; the PDF was rendered through gstack's own browser.");
+    expect(fs.readFileSync(out, "utf8")).toBe("%PDF-1.4 fake\n");
+  });
+
+  test.skipIf(isMac)("off macOS an `aside` on PATH is never asked: the PDF comes straight from gstack's browser, --quiet keeps stderr empty, exit 0 (#2864)", () => {
+    const out = path.join(tmp, "off-mac", "out.pdf");
+    const r = runCli(["generate", inputMd, out, "--quiet"], {
+      env: childEnv({ PATH: fakeAsideBin, GSTACK_SKIP_ASIDE: undefined, GSTACK_BROWSE_BIN: browseOk }),
+    });
+    expect(r.code).toBe(ExitCode.Success);
+    expect(r.stdout).toBe(`${out}\n`);
+    expect(r.stderr).toBe("");
     expect(fs.readFileSync(out, "utf8")).toBe("%PDF-1.4 fake\n");
   });
 });

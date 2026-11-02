@@ -14,7 +14,7 @@ bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```
 
-`./setup` on its own installs production dependencies only. `bun install` (and `bin/dev-setup`, which runs it) adds the dev toolchain the tests and evals need: the Claude Agent SDK, TypeScript and Prettier. Once they are installed, a later `./setup` runs the full install too, so they stay at `bun.lock`'s versions.
+`./setup` on its own installs production dependencies only. `bin/dev-setup` adds the dev toolchain the tests and evals need (the Claude Agent SDK, TypeScript and Prettier) and marks the clone as a contributor's with `git config gstack.contributor true`. In a marked clone a later `./setup` runs the full install too, so the toolchain stays at `bun.lock`'s versions. In an unmarked clone `./setup` moves back to production dependencies, which is how installs made before v1.91.231.0 drop the toolchain they never needed. If you ran plain `bun install` instead of `bin/dev-setup`, run `git config gstack.contributor true` once, or set `GSTACK_CONTRIBUTOR=1` for a single run.
 
 > **Full clone vs shallow.** The README's user-facing install uses `--depth 1` for speed. As a contributor, use a full clone (no `--depth` flag) — you'll need history for `git log`, `git blame`, `git bisect`, and reviewing PRs against earlier versions. If you already have a `--depth 1` clone from following the README, promote it to a full clone with `git fetch --unshallow`.
 
@@ -73,8 +73,8 @@ project where you actually felt the pain.
 
 **What CI does on a fork PR.** GitHub never gives a fork PR this repository's
 secrets, so CI runs everything that needs none: the required `free-tests` check
-(the Linux free suite, typecheck, the macOS and Windows gates), Windows Free
-Tests, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
+(the Linux free suite, typecheck, the macOS and Windows gates), Windows
+Smoke, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
 make-pdf gate, and any path-triggered gates your change touches. E2E Evals
 still builds the CI image from your `Dockerfile.ci` without publishing it, and
 skips its paid eval jobs, which need provider API keys. That skip is expected
@@ -192,7 +192,7 @@ the new defaults.
 | Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY`, `UBI_OWNER` |
 | Clear pregate's test tier on a machine under 8 cores ([remote gate](docs/pregate.md#remote-gate)) | `gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands` (same command keyed or keyless) | Keyed: one billed 16-vCPU VM, about 7 minutes and $0.06 for the whole free tier, worst case $0.38; keyless: free, local parallel shards, practical for small selections only (98 files took 103 s on 4 cores) | Keyed: `UBICLOUD_API_KEY`, `UBI_OWNER`; keyless: nothing |
-| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
+| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs, nightly on main; PRs run the shorter `windows-smoke` check) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Run a native Windows qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Preview which paid cases my diff selects | `bun run eval:select` (PR profile; `--profile full` for the plain touchfile selection) | Free | — |
@@ -736,11 +736,11 @@ worth the review overhead.
 
 ## Multi-host development
 
-gstack generates SKILL.md files for 10 hosts from one set of `.tmpl` templates.
+gstack generates SKILL.md files for 13 hosts from one set of `.tmpl` templates.
 Each host is a typed config in `hosts/*.ts`. The generator reads these configs
 to produce host-appropriate output (different frontmatter, paths, tool names).
 
-**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain.
+**Supported hosts:** Claude (primary), Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, GBrain, Copilot, Antigravity, Gemini CLI.
 
 ### Generating for all hosts
 
@@ -749,7 +749,7 @@ to produce host-appropriate output (different frontmatter, paths, tool names).
 bun run gen:skill-docs                    # Claude (default)
 bun run gen:skill-docs --host codex       # Codex
 bun run gen:skill-docs --host opencode    # OpenCode
-bun run gen:skill-docs --host all         # All 10 hosts
+bun run gen:skill-docs --host all         # All 13 hosts
 
 # Or use build, which does all hosts + compiles binaries
 bun run build
