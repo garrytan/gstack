@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.93.7.0] - 2026-11-02
+
+**A version stamp the branch added at its fork point's version now counts as stale after the base moves (GST-963).** On gbrain #8425, a branch added a row that named the fork point's version. After main moved past it, `gstack-restamp` skipped the row ("no tentative mention") and `gstack-ship-release finish` routed the line as a behavior change, so the stamp kept the old version and the docs stage flagged a product edit.
+
+### Fixed
+- **`lib/restamp.ts`:** a stamp_patterns match on a branch-added line that names the fork point's version is rewritten to the new version, like a mention of a newer tentative version. Lines the branch did not add, and versions below the fork point, are left alone.
+- **`lib/ship-bin-common.ts`:** finish routes such a line as metadata (a stamp file), not behavior.
+- **One stamp bound for the writer and the stamp checks** (`lib/stamp-only.ts` `stampOnlyLine` with the branch's side): the tree receipt behind `gstack-ship-queue stamp`, `verify` and the gate-ahead replay, the merge train's stamp and verify checks (read against the slot's predecessor), and finish's route now accept a moved version on a line the branch added at or above the fork-point version. Before, the tree receipt and the carry still floored every line at the gated head's VERSION, so the stamp commit the writer now makes would have read `TREE: changed` and stopped the train with `QUEUE_STAMP_NOT_STAMP_ONLY`. The same move on a base line is still refused, unless that base line's text duplicates a line the branch added (GST-979). The tree receipt and the train checks also accept the move when the branch's own VERSION already equals the new version, as it does in a train slot that kept its claim. Two gaps remain, tracked in GST-980: the /ship receipt carry can still refuse the move (`RECEIPT_CARRY_PRODUCT_CHANGED`), and when the branch keeps its VERSION claim, carry and finish still route the move as behavior.
+
+### Tests
+- `test/restamp-mentions.test.ts`: a branch-added row at the fork version after the base moved is restamped and its file is routed as metadata. On main, the stage reports `skipped` and ROUTE counts the file as behavior.
+- `test/ship-rereview-triggers.test.ts`: the GST-895 fork-version case now routes as metadata.
+- `test/restamp-mentions.test.ts`: `gstack-tree-receipt` reads the GST-963 stamp commit as `same-modulo-stamps` (it read `TREE: changed` before the shared bound), refuses the same move on a base row, and still accepts the GST-895 lost-slot stamp. `test/gstack-ship-receipt-docs.test.ts`: the carry takes the fork-version bound only on the branch's own line.
+- `test/ship-queue-train-stamp.test.ts`: a pin claiming 1.2.4.0 with a row left at the base's 1.2.3.0 stamps, and the row moves to 1.2.4.0. Without the train checks' bound, `stampChain` refused it with `QUEUE_TRAIN_STAMP_MISMATCH`. On main it stamped, but the row stayed at 1.2.3.0.
+
 ## [1.93.6.0] - 2026-11-02
 
 **/plan-tune now learns from answers to questions that aren't in its registry, when the skill says which preference the question is about (#3442).** Before, an answer to an ad-hoc question id such as `plan-ceo-review-add-caching` moved no dimension, because only registered ids carry a signal. Most logged answers are on ad-hoc ids, so inferred values stayed near 0.5.
