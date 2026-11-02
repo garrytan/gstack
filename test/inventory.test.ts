@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverTemplates } from '../scripts/discover-skills';
-import { DISPATCHES, LEDGER_PATH, ROOT_KEY, SHARED_KEYS, SHARED_PARTS, inventoryKeys, keyOf, validateEntry, validateLedger } from '../lib/inventory';
+import { DISPATCHES, LEDGER_PATH, ROOT_KEY, SHARED_KEYS, SHARED_PARTS, installReason, inventoryKeys, keyOf, validateEntry, validateLedger } from '../lib/inventory';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-inventory');
@@ -89,6 +89,9 @@ describe('the per-status schema', () => {
     expect(codes('a', noReason)).toEqual(['LEDGER_REASON_MISSING']);
     expect(codes('a', { ...NEW_UNTESTED, plan: 'none' })).toEqual(['LEDGER_PLAN_NONE_NEW']);
     expect(codes('a', { ...NEW_UNTESTED, plan: 'we will test it later' })).toEqual(['LEDGER_PLAN_NOT_CONCRETE']);
+    expect(codes('a', { ...NEW_UNTESTED, plan: 'GEVA-2 registry row R56-11 (proposed, not yet preregistered)' })).toEqual(['LEDGER_PLAN_NOT_CONCRETE']);
+    expect(codes('a', { ...NEW_UNTESTED, plan: 'prereg later' })).toEqual(['LEDGER_PLAN_NOT_CONCRETE']);
+    expect(codes('a', { ...NEW_UNTESTED, plan: 'wiki/plans/2026-11-01-demo-prereg.md' })).toEqual([]);
     expect(codes('a', { status: 'untested', grandfathered: true })).toEqual(['LEDGER_PLAN_MISSING']);
   });
 
@@ -116,6 +119,15 @@ describe('the per-status schema', () => {
     expect(codes('a', { status: 'safety', reason: 'x', source: 'typo' })).toEqual(['LEDGER_FIELD_UNKNOWN']);
     expect(codes('a', { status: 'untested', grandfathered: true, plan: 'none', prior: [{ ref: 'run 7', why: ['vibes'] }] })).toEqual(['LEDGER_PRIOR_INVALID']);
     expect(codes('a', { status: 'untested', grandfathered: true, plan: 'none', prior: [{ why: ['stub'] }] })).toEqual(['LEDGER_PRIOR_INVALID']);
+    expect(codes('a', { status: 'untested', grandfathered: true, plan: 'none', prior: [{ ref: 'run 7', why: ['toString'] }] })).toEqual(['LEDGER_PRIOR_INVALID']);
+  });
+
+  test('a present r48 is checked on every status, and aliases is a list of names', () => {
+    expect(codes('a', { status: 'helps', ...VERDICT, r48: { verdict: 'DROP', ref: 'x' } })).toEqual(['LEDGER_R48_MISSING']);
+    expect(codes('a', { status: 'helps', ...VERDICT, r48: {} })).toEqual(['LEDGER_R48_MISSING']);
+    expect(codes('a', { status: 'safety', reason: 'x', aliases: 'other-name' })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(codes('a', { status: 'safety', reason: 'x', aliases: [] })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(codes('a', { status: 'safety', reason: 'x', aliases: ['other-name'] })).toEqual([]);
   });
 });
 
@@ -181,6 +193,24 @@ describe('bin/gstack-inventory', () => {
     const r = run(['--root', dir, '--check']);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('(INVENTORY_SOURCE_MISSING)');
+  });
+
+  test('a bad --root, a root outside a gstack checkout and a gstack install are refused, and nothing is written', () => {
+    const dir = fixtureTree(path.join(tmp, 'args'), grandfathered);
+    for (const args of [['--root', '--json'], ['--root', '--check'], ['--root']]) expect(run(args).status).toBe(2);
+    expect(fs.existsSync(path.join(dir, 'docs/inventory.md'))).toBe(false);
+    const outside = spawnSync(BIN, [], { cwd: tmp, encoding: 'utf8', timeout: 120_000 });
+    expect(outside.status).toBe(2);
+    expect(outside.stderr).toContain('is not a gstack checkout');
+    const installed = fixtureTree(path.join(tmp, 'home', '.claude', 'skills', 'gstack'), grandfathered);
+    const w = run(['--root', installed]);
+    expect(w.status).toBe(2);
+    expect(w.stderr).toContain('refusing to write docs/inventory.md');
+    expect(fs.existsSync(path.join(installed, 'docs/inventory.md'))).toBe(false);
+    expect(run(['--root', installed, '--check']).status).toBe(0);
+    expect(installReason(dir, { GSTACK_CAPY_ROOT: dir })).toContain('the Capy install');
+    expect(installReason(dir, {}, path.join(tmp, 'home'))).toBeNull();
+    expect(installReason(path.join(tmp, 'capy-root'), {}, path.join(tmp, 'h'))).toBeNull();
   });
 
   test('the real ledger passes --check', () => {

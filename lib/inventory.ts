@@ -9,9 +9,11 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverTemplates } from '../scripts/discover-skills';
 import { buildBill, contentClass, TOKEN_DIVISOR, TOKEN_DIVISORS } from './context-bill';
+import { CAPY_INSTALL_ROOT } from './doctor-components';
 
 export const LEDGER_PATH = 'docs/inventory/evidence.json';
 export const DOC_PATH = 'docs/inventory.md';
@@ -70,7 +72,7 @@ export type LedgerCode =
   | 'LEDGER_PARSE' | 'LEDGER_KEY_MISSING' | 'LEDGER_KEY_EXTRA' | 'LEDGER_STATUS_INVALID' | 'LEDGER_FIELD_UNKNOWN'
   | 'LEDGER_SOURCES_MISSING' | 'LEDGER_MODELS_NOT_FRONTIER' | 'LEDGER_PROMPT_NOT_PRESET' | 'LEDGER_SCOPE_MISSING'
   | 'LEDGER_UNMASKED' | 'LEDGER_R48_MISSING' | 'LEDGER_PLAN_MISSING' | 'LEDGER_PLAN_NONE_NEW' | 'LEDGER_PLAN_NOT_CONCRETE'
-  | 'LEDGER_REASON_MISSING' | 'LEDGER_OWNER_MISSING' | 'LEDGER_MEASURE_BY_MISSING' | 'LEDGER_PRIOR_INVALID'
+  | 'LEDGER_REASON_MISSING' | 'LEDGER_OWNER_MISSING' | 'LEDGER_MEASURE_BY_MISSING' | 'LEDGER_PRIOR_INVALID' | 'LEDGER_FIELD_INVALID'
   | 'INVENTORY_SOURCE_MISSING' | 'INVENTORY_PART_MISSING';
 export interface LedgerProblem { key: string; code: LedgerCode; message: string }
 export interface LedgerEntry { status: Status; grandfathered?: boolean; plan?: string; prior?: Array<{ ref: string; why: string[]; note?: string }>; reason?: string; owner?: string; measure_by?: string; sources?: string[]; models?: string[]; prompt?: string; scope?: string; masked?: boolean; r48?: { verdict: string; ref: string }; seed?: string; aliases?: string[]; note?: string }
@@ -94,8 +96,9 @@ export function validateEntry(key: string, entry: unknown): LedgerProblem[] {
   if (!isObj(entry)) { add('LEDGER_STATUS_INVALID', 'the row is not an object'); return problems; }
   for (const f of Object.keys(entry)) if (!FIELDS.includes(f)) add('LEDGER_FIELD_UNKNOWN', `unknown field ${f}; fields: ${FIELDS.join(', ')}`);
   const prior = entry.prior;
-  if (prior !== undefined && !(Array.isArray(prior) && prior.every(p => isObj(p) && str(p.ref) && Array.isArray(p.why) && p.why.length > 0 && p.why.every(w => typeof w === 'string' && w in PRIOR_WHY))))
+  if (prior !== undefined && !(Array.isArray(prior) && prior.every(p => isObj(p) && str(p.ref) && Array.isArray(p.why) && p.why.length > 0 && p.why.every(w => typeof w === 'string' && Object.hasOwn(PRIOR_WHY, w)))))
     add('LEDGER_PRIOR_INVALID', `prior needs [{ref, why: [...]}] with why from: ${Object.keys(PRIOR_WHY).join(', ')}`);
+  if (entry.aliases !== undefined && !(Array.isArray(entry.aliases) && entry.aliases.length > 0 && entry.aliases.every(str))) add('LEDGER_FIELD_INVALID', 'aliases needs a list of names');
   const status = entry.status;
   if (status === 'helps' || status === 'no-effect' || status === 'hurts') {
     if (!Array.isArray(entry.sources) || !entry.sources.length || !entry.sources.every(str)) add('LEDGER_SOURCES_MISSING', `${status} needs sources: one or more run ids or results files`);
@@ -108,7 +111,7 @@ export function validateEntry(key: string, entry: unknown): LedgerProblem[] {
     const grandfathered = entry.grandfathered === true;
     if (!str(entry.plan)) add('LEDGER_PLAN_MISSING', 'untested needs plan: a reference, or "none" on a grandfathered row');
     else if (entry.plan === 'none') { if (!grandfathered) add('LEDGER_PLAN_NONE_NEW', 'plan: none is only for grandfathered rows; a new part names its measurement plan'); }
-    else if (!grandfathered && !/tasks\.json$|prereg/i.test(entry.plan)) add('LEDGER_PLAN_NOT_CONCRETE', 'a new part\'s plan is a test/fixtures/skill-evals/<name>/tasks.json or an /eval-plan preregistration');
+    else if (!grandfathered && !/^\S+\/tasks\.json$|^\S*prereg[^\s/]*\.md$/i.test(entry.plan)) add('LEDGER_PLAN_NOT_CONCRETE', 'a new part\'s plan is the path of a test/fixtures/skill-evals/<name>/tasks.json or of an /eval-plan preregistration (a .md file named for its prereg)');
     if (!grandfathered) {
       if (!str(entry.reason)) add('LEDGER_REASON_MISSING', 'a new untested part states its reason');
       if (!str(entry.owner)) add('LEDGER_OWNER_MISSING', 'a new untested part names its owner');
@@ -117,7 +120,7 @@ export function validateEntry(key: string, entry: unknown): LedgerProblem[] {
   } else if (status === 'safety') {
     if (!str(entry.reason)) add('LEDGER_REASON_MISSING', 'safety needs reason: what the guard protects');
   } else add('LEDGER_STATUS_INVALID', `status must be one of ${STATUSES.join(', ')}`);
-  if (entry.r48 !== undefined && !validR48(entry.r48) && (status === 'untested' || status === 'safety')) add('LEDGER_R48_MISSING', `r48 needs {verdict: ${R48_VERDICTS.join('|')}, ref}`);
+  if (entry.r48 !== undefined && !validR48(entry.r48) && status !== 'no-effect' && status !== 'hurts') add('LEDGER_R48_MISSING', `r48 needs {verdict: ${R48_VERDICTS.join('|')}, ref}`);
   return problems;
 }
 
@@ -140,6 +143,14 @@ export function loadLedger(root: string): { ledger: Ledger | null; problems: Led
   }
 }
 
+/** Why root is a gstack install the CLI must never write into, or null: setup's skills/gstack folders and the Capy checkout (GSTACK_CAPY_ROOT, else CAPY_INSTALL_ROOT). */
+export function installReason(root: string, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string | null {
+  const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if ([path.resolve(root), real(root)].some(p => /[\\/]skills[\\/]gstack$/.test(p))) return 'a skills/gstack install';
+  const capy = (env.GSTACK_CAPY_ROOT || CAPY_INSTALL_ROOT).replace(/^\$HOME/, home);
+  return real(root) === real(capy) ? `the Capy install (${capy})` : null;
+}
+
 /** The skill keys (discoverTemplates, root skill as gstack, symlinked folders excluded) then SHARED_KEYS. */
 export function inventoryKeys(root: string): string[] {
   const skills = discoverTemplates(root).map(t => path.dirname(t.tmpl)).map(d => (d === '.' ? ROOT_KEY : d));
@@ -157,9 +168,14 @@ export function evidenceRef(e: LedgerEntry): string {
 }
 
 /** gstack-skill-bill's EVIDENCE line for one skill folder in a gstack checkout. */
-export function skillEvidence(root: string, dir: string): { key: string; status: Status | 'missing'; ref: string; line: string } {
+export function skillEvidence(root: string, dir: string): { key: string; status: Status | 'missing' | 'unreadable'; ref: string; line: string } {
   const key = path.relative(root, dir) || ROOT_KEY;
-  const entry = loadLedger(root).ledger?.parts?.[key];
+  const loaded = loadLedger(root);
+  if (loaded.problems.length) {
+    const ref = `${loaded.problems[0]!.message}; fix the file, then run bin/gstack-inventory --check`;
+    return { key, status: 'unreadable', ref, line: `EVIDENCE: unreadable: ${ref}` };
+  }
+  const entry = loaded.ledger?.parts?.[key];
   if (!entry) {
     const ref = `no ${key} row in ${LEDGER_PATH}; add one (ETHOS.md: 9. Earn Its Place)`;
     return { key, status: 'missing', ref, line: `EVIDENCE: missing: ${ref}` };

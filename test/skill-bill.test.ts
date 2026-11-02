@@ -137,6 +137,10 @@ describe('gstack-skill-bill EVIDENCE line (docs/inventory/evidence.json)', () =>
     ledger({});
     expect(bill(root, ['./demo']).stdout).toContain('EVIDENCE: missing: no demo row in docs/inventory/evidence.json');
     expect(JSON.parse(bill(root, ['./demo', '--json']).stdout).evidence).toMatchObject({ key: 'demo', status: 'missing' });
+    fs.writeFileSync(path.join(root, 'docs', 'inventory', 'evidence.json'), '{bad');
+    const broken = bill(root, ['./demo']).stdout;
+    expect(broken).toContain('EVIDENCE: unreadable: cannot read docs/inventory/evidence.json');
+    expect(broken).not.toContain('add one');
   });
 
   test('the real checkout: a guard prints its safety reason', () => {
