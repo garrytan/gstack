@@ -1,0 +1,623 @@
+{
+  "schema_version": 1,
+  "note": "R56 evidence ledger (ETHOS.md: 9. Earn Its Place). One row per inventory key (docs/inventory.md lists them); bin/gstack-inventory --check validates it and test/inventory.test.ts runs that check. Statuses and their required fields: helps, no-effect, hurts need sources, models (frontier per R54), prompt: preset, scope and masked: true, and no-effect and hurts also r48 {verdict, ref}; untested needs plan (a reference, or none only when grandfathered), and a new part also reason, owner and measure_by; safety needs reason. prior lists earlier results that do not count yet, with why. Seeded 2026-11-02 from GEVA-2's table (org-gstack-gbrain/research/gstack-part-evidence.json, gstack dac71371a); every row present at that base is grandfathered.",
+  "seed_source": "org-gstack-gbrain/research/gstack-part-evidence.json (GEVA-156 for GST-915, 2026-11-02, gstack-evals main 409ff47)",
+  "parts": {
+    "autoplan": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-3 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: autoplan: untested (never measured)"
+    },
+    "benchmark": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: benchmark: untested (never measured)"
+    },
+    "benchmark-models": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: benchmark-models: untested (never measured)"
+    },
+    "browse": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: browse: untested (never measured)"
+    },
+    "canary": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: canary: untested (never measured)"
+    },
+    "captain": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: captain: untested (never measured)"
+    },
+    "careful": {
+      "status": "safety",
+      "grandfathered": true,
+      "reason": "safety guard: warns before destructive commands (rm -rf, DROP TABLE, force-push); kept on that reason, an average score cannot see the rare bad run it stops",
+      "seed": "GEVA-2, 2026-11-02: careful: exempt (safety guard)"
+    },
+    "claude-code": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: claude-code: untested (never measured)"
+    },
+    "codex": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "not in GEVA-2's table (2026-11-02); never measured"
+    },
+    "context-restore": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: context-restore: untested (never measured)"
+    },
+    "context-save": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: context-save: untested (never measured)"
+    },
+    "cso": {
+      "status": "safety",
+      "grandfathered": true,
+      "reason": "security: supported security findings with explicit coverage; kept on its security reason (GEVA-2 marks it exempt; GStack Minder may reclassify it)",
+      "seed": "GEVA-2, 2026-11-02: cso: exempt (security audit skill, treated as exempt; GStack Minder may reclassify)"
+    },
+    "design-consultation": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-10 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: design-consultation: untested (never measured)"
+    },
+    "design-html": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: design-html: untested (never measured)"
+    },
+    "design-motion": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: design-motion: untested (never measured)"
+    },
+    "design-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-9 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: design-review: untested (never measured)"
+    },
+    "design-shotgun": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: design-shotgun: untested (never measured)"
+    },
+    "deslop-shared-libs": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: deslop-shared-libs: untested (never measured)"
+    },
+    "devex-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: devex-review: untested (never measured)"
+    },
+    "diagram": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: diagram: untested (never measured)"
+    },
+    "document-generate": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: document-generate: untested (never measured)"
+    },
+    "document-release": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: document-release: untested (never measured)"
+    },
+    "eval-plan": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: eval-plan: untested (never measured)"
+    },
+    "freeze": {
+      "status": "safety",
+      "grandfathered": true,
+      "reason": "safety guard: hard-blocks edits outside one directory; kept on that reason",
+      "seed": "GEVA-2, 2026-11-02: freeze: exempt (safety guard)"
+    },
+    "gstack": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: gstack (root skill): untested (never measured)"
+    },
+    "gstack-upgrade": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: upgrade: untested (never measured)"
+    },
+    "guard": {
+      "status": "safety",
+      "grandfathered": true,
+      "reason": "safety guard: careful and freeze together; kept on that reason",
+      "seed": "GEVA-2, 2026-11-02: guard: exempt (safety guard)"
+    },
+    "health": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: health: untested (never measured)"
+    },
+    "investigate": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "R3 (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-01-geva-101-r48-follow-ups-prereg (#112, main f0b81c0) and its amendment (open PR #133), told /investigate vs no gstack on SWE-bench Verified, preset, Opus 5.5 then GPT-6.1 Sol",
+      "prior": [
+        {
+          "ref": "gstack-evals #109 stacks round 1 TB2 (GEVA-89, GEVA-93), wiki/board/2026-11-01-geva-93-stacks-round-1-tb2-results",
+          "why": [
+            "stub",
+            "no-exposure",
+            "unmasked"
+          ],
+          "note": "Opus +3 points [-3, +9] at 1.9x cost; debug report in 0 of 111 trials; particle-1 -5 [-14, +1]"
+        },
+        {
+          "ref": "GSTA-12 Lane B quick look 2, wiki/board/2026-10-29-gsta-12-laneb-quick-2-results",
+          "why": [
+            "stub",
+            "unmasked"
+          ],
+          "note": "Opus gstack minus none -7 [-13, -2] at 1.7x cost; did not replicate"
+        },
+        {
+          "ref": "GSTA-30 Lane B quick look 3 (#89), wiki/board/2026-10-30-gsta-30-laneb-quick-3-results",
+          "why": [
+            "stub",
+            "small-tier"
+          ],
+          "note": "gstack arms on Sonnet, particle-1, DeepSeek and Haiku; Opus ran the none arm only"
+        },
+        {
+          "ref": "HARN-14 replication (harness-evals #181, unmerged)",
+          "why": [
+            "stub",
+            "small-tier"
+          ],
+          "note": "Haiku 5.5: gstack minus none +3.5 [-12.3, +20.0]"
+        }
+      ],
+      "r48": {
+        "verdict": "FIX-METHOD",
+        "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); R3 is the fix"
+      },
+      "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)"
+    },
+    "ios-clean": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ios-clean: untested (never measured)"
+    },
+    "ios-design-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ios-design-review: untested (never measured)"
+    },
+    "ios-fix": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ios-fix: untested (never measured)"
+    },
+    "ios-qa": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ios-qa: untested (never measured)"
+    },
+    "ios-sync": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ios-sync: untested (never measured)"
+    },
+    "land-and-deploy": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-8 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: land-and-deploy: untested (never measured)"
+    },
+    "landing-report": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: landing-report: untested (never measured)"
+    },
+    "learn": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "prior": [
+        {
+          "ref": "GSTA-13, GEVA-54 and GEVA-65 Lane A runs (wiki/board/2026-10-28-gsta-13-quick-look-3-results and the GEVA-54 and GEVA-65 posts)",
+          "why": [
+            "stub",
+            "no-true-no-gstack-arm",
+            "ceiling"
+          ],
+          "note": "Opus contract tasks 27/30 vs 27/30"
+        },
+        {
+          "ref": "GEVA-65 Lane A rerun row 5 (GPT-6.1 Sol in Codex)",
+          "why": [
+            "not-claude-code",
+            "no-true-no-gstack-arm"
+          ],
+          "note": "Sol failed the no-code-change safety task in 5 of 9 skill trials vs 0 of 3 without; small n, a lead to check, not a hurts verdict"
+        }
+      ],
+      "seed": "GEVA-2, 2026-11-02: learn: untested (unfair test: SDK stub; no true no-gstack arm; Opus at ceiling; Sol ran in Codex, not Claude Code)"
+    },
+    "make-pdf": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: make-pdf: untested (never measured)"
+    },
+    "modernize": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: modernize: untested (never measured)"
+    },
+    "office-hours": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "prior": [
+        {
+          "ref": "GSTA-13 quick look 3 Lane A, wiki/board/2026-10-28-gsta-13-quick-look-3-results",
+          "why": [
+            "stub",
+            "no-true-no-gstack-arm"
+          ],
+          "note": "contract tasks on Opus: gstack 74% vs none 28%; the tasks grade the skill's own contract, a manipulation check, not lift"
+        },
+        {
+          "ref": "GEVA-65 Lane A rerun, wiki/board/2026-10-31-geva-65-lanea-shakedown-rerun-results",
+          "why": [
+            "stub",
+            "no-true-no-gstack-arm"
+          ],
+          "note": "Opus before 0.67, after 0.76, none 0.36"
+        }
+      ],
+      "seed": "GEVA-2, 2026-11-02: office-hours: untested (unfair test: SDK stub; no true no-gstack arm; tasks grade the skill's own contract, a manipulation check, not lift)"
+    },
+    "open-gstack-browser": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: open-gstack-browser: untested (never measured)"
+    },
+    "pair-agent": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: pair-agent: untested (never measured)"
+    },
+    "plan-ceo-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-5 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "prior": [
+        {
+          "ref": "CEO panel v2 admission (GEVA-142), wiki/board/2026-11-02-geva-142-ceo-panel-v2-admission-results (open PR #131)",
+          "why": [
+            "ceiling",
+            "unmasked"
+          ],
+          "note": "preset, Opus 5.5 only: must-fix recall 1.00 in all three arms; plain invocation ran the procedure in 0 of 16"
+        },
+        {
+          "ref": "Planning R1a pilot (GEVA-102), wiki/board/2026-11-01-geva-102-planning-r1a-pilot-stop (#114)",
+          "why": [
+            "stub",
+            "ceiling",
+            "unmasked"
+          ],
+          "note": "none-opus 8/8; gstack-opus read the sections file in 0 of 4"
+        }
+      ],
+      "r48": {
+        "verdict": "FIX-METHOD",
+        "ref": "CEO panel v2 admission (GEVA-142, open PR #131): FIX-METHOD on the panel, a harder panel is planned"
+      },
+      "seed": "GEVA-2, 2026-11-02: plan-ceo-review: untested (unfair test: ceiling, control 12 of 12 so no MDD; plain invocation ran the procedure in 0 of 16)"
+    },
+    "plan-design-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-7 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: plan-design-review: untested (never measured)"
+    },
+    "plan-devex-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-6 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: plan-devex-review: untested (never measured)"
+    },
+    "plan-eng-review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-2 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: plan-eng-review: untested (never measured)"
+    },
+    "plan-tune": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: plan-tune: untested (never measured)"
+    },
+    "qa": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: qa: untested (never measured)"
+    },
+    "qa-only": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: qa-only: untested (never measured)"
+    },
+    "retro": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: retro: untested (never measured)"
+    },
+    "review": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "R2 (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-02-geva-122-r2-amendment (#129, main eae6efc), told /review vs a no-gstack arm, Opus 5.5, preset on both arms",
+      "prior": [
+        {
+          "ref": "gstack-evals #108 stacks round 1 review (GEVA-89), wiki/board/2026-11-01-geva-89-stacks-round-1-review-results",
+          "why": [
+            "stub",
+            "no-exposure",
+            "unmasked"
+          ],
+          "note": "Opus 5.5 blocking recall 9.5% vs 7.1%, +2.4 points [-6.4, +11.1]; specialists and adversarial pass ran in 0 of 66 sessions"
+        },
+        {
+          "ref": "gstack-evals #120 R1 blind re-judge (GEVA-113), wiki/board/2026-11-01-geva-113-r1-blind-rejudge-results",
+          "why": [
+            "stub",
+            "unmasked"
+          ],
+          "note": "gstack-opus minus none-opus +3.5 points [-9.6, +16.7]"
+        },
+        {
+          "ref": "GSTA-11 quick look 1 review replay, wiki/board/2026-10-28-gsta-11-review-replay-results",
+          "why": [
+            "not-claude-code",
+            "unmasked"
+          ],
+          "note": "/review's prompts through the Messages API; Opus recall 44% vs 39% plain, 12 bugs"
+        }
+      ],
+      "r48": {
+        "verdict": "FIX-METHOD",
+        "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); R2 is the fix"
+      },
+      "seed": "GEVA-2, 2026-11-02: review: measurement under way (R2)"
+    },
+    "scrape": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: scrape: untested (never measured)"
+    },
+    "setup-browser-cookies": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: setup-browser-cookies: untested (never measured)"
+    },
+    "setup-deploy": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: setup-deploy: untested (never measured)"
+    },
+    "setup-gbrain": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: setup-gbrain: untested (never measured)"
+    },
+    "ship": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-4 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "seed": "GEVA-2, 2026-11-02: ship: untested (never measured)"
+    },
+    "skillify": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: skillify: untested (never measured)"
+    },
+    "spec": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: spec: untested (never measured)"
+    },
+    "sync-gbrain": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: sync-gbrain: untested (never measured)"
+    },
+    "test-audit": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: test-audit: untested (never measured)"
+    },
+    "ubicloud": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: ubicloud: untested (never measured)"
+    },
+    "unfreeze": {
+      "status": "safety",
+      "grandfathered": true,
+      "reason": "safety guard: the off switch for freeze's edit restriction; kept with the guard it releases",
+      "seed": "GEVA-2, 2026-11-02: unfreeze: exempt (safety guard (undoes freeze))"
+    },
+    "verify": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "not in GEVA-2's table (2026-11-02); never measured"
+    },
+    "write-skill": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: write-skill: untested (never measured)"
+    },
+    "preamble": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "I1 ceremony cut (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-01-geva-108-ceremony-cut-prereg (#122, main 409ff47) with its G3 amendment (#128), preset, Opus 5.5 and particle-1",
+      "prior": [
+        {
+          "ref": "GEVA-100 exposure counts, org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100)",
+          "why": [
+            "stub",
+            "no-exposure"
+          ],
+          "note": "ceremony sections ran in 0 of 66 Opus review sessions and 6 of 111 Opus TB2 trials; no effect estimate"
+        }
+      ],
+      "r48": {
+        "verdict": "CUT-CANDIDATE",
+        "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); taken by Garry as the I1 ceremony-cut eval"
+      },
+      "seed": "GEVA-2, 2026-11-02: preamble (ceremony): measurement under way (I1, ceremony-cut eval)"
+    },
+    "catalog": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "Run D (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-01-geva-125-untold-discovery-prereg (#125, main 9820b14), untold gstack vs placebo vs no gstack, preset vs stub, Opus 5.5, GPT-6.1 Sol and particle-1; also measures /investigate's description",
+      "prior": [
+        {
+          "ref": "GSTA-12 Lane B quick look 1, wiki/board/2026-10-29-gsta-12-laneb-quick-results",
+          "why": [
+            "stub",
+            "no-exposure",
+            "unmasked"
+          ],
+          "note": "untold skill opened in 0 of 180 gstack-arm trials; Opus gstack minus none +5 [-3, +17]"
+        }
+      ],
+      "seed": "GEVA-2, 2026-11-02: always-on skill catalog (descriptions): measurement under way (Run D)"
+    },
+    "capy-skill": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: capy/skill/gstack/SKILL.md (Capy context): untested (never measured)",
+      "note": "loads only in Capy sessions, which the claude_code preset fair test cannot reach yet; needs a Captain call on how to test it"
+    },
+    "capy-factory": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "GEVA-2, 2026-11-02: capy/skill/gstack/factory.md (Capy context): untested (never measured)",
+      "note": "loads only in Capy sessions, which the claude_code preset fair test cannot reach yet; needs a Captain call on how to test it"
+    },
+    "ship-review-panel": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "GEVA-2 registry row R56-1 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered)",
+      "prior": [
+        {
+          "ref": "gstack-evals #120 R1 blind re-judge (GEVA-113), wiki/board/2026-11-01-geva-113-r1-blind-rejudge-results",
+          "why": [
+            "stub",
+            "not-claude-code",
+            "unmasked"
+          ],
+          "note": "arm C minus none +56.9 points [40.5, 72.2]; the none arm ran on the stub, arm C in Capy at another gstack version, on a cohort mined from gstack's own catches"
+        },
+        {
+          "ref": "GSTA-48 review no-loss arm D (#77), wiki/board/2026-10-30-gsta-48-review-noloss-arm-how-to",
+          "why": [
+            "variant-only",
+            "not-claude-code"
+          ],
+          "note": "arm D vs pooled arm C, no no-gstack arm"
+        }
+      ],
+      "seed": "GEVA-2, 2026-11-02: ship: review panel (specialist, adversarial, targeted, outside voice, red team): untested (unfair test: none arm on the SDK stub; arms from different harnesses and gstack versions; cohort mined from gstack's own catches)"
+    },
+    "ship-docs-audit": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "folded into GEVA-2 registry row R56-4 (ship); proposed, not yet preregistered",
+      "seed": "GEVA-2, 2026-11-02: ship: docs audit (Step 14.5): untested (never measured)"
+    },
+    "autoplan-phases": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "folded into GEVA-2 registry row R56-3 (autoplan); proposed, not yet preregistered",
+      "seed": "GEVA-2, 2026-11-02: autoplan: CEO, design, DX and eng phases, outside voice: untested (never measured)"
+    }
+  },
+  "unmapped": [
+    {
+      "row": "review: Review Army and adversarial pass",
+      "why": "a section inside /review, not its own key; R2 measures it as part of the review row's plan"
+    },
+    {
+      "row": "ship: QA probes (Step 9.2.1)",
+      "why": "a step inside /ship with no separate size; folded into the ship row (GEVA-2 registry row R56-4)"
+    },
+    {
+      "row": "gstack as a whole (installed, any skill)",
+      "why": "not a single text part; GEVA-2's real-world outcome lane measures it (gstack-evals plan #111), not a measurement plan for any one part"
+    }
+  ]
+}
