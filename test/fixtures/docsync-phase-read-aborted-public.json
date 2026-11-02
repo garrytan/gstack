@@ -1,0 +1,21 @@
+{
+ "note": "The first two tool calls of the captured ship-docsync-failure parent (run 40828580338 paid-slice-8-a1, PR #3572 @ 14c4c5e2, tested merge cbba43c2 onto main ff2f191b; red on docsCompletedRead(phase) toBe(true), passed on the in-run rerun). {home} is the fixture home. Call 0 printed phase.md in full, then zsh read echo ====== as an = command lookup, printed \"===== not found\" and abandoned the rest of the line (exit 1); call 1 reran the abandoned reads. Its output is kept verbatim; call 1 output is dropped.",
+ "sourceRun": "40828580338 slice 8 ship-docsync-failure (PR #3572 screen, tested sha cbba43c2)",
+ "sourceFileSha256": "59d411c8e4c07cfc46408ae6f753541721180dbbbe6032dfe6abf0778c6b5afb",
+ "calls": [
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cat {home}/phase.md; echo ======; cat {home}/ship-invocation.md; echo =====; ls {home} {home}/.claude/skills/gstack"
+   },
+   "output": "Exit code 1\n## Step 14.5: Documentation audit (every ship)\n\n**Doc-sync invariant:** Every ship dispatches the /document-release subagent before final\ncommit/verification/publication, including reruns, already-pushed branches, existing PRs and docs-only changes.\nNo edits means an executed audit, not a skip; report the section's verified outcome.\n\n> **STOP.** Before auditing docs before final commit/verification (Step 14.5), on every ship, Read `~/.claude/skills/gstack/ship/sections/documentation.md` and execute it\n> in full. Do not work from memory — that section is the source of truth for this step.\n\n\n\n## Documentation\n<Embed Step 14.5's vetted nonempty `documentation_section` for this invocation:\nits saved section file, inserted unchanged by the compose block's `DOCS_SECTION_FILE` lines.\nA blocked audit shipped under a user exception has no section file: state its\nblocked status, scope and exception here and drop the block's `DOCS_SECTION_FILE` guard\nand its `cat -- \"$DOCS_SECTION_FILE\" && echo &&` step. The exception is one line,\nword for word as Step 14.5 saved it in `.gstack/tmp/docs-audit.json`:\n`Documentation exception: accepted by <accepted_by> <date> via <via>: <reason>`;\nthe receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>\n<Always include the status and reviewed scope: updated, current, or blocked with the actual user's named risk exception. Never omit this section or reuse another invocation's audit.>\n\n(eval):1: ===== not found"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cat {home}/ship-invocation.md; ls -la {home} {home}/.claude/skills/gstack {home}/.claude/skills/gstack/ship/sections"
+   },
+   "output": ""
+  }
+ ]
+}

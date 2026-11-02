@@ -193,12 +193,13 @@ describe('gate-ahead, then stamp and verify from a separate clone', () => {
   }, 240_000);
 });
 
-function runAsync(repo: FixtureRepo, args: string[]): Promise<{ status: number | null; out: string }> {
+function runAsync(repo: FixtureRepo, args: string[]): Promise<{ status: number | null; out: string; err: string }> {
   return new Promise(resolve => {
     const child = spawn(BIN('gstack-ship-queue'), [...args, '--base', 'main'], { cwd: repo.work, env: { ...process.env, ...repo.env }, timeout: 120_000 });
-    let out = '';
+    let out = '', err = '';
     child.stdout.on('data', d => { out += d; });
-    child.on('close', status => resolve({ status, out }));
+    child.stderr.on('data', d => { err += d; });
+    child.on('close', status => resolve({ status, out, err }));
   });
 }
 
@@ -207,7 +208,7 @@ describe('gate-ahead attempts', () => {
     const { repo } = twoLanes();
     const args = ['gate-ahead', '--after', '1', '--pr', '2', '--predecessor-ref', 'pr-a', '--allow-repo-commands'];
     const [a, b] = await Promise.all([runAsync(repo, args), runAsync(repo, args)]);
-    expect([a.status, b.status]).toEqual([EXIT.ok, EXIT.ok]);
+    expect([a.status, b.status], `${a.err}\n${b.err}`).toEqual([EXIT.ok, EXIT.ok]);
     const ids = [a, b].map(r => field(line(r.out, 'GATE_AHEAD:'), 'attempt'));
     expect(new Set(ids).size).toBe(2);
     const trees = [a, b].map(r => line(r.out, 'worktree: ').slice(10));
@@ -561,10 +562,10 @@ describe('ready on a PR that conflicts with the base (CHANGELOG-only conflicts, 
     const { r, at } = readyWith('CONFLICTING', { check_runs: [] });
     expect(r.status).toBe(EXIT.refused);
     expect(line(r.out, 'ci: ')).toBe(`ci: none at ${at} (passed=0 failed=0 pending=0 skipped=0)`);
-    expect(line(r.out, 'ci-hint: ')).toBe(`ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${at}); dispatch the free workflows on the branch (gh workflow run free-tests.yml --ref pr-a && gh workflow run windows-free-tests.yml --ref pr-a), clear the pregate lanes with their run URLs (gstack-pregate clear --remote <lane> --run-url <run>), then rerun ready (advisory)`);
+    expect(line(r.out, 'ci-hint: ')).toBe(`ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${at}); dispatch the free workflows on the branch (gh workflow run free-tests.yml --ref pr-a && gh workflow run windows-smoke.yml --ref pr-a), clear the pregate lanes with their run URLs (gstack-pregate clear --remote <lane> --run-url <run>), then rerun ready (advisory)`);
     for (const name of ['x;$(curl evil)', '--field']) {
       const odd = readyWith('CONFLICTING', { check_runs: [] }, { headRefName: name });
-      expect(line(odd.r.out, 'ci-hint: ')).toContain('gh workflow run free-tests.yml --ref <branch> && gh workflow run windows-free-tests.yml --ref <branch>');
+      expect(line(odd.r.out, 'ci-hint: ')).toContain('gh workflow run free-tests.yml --ref <branch> && gh workflow run windows-smoke.yml --ref <branch>');
     }
     const fork = readyWith('CONFLICTING', { check_runs: [] }, { isCrossRepository: true });
     expect(line(fork.r.out, 'ci-hint: ')).toBe(`ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${fork.at}) and its head is on a fork, so the free workflows cannot be dispatched here; the coordinator decides (advisory)`);

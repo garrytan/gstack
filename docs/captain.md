@@ -172,7 +172,7 @@ not a new ask ([carry-forward](unattended.md#carry-forward)).
 
 **The record.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` (with
 `--stack <b1,b2,...>` for a stacked PR set) writes the approval row (date, the ask, the owner's exact words, the lane that answered as relayer,
-what it covers); `gstack-approvals render` puts it in the report and the PR body. Before
+what it covers; a gate answered with `--words-by agent:<id>` is listed under that agent as its own decision, not the owner's words); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
 The brief's done line names the row. A plan approval is not a READY field; the
@@ -317,8 +317,9 @@ stamp on the bare pin leaves the PR conflicting on the CHANGELOG. The lane merge
 into its pin first (expect a CHANGELOG-only conflict; resolve it with `mergeChangelogs`
 from `lib/changelog-check.ts`, the `bun -e` one-liner in
 [ship-policy.md](ship-policy.md#run-a-merge-train), never by hand, and grep for conflict
-markers before stamping), then restamps, then commits only the merge and the stamp
-files. In practice slot 1 needs the same merge whenever the base moved after the pin was
+markers before stamping), then restamps (the restamp stages the stamp files it wrote,
+so a plain `git commit` after a `--no-commit` merge keeps them), then commits only the
+merge and the stamp files. In practice slot 1 needs the same merge whenever the base moved after the pin was
 taken. A stamp commit with one extra byte freezes the queue for every
 lane behind it.
 

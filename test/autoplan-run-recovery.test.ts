@@ -106,7 +106,8 @@ describe('next/submit loop', () => {
     expect(v.status, v.stdout + v.stderr).toBe(0);
     expect(JSON.parse(v.stdout)).toMatchObject({ valid: true, status: 'gate_pending' });
     const gate = JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8'));
-    expect(gate.items.map((i: any) => i.id)).toEqual(['uc1', 'uc2', 'p1']);
+    expect(gate.items.map((i: any) => i.id)).toEqual(['uc1', 'd1', 'd2', 'uc2', 'd3', 'd4', 'p1']);
+    expect(gate.items.filter((i: any) => i.finding).map((i: any) => i.title.split(':')[0])).toEqual(['Critical', 'High', 'Critical', 'High']);
     const decisions = fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
     expect(decisions.every((d: any) => d.status === 'pending' && d.gate_rev === 1)).toBe(true);
     const tasks = fs.readFileSync(path.join(out, 'tasks.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));

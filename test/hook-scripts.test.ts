@@ -11,20 +11,36 @@ usePrivateStateRoot();
 const CAREFUL_SCRIPT = path.join(ROOT, 'careful', 'bin', 'check-careful.sh');
 const FREEZE_SCRIPT = path.join(ROOT, 'freeze', 'bin', 'check-freeze.sh');
 
-function runHook(scriptPath: string, input: object, env?: Record<string, string>, cwd?: string): { exitCode: number; output: any; raw: string } {
+// A hook spawn's kill sits under the runner's 30s per-test timeout, not at 5s.
+// Windows Free Tests, 39 runs: every check-careful test p99.9 1.8s, max 3.3s
+// (n=8736), except the file's first hook spawn (p50 1.5s, max 3.0s passing),
+// which the old 5s kill cut down three times on 2026-10-29 and reported as
+// "exited 1". A killed or unspawnable hook now throws with its elapsed time.
+const HOOK_SPAWN_TIMEOUT_MS = 25_000;
+
+function spawnHook(scriptPath: string, rawInput: string, env?: Record<string, string>, cwd?: string): { exitCode: number; output: any; raw: string } {
+  const started = performance.now();
   const result = spawnSync('bash', [scriptPath], {
-    input: JSON.stringify(input),
+    input: rawInput,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, ...env },
     cwd,
-    timeout: 5000,
+    timeout: HOOK_SPAWN_TIMEOUT_MS,
   });
+  if (result.error || result.signal) {
+    const elapsed = Math.round(performance.now() - started);
+    throw new Error(`${path.basename(scriptPath)} did not exit on its own: ${result.signal ?? result.error?.message} after ${elapsed}ms (kill at ${HOOK_SPAWN_TIMEOUT_MS}ms); stderr: ${result.stderr?.toString().trim() || '(empty)'}`);
+  }
   const raw = result.stdout.toString().trim();
   let output: any = {};
   try {
     output = JSON.parse(raw);
   } catch {}
   return { exitCode: result.status ?? 1, output, raw };
+}
+
+function runHook(scriptPath: string, input: object, env?: Record<string, string>, cwd?: string): { exitCode: number; output: any; raw: string } {
+  return spawnHook(scriptPath, JSON.stringify(input), env, cwd);
 }
 
 // Scratch git repo with a resolvable origin default branch — the HIGH-tier
@@ -46,18 +62,7 @@ function withGitRepo(defaultBranch: string, currentBranch: string, fn: (repoDir:
 }
 
 function runHookRaw(scriptPath: string, rawInput: string, env?: Record<string, string>): { exitCode: number; output: any; raw: string } {
-  const result = spawnSync('bash', [scriptPath], {
-    input: rawInput,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...env },
-    timeout: 5000,
-  });
-  const raw = result.stdout.toString().trim();
-  let output: any = {};
-  try {
-    output = JSON.parse(raw);
-  } catch {}
-  return { exitCode: result.status ?? 1, output, raw };
+  return spawnHook(scriptPath, rawInput, env);
 }
 
 function carefulInput(command: string) {
