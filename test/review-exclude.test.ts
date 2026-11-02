@@ -11,7 +11,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreadableLine } from '../lib/review-exclude';
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
-import { bindShippedReceipt } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
 import { loadPolicyAt } from '../lib/ship-policy-at';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
@@ -253,6 +253,20 @@ describe('the receipt binds the selection the reviewers read', () => {
   const receiptIn = (body: string) => extractReceipt(fs.readFileSync(body, 'utf8')).receipt!;
   const writeReceipt = (repo: FixtureRepo, body: string, extra: string[]) =>
     runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body, ...extra]);
+  // Value: protects=a docs-only range whose only file sits under a base pattern and carries a gate tag binds the same selection at
+  //   plan and receipt write, so the receipt can be written; fails_when=receiptReviewAtHead skips the gate scan when the paths are
+  //   docs-class and excludes the file the plan kept as gate-tagged (/ship review of #3852, red-team#1: digests 652d0aa8 vs
+  //   6f33bd56, RECEIPT_INVALID with no fix); why_new=every other receipt case has a code path in its range; seam=gstack-review-plan
+  //   --json and receiptReviewAtHead on one head; no_claim=the gate scan's own tag rules
+  test('a docs-only range with a gate-tagged file under a pattern binds the plan\'s digest at receipt write', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-docs-', baseFiles: { '.gstack/ship-policy.json': policyText(['testdata/**']) } });
+    repos.push(repo);
+    const head = commit(repo, { 'testdata/expected.txt': 'expected output\n' });
+    const planned = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--json']).out).review_exclude;
+    expect(planned.kept_files).toEqual([{ path: 'testdata/expected.txt', reason: 'gate-tagged' }]);
+    const { exclude } = receiptReviewAtHead(repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), head);
+    expect(exclude.state === 'active' ? exclude.record.digest : exclude.state).toBe(planned.digest);
+  });
   // Value: protects=a receipt names the selection the rendered briefs read, a base merge that leaves the policy alone still
   //   carries, and a policy change on the base (adding or removing a pattern) needs a new review, not a write; fails_when=write
   //   records a digest the briefs never named, carry compares the base sha, or a removed exclusion clears by writing the old

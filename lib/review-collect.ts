@@ -255,10 +255,11 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed, drawings });
 }
 
-/** The working tree against the merge base with origin/<base> (or <base>), untracked files counted per path; the registry is the base ref's commit. */
+/** The working tree against the merge base with origin/<base> (or <base>; a remote-qualified base reads refs/remotes/<base> only), untracked files counted per path; the registry is the base ref's commit. */
 export function collectLive(root: string, base: string): Collected {
   const errors: DepthError[] = [];
-  const ref = [`refs/remotes/origin/${base}`, `refs/heads/${base}`].find(r => git(root, ['rev-parse', '--verify', '-q', `${r}^{commit}`]).ok) ?? base;
+  const qualified = base.startsWith('origin/') || git(root, ['remote']).out.split('\n').some(r => r && base.startsWith(`${r}/`));
+  const ref = (qualified ? [`refs/remotes/${base}`] : [`refs/remotes/origin/${base}`, `refs/heads/${base}`]).find(r => git(root, ['rev-parse', '--verify', '-q', `${r}^{commit}`]).ok) ?? base;
   const registry = loadRegistryAt(root, ref);
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {

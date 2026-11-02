@@ -112,6 +112,18 @@ describe('collectLive: the working tree', () => {
     expect(c.paths).toEqual(['docs/a.md', 'src/a.ts', 'src/new.ts']);
     expect(depthOfCommitInput({ ...c, gateTagged: 0 })).toMatchObject({ depth: 'light', runtimeLines: 20 + 10 });
   });
+  // Value: protects=a remote-qualified base reads that remote's tracking branch by its full name, so a fetched branch called
+  //   origin/main cannot become the merge base (an empty diff) or the registry and policy source; fails_when=collectLive tries
+  //   refs/remotes/origin/<base> first for origin/main (/ship review of #3852, outside-voice#1); why_new=every other case names a
+  //   bare base; seam=none; no_claim=remotes other than origin
+  test('a fetched branch named origin/main never stands in for origin/main', () => {
+    const r = repo({});
+    r.git('update-ref', 'refs/remotes/origin/main', r.baseSha);
+    const head = r.commit({ 'src/a.ts': lines(3) });
+    r.git('update-ref', 'refs/remotes/origin/origin/main', head);
+    const c = collectLive(r.dir, 'origin/main');
+    expect([c.mergeBase, c.registry.sha, c.paths]).toEqual([r.baseSha, r.baseSha, ['src/a.ts']]);
+  });
   test('no merge base is a collector error the CLI refuses on', () => {
     const r = repo({});
     expect(collectLive(r.dir, 'no-such-branch').errors.map(e => e.code)).toEqual(['numstat_failed']);

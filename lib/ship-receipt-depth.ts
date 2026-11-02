@@ -96,7 +96,7 @@ export function receiptReviewAtHead(repoRoot: string, base: string, binDir: stri
   const declares = declaresExclude(repoRoot, ref, sha);
   let tagged: number | null = 0;
   let paths: Set<string> | null = declares ? new Set() : null;
-  if (gateScanNeeded(c.paths, c.root)) {
+  if (declares || gateScanNeeded(c.paths, c.root)) {
     const atHead = git(repoRoot, ['rev-parse', 'HEAD']).out === head && git(repoRoot, ['diff', '--quiet', 'HEAD', '--']).ok;
     const g = atHead ? runScriptSync(path.join(binDir, 'gstack-gate-diff'), [baseRev, ...(declares ? ['--format', 'jsonl'] : [])], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 }) : null;
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g?.stdout ?? '');
