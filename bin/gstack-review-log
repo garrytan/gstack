@@ -69,7 +69,7 @@ if [ -n "$COMMIT_FULL" ]; then
     esac
     trap 'rm -rf "$WTREE_OBJECTS"' EXIT
     trap 'exit 130' INT TERM
-    WTREE=$(GSTACK_WTREE_OBJECT_DIR="$WTREE_OBJECTS" "$SCRIPT_DIR/gstack-wtree" || true)
+    WTREE=$(GSTACK_WTREE_OBJECT_DIR="$WTREE_OBJECTS" "$SCRIPT_DIR/gstack-wtree" --review || true)
     export GIT_ALTERNATE_OBJECT_DIRECTORIES="$WTREE_OBJECTS${GIT_ALTERNATE_OBJECT_DIRECTORIES:+:$GIT_ALTERNATE_OBJECT_DIRECTORIES}"
   else
     echo "gstack-review-log: cannot create a private object directory under ${TMPDIR:-/tmp}; no working-tree fingerprint. Set TMPDIR to a writable directory." >&2

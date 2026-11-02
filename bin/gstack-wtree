@@ -9,6 +9,12 @@
 # look like a mid-run edit (GST-421); tracked files under it still count, and a
 # tree without that folder (or with it gitignored) hashes exactly as a plain
 # `git add -A` would.
+#
+# --review (gstack-review-log and gstack-review-read only, GST-985) also leaves
+# out every root dot-directory that holds no tracked file, such as a test
+# lane's `.review-units-test-*/` scratch, so scratch appearing or vanishing
+# mid-review cannot unbind a review. `.github/` and `.gstack/` always stay in:
+# they hold CI and gate policy. Every other caller keeps the whole tree.
 # Properties that make this the right staleness fingerprint, vs
 # `git rev-parse HEAD^{tree}`:
 #
@@ -39,6 +45,13 @@
 # no commits, or when a write fails (one stderr line names the cause) — callers
 # treat that as "no fingerprint"; a partial hash is never printed.
 set -euo pipefail
+
+REVIEW=""
+case "$#:${1:-}" in
+  0:) ;;
+  1:--review) REVIEW=1 ;;
+  *) echo "Usage: gstack-wtree [--review]" >&2; exit 2 ;;
+esac
 
 TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
 # Resolve the REAL index path BEFORE exporting GIT_INDEX_FILE — with the env
@@ -95,7 +108,19 @@ fi
 # call .bun not ignored.
 EXCLUDE_BUN=""
 if [ -e "$TOP/.bun" ] && ! git -C "$TOP" check-ignore --no-index -q .bun 2>/dev/null; then EXCLUDE_BUN=':(exclude,top).bun'; fi
-if ! ERR=$(git -C "$TOP" add -u 2>&1 >/dev/null) || ! ERR=$(git -C "$TOP" add -A -- . ${EXCLUDE_BUN:+"$EXCLUDE_BUN"} 2>&1 >/dev/null); then
+EXCLUDES=()
+if [ -n "$EXCLUDE_BUN" ]; then EXCLUDES+=("$EXCLUDE_BUN"); fi
+if [ -n "$REVIEW" ]; then
+  for DOTDIR in "$TOP"/.[!.]*; do
+    NAME=${DOTDIR##*/}
+    case "$NAME" in .git|.github|.gstack|.bun) continue ;; esac
+    if [ ! -d "$DOTDIR" ] || [ -L "$DOTDIR" ]; then continue; fi
+    if git -C "$TOP" ls-files --error-unmatch -- ":(top,literal)$NAME" >/dev/null 2>&1; then continue; fi
+    if git -C "$TOP" check-ignore --no-index -q -- "$NAME" 2>/dev/null; then continue; fi
+    EXCLUDES+=(":(exclude,top,literal)$NAME")
+  done
+fi
+if ! ERR=$(git -C "$TOP" add -u 2>&1 >/dev/null) || ! ERR=$(git -C "$TOP" add -A -- . ${EXCLUDES[@]+"${EXCLUDES[@]}"} 2>&1 >/dev/null); then
   echo "gstack-wtree: cannot stage the working tree: $(printf '%s' "$ERR" | head -1)" >&2
   exit 1
 fi

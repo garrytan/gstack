@@ -47,7 +47,7 @@ This pass is static; defer product probes to Step 9.2.1.
 
 1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START (under a token cap, first reserve this pass's dispatch batch with `gstack-ship-budget check` and add `--reservation <id>`). Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them.
+2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and save its token as REVIEW_START (under a token cap, first reserve this pass's dispatch batch with `gstack-ship-budget check` and add `--reservation <id>`). Then run `git diff origin/<base>` (`git diff $RANGE_BASE` from pass 2 on). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the snapshot includes them, except a root dot-directory with no tracked file (test scratch), which it skips so scratch cannot unbind the review; `.github/` and `.gstack/` (CI and gate policy) always count. Stage new source there with `git add -N`.
 
    Every pass captures a full token (no `--fix-range`), so the record binds the
    whole tree even when reviewers read only the range.

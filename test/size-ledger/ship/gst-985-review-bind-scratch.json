@@ -1,0 +1,4 @@
+{
+  "bytes": 220,
+  "why": "GST-985: review-army says the review snapshot skips untracked root dot-dir scratch but keeps .github/ and .gstack/"
+}
