@@ -78,6 +78,8 @@
  *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20
  *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json
  *   bun run scripts/test-free-shards.ts --ci-verify plan.json --results results/
+ *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result r.json --receipts out/ [--traces dir]  # main push: write receipts
+ *   bun run scripts/test-free-shards.ts --shadow-select --receipts in/ --base origin/main [--traces dir]  # report reuse, run nothing
  */
 
 import * as fs from 'fs';
@@ -542,6 +544,11 @@ type CliOptions = {
   result: string | null;
   results: string | null;
   filesFrom: string | null;
+  /** GST-167 receipts: written by --ci-run, read by --shadow-select (scripts/lib/free-receipts.ts). */
+  shadowSelect: boolean;
+  receipts: string | null;
+  traces: string | null;
+  base: string | null;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -556,8 +563,9 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let wallTimeoutExplicit = false;
   let quick = false;
   let attributeHome = false;
-  const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
-    ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
+  let shadowSelect = false;
+  const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom' | 'receipts' | 'traces' | 'base', string | null> = {
+    ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null, receipts: null, traces: null, base: null,
   };
   const pathFlag = (flag: string, key: keyof typeof paths) => (next: () => string | undefined) => {
     const value = next();
@@ -579,6 +587,10 @@ export function parseCliOptions(argv: string[]): CliOptions {
     '--result': pathFlag('--result', 'result'),
     '--results': pathFlag('--results', 'results'),
     '--files-from': pathFlag('--files-from', 'filesFrom'),
+    '--shadow-select': () => { shadowSelect = true; },
+    '--receipts': pathFlag('--receipts', 'receipts'),
+    '--traces': pathFlag('--traces', 'traces'),
+    '--base': pathFlag('--base', 'base'),
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -603,7 +615,9 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
-  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths };
+  if ((paths.receipts && !paths.ciRun && !shadowSelect) || (paths.traces && !paths.receipts) || (paths.receipts && windowsOnly)) throw new Error('--receipts (and --traces) ride a Linux --ci-run, which writes receipts, or --shadow-select, which reads them');
+  if (shadowSelect !== Boolean(paths.base) || (shadowSelect && (!paths.receipts || ciModes || quick || listOnly || dryRun || recordDurations || attributeHome || paths.filesFrom))) throw new Error('--shadow-select needs --receipts and --base and takes no other mode');
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, shadowSelect, ...paths };
 }
 
 const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
@@ -1075,6 +1089,8 @@ export interface FreeShardOutcome {
   unattributedFailures: number;
   /** Named failures with their excerpts, so a flaky pass records what failed the first time. */
   failures?: FreeRunFailure[];
+  /** Files that crashed a worker, even when bun's own retry then passed; any entry vetoes the shard's receipts. */
+  crashedFiles?: string[];
 }
 
 export interface ShardCommand {
@@ -1744,6 +1760,7 @@ export async function runFreeShard(
   const outcome: FreeShardOutcome = {
     shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
     ...(status === 'passed' ? {} : { failures: report.failures }),
+    ...(report.crashedFiles.length ? { crashedFiles: report.crashedFiles } : {}),
     summary: { testsRan: report.testsRan, filesRan: report.filesRan, sawTerminalSummary: report.sawTerminalSummary },
   };
   log(shardEpilogue(outcome, totalShards));
@@ -1951,7 +1968,15 @@ async function main(): Promise<number> {
     });
     const retried = await retryFailedFreeFiles([outcome], plan.shards.length, options);
     writeJson(options.result!, { planId: plan.id, revision, outcome, retry: retried.retry } satisfies FreeCiResult);
+    if (options.receipts) console.log(await (await import('./lib/free-receipts')).recordShardReceipts({ root: ROOT, dir: options.receipts, shard: shard.shard, outcome, retry: retried.retry, revision, traceDir: options.traces ?? undefined }));
     return retried.exitCode;
+  }
+
+  if (options.shadowSelect) {
+    const report = await (await import('./lib/free-receipts')).runShadowSelect({ root: ROOT, files: allFiles, receiptsDir: options.receipts!, base: options.base!, traceDir: options.traces ?? undefined, durations: loadFreeTestDurations() ?? {} });
+    for (const line of [...report.lines, report.summary]) console.log(line);
+    appendStepSummary(report.summary);
+    return 0;
   }
 
   let files = allFiles;

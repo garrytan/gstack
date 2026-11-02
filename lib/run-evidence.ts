@@ -227,9 +227,9 @@ function gh(args: string[], timeoutMs = 60_000): string {
 
 /** The gh- and git-backed dependencies for `repo`, reading trees in `repoRoot` (fetching a missing head from origin once). */
 export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
-  const json = <T>(p: string): T => JSON.parse(gh(['api', p]));
+  const json = <T,>(p: string): T => JSON.parse(gh(['api', p]));
   // Every page, one JSON value per line: a veto or a required job past the first 100 entries must still be seen.
-  const all = <T>(p: string, key: string): T[] => gh(['api', '--paginate', p, '--jq', `.${key}[]`]).split('\n').filter(Boolean).map(l => JSON.parse(l) as T);
+  const all = <T,>(p: string, key: string): T[] => gh(['api', '--paginate', p, '--jq', `.${key}[]`]).split('\n').filter(Boolean).map(l => JSON.parse(l) as T);
   return {
     run: id => json<ApiRun>(`repos/${repo}/actions/runs/${id}`),
     runsForHead: (workflow, sha) => all<ApiRun>(`repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100`, 'workflow_runs'),

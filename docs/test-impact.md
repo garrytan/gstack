@@ -24,7 +24,7 @@ The recorder runs `strace -f -y -qq -v` with `openat, open, execve, execveat, ge
 - the names in each traced directory listing, at the tree;
 - the test's forward import-graph closure from `lib/pregate/import-graph.ts`, up to 12 hops;
 - `bun.lock`, `bunfig.toml`, every `tsconfig*.json` and the `dependencies` in `.gstack/pregate.json`;
-- the key code itself: the tracer, the key, the CLI, the free-test runner and planner (`scripts/test-free-shards.ts`) with every repo module it imports (shard engine, HOME guard, CI health, Windows curation, the paid/free split, the state root), the import graph and `lib/pregate/lane-selection.ts`;
+- the key code itself: the tracer, the key, the CLI, the free-test runner and planner (`scripts/test-free-shards.ts`) with every repo module it imports (shard engine, HOME guard, CI health, Windows curation, the paid/free split, the state root), the import graph, `lib/pregate/lane-selection.ts`, and the receipt reader (`scripts/lib/free-receipts.ts`) with the run verifier it trusts (`lib/run-evidence.ts`);
 - the bytes of each executable outside the repo the trace ran (git, bash, tar and so on), read on the machine computing the key;
 - the runtime (platform, architecture, Bun version) and the values of `CI`, `GITHUB_ACTIONS`, `TZ`, `LANG`, `LC_ALL`, `NODE_ENV`, `EVALS` and `EVALS_TIER`.
 
@@ -39,4 +39,39 @@ A file is ineligible, so it always runs, when:
 - its import-graph walk reaches the 12-hop cap. The walk fails closed: a deeper chain makes the test ineligible instead of cutting the closure short;
 - the tree changes any key-code file against the base. Then every file runs.
 
-Limits: strace can't see which environment variables a test reads, so only the allowlist above is in the key, and a test that depends on another variable has to read it through a file the trace sees or stay off the reuse path. The recorder reuses the runner's arguments and sandbox but not its home-write guard, which only watches and changes nothing a test reads. Timing assertions, flaky history and the shard's execution grouping are for PR 3 and PR 4, which have the receipts to check them against. Windows has no tracer, so the Windows lane stays full.
+Limits: strace can't see which environment variables a test reads, so only the allowlist above is in the key, and a test that depends on another variable has to read it through a file the trace sees or stay off the reuse path. The recorder reuses the runner's arguments and sandbox but not its home-write guard, which only watches and changes nothing a test reads. Timing assertions, flaky history across the last main runs and the shard's execution grouping are for PR 4, which reads them from the receipts PR 3 writes. Windows has no tracer, so the Windows lane stays full.
+
+## Receipts and shadow mode
+
+PR 3 records what main passed and reports, on every pull request, what the free lane could have reused. It still runs every file. `scripts/lib/free-receipts.ts` holds the logic; `scripts/test-free-shards.ts` has two thin hooks.
+
+**Writing receipts.** `--ci-run <plan> --shard <n> --result <file> --receipts <dir> [--traces <dir>]` writes `<dir>/free-receipts-shard-<n>.json` after the shard runs. Each passing file whose key exists gets one record: `file`, `key` (the full sha256), `run_id`, `run_attempt`, `head_sha`, `tree`, `shard` and `written_at`. The key is computed at the run's own commit with that commit's key code (through the CLI's `key --base`), from the traces in `--traces` (default `.context/test-impact/traces`). A shard writes nothing at all when:
+
+- it didn't pass, its flaky retry re-ran anything, a worker crashed (even if bun's own retry then passed), it recorded an unattributed failure, or its summary doesn't count every planned file;
+- the run isn't a `push` run, isn't on its first attempt, or the checkout isn't the run's commit.
+
+A failure while writing prints `none written (<cause>)` and never changes the shard's verdict. The Windows lane has no tracer, so `--receipts` refuses `--windows-only`.
+
+**Reading receipts.** `--shadow-select --receipts <dir> --base <ref> [--traces <dir>]` reads every receipt file under `<dir>` and checks each source run once through `verifyRun` (see [run evidence](pregate.md#run-evidence)). It uses the base branch's `run_profiles["free-receipts"]` from `.gstack/pregate.json`, so a pull request can't relax it, and it accepts `push` runs only, whatever the profile's events say. The profile names the `free-tests` job, which passes only when every shard did, and the `free-tests-tree` artifact, which holds the run's `tree.json`; receipts and the run may be at most 72 hours old. A receipt is refused, with its reason on the file's line, when:
+
+- `other_workflow`: its run executed another workflow file;
+- `not_push`: its run was a `pull_request`, a dispatch or any other event;
+- `retried`: the receipt or the API names a run attempt above 1, or the run moved to a new attempt while it was being checked;
+- `stale`: the run finished, or the receipt was written, more than the profile's `max_age_hours` ago;
+- `forged_run`: the receipt's sha or tree disagrees with what the API and git say the run tested, `tree.json` disagrees with git, or `tree.json` doesn't list the file;
+- `off_base`: the run's head isn't an ancestor of `--base` (so the PR job needs main's history);
+- `run_refused`: any other `verifyRun` refusal, such as a failed run or a newer red run on the same head.
+
+The PR's keys are computed at `HEAD` by the base's key code: the reader runs `scripts/test-impact.ts key --tree HEAD --base <ref> --json`, the trusted route above, and a failure there makes every line `execute (keys unavailable: <cause>)`. The writer runs the same command with the run's commit as both tree and base.
+
+**The report.** One line per free file, then a summary:
+
+```
+test/a.test.ts would-reuse 19283746501 key=1f2e3d4c5b6a
+test/b.test.ts execute (key mismatch: receipt 9a8b7c6d5e4f, tree 0a1b2c3d4e5f)
+test/c.test.ts execute (ineligible: no trace)
+test/d.test.ts execute (no receipt)
+shadow: would reuse 1 of 4 free files (25.0%) and 3.0 s of 10.0 s seed time (30.0%); 0 files have no seed duration. Nothing was skipped: every file ran.
+```
+
+The seed time comes from `scripts/free-test-durations.json`. The report throws unless its lines cover every free file exactly once. It never fails open: if the receipts can't be read or verified (a missing directory, a malformed file, no profile on the base, an API or artifact outage), every line reads `execute (receipts unavailable: <cause>)`. It exits 0 and runs nothing, so CI wiring keeps it non-blocking. The reader runs from the PR's checkout for now; that's fine while it only reports, and PR 4 moves the decision to the base's code before anything is skipped.

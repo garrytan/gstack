@@ -38,12 +38,12 @@ export const MAX_HOPS = 12;
 export const TRACE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** How far in the future a trace's timestamp may sit (clock skew) before it counts as stale. */
 export const TRACE_CLOCK_SKEW_MS = 5 * 60 * 1000;
-/** Tracer, key, CLI, the runner/planner and every repo module it imports, and the graph and always-run code the key reads. PR 4 adds its verifier here. */
+/** Tracer, key, CLI, the runner/planner and every repo module it imports, the graph and always-run code the key reads, and the receipt reader with the run verifier it trusts. PR 4 adds its verifier here. */
 export const KEY_CODE_FILES = [
   'lib/test-impact/trace.ts', 'lib/test-impact/key.ts', 'scripts/test-impact.ts',
   'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts',
   'scripts/lib/windows-curation.ts', 'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'lib/state-root.ts',
-  'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts',
+  'lib/pregate/import-graph.ts', 'lib/pregate/lane-selection.ts', 'scripts/lib/free-receipts.ts', 'lib/run-evidence.ts',
 ];
 const TSCONFIG = /(?:^|\/)tsconfig[^/]*\.json$/;
 

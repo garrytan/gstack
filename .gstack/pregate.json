@@ -20,5 +20,8 @@
     "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
   },
   "warn": [],
+  "run_profiles": {
+    "free-receipts": { "workflow": "free-tests.yml", "events": ["push"], "jobs": ["free-tests"], "artifact": "free-tests-tree", "max_age_hours": 72 }
+  },
   "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
 }

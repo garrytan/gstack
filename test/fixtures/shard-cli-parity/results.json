@@ -21,7 +21,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -49,7 +53,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -76,7 +84,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -102,7 +114,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -128,7 +144,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -157,7 +177,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -184,7 +208,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -213,7 +241,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -244,7 +276,11 @@
           "ciRun": "plan.json",
           "ciVerify": null,
           "result": "result.json",
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -273,7 +309,11 @@
           "ciRun": null,
           "ciVerify": "plan.json",
           "result": null,
-          "results": "results"
+          "results": "results",
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
@@ -424,7 +464,11 @@
           "ciRun": null,
           "ciVerify": null,
           "result": null,
-          "results": null
+          "results": null,
+          "shadowSelect": false,
+          "receipts": null,
+          "traces": null,
+          "base": null
         }
       }
     },
