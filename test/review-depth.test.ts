@@ -326,7 +326,6 @@ describe('review depth: diff commands and the rules hash', () => {
       const src = fs.readFileSync(path.join(ROOT, 'lib/review-depth.ts'), 'utf8');
       fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
       fs.symlinkSync(path.join(ROOT, 'lib/review-risk.ts'), path.join(dir, 'review-risk.ts'));
-      fs.symlinkSync(path.join(ROOT, 'lib/review-allowlist.ts'), path.join(dir, 'review-allowlist.ts'));
       const hashOf = (text: string) => {
         fs.writeFileSync(path.join(dir, 'review-depth.ts'), text);
         fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
@@ -425,7 +424,6 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
       expect(src).toContain('SCOPED_RANGE_LINES = 150');
       fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
       fs.symlinkSync(path.join(ROOT, 'lib/review-risk.ts'), path.join(dir, 'review-risk.ts'));
-      fs.symlinkSync(path.join(ROOT, 'lib/review-allowlist.ts'), path.join(dir, 'review-allowlist.ts'));
       fs.writeFileSync(path.join(dir, 'review-depth.ts'), src.replace('SCOPED_RANGE_LINES = 150', 'SCOPED_RANGE_LINES = 151'));
       fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
       const res = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });

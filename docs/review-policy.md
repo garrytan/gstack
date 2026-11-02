@@ -181,8 +181,7 @@ follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a te
 fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
 directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
 `manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
-consumer each keep the path code, and YAML, TOML and SVG are never data (an SVG can
-still be an [allowlisted docs path](#allowlisted-docs-paths)). More than
+consumer each keep the path code, and YAML, TOML and SVG are always code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
@@ -224,37 +223,12 @@ that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
-<a id="allowlisted-docs-paths"></a>
-**Allowlisted docs paths (GST-850).** Two kinds of path are docs when
-`lib/review-allowlist.ts` accepts them, and code otherwise; three rounds of R51
-review found bypasses in line-pattern versions, so both are allowlists that read
-the whole input in linear time and fail closed on anything they do not parse.
-
-- **A new SVG** whose whole file is one `svg` root built from presentational
-  elements (`svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
-  `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, gradients and `stop`,
-  `clipPath`, `use`, `symbol`, `marker`, `pattern`, `mask`) and presentational
-  attributes. No namespace prefixes, `on*` or binding attributes (`:x`, `v-bind:`,
-  `x-bind:`, `@x`), entities other than the five predefined named ones (no
-  numeric references), doctype, CDATA or processing instructions other than the
-  XML declaration, and no comment HTML would close early (`<!-->`, `<!--->`) or
-  that holds `<` or `>`; `href` only on `use` and only `#fragment`; `url(#id)`
-  only in presentation attributes and no `url(` in `style`; no backslash escapes,
-  braces or `${` in attribute values; no `{{` or `${` in text. An edited SVG
-  stays code.
-- **A locale resource edit**: a JSON, ARB, YAML, PO, `.strings`, XLIFF, Fluent
-  or `.properties` file under a `locale(s)`, `i18n`, `l10n`, `translation(s)` or
-  `lang` directory (JSON, YAML and `.properties` also need a locale code such as
-  `en` or `pt-BR` as the parent directory or the file name), where every deleted
-  line pairs with an added line with the same key and a changed literal string
-  value, with no markup, escape other than `\n` or `\t`, script, link scheme or
-  protocol-relative link (read after escapes and whitespace are removed), no YAML
-  value that loads as null, a boolean or a number, and the same placeholders
-  (`{x}`, `%s`, `%(name)s` and the rest). Added, removed or moved keys, UI
-  component files (`.tsx`, `.vue` and the rest), i18n source files and anything
-  under `config/` stay code.
-
-A path any risk class matches stays code whatever its shape.
+**UI text and SVGs** stay code (light unless a risk class applies). A docs path
+for UI copy, locale values and chart SVGs was built as an allowlist in GST-850 and
+dropped for review cost: its first review round found a new bypass class in each
+version, the same pattern as three rounds of R51. When a diff publishes numbers,
+the batched specialist's diff keeps the write-up's text files instead of leaving
+docs out.
 
 A write-up with one clean chart and no code is one reader (the outside voice on
 its numbers). When a diff publishes numbers, the batched specialist's diff keeps
@@ -300,7 +274,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/review-targeted.ts`, `lib/review-risk.ts`, `lib/review-allowlist.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `lib/review-risk.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,

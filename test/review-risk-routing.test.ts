@@ -45,7 +45,7 @@ describe('risk classes', () => {
   });
 });
 
-describe('UI component text, active SVGs and bound locale values stay code (R51; GST-850 allowlist)', () => {
+describe('UI text and SVGs stay code (R51: the docs paths are deferred to an allowlist classifier)', () => {
   // Value: protects=a copy edit, a Vue binding or a namespaced SVG script never plans as docs; fails_when=any of them leaves the code
   //   class or its lines skip the risk scan; seam=classifyDiff
   test.each([
@@ -131,16 +131,16 @@ const classOf = (p: string, added: string[], removed: string[] = [], created: st
 const svgClass = (lines: string[]) => classOf(SVG_PATH, lines, [], [SVG_PATH]);
 const swap = (from: string, to: string) => CHART.map(l => l.replace(from, to));
 
-describe('GST-850: allowlisted docs paths (a new presentational SVG, a locale value edit)', () => {
-  // Value: protects=a write-up with one clean chart, or a translation fix, gets one reader; fails_when=the allowlist rejects a clean
-  //   chart or locale value, or the batched specialist drops a write-up that publishes numbers; seam=classifyDiff and planReview
-  test('a new chart SVG built from the allowlist is docs, and a write-up with one clean chart gets one reader', () => {
-    expect(svgClass(CHART)).toBe('docs');
-    expect(classifyDiff({ paths: [SVG_PATH], created: [SVG_PATH], gateTagged: 0, added: { [SVG_PATH]: CHART }, removed: {} }).reasons).toContain('docs: 1 presentational SVG path(s)');
+describe('GST-850 choice A: a clean chart SVG and a locale value edit stay code (light)', () => {
+  // Value: protects=UI text and SVGs keep one batched reader plus the native adversarial pass (the allowlist docs paths were dropped
+  //   for review cost); fails_when=a clean chart or a locale value edit plans as docs, or the batched specialist drops a write-up
+  //   that publishes numbers; seam=classifyDiff and planReview
+  test('a new clean chart SVG is code, and a write-up with it plans light with the batched reader', () => {
+    expect(svgClass(CHART)).toBe('code');
     const md = 'docs/evals/run.md';
     const added = { [md]: ['Recall rose to 33/41.'], [SVG_PATH]: CHART };
     const p = plan({ paths: [md, SVG_PATH], created: [SVG_PATH], added, removed: {}, perPath: [{ path: md, lines: 1, binary: false }, { path: SVG_PATH, lines: CHART.length, binary: false }], numbers: scanNumbers(added) });
-    expect([p.depth, roles(p)]).toEqual(['light', ['outside-voice']]);
+    expect([p.depth, roles(p)]).toEqual(['light', ['specialist', 'adversarial-native', 'outside-voice']]);
   });
   test('the batched specialist reads a write-up that publishes numbers, and leaves docs out when nothing is published', () => {
     const md = 'docs/evals/run.md', code = 'scripts/score.ts';
@@ -159,14 +159,14 @@ describe('GST-850: allowlisted docs paths (a new presentational SVG, a locale va
     ['xliff', 'translations/messages.fr.xlf', '        <target>Enregistrer</target>', '        <target>Sauvegarder</target>'],
     ['ftl', 'locales/en-US/main.ftl', 'welcome = Welcome, { $user }!', 'welcome = Hello, { $user }!'],
     ['properties', 'src/main/resources/i18n/messages_en.properties', 'button.save=Save', 'button.save=Save now'],
-  ])('a %s value edit under a locale directory is docs', (_n, p, before, after) => {
-    expect(classOf(p, [after], [before])).toBe('docs');
+  ])('a %s value edit under a locale directory is code', (_n, p, before, after) => {
+    expect(classOf(p, [after], [before])).toBe('code');
   });
 });
 
 describe('GST-850: every bypass of the line-pattern docs paths stays code', () => {
   // Value: protects=active or bound content never plans as docs; fails_when=any bypass from GST-850 or a sibling spelling classes docs;
-  //   seam=classifyDiff over lib/review-allowlist.ts
+  //   seam=classifyDiff
   test.each([
     ['namespaced <s:script>', ['<svg xmlns:s="http://www.w3.org/2000/svg"><s:script>window.x=42</s:script></svg>']],
     ['a <script> element', swap('<title>', '<script>alert(1)</script><title>')],
