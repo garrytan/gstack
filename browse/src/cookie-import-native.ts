@@ -6,6 +6,7 @@ import path from 'node:path';
 import { CookieImportError, normalizeCookieDomain, type PlaywrightCookie } from './cookie-import-browser';
 import { emptyBunConfig, findWindowsBunExe } from './bun-child-config';
 import { hashNativeFile, nativeCodeHashes, nativeCodeMatches, readNativeQualifications, type NativeQualifiedBuild } from './cookie-import-native-integrity';
+import { NATIVE_CLEANUP_MS } from './cookie-import-native-job';
 
 type BrowserName = 'Chrome' | 'Chromium' | 'Brave' | 'Edge';
 
@@ -123,7 +124,7 @@ export async function importNativeCookies(options: {
     const timer = setTimeout(() => {
       worker.kill();
       reject(new CookieImportError('Native cookie cleanup could not be confirmed within its deadline.', 'native_cleanup_failed'));
-    }, Math.max(0, deadline + 5_000 - Date.now()));
+    }, Math.max(0, deadline + NATIVE_CLEANUP_MS + 2_000 - Date.now()));
     worker.stdout.setEncoding('utf8');
     worker.stdout.on('data', chunk => {
       output += chunk;
