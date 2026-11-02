@@ -67,10 +67,18 @@ const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\
 /** The severity and Blocks a prose finding's own fields state (GST-766): recorded beside the collected label, never in its place. */
 export interface Stated { severity?: string; blocks?: string }
 const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
-/** The first label after a finding's `Severity` field; with the field present a severity word in the body never raises the label (GST-976). */
-const SEVERITY_FIELD = new RegExp(STATED_SEVERITY.source, 'i');
-/** A label leading its line past list, quote, table, heading and emphasis marks ("[P0] …", "1. **High**: …", "### CRITICAL: …"): the reader's own label, which its Severity field never lowers. */
-const LEAD_LABEL = new RegExp(`^(?:[-*+>|]\\s*|\\d+[.)]\\s*|#{1,6}\\s*|[*_\`[(]+\\s*)*(${LABELS})(?![A-Za-z0-9])`);
+/**
+ * A finding's own `Severity` field: at the line's start or after a separator, with its colon ("1. Drops rows (q.ts:7). Severity: Low",
+ * "- Severity: P0"). With one present a severity word in the body never raises the label (GST-976); prose that mentions a
+ * severity ("pass 1 had Severity: Low", "filed at severity low") is not a field.
+ */
+const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?|[.;,|(]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
+/**
+ * A label leading its line past list, quote, heading, emphasis and emoji marks and an optional file:line, closed by a mark or a
+ * separator ("[P0] …", "1. **High**: …", "### CRITICAL: …", "1. api.ts:10 CRITICAL: …"): the reader's own label, which a Severity
+ * field never lowers. "P0 pilot …" is not one.
+ */
+const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]+\\s*|\\d+[.)]\\s*)*(?:[\\w./-]+:\\d+[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]+\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$)`, 'u');
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
 function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
@@ -84,9 +92,9 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels). A line with a `Severity` field takes that field's first label instead, whatever else it names (GST-976: "the
- * P0 pilot" collected as P0 under `Severity: Low`). A `Severity` or `Blocks` field line continues the open finding, once per field:
- * `Severity` sets its label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying
+ * of the two labels). A line with a `Severity` field takes that field's label instead (the strongest, if it states two), whatever its
+ * body names (GST-976: "the P0 pilot" collected as P0 under `Severity: Low`); a label leading the line and an earlier field of the same
+ * finding are its floor. A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` sets its label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying
  * the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
@@ -103,15 +111,15 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   let treeSeen = false;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
-  const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
+  const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
+  const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
+  const fieldOf = (t: string) => strongestOf([...t.matchAll(SEVERITY_FIELD)].map(m => m[1]!));
   const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
   const labelOf = (t: string) => {
-    const field = SEVERITY_FIELD.exec(t)?.[1];
+    const field = fieldOf(t);
     if (field === undefined) return strongest(t);
-    if (critical(t)) return 'CRITICAL';
-    const lead = leadOf(t);
-    return lead ? stronger(lead, field) : field;
+    return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
   };
   const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
@@ -132,7 +140,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       if (current && !current.fields.has(field)) {
         current.fields.add(field);
         if (blocks) current.label = 'CRITICAL';
-        else if (field === 'severity' && SEVERITY_FIELD.test(t) && !critical(current.raw)) current.label = current.lead ? stronger(current.lead, label!) : label!;
+        else if (field === 'severity' && fieldOf(t) !== undefined && !critical(current.raw)) current.label = strongestOf([current.lead, label])!;
         else if (label) current.label = stronger(current.label, label);
         current.raw += ` | ${t}`;
       } else if (blocks || label) current = push(blocks ? 'CRITICAL' : label!, head ? `${head} | ${t}` : t, [field]);
@@ -155,8 +163,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
     if (found) {
-      const lead = leadOf(t);
-      current = push(blocks ? 'CRITICAL' : found, t, [], lead && inherited ? stronger(inherited, lead) : lead ?? inherited);
+      current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
       if (!indented) head = t;
       continue;
     }

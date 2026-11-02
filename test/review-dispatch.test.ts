@@ -673,6 +673,14 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       expect([output, got, got.map(blocking)]).toEqual([output, [label], [true]]);
     }
     expect(parseFindings('outside-voice', '1. The P0 pilot table drops a row (t.md:3)').map(f => f.label)).toEqual(['P0']);
+    // Review of this fix (gst976-p1): a locus-first or emoji-led label, an inline field the next field line follows, a second field on
+    // the line, and prose that only mentions a severity never lower a blocker the reader labeled.
+    const kept: Array<[string, string]> = [['1. api.ts:10 CRITICAL: missing auth. Severity: Low', 'CRITICAL'], ['1. api.ts:10 CRITICAL: missing auth\n   Severity: Low', 'CRITICAL'],
+      ['1. 🔴 CRITICAL: missing auth. Severity: Low', 'CRITICAL'], ['1. Token leak in auth.ts:3 lets anyone read sessions. Severity: Critical\n\nSeverity: Low', 'Critical'],
+      ['- auth.ts:3 token leak. Severity: Low (pre-exploit), Severity: Critical (once exposed)', 'Critical'],
+      ['- Missing auth on DELETE /users lets any user wipe accounts (CRITICAL); the old ticket filed it at severity low.', 'CRITICAL'],
+      ['- api.ts:10 lets any user wipe accounts. Earlier triage said Severity: Low; it is CRITICAL.', 'CRITICAL']];
+    for (const [output, label] of kept) expect([output, parseFindings('outside-voice', output).map(f => f.label)]).toEqual([output, [label]]);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
