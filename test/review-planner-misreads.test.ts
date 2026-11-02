@@ -126,7 +126,8 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
   //   fails_when=an external image or stylesheet, an entity declaration, an external DTD, an animation or a CSS url() to another document reads as docs,
   //   including through a CSS escape or a zero-padded character reference (review pass 1 findings) or behind a stray quote that
   //   pairs with a later one (review pass 2 finding), or any CSS beyond declarations and url(#id) (Step 11 finding: image-set()),
-  //   including CSS behind a character-reference </style> or comment, or an HTML-only comment end (GST-940);
+  //   including CSS behind a character-reference </style> or comment, an HTML-only comment end, a quoted > on the style tag, a
+  //   non-ASCII space before > in </style>, or a tag or attribute under a non-ASCII namespace prefix (GST-940);
   //   seam=collectCommit + depthOfCommitInput
   test.each([
     ['an external image', '  <image href="https://x.test/pixel.png" width="1" height="1"/>'],
@@ -161,6 +162,11 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['CSS after an HTML --!> comment end in a style element', '  <style><!-- --!>rect{fill:image-set("https://x.test/p.png" 1x)} --></style>'],
     ['a </style> inside a quoted style attribute', '  <style title="></style>">rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
     ['an escaped ampersand in a style element', '  <style>text{font-family:"A &amp; B"}</style>'],
+    ['a no-break space before > in </style>', '  <style>a{}</style\u00a0>rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
+    ['a vertical tab before > in </style>', '  <style>a{}</style\u000b>rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
+    ['a script under a non-ASCII prefix', '  <g\u00e9:script xmlns:g\u00e9="http://www.w3.org/2000/svg">fetch(1)</g\u00e9:script>'],
+    ['a style under a non-ASCII prefix', '  <g\u00e9:style xmlns:g\u00e9="http://www.w3.org/2000/svg">rect{fill:image-set("https://x.test/p.png" 1x)}</g\u00e9:style>'],
+    ['an external href under a non-ASCII prefix', '  <image x\u00e9:href="https://x.test/p.png" xmlns:x\u00e9="http://www.w3.org/1999/xlink"/>'],
   ])('%s keeps the SVG code', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) })).class).toBe('code');
