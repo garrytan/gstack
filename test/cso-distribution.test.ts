@@ -408,8 +408,16 @@ describe('CSO runtime staging gates', () => {
     expect(gate['continue-on-error']).not.toBe(true);
     const required = workflow.jobs['free-tests'];
     expect(required.if).toBe('always()');
-    expect(required.needs).toEqual(['free-suite', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration']);
-    expect(required.steps[0].run).toContain('test "$CSO_DOCKER_RESULT" = success');
+    expect(required.needs).toEqual(['reuse', 'free-suite', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration']);
+    expect(job.if).toBe("${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}");
+    const route = required.steps[0];
+    expect(route.id).toBe('route');
+    expect(route.env.REUSE_RESULT).toBe('${{ needs.reuse.result }}');
+    expect(route.run).toContain('if [ "$REUSE_RESULT" != success ] || [ "$REUSED" != true ]; then');
+    const strict = required.steps.find((step: any) => step.run?.includes('test "$CSO_DOCKER_RESULT" = success'));
+    expect(strict.env.CSO_DOCKER_RESULT).toBe('${{ needs.cso-docker-integration.result }}');
+    expect(strict.if).toBe("steps.route.outputs.reused != 'true'");
+    expect(required.steps.indexOf(strict)).toBe(1);
     for (const current of Object.values(workflow.jobs) as any[]) for (const step of current.steps) {
       if (step.uses?.startsWith('oven-sh/setup-bun')) expect(step.uses).toBe('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6');
     }

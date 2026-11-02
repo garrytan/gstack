@@ -1,0 +1,705 @@
+{
+ "note": "Every tool call of three captured ship-docsync parents in order, each red on \"command outside declared docs observation interface\" (directly, or through docsWriteFailures as atomic replacement unproven at docsync-observer.ts:29) and green on its in-run rerun. {home} is the fixture home and {shard} its shard root. Inputs keep only command, file_path or run_in_background; outputs are kept only for installed gstack helper calls and failed calls. Each joined cat <installed gstack-docs-candidate> --help 2>&1 | head -N to a line of reads; GNU cat printed its own usage and read nothing.",
+ "runs": [
+  {
+   "sourceRun": "40822033640 slice 5 ship-docsync-current (PR #3572 screen @ 3412e433, tested merge abb77552 onto main edf4c2e5)",
+   "scenario": "current",
+   "sourceFileSha256": "b72a9ddae43f9b14054531a5e7c3c3514b267d0c7597fc41a9d8dd44e2e06a20",
+   "calls": [
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/phase.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/.claude/skills/gstack/ship/sections/documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/fixture-interface.md | head -5; ls -la {home}; ls {home}/.claude/skills/gstack/document-release {home}/.claude/skills/gstack/document-release/sections 2>&1"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/release-body.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status; git rev-parse HEAD; git branch --show-current; git merge-base main HEAD; git log --oneline main; git diff main HEAD --stat; git ls-files; git diff --cached --stat; git diff --stat"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff main HEAD; cat README.md; cat handbook/reference/commands/widget.md.tmpl; ls -la; find handbook; cat {home}/.claude/skills/gstack/bin/gstack-docs-candidate --help 2>&1 | head -0"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate --help"
+     },
+     "output": "usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...\n       gstack-docs-candidate compare <candidate.json>"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p \"$(dirname \"$_EX\")\" && { grep -qxF '/.gstack/tmp/' \"$_EX\" 2>/dev/null || echo '/.gstack/tmp/' >> \"$_EX\"; }"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "rm -f .gstack/tmp/docs-audit.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/docs-audit-20261029-r2a1.json --audit-id docs-audit-20261029-r2a1 --mode edit --base 0368b103522eb31bea4e061abfd823b58d8746a3 --docs README.md --docs AGENTS.md --docs handbook --docs CHANGELOG.md --docs TODOS.md"
+     },
+     "output": "CANDIDATE: {home}/docs-audit-20261029-r2a1.json\nbase=0368b103522eb31bea4e061abfd823b58d8746a3 head=452337cf8e26fc84d90fc0c9860c02aaa09c3ab8 branch=feature/docs mode=edit\ncommitted=1 staged=0 unstaged=0 untracked=1 selected=2 docs=5 hashed=6\ncommitted: \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"CHANGELOG.md\" \"README.md\" \"TODOS.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+     "tool": "Agent",
+     "input": {
+      "run_in_background": false
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/fixture-interface.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "GSTACK_SESSION_KIND=spawned {home}/.claude/skills/gstack/bin/gstack-skill-start --skill document-release --model claude"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/preamble.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/release-body.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/docs-audit-20261029-r2a1.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status; git rev-parse HEAD; git merge-base main HEAD; git log 0368b103522eb31bea4e061abfd823b58d8746a3..HEAD --oneline; git diff 0368b103522eb31bea4e061abfd823b58d8746a3 HEAD --stat; git diff --cached --stat; git diff --stat; git ls-files -z --cached --others --exclude-standard | tr '\\0' '\\n'"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff 0368b103522eb31bea4e061abfd823b58d8746a3 HEAD; for f in README.md handbook/reference/commands/widget.md.tmpl app.ts package.json CHANGELOG.md TODOS.md VERSION personal-note.txt; do echo \"=== $f\"; cat $f; done"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-skill-end --skill document-release --outcome success --session-id 843-1793251016-b742e4b1 --tel-start 1793251016 --used-browse no"
+     },
+     "output": "SKILL_END: recorded outcome=success duration_s=14"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/docs-audit-20261029-r2a1.json"
+     },
+     "output": "{\"audit_id\":\"docs-audit-20261029-r2a1\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[],\"newly_dirty\":[]}"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status --porcelain; git rev-parse HEAD; git diff --cached --stat; cat app.ts; cat AGENTS.md CHANGELOG.md TODOS.md VERSION package.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-ship-receipt docs-caps --base main"
+     },
+     "output": "DOCS_CAP: none declared"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/docs-audit-20261029-r2a1-post.json --audit-id docs-audit-20261029-r2a1 --mode edit --base 0368b103522eb31bea4e061abfd823b58d8746a3 --docs README.md --docs AGENTS.md --docs handbook --docs CHANGELOG.md --docs TODOS.md"
+     },
+     "output": "CANDIDATE: {home}/docs-audit-20261029-r2a1-post.json\nbase=0368b103522eb31bea4e061abfd823b58d8746a3 head=452337cf8e26fc84d90fc0c9860c02aaa09c3ab8 branch=feature/docs mode=edit\ncommitted=1 staged=0 unstaged=0 untracked=1 selected=2 docs=5 hashed=6\ncommitted: \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"CHANGELOG.md\" \"README.md\" \"TODOS.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/docs-audit-20261029-r2a1-documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/repo/.gstack/tmp/docs-audit.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/ship-report.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/docs-audit-20261029-r2a1-documentation.md >> {home}/ship-report.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "bun {home}/fixture-publish.ts"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Edit",
+     "input": {
+      "file_path": "{home}/ship-report.md"
+     },
+     "output": ""
+    }
+   ]
+  },
+  {
+   "sourceRun": "40815828320 slice 3 ship-docsync-completion (PR #3579 screen @ 61692c2e, tested sha 4729f475)",
+   "scenario": "updated",
+   "sourceFileSha256": "8c2ba1aaa9605553989183b581f0ac59ec08483b514c81680756ff99c5c612a8",
+   "calls": [
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/phase.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/.claude/skills/gstack/ship/sections/documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/.claude/skills/gstack/document-release/SKILL.md; ls {home}/.claude/skills/gstack/document-release {home}/.claude/skills/gstack/document-release/sections"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status; git ls-files; ls -la; git ls-files --others --exclude-standard; git diff --cached; git diff; git rev-parse HEAD; git merge-base main HEAD; git branch -a -v"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat AGENTS.md CHANGELOG.md README.md TODOS.md VERSION app.ts options.ts package.json handbook/reference/commands/widget.md.tmpl; find handbook; cat {home}/.claude/skills/gstack/bin/gstack-docs-candidate --help 2>&1 | head -5"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p \"$(dirname \"$_EX\")\" && { grep -qxF '/.gstack/tmp/' \"$_EX\" 2>/dev/null || echo '/.gstack/tmp/' >> \"$_EX\"; }"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "rm -f .gstack/tmp/docs-audit.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate --help"
+     },
+     "output": "usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...\n       gstack-docs-candidate compare <candidate.json>"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/audit/docs-20261029-a1.json --audit-id docs-20261029-a1 --mode edit --base 828633def611af1fa49a6d685c90b2b724c6b536 --select app.ts --select options.ts --select README.md --docs README.md --docs AGENTS.md --docs handbook"
+     },
+     "output": "Exit code 1\ngstack-docs-candidate: ENOENT: no such file or directory, open '{home}/audit/docs-20261029-a1.json'"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/docs-20261029-a1.json --audit-id docs-20261029-a1 --mode edit --base 828633def611af1fa49a6d685c90b2b724c6b536 --select app.ts --select options.ts --select README.md --docs README.md --docs AGENTS.md --docs handbook"
+     },
+     "output": "CANDIDATE: {home}/docs-20261029-a1.json\nbase=828633def611af1fa49a6d685c90b2b724c6b536 head=828633def611af1fa49a6d685c90b2b724c6b536 branch=feature/docs mode=edit\ncommitted=0 staged=1 unstaged=1 untracked=2 selected=3 docs=3 hashed=6\nstaged: \"app.ts\"\nunstaged: \"README.md\"\nuntracked: \"options.ts\" \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"README.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+     "tool": "Agent",
+     "input": {
+      "run_in_background": false
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/fixture-interface.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "GSTACK_SESSION_KIND=spawned {home}/.claude/skills/gstack/bin/gstack-skill-start --skill document-release --model claude"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/preamble.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/release-body.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status; git rev-parse HEAD; git merge-base main HEAD; git branch --show-current"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/docs-20261029-a1.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git ls-files -z --cached --others --exclude-standard | tr -s '\\000' '\\n'"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff --cached; git diff; cat options.ts; cat app.ts"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/repo/README.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/repo/handbook/reference/commands/widget.md.tmpl"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat AGENTS.md; echo ---; cat CHANGELOG.md; echo ---; cat TODOS.md; echo ---; cat VERSION; echo ---; cat package.json; git show 828633d:app.ts"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Edit",
+     "input": {
+      "file_path": "{home}/repo/handbook/reference/commands/widget.md.tmpl"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff -- handbook/reference/commands/widget.md.tmpl README.md; git status"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-skill-end --skill document-release --outcome success --session-id 836-1793247014-28365090 --tel-start 1793247014 --used-browse no"
+     },
+     "output": "SKILL_END: recorded outcome=success duration_s=19"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/docs-20261029-a1.json"
+     },
+     "output": "{\"audit_id\":\"docs-20261029-a1\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[\"handbook/reference/commands/widget.md.tmpl\"],\"newly_dirty\":[]}"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status --porcelain; git rev-parse HEAD; git diff; git diff --cached --stat; cat handbook/reference/commands/widget.md.tmpl; ls -la .gstack 2>&1"
+     },
+     "output": "Exit code 2\n M README.md\nM  app.ts\n M handbook/reference/commands/widget.md.tmpl\n?? options.ts\n?? personal-note.txt\n828633def611af1fa49a6d685c90b2b724c6b536\ndiff --git a/README.md b/README.md\nindex f37814f..6b663a2 100644\n--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,5 @@\n # Widget CLI\n \n Command reference: [widget](handbook/reference/commands/widget.md.tmpl).\n+\n+The default output format is JSON.\ndiff --git a/handbook/reference/commands/widget.md.tmpl b/handbook/reference/commands/widget.md.tmpl\nindex e35884f..603e311 100644\n--- a/handbook/reference/commands/widget.md.tmpl\n+++ b/handbook/reference/commands/widget.md.tmpl\n@@ -1,5 +1,5 @@\n # Widget reference\n \n-Default format: text.\n+Default format: json.\n \n User-maintained note: KEEP THIS EXACTLY.\n app.ts | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n# Widget reference\n\nDefault format: json.\n\nUser-maintained note: KEEP THIS EXACTLY.\nls: cannot access '.gstack': No such file or directory"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-ship-receipt docs-caps --base main"
+     },
+     "output": "DOCS_CAP: none declared"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/docs-20261029-a1-post.json --audit-id docs-20261029-a1 --mode edit --base 828633def611af1fa49a6d685c90b2b724c6b536 --select app.ts --select options.ts --select README.md --docs README.md --docs AGENTS.md --docs handbook"
+     },
+     "output": "CANDIDATE: {home}/docs-20261029-a1-post.json\nbase=828633def611af1fa49a6d685c90b2b724c6b536 head=828633def611af1fa49a6d685c90b2b724c6b536 branch=feature/docs mode=edit\ncommitted=0 staged=1 unstaged=2 untracked=2 selected=3 docs=3 hashed=6\nstaged: \"app.ts\"\nunstaged: \"README.md\" \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"options.ts\" \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"README.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/docs-20261029-a1-documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/repo/.gstack/tmp/docs-audit.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/ship-report.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/docs-20261029-a1-documentation.md >> {home}/ship-report.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "bun {home}/fixture-publish.ts"
+     },
+     "output": ""
+    }
+   ]
+  },
+  {
+   "sourceRun": "40809051510 slice 4 ship-docsync-store (main 2e1c5811 train gate)",
+   "scenario": "store",
+   "sourceFileSha256": "2e006fcbd5751903da3853ab07b72514355f613920b3189d2e3c60895d4fd109",
+   "calls": [
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/phase.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/ship/sections/documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/fixture-interface.md; ls -la {home} {home}/.claude/skills/gstack/document-release {home}/.claude/skills/gstack/document-release/sections"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status --porcelain=v1 --untracked-files=all; git rev-parse HEAD; git branch --show-current; git branch -a -v; git log --oneline -5; git ls-files -z --cached --others --exclude-standard | tr -s '\\0' '\\n'; git rev-parse origin/main; git merge-base main HEAD"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff; git diff --cached; cat options.ts; ls -la .gstack .qa-state handbook handbook/reference/commands 2>&1; cat {home}/.claude/skills/gstack/bin/gstack-docs-candidate --help 2>&1 | head -5; {home}/.claude/skills/gstack/bin/gstack-docs-candidate --help"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p \"$(dirname \"$_EX\")\" && { grep -qxF '/.gstack/tmp/' \"$_EX\" 2>/dev/null || echo '/.gstack/tmp/' >> \"$_EX\"; }"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "rm -f .gstack/tmp/docs-audit.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/audit-20261029-a1.json --audit-id audit-20261029-a1 --mode read-only --base 89b9222ced21c002a2294b44d20c73cbec59e147 --select app.ts --select options.ts --select package.json --select VERSION --select README.md --docs README.md --docs AGENTS.md --docs handbook --docs CHANGELOG.md --docs TODOS.md"
+     },
+     "output": "CANDIDATE: {home}/audit-20261029-a1.json\nbase=89b9222ced21c002a2294b44d20c73cbec59e147 head=89b9222ced21c002a2294b44d20c73cbec59e147 branch=main mode=read-only\ncommitted=0 staged=1 unstaged=1 untracked=2 selected=5 docs=5 hashed=10\nstaged: \"app.ts\"\nunstaged: \"README.md\"\nuntracked: \"options.ts\" \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"CHANGELOG.md\" \"README.md\" \"TODOS.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+     "tool": "Agent",
+     "input": {
+      "run_in_background": false
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/fixture-interface.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "GSTACK_SESSION_KIND=spawned {home}/.claude/skills/gstack/bin/gstack-skill-start --skill document-release --model claude"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/preamble.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Read",
+     "input": {
+      "file_path": "{home}/.claude/skills/gstack/document-release/sections/release-body.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git status; git rev-parse HEAD; git diff 89b9222ced21c002a2294b44d20c73cbec59e147 HEAD --stat; git log 89b9222ced21c002a2294b44d20c73cbec59e147..HEAD --oneline; git ls-files --cached --others --exclude-standard"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/audit-20261029-a1.json"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "git diff --cached; git diff; cat options.ts; cat package.json; cat VERSION; cat app.ts"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat README.md; echo ----; cat AGENTS.md; echo ----; cat CHANGELOG.md; echo ----; cat TODOS.md; echo ----; cat handbook/reference/commands/widget.md.tmpl; echo ----; find handbook"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-skill-end --skill document-release --outcome success --session-id 823-1793242642-14fbf75a --tel-start 1793242642 --used-browse no"
+     },
+     "output": "SKILL_END: recorded outcome=success duration_s=18"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/audit-20261029-a1.json"
+     },
+     "output": "{\"audit_id\":\"audit-20261029-a1\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[],\"newly_dirty\":[]}"
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat handbook/reference/commands/widget.md.tmpl; git status --porcelain=v1 --untracked-files=all; git rev-parse HEAD"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/audit-20261029-a1-documentation.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Write",
+     "input": {
+      "file_path": "{home}/ship-report.md"
+     },
+     "output": ""
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "cat {home}/audit-20261029-a1-documentation.md >> {home}/ship-report.md"
+     },
+     "output": ""
+    }
+   ]
+  }
+ ]
+}

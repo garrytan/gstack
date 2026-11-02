@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { WAVE_HELP, areaKey, groupWaves, type PlanPr } from '../lib/ship-queue-wave';
+import { WAVE_HELP, areaKey, groupWaves, isHubFile, type PlanPr } from '../lib/ship-queue-wave';
 import { cleanup, runBin } from './helpers/restamp-fixture';
 import { line, openPr, queue, readyReceipt, shippedBody, trainFixture, type TrainFixture } from './helpers/ship-queue-train-fixture';
 
@@ -65,6 +65,19 @@ describe('areas and grouping', () => {
       ['ship', ['1', '2', '3', '4', '5', '6'], '2'],
     ]);
     expect(solo).toEqual(['7']);
+  });
+
+  test('groupWaves links PRs through a shared code file or skill template only when the merge conflicts there, never through a hub file (GST-770)', () => {
+    const pr = (n: string, files: string[]): PlanPr => ({ pr: n, head: n.repeat(40).slice(0, 40), files, lines: 10 });
+    const areaOf = (f: string) => areaKey(f, d => d === 'ship');
+    const linked = (files: string[], conflicts?: (a: PlanPr, b: PlanPr) => string[] | null) =>
+      groupWaves([pr('1', ['lib/pregate-a.ts', 'test/pregate-a.test.ts', ...files]), pr('2', ['lib/review-b.ts', 'test/review-b.test.ts', ...files])], areaOf, 2, 6, conflicts).groups.map(g => g.prs.map(p => p.pr));
+    expect(linked(['lib/ship-a.ts'])).toEqual([['1', '2']]);
+    expect(linked(['lib/ship-a.ts'], () => ['lib/ship-a.ts'])).toEqual([['1', '2']]);
+    expect(linked(['lib/ship-a.ts'], () => [])).toEqual([]);
+    expect(linked(['ship/SKILL.md.tmpl'], () => ['ship/SKILL.md.tmpl'])).toEqual([['1', '2']]);
+    for (const hub of ['docs/troubleshooting.md', 'ship/SKILL.md', 'scripts/harness-version.json']) expect(linked([hub], () => [hub])).toEqual([]);
+    expect([isHubFile('docs/x.ts'), isHubFile('TODOS.md'), isHubFile('test/fixtures/x.json'), isHubFile('ship/SKILL.md.tmpl'), isHubFile('lib/x.ts')]).toEqual([true, true, true, false, false]);
   });
 });
 
@@ -235,6 +248,7 @@ describe('ready and train build read the wave', () => {
     const pins = ['1', '2', '3', '4', '5', '6', '7'].map(pr => {
       const h = openPr(fx, pr, { file: pr === '7' ? 'docs/seven.md' : `lib/ship-${pr}.ts`, changelog: false });
       readyReceipt(fx, pr, h);
+      fx.write(d => { d.ci[h] = [{ name: 'free-tests', status: 'completed', conclusion: 'success' }]; });
       return `${pr}@${h}`;
     });
     const build = queue(fx, ['train', 'build', '--prs', pins.join(','), '--dry-run']);
@@ -245,6 +259,55 @@ describe('ready and train build read the wave', () => {
     expect(line(plan.out, 'WAVE_GROUP:')).toContain('area=ship prs=#1,#2,#3,#4,#5,#6');
     expect(line(plan.out, 'SOLO:')).toContain('#7');
     expect(line(queue(fx, ['wave', 'plan', '--trigger', '7']).out, 'WAVE:')).toContain('not needed');
+  }, 180_000);
+
+  test('wave plan links PRs only on a real code conflict, so hub docs and ledgers do not chain areas together, and leaves out READY heads whose CI is not green (GST-770)', () => {
+    const fx = make();
+    const moved = (first: string) => Array.from({ length: 10 }, (_, i) => i === 0 && first ? `export const o0 = '${first}';\n` : `export const o${i} = ${i};\n`).join('');
+    const seed = { 'docs/troubleshooting.md': '# Troubleshooting\n', 'test/fixtures/ledger.json': '{}\n', 'lib/ship-a.ts': 'export const a = 0;\n', 'lib/ship-old.ts': moved('') };
+    fx.repo.git('checkout', '-q', 'origin/main', '-B', 'seed');
+    for (const [f, t] of Object.entries(seed)) { fs.mkdirSync(path.dirname(path.join(fx.repo.work, f)), { recursive: true }); fs.writeFileSync(path.join(fx.repo.work, f), t); }
+    fx.repo.git('add', '-A');
+    fx.repo.git('commit', '-q', '-m', 'seed hub files');
+    fx.repo.git('push', '-q', 'origin', 'HEAD:main');
+    fx.repo.git('fetch', '-q', 'origin');
+    const pr = (n: string, area: string, extra: Record<string, string | null> = {}, ci = 'success') => {
+      fx.repo.git('checkout', '-q', 'origin/main', '-B', `pr-${n}`);
+      const files = { [`lib/${area}-${n}.ts`]: `export const x${n} = 1;\n`, [`test/${area}-${n}.test.ts`]: `// #${n}\n`,
+        'docs/troubleshooting.md': `# Troubleshooting\n\n## #${n}\n`, 'test/fixtures/ledger.json': `{ "pr": ${n} }\n`, ...extra };
+      for (const [f, t] of Object.entries(files)) if (t === null) fs.rmSync(path.join(fx.repo.work, f)); else fs.writeFileSync(path.join(fx.repo.work, f), t);
+      fx.repo.git('add', '-A');
+      fx.repo.git('commit', '-q', '-m', `feat #${n}`);
+      const head = fx.repo.git('rev-parse', 'HEAD');
+      fx.repo.git('push', '-q', '-f', 'origin', `HEAD:refs/pull/${n}/head`);
+      fx.write(d => {
+        d.prs[n] = { headRefOid: head, isCrossRepository: false, state: 'OPEN', headRefName: `pr-${n}`, url: `https://github.com/fixture/repo/pull/${n}`, body: shippedBody(n, head) };
+        d.ci[head] = [{ name: 'free-tests', status: 'completed', conclusion: ci }];
+      });
+      readyReceipt(fx, n, head);
+    };
+    pr('1', 'ship', { 'lib/ship-a.ts': Array.from({ length: 40 }, (_, i) => `export const a${i} = 'one';\n`).join('') });
+    pr('2', 'ship', { 'lib/ship-old.ts': null, 'lib/ship-new.ts': moved('two') });
+    pr('3', 'ship');
+    for (const n of ['4', '5', '6']) pr(n, 'pregate');
+    pr('8', 'review', { 'lib/ship-a.ts': "export const a = 'eight';\n" });
+    pr('9', 'pregate', {}, 'failure');
+    pr('10', 'pregate');
+    pr('11', 'pregate', { 'lib/ship-old.ts': null, 'lib/ship-new.ts': moved('eleven') });
+    fx.write(d => { d.ci[(d.prs['10'] as any).headRefOid] = [{ name: 'free-tests', status: 'in_progress', conclusion: null }]; });
+    const plan = queue(fx, ['wave', 'plan']);
+    expect(plan.status).toBe(EXIT.ok);
+    expect(plan.out.split('\n').filter(l => l.startsWith('NOT_GREEN:')).map(l => l.replace(/ at [0-9a-f]{12} .*/, ''))).toEqual(['NOT_GREEN: #9 (red', 'NOT_GREEN: #10 (pending']);
+    expect(line(plan.out, 'QUEUE:')).toContain('8 live READY PR(s)');
+    expect(plan.out.split('\n').filter(l => l.startsWith('WAVE_GROUP:'))).toEqual([
+      'WAVE_GROUP: area=pregate prs=#4,#5,#6 integrator=#4 (most changed lines)',
+      'WAVE_GROUP: area=ship prs=#1,#8,#2,#11,#3 integrator=#1 (most changed lines)',
+    ]);
+    expect(line(plan.out, 'SOLO:')).toBe('');
+    fx.write(d => { d.ciFail = [(d.prs['4'] as any).headRefOid]; });
+    const unread = queue(fx, ['wave', 'plan']);
+    expect([unread.status, unread.err]).toEqual([EXIT.fail, expect.stringContaining('(QUEUE_PROOF_MISSING')]);
+    expect(unread.err).toContain('#4 (CI unknown at');
   }, 180_000);
 });
 
