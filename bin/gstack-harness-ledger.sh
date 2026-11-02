@@ -20,10 +20,23 @@
 # (ledgers without the row: when only whitespace is left). Folders gstack
 # created are removed only when empty. A QM pack is never touched here: detaching it from
 # the org is `gstack-harness unregister qm --remote`.
+#
+# A registration with the start hook on (meta start_hook on) owns a second root, the
+# gstack-start plugin folder in the harness profile (meta hook_root). Before its files go,
+# gstack_harness_hook_release turns the plugin off through the harness's own CLI
+# (lib/harness-start-hook.ts), the same step `register --no-start-hook` runs.
 
 _gstack_harness_sha() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum ${1:+"$1"} | cut -d' ' -f1
   else shasum -a 256 ${1:+"$1"} | cut -d' ' -f1; fi
+}
+
+# True when $1 is below $2 and nothing between them is a symlink ($2 itself may be one).
+_gstack_harness_below() {
+  local p="$1" top="$2"
+  [ -n "$top" ] || return 1
+  case "$p" in "$top"/*) ;; *) return 1 ;; esac
+  while [ "$p" != "$top" ]; do [ -L "$p" ] && return 1; p="$(dirname "$p")"; done
 }
 
 # True when $1 is below $2 and no path from $2 down to $1 is a symlink.
@@ -57,16 +70,53 @@ _gstack_harness_cut_block() {
   rm -f "$tmp"
 }
 
+# Turns a registration's start hook off in its harness, from the ledger: OpenClaw drops
+# plugins.entries.gstack-start; Hermes removes the plugin and its config entries when its
+# folder holds exactly the files gstack wrote, unedited, and is reached without a symlink
+# below the profile; otherwise it only disables it so an edit or a kept copy survives. The harness runs with PATH, HOME and the profile only. Without the harness on
+# PATH it prints the command to run instead.
+gstack_harness_hook_release() {
+  local ledger="$1" kind a b target="" on="" profile="" root="" edited=0 to="" sub cmd n=0 safe=1 total
+  [ -f "$ledger" ] || return 0
+  while IFS=$'\t' read -r kind a b; do
+    case "$kind" in
+      meta) case "$a" in target) target="$b" ;; start_hook) on="$b" ;; hook_profile) profile="$b" ;; hook_root) root="$b" ;; esac ;;
+      file) if [ -n "$root" ]; then case "$b" in "$root"/*) if [ -f "$b" ]; then n=$((n + 1)); [ "$(_gstack_harness_sha "$b")" != "$a" ] && edited=1; fi ;; esac; fi ;;
+    esac
+  done < "$ledger"
+  { [ "$on" = on ] && [ -n "$profile" ] && [ -n "$root" ]; } || return 0
+  if [ -d "$root" ]; then
+    _gstack_harness_below "$root" "$profile" || { safe=0; edited=1; }
+    total="$(find "$root" -type f ! -path "$root/__pycache__/*" 2>/dev/null | wc -l | tr -d ' ')"
+    [ "${total:-0}" -gt "$n" ] && edited=1
+  fi
+  command -v timeout >/dev/null 2>&1 && to="timeout 60"
+  case "$target" in
+    openclaw) cmd="config unset plugins.entries.gstack-start"
+      if command -v openclaw >/dev/null 2>&1 && env -i PATH="$PATH" HOME="$HOME" OPENCLAW_STATE_DIR="$profile" $to openclaw $cmd </dev/null >/dev/null 2>&1; then :
+      else echo "  start hook: turn it off in OpenClaw yourself: OPENCLAW_STATE_DIR=\"$profile\" openclaw $cmd"; fi ;;
+    hermes) sub=remove; [ "$edited" = 1 ] && sub=disable
+      if command -v hermes >/dev/null 2>&1 && env -i PATH="$PATH" HOME="$HOME" HERMES_HOME="$profile" $to hermes plugins "$sub" gstack-start </dev/null >/dev/null 2>&1; then :
+      else echo "  start hook: turn it off in Hermes yourself: HERMES_HOME=\"$profile\" hermes plugins disable gstack-start"; fi ;;
+  esac
+  if [ "$safe" = 1 ] && [ -d "$root/__pycache__" ] && _gstack_harness_owned "$root/__pycache__" "$root"; then
+    rm -f "$root"/__pycache__/*.pyc
+    rmdir "$root/__pycache__" 2>/dev/null
+  fi
+  return 0
+}
+
 gstack_harness_unregister_ledger() {
-  local ledger="$1" stamp kind a b target="" dest="" pack="" pad="" padpath=""
+  local ledger="$1" stamp kind a b target="" dest="" pack="" pad="" padpath="" hroot="" hprof=""
   : "${GSTACK_STATE_ROOT:?gstack-harness-ledger: GSTACK_STATE_ROOT is not set}"
   [ -f "$ledger" ] || return 0
   stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+  gstack_harness_hook_release "$ledger"
   while IFS=$'\t' read -r kind a b; do
     case "$kind" in
-      meta) case "$a" in target) target="$b" ;; dest) dest="$b" ;; qm_pack) pack="$b" ;; esac ;;
+      meta) case "$a" in target) target="$b" ;; dest) dest="$b" ;; qm_pack) pack="$b" ;; hook_root) hroot="$b" ;; hook_profile) hprof="$b" ;; esac ;;
       file)
-        { [ -f "$b" ] && _gstack_harness_owned "$b" "$dest"; } || continue
+        { [ -f "$b" ] && { _gstack_harness_owned "$b" "$dest" || { _gstack_harness_owned "$b" "$hroot" && _gstack_harness_below "$hroot" "$hprof"; }; }; } || continue
         if [ "$(_gstack_harness_sha "$b")" = "$a" ]; then rm -f "$b"
         else mv "$b" "$b.edited-$stamp" && echo "  kept your edit: $b.edited-$stamp"; fi ;;
       blockpad) pad="$a"; padpath="$b" ;;
@@ -75,7 +125,10 @@ gstack_harness_unregister_ledger() {
   done < "$ledger"
   while IFS=$'\t' read -r kind a b; do
     [ "$kind" = dir ] && [ -d "$b" ] && [ ! -L "$b" ] || continue
-    case "$b" in "$dest"/*) _gstack_harness_owned "$b" "$dest" || continue ;; esac
+    case "$b" in
+      "$dest"/*) _gstack_harness_owned "$b" "$dest" || continue ;;
+      *) if [ -n "$hprof" ]; then case "$b" in "$hprof"/*) _gstack_harness_below "$b" "$hprof" || continue ;; esac; fi ;;
+    esac
     rmdir "$b" 2>/dev/null
   done < "$ledger"
   case "$target" in

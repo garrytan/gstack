@@ -1,8 +1,8 @@
 ---
 name: ship
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
-  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
+  Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
+  push and create a PR. Use when asked to "ship", "deploy", "deploy this",
   "push to main", "create a PR", "merge and push", or "get it deployed".
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
   is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
@@ -210,8 +210,8 @@ not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots
 **Review policy** (docs/review-policy.md): only a finding that would fail a test,
 break production, or lose data or secrets blocks a pass; the rest is a PR-body
 note. Step 9's plan sets both reviews' depth (`--depth-floor standard|full` only
-raises it). Pass 1 reads the diff, later passes the range; the cap is two full
-passes and a fix-check. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
+raises it). Pass 1 reads the diff, later passes the range; the cap is two rounds,
+fix-checks included. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
 is the knob; the receipt's `review_loop` records the outcome.
 
 ### Ship control flow
@@ -336,7 +336,8 @@ act on every `STOP:` and `NEXT:` line.
    `CARRY: would carry` (base merge committed, same product patch-id): skip review, fix
    what it broke (CHANGELOG, size caps), run `gstack-pregate --allow-repo-commands`, then carry
    without `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and
-   ends the run. A failed check, HEAD moving after pregate, `refused` or `current` re-runs Steps 2–16.
+   ends the run. A failed check, HEAD moving after pregate, `current`, or `refused` with no
+   `NEXT: carry route` re-runs Steps 2–16.
 
 5. Display historical readiness using the dashboard below, then finish Step 1.
    Prior CLEAR reviews or dashboard skips never replace Step 9's gates.
@@ -456,9 +457,9 @@ not web services already deployed.
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `skipped` under stamp-at-merge).
+The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge).
 
-**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution, and wait for the answer before editing or continuing; then commit and rerun the preflight.
+**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before any edit; then commit and rerun the preflight.
 
 **Ship policy:** `POLICY:` is `gstack-ship-policy show-effective --base <base>`
 (docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history. `RUNTIME_LINES:` goes
@@ -509,7 +510,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
    does not mean failed or unrun probes passed. Keep Step 9.4's incomplete flags
    and the user's exception.
 4. **Save the evidence.** Save both records and matching **reviewed tree** for
-   Step 16. Continue to Step 12.
+   Step 16, with its merge base. Continue to Step 12.
 
 ## Step 12: Version bump (auto-decide)
 
@@ -531,8 +532,7 @@ runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun 
    - **FRESH** → use the recorded level or choose it in item 2, then check the queue and write.
    - **ALREADY_BUMPED** → keep `NEW_VERSION=currentVersion`. If `BUMP_LEVEL` is missing,
      use the first changed component from `baseVersion` to `currentVersion`
-     (major/minor/patch/micro; an absent fourth component is zero). Continue at item 3,
-     not another automatic bump.
+     (major/minor/patch/micro; an absent fourth component is zero). Continue at item 3; never bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify.
      Success follows ALREADY_BUMPED, including its queue check; failure stops.
      Repair alone never re-bumps.
@@ -551,8 +551,7 @@ runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun 
      **MAJOR**: ask for milestones or breaking changes (`ship: bump patch` never asks).
      AskUserQuestion: recommended level with rationale, smaller level, or cancel.
      Wait; cancel stops before release writes or push and preserves existing work.
-   Save lowercase `BUMP_LEVEL`. A claimed version may move the next available number
-   forward, but cannot change the chosen MICRO/PATCH/MINOR/MAJOR level.
+   Save lowercase `BUMP_LEVEL`. A claimed version may move the number forward, never the level.
 
 3. **Queue-aware pick:**
    ```bash
@@ -670,7 +669,7 @@ Run stages 1–5 in order; recovery notes below name where to resume. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
 
-**One call for stages 1–4:** `$GSTACK_ROOT/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
+**One call for stages 1–4:** `$GSTACK_ROOT/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
 makes Step 15's item-3 commit and runs stages 1–4 and the pregate; each `STOP:` is a recovery
 below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 
@@ -700,7 +699,8 @@ Classify the comparison in this order:
    Insert `5–11.5 → 12–14 → 16` before the pending Step 17, then stop this step.
    This repair excludes Step 14.5 because the rebuild can change generated docs.
    Step 16 restarts at stage 1: rebuild and compare again before stage 3 decides
-   documentation freshness. Further repairs use the same work list.
+   documentation freshness. Further repairs use the same work list. A STOP naming a scoped-review packet
+   instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.
 2. **Only authored docs or release metadata changed:** Keep Step 8's original child
    report and counts. Recheck affected plan items using their recorded verification
    and append current evidence to the invocation record. If a classification is no
@@ -723,6 +723,7 @@ audit or risk decision never qualifies.
 
 Report changed inputs, blockers and attempts used:
 
+- **A fix the audit's result named:** rerun finish with `--docs-requested <path> --docs-result <json>`.
 - **An attempt remains, with changed inputs or an available repair:** insert
   `14.5 → 15 → 16` before Step 17. Use Blocked recovery with the existing count.
   Validate the outcome before Step 15, then restart Step 16 stage 1.
@@ -761,9 +762,9 @@ $GSTACK_ROOT/bin/gstack-evidence check --label tests --expect-cmd '<tests>' --la
 |---|---|
 | FRESH (exit 0) | Cite the label, exit, timestamp, log and `tests_ran`. |
 | STALE/MISSING: changed content, command or age, or no proven run | Run `$GSTACK_ROOT/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once. Handle failures as described below. |
-| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: the lane proved nothing. Use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
+| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
 | `tests_ran: unknown` | Non-blocking: keep the exit-0 verdict, cite the lane as `count unavailable`. Never record it as ZERO-RUN or as a counted pass. |
-| Only receipt storage/readback failed | Independently prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
+| Only receipt storage/readback failed | Prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
 
 No test lanes: require Step 5's explicit untested-scope approval for final content,
 or run Steps 5–15, including the no-tests decision, then return to Step 16 stage 1.
@@ -771,8 +772,8 @@ Report the gap, never FRESH; builds must pass.
 
 **New, changed or unwaived test failure:** STOP publication. Run Steps 5–15,
 starting with Step 5's triage, then return to Step 16 stage 1. This recovery also
-applies if a failure appears while reporting in stage 5. Reentry to Step 14.5
-keeps its existing audit count; it does not authorize a third attempt.
+covers a failure seen in stage 5. Reentry to Step 14.5 keeps its audit count and
+does not authorize a third attempt.
 
 ### 5. Report, then push
 
@@ -782,8 +783,7 @@ Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified
 pre-existing failures and approved scope; cite the actual approval and failing
-counts, never FRESH or all-green. A new, changed or unwaived test failure uses
-stage 4's recovery before publication.
+counts, never FRESH or all-green.
 
 Then the honesty inventory, two lines, from Step 9's latest `Gate edits:` line and
 its records:

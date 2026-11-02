@@ -76,10 +76,13 @@ export type AsideProbe =
   | { ok: true; version: string }
   | { ok: false; reason: 'NEEDS_ASIDE' | 'ASIDE_NOT_RUNNING'; detail: string };
 
-/** Same probe the skills run in BROWSER SETUP: binary present, app answering. */
-export function probeAside(timeoutMs = 30_000): AsideProbe {
+/** Same probe the skills run in BROWSER SETUP: binary present, app answering. Aside ships only for macOS, so any other platform answers NEEDS_ASIDE without spawning. */
+export function probeAside(timeoutMs = 30_000, platform: NodeJS.Platform = process.platform): AsideProbe {
   if (process.env.GSTACK_SKIP_ASIDE === '1') {
     return { ok: false, reason: 'NEEDS_ASIDE', detail: 'GSTACK_SKIP_ASIDE=1 — Aside skipped by request' };
+  }
+  if (platform !== 'darwin') {
+    return { ok: false, reason: 'NEEDS_ASIDE', detail: `Aside is macOS-only (this is ${platform})` };
   }
   const which = spawnSync('aside', ['--version'], { encoding: 'utf8', timeout: 10_000 });
   if (which.error) {

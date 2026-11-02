@@ -38,7 +38,7 @@ describe('catalog mode CLI behavior', () => {
   });
 
   test('omitting the flag defaults to trim', () => {
-    expect(frontmatter(defaultContent)).toMatch(/^description: "?Ship workflow:[^\n]*\(gstack\)"?$/m);
+    expect(frontmatter(defaultContent)).toMatch(/^description: "?Ship it:[^\n]*\(gstack\)"?$/m);
     expect(frontmatter(defaultContent)).not.toMatch(/Use when asked to/i);
     expect(defaultContent).not.toContain('## When to invoke this skill');
   });

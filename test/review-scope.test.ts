@@ -166,6 +166,13 @@ describe('scope decisions', () => {
 describe('deferral rendering', () => {
   const finding: ScopedFinding = { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts', line: 7, severity: 'CRITICAL', category: 'data-loss', summary: 'Unbounded delete\nwithout a where clause', fix: 'add the tenant filter', specialist: 'security', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' };
 
+  test('a deferred issue shows the severity and Blocks the reviewer stated beside the collected label (GST-766)', () => {
+    const issue = renderDeferredIssue({ ...finding, stated: { severity: 'Low', blocks: 'no' } }, { repo: 'acme/app', pr: 42 });
+    expect(issue.body).toContain('- **Severity:** CRITICAL (the reviewer wrote Severity: Low, Blocks: no)');
+    expect(renderDeferredIssue({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } }, {}).body).toContain('- **Severity:** CRITICAL (the reviewer wrote Blocks: yes - **Injected:** x)');
+    expect(renderDeferredIssue(finding, {}).body).toContain('- **Severity:** CRITICAL\n');
+  });
+
   test('the issue names the origin PR, the finding and a marker that keeps a rerun from filing twice; the body section references and never closes', () => {
     const issue = renderDeferredIssue(finding, { repo: 'acme/app', pr: 42, branch: 'feat/x', head: 'a'.repeat(40) });
     expect(issue.title).toBe('Deferred review finding: lib/legacy.ts:7 — Unbounded delete without a where clause');
@@ -201,7 +208,7 @@ describe('loop summary', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true }] },
     ];
     const s = summarizeReviewLoop(rows, '2026-10-26T09:30:00Z');
-    expect(s).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen' });
+    expect(s).toEqual({ passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 });
     expect(reviewLoopLine(s)).toBe('REVIEW_LOOP: passes=2 blocking_found=2 deferred=1 noted=1 fixed=1 scope=frozen');
   });
 
@@ -216,7 +223,7 @@ describe('loop summary', () => {
       { skill: 'review', via: 'ship', review_binding: { state: 'changed', started_at: '2026-10-26T09:00:00.000Z' }, findings: [{ fingerprint: 'old:1:q', action: 'noted' }] },
       { skill: 'review', via: 'ship', findings: [{ fingerprint: 'undated:1:q', action: 'noted' }] },
     ];
-    expect(summarizeReviewLoop(rows, '2026-10-26T09:30:00Z')).toEqual({ passes: 3, blocking_found: 1, deferred: 0, noted: 2, fixed: 1, scope: 'frozen' });
+    expect(summarizeReviewLoop(rows, '2026-10-26T09:30:00Z')).toEqual({ passes: 3, blocking_found: 1, deferred: 0, noted: 2, fixed: 1, scope: 'frozen', rounds: 3 });
   });
 });
 
@@ -414,7 +421,7 @@ describe('gstack-review-scope (bin)', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true, action: 'fixed' }] },
     ];
     fs.writeFileSync(path.join(logDir, `${branch}-reviews.jsonl`), rows.map(r => JSON.stringify(r)).join('\n') + '\n{not json\n');
-    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen' };
+    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 };
     const out = path.join(repo.root, 'review-loop.json');
     const r = runBin(repo, 'gstack-review-scope', ['summary', '--since', '2026-10-26T09:30:00Z', '--out', out, '--json']);
     expect(r.status).toBe(EXIT.ok);

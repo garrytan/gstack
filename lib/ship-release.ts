@@ -12,19 +12,23 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
+import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
-import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short } from './ship-bin-common';
+import { bin, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
   version --base <base> [--bump micro|patch|minor|major] [--version <v>] [--keep-current] [--accept-incomplete] [--why <text>] [--answer <owner's words>]
       Step 12: classify, pick the queue-aware version, write it with --regen-digest --changelog, log the decision;
       --keep-current (or --version <current>) keeps VERSION; under bump ask a session no person answers needs --answer before a bump is written
-  finish --base <base> --reviewed-tree <tree> --docs-post <post.json> [--lane <label>=<command>]... [--build <command>]...
-         [--trailer <text>] [--docs-rechecked] [--no-lanes-approved]
+  finish --base <base> --reviewed-tree <tree> [--reviewed-base <sha>] --docs-post <post.json> [--lane <label>=<command>]... [--build <command>]...
+         [--trailer <text>] [--docs-rechecked] [--no-lanes-approved] [--context-reviewed <record.json>]
+         [--docs-requested <path>... --docs-result <the audit's result JSON>]
       Step 15's release commit, Step 16 stages 1-4 (your builds, the reviewed-tree route, docs freshness,
-      each lane's receipt run once if stale) and the pregate on the stamped tree
+      each lane's receipt run once if stale) and the pregate on the stamped tree; --reviewed-base (the merge base
+      saved with the reviewed tree) routes paths only the base moved as base=, and an adjacent base edit as context=
   push --branch <branch-name> [--gate-open <n>] [--gate-open-approved]
       Step 17 after its guard block: the saved-branch check, the open-gate check, the sealed guard, the idempotency check, git push -u
 
@@ -152,17 +156,126 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
   return true;
 }
 
-function route(cwd: string, reviewed: string, release: string[], docsRechecked: boolean, r: Report): boolean {
+/** Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts). */
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context', string[]>;
+function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string }, r: Report): Routed | null {
   const now = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
-  if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return false; }
-  const d = git(cwd, ['diff', '--name-only', reviewed, now]);
-  if (d.status !== 0) { r.stop(`the reviewed tree ${reviewed} is unreadable (${firstLine(d.stderr)}): a missing snapshot blocks stage 2`); return false; }
-  const changed = d.stdout.split('\n').filter(Boolean);
-  const behavior = changed.filter(p => !release.includes(p) && classifyPath(p, cwd) !== 'docs');
-  const docs = changed.filter(p => !release.includes(p) && classifyPath(p, cwd) === 'docs');
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${behavior.length} docs=${docs.length} metadata=${changed.length - behavior.length - docs.length}`);
-  if (behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(behavior)}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return false; }
-  if (docs.length && !docsRechecked) { r.stop(`authored docs changed since review (${short(docs)}): recheck the plan items they touch (stage 2.2), then rerun with --docs-rechecked`); return false; }
+  if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return null; }
+  const changedSet = touchedPaths(cwd, reviewed, now);
+  if (!changedSet) { r.stop(`the reviewed tree ${reviewed} is unreadable: a missing snapshot blocks stage 2`); return null; }
+  const baseRef = `origin/${base.replace(/^origin\//, '')}`;
+  let sides: PatchSides | undefined;
+  let touched = new Set<string>();
+  if (reviewedBase !== undefined) {
+    const rb = git(cwd, ['rev-parse', '--verify', '--quiet', `${reviewedBase}^{commit}`]).stdout.trim();
+    if (!rb) { r.stop(`--reviewed-base ${reviewedBase.slice(0, 40)} is not a commit in this clone: pass the merge base saved with the reviewed tree (git merge-base ${baseRef} HEAD at Step 11)`); return null; }
+    if (git(cwd, ['merge-base', '--is-ancestor', rb, baseRef]).status !== 0) { r.stop(`--reviewed-base ${rb.slice(0, 12)} is not on ${baseRef}: pass the merge base saved with the reviewed tree (git merge-base ${baseRef} HEAD at Step 11)`); return null; }
+    const cb = git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim();
+    const a = touchedPaths(cwd, rb, reviewed);
+    const b = cb ? touchedPaths(cwd, cb, now) : null;
+    if (!a || !b) { r.stop(`git could not diff the branch against ${baseRef} (fetch it first): stage 2 is blocked`); return null; }
+    sides = { reviewedBase: rb, reviewed, currentBase: cb, current: now };
+    touched = new Set([...a, ...b]);
+  }
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [] };
+  for (const p of [...changedSet].sort()) {
+    const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
+    by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+  }
+  const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
+  by.behavior.push(...by.tests.filter(p => gated.has(p)));
+  by.tests = by.tests.filter(p => !gated.has(p));
+  const packetBody = sides && (by.context.length || by.tests.length) ? contextPacket(cwd, sides, by.context, by.tests) : null;
+  if (packetBody?.over.length) {
+    r.add(`SCOPED_REVIEW: too large for the scoped review (over ${PACKET_SECTION_CAP} lines in a section): ${short(packetBody.over)}`);
+    by.behavior.push(...packetBody.over);
+    by.context = by.context.filter(p => !packetBody.over.includes(p));
+    by.tests = by.tests.filter(p => !packetBody.over.includes(p));
+  }
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}`);
+  if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
+  const scoped = [...by.context, ...by.tests].sort();
+  if (scoped.length && sides) {
+    if (!opts.contextReviewed) {
+      const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
+      const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : ''].filter(Boolean).join('; ');
+      try {
+        fs.mkdirSync(path.dirname(packet), { recursive: true });
+        fs.writeFileSync(packet, contextPacket(cwd, sides, by.context, by.tests).text);
+      } catch (e) {
+        r.stop(`${why}, but the scoped-review packet ${packet} cannot be written (${firstLine((e as Error).message)}): make its directory writable, then rerun finish (stage 2.1)`);
+        return null;
+      }
+      r.stop(`${why}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
+      return null;
+    }
+    const review = readScopedReview(opts.contextReviewed, { tree: now }, scoped);
+    if (!review.ok) { r.stop(`--context-reviewed: ${review.message}`); return null; }
+    r.add(`SCOPED_REVIEW: clean by ${review.review.reviewer} (${short(scoped)})`);
+  }
+  if (by.docs.length && !opts.docsRechecked) { r.stop(`authored docs changed since review (${short(by.docs)}): recheck the plan items they touch (stage 2.2), then rerun with --docs-rechecked`); return null; }
+  return by;
+}
+
+/** Step 16 stage 3. Test code, paths only the base moved, and --docs-requested fixes the audit's own result asked for do not stale the audit (GST-391). */
+function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, r: Report): boolean {
+  const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
+  let stale: string[] | null = null;
+  try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
+  if (stale === null) { r.stop(`gstack-docs-candidate compare failed: ${firstLine(cmp.stderr)}; documentation freshness is unknown (stage 3)`); return false; }
+  const record = JSON.parse(fs.readFileSync(postFile, 'utf8'));
+  const auditFile = path.join(cwd, '.gstack/tmp/docs-audit.json');
+  let docsAudit: ReceiptDocs | null = null;
+  if (fs.existsSync(auditFile)) {
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(auditFile, 'utf8')); } catch { raw = undefined; }
+    const parsed = parseReceiptDocs(raw);
+    if (!parsed.ok) { r.stop(`.gstack/tmp/docs-audit.json: ${parsed.message}; documentation status is unknown (stage 3)`); return false; }
+    docsAudit = parsed.docs;
+  }
+  const accepted = docsAudit?.exception;
+  if (accepted || record.exception) {
+    const same = !!accepted && !!record.exception && docsAudit!.status === 'blocked' && record.exception.scope === docsAudit!.scope
+      && (['accepted_by', 'date', 'via', 'reason'] as const).every(k => record.exception[k] === accepted[k]);
+    if (!same) {
+      r.stop(accepted
+        ? `the Step 14.5 audit is blocked and ${postFile} names no matching owner-accepted exception: snapshot with --exception .gstack/tmp/docs-audit.json (documentation.md Blocked recovery step 3)`
+        : `${postFile} names a documentation exception but .gstack/tmp/docs-audit.json is not the blocked record carrying it: rerun Step 14.5`);
+      return false;
+    }
+  }
+  const baseRef = `origin/${base.replace(/^origin\//, '')}`;
+  const nul = (out: string) => out.split('\0').filter(Boolean);
+  const auditBase = git(cwd, ['merge-base', baseRef, record.head]).stdout.trim();
+  const nowBase = git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim();
+  const atAudit = auditBase ? touchedPaths(cwd, auditBase, record.head) : new Set<string>();
+  const nowDiff = nowBase ? git(cwd, ['diff', '-z', '--name-only', '--no-renames', nowBase]) : null;
+  if (!atAudit || (nowDiff && nowDiff.status !== 0)) { r.stop(`git could not list the paths the branch touched against ${baseRef}; documentation freshness is unknown (stage 3)`); return false; }
+  const branchAtAudit = new Set([...atAudit, ...record.staged, ...record.unstaged, ...record.untracked]);
+  const branchNow = new Set([...(nowDiff ? nul(nowDiff.stdout) : []), ...nul(git(cwd, ['ls-files', '-z', '--others', '--exclude-standard']).stdout)]);
+  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
+  let audit: any = null;
+  try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
+  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
+    const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
+    const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
+    const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
+    const lines = Number(stat[0]) + Number(stat[1]);
+    const why = !audit ? 'needs --docs-result <the audit\'s saved result JSON>'
+      : audit.audit_id !== record.audit_id ? `is backed by the result of audit ${String(audit.audit_id)}, not ${String(record.audit_id)}`
+      : !asked.some((s: string) => token.test(s)) ? 'is not named in the audit result\'s blockers or decisions'
+      : classifyPath(p, cwd) !== 'docs' ? 'is not an authored doc'
+      : [...record.staged, ...record.unstaged, ...record.untracked].includes(p) ? 'was not clean at the post-audit snapshot'
+      : !(lines <= 5) ? `changed ${Number.isFinite(lines) ? lines : 'unknown'} lines since the audit (at most 5)` : null;
+    if (why) { r.stop(`--docs-requested ${p} ${why}: use stage 3 recovery`); return false; }
+    carried.requested.push(p);
+  }
+  if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
+  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p));
+  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length})`;
+  const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';
+  r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}${exception}`}`);
+  if (left.length) { r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, a fix the audit\'s result asked for via --docs-requested <path> --docs-result <audit-id>-result.json, or a named risk); never refresh hashes'); return false; }
   return true;
 }
 
@@ -180,13 +293,9 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   }
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!);
-  if (!route(cwd, flag('--reviewed-tree')!, release, has('--docs-rechecked'), r)) return r;
-  const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', flag('--docs-post')!], 120_000);
-  let stale: string[] | null = null;
-  try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
-  if (stale === null) return r.stop(`gstack-docs-candidate compare failed: ${firstLine(cmp.stderr)}; documentation freshness is unknown (stage 3)`);
-  r.add(`DOCS: ${stale.length ? `stale (${short(stale)})` : 'fresh against the Step 14.5 post-audit snapshot'}`);
-  if (stale.length) return r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, or a named risk); never refresh hashes');
+  const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed') }, r);
+  if (!routed) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!)], all('--docs-requested'), flag('--docs-result'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;

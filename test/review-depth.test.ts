@@ -44,8 +44,23 @@ describe('nextStep: the transition table', () => {
   test('a fixed blocker earns full pass 2', () => expect(nextStep({ fullPasses: 1, last: 'full', fixedBlocking: true }).step).toBe('full'));
   test('below-floor fixes earn one fix-check', () => expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true }).step).toBe('fix-check'));
   test('a fix touching gate code earns a full pass instead of a fix-check', () => expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true, touchedGate: true }).step).toBe('full'));
-  test('at the full-pass cap a fixed blocker gets a fix-check', () => expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true }).step).toBe('fix-check'));
-  test('at the cap a gate-touching fix still gets a fix-check, never a third full pass', () => expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true, touchedGate: true }).step).toBe('fix-check'));
+  // R51: two rounds is the cap, a fix-check included. A blocker open or fixed in round 2 stops for the owner (a grant may add
+  //   one scoped fix-check); below-floor fixes in round 2 finish with notes; a light pass whose fixes change no runtime lines is done.
+  test('a blocker fixed in round 2 stops for the owner, never a third round', () => {
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining('scoped fix-check') });
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true, touchedGate: true }).step).toBe('stop');
+  });
+  test('below-floor fixes in round 2 finish with notes, a fix-check included', () => {
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true, fixedBlocking: true }).step).toBe('stop');
+  });
+  test('a light pass 1 whose below-floor fixes change no runtime lines is done; a runtime fix or a deeper diff keeps the fix-check', () => {
+    expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'light').step).toBe('done');
+    expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true, rangeRuntimeLines: 3 }, 'light').step).toBe('fix-check');
+    expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'full').step).toBe('fix-check');
+    expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true }, 'light').step).toBe('fix-check');
+  });
   test('a blocker open at the cap stops', () => expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', blockingOpen: true }).step).toBe('stop'));
   test('a blocker open with no fix stops', () => expect(nextStep({ fullPasses: 1, last: 'full', blockingOpen: true }).step).toBe('stop'));
   test('a fix-check that finds a blocker stops, never a third full pass', () => {
@@ -83,8 +98,12 @@ describe('planReview', () => {
     expect(p.depth).toBe('light');
     expect(roles(p)).toEqual([]);
   });
-  test('code class pass 1: specialists at medium, the native adversarial at full, the outside voice at its own', () => {
-    const p = planReview(base({}));
+  test('non-risky code pass 1 is light at any size (R51): one batched reader carrying the Red Team prompt and the native adversarial', () => {
+    const p = planReview(base({ diffLines: 900 }));
+    expect([p.depth, roles(p)]).toEqual(['light', ['specialist:batched:full', 'adversarial-native:adversarial:full']]);
+  });
+  test('code class pass 1 at standard: specialists at medium, the native adversarial at full, the outside voice at its own', () => {
+    const p = planReview(base({ floor: 'standard' }));
     expect(roles(p)).toEqual(['specialist:batched:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
     expect(batch(p)).toEqual(['testing', 'security']);
     expect(p.skipped).toContain('maintainability, performance, simplification (lean ensemble: read only when forced)');
@@ -162,10 +181,10 @@ describe('GSTA-131 pass-1 review repairs', () => {
     expect(scanNumbers({ 'test/fixtures/bench.json': ['{ "ratio": 0.74 }'] }).publishes).toBe(true);
   });
   test('--all-specialists forces every specialist; a code diff past 200 lines or with a CRITICAL adds the Red Team', () => {
-    const all = planReview(base({ force: 'all' }));
+    const all = planReview(base({ floor: 'standard', force: 'all' }));
     expect(all.dispatches.filter(d => d.role === 'specialist').length).toBe(1);
     expect([...batch(all)!].sort()).toEqual(['api-contract', 'data-migration', 'design', 'maintainability', 'performance', 'security', 'simplification', 'state-machines', 'testing']);
-    const has = (o: Partial<PlanInput>) => roles(planReview(base(o))).some(r => r.startsWith('red-team'));
+    const has = (o: Partial<PlanInput>) => roles(planReview(base({ floor: 'standard', ...o }))).some(r => r.startsWith('red-team'));
     expect(has({ diffLines: 120 })).toBe(false);
     expect(has({ diffLines: 201 })).toBe(true);
     expect(has({ diffLines: 120, criticalFound: true })).toBe(true);
@@ -175,20 +194,20 @@ describe('GSTA-131 pass-1 review repairs', () => {
 describe('GSTA-131 coverage: Red Team and specialist arms', () => {
   const roles = (p: ReturnType<typeof planReview>) => p.dispatches.map(d => `${d.role}:${d.name}`);
   test('Red Team runs on code past 200 lines or after a CRITICAL, and on every gate diff', () => {
-    expect(roles(planReview(base({ diffLines: 120 })))).not.toContain('red-team:red-team');
-    expect(roles(planReview(base({ diffLines: 201 })))).toContain('red-team:red-team');
-    expect(roles(planReview(base({ diffLines: 120, criticalFound: true })))).toContain('red-team:red-team');
+    expect(roles(planReview(base({ diffLines: 120, floor: 'standard' })))).not.toContain('red-team:red-team');
+    expect(roles(planReview(base({ diffLines: 201, floor: 'standard' })))).toContain('red-team:red-team');
+    expect(roles(planReview(base({ diffLines: 120, floor: 'standard', criticalFound: true })))).toContain('red-team:red-team');
     expect(roles(planReview(base({ diffLines: 20, gateTagged: 1 })))).toContain('red-team:red-team');
   });
   test('scope arms select their specialist, state machines default on when scope is unknown, and --force all reaches docs class', () => {
-    const picked = (scope: Record<string, string>) => batch(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false', ...scope } })));
+    const picked = (scope: Record<string, string>) => batch(planReview(base({ floor: 'standard', scope: { SCOPE_STATE_MACHINE: 'false', ...scope } })));
     expect(picked({ SCOPE_MIGRATIONS: 'true' })).toContain('data-migration');
     expect(picked({ SCOPE_API: 'true' })).toContain('api-contract');
     expect(picked({ SCOPE_FRONTEND: 'true' })).toEqual(['testing', 'security', 'design']);
     expect(batch(planReview(base({ scope: {} })))).toContain('state-machines');
     expect(batch(planReview(base({ scope: { SCOPE_STATE_MACHINE: 'false' } })))).not.toContain('state-machines');
-    expect(batch(planReview(base({ force: ['maintainability'] })))).toEqual(['testing', 'security', 'maintainability']);
-    expect(batch(planReview(base({ gated: ['design'], scope: { SCOPE_FRONTEND: 'true', SCOPE_STATE_MACHINE: 'false' } })))).toEqual(['testing', 'security']);
+    expect(batch(planReview(base({ floor: 'standard', force: ['maintainability'] })))).toEqual(['testing', 'security', 'maintainability']);
+    expect(batch(planReview(base({ floor: 'standard', gated: ['design'], scope: { SCOPE_FRONTEND: 'true', SCOPE_STATE_MACHINE: 'false' } })))).toEqual(['testing', 'security']);
     const docsAll = planReview(base({ paths: ['docs/a.md'], force: 'all' }));
     expect(docsAll.class).toBe('docs');
     expect(docsAll.dispatches.filter(d => d.role === 'specialist').length).toBeGreaterThan(5);
@@ -215,8 +234,12 @@ describe('review depth: the matrix', () => {
     expect(p.skipped.join('; ')).toContain('red-team (light depth');
     expect(planReview(mixed({ perPath: per({ 'src/app.ts': 48 }), adversarialRan: true, history: { fullPasses: 1, last: 'full', touchedGate: true, fixedBelow: true } })).dispatches.some(d => d.role === 'adversarial-native')).toBe(false);
   });
-  test('runtime 51 is standard: thresholds read runtime lines, reviewers read their own hunks', () => {
+  test('runtime 51 non-risky code stays light (R51: size never raises the depth)', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 51, 'test/a.test.ts': 400, 'README.md': 3 }), diffLines: 454 }));
+    expect([p.depth, p.runtimeLines, roles(p)]).toEqual(['light', 51, ['specialist:batched:full', 'adversarial-native:adversarial:full']]);
+  });
+  test('standard (floor or raise): thresholds read runtime lines, reviewers read their own hunks', () => {
+    const p = planReview(mixed({ perPath: per({ 'src/app.ts': 51, 'test/a.test.ts': 400, 'README.md': 3 }), diffLines: 454, floor: 'standard' }));
     expect([p.depth, p.runtimeLines]).toEqual(['standard', 51]);
     expect(roles(p)).toEqual(['specialist:batched:medium', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
     expect(batch(p)).toEqual(['testing', 'security']);
@@ -274,14 +297,16 @@ describe('review depth: the matrix', () => {
     expect(depthFor({ cls: 'code', runtimeLines: 10, errors: [], floor: 'full' })).toBe('full');
     expect(depthFor({ cls: 'code', runtimeLines: 10, errors: [], floor: 'standard' })).toBe('standard');
     expect(depthFor({ cls: 'gate', runtimeLines: 10, errors: [], floor: 'standard' })).toBe('full');
-    expect(depthFor({ cls: 'code', runtimeLines: 80, errors: [] })).toBe('standard');
+    expect(depthFor({ cls: 'code', runtimeLines: 80, errors: [] })).toBe('light');
+    expect(depthFor({ cls: 'code', runtimeLines: 3, errors: [], risk: ['data'] })).toBe('full');
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 10 }), floor: 'full' }));
     expect(p.depth).toBe('full');
     expect(p.depthReasons).toContain('floor:full');
   });
   test('depthOfCommitInput gives the same depth as the plan for the same input', () => {
     const i = { paths: ['src/app.ts', 'test/a.test.ts'], perPath: per({ 'src/app.ts': 51, 'test/a.test.ts': 9 }), gateTagged: 0 };
-    expect(depthOfCommitInput(i)).toMatchObject({ depth: 'standard', runtimeLines: 51, rules: DEPTH_RULES, errors: [] });
+    expect(depthOfCommitInput(i)).toMatchObject({ depth: 'light', runtimeLines: 51, rules: DEPTH_RULES, errors: [], risk: [] });
+    expect(depthOfCommitInput({ ...i, added: { 'src/app.ts': ['const spend_cap_usd = 5;'] } })).toMatchObject({ depth: 'full', risk: ['money'] });
     expect(depthOfCommitInput({ ...i, gateTagged: null }).depth).toBe('full');
   });
 });
@@ -300,6 +325,7 @@ describe('review depth: diff commands and the rules hash', () => {
     try {
       const src = fs.readFileSync(path.join(ROOT, 'lib/review-depth.ts'), 'utf8');
       fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
+      fs.symlinkSync(path.join(ROOT, 'lib/review-risk.ts'), path.join(dir, 'review-risk.ts'));
       const hashOf = (text: string) => {
         fs.writeFileSync(path.join(dir, 'review-depth.ts'), text);
         fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
@@ -369,7 +395,7 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
     expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial']);
   });
   test('the scoped pass counts toward the cap, and a blocker it leaves stops for the owner', () => {
-    expect(nextStep(fixed(10, { fullPasses: FULL_PASS_CAP }), 'standard').step).toBe('fix-check');
+    expect(nextStep(fixed(10, { fullPasses: FULL_PASS_CAP }), 'standard').step).toBe('stop');
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', blockingOpen: true, rangeRuntimeLines: 10 }, 'light').step).toBe('stop');
     const at = (m: number) => new Date(Date.UTC(2026, 9, 28, 10, m)).toISOString();
     const rows = [
@@ -397,6 +423,7 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
       const src = fs.readFileSync(path.join(ROOT, 'lib/review-depth.ts'), 'utf8');
       expect(src).toContain('SCOPED_RANGE_LINES = 150');
       fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
+      fs.symlinkSync(path.join(ROOT, 'lib/review-risk.ts'), path.join(dir, 'review-risk.ts'));
       fs.writeFileSync(path.join(dir, 'review-depth.ts'), src.replace('SCOPED_RANGE_LINES = 150', 'SCOPED_RANGE_LINES = 151'));
       fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
       const res = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });
@@ -491,11 +518,11 @@ describe('lean ensemble: one batched specialist at standard and full depth (GSTA
     expect(specialists(full).map(d => [d.name, d.effort, d.checklists])).toEqual([['batched', 'medium', ['testing', 'security', 'state-machines']]]);
   });
   test('a standard code plan reads one batched reader on its own hunks, and a forced checklist joins it', () => {
-    const p = planReview(base({ diffLines: 400, scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' } }));
+    const p = planReview(base({ diffLines: 400, floor: 'standard', scope: { SCOPE_BACKEND: 'true', SCOPE_STATE_MACHINE: 'false' } }));
     expect(specialists(p).map(d => [d.name, d.checklists])).toEqual([['batched', ['testing', 'security']]]);
     expect(roles(p)).toContain('red-team:red-team:full');
-    expect(batch(planReview(base({ force: ['performance', 'simplification'] })))).toEqual(['testing', 'security', 'performance', 'simplification']);
-    expect(specialists(planReview(base({ tiers: false })))[0]!.effort).toBe('host');
+    expect(batch(planReview(base({ floor: 'standard', force: ['performance', 'simplification'] })))).toEqual(['testing', 'security', 'performance', 'simplification']);
+    expect(specialists(planReview(base({ floor: 'standard', tiers: false })))[0]!.effort).toBe('host');
   });
 });
 
