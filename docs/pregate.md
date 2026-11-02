@@ -74,7 +74,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 
 | Key | Meaning |
 |---|---|
-| `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
+| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
 | `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
@@ -762,7 +762,15 @@ workflow file is the lane's own `<workflow.yml>`. A run of another workflow
 refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
 ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
 run gh cannot read refuses with `api_error`, and a URL that is not an Actions
-run URL or id on this repository with `run_ref_invalid`. The run must also
+run URL or id on this repository with `run_ref_invalid`. A reusable-workflow
+lane (one whose file another workflow calls through `workflow_call`) also clears from a run
+of a caller: a workflow in the branch's own `.github/workflows/` with a job
+that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
+pregate.json's recorded tree, as long as the lane's own job succeeded in the
+run under that calling job (`<calling job> / <lane job>`); else it refuses
+with `caller_job_skipped`. Fix lines only suggest `gh workflow run` for
+a file with a `workflow_dispatch` trigger.
+The run must also
 have finished green (GSTA-203 PR 8): a run that is still queued or running
 refuses with `run_in_progress`, and one that concluded anything but `success`
 (`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line
@@ -770,7 +778,8 @@ says to rerun the workflow and clear with the green run. The check reads the
 run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
 the whole run, not that job or attempt, and the lane records
 `https://github.com/<repo>/actions/runs/<id>/attempts/<n>` for the attempt it
-judged rather than the link you passed. The job, tree and age are not
+judged rather than the link you passed. The job (apart from a caller run's
+`<calling job> / <lane job>` above), tree and age are not
 checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
 unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and

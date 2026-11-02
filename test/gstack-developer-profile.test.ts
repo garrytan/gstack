@@ -331,6 +331,43 @@ describe('gstack-developer-profile --derive', () => {
     expect(p.inferred.signal_events).toBe(2);
   });
 
+  test('a signal hint on an unregistered id moves its dimension (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(1);
+    expect(p.inferred.hinted_events).toBe(1);
+    expect(p.inferred.values.scope_appetite).toBeGreaterThan(0.5);
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('(hinted)');
+  });
+
+  test('the same unregistered answer without a hint moves nothing (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('an unknown hint, a choice outside the signal and a registered id ignore the hint (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-a', question_summary: 'a?', user_choice: 'expand', signal_key: 'made-up', session_id: 's1' });
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-b', question_summary: 'b?', user_choice: 'maybe', signal_key: 'scope-appetite', session_id: 's2' });
+    logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', signal_key: 'scope-appetite', session_id: 's3' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.contributing_events.architecture_care).toBe(1);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('hinted rows share the per-day cap (#3442)', () => {
+    for (let i = 0; i < 5; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: `plan-ceo-review-q${i}`, question_summary: 'q?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: `s${i}`, ts: '2026-10-31T12:00:00Z' });
+    }
+    runDev('--derive');
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('capped to +0.060');
+  });
+
   test('contributing_events is all zero when no answer matches a signal', () => {
     logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'not-a-mapped-option', session_id: 's1' });
     runDev('--derive');

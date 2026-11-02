@@ -2592,12 +2592,24 @@ case with `bun run eval:pass-rates --headroom --case <id>`.
 <a id="cost-unknown"></a>
 ### `cost unknown (no billing captured for any of <N> trial(s))` / `cost $<x> known + <N> of <M> trial(s) cost unknown`
 
-**Meaning.** PTY and Codex sessions record no billing, so their cost is
-unknown. So is a trial in a multi-case shard whose result records are named by
-a display label rather than the case id, because no record can be attributed
-to it (a one-case shard's records are its case's). Only the known sum is
-shown. A train verdict's `ATTEMPT:` line reports the same as `cost=$<x> known
-+ <n> of <m> case(s) cost unknown`, a bare `cost=$<x>` only when every case
+**Meaning.** Some trials' cost was not captured, so only the known sum is
+shown. A trial is cost-unknown when it ran a PTY session whose transcript
+could not be priced (a non-hermetic or resumed launch, the native
+AskUserQuestion capture, two new transcripts for one cwd, no transcript or
+usage, or a model with no price row), a
+Codex session that completed no turn or whose model has no price row, a
+`claude -p` session that ended without a result, or an aborted Agent SDK
+session whose streamed usage could not be priced (no usage, or a model with no
+price row). A PTY or aborted Agent SDK session that does price counts its
+`streamed_cost_usd` instead. A trial is also unknown when no record and no
+session can be attributed to it, for example a multi-case shard's
+display-label record without `cost_case_id` (a one-case shard's records are
+its case's); a model-free case (`timeline-event-flow`) is a known $0. A panel
+trial (`behavior`, `judge`) is unknown whenever any of its sessions billed
+nothing, even one with a priced `streamed_cost_usd`. The rules are in
+[Failure causes and details](TESTING_INTERNALS.md#failure-causes). A train
+verdict's `ATTEMPT:` line reports the same as `cost=$<x> known + <n> of <m>
+case(s) cost unknown`, a bare `cost=$<x>` only when every case
 in the train record is priced, and no cost at all when none is.
 
 **Fix.** None needed; this is informational.
@@ -3855,7 +3867,10 @@ repository), `api_error` (gh could not read the run), `workflow_mismatch` (a
 run of another workflow), `run_in_progress` (still queued or running) or
 `run_not_success` (it failed, was cancelled or timed out). Each prints a fix
 line; after the last three, clear again with a finished green run of the
-lane's own workflow ([run evidence](pregate.md#run-evidence)).
+lane's own workflow ([run evidence](pregate.md#run-evidence)). For a lane whose
+workflow runs only through `workflow_call`, a run of a workflow whose job says
+`uses: ./.github/workflows/<lane's>.yml` counts as a run of the lane (GST-971);
+it refuses `caller_job_skipped` when its `<calling job> / <lane job>` job did not succeed.
 
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s
 tree only in the repo's stamp rule (`.gstack/ship-policy.json` on the base
@@ -5486,6 +5501,23 @@ body no longer carries the exception's line word for word
 /ship again and record the owner's acceptance with `--docs` or
 `--review-loop-exception` ([ship-policy.md](ship-policy.md#ship-receipt)).
 
+<a id="queue-receipt-targeted-missing"></a>
+### `QUEUE_RECEIPT_TARGETED_MISSING`
+
+**Meaning.** `ready`, `train build` or `land` recomputed the targeted
+classes the head needs (money, gate, auth, secret) from git, and the receipt's
+`review_targeted` does not cover every one of them with a `done` pass. The
+`REVIEW_TARGETED:` line prints the required classes, the classes a done pass
+covered (`legacy` when the receipt records no targeted pass) and
+`verdict=missing`, or `verdict=failed` when the recorded pass failed. A
+head that needs no class passes whatever the receipt records. The receipt is
+unchanged.
+
+**Fix.** Run /ship on the head the READY names so the targeted reader runs on
+every required class and `gstack-ship-receipt write --review-targeted` records
+a done pass ([review-policy.md](review-policy.md#targeted-pass-on-money-gate-auth-and-secret-code)).
+Never edit `review_targeted` by hand.
+
 <a id="queue-screen-stale-ref"></a>
 ### `QUEUE_SCREEN_STALE_REF`
 
@@ -5883,7 +5915,8 @@ body that names a counter the receipt records (`passes=3` against
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
-`## Approvals` table `gstack-approvals` renders is never read as a claim.
+`## Approvals` table `gstack-approvals` renders, and the `Review-loop exception: …`
+line the receipt's exception requires, are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten
