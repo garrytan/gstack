@@ -1222,7 +1222,11 @@ block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
 is not a `pass` claim. Text you write under the heading after that block, and
-a `## Approvals` example inside a code fence, are still checked. Data PRs (evals,
+a `## Approvals` example inside a code fence, are still checked. The
+`Review-loop exception: …` line the receipt's own exception requires is
+skipped the same way (GST-977): it quotes the owner's reason, so "outside 1 and
+2 skip detector" is not a `2 skip` claim. Only a line that matches the rendered
+line exactly is skipped; the same words anywhere else are still checked. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-scope"></a>
