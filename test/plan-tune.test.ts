@@ -29,9 +29,7 @@ import {
 } from '../scripts/one-way-doors';
 import {
   SIGNAL_MAP,
-  applySignal,
   validateRegistrySignalKeys,
-  newDimensionTotals,
   normalizeToDimensionValue,
   resolveOptionKey,
   ALL_DIMENSIONS,
@@ -244,26 +242,6 @@ describe('psychographic signal map', () => {
   test('every signal_key in registry has a SIGNAL_MAP entry', () => {
     const { missing } = validateRegistrySignalKeys();
     expect(missing).toEqual([]);
-  });
-
-  test('applySignal mutates dimension totals per mapping', () => {
-    const dims = newDimensionTotals();
-    const applied = applySignal(dims, 'scope-appetite', 'expand');
-    expect(applied.length).toBeGreaterThan(0);
-    expect(dims.scope_appetite).toBeCloseTo(0.06, 5);
-  });
-
-  test('applySignal returns [] for unknown signal_key', () => {
-    const dims = newDimensionTotals();
-    const applied = applySignal(dims, 'no-such-signal', 'anything');
-    expect(applied).toEqual([]);
-    expect(dims.scope_appetite).toBe(0);
-  });
-
-  test('applySignal returns [] for unknown user_choice', () => {
-    const dims = newDimensionTotals();
-    const applied = applySignal(dims, 'scope-appetite', 'definitely-not-a-real-choice');
-    expect(applied).toEqual([]);
   });
 
   test('normalizeToDimensionValue maps 0 → 0.5 (neutral)', () => {

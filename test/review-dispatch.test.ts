@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
+import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -705,7 +705,7 @@ describe('the workspace paragraph (GST-482)', () => {
       const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
       expect(r.status, role + ': ' + r.stderr).toBe(0);
       const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
-      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(main + '\n\n' + workspaceParagraph(top));
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(workspaceStep(top) + '\n\n' + main + '\n\n' + workspaceParagraph(top));
     }
     expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
     expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
@@ -761,10 +761,75 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     expect([u.status, u.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice')]).toEqual([0, true]);
   });
 
+  // Value: protects=the fingerprint request opens every brief and asks for the command's output line, so a reader that
+  //   follows a findings-only format still binds its tree; the captured gpt-6.1-sol replies from GST-850, which never ran
+  //   the command, stay refused; fails_when=the request only closes the brief (GST-850 p1/p2 COLLECT_WRONG_TREE) or reads
+  //   as "copy the command", or collect relaxes for a reply with findings and no line; seam=lib/review-brief.ts
+  //   withWorkspace, bin/gstack-review-dispatch collect; no_claim=a model's compliance (the GST-897 replay measures that)
+  test('the fingerprint step opens the brief and its command prints a line collect accepts; GST-850 gpt-6.1-sol replies stay refused (GST-897)', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    const brief = fs.readFileSync(file, 'utf8');
+    const first = brief.split('\n')[0]!;
+    expect(first).toStartWith(`First step, before anything else: run \`cd '${top}' && echo "REVIEWED_TREE: `);
+    expect(first).toContain('Copy that output line, not the command, as the first line of your final reply');
+    expect(brief.slice(brief.lastIndexOf('\n\n') + 2)).toContain('(the output, not the command)');
+    const command = /run `([^`]+)`/.exec(first)![1]!;
+    const printed = spawnSync('bash', ['-c', command], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    expect(checkReviewedTree(printed + '\nNO FINDINGS', expected).ok).toBe(true);
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
+    for (const p of ['p1', 'p2']) {
+      const reply = path.join(ROOT, `test/fixtures/review-wrong-tree/gpt-6.1-sol-gst850-${p}.out`);
+      const refused = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', path.join(out, `${p}.jsonl`)], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+      expect([p, refused.status, refused.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice reported="none"')]).toEqual([p, 1, true]);
+    }
+  });
+
   test('render outside a readable checkout refuses instead of recording a fingerprint no reply can match', () => {
     const dir = tmp();
     const r = run(['render', '--role', 'adversarial-native', '--out', path.join(dir, 'o'), '--diff-base', SHA], dir);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('BRIEF_RENDER_FAILED: cannot read HEAD^{tree} and the toplevel of');
+  });
+});
+
+describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => {
+  const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  const command = `cd '${top}' && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
+  // Value: protects=a reader that reviewed the right checkout is not failed for how it wrote its fingerprint; fails_when=a reply that echoes the command and then writes `printed: REVIEWED_TREE: …` (two Sonnet 5.5 low readers) is failed as reported="none", or a `printed:` label lets a wrong tree, toplevel or other label through;
+  //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts checkReviewedTree via gstack-review-dispatch collect; no_claim=the brief's wording, which stays main's until a no-loss replay
+  test('the echoed command then a printed: line is read; the same shape with a wrong tree or checkout is still refused', () => {
+    const reply = (fingerprint: string) => `${command}\nprinted: REVIEWED_TREE: ${fingerprint}\nNO FINDINGS\n`;
+    const oneLine = (fingerprint: string) => `${command} printed: REVIEWED_TREE: ${fingerprint}\n\nNO FINDINGS\n`;
+    expect(checkReviewedTree(oneLine(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(oneLine(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true });
+    expect(checkReviewedTree(oneLine(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false });
+    expect(checkReviewedTree(`${command} Note: REVIEWED_TREE: ${tree} ${top}`, `${tree} ${top}`).reported).toBe('none');
+    expect(checkReviewedTree(reply(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
+    expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
+    expect(checkReviewedTree(`Note: REVIEWED_TREE: ${tree} ${top}\nNO FINDINGS`, `${tree} ${top}`).reported).toBe('none');
+    for (const line of ['`printed: REVIEWED_TREE: ' + tree + ' ' + top + '`', `**Printed:** REVIEWED_TREE: ${tree} ${top}`, `**printed: REVIEWED_TREE: ${tree} ${top}**`]) {
+      expect(checkReviewedTree(line, `${tree} ${top}`).ok, line).toBe(true);
+      expect(checkReviewedTree(line.replace(tree, 'c'.repeat(40)), `${tree} ${top}`).ok, line).toBe(false);
+    }
+
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const file = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA]).stdout, 'file');
+    run(['sent', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--sent', file]);
+    const collectReply = (text: string) => {
+      const f = path.join(out, 'reply.out');
+      fs.writeFileSync(f, text);
+      return spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    };
+    const wrong = collectReply(reply(`${'b'.repeat(40)} ${top}`));
+    expect([wrong.status, wrong.stdout.startsWith('COLLECT_TREE_MOVED: reader=specialist/testing')]).toEqual([1, true]);
+    const right = collectReply(reply(`${tree} ${top}`));
+    expect(right.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
   });
 });

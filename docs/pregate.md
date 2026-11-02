@@ -195,7 +195,10 @@ Two stages with separate clocks, both printed:
   changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
   findings on its added lines count, so a line added inside an existing
   `"""` or `'''` string is still read as a literal; its rows give the file's
-  line number (`app.py, line 10`).
+  line number (`app.py, line 10`). A tracked file's whole text is the version
+  git diffed (a full-context `git diff`), never the working copy; an untracked
+  file is read whole from disk. A file over the size limit, or whose full diff
+  does not parse, is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
@@ -380,7 +383,7 @@ The record is `.gstack/tmp/pregate.json` (`gstack-artifact validate --as pregate
 (`PREGATE_STALE`: rerun after the final stamp), green (`PREGATE_LANE_FAILED`,
 `PREGATE_INCOMPLETE`, or `PREGATE_ENVIRONMENT` when every incomplete check is
 the machine's) and every `requires-remote` obligation carries a receipt
-(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, then
+(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, wait for it to finish green, then
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>`). The ship
 receipt then carries `pregate` and `requires_remote`. `gstack-pregate verify`
 runs the same check standalone.
@@ -751,8 +754,25 @@ reads `remote-gate tree=<t12> tests=<n> runs=<id>/<attempt>,… profiles=<p>,…
 heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
 stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
 the same way; for such a lane `--run-url` is verified as `--run` is, and
-`--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
-recording. When the base config or the GitHub origin cannot be read, `--run`
+`--bundle-lane` is refused. A lane with no profile still clears by
+`--run-url`, with run checks (GSTA-203): when the base config and the GitHub
+origin can be read, `clear` reads the run once and refuses
+`PREGATE_RECEIPT_INVALID` unless it is a run of this repository whose
+workflow file is the lane's own `<workflow.yml>`. A run of another workflow
+refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
+ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
+run gh cannot read refuses with `api_error`, and a URL that is not an Actions
+run URL or id on this repository with `run_ref_invalid`. The run must also
+have finished green (GSTA-203 PR 8): a run that is still queued or running
+refuses with `run_in_progress`, and one that concluded anything but `success`
+(`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line
+says to rerun the workflow and clear with the green run. The check reads the
+run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
+the whole run, not that job or attempt, and the lane records
+`https://github.com/<repo>/actions/runs/<id>/attempts/<n>` for the attempt it
+judged rather than the link you passed. The job, tree and age are not
+checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
+unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
 warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
@@ -768,7 +788,18 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url` as before. A pull request cut before these
+still clears by `--run-url`, checked for its workflow file and a green
+conclusion. On main the free tier's Windows smoke lane is
+`windows-smoke.yml/windows-smoke`, and a `windows-smoke.yml` run clears it.
+Two narrower Windows lanes are owed only when a branch selects their own test
+files: `free-tests.yml/cso-windows-launcher` (cleared by a `free-tests.yml`
+run) and `windows-setup-e2e.yml/windows-setup` (cleared by a
+`windows-setup-e2e.yml` run). The six-shard
+`windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
+obligation. A branch cut before
+`windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
+from its own workflows, and only a `windows-free-tests.yml` run clears that. A
+pull request cut before these
 workflows uploaded `tested-tree` has no record a lane profile could verify, so
 lane profiles wait until open pull requests carry the producer (GST-555).
 
@@ -923,8 +954,11 @@ those, each with its scope and its reason:
   (`session: HttpSession,`) and a dict entry or Dart named argument that reads
   a name (`"password": request.password`) are code, not credentials, as they
   are in TypeScript (#3630). Python's keyword form (`password=request.password`)
-  still reports. The same line inside a `"""` docstring is text and still
-  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  still reports. The same line inside a `"""` docstring, any other string or
+  a Dart `/* */` comment is text and still reports; allowlist it by its value.
+  Code inside a Python f-string or t-string `{…}` field, or a non-raw Dart
+  string's `${…}`, is read as code, and its nested strings and quotes do not
+  end the outer string (GST-738). The pre-push hook sees only added lines,
   so it scans Python and Dart lines without this exemption and may still warn
   (MEDIUM, non-blocking) on them.
 
@@ -1071,7 +1105,8 @@ with a timing flake: never raise the bound.
     "answer_markers": ["SEALED ANSWER:"],
     "seed_patterns": ["shuffle_seed=\\d+"],
     "local_paths": true,
-    "case_insensitive": true } }
+    "case_insensitive": true,
+    "label_keys": ["stratum", "decoy_set"] } }
 ```
 
 A repo with a `sealed` key gets a configured local check against accidental
@@ -1117,11 +1152,60 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
   sealed data. Each exempt path is listed on every push (`exempt <rule>
   <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
   `exempt=<n>` on the `SEALED:` line.
-- **Version skew.** A gstack older than the release whose CHANGELOG adds
-  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
-  unknown keys, so every push and `gstack-pregate run` in the repository
-  fail on that machine. Raise `min_gstack_version` in
-  `.gstack/ship-policy.json` to that release before landing either key.
+- **Label joins.** Off unless `label_keys` names at least one field. Then
+  `sealed.label_join` refuses a published record that puts a label field next
+  to an identifier, the way a panel row with `stratum` beside `head` and
+  `plan_bytes` tells a model under test which unit it is. A record is a JSON
+  object at any depth (its own fields plus one level of nested objects, named
+  like `meta.head`), a JSONL or NDJSON line, a CSV or TSV row, or a row of a
+  Markdown pipe table (CSV and TSV cells may be quoted). Field names and table headers are compared after
+  trimming, lowercasing and turning spaces and hyphens into underscores
+  (`Tree SHA-256` is `tree_sha_256`); this is the rule's own normalization,
+  separate from `case_insensitive`. An identifier is a field whose name
+  matches an `identifier_keys` glob (`*` is the only wildcard; the default
+  is `head`, `head_sha`, `sha`, `commit`, `tree`, `tree_sha*`, `*_sha`,
+  `*_sha256`, `sha256`, `digest`, `*_digest`, `hash`, `*_hash`,
+  `*_bytes`, `bytes`, `size`, `files`, `lines`), or any string value (or a
+  list holding one) of 7 to 64 hex characters with at least one digit and
+  one letter a to f. An
+  object key of that shape counts as an identifier of the object it holds
+  (shown as `(key)`), so a map keyed by sha joins too. Numbers count only
+  through the field name. A field can be both a label and an identifier, and
+  a record joins when it has a label field and a different identifier field,
+  so adding identifier names to `label_keys` never hides a join. Both lists take bare field names: a nested field
+  matches by its own name (`stratum`, never `meta.stratum`). For each supported file a commit adds,
+  modifies, renames or copies, the guard fingerprints every joined record
+  (sha256 over its label and identifier fields and their values, kept in
+  memory) and compares the set with the parent's version of the file (the
+  rename or copy source; every parent for a merge). A fingerprint no parent
+  has is a finding, so unchanged records and formatting-only edits stay clear,
+  and a replaced, added or widened record refuses even when the count stays
+  the same. A file whose text never names a label key, ignoring double
+  quotes (so `"Strat"um` still names `stratum`), cannot hold a join, so
+  it is skipped without parsing (a commented `tsconfig.json` passes). A file
+  with a `\u` escape, which could spell a label key, is always parsed, so a
+  commented one is `sealed.label_join_unchecked`. A
+  supported file over 4 MiB, one that names a label key and does not parse (one bad
+  JSONL line is enough), one nested deeper than 64 levels, or a blob git
+  cannot read is `sealed.label_join_unchecked`. It refuses too, and the
+  `SEALED:` line counts it as `unchecked=<n>`. Findings print field names
+  (`keys=`, label fields first), never values; `--json` carries them as
+  `keys`. `allow_paths` never exempt either rule; a base-branch waiver does.
+  Both lists are the union of the base branch's and the pushed policy's, each
+  resolved to its default first, so a push can turn the rule on or widen it
+  but never turn it off or narrow it. Without `label_keys` the guard reads no
+  file contents and its output is unchanged. Known limits: joins across files,
+  joins by reference inside a file (a `decoy_set` list naming units described
+  elsewhere), a map from an identifier straight to a label value with no
+  label field name, columnar JSON (`columns` plus `rows`), labels encoded in
+  file names, and prose.
+- **Version skew.** A gstack older than the release that adds a `sealed` key
+  refuses it as unknown, so every push and `gstack-pregate run` in the
+  repository fail on that machine. `allow_paths` and `case_insensitive` came
+  with the release whose CHANGELOG adds `sealed.allow_paths`; `label_keys`
+  and `identifier_keys` came with the release whose CHANGELOG adds
+  `sealed.label_join`. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing the key.
 - **Policy.** The union of the destination base branch's `sealed` and the
   pushed commit's: a push can tighten it, never relax it (`allow_paths` come
   from the base branch alone, and a pushed deny glob cannot override one). The

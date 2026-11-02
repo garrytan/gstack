@@ -271,6 +271,18 @@ describe('setup: Chromium bootstrap block executes best-effort', () => {
     expect(fs.readFileSync(path.join(r.tmp, 'mark'), 'utf-8')).toContain('killed');
   }, 15_000);
 
+  test('_wait_with_deadline returns a quickly exiting child\'s status without waiting out a whole second', () => {
+    const t0 = Date.now();
+    const r = runBashScript([
+      extractFn('_kill_tree'), extractFn('_wait_with_deadline'),
+      '(sleep 0.05; exit 3) &',
+      '_wait_with_deadline $! 90 || echo "RC=$?"',
+    ].join('\n'), { timeout: 10_000 });
+    expect(r.stdout).toBe('RC=3\n');
+    // gstack-timing-ok: a sub-second return is the contract; the old 1 s poll took 1,008 ms, this path takes ~0.2 s
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
+
   test('non-numeric timeout knob falls back to the default instead of erroring', () => {
     const r = runBlock({ probe: 'fail', bunx: 'exit 3', env: { GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT: 'soon' } });
     expect(r.status).toBe(0);
@@ -653,6 +665,7 @@ function runLinker(opts: {
     '_print_windows_copy_note_once() { :; }',
     '_FOREIGN_SKIPPED_ENTRIES=()',
     extractFn('_link_or_copy'),
+    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
     extractFn('_gstack_link_target_abs'),
     extractFn('_gstack_target_is_ours'),
     extractFn('_claude_entry_is_ours'),

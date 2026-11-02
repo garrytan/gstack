@@ -570,7 +570,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
-   are the parent's. Each reviewer keeps its plan entry and is rendered by the same code as
+   are the parent's. `--diff-base` sets every reader's base, a scoped pass's Red
+   Team included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
@@ -583,17 +584,26 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
    point is found against `origin/<base>` first, as preflight does.
-7. Every brief, audit readers' included, ends with a workspace paragraph naming the
-   checkout the bins run in (GST-482): a reader on a shared machine starts in the
-   machine's working directory, so it is told to `cd` there on every command, to give
-   every file tool an absolute path under it, and to start its reply with
-   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
-   section's render, which stays byte for byte. `collect` and `mark --state collected`
+7. Every brief, audit readers' included, opens with a fingerprint step and ends with a
+   workspace paragraph naming the checkout the bins run in (GST-482): a reader on a shared
+   machine starts in the machine's working directory, so it is told to `cd` there on every
+   command, to give every file tool an absolute path under it, and to start its reply with
+   the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   step comes first because a reader following a findings-only format skipped the request
+   when it only closed the brief (GST-897). The section's render sits between the two,
+   byte for byte. `collect` and `mark --state collected`
    compare that line with the fingerprint recorded at render: a missing or foreign line is
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
    is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
    outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
-   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
+   worked elsewhere by accident; it is not proof of reading, since diff text can predict it. A `printed:` label
+   before the line (plain, bold or inside its backticks) is still read, and its tree and toplevel are still compared
+   exactly (GST-776). Capy cannot start a subagent in a chosen directory, so before a stage takes a start token or sends
+   its first reader, the Capy pass program compares the checkout with the one shared readers start in (the thread's
+   working directory) and stops when that is another checkout or cannot be read: run /ship in the thread's own checkout.
+   A start directory outside any checkout, such as a multi-repo workspace root, holds no tree to review by mistake and
+   dispatches. Step 11's voices take the `adversarial-review` start
+   token by default, and a `logStart` list without it stops before anything runs.
 
 ## Where this is enforced
 
