@@ -1226,7 +1226,8 @@ a `## Approvals` example inside a code fence, are still checked. The
 `Review-loop exception: …` line the receipt's own exception requires is
 skipped the same way (GST-977): it quotes the owner's reason, so "outside 1 and
 2 skip detector" is not a `2 skip` claim. Only a line that matches the rendered
-line exactly is skipped; the same words anywhere else are still checked. Data PRs (evals,
+line exactly is skipped, inside a code fence too, as the receipt check accepts
+a fenced copy; the same words inside a longer line are still checked. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-scope"></a>

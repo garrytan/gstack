@@ -69,8 +69,9 @@ function withoutApprovalsBlocks(body: string): string {
 /**
  * The body without the `Review-loop exception: …` line the receipt's own exception requires (GST-977): write and the
  * receipt check want it word for word, and it quotes the owner's reason (`outside 1 and 2 skip detector`), not this
- * PR's counters. Only a line whose trimmed text is that rendered line, the test write applies, is left out; the same
- * words anywhere else stay prose. A marker line takes its place so the text on either side never joins into a claim.
+ * PR's counters. Only a line whose trimmed text is that rendered line, the test write applies, is left out (a fenced
+ * copy too, as write accepts one); the same words inside a longer line stay prose. A marker line takes its place so
+ * the text on either side never joins into a claim.
  */
 function withoutExceptionLine(body: string, exception: unknown): string {
   if (exception === undefined) return body;
