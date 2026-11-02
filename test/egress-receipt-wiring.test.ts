@@ -155,6 +155,8 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'git fetch appears only in an error-message string',
   'bin/gstack-worktree-audit':
     'read-only audit: best-effort fetch of the user\'s own repo\'s base branch so the MERGED column is current (skipped with --no-fetch) — a user-repo dev-workflow op like gstack-next-version\'s, not gstack-state egress',
+  'lib/default-base.ts':
+    'read-only `git ls-remote --symref <remote> HEAD` of the user\'s own repo (5 s timeout, prompts off) to learn its live default branch, run only when the cached origin/HEAD names the checked-out branch (GST-774) — a user-repo dev-workflow op like gstack-next-version\'s, not gstack-state egress',
   'bin/gstack-state-matrix':
     'git fetch appears only in an error-message string (the fix the user runs when origin/<base> has no merge base)',
   'bin/gstack-redact-prepush':

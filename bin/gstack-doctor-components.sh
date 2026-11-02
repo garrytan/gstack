@@ -306,6 +306,7 @@ gstack_result_anchor() {
     BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;
     BASE_RED_PAUSE_EXPIRED) printf '%s' 'base-red-pause-expired' ;;
     BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
+    BASE_CONTAINS_HEAD) printf '%s' 'base-contains-head' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;

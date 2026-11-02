@@ -254,6 +254,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'no new base head passed the paused cases before gstack-base-red wait’s timeout',
     fix: 'run gstack-base-red wait --pause <file> again (the pause stays valid until it expires), or check who owns the base red',
   },
+  BASE_CONTAINS_HEAD: {
+    anchor: 'base-contains-head',
+    summary: 'the base is the head or already contains it while the branch has commits its real base lacks, so a base-relative step would compare the branch with itself and report no changes',
+    fix: 'compare against the branch’s real base (the PR’s base branch, usually main): pass it as the base, or run git remote set-head origin <base> when origin/HEAD names the checked-out branch',
+  },
   QUEUE_RECEIPT_DEPTH_RAISED: {
     anchor: 'queue-receipt-depth-raised',
     summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',

@@ -329,6 +329,7 @@ describe('parity with the measured prototype', () => {
     'lib/bun-isolation.ts': 'GSTA-56: every bun launcher (script-invocation, restamp, qa-deadline, the hooks) imports it, so it reaches every consumer of those launchers',
     'lib/ship-receipt-docs.ts': 'bin/gstack-ship-receipt imports it (the docs audit record and doc caps), so it reaches every consumer of the receipt binary',
     'lib/ship-receipt-prose.ts': 'bin/gstack-ship-receipt imports it (read --check-prose), so it reaches every consumer of the receipt binary',
+    'lib/default-base.ts': 'GST-511/GST-774: lib/ship-policy.ts (resolveBaseBranch), lib/gate-diff/git.ts, lib/pregate/context.ts, lib/ship-receipt-depth.ts and the review-plan, gate-diff, pregate, docs-candidate and diff-scope bins import or run it, so it reaches every consumer of those readers',
   };
 
   test('the shipped map equals or is a reviewed superset of the prototype map on this checkout', () => {
