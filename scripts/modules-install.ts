@@ -26,7 +26,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { runGeneration } from './gen-skill-docs';
+import { readConfigKey } from '../lib/state-root';
+import { loadGbrainOverride, runGeneration } from './gen-skill-docs';
 import { resolveModel } from './models';
 import { ModuleError, type ModuleSelection } from './modules';
 import { LOCK_FILE, danglingReferences } from './modules-render';
@@ -148,6 +149,10 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   const planMode = request.planMode ?? true;
   const model = request.boundModel ? resolveModel(request.boundModel) : null;
   const selection: ModuleSelection = { ...request.selection, boundModel: request.boundModel ?? undefined, fullRoot: request.boundModel ? request.fullRoot : undefined };
+  const gbrainDetected = loadGbrainOverride(true);
+  const disabledSkills = [...new Set((readConfigKey('disabled_skills') ?? '').replace(/["']/g, '').split(/[\s,]+/)
+    .map(n => n.replace(/^\//, '')).filter(n => n !== 'gstack' && n !== 'gstack-upgrade')
+    .map(n => n.replace(/^gstack-/, '')).filter(n => /^[a-z0-9-]+$/.test(n)))].sort();
   const identity = {
     loadout: selection.name,
     excluded: [...selection.excluded].sort(),
@@ -157,6 +162,8 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
     host,
     overlay_model: model,
     plan_mode: planMode,
+    gbrain_detected: gbrainDetected,
+    disabled_skills: disabledSkills,
     source_tree: sourceTree(source),
   };
   const identitySha = sha256(JSON.stringify(identity));
@@ -174,7 +181,7 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   }
   const stage = `${final}.stage-${process.pid}-${randomBytes(4).toString('hex')}`;
   try {
-    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: request.fullRoot && request.fullRoot !== path.join(os.homedir(), '.claude/skills') ? path.join(request.fullRoot, 'gstack') : null, model, planMode, modules: selection });
+    const result = await runGeneration({ host, outputRoot: stage, contentLinkRoot: final, installRoot: request.fullRoot && request.fullRoot !== path.join(os.homedir(), '.claude/skills') ? path.join(request.fullRoot, 'gstack') : null, model, planMode, modules: selection, gbrainDetected, disabledSkills });
     const errors = result.diagnostics.filter(d => d.kind === 'error').map(d => d.message);
     if (result.exitCode !== 0 || errors.length) {
       throw new ModuleError('RENDER_FAILED', `gen-skill-docs failed: ${errors.join('; ') || 'exit 1'}`, 'fix the named template or module, then rerun; side effects: none, safe to retry');
