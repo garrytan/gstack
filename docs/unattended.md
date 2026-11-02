@@ -635,7 +635,9 @@ voices as usual. When CEO closes, the run prints `REVIEWED:` and ends
 gate would have asked becomes a `decisions.jsonl` row of kind `auto` and status
 `auto_kept` (nobody answered: the plan's direction is kept, and a round-cap item
 only the owner can accept, such as a Critical left open, stays undecided with
-no chosen option), and tasks are blocked on no decision. The driver never edits the plan, writes no `gate.json` and never
+no chosen option), and tasks are blocked on no decision. An open Critical or
+High finding, which a full gate asks about, gets no row: nobody decides it, and
+it stays in the report's Findings and in `tasks.jsonl` for the owner. The driver never edits the plan, writes no `gate.json` and never
 approves, so `gstack-artifact validate` accepts the run as it stands.
 
 - The flag goes on the first `next` only. It refuses beside `--ui`,

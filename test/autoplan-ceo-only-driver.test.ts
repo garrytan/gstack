@@ -68,6 +68,17 @@ describe('next --ceo-only runs the CEO phase alone and ends reviewed', () => {
     for (const t of tasks) { expect(t.blocked_by).toEqual([]); expect(t.status).not.toBe('blocked_on_decision'); }
   });
 
+  test('an open Critical or High finding is decided by nobody: no decision row, still in the report and the tasks for the owner', () => {
+    const decisions = rows(path.join(out, 'decisions.jsonl'));
+    expect(decisions.some(d => /^(Critical|High): /.test(d.title))).toBe(false);
+    const report = fs.readFileSync(path.join(out, 'ceo-review.md'), 'utf8');
+    expect(report).toMatch(/\[Critical\] The install check lies by omission .*disposition: /);
+    expect(report).toMatch(/\[High\] Gate reuse on tree equality alone is unsound .*disposition: /);
+    expect(report).not.toMatch(/(Critical|High): .*kept/);
+    const tasks = rows(path.join(out, 'tasks.jsonl'));
+    expect(tasks.some(t => t.title === 'Gate reuse on tree equality alone is unsound' && t.priority === 'High')).toBe(true);
+  });
+
   test('the artifact set validates and the plan is untouched', () => {
     const v = spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-artifact'), 'validate', path.join(out, 'run.json')], { cwd: ROOT, env: env(), encoding: 'utf8', timeout: 60_000 });
     expect(v.stdout).toContain('ARTIFACT_VALID: ');
