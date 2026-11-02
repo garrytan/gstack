@@ -94,7 +94,7 @@ describe('Writing Style preamble section', () => {
     const fenceLine = out.split('\n').find(l => l.includes('gstack-skill-start" --skill'));
     expect(fenceLine).toBeDefined();
     expect(fenceLine).not.toMatch(/~\/\.claude\//);
-    expect(fenceLine).toContain('$GSTACK_BIN');
+    expect(fenceLine).toContain('$GSTACK_ROOT/bin/');
   });
 
   test('tier 1 preamble does NOT include Writing Style section', () => {

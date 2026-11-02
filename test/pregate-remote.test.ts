@@ -22,6 +22,7 @@ const GATE = 'node scripts/remote-gate.js';
 const GATE_SCRIPT = [
   "const fs = require('node:fs');",
   "fs.writeFileSync('../gate-env.json', JSON.stringify({ tree: process.env.PREGATE_TREE, cap: process.env.PREGATE_SPEND_CAP_USD, timeout: process.env.PREGATE_TIMEOUT_S, files: fs.readFileSync(process.env.PREGATE_FILES_FILE, 'utf8') }));",
+  "if (process.env.GATE_QUIET_MS) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.GATE_QUIET_MS));",
   "if (process.env.GATE_SILENT) process.exit(0);",
   "const spent = process.env.GATE_SPENT ? ` spent=${process.env.GATE_SPENT}` : '';",
   "console.log(`PREGATE_REMOTE: tree=${process.env.GATE_TREE || process.env.PREGATE_TREE} tests=${process.env.GATE_TESTS ?? 3} failed=${process.env.GATE_FAILED ?? 0}${spent}`);",
@@ -185,6 +186,22 @@ describe('gstack-pregate --remote (C-c)', () => {
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain('the head file is a bootstrap and its remote_gate cannot clear its own obligation');
     expect(fs.existsSync(path.join(repo.root, 'gate-env.json'))).toBe(false);
+  }, 60_000);
+
+  // Value: protects=a remote gate that waits quietly on CI is bounded by its deadline (--timeout, else timeout_s), not killed by the
+  //   test-output stall timer; a gate past its deadline still stays uncleared (GST-431); fails_when=the stall timer kills a quiet gate
+  //   inside its deadline, or a gate past --timeout clears; why_new=a CI-waiting gate died at 300 s on qm (CAPY-1); seam=fake gate;
+  //   no_claim=the Ubicloud VM
+  test('a gate that is quiet past the stall timeout but inside its deadline clears; past --timeout it stays uncleared', () => {
+    const repo = gated();
+    const quiet = remote(repo, ['--remote', '--allow-repo-commands', '--spend-cap', '2', '--stall-timeout', '1', '--timeout', '60'], { GATE_QUIET_MS: '2500' });
+    expect(quiet.status).toBe(EXIT.ok);
+    expect(pregateFile(repo).verdict).toBe('requires-remote cleared');
+    const late = remote(repo, ['--remote', '--allow-repo-commands', '--spend-cap', '2', '--timeout', '2'], { GATE_QUIET_MS: '8000' });
+    expect(late.status).toBe(EXIT.fail);
+    expect(lanes(repo)).toMatchObject({ status: 'incomplete', code: 'PREGATE_INCOMPLETE' });
+    expect(lanes(repo).detail).toContain('the remote gate did not finish (timed out after 2 s, --timeout)');
+    expect(pregateFile(repo).requires_remote[0].receipt).toBeNull();
   }, 60_000);
 
   test('a wrong tree, zero tests, a failure, a missing line or a non-zero exit leaves the obligation uncleared and the check incomplete; unreported spend counts at the cap', () => {

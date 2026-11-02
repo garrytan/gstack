@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GENERATED_PATH, parseRegistry } from './regen';
 import { RESULT_CODES } from './result-codes';
-import { classifyPath, dataCandidate, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
+import { classifyPath, dataCandidate, svgCandidate, svgDrawing, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
 
 export interface Collected extends ClassInput {
   perPath: PathLines[];
@@ -20,6 +20,8 @@ export interface Collected extends ClassInput {
   errors: DepthError[];
   deleted: string[];
   stampOnly: string[];
+  /** Paths the diff creates (untracked files included): their added lines are the whole file. */
+  created: string[];
   /** Added lines per path, for scanNumbers. */
   added: Record<string, string[]>;
   /** Deleted lines per path, for the targeted classes (lib/review-targeted.ts). */
@@ -28,6 +30,7 @@ export interface Collected extends ClassInput {
   mergeBase: string | null;
   untracked: string[];
   consumed: string[] | 'all';
+  drawings: string[];
 }
 
 function git(root: string, args: string[]): { ok: boolean; status: number | null; out: string; err: string } {
@@ -54,11 +57,11 @@ export function loadRegistryAt(root: string, sha: string): RegistryInfo {
 }
 
 /** Numstat, deletions and the -U0 patch for `range` (`[mergeBase, head]` or `[mergeBase]` for the working tree). */
-function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'added' | 'removed'> {
+function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'created' | 'added' | 'removed'> {
   const numstat = git(root, ['diff', '--numstat', '-z', '--no-renames', ...range]);
   const status = git(root, ['diff', '--name-status', '-z', '--no-renames', '--diff-filter=D', ...range]);
   const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...range]);
-  const empty = { perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} };
+  const empty = { perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} };
   for (const [r, what] of [[numstat, '--numstat'], [status, '--name-status'], [patch, '-U0']] as const) {
     if (!r.ok) { errors.push({ code: 'numstat_failed', detail: oneLine(r.err || 'git diff failed'), input: `git diff ${what} ${range.join(' ')}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' }); return empty; }
   }
@@ -73,6 +76,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
   const added: Record<string, string[]> = {};
   const removed: Record<string, string[]> = {};
   const changed: Record<string, string[]> = {};
+  const created: string[] = [];
   let cur = '';
   let minus = '';
   let inHunk = false;
@@ -80,7 +84,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     if (line.startsWith('diff --git ')) { inHunk = false; cur = ''; minus = ''; continue; }
     if (!inHunk) {
       if (line.startsWith('--- ')) minus = line === '--- /dev/null' ? '' : line.slice(6).replace(/\t$/, '');
-      else if (line.startsWith('+++ ')) cur = line === '+++ /dev/null' ? minus : line.slice(6).replace(/\t$/, '');
+      else if (line.startsWith('+++ ')) { cur = line === '+++ /dev/null' ? minus : line.slice(6).replace(/\t$/, ''); if (!minus && cur && !scratch(cur)) created.push(cur); }
       else if (line.startsWith('@@')) inHunk = true;
       continue;
     }
@@ -90,7 +94,7 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
     if (line[0] === '+' || line[0] === '-') (changed[cur] ??= []).push(line);
   }
   const stampOnly = perPath.map(e => e.path).filter(p => p.endsWith('package.json') && !!changed[p]?.length && changed[p]!.every(l => /^[+-]\s*"version"\s*:\s*"[^"]*"\s*,?\s*$/.test(l)));
-  return { perPath, deleted, stampOnly, added, removed };
+  return { perPath, deleted, stampOnly, created, added, removed };
 }
 
 /** More data candidates than this keep every data file code: the consumer scan is not run. */
@@ -106,7 +110,7 @@ export const CONSUMER_SCAN_DEPTH = 4;
  * a collector error, which fails the depth closed.
  */
 export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[]): string[] | 'all' {
-  const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot)).sort();
+  const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot) || svgCandidate(p, classRoot)).sort();
   if (candidates.length > CONSUMER_SCAN_CAP) return 'all';
   const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
   const named = new Map<string, Set<string>>();
@@ -146,9 +150,20 @@ export function scanConsumers(root: string, paths: readonly string[], revs: read
   return candidates.filter(p => consumed.has(p));
 }
 
-function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked' | 'consumed'>): Collected {
+/** The largest SVG whose text is read for the drawing check; a larger one stays code. */
+export const DRAWING_READ_CAP = 8 * 1024 * 1024;
+
+/** The changed SVG candidates whose whole text, read by `read` (null when it cannot be read), is a drawing (lib/review-depth.ts svgDrawing). */
+function drawingsAmong(perPath: readonly PathLines[], classRoot: string | readonly string[], read: (p: string) => Buffer | null): string[] {
+  return perPath.filter(e => !e.binary && svgCandidate(e.path, classRoot)).map(e => e.path).filter(p => {
+    const buf = read(p);
+    return !!buf && buf.length <= DRAWING_READ_CAP && !buf.includes(0) && svgDrawing(buf.toString('utf8'));
+  }).sort();
+}
+
+function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked' | 'consumed'> & { drawings?: string[] }): Collected {
   const paths = diff.perPath.map(e => e.path).sort();
-  return { ...diff, ...extra, paths, gateTagged: null, diffLines: diff.perPath.reduce((n, e) => n + e.lines, 0) };
+  return { ...diff, drawings: [], ...extra, paths, gateTagged: null, diffLines: diff.perPath.reduce((n, e) => n + e.lines, 0) };
 }
 
 /** The range `baseSha`...`headSha` from git objects alone; the registry is the base commit's, never the head's. */
@@ -158,25 +173,29 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
   const mb = git(root, ['merge-base', baseSha, headSha]);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || 'no merge base'), input: `git merge-base ${baseSha} ${headSha}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root: [], registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase, headSha], errors);
   const tree = git(root, ['ls-tree', '-r', '--name-only', '-z', headSha]);
   const skillDirs = [...new Set(tree.out.split('\0').flatMap(p => /^([^/]+)\/SKILL\.md(\.tmpl)?$/.exec(p)?.[1] ?? []))].sort();
   const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [headSha, mergeBase], false, skillDirs, errors);
-  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed });
+  const drawings = drawingsAmong(diff.perPath, skillDirs, p => {
+    const blob = spawnSync('git', ['cat-file', 'blob', `${headSha}:${p}`], { cwd: root, timeout: 60_000, maxBuffer: DRAWING_READ_CAP + 1 });
+    return blob.status === 0 && !blob.error ? blob.stdout : null;
+  });
+  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed, drawings });
 }
 
 /** The working tree against the merge base with origin/<base> (or <base>), untracked files counted per path; the registry is the base ref's commit. */
 export function collectLive(root: string, base: string): Collected {
   const errors: DepthError[] = [];
-  const ref = git(root, ['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]).ok ? `origin/${base}` : base;
+  const ref = [`refs/remotes/origin/${base}`, `refs/heads/${base}`].find(r => git(root, ['rev-parse', '--verify', '-q', `${r}^{commit}`]).ok) ?? base;
   const registry = loadRegistryAt(root, ref);
   const mb = git(root, ['merge-base', ref, 'HEAD']);
   if (!mb.ok) {
     errors.push({ code: 'numstat_failed', detail: oneLine(mb.err || `no merge base with ${ref}`), input: `git merge-base ${ref} HEAD`, repair: `fetch the base first (git fetch origin ${base})` });
-    return result({ perPath: [], deleted: [], stampOnly: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
+    return result({ perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} }, { root, registry, errors, mergeBase: null, untracked: [], consumed: 'all' });
   }
   const mergeBase = mb.out.trim();
   const diff = readDiff(root, [mergeBase], errors);
@@ -190,8 +209,11 @@ export function collectLive(root: string, base: string): Collected {
     const text = binary ? '' : buf.toString('utf8');
     const lines = text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0;
     diff.perPath.push({ path: p, lines, binary });
-    if (!binary) diff.added[p] = text.split('\n');
+    if (!binary) { diff.added[p] = text.split('\n'); diff.created.push(p); }
   }
   const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [mergeBase], true, root, errors);
-  return result(diff, { root, registry, errors, mergeBase, untracked, consumed });
+  const drawings = drawingsAmong(diff.perPath, root, p => {
+    try { return fs.statSync(path.join(root, p)).size <= DRAWING_READ_CAP ? fs.readFileSync(path.join(root, p)) : null; } catch { return null; }
+  });
+  return result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings });
 }

@@ -5,7 +5,7 @@ import { CAPTURE_LONG_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import { runId, describeIfSelected, testConcurrentIfSelected, createEvalCollector, recordE2E, finalizeEvalCollector, logCost } from './helpers/e2e-helpers';
 import { describeE2ETier } from './helpers/e2e-gate';
-import { acceptedChangedPaths, docsDispatchIndices, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
+import { acceptedChangedPaths, docsAttemptContracts, docsDispatchIndices, vetDocsCompletion } from './helpers/docsync-contract';
 import { fixtureDocs, repoSnapshot, changedFiles, DOC_PATH, preserveDocsEvidence, sawSpawnedMarker, childReportedSpawnedMarker, type DocsScenario } from './helpers/docsync-fixture';
 import { observeDocsWrites, docsWriteFailures, docsShipPhase, docsToolFailures, docsCompletedRead, docsSessionOptions } from './helpers/docsync-observer';
 import type { SkillTestResult } from './helpers/session-runner';
@@ -82,14 +82,11 @@ async function runShipDocs(testName: string, scenario: DocsScenario) {
       } else {
         // The parent accepts the last attempt; a rejected earlier attempt's edits stay in the tree (Blocked recovery preserves
         // partial content), so the accepted contract owns the paths no earlier attempt reported plus any it claims itself.
-        const contracts = dispatches.map(index => {
-          const raw = JSON.parse(calls[index].output.trimEnd().split('\n').at(-1)!);
-          const contract = parseDocsCompletion(calls[index].output, raw.audit_id);
-          expect(JSON.stringify(calls[index].input)).toContain(raw.audit_id);
+        const { accepted: contract, attempts: contracts } = docsAttemptContracts(dispatches.map(index => calls[index].output));
+        dispatches.forEach((index, position) => {
+          expect(JSON.stringify(calls[index].input)).toContain(contracts[position].audit_id);
           expect(childReportedSpawnedMarker(result, calls[index])).toBe(true);
-          return contract;
         });
-        const contract = contracts.at(-1)!;
         expect(sawSpawnedMarker(result)).toBe(true);
         vetDocsCompletion(contract, {
           settled: result.exitReason === 'success', markerSeen: sawSpawnedMarker(result),

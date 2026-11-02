@@ -506,3 +506,64 @@ describe('waivers name the full commit sha (GST-268)', () => {
     expect(JSON.parse(preflight(s, ['--range', 'nosuch..HEAD', '--json']).out).ignoredWaivers).toEqual([]);
   });
 });
+
+const PANEL = JSON.stringify({ units: [
+  { stratum: 'decoy', tags: ['W:T1'], plan_bytes: 3760, files: 5, head: '5b7db3aa' + '1'.repeat(32), tree_sha256: '15762a' + '0'.repeat(56) + 'aa' },
+  { stratum: 'seeded', tags: ['B:T2'], plan_bytes: 4112, files: 7, head: '9c1e0bbb' + '2'.repeat(32), tree_sha256: '88aa11' + '0'.repeat(56) + 'bb' },
+] }, null, 2) + '\n';
+const PANEL_VALUES = [/5b7db3aa/, /15762a0/, /9c1e0bbb/, /88aa110/, /\b3760\b/, /\b4112\b/, /W:T1/, /B:T2/, /\bdecoy\b/, /\bseeded\b/];
+
+describe('sealed.label_join: labels published beside self-computable identifiers (GST-620)', () => {
+  test('the GSTA-2 panel (stratum and tags beside head, tree_sha256, plan_bytes, files) refuses on a public destination and warns on a private one, naming fields, never values', () => {
+    const labeled = { paths: ['**/heldout*/**'], label_keys: ['stratum', 'tags', 'decoy_set'] };
+    const s = scratch({ '.gstack/pregate.json': policy(labeled) });
+    const sha = commit(s, { 'wiki/board/panel/panel.json': PANEL });
+    const keys = ['stratum', 'tags', 'files', 'head', 'plan_bytes', 'tree_sha256'];
+    const text = preflight(s);
+    expect(text.code).toBe(1);
+    expect(text.err).toContain(`sealed.label_join  wiki/board/panel/panel.json  commit ${sha.slice(0, 12)}  keys=${keys.join(',')}`);
+    expect(text.out).toMatch(/^SEALED: refused findings=1 commits=1 /m);
+    const json = preflight(s, ['--json']);
+    expect(JSON.parse(json.out).findings).toEqual([{ rule: 'sealed.label_join', file: 'wiki/board/panel/panel.json', commit: sha, keys }]);
+    const h = hook(s);
+    expect(h.code).toBe(1);
+    expect(h.err).toContain(`sealed.label_join  wiki/board/panel/panel.json  commit ${sha.slice(0, 12)}  keys=${keys.join(',')}`);
+    for (const out of [text.out, text.err, json.out, h.err]) for (const value of PANEL_VALUES) expect(out).not.toMatch(value);
+    const priv = scratch({ '.gstack/pregate.json': policy({ ...labeled, visibility: 'private' }) });
+    commit(priv, { 'wiki/board/panel/panel.json': PANEL });
+    const p = preflight(priv);
+    expect(p.code).toBe(0);
+    expect(p.err).toMatch(/warning.*sealed\.label_join\s+wiki\/board\/panel\/panel\.json/s);
+  });
+});
+
+const OFF_GOLDEN = path.join(ROOT, 'test', 'fixtures', 'sealed-guard-off-golden.json');
+/** Representative pushes under policies without label_keys, each read three ways: the preflight's text and --json, and the pre-push hook. */
+function offRuns(): Record<string, unknown> {
+  const table = '| unit | stratum | head |\n|---|---|---|\n| u1 | decoy | 5b7db3a |\n';
+  const fixtures: Record<string, () => Scratch> = {
+    refused: () => { const s = scratch({ '.gstack/pregate.json': policy(SEALED) }); commit(s, { 'wiki/board/panel/panel.json': PANEL, 'runs/c1/transcript.jsonl': '{}\n', 'runs/c1/summary.md': 'SEALED ANSWER: x\n' + table }); return s; },
+    clear: () => { const s = scratch({ '.gstack/pregate.json': policy({ paths: ['heldout/**'] }) }); commit(s, { 'wiki/board/panel/panel.json': PANEL, 'wiki/board.md': table, 'wiki/units.csv': 'stratum,head\ndecoy,5b7db3a\n' }); return s; },
+    exempt: () => { const s = scratch({ '.gstack/pregate.json': policy(MANIFEST) }); commit(s, { 'sealed/s1/MANIFEST.json': PANEL, 'wiki/board/panel/panel.json': PANEL }); return s; },
+    waived: () => { const s = scratch({ '.gstack/pregate.json': policy(SEALED) }); const sha = commit(s, { 'runs/c1/transcript.jsonl': '{}\n', 'wiki/panel.json': PANEL }); landOnMain(s, { '.gstack/sealed-allow.tsv': `sealed.transcript\truns/c1/transcript.jsonl\t${sha}\tsynthetic fixture\n` }); return s; },
+    warned: () => { const s = scratch({ '.gstack/pregate.json': policy({ ...SEALED, visibility: 'private' }) }); commit(s, { 'runs/c1/transcript.jsonl': '{}\n', 'wiki/panel.json': PANEL }); return s; },
+    error: () => { const s = scratch({ '.gstack/pregate.json': policy(SEALED) }); commit(s, { '.gstack/pregate.json': policy({ ...SEALED, answer_markers: ['('] }), 'wiki/panel.json': PANEL }); return s; },
+    'no-policy': () => { const s = scratch({}); commit(s, { 'wiki/panel.json': PANEL }); return s; },
+  };
+  const runs: Record<string, unknown> = {};
+  for (const [name, make] of Object.entries(fixtures)) {
+    const s = make();
+    const norm = (t: string) => t.split(s.root).join('<root>').replace(/[0-9a-f]{12,64}/g, '<sha>');
+    const text = preflight(s); const json = preflight(s, ['--json']); const h = hook(s);
+    runs[name] = { code: text.code, stdout: norm(text.out), stderr: norm(text.err), jsonCode: json.code, json: norm(json.out), hookCode: h.code, hookStderr: norm(h.err) };
+  }
+  return runs;
+}
+
+describe('off unless configured (GST-620 item 13)', () => {
+  test('without sealed.label_keys, stdout, stderr, --json, the hook and every exit code match the capture from main 2d1b55d76 byte for byte', () => {
+    const runs = offRuns();
+    if (process.env.SEALED_GUARD_GOLDEN_CAPTURE) { fs.writeFileSync(process.env.SEALED_GUARD_GOLDEN_CAPTURE, JSON.stringify(runs, null, 2) + '\n'); return; }
+    expect(runs).toEqual(JSON.parse(fs.readFileSync(OFF_GOLDEN, 'utf8')));
+  }, 120_000);
+});

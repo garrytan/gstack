@@ -204,6 +204,46 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(path.join(mockGitRoot, '.cursor', 'rules', 'keep.md'))).toBe(true);
     });
 
+    // Value: protects=uninstall clears gstack's Gemini CLI skills from ~/.gemini/skills, a folder the user's own skills share;
+    //   fails_when=the Gemini block is dropped, or loses the provenance gate and sweeps a user's gstack-prefixed skill;
+    //   why_new=#1247 adds the Gemini CLI host; seam=none; no_claim=Gemini CLI itself (temp HOME fixture)
+    test('--force removes Gemini CLI gstack skills and leaves the user\'s own', () => {
+      const banner = '<!-- AUTO-GENERATED from SKILL.md.tmpl - DO NOT EDIT DIRECTLY -->\n# x\n';
+      const skills = path.join(mockHome, '.gemini', 'skills');
+      const render = path.join(tmpDir, 'render', 'gstack-review');
+      fs.mkdirSync(render, { recursive: true });
+      fs.writeFileSync(path.join(render, 'SKILL.md'), banner);
+      fs.mkdirSync(path.join(skills, 'gstack'), { recursive: true });
+      fs.writeFileSync(path.join(skills, 'gstack', 'SKILL.md'), banner);
+      fs.symlinkSync(render, path.join(skills, 'gstack-review'));
+      for (const [name, body] of [['gstack-my-notes', '# mine\n'], ['frontend-design', 'keep']]) {
+        fs.mkdirSync(path.join(skills, name), { recursive: true });
+        fs.writeFileSync(path.join(skills, name, 'SKILL.md'), body);
+      }
+      fs.writeFileSync(path.join(mockHome, '.gemini', 'settings.json'), '{}');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force'], {
+        stdio: 'pipe',
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          HOME: mockHome,
+          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+        },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(skills, 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(skills, 'gstack-review'))).toBe(false);
+      expect(fs.existsSync(path.join(render, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skills, 'gstack-my-notes', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skills, 'frontend-design', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(mockHome, '.gemini', 'settings.json'))).toBe(true);
+      expect(result.stderr.toString()).toContain('gstack-my-notes');
+    });
+
     test("a user's own gstack-prefixed Cursor dir (no banner) survives and is listed", () => {
       // S5: the bare gstack* glob must not sweep a dir that merely starts
       // with "gstack" — provenance comes from the generated banner, and a

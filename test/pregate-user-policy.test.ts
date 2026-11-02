@@ -6,7 +6,7 @@
  * requires-remote. Every assertion holds on any host platform: each lane the
  * fixture selects is either named in `local` or asserted only by label.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -15,18 +15,20 @@ import { EXIT } from '../lib/headless-artifacts';
 import { loadConfigFromUser, validateConfig } from '../lib/pregate/config';
 import { buildContext, sha256, userConfigRejection } from '../lib/pregate/context';
 import { runPregate, verifyPregate } from '../lib/pregate/index';
-import { BASE_PREGATE, BIN, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
+import { BASE_PREGATE, BIN, cleanup, cloneFixture, commit, fixtureTemplate, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 import { runScriptSync } from '../lib/script-invocation';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+const noBasePolicy = fixtureTemplate({ pregate: null });
+afterAll(() => noBasePolicy.dispose());
 
 const SLUG = 'userpolicy';
 const LOCAL_ALL = ['free-tests.yml/unit', 'windows.yml/windows-shard'];
 
 /** A fixture whose base carries no `.gstack/pregate.json`, a feature commit touching lib/util.js, and the user-file path for its slug. */
 function setup(): { repo: FixtureRepo; userPolicy: string; run: (extra?: string[]) => ReturnType<typeof runBin> } {
-  const repo = makeFixtureRepo({ pregate: null });
+  const repo = cloneFixture(noBasePolicy);
   repos.push(repo);
   commit(repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
   const userPolicy = path.join(repo.home, 'projects', SLUG, 'pregate.json');
@@ -157,12 +159,16 @@ describe('gstack-pregate with a user-owned policy', () => {
     expect(invalid.err).toContain(`fix: edit ${userPolicy} directly`);
     expect(invalid.err).not.toContain('.gstack/pregate.json has');
 
-    for (const [key, value] of [['sealed', { paths: ['evals/**'] }], ['price_file', 'evals/calls.json']] as const) {
+    const profile = { workflow: 'test.yml', events: ['push'], jobs: ['full-suite'], artifact: 'full-suite-tree' };
+    for (const [key, value] of [['sealed', { paths: ['evals/**'] }], ['price_file', 'evals/calls.json'], ['run_profiles', { test: profile }], ['remote_gate_runs', { profiles: ['test'], inventory: 'true' }]] as const) {
       writePolicy(userPolicy, { [key]: value });
       const r = run();
       expect(r.status).toBe(EXIT.refused);
       expect(r.err).toContain(`covers gstack-pregate run only; ${key}`);
     }
+    // An empty run_profiles is the documented default, not a policy, so it is accepted.
+    writePolicy(userPolicy, { run_profiles: {}, local: LOCAL_ALL });
+    expect(run().err).not.toContain('PREGATE_CONFIG_INVALID');
     // A null price_file is the documented default, not a policy, so it is accepted.
     writePolicy(userPolicy, { price_file: null, local: LOCAL_ALL });
     expect(run().err).not.toContain('PREGATE_CONFIG_INVALID');

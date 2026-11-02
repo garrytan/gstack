@@ -56,7 +56,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
-Depth: light (runtime lines <= 50), standard (above 50), full (gate class or any DEPTH_ERROR). TARGETED: the money,
+Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data) or any DEPTH_ERROR;
+standard only by --depth-floor or a raise; otherwise light. TARGETED: the money,
 gate, auth and secret classes the diff touches; any class dispatches the targeted reader at every depth. NEXT: full, scoped
 (a full pass on the range: fix-check, Red Team, native adversarial), fix-check, stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
@@ -115,8 +116,9 @@ function main(): number {
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
     return g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   };
-  const scope = scopeOf([base]);
-  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
+  const diffBase = collected.mergeBase ?? base;
+  const scope = scopeOf([diffBase]);
+  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([diffBase]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const force = flag('--force') === 'all' ? 'all' as const : list('--force');
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
@@ -148,7 +150,7 @@ function main(): number {
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed }) + '\n');
+    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings }) + '\n');
     return EXIT.ok;
   }
   const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`,
@@ -167,4 +169,4 @@ function main(): number {
   return EXIT.ok;
 }
 
-process.exit(main());
+process.exitCode = main();

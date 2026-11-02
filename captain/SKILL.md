@@ -422,10 +422,13 @@ Lesson into a rule in the rules file, a line in the standing-rules file
 (`captain/templates/AGENTS.md`), or a filed tool fix. The controller's own log is
 append-only and timestamped (`captain/templates/NOTES.md`); the digest is derived from it.
 
-Serial slots cost tens of minutes each, so small fixes in one area travel together: when
-a lane's diff is small and open PRs touch the same area, fold them into one wave PR with
-every contributor credited (`Contributed by @handle`, `Co-authored-by`, `Supersedes
-#<pr>`), and never merge a contributor's PR directly from its fork.
+Serial slots cost tens of minutes each, so PRs in one area travel together. When more
+than `WAVE_TRIGGER` (6) PRs are READY, run `gstack-ship-queue wave plan` for area groups
+of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY on the wave
+PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
+its owner, and `wave settle` closes the rest after the merge (docs/ship-policy.md#wave-prs).
+Credit every contributor (`Contributed by @handle`, `Co-authored-by`), and never merge a
+contributor's PR directly from its fork.
 
 ## Where the protocols differ, ship both
 

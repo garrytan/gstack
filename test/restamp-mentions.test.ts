@@ -9,15 +9,25 @@
  * version moves only on lines the branch added), and the negative control
  * (a base-side quoted row carrying that version stays).
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
-import { BASE_POLICY, cleanup, makeFixtureRepo, makePr, mergeMain, mergeToMain, readFile, restamp, type FixtureRepo } from './helpers/restamp-fixture';
+import type { GitFixtureTemplate } from './helpers/git-fixture-template';
+import { BASE_POLICY, cleanup, cloneFixture, fixtureTemplate, makePr, mergeMain, mergeToMain, readFile, restamp, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+
+/** The helper's makeFixtureRepo, built once per policy for this file and copied per test. */
+const templates = new Map<string, GitFixtureTemplate<null>>();
+afterAll(() => { for (const t of templates.values()) t.dispose(); });
+function makeFixtureRepo(opts: { prefix: string; policy: Record<string, unknown> }): FixtureRepo {
+  const key = JSON.stringify(opts.policy);
+  if (!templates.has(key)) templates.set(key, fixtureTemplate({ policy: opts.policy, prefix: 'restamp-mentions-' }));
+  return cloneFixture(templates.get(key)!, opts.prefix);
+}
 
 const stageDetail = (out: string, name: string) => new RegExp(`^stage ${name}: (\\w+)(?: \\((.*)\\))?$`, 'm').exec(out);
 
