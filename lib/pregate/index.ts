@@ -257,14 +257,15 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     return { receipt: `attested:${input.runUrl}`, attested: true };
   }
   if (input.runUrl && input.evidence) {
-    const invalid = (why: string): ClearDecision => ({ refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${why}; ${lane} stays uncleared`, fix: `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>` });
-    const id = parseRunRef(input.runUrl, input.evidence.repo);
-    if (id === null) return invalid(`run_ref_invalid — ${JSON.stringify(input.runUrl)} is not a run id or a run URL on ${input.evidence.repo}`);
+    const repo = input.evidence.repo;
+    const invalid = (why: string, fix: string): ClearDecision => ({ refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${why}; ${lane} stays uncleared`, fix });
+    const id = parseRunRef(input.runUrl, repo);
+    if (id === null) return invalid(`run_ref_invalid — ${JSON.stringify(input.runUrl)} is not a run id or a run URL on ${repo}`, `pass the run's numeric id or https://github.com/${repo}/actions/runs/<id>`);
     let run: ApiRun | null;
     try { run = input.evidence.deps.run(id); }
-    catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`); }
+    catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
     const want = `.github/workflows/${target.workflow}`;
-    if (run?.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`);
+    if (run?.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`, `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);
   if (!receipt) return { refused: 'usage', message: `${lane} clears with --run-url <url> or --bundle-lane <label>` };
