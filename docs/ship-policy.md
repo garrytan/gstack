@@ -112,10 +112,16 @@ refuses the file by name (`POLICY_GSTACK_TOO_OLD`).
 `.gstack/ship-policy.example.json` shows every key set the way a serial-merge
 repo with a release script, docs mentions and a mirror would set them.
 
-### Queue-side procedure for gstack
+<a id="queue-side-procedure-for-gstack"></a>
+### Queue-side procedure under `stamp-at-merge` without fragments
 
-Who does what under `stamp-at-merge`, for the PR author and for the thread
-running the merge queue:
+gstack itself no longer follows these steps. Since #3654 (v1.91.342.0) its
+policy sets [`changelog_fragments`](#changelog-fragments), so a gstack PR adds
+a fragment and never a version, and trains merge through
+[`train land`](#train-land). The steps
+below are for a repo on `stamp-at-merge` whose policy has no
+`changelog_fragments`. Who does what there, for the PR author and for the
+thread running the merge queue:
 
 1. **Open.** The branch carries a tentative stamp of the base's version plus
    PATCH (`gstack-version-bump write --version <base+patch> --regen-digest`)
