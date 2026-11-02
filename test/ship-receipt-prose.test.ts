@@ -183,6 +183,14 @@ describe('code fences are not prose (GST-984, gstack-evals #142)', () => {
     expect(checkReceiptProse(lanes, 'Intro\n```text\n113 pass\n').mismatches).toEqual([{ field: 'gate.unit.pass', prose: 113, receipt: 1181 }]);
     expect(checkReceiptProse(lanes, 'Shipped 3\n```\nx\n```\npass rates are below.\n')).toEqual({ checked: 0, mismatches: [] });
   });
+
+  // Value: protects=a line that only looks like a fence opener, or a shorter fence inside an unclosed one, cannot hide a
+  //   claim GitHub shows as prose; fails_when=either shape skips the "113 pass" after it; seam=lib/ship-receipt-prose.ts checkReceiptProse
+  test('inline triple backticks open no fence, and nothing after an unclosed fence is skipped', () => {
+    const wrong = [{ field: 'gate.unit.pass', prose: 113, receipt: 1181 }];
+    expect(checkReceiptProse(lanes, '```npm test``` ran.\nUnit: 113 pass.\n\n```text\nlog\n```\n').mismatches).toEqual(wrong);
+    expect(checkReceiptProse(lanes, '````\n```\nUnit: 113 pass.\n```\n').mismatches).toEqual(wrong);
+  });
 });
 
 describe('gstack-ship-receipt read --check-prose', () => {

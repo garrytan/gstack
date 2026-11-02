@@ -1234,8 +1234,9 @@ and 2 skip detector" is not a `2 skip` claim. Only a line that matches the
 rendered line exactly is skipped; the same words inside a longer line are still
 checked. A closed code fence is skipped too (GST-984): pasted test output
 ("113 pass, 0 fail") and quoted code are evidence, not this PR's counters, so
-put a count you mean as a claim outside the fence. A fence that never closes
-stays prose. Data PRs (evals,
+put a count you mean as a claim outside the fence. A line like ```` ```npm test``` ran ````
+opens no fence, and a fence that never closes stays prose, along with the rest
+of the body. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-scope"></a>

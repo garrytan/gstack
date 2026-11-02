@@ -35,18 +35,22 @@ const fenceClose = (fence: string) => new RegExp(`^ {0,3}${fence[0] === '`' ? '`
 /**
  * The body without its closed code fences (GST-984): pasted test output (`113 pass, 0 fail`) and quoted code
  * (`the first 35 failing`) are evidence, not this PR's counters. The fence rules are withoutApprovalsBlocks' (a fence
- * closes only on a run of its own character at least as long as the opener with nothing after it). A fence that never
- * closes stays prose, so an unclosed opener cannot hide the claims after it. A marker line takes each fence's place so
- * the text on either side never joins into a claim.
+ * closes only on a run of its own character at least as long as the opener with nothing after it). A backtick run with
+ * another backtick later on its line (```npm test``` inline code) opens no fence, as in CommonMark. A fence that never
+ * closes stays prose, and so does the rest of the body, so an unclosed opener cannot hide the claims after it or let a
+ * shorter fence inside it hide them. A marker line takes each fence's place so the text on either side never joins
+ * into a claim.
  */
 function withoutFences(body: string): string {
   const lines = body.split(/(?<=\n)/);
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const open = FENCE_OPEN.exec(lines[i]!.replace(/\r?\n$/, ''));
-    const close = open ? fenceClose(open[1]!) : undefined;
-    const end = close ? lines.findIndex((l, j) => j > i && close.test(l.replace(/\r?\n$/, ''))) : -1;
-    if (end < 0) { out.push(lines[i]!); continue; }
+    const line = lines[i]!.replace(/\r?\n$/, '');
+    const open = FENCE_OPEN.exec(line);
+    if (!open || (open[1]![0] === '`' && line.slice(open[0].length).includes('`'))) { out.push(lines[i]!); continue; }
+    const close = fenceClose(open[1]!);
+    const end = lines.findIndex((l, j) => j > i && close.test(l.replace(/\r?\n$/, '')));
+    if (end < 0) return out.join('') + lines.slice(i).join('');
     out.push('(code fence)\n');
     i = end;
   }
