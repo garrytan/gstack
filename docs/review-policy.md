@@ -422,9 +422,9 @@ under `REVIEW_LOOP:`. Step 16 takes the same record:
 paths the branch touched at `fix_check.head` (narrowed to the record's
 `fix_check.files` when it lists them) and changed since as `accepted=` in
 `ROUTE:`, prints them on a `REVIEW_LOOP_EXCEPTION:` line, and carries them
-through the docs stage. A path outside that scope, a gate-edited test and a
-file too large for the scoped review still route as behavior, and without the
-record nothing changes.
+through the docs stage. A path outside that scope and a gate-edited test still
+route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
+too large for the scoped review, and without the record nothing changes.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
