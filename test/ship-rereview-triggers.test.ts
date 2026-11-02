@@ -205,8 +205,8 @@ describe('a version stamp after review (GBRA-251, gbrain #8095)', () => {
 describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => {
   // Value: protects=after a lost slot and a merge of the base, the restamp moves the branch's own stale stamp (older
   //   than the reviewed tree's VERSION, newer than its fork point) and finish routes that line as a stamp; a row the
-  //   base carries (another PR's release at the same version), or a branch row older than the fork point, moved the
-  //   same way still stops;
+  //   base carries (another PR's release at the same version), a merged base row the base later edited, or a branch row
+  //   at or older than the fork point, moved the same way still stops;
   //   fails_when=stampedFiles floors every moved version at the reviewed tree's VERSION (behavior=1 on gbrain #8134) or
   //   drops the floor for base lines; seam=lib/ship-bin-common.ts stampedFiles; no_claim=the restamp writer
   const policy = JSON.stringify({ stamp_files: ['VERSION', 'src/notice.ts'], stamp_patterns: ["since: '{version}'"] });
@@ -235,6 +235,17 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
     old.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], ['1.0.3.0', 'mine']) }); old.f.commit('moves a pre-fork row');
     const o = finish(old.f, old.reviewed, old.post, ['--reviewed-base', old.reviewedBase]);
     expect([o.status, lineOf(o.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+
+    const atFork = lostSlot('1.0.0.0');
+    atFork.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], ['1.0.3.0', 'mine']) }); atFork.f.commit('moves a row at the fork version');
+    const a = finish(atFork.f, atFork.reviewed, atFork.post, ['--reviewed-base', atFork.reviewedBase]);
+    expect([a.status, lineOf(a.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+
+    const edited = lostSlot('1.0.1.0');
+    edited.f.advanceBase({ VERSION: '1.0.2.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs, edited']) }); edited.f.git('fetch', '-q', 'origin');
+    edited.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.3.0', 'theirs'], ['1.0.3.0', 'mine']) }); edited.f.commit('moves a merged base row the base later edited');
+    const e = finish(edited.f, edited.reviewed, edited.post, ['--reviewed-base', edited.reviewedBase]);
+    expect([e.status, lineOf(e.stdout, 'STOP')]).toEqual([3, behaviorStop]);
   });
 });
 
