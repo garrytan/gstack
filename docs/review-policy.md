@@ -530,7 +530,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
-   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167) on the gate class, on any `risk:` or `error:`
+   depth reason, and whenever collect has no pass manifest to read the plan from. On any other class (collect
+   `--manifest` reads `REVIEW_CLASS:` and `REVIEW_DEPTH: … reasons=`), a native finding's own `Severity` field decides and
+   FIXABLE beside it raises nothing; a native finding with no `Severity` field still collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's

@@ -102,8 +102,10 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
  * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
+ * With fixableRaises false (a review outside the gate class with no risk reason, GST-987) a native finding's own Severity field decides
+ * and FIXABLE beside it raises nothing; a native finding with no Severity field still collects FIXABLE as CRITICAL.
  */
-export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
+export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string };
   const out: Finding[] = [];
   let section: string | null = null;
@@ -116,8 +118,8 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
   const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 ? ls[0] : undefined; };
-  const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
-  const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
+  const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
+  const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string) => {
     const field = fieldOf(t);
     if (field === undefined) return strongest(t);
@@ -180,6 +182,18 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
 }
 
 /**
+ * Whether the native voice's FIXABLE raises a finding with its own Severity field to CRITICAL (GST-987): true on the gate class, on any
+ * risk reason (security, secret, auth, money, user data), on a depth error, and whenever the plan's REVIEW_CLASS or REVIEW_DEPTH
+ * reasons cannot be read.
+ */
+export function fixableRaises(planLines?: readonly string[]): boolean {
+  const cls = planLines?.map(l => /^REVIEW_CLASS: (\S+)/.exec(l)?.[1]).find(Boolean);
+  const reasons = planLines?.map(l => /^REVIEW_DEPTH: .*?\breasons=(\S+)/.exec(l)?.[1]).find(Boolean);
+  if (!cls || !reasons) return true;
+  return cls === 'gate' || reasons.split(',').some(r => /^(?:risk|error):/.test(r));
+}
+
+/**
  * The clean marker each reader's own brief prescribes for a review that found nothing: `NO FINDINGS` alone on a line for the
  * specialists, the batched specialist and the targeted reader (ship/sections/review-army.md, the specialist brief; review/specialists/*.md),
  * the Red Team (its brief in ship/sections/review-army.md) and fix-check (scripts/resolvers/fix-check.ts); the `Recommendation:` line
@@ -201,11 +215,11 @@ const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/
  * review: false. With unavailable (the outside voice only) the output is its failure text, recorded as missing coverage. With a
  * failed tree check (GST-482: the reply reviewed another checkout, or names none) nothing is merged and the output is no review.
  */
-export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string, tree?: TreeCheck): { sha: string; lines: MergedLine[]; review: boolean } {
+export function collect(ledger: string, reader: string, output: string, mergedFile: string, outputFile?: string, unavailable?: string, tree?: TreeCheck, raises = true): { sha: string; lines: MergedLine[]; review: boolean } {
   const sha = promptHash(output);
   const prior = readLedger(ledger).filter(e => e.event === 'output' && e.reader === reader).length;
   const wrongTree = !unavailable && tree !== undefined && !tree.ok;
-  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output).map((f, i) => {
+  const lines = unavailable || wrongTree ? [] : parseFindings(reader, output, raises).map((f, i) => {
     const s = stated(f.raw);
     return { id: `${reader}#${prior ? `${prior + 1}.` : ''}${i + 1}`, reader, label: f.label, ...(s ? { stated: s } : {}), raw: f.raw, output_sha256: sha };
   });
