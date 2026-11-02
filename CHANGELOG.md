@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.80.0] - 2026-11-02
+
+**On a Capy machine, the git fixture tests no longer fail locally because of Capy's git shim log.** Capy's `/usr/bin/git` shim appends to `$HOME/.capy/git-shim.log`, so each fixture home that ran git during its template build ended up with a log naming the template. The leak scan in `test/helpers/git-fixture-template.ts` flagged it, and 34 tests in `test/train-backstop.test.ts`, `test/restamp-mentions.test.ts` and `test/pregate-user-policy.test.ts` failed on every Capy lane, though they passed on the remote gate.
+
+### Tests
+- `templateReferences` skips `.capy/git-shim.log`. Nothing reads that file back, and every other file is still scanned.
+- `test/git-fixture-template.test.ts` plants the shim log in a template's `home/.capy/` (the copy succeeds), and plants `home/.capy/state.json` as a control (the copy still throws).
+
 ## [1.92.79.0] - 2026-11-02
 
 **/plan-tune no longer reports a mismatch between your stated and observed preferences when it has no observed answers behind it (#3436).** `--check-mismatch` compared a declared value against an inferred value that had never moved from its 0.5 starting point, so a strong declaration with no matching answers printed `scope_appetite: declared 0.9 vs inferred 0.5 (gap 0.4)` even though no logged answer touched that dimension.
