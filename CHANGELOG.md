@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.93.22.0] - 2026-11-02
+
+### Fixed
+
+- **The targeted reader's record is honest from verify to the receipt.** `gstack-review-dispatch verify` no longer marks a completed targeted reader `status=failed findings=0` because a Step 11 fix moved HEAD after it read (gstack-evals#140, C5-36 and C6-36). The record now says `done` with its real finding count and names the commit it read. `gstack-ship-receipt write --review-targeted` binds it only while that commit's product patch is the receipt's and nothing since it carries a money, gate, auth or secret change (a test edit that skips a case counts as gate), so a record can no longer vouch for code it never read.
+- **`write` and `carry` refuse a receipt the queue refuses (#3854, #3859).** When the head touches money, gate, auth or secret code and no done targeted pass covers it, `write` refuses with `RECEIPT_INVALID` and `carry` with `RECEIPT_CARRY_REFUSED`, instead of publishing a receipt `ready` turns away. Legacy receipts still carry.
+- **/ship passes the targeted record to the receipt (#3853).** Step 11's verify writes `.gstack/tmp/targeted.json`, and the Step 19, handoff and driver receipt writes pass it with `--review-targeted`.
+- **Fix-check rounds count without hand edits (#3862).** `gstack-review-scope summary --run` counts fix-checks from the dispatch ledgers when no `review-fix-check` row was logged, and counts the blockers those fix-checks followed as fixed.
+
 ## [1.93.21.0] - 2026-11-02
 
 **/ship's finding collector lets the native reviewer's own Severity field decide outside gate and risk reviews.**
