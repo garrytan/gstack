@@ -183,7 +183,8 @@ directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
 `manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
 consumer each keep the path code, and YAML and TOML are always code. An SVG counts
 as data only when its whole text at the head is a drawing (GST-911): SVG drawing
-elements and RDF metadata, CSS with no import and no `url()` outside the file, every
+elements and RDF metadata, CSS with no import, no `url()` outside the file and no
+backslash escape, every
 `href` a same-file `#` reference or an inline raster image, no event handler and no
 entity declaration, read after character references are decoded; anything else, a
 script or `foreignObject` included, keeps it code. More than

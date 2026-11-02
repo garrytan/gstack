@@ -42,14 +42,15 @@ const SECURITY_LINE = [
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 export const SVG_PATH = /\.svg$/i;
-/** An SVG line that can run code, read decoded and again with whitespace removed (java&#9;script: is javascript:). */
+/** SVG text that can run code, read decoded and again with whitespace removed (java&#9;script: is javascript:); a file's changed lines are read joined, so a split attribute still counts. */
 export const SVG_ACTIVE = [/<(?:[\w.-]+:)?(?:script|foreignObject)\b/i, /(?:^|[\s"'/])on[a-z]+\s*=/i, /(?:java|vb)script:|data:text\/html/i];
-/** XML character references decoded (&#106; and &#x6a; are j); an out-of-range one decodes to nothing. */
-export const decodeCharRefs = (s: string) => s.replace(/&#(x[0-9a-f]{1,8}|\d{1,10});?/gi, (_, n: string) => {
-  const c = n[0] === 'x' || n[0] === 'X' ? parseInt(n.slice(1), 16) : Number(n);
+/** XML character references decoded, leading zeros included (&#106;, &#x6a; and &#0000000106; are j); an out-of-range one decodes to nothing. */
+export const decodeCharRefs = (s: string) => s.replace(/&#(?:[xX]0*([0-9a-fA-F]+)|0*(\d+));?/g, (_, hex: string | undefined, dec: string | undefined) => {
+  const digits = hex ?? dec!;
+  const c = digits.length > 8 ? Infinity : hex !== undefined ? parseInt(hex, 16) : Number(dec);
   return c <= 0x10ffff ? String.fromCodePoint(c) : '';
 });
-export const svgActive = (line: string) => { const d = decodeCharRefs(line); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
+export const svgActive = (text: string) => { const d = decodeCharRefs(text); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
@@ -84,11 +85,11 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (t.some(x => MONEY_PATH_TOKENS.includes(x))) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
+    if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('money') && MONEY_LINE.some(r => r.test(line))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
-      if (!why.has('security') && SVG_PATH.test(p) && svgActive(line)) hit('security', 'active SVG line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }
   }

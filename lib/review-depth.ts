@@ -81,8 +81,11 @@ const SVG_ELEMENTS = new Set([
 ]);
 /** Markup a drawing may hold besides elements: comments, CDATA, the XML declaration, and a DOCTYPE with no internal subset. */
 const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg\b[^>[]*>)/i;
-/** What a drawing never holds: a named entity beyond the five XML ones, a CSS import, a url() to another document, a CSS expression or binding. */
-const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /@import/i, /url\(\s*(?!['"]?\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
+/**
+ * What a drawing never holds: a named entity beyond the five XML ones, a backslash (a CSS escape such as @\69mport), a CSS
+ * import, a url() to another document, a CSS expression or binding.
+ */
+const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\(\s*(?!['"]?\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
 /** An href or src value a drawing may hold: a same-document reference, or a raster image inline. */
 const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]*$)/i;
 
@@ -93,7 +96,7 @@ const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+
  */
 export function svgDrawing(text: string): boolean {
   const t = decodeCharRefs(text);
-  if (SVG_REFUSED.some(r => r.test(t)) || t.split('\n').some(svgActive)) return false;
+  if (SVG_REFUSED.some(r => r.test(t)) || svgActive(t)) return false;
   for (let at = t.indexOf('<'); at !== -1; at = t.indexOf('<', at + 1)) {
     if (SVG_MARKUP.test(t.slice(at, at + 512))) continue;
     const tag = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)/.exec(t.slice(at, at + 256));
