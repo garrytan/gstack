@@ -191,20 +191,25 @@ describe.skipIf(process.platform === 'win32')('Antigravity CLI shares ~/.gemini 
     skill: readFileSync(join(home, '.gemini/skills/my-skill/SKILL.md'), 'utf8'),
   });
 
-  test.skipIf(Bun.which('agy') !== null)('auto-detect ignores a Gemini-CLI-only ~/.gemini and selects agy by its own config dir', () => {
+  // A machine with gemini or agy installed must not change what auto selects.
+  const pinnedPath = (f: { commands: string }) => ({
+    PATH: [f.commands, ...(process.env.PATH ?? '').split(':').filter(d => d && !['gemini', 'agy'].some(bin => existsSync(join(d, bin))))].join(':'),
+  });
+
+  test('auto-detect ignores a Gemini-CLI-only ~/.gemini and selects agy by its own config dir', () => {
     const f = makeFixture();
     const src = makeSource(f, join(f.home, 'gstack'));
     put(join(f.home, '.gemini/settings.json'), '{"theme":"mine"}\n');
     put(join(f.home, '.gemini/skills/my-skill/SKILL.md'), '---\nname: my-skill\ndescription: mine\n---\n');
     const before = geminiCliFiles(f.home);
 
-    const geminiOnly = runSetup(f, join(src, 'setup'), ['--host', 'auto']);
+    const geminiOnly = runSetup(f, join(src, 'setup'), ['--host', 'auto'], { env: pinnedPath(f) });
     expect(geminiOnly.status, geminiOnly.stdout + geminiOnly.stderr).toBe(0);
     expect(existsSync(join(f.home, '.gemini/antigravity-cli'))).toBe(false);
     expect(registryRows(f).map(row => row[0])).not.toContain('agy');
 
     mkdirSync(join(f.home, '.gemini/antigravity-cli'), { recursive: true });
-    const withAgy = runSetup(f, join(src, 'setup'), ['--host', 'auto']);
+    const withAgy = runSetup(f, join(src, 'setup'), ['--host', 'auto'], { env: pinnedPath(f) });
     expect(withAgy.status, withAgy.stdout + withAgy.stderr).toBe(0);
     expect(existsSync(join(f.home, '.gemini/antigravity-cli/skills/gstack-review/SKILL.md'))).toBe(true);
     expect(registryRows(f).map(row => row[0])).toContain('agy');
@@ -236,6 +241,88 @@ describe.skipIf(process.platform === 'win32')('Antigravity CLI shares ~/.gemini 
     expect(geminiCliFiles(f.home)).toEqual(before);
     expect(registryRows(f)).toEqual([]);
   }, 120_000);
+
+  test('auto selects Gemini CLI only for gemini on PATH, never for a bare ~/.gemini', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, 'gstack'));
+    put(join(f.home, '.gemini/settings.json'), '{"theme":"mine"}\n');
+    put(join(f.home, '.gemini/skills/my-skill/SKILL.md'), '---\nname: my-skill\ndescription: mine\n---\n');
+    const before = geminiCliFiles(f.home);
+
+    const bare = runSetup(f, join(src, 'setup'), ['--host', 'auto'], { env: pinnedPath(f) });
+    expect(bare.status, bare.stdout + bare.stderr).toBe(0);
+    expect(registryRows(f).map(row => row[0])).not.toContain('gemini');
+    expect(readdirSync(join(f.home, '.gemini/skills'))).toEqual(['my-skill']);
+
+    put(join(f.commands, 'gemini'), '#!/bin/sh\nexit 0\n', 0o755);
+    const onPath = runSetup(f, join(src, 'setup'), ['--host', 'auto'], { env: pinnedPath(f) });
+    expect(onPath.status, onPath.stdout + onPath.stderr).toBe(0);
+    expect(registryRows(f).filter(row => row[0] === 'gemini').map(row => row[3])).toEqual([join(f.home, '.gemini/skills')]);
+    expect(existsSync(join(f.home, '.gemini/skills/gstack-review/SKILL.md'))).toBe(true);
+    expect(existsSync(join(f.home, '.gemini/antigravity-cli'))).toBe(false);
+    expect(geminiCliFiles(f.home)).toEqual(before);
+  }, 120_000);
+
+  test('--host gemini-cli (alias) writes only gstack entries in ~/.gemini/skills; uninstall removes only those', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, 'gstack'));
+    put(join(f.home, '.gemini/settings.json'), '{"theme":"mine"}\n');
+    put(join(f.home, '.gemini/skills/my-skill/SKILL.md'), '---\nname: my-skill\ndescription: mine\n---\n');
+    put(join(f.home, '.gemini/skills/gstack-notes/SKILL.md'), '---\nname: gstack-notes\ndescription: my notes\n---\n');
+    put(join(f.home, '.gemini/antigravity-cli/settings.json'), '{"agentMode":"plan"}\n');
+    const before = { ...geminiCliFiles(f.home), notes: readFileSync(join(f.home, '.gemini/skills/gstack-notes/SKILL.md'), 'utf8') };
+    const agyBefore = tree(join(f.home, '.gemini/antigravity-cli'));
+
+    const r = runSetup(f, join(src, 'setup'), ['--host', 'gemini-cli']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('gstack ready (gemini)');
+    expect(registryRows(f).map(row => [row[0], row[3]])).toEqual([['gemini', join(f.home, '.gemini/skills')]]);
+    expect(readFileSync(join(f.home, '.gemini/skills/gstack/.source-path'), 'utf8').trim()).toBe(src);
+    expect(readFileSync(join(src, '.gstack-installed-hosts'), 'utf8').split('\n')).toContain('gemini');
+    expect(existsSync(join(src, '.gemini-cli/skills/gstack-review/SKILL.md'))).toBe(true);
+    const entries = readdirSync(join(f.home, '.gemini/skills'));
+    expect(entries.filter(n => !n.startsWith('gstack'))).toEqual(['my-skill']);
+    expect(entries).toContain('gstack-review');
+    expect({ ...geminiCliFiles(f.home), notes: readFileSync(join(f.home, '.gemini/skills/gstack-notes/SKILL.md'), 'utf8') }).toEqual(before);
+    expect(tree(join(f.home, '.gemini/antigravity-cli'))).toEqual(agyBefore);
+
+    const un = spawnSync('bash', [join(src, 'bin/gstack-uninstall'), '--force', '--keep-state'], { cwd: f.home, env: f.env, encoding: 'utf8', timeout: 30_000 });
+    expect(un.status, un.stderr).toBe(0);
+    expect(readdirSync(join(f.home, '.gemini/skills')).sort()).toEqual(['gstack-notes', 'my-skill']);
+    expect({ ...geminiCliFiles(f.home), notes: readFileSync(join(f.home, '.gemini/skills/gstack-notes/SKILL.md'), 'utf8') }).toEqual(before);
+    expect(tree(join(f.home, '.gemini/antigravity-cli'))).toEqual(agyBefore);
+    expect(registryRows(f)).toEqual([]);
+  }, 120_000);
+
+  test('--local --host gemini is refused with the trusted-folder note and writes no skills', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, 'gstack'));
+    const r = runSetup(f, join(src, 'setup'), ['--local', '--host', 'gemini']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Error: --local is only supported for Claude Code (not gemini).');
+    expect(r.stderr).toContain('Gemini CLI loads workspace skills (.gemini/skills) only in trusted folders (/trust)');
+    expect(existsSync(join(f.home, '.gemini'))).toBe(false);
+    expect(existsSync(join(f.home, '.claude/skills'))).toBe(false);
+    expect(r.stdout).not.toContain('gstack ready');
+  }, 60_000);
+
+  test('gemini and agy installed together: each arm writes only its own directory', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, 'gstack'));
+    expect(runSetup(f, join(src, 'setup'), ['--host', 'gemini']).status).toBe(0);
+    const geminiTree = tree(join(f.home, '.gemini/skills'));
+    const agy = runSetup(f, join(src, 'setup'), ['--host', 'agy']);
+    expect(agy.status, agy.stdout + agy.stderr).toBe(0);
+    expect(tree(join(f.home, '.gemini/skills'))).toEqual(geminiTree);
+    const agyTree = tree(join(f.home, '.gemini/antigravity-cli'));
+    const again = runSetup(f, join(src, 'setup'), ['--host', 'gemini']);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(tree(join(f.home, '.gemini/antigravity-cli'))).toEqual(agyTree);
+    expect(registryRows(f).map(row => [row[0], row[3]]).sort()).toEqual([
+      ['agy', join(f.home, '.gemini/antigravity-cli/skills')], ['gemini', join(f.home, '.gemini/skills')]]);
+    expect(readFileSync(join(f.home, '.gemini/skills/gstack-review/SKILL.md'), 'utf8')).toContain('**Gemini CLI tool names:**');
+    expect(readFileSync(join(f.home, '.gemini/antigravity-cli/skills/gstack-review/SKILL.md'), 'utf8')).toContain('**Antigravity tool names:**');
+  }, 180_000);
 });
 
 describe('install registry helper', () => {

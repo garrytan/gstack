@@ -138,17 +138,27 @@ export async function callJudge<T>(
   // What a cancelled request had received, so a judge deadline names rate-limit
   // waits, SDK retries, a stream with no events, or a long thinking phase. Counts
   // only, never content; an observer that throws never changes the judge outcome.
+  // The SDK drops SSE pings before streamEvent, so lastEventMs alone cannot tell a
+  // live connection with a silent thinking phase from a dead one (run 41185637598):
+  // lastByteMs counts every body byte, pings included.
   const started = performance.now();
   const elapsedMs = () => Math.round(performance.now() - started);
   const progress = { httpRequests: 0, httpStatuses: [] as number[], retryWaitsMs: [] as number[], connectedMs: null as number | null,
     firstEventMs: null as number | null, lastEventMs: null as number | null, block: null as string | null, thinkingChars: 0,
-    textChars: 0, messageId: null as string | null, requestId: null as string | null };
+    textChars: 0, messageId: null as string | null, requestId: null as string | null,
+    bytesReceived: 0, lastByteMs: null as number | null };
   const observe = (record: () => void) => { try { record(); } catch {} };
   const client = new Anthropic({ fetch: async (...args: Parameters<typeof fetch>) => {
     progress.httpRequests += 1;
     const response = await globalThis.fetch(...args);
     progress.httpStatuses.push(response.status);
-    return response;
+    if (!response.body) return response;
+    const counted = new Response(response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ transform(chunk, stream) {
+      observe(() => { progress.bytesReceived += chunk.byteLength; progress.lastByteMs = elapsedMs(); });
+      stream.enqueue(chunk);
+    } })), { status: response.status, statusText: response.statusText, headers: response.headers });
+    Object.defineProperty(counted, 'url', { value: response.url });
+    return counted;
   } });
 
   const request = {

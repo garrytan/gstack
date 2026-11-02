@@ -18,7 +18,8 @@ function fixture(plan = original) {
   writeFileSync(planFile, plan);
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd });
   // This free test controls unrelated startup side effects, not the seeded repo.
-  writeFileSync(join(state, 'config.yaml'), 'update_check: false\nartifacts_sync: off\ntelemetry: off\n');
+  // proactive: all, because the seeded CLAUDE.md is the every-rule section that setting offers.
+  writeFileSync(join(state, 'config.yaml'), 'update_check: false\nartifacts_sync: off\ntelemetry: off\nproactive: all\n');
   writeFileSync(join(state, '.proactive-prompted'), '');
   const env = { PATH: process.env.PATH!, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, GSTACK_LEASE_DIR: join(state, 'gstack-leases') };
   const start = () => execFileSync(join(root, 'bin/gstack-skill-start'), ['--skill', 'autoplan'],
