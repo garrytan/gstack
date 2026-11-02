@@ -303,8 +303,8 @@ export const RELEASE_RESULT_CODES = {
   // Lane D (GSTA-112): the no-policy warning and the environment-cause verdict.
   PREGATE_NO_POLICY: {
     anchor: 'pregate-no-policy',
-    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file) and a touched file maps to no test lane; a warn, with a starter policy printed',
-    fix: 'review the printed starter, write it with `gstack-pregate init`, edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
+    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file), or its policy declares no lanes (no dependencies, empty_lanes, selection or local key), and a touched file maps to no test lane; a warn, with a starter policy printed',
+    fix: 'review the printed starter, write it with `gstack-pregate init` (or add its dependencies to the existing policy), edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
   },
   PREGATE_ENVIRONMENT: {
     anchor: 'pregate-environment',
@@ -383,7 +383,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged',
+    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped fix-check, no /ship)',
   },
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',

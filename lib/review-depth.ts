@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
+import { matchRisk, RISK_RULES, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
@@ -23,6 +24,7 @@ export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
+/** The review rounds one /ship invocation runs (R51): a full, scoped or fix-check step is a round. */
 export const FULL_PASS_CAP = 2;
 export const SMALL_DIFF_LINES = 50;
 export const RED_TEAM_LINES = 200;
@@ -53,7 +55,7 @@ const RELEASE_METADATA = [/^CHANGELOG\.md$/, /^VERSION$/, /^agents-digest\//];
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope|targeted)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted|risk)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
@@ -66,7 +68,7 @@ const DATA_CONFIG = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
+  RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -129,8 +131,11 @@ export interface ClassInput {
    * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
    */
   consumed?: readonly string[] | 'all';
+  /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
+  added?: Record<string, readonly string[]>;
+  removed?: Record<string, readonly string[]>;
 }
-export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null }
+export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null; risk: RiskClass[] }
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
@@ -166,30 +171,33 @@ export function classifyDiff(i: ClassInput): ClassResult {
     for (const p of i.paths) if (GATE_PATH.some(r => r.test(p))) { raise('gate', `gate path: ${p}`); break; }
     if (i.registry?.error) errors.push(i.registry.error);
   }
-  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null };
+  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true' }) : new Map<RiskClass, string>();
+  const risk = [...riskHits.keys()];
+  reasons.push(...[...riskHits.values()].map(r => `risk: ${r}`));
+  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk };
   let runtimeLines = 0;
   for (const e of i.perPath) {
     if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path)) continue;
     if (e.binary) errors.push({ code: 'binary_code_path', detail: 'git reports a binary change, so its lines cannot be counted', input: e.path, repair: "register it as an output of an entry with a command in the base branch's .gstack/generated.json, or accept the full review" });
     else runtimeLines += e.lines;
   }
-  return { class: cls, reasons, errors, runtimeLines };
+  return { class: cls, reasons, errors, runtimeLines, risk };
 }
 
-/** Any classifier error or gate class is full; runtime above SMALL_DIFF_LINES is standard; otherwise light. A floor only raises. */
-export function depthFor(o: { cls: DiffClass; runtimeLines: number; errors: readonly DepthError[]; floor?: Depth }): Depth {
-  const d: Depth = o.errors.length || o.cls === 'gate' ? 'full' : o.runtimeLines > SMALL_DIFF_LINES ? 'standard' : 'light';
+/** Risk, not size (R51): any classifier error, gate class or risk class is full; everything else is light. A floor only raises; a fixed blocker or a CRITICAL raises light to standard for the next step (planReview). */
+export function depthFor(o: { cls: DiffClass; runtimeLines: number; errors: readonly DepthError[]; risk?: readonly RiskClass[]; floor?: Depth }): Depth {
+  const d: Depth = o.errors.length || o.cls === 'gate' || o.risk?.length ? 'full' : 'light';
   return o.floor && DEPTH_RANK[o.floor] > DEPTH_RANK[d] ? o.floor : d;
 }
 
-export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string }
+export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string; risk: RiskClass[] }
 
 function decideDepth(c: ClassResult, runtimeLines: number, floor?: Depth): DepthResult {
-  const unfloored = depthFor({ cls: c.class, runtimeLines, errors: c.errors });
-  const reasons = [...c.errors.map(e => `error:${e.code}`), ...(c.class === 'gate' ? ['gate-class'] : []), `runtime=${runtimeLines}${runtimeLines > SMALL_DIFF_LINES ? '>' : '<='}${SMALL_DIFF_LINES}`];
+  const unfloored = depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk });
+  const reasons = [...c.errors.map(e => `error:${e.code}`), ...(c.class === 'gate' ? ['gate-class'] : []), ...c.risk.map(r => `risk:${r}`), `runtime=${runtimeLines}`];
   if (floor && DEPTH_RANK[floor] > DEPTH_RANK[unfloored]) reasons.push(`floor:${floor}`);
   const codes = [...new Set(c.errors.flatMap(e => (e.result ? [e.result] : [])))];
-  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES };
+  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES, risk: c.risk };
 }
 
 /** The depth of a collected range (lib/review-collect.ts) plus a recorded gate-scan result: what the queue recomputes at a head. */
@@ -249,17 +257,23 @@ export interface NextStep { step: Step; reason: string }
  * The transition table (docs/review-policy.md#transitions). Pass 1 is full. A fixed
  * blocking finding earns a second full pass on the range, scoped when `depth` (known
  * only to planReview) is below full and the fix range has at most SCOPED_RANGE_LINES
- * runtime lines; any other fix earns one fix-check; two full passes is the cap (a
- * scoped pass is one); a blocker still open after any step stops for the owner.
+ * runtime lines; any other fix earns one fix-check, except a light pass whose fix range
+ * changes no runtime lines; two rounds is the cap (R51: a scoped pass or a fix-check is
+ * one): after round 2, below-floor fixes finish with notes, and a blocker open or fixed
+ * there, or a gate-class edit there, stops for the owner, whose grant may add one scoped fix-check.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1 reviews the whole diff' };
   const fixed = !!(h.fixedBlocking || h.fixedBelow);
-  if (h.last === 'fix-check') return h.blockingOpen || fixed ? { step: 'stop', reason: 'the fix-check found a blocking finding: name it for the owner, never a third full pass' } : { step: 'done', reason: 'the fix-check found nothing blocking' };
-  if (h.blockingOpen && h.fullPasses >= FULL_PASS_CAP) return { step: 'stop', reason: `a blocking finding is open after ${FULL_PASS_CAP} full passes: name it for the owner` };
+  if (h.last === 'fix-check') return h.blockingOpen || h.fixedBlocking || h.touchedGate ? { step: 'stop', reason: `the fix-check ${h.touchedGate && !h.blockingOpen && !h.fixedBlocking ? 'edited a gate-class path' : 'found a blocking finding'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` } : { step: 'done', reason: fixed ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
+  if (h.blockingOpen && h.fullPasses >= FULL_PASS_CAP) return { step: 'stop', reason: `a blocking finding is open after ${FULL_PASS_CAP} rounds: name it for the owner` };
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
   if (!fixed) return { step: 'done', reason: 'the step applied no edits' };
-  if ((h.fixedBlocking || h.touchedGate) && h.fullPasses < FULL_PASS_CAP) {
+  if (h.fullPasses >= FULL_PASS_CAP) return h.fixedBlocking || h.touchedGate
+    ? { step: 'stop', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : 'a fix edited a gate-class path'} in round ${FULL_PASS_CAP}, the cap: name it for the owner, whose grant may add one scoped fix-check (review_loop_exception)` }
+    : { step: 'done', reason: `round cap ${FULL_PASS_CAP} reached: the below-floor fixes ship as notes in the PR body and receipt` };
+  if (!h.fixedBlocking && !h.touchedGate && depth === 'light' && h.rangeRuntimeLines === 0) return { step: 'done', reason: 'light depth: the below-floor fixes change no runtime lines, so they ship as notes without a fix-check' };
+  if (h.fixedBlocking || h.touchedGate) {
     if (!h.fixedBlocking) return { step: 'full', reason: 'a fix touched a gate-class path: full pass on the range' };
     const n = h.rangeRuntimeLines;
     const keep = h.touchedGate ? 'a fix touched a gate-class path' : depth === undefined ? 'the depth is unknown' : h.pass1Depth === 'full' ? 'pass 1 ran at full depth' : depth === 'full' ? 'the diff is at full depth'
@@ -267,7 +281,7 @@ export function nextStep(h: History, depth?: Depth): NextStep {
     if (keep) return { step: 'full', reason: `a blocking finding was fixed and ${keep}: full pass on the range` };
     return { step: 'scoped', reason: `a blocking finding was fixed on a ${depth} diff with ${n} runtime lines in the fix range (<= ${SCOPED_RANGE_LINES}): scoped pass on the range` };
   }
-  return { step: 'fix-check', reason: h.fixedBlocking ? `full-pass cap ${FULL_PASS_CAP} reached: one fix-check reads the fix` : 'only below-floor fixes: one fix-check reads the touched hunks' };
+  return { step: 'fix-check', reason: 'only below-floor fixes: one fix-check reads the touched hunks (round 2)' };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +415,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   } else if (next.step === 'full') {
     const full = stepDepth === 'full';
     const dcls: DiffClass = full ? 'gate' : cls;
-    const raised = !full && runtimeLines <= SMALL_DIFF_LINES;
+    const raised = !full && (raise || runtimeLines <= SMALL_DIFF_LINES);
     const lines = full ? i.diffLines : Math.max(runtimeLines, raised ? SMALL_DIFF_LINES : 0);
     const checklists = batchChecklists(dcls, i, skipped);
     if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });

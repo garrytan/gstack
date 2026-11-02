@@ -6,6 +6,7 @@
     { "file": "scripts/modules-cli.ts", "movedFrom": "(new: bin/gstack-modules CLI, GSTA-140)" },
     { "file": "lib/harness-register.ts", "movedFrom": "(new: gstack-harness registrar, GSTA-135)" },
     { "file": "lib/harness-qm.ts", "movedFrom": "(new: gstack-harness QM skill-pack target, GSTA-135)" },
+    { "file": "lib/harness-start-hook.ts", "movedFrom": "(new: gstack-harness start hook for OpenClaw and Hermes, GST-718)" },
     { "file": "lib/design-lint/render.ts", "movedFrom": "(new: the bundled design lint, GSTA-105; ported from hallmark sloplint.mjs)" },
     { "file": "lib/design-lint/render-probe.ts", "movedFrom": "(new: the bundled design lint, GSTA-105; ported from hallmark sloplint-render.mjs)" },
     { "file": "lib/design-lint/render-probe-space.ts", "movedFrom": "(new: the bundled design lint, GSTA-105; ported from hallmark sloplint-render.mjs)" },

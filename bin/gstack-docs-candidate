@@ -4,7 +4,7 @@
  *
  * Usage (run inside the repository):
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
- *                                  --base <rev> [--select <path>]... [--docs <path>]...
+ *                                  --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
  *   gstack-docs-candidate [snapshot|compare] --help
@@ -16,6 +16,9 @@
  * selected paths are the committed, staged, unstaged and untracked paths.
  * --docs takes files or directories (directories expand to their tracked and
  * untracked files). It prints a short summary; the JSON file is the record.
+ * --exception names the blocked .gstack/tmp/docs-audit.json an owner accepted
+ * (Step 14.5 Blocked recovery): the record then carries that exception, so
+ * Step 16 can tell an accepted risk from a skipped audit.
  *
  * compare re-reads the same state and prints one JSON object: whether HEAD or
  * the index changed, which recorded paths' content changed or disappeared, and
@@ -32,6 +35,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
@@ -90,9 +94,19 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
-const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]...
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
+
+/** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record, read by the receipt's own parser; throws when the record is not blocked or names no complete exception. */
+function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> & { scope: string } {
+  let audit: unknown;
+  try { audit = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { throw new Error(`--exception ${file} is not readable JSON: ${(error as Error).message}`); }
+  const parsed = parseReceiptDocs(audit);
+  const problem = !parsed.ok ? parsed.message : parsed.docs.status !== 'blocked' ? `its status is ${parsed.docs.status}, not blocked` : !parsed.docs.exception ? 'it names no accepted exception' : null;
+  if (problem || !parsed.ok || !parsed.docs.exception) throw new Error(`--exception ${file}: ${problem}. Only an owner-accepted documentation risk writes this snapshot (ship/sections/documentation.md, Blocked recovery step 3)`);
+  return { ...parsed.docs.exception, scope: parsed.docs.scope };
+}
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
 function recordProblems(record: any): string[] {
@@ -113,7 +127,7 @@ function main(argv: string[]): void {
     return;
   }
   if (command === 'snapshot') {
-    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs']);
+    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
@@ -121,6 +135,8 @@ function main(argv: string[]): void {
     const mode = one(args, '--mode');
     if (mode !== 'edit' && mode !== 'read-only') throw new Error('--mode must be edit or read-only');
     const base = git(['rev-parse', '--verify', one(args, '--base') + '^{commit}']).trim();
+    const exceptionFile = flag(args, '--exception')[0];
+    const exception = exceptionFile === undefined ? undefined : acceptedException(exceptionFile);
     process.chdir(top);
     const now = state(base);
     const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
@@ -128,10 +144,11 @@ function main(argv: string[]): void {
       : [...new Set([...now.committed, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
     const docs = expand(listed, flag(args, '--docs'));
     const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
-    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked) };
+    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
     fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
     console.log(`CANDIDATE: ${out}`);
     console.log(`base=${base} head=${now.head} branch=${now.branch || '(detached)'} mode=${mode}`);
+    if (exception) console.log(`EXCEPTION: accepted by ${exception.accepted_by} ${exception.date} via ${exception.via}`);
     console.log(`committed=${now.committed.length} staged=${now.staged.length} unstaged=${now.unstaged.length} untracked=${now.untracked.length} selected=${selected.length} docs=${docs.length} hashed=${tracked.length}`);
     for (const [label, list] of [['committed', now.committed], ['staged', now.staged], ['unstaged', now.unstaged], ['untracked', now.untracked], ['docs', docs]] as const) {
       if (list.length) console.log(`${label}: ${list.map(p => JSON.stringify(p)).join(' ')}`);

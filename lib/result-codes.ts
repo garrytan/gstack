@@ -167,6 +167,11 @@ export const RESULT_CODES = {
     summary: 'an argument given to .\\setup.ps1 is an empty string, which its Git Bash hand-off cannot carry, so nothing ran',
     fix: 'drop the empty argument or give it a value, then run .\\setup.ps1 again',
   },
+  SETUP_DEPS_MIGRATE_FAILED: {
+    anchor: 'setup-deps-migrate-failed',
+    summary: 'setup tried to move an install made before v1.91.231.0 to production-only dependencies, the production install failed, and setup put the full install back',
+    fix: 'read the cause on the warning line (offline, proxy, disk full), fix it, then re-run ./setup; the full install keeps working meanwhile',
+  },
   // C-stamp (plan C1, C2, C3, C5, C7): ship policy, restamp, tree receipt, ship receipt.
   POLICY_SOURCE_UNAVAILABLE: {
     anchor: 'policy-source-unavailable',

@@ -674,8 +674,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   ],
 
   // Retro
-  'retro':             ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'retro/**', 'test/skill-e2e-retro.test.ts'],
-  'retro-base-branch': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'retro/**', 'test/skill-e2e-retro.test.ts'],
+  'retro':             ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'lib/retro-friction.ts', 'retro/**', 'test/skill-e2e-retro.test.ts'],
+  'retro-base-branch': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'lib/retro-friction.ts', 'retro/**', 'test/skill-e2e-retro.test.ts'],
 
   // CSO
   'cso-full-audit':   ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'cso/**', 'lib/cso/**', 'lib/redact-engine.ts', 'lib/redact-patterns.ts',   'test/skill-e2e-cso.test.ts'],

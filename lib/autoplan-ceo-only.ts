@@ -18,6 +18,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildGate, finishGate } from './autoplan-gate';
+import { FINDING_ORIGIN } from './autoplan-confirm';
 import { carryLines } from './autoplan-carry';
 import { aggregateFindings, exportRun } from './autoplan-export';
 import { decisionRows, ruleKept, type GateItem } from './gate-list';
@@ -62,7 +63,7 @@ export function finishRun(state: RunState): string[] {
   const plan = at?.nlink === 1n ? [state.plan_source, state.plan_input, state.active_plan].find(p => p && fs.existsSync(p) && id(p).ino === at.ino && id(p).dev === at.dev) : undefined;
   if (plan) throw new RunError('CEO_ONLY_CONFLICT', `the plan ${plan} is the report path ${report}`, 3);
   const list = buildGate(state, 1);
-  const items = list.items.filter(i => i.id !== 'p1');
+  const items = list.items.filter(i => i.id !== 'p1' && !i.origin?.endsWith(`|${FINDING_ORIGIN}`));
   const rows: DecisionRow[] = decisionRows({ ...list, items }).map((row, i) => ({ ...row, kind: 'auto', status: 'auto_kept', chosen: ruleKept(items[i]!), default_if_unanswered: ruleKept(items[i]!), source: 'ceo-only' }));
   writeDecisions(state.out, rows);
   state.status = 'reviewed';
