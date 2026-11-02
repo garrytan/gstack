@@ -166,7 +166,7 @@ describe('write and carry refuse a receipt the queue\'s targeted verdict refuses
       return { ...runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], { GSTACK_STATE_ROOT: path.join(repo.root, 'state') }), body };
     };
     const uncovered = carry(versioned);
-    expect(uncovered.status).toBe(EXIT.fail);
+    expect(uncovered.status).toBe(EXIT.refused);
     expect(uncovered.err).toMatch(/requires the targeted reader on money, but the receipt records no targeted pass.*\(RECEIPT_CARRY_REFUSED/);
     expect(extractReceipt(fs.readFileSync(uncovered.body, 'utf8')).receipt!.head).toBe(head);
     const ok = carry(covered);
@@ -189,7 +189,7 @@ describe('/ship\'s receipt writes pass the targeted record (item 3, #3853)', () 
     const optional = /\$\(\[ -s (\S+) \] && echo (--review-targeted @\S+)\)/.exec(writeLine);
     expect(optional?.slice(1)).toEqual([recordPath!, `--review-targeted @${recordPath}`]);
     expect(section('handoff')).toContain(`When Step 11 saved \`${recordPath}\`, add \`--review-targeted @${recordPath}\` to that write.`);
-    expect(fs.readFileSync(path.join(ROOT, 'ship', 'DRIVER.md'), 'utf8')).toContain(`[--review-targeted @${recordPath}]`);
+    expect(fs.readFileSync(path.join(ROOT, 'ship', 'DRIVER.md'), 'utf8')).toContain('[--review-targeted @<f>] --body <body>');
 
     const { repo } = moneyBranch();
     const expand = () => spawnSync('bash', ['-c', `printf '%s\\n' ${optional![0]}`], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).stdout.split('\n').filter(Boolean);

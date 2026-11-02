@@ -24,7 +24,7 @@ import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, read
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 import { runScriptSync } from '../lib/script-invocation';
-import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from '../lib/review-targeted';
+import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '../lib/review-targeted';
 import { resolveBaseBranch } from '../lib/ship-policy';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
@@ -130,7 +130,7 @@ function render(): number {
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
-  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, patch_id: diffBase ? targetedPatchId(process.cwd(), diffBase) : 'none' };
+  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
   appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
@@ -279,19 +279,22 @@ function program(): number {
 
 /**
  * The receipt's review_targeted record from the newest targeted dispatch: done only when its brief was sent verbatim, its output
- * collected, and the committed diff it was rendered on is still the one at verify (targetedPatchId; uncommitted never proves it).
+ * collected, and it was rendered on a committed diff (uncommitted never proves what was read). `head` names the commit it read:
+ * a later commit does not undo the read, and gstack-ship-receipt write binds the record only while that commit's product patch is
+ * the receipt's (GST-986: Step 11 fixes after the read printed status=failed findings=0 for a completed reader).
  */
-function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[]; rules: string; brief_sha: string; status: 'done' | 'failed'; findings: number; raised_by: string } | null {
+function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[]; rules: string; brief_sha: string; status: 'done' | 'failed'; findings: number; raised_by: string; head: string | null } | null {
   const events = readLedger(ledger);
   const render = events.filter(e => e.event === 'rendered' && e.reader === 'targeted').at(-1);
   if (!render) return null;
   const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === 'targeted').at(-1)?.reader;
   const brief = rows.filter(r => r.kind === 'BRIEF' && r.reader === label).at(-1);
   const output = rows.filter(r => r.kind === 'OUTPUT' && r.reader === label).at(-1);
-  const read = typeof render.patch_id === 'string' && !['uncommitted', 'none'].includes(render.patch_id) && typeof render.diff_base === 'string' && targetedPatchId(process.cwd(), render.diff_base) === render.patch_id;
-  const done = brief?.status === 'MATCH' && output?.status === 'MATCH' && read;
+  const head = typeof render.head === 'string' && /^[0-9a-f]{40,64}$/.test(render.head) ? render.head : null;
+  const committed = typeof render.patch_id === 'string' && !['uncommitted', 'none'].includes(render.patch_id) && head !== null;
+  const done = brief?.status === 'MATCH' && output?.status === 'MATCH' && committed;
   const ids = events.filter(e => e.event === 'output' && e.reader === 'targeted').at(-1)?.ids;
-  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: done && Array.isArray(ids) ? ids.length : 0, raised_by: 'targeted' };
+  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: Array.isArray(ids) ? ids.length : 0, raised_by: 'targeted', head };
 }
 
 function main(): number {
@@ -359,7 +362,7 @@ function main(): number {
     if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
     const record = targetedRecord(ledger, v.rows);
     if (record) {
-      process.stdout.write(`TARGETED_RECORD: classes=${record.classes.join(',')} status=${record.status} findings=${record.findings} brief=${record.brief_sha.slice(0, 12)} rules=${record.rules}\n`);
+      process.stdout.write(`TARGETED_RECORD: classes=${record.classes.join(',')} status=${record.status} findings=${record.findings} brief=${record.brief_sha.slice(0, 12)} rules=${record.rules} read=${record.head?.slice(0, 12) ?? 'none'}\n`);
       if (flag('--targeted-out')) fs.writeFileSync(flag('--targeted-out')!, JSON.stringify(record) + '\n');
     }
     process.stdout.write(`VERIFY: ${v.clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);

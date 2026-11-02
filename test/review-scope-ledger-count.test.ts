@@ -270,10 +270,10 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     expect(s.unrecorded).toBeUndefined();
   });
 
-  // Value: protects=a fix-check with both a row and a ledger counts once; a blocker no later fix-check followed stays unrecorded,
-  //   and one a row deferred stays deferred; fails_when=the ledger count adds to the row count, or every ledger blocker turns fixed;
-  //   seam=gstack-review-scope summary --run
-  test('a fix-check counted by row and ledger counts once; the last pass\'s blocker stays unrecorded; a deferred blocker is not fixed', () => {
+  // Value: protects=a fix-check with both a row and a ledger counts once, and once every fix-check has its row the rows decide
+  //   dispositions (a blocker no row disposes stays unrecorded); fails_when=the ledger count adds to the row count, or a logged
+  //   fix-check turns undisposed blockers fixed; seam=gstack-review-scope summary --run
+  test('a fix-check counted by row and ledger counts once; with its row logged, undisposed blockers stay unrecorded', () => {
     const repo = branchWith([
       review(0, 1, [{ fingerprint: 'lib/a.ts:5:logic', severity: 'CRITICAL', blocking: true, action: 'deferred', raised_by: 'red-team' }]),
       fixCheck(30, []),
@@ -283,6 +283,6 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     step('p1', [['red-team', '[CRITICAL] lib/a.ts:5 a deferred defect outside the diff\n[CRITICAL] lib/b.ts:9 a fixed defect']]);
     step('fc1', [['fix-check', '[CRITICAL] lib/c.ts:3 the fix broke the caller']]);
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 1, fix_checks: 1, rounds: 2, unrecorded: 1 });
+    expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 0, fix_checks: 1, rounds: 2, unrecorded: 2 });
   });
 });
