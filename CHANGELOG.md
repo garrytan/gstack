@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.56.0] - 2026-11-02
+
+**`gstack-ship-receipt write` records the session kind on Windows.** Without `--session-kind` or `GSTACK_SESSION_KIND`, it asks the `gstack-session-kind` bash helper. It used to spawn that helper by path, which never starts on Windows, so every /ship receipt there carried no `session_kind`. It now starts the helper through `lib/script-invocation.ts`, which uses Git Bash on Windows. This is the /ship half of #3541.
+
+### Fixed
+- **`bin/gstack-ship-receipt`** starts `gstack-session-kind` with `runScriptSync`.
+
+### Tests
+- `test/ship-receipt-session-kind.test.ts` (windows-free-tests too): a receipt written without a session kind records what `gstack-session-kind` prints.
+
 ## [1.92.55.0] - 2026-11-02
 
 - **`/ship` finish no longer stops on a branch whose restamp moved its own stale stamp after a lost slot** (`gstack-ship-release finish`, GST-895). When a branch loses its merge slot, merges main and runs `gstack-restamp --next`, the restamp moves the branch's own `since:` rows from the lost version to the new one. Finish only accepted a moved version at or above the reviewed tree's VERSION, which now came from main, so it read those rows as a behavior change and stopped with "insert 5–11.5 → 12–14 → 16" (gbrain #8134 on 1.92.46.0). Now a line the branch added itself, by the same rule restamp uses (added since the merge base with main, and not added by main), may move any version newer than the branch's fork point, and finish routes it as release metadata. A row main carries, a row main edited after the merge, and a branch row at or before the fork point still stop. Only `stamp_files` paths count, and nothing else on the line may change.
