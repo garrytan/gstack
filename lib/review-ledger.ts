@@ -79,6 +79,7 @@ const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Sever
  * "1. **High**: …", "### CRITICAL: …", "1. api.ts:10 CRITICAL: …", "1. CRITICAL missing auth"): the reader's own label, which a
  * Severity field never lowers. "P0 pilot …" is not one.
  */
+const FIELD_LABELS = new RegExp(ANY_LABEL.source, 'gi');
 const LEAD_LABEL = new RegExp(`^(?:[^\\p{L}\\p{N}\\s]\\s*|\\d+[.)]\\s*)*(?:\\w[\\w./-]*:\\d+(?:[-–:,]\\s*\\d+)*[^\\p{L}\\p{N}\\s]*\\s+(?:[^\\p{L}\\p{N}\\s]\\s*)*)?(${LABELS})(?=[*_\`\\])]|\\s*[:|—–]|\\s+-\\s|\\s*$|(?<=[A-Z]{3})[\\s,(.])`, 'u');
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
 function stated(raw: string): Stated | undefined {
@@ -93,7 +94,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels). A line with a `Severity` field takes that field's label instead (the strongest, if it states two), whatever its
+ * of the two labels). A line with a `Severity` field takes that field's label instead (a field stating more than one label, "High/Critical", counts as none), whatever its
  * body names (GST-976: "the P0 pilot" collected as P0 under `Severity: Low`); a label leading the line and an earlier field of the same
  * finding are its floor. A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` sets its label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying
  * the paragraph's subject.
@@ -114,7 +115,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
-  const fieldOf = (t: string) => strongestOf([...t.matchAll(SEVERITY_FIELD)].flatMap(m => [...(m[1] ?? m[2]!).matchAll(ALL_LABELS)].map(l => l[1]!)));
+  const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 ? ls[0] : undefined; };
   const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
   const labelOf = (t: string) => {

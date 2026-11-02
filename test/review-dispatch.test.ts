@@ -690,8 +690,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['1. lib/x.ts:42-58 CRITICAL: drops rows. Severity: Low', 'CRITICAL'], ['1. lib/x.ts:42:7 CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
       ['1. (lib/x.ts:42, 50) CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
       ['1. The P0 pilot table drops a row\nSeverity: Low: only the pilot', 'Low'], ['1. The P0 pilot table drops a row\nSeverity: Low because it is internal', 'Low'],
-      ['1. The P0 pilot table drops a row\nSeverity: Low/Medium', 'Medium'], ['Severity: Low: only the P0 pilot table', 'Low'],
-      ['1. The P0 pilot drops a row. Severity: Low/P3', 'Low'], ['1. drops rows\nSeverity: High/Critical', 'Critical'],
+      ['1. The P0 pilot table drops a row\nSeverity: Low/Medium', 'P0'], ['Severity: Low: only the P0 pilot table', 'Low'],
+      ['1. The P0 pilot drops a row. Severity: Low/P3', 'P0'], ['1. drops rows\nSeverity: High/Critical', 'Critical'],
       ['Severity: Medium/CRITICAL', 'CRITICAL'], ['1. x.ts:3 drops prod rows. Severity: Low/CRITICAL', 'CRITICAL'],
       ['1. x.ts:3 is CRITICAL (Severity: Low/Medium in pass 1)', 'CRITICAL'], ['1. x.ts:3 is CRITICAL (Severity: Low: pass 1)', 'CRITICAL'],
       ['Still open: x.ts:3 is P0, Severity: Low: pass 1 understated it', 'P0']];
