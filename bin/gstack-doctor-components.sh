@@ -361,6 +361,7 @@ gstack_result_anchor() {
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;

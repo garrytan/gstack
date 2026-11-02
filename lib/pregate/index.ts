@@ -37,12 +37,12 @@ export const PREGATE_TIER2 = ['ratchets', 'lint', 'links', 'hermetic', 'patches'
 
 export interface RunOptions { stage: Stage | 'all'; only?: string[]; run?: string }
 
-/** Apply the repo's `warn` downgrades: never `secrets`, and never a lane that could run here and failed. */
+/** Apply the repo's `warn` downgrades: never `secrets`. `lanes` applies its own (a touched file with no lane, after the selected tests ran), so nothing it fails is downgraded here. */
 export function applyDowngrades(ctx: PregateContext, result: CheckResult, def: CheckDef): CheckResult {
   if (result.status !== 'fail') return result;
   if (!def.downgradable || (NON_DOWNGRADABLE as readonly string[]).includes(def.id)) return result;
   if (!ctx.config.warn.includes(def.id)) return result;
-  if (def.id === 'lanes' && result.code === 'PREGATE_LANE_FAILED') return { ...result, detail: `${result.detail} (required lane; warn downgrade does not apply)` };
+  if (def.id === 'lanes') return result.code === 'PREGATE_LANE_FAILED' ? { ...result, detail: `${result.detail} (required lane; warn downgrade does not apply)` } : result;
   return { ...result, status: 'warn', detail: `${result.detail} (downgraded to warn by ${ctx.configLabel})` };
 }
 

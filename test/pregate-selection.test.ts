@@ -201,6 +201,41 @@ describe('literals (pure)', () => {
       { name: 'MAX', old: '3', new: '4', file: 'f.ts' }, { name: 'timeout', old: '5000', new: '9000', file: 'f.ts' },
     ]);
   });
+  // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
+  //   module, so a test that only names it is not a consumer, while an extensionless import, a JS/TS import extension, the module's own
+  //   file name and a path ending at the stem (then a quote, space, bracket, sentence end or `.d.ts`) still are, and neither `<file>.snap` nor a JS twin of a
+  //   shell module is; fails_when=`/<stem>` again accepts any following `.<word>`, the file name accepts a further extension,
+  //   a non-JS module takes JS/TS extensions, or stops accepting a following space, bracket or sentence end
+  //   (GST-820: 17 false files in gbrain #8372 on ARM_SHARDS 12 -> 18); why_new=no test had a same-stem sibling; seam=none;
+  //   no_claim=name-gated hits (a file naming ARM_SHARDS still counts any 12)
+  test('consumersOf: a sibling file sharing the module stem is not the module; real imports of it still are (GST-820)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-stem-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'test/a.test.ts': ['// listed in test/postgres-unit-arms.txt', 'expect(n).toBe(12);', ''].join(nl),
+      'test/json.test.ts': ["const arms = read('fixtures/postgres-unit-arms.json');", 'expect(arms.length).toBe(12);', ''].join(nl),
+      'test/longer.test.ts': ["run('scripts/postgres-unit-arms-v2.ts');", 'expect(n).toBe(12);', ''].join(nl),
+      'test/import.test.ts': ["import { shards } from '../scripts/postgres-unit-arms';", 'expect(shards()).toBe(12);', ''].join(nl),
+      'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", 'expect(shards()).toBe(12);', ''].join(nl),
+      'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", 'expect(out).toBe(12);', ''].join(nl),
+      'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', 'expect(n).toBe(12);', ''].join(nl),
+      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', 'expect(n).toBe(12);', ''].join(nl),
+      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', 'expect(n).toBe(12);', ''].join(nl),
+      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', 'expect(n).toBe(12);', ''].join(nl),
+      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", 'expect(n).toBe(12);', ''].join(nl),
+      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", 'expect(n).toBe(12);', ''].join(nl),
+      'test/snap.test.ts': ["read('scripts/__snapshots__/postgres-unit-arms.ts.snap');", 'expect(n).toBe(12);', ''].join(nl),
+      'test/sh-twin.test.ts': ["import { arms } from '../lib/arms-tool.ts';", 'expect(n).toBe(12);', ''].join(nl),
+      'test/sh-own.test.ts': ["run('scripts/arms-tool.sh');", 'expect(n).toBe(12);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '12', new: '18', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
+      'test/import.test.ts:2', 'test/import-js.test.ts:2', 'test/own.test.ts:2', 'test/line-end.test.ts:2',
+      'test/prose.test.ts:2', 'test/paren.test.ts:2', 'test/sentence.test.ts:2', 'test/dts.test.ts:2',
+    ]);
+    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '12', new: '18', file: 'scripts/arms-tool.sh' })).toEqual(['test/sh-own.test.ts:2']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   test('consumersOf: a module stem is a path fragment, never a bare word, and a one-character old value needs the constant name (GSTA-114 flood: install.sh 2 -> 3 flagged 575 consumers)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-'));
     const nl = String.fromCharCode(10);
