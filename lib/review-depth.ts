@@ -88,9 +88,16 @@ const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg(?:\s+PUBLIC\s+(["
 export const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\((?!\s*#|['"]\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
 /** A drawing's CSS, a style element's text or a style attribute's value, holds declarations only: no @ rule and no function but url(#id). */
 const SVG_STYLE_OPEN = /<(?:[A-Za-z_][\w.-]*:)?style\b/gi;
-const SVG_STYLE_CLOSE = /^<\/(?:[A-Za-z_][\w.-]*:)?style\s*>/i;
-/** A style element's opening tag, read quote by quote: an attribute value holding < or > refuses, so it cannot hide a closing tag. */
-const SVG_STYLE_TAG = /^<(?:[A-Za-z_][\w.-]*:)?style(?:\s+[\w.:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*'))*\s*>/i;
+const SVG_STYLE_CLOSE = /^<\/(?:[A-Za-z_][\w.-]*:)?style[ \t\n\r]*>/i;
+/**
+ * A style element's opening tag, read as quoted name="value" pairs separated by the ASCII whitespace XML and HTML share: any
+ * other shape (a value holding < or >, an unquoted or valueless attribute, />, another space) refuses, so it cannot hide a closing tag.
+ */
+const SVG_STYLE_TAG = /^<(?:[A-Za-z_][\w.-]*:)?style(?:[ \t\n\r]+[\w.:-]+[ \t\n\r]*=[ \t\n\r]*(?:"[^"<>]*"|'[^'<>]*'))*[ \t\n\r]*>/i;
+/** An element name, ended by ASCII whitespace, / or >: a non-ASCII character in the name (a prefix such as gé:) refuses rather than reading as its ASCII start. */
+const SVG_TAG_NAME = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)(?=[ \t\n\r/>]|$)/;
+/** Every name= in the text, non-ASCII letters included so a prefix such as xé:href is read whole and refused. */
+const SVG_ATTR = /(?<![\w.:\-\u0080-\uffff])([A-Za-z_\u0080-\uffff][\w.:\-\u0080-\uffff]*)\s*=\s*(?=(?:"([^"]*)"|'([^']*)'|([^\s"'<>=]+)))/g;
 const SVG_CSS_REF = /url\(\s*(['"]?)#[\w.:-]*\1\s*\)/gi;
 const SVG_CSS_REFUSED = /[@(]/;
 /** An href or src value a drawing may hold: a same-document reference, or a raster image inline. */
@@ -99,7 +106,8 @@ const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+
 /**
  * Whether an SVG's whole text is a drawing (GST-911): every element in SVG_ELEMENTS, no event handler, every href or src a
  * same-document reference or an inline raster image, CSS of declarations only, and nothing SVG_REFUSED names, read after character references are
- * decoded. Every name= in the text is read, so a stray quote cannot hide a later attribute inside its value; an unquoted value
+ * decoded. Every name= in the text is read (SVG_ATTR), so a stray quote cannot hide a later attribute inside its value, and a name
+ * holding a non-ASCII character refuses, like an element name (SVG_TAG_NAME); an unquoted value
  * stops at the next =, which keeps the scan linear. A style element's opening tag is read quote by quote (SVG_STYLE_TAG), and its CSS is walked with indexOf to its closing tag over the raw
  * text, so a character reference cannot fake a closing tag or a comment, and any & in it refuses (GST-940). Comments and CDATA are
  * read as CSS, so neither can hide a closing tag and an HTML-only comment end (<!--> or --!>) exposes nothing unread; any other
@@ -136,10 +144,11 @@ export function svgDrawing(text: string): boolean {
   }
   for (let at = t.indexOf('<'); at !== -1; at = t.indexOf('<', at + 1)) {
     if (SVG_MARKUP.test(t.slice(at, at + 512))) continue;
-    const tag = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)/.exec(t.slice(at, at + 256));
+    const tag = SVG_TAG_NAME.exec(t.slice(at, at + 256));
     if (!tag || !SVG_ELEMENTS.has(tag[1]!.toLowerCase())) return false;
   }
-  for (const m of t.matchAll(/(?<![\w.:-])([A-Za-z_][\w.:-]*)\s*=\s*(?=(?:"([^"]*)"|'([^']*)'|([^\s"'<>=]+)))/g)) {
+  for (const m of t.matchAll(SVG_ATTR)) {
+    if (/[^\x00-\x7f]/.test(m[1]!)) return false;
     const local = m[1]!.slice(m[1]!.lastIndexOf(':') + 1).toLowerCase();
     const value = m[2] ?? m[3] ?? m[4] ?? '';
     if (local.startsWith('on') || ((local === 'href' || local === 'src') && !SVG_HREF.test(value)) || (local === 'style' && !cssDrawing(value))) return false;
@@ -150,7 +159,7 @@ export function svgDrawing(text: string): boolean {
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT, SVG_ELEMENTS: [...SVG_ELEMENTS],
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_TAG_NAME: [SVG_TAG_NAME], SVG_ATTR: [SVG_ATTR], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
