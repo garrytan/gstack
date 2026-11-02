@@ -58,7 +58,7 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
-const BLOCKS_NO = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*no(?![A-Za-z0-9])/i;
+const BLOCKS_NO = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*no(?![A-Za-z0-9-])/i;
 const ALL_LABELS = new RegExp(ANY_LABEL.source, 'g');
 /** A file:line locus ("auth.ts:9"): prose naming one after a finding's fields starts the next finding. */
 const LOCUS = /[\w./-]+\.\w+:\d+/;
@@ -107,7 +107,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * states `Blocks: no` collects at its own Severity field; one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL.
  */
 export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -169,6 +169,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
     if (found) {
       current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
+      current.fixable = inherited?.toUpperCase() === 'FIXABLE';
       if (!indented) head = t;
       continue;
     }
@@ -179,8 +180,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  const unblocked = (label: string, raw: string) => fixableRaises || role !== 'adversarial-native' || !(label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(raw)) || BLOCKS_NO.test(raw);
-  return out.map(({ label, raw }) => ({ label: unblocked(label, raw) ? label : 'CRITICAL', raw }));
+  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || BLOCKS_NO.test(f.raw);
+  return out.map(f => ({ label: unblocked(f) ? f.label : 'CRITICAL', raw: f.raw }));
 }
 
 /**
