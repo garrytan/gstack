@@ -202,6 +202,28 @@ describe('review start/end binding (#2803)', () => {
     expect(log(token).review_binding.state).toBe('changed');
   });
 
+  test('GST-985: a root ..x scratch dir created mid-review still binds', () => {
+    const token = cli('gstack-review-log', ['--start', 'review']);
+    mkdirSync(join(repo, '..x'));
+    writeFileSync(join(repo, '..x', 'unit.json'), '{}\n');
+    expect(log(token).review_binding.state).toBe('verified');
+  });
+
+  test('GST-985: a git add -N file in a new dot-directory counts under the read-tree HEAD fallback', () => {
+    mkdirSync(join(repo, '.newdir'));
+    writeFileSync(join(repo, '.newdir', 'a.ts'), 'export const a = 1;\n');
+    git('add', '-N', '.newdir/a.ts');
+    const fakeBin = mkdtempSync(join(tmpdir(), 'review-start-faketouch-'));
+    writeFileSync(join(fakeBin, 'touch'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(fakeBin, 'touch'), 0o755);
+    try {
+      const env = { PATH: `${fakeBin}:${process.env.PATH}` };
+      expect(cli('gstack-wtree', ['--review'], repo, env)).toBe(cli('gstack-wtree', [], repo, env));
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
   test('GST-985: gstack-wtree refuses an unknown or extra argument', () => {
     for (const args of [['--bogus'], ['--review', 'x']]) {
       const r = spawnSync(join(ROOT, 'bin', 'gstack-wtree'), args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });

@@ -111,11 +111,13 @@ if [ -e "$TOP/.bun" ] && ! git -C "$TOP" check-ignore --no-index -q .bun 2>/dev/
 EXCLUDES=()
 if [ -n "$EXCLUDE_BUN" ]; then EXCLUDES+=("$EXCLUDE_BUN"); fi
 if [ -n "$REVIEW" ]; then
-  for DOTDIR in "$TOP"/.[!.]*; do
+  TRACKED_INDEX="$TMPIDX"
+  if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ]; then TRACKED_INDEX="$REAL_INDEX"; fi
+  for DOTDIR in "$TOP"/.[!.]* "$TOP"/..?*; do
     NAME=${DOTDIR##*/}
     case "$NAME" in .git|.github|.gstack|.bun) continue ;; esac
     if [ ! -d "$DOTDIR" ] || [ -L "$DOTDIR" ]; then continue; fi
-    if git -C "$TOP" ls-files --error-unmatch -- ":(top,literal)$NAME" >/dev/null 2>&1; then continue; fi
+    if GIT_INDEX_FILE="$TRACKED_INDEX" git -C "$TOP" ls-files --error-unmatch -- ":(top,literal)$NAME" >/dev/null 2>&1; then continue; fi
     if git -C "$TOP" check-ignore --no-index -q -- "$NAME" 2>/dev/null; then continue; fi
     EXCLUDES+=(":(exclude,top,literal)$NAME")
   done
