@@ -765,7 +765,9 @@ refuses with `run_in_progress`, and one that concluded anything but `success`
 (`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line
 says to rerun the workflow and clear with the green run. The check reads the
 run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
-the whole run, not that job or attempt. The job, tree and age are not
+the whole run, not that job or attempt, and the lane records
+`https://github.com/<repo>/actions/runs/<id>/attempts/<n>` for the attempt it
+judged rather than the link you passed. The job, tree and age are not
 checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
 unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
