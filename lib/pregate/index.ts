@@ -29,7 +29,7 @@ import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnl
 import { resolveBaseBranch } from '../ship-policy';
 import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
-import { workflowCallers } from './workflows';
+import { displayNamePattern, workflowCallers } from './workflows';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
 export const CHECK_IDS = CHECKS.map(c => c.id);
@@ -268,7 +268,7 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     try { run = input.evidence.deps.run(id); }
     catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
     const want = `.github/workflows/${target.workflow}`;
-    const { dispatch, callers } = workflowCallers(repoRoot, target.workflow);
+    const { dispatch, jobName, callers } = workflowCallers(repoRoot, file.tree, target.workflow, target.job);
     const runPath = run?.path;
     const caller = callers.find(c => runPath === `.github/workflows/${c.file}`);
     if (!run || (run.path !== want && !caller)) {
@@ -287,8 +287,8 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
       let jobs: ApiJob[];
       try { jobs = input.evidence.deps.jobs(id, run.run_attempt); }
       catch (e: any) { return invalid(`api_error — reading run ${id}'s jobs failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
-      const called = (name: string) => caller.jobs.some(n => name.startsWith(n) && /^(?: \([^)]*\))? \/ /.test(name.slice(n.length)));
-      if (!jobs.some(j => j.conclusion === 'success' && called(j.name))) return invalid(`caller_job_skipped — run ${id} attempt ${run.run_attempt} of ${caller.file} has no successful job under ${caller.jobs.map(n => `"${n} / …"`).join(' or ')}, so ${target.workflow} did not run in it`, `clear with a ${caller.file} run in which that job runs${caller.dispatch ? ` (gh workflow run ${caller.file} --ref <branch>)` : ''}, ${green}`);
+      const named = caller.jobs.map(n => new RegExp(`^${displayNamePattern(n)}(?: \\([^)]*\\))? / ${displayNamePattern(jobName)}(?: \\([^)]*\\))?$`));
+      if (!jobs.some(j => j.conclusion === 'success' && named.some(re => re.test(j.name)))) return invalid(`caller_job_skipped — run ${id} attempt ${run.run_attempt} of ${caller.file} has no successful job named ${caller.jobs.map(n => `"${n} / ${jobName}"`).join(' or ')}, so ${target.workflow} did not run in it`, `clear with a ${caller.file} run in which that job runs${caller.dispatch ? ` (gh workflow run ${caller.file} --ref <branch>)` : ''}, ${green}`);
     }
     return { receipt: `https://github.com/${repo}/actions/runs/${id}/attempts/${run.run_attempt}`, attested: false };
   }

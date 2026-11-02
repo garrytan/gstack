@@ -765,9 +765,10 @@ run gh cannot read refuses with `api_error`, and a URL that is not an Actions
 run URL or id on this repository with `run_ref_invalid`. A reusable-workflow
 lane (one whose file runs only through `workflow_call`) also clears from a run
 of a caller: a workflow in the branch's own `.github/workflows/` with a job
-that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), as long as a
-job under that calling job (`<calling job> / …`) succeeded in the run; else it
-refuses with `caller_job_skipped`. Fix lines only suggest `gh workflow run` for
+that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
+pregate.json's recorded tree, as long as the lane's own job succeeded in the
+run under that calling job (`<calling job> / <lane job>`); else it refuses
+with `caller_job_skipped`. Fix lines only suggest `gh workflow run` for
 a file with a `workflow_dispatch` trigger.
 The run must also
 have finished green (GSTA-203 PR 8): a run that is still queued or running
