@@ -185,7 +185,9 @@ UBI_TTL_HOURS=3 $U run --setup scripts/ubicloud/bootstrap.sh -- 'make test'
 
 `run` creates the VM (`-s SIZE`, default `standard-16`; `-l LOCATION`, default
 `eu-central-h1`), streams the checkout (tracked files, untracked files that
-are not ignored, and `.git`, so uncommitted edits are tested), runs the
+are not ignored, and `.git`, so uncommitted edits are tested; a subdirectory
+of a checkout ships only its own git-listed files without `.git`, and one its
+checkout ignores is refused), runs the
 bootstrap once, runs the command in a login shell with `umask 022`, copies
 `--pull REMOTE_GLOB:LOCAL_DIR` artifacts back and destroys the VM. It exits
 with the command's status. `--env K=V` passes a literal; `--pass NAME` forwards
