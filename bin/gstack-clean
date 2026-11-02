@@ -1,0 +1,12 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-clean — reclaim throwaway files in this repository's .gstack folder
+ * (#2627): old codex scratch in tmp/, oversized browse logs cut in place, and
+ * with --audit-days N old browse audit entries. Dry run unless --apply;
+ * `gstack-clean --help` lists the fixed thresholds. The rules live in
+ * lib/repo-state-clean.ts; error codes GSTACK_CLEAN_* are documented in
+ * docs/troubleshooting.md.
+ */
+import { main } from '../lib/repo-state-clean';
+
+process.exit(main(process.argv.slice(2)));
