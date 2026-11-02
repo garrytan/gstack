@@ -392,6 +392,7 @@ gstack_result_anchor() {
     GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
     GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
     GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
+    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
     *) return 1 ;;
   esac
 }
