@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { SHADOW_PROMPT_SHA256, SHADOW_PROMPT_VERSION, auditMark, buildPage, claimShadow, parsePage, recordFile, runShadow, shadowPromptFile, shadowSwitch } from '../lib/autoplan-shadow';
 import { callModel } from '../lib/outside-voice-api';
 import { gateCost, renderGateCost } from '../lib/autoplan-gate-cost';
-import { readState } from '../lib/autoplan-state';
+import { readJournal, readState } from '../lib/autoplan-state';
 import { reserve, settle, readLedger } from '../lib/spend-ledger';
 import type { GateList } from '../lib/gate-list';
 import { ROOT, readRun, runPhase, startSmallRun } from './helpers/autoplan-run-fixture';
@@ -279,6 +279,18 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     expect(slow.outcome.line).toBe('SHADOW: failed timeout');
     expect(slow.ms).toBeLessThan(2500);
     expect(readLedger(path.join(slow.out, 'spend.json')).settled.filter(s => s.label === 'shadow').map(s => s.usd)).toEqual(['unknown']);
+  });
+  test('a publish that throws journals shadow_failed and drops the lease, so a later claim pays no second call', async () => {
+    const f = await fake('publish-throws', [{ mode: 'valid' }]);
+    const out = gateRun();
+    const { claim } = claimShadow(out);
+    fs.mkdirSync(path.join(out, 'shadow', 'ceo-only.r1.jsonl.stuck.tmp'), { recursive: true });
+    const outcome = await runShadow(out, claim!, { env: { ...process.env, ...f.env } });
+    expect(outcome).toMatchObject({ status: 'failed', code: 'internal' });
+    expect(readJournal(out).filter(r => r.event === 'shadow_failed' && r.gate_rev === 1).map(r => r.code)).toEqual(['internal']);
+    expect(fs.existsSync(path.join(out, 'shadow', 'r1.pending'))).toBe(false);
+    expect(claimShadow(out)).toEqual({});
+    expect(f.requests().length).toBe(1);
   });
   test('a record already published makes a later claim a no-op: no second call is paid', async () => {
     const { f, out } = await shadowed('noop', [{ mode: 'valid' }]);

@@ -139,6 +139,11 @@ describe('submit records the shadow before GATE; the record stays private and ch
     expect(bad.status).toBe(1);
     expect(bad.stderr).toContain('(ARTIFACT_STALE)');
     expect(bad.stderr).toContain('shadow/ceo-only.r1.jsonl');
+    fs.rmSync(record(out));
+    const missing = validate();
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('(ARTIFACT_STALE)');
+    expect(missing.stderr).toContain('shadow/ceo-only.r1.jsonl');
     fs.writeFileSync(record(out), good);
   });
   test('printing the gate again pays nothing', () => {

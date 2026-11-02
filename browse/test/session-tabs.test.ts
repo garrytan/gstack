@@ -250,6 +250,28 @@ const rootTab = bm.getActiveTabId();
     rootStatus: (await run('url')).status };
 }
 
+{ // an unsessioned tab switch made while a session opens a tab survives the open; closing a pinned tab that is also the global tab moves the global tab
+  const base = bm.getActiveTabId();
+  const other = JSON.parse((await run('newtab', ['--json'])).result).tabId;
+  bm.switchTab(base, { bringToFront: false });
+  const ctx = bm.context;
+  const newPage = ctx.newPage;
+  let release, entered;
+  const gate = new Promise(r => { release = r; });
+  const inside = new Promise(r => { entered = r; });
+  ctx.newPage = async (...a) => { entered(); await gate; return newPage.apply(ctx, a); };
+  const opening = run('newtab', [], { session: 'race' });
+  await inside;
+  bm.switchTab(other, { bringToFront: false });
+  release();
+  await opening;
+  ctx.newPage = newPage;
+  const raceActive = bm.activeTabId;
+  bm.switchTab(other, { bringToFront: false });
+  const closed = await run('closetab', [], { tabId: other });
+  steps.race = { raceActive, other, closed: closed.status, activeLive: bm.pages.has(bm.activeTabId) };
+}
+
 await Bun.write(${JSON.stringify(path.join(root, 'steps.json'))}, JSON.stringify(steps));
 fixture.stop(true);
 await Promise.race([bm.close(), Bun.sleep(3000)]);
@@ -311,6 +333,12 @@ describe('four sessions at once (#1961)', () => {
 });
 
 describe('session lifecycle', () => {
+  test('an unsessioned tab switch during a session newtab is kept', () => {
+    expect(steps.race.raceActive).toBe(steps.race.other);
+  });
+  test('closing a pinned tab that is the global active tab moves the global tab to a live one', () => {
+    expect(steps.race).toMatchObject({ closed: 200, activeLive: true });
+  });
   test('a read on a closed session tab fails with the last URL; goto reopens it', () => {
     expect(steps.reset.textStatus).not.toBe(200);
     expect(steps.reset.text).toContain('BROWSE_SESSION_TAB_RESET');
