@@ -200,7 +200,14 @@ Two stages with separate clocks, both printed:
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
-  searched for the old value; a consumer the branch did not update fails with
+  searched for the old value in files that name the constant or, when the old
+  value is longer than one character, its module (the module's file name not
+  followed by another extension, or a path ending
+  in its stem followed by its own extension, for a JS/TS module also any JS/TS
+  extension or `.d.ts`, a sentence-ending `.`, or anything but a word
+  character, `.` or `-`; so a sibling `<stem>.txt`, `<stem>-v2.ts` or
+  `<file>.snap`, or `<stem>.ts` beside a shell module, is not the module); a
+  consumer the branch did not update fails with
   `file:line`. A version-history row, a line that starts a bracketed row with
   the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
   consecutive lines starting with `[`) also holds a row for the new value that

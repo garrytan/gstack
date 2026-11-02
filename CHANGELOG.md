@@ -1,5 +1,138 @@
 # Changelog
 
+## [1.92.50.0] - 2026-11-01
+
+### Fixed
+- **`/autoplan` no longer locks a Claude Code session after a snapshot init run as `cd <dir> && …` (#3651).** When that `cd` leaves the session's folder, Claude Code adds a `Shell cwd was reset to …` line to the command's output. The guard now removes exactly that one line before reading the init or checkpoint JSON; any other extra text still fails. An init whose output still can't be read now counts as a failed init with a "re-run" hint, so a later clean init in the same session works again. Before, every later phase read was denied with code `evidence` until a new session.
+
+### Fixed
+- **`/eval-plan` pilots with a subscription arm can now be approved, and the cost projection is per arm (#3653).** `gstack-eval-plan pilot start --seat-metered <arm>` declares an arm that runs on a subscription with no extra charge (for example `claude -p` on a seat). Its attempts hold none of the spend cap, settle as `unknown` (an arm that settles a real charge is projected like any priced arm), and get their own `PILOT_SEAT_METERED:` line, so the verdict covers the arms that cost money. `pilot report` now projects each arm from its own attempts (one `PILOT_ARM:` line each) and adds them up. Before, it averaged all arms together: a priced arm's cost was multiplied across arms with no price, and two arms at different prices got a band so wide that a pilot that fit the cap was told it exceeded it. The skill also says to stop a seat-metered run at its first quota or rate-limit error, with no retry (idea from #3273 by @merit-blake).
+
+**`/autoplan --ceo-only` runs the CEO review by itself and asks nothing from start to finish (GST-537).** Garry asked for a CEO review that "just automatically does the right thing", and the planning eval needed a gstack CEO arm that a harness can run without a simulated user. Before, /autoplan always ran the Eng review too and stopped at a final approval question, and standalone /plan-ceo-review asks for the mode, offers to chain to the next skill and adds a Codex voice.
+
+### Added
+- **`/autoplan --ceo-only`** (`autoplan/sections/ceo-only.md`): runs Phase 0, the outside-reviewer preflight and the CEO phase only. Every question takes its recommendation and gets an audit-trail row; consent and destructive options take the conservative choice. The review mode comes from plan-ceo-review's 0E rule. User challenges are never applied; each one is listed at the top of `<run dir>/ceo-review.md`, with scope added, conservative choices, findings and the audit trail. The run ends with `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>` and approves nothing.
+- **`--no-outside`** with `--ceo-only` skips the outside voice, so one model does the whole review.
+- **`gstack-ceo-mode-handoff --ceo-only`** prints `Auto-selected review mode → <mode> (CEO-only run: Step 0E's rule)` instead of crediting a saved preference.
+- **`status=reviewed`** joins the `GSTACK_RESULT` statuses (`docs/unattended.md`, "CEO-only runs").
+
+### For contributors
+- The paid case `autoplan-ceo-only` fails if the mode asks anything, skips a later phase's file, or leaves new files in HOME outside its folders. It takes 6 to 16 minutes, so it runs in the weekly marathon lane, not on autoplan PRs. The mode needs Claude Code for now.
+
+**/autoplan fixes from a field report (GBRA-223): findings without a line number pair across voices, open Critical and High findings reach the gate, a spend cap binds on any host, `run` works with the API runner, and an earlier item-by-item answer carries forward.** OpenClaw's /autoplan run on a real plan hit six problems at once. We reproduced each on main with a failing test first (GST-672). A follow-up from GEVA-2 adds a record of whose words answered a gate.
+
+### Fixed
+- **Plan reviews that name a file but no line now pair across voices.** A same-file pair, with a line missing on either side, is associated as `unverified` instead of both findings counting as new. Title matching ignores a leading DX cap code (`CAP4:<path>:`) and never pairs findings on two different files. The same-file fallback runs only after every title and line match is placed, and a same-file pair never merges two findings into one gate item.
+- **DX cap findings carry real titles.** `CAP4` and `CAP6` findings are titled `CAP<n>:<path>:<item> <what fails>`, so the gate shows the problem and not only the item name.
+- **Every open Critical or High finding becomes a gate item.** `a` applies the reviewer's fix to the plan and is recommended. `b` carries it into the build as a blocking task. `rec` and `p1b` apply the fix. An unanswered item keeps the plan as written unless the reply is `p1b`, and a partial reply never locks that choice early. A finding carried with `b` stays open, so a rerun that raises it again asks again.
+- **A spend cap binds on any host.** With `--spend-cap` set and no `--estimate-usd`, each host-subagent attempt reserves the default $5 per voice, on Capy or off it, in any session kind, and so does an API call whose model has no price. `next --estimate-usd <n>` sets the reservation for the rest of the run. `run` reserves each API call's priced worst case (prompt size plus the output limit) and settles it at its real token cost, so `--spend-cap 0` refuses before any call.
+- **`gstack-autoplan run` with `--native-runner api --runner api` reaches the gate.** Results are checked as autoplan results, so they bind. A response cut off at the output limit is named `truncated` and interrupts the run instead of binding a partial review. The default output limit is 16384 tokens for both providers (OpenAI counts reasoning tokens toward it), `--max-tokens <n>` sets it, and an outside result refused at submit leaves the run native-only instead of aborting it.
+- **An earlier item-by-item answer carries forward when nothing changed.** When every item on the new gate is carried by origin, the owner's `p1` choice is replayed and their tokens are recorded verbatim as the basis. Any new or changed item still goes to the owner.
+- **A spend cap stays closed when a call fails.** For the native voice, a call cut off at its output limit is settled at what it cost, and a retry with a larger `--max-tokens` is admitted against the cap afresh. A call that timed out, dropped, was cancelled or had its result refused after it was sent is settled at its usage, or its full reservation when the usage is unknown, because the provider may have billed it. A call still in flight when the process died is charged its reservation by the next `run`, which then sends a fresh attempt. A call refused before anything was sent (no API key, for example) charges nothing, and the rerun reuses its reservation. A failed outside call is still counted at its full reservation while the phase continues native-only.
+- **A finding you chose to fix stays open until the revised plan is reviewed.** If the reviewer raises it again after a revise that missed it, it comes back to the gate instead of being treated as settled. A withdrawn fix leaves its finding open.
+- **Two findings that only sit near each other are no longer merged.** A user challenge one line away from an unrelated Critical no longer hides the Critical. Findings are merged only when their titles match or the parent says they are the same problem.
+- **A plan gate answered in an agent's own words is not owner approval.** `gstack-ship-receipt` rejects a plan-sha approval citation whose gate was answered with `--words-by agent:<id>`.
+- **A later gate answer replaces the earlier answer's authorship.** When someone else answers again, the earlier answerer's words, `words_by` and carry fields are cleared, so the approval record names who actually answered.
+
+### Added
+- **`gstack-autoplan answer --words-by agent:<id>`** records that the words came from the answering agent itself, as `answer_words` and `words_by`, never as `owner_reply`. The default stays `owner`. A later gate never carries those words forward, and `gstack-approvals import` lists that row under the agent, while `--by` names only the rows that hold the owner's words.
+
+### Tests
+- New failing-first tests in test/autoplan-pairing.test.ts, test/autoplan-gate-judgment.test.ts, test/autoplan-budget.test.ts, test/autoplan-run-api.test.ts (a local fake provider, no key or network), test/autoplan-carry.test.ts and test/approval-record.test.ts.
+
+## [1.92.49.0] - 2026-11-01
+
+**The timeline Stop hook returns within its 2-second budget even when the host keeps stdin open.** The hook read its payload with a blocking read that waits for end of input, so a host that writes the Stop payload and leaves the pipe open held the hook for as long as the pipe stayed open. A local run with the pipe held for 8 seconds took 8 seconds, past the hook's 2-second budget and on the way to Claude Code's 15-second hook window (#3628, reported on Windows). Rewritten from PR #3628 by shahab (mashtii85).
+
+### Fixed
+- **`hosts/claude/hooks/timeline-stop-hook.ts`** reads stdin for at most 500 ms and stops at the first complete JSON payload, then repairs the timeline as before. The hook still exits 0 on every path.
+
+### Tests
+- `test/timeline-stop-hook-stdin.test.ts` (runs on windows-latest): a complete payload on a pipe that never closes returns within budget and still writes the repair; an open pipe with no data returns within budget. Both failed before the fix (10 s, killed).
+
+## [1.92.48.0] - 2026-11-01
+
+**On Windows, `gstack-review-scope summary` works again, and the JSONL merge driver no longer fails on non-English text or rewrites files with CRLF.** Before, the summary started the bash script `gstack-review-read` directly, which Windows cannot run, so it always refused with an empty "gstack-review-read failed:" message and /ship could not write its review-loop file (#3541). The `jsonl-append` merge driver wrote its result with Python's `print()`, so a line the console code page could not encode (Cyrillic text under cp1250, for example) made it exit 1 and git reported a conflict with no markers, and every merge on Windows turned LF files into CRLF (#3659).
+
+### Fixed
+- **`gstack-review-scope summary`** runs `gstack-review-read` through `lib/script-invocation.ts` (Git Bash on Windows). When the helper cannot start, the refusal names the launch error instead of an empty string.
+- **`gstack-jsonl-merge`** writes UTF-8 bytes with LF line endings on every platform and code page.
+
+### Tests
+- `test/review-scope-windows-launch.test.ts` runs the summary against a seeded review log through the same launcher; it runs on windows-latest.
+- `test/jsonl-merge-encoding.test.ts` merges a Cyrillic line with `PYTHONIOENCODING=cp1252` and checks the bytes are UTF-8 with no CR. It failed before the fix on Linux too.
+- `test/script-invocation-tripwire.test.ts` now also catches a bin spawned through `path.join(path.dirname(...import.meta.url...), ...)` or `import.meta.dir`, the shape that hid #3541. `bin/gstack-ship-receipt`'s `gstack-session-kind` spawn is listed as a known site until its own follow-up.
+
+## [1.92.47.0] - 2026-11-01
+
+- **`/ship` Step 5 runs its test lanes one at a time on machines with 4 or fewer cores, and `--lanes serial|parallel` picks the mode by hand** (`gstack-ship-preflight`, GST-851). Preflight used to start every `--lane` at once. On garrytan/gstack-evals#115 six lanes (a 1,451-test bun suite, tsc, a Docker tier and an arm tarball trial) started within 60 ms of each other on a 4-core, 16 GB machine, and running lanes together has taken machines down before (gstack-evals #101, #106, #107). Now, with no flag, preflight runs one lane at a time when `os.availableParallelism()` is 4 or less and all of them at once above that. `--lanes serial` or `--lanes parallel` overrides the default, and any other value, or `--lanes` with no value, is a usage error (exit 2). A new `LANES: serial|parallel (--lanes|<n> cores)` line before the `LANE` lines says which mode ran and why. Each lane still prints its own `LANE` line with its own `tests_ran` count, in the order the lanes were given. Serial runs take the sum of the lane times instead of the longest one. There is no ship-policy key for this: a new key needs key versioning and a `min_gstack_version` bump, and the core-count default already covers the 4-core case.
+
+### Tests
+- `test/ship-preflight.test.ts`: `--lanes serial` runs lanes one after another and keeps each lane's count; `--lanes parallel` keeps lane order when a later lane finishes first; an unflagged run names the core count; a bad or missing `--lanes` value is a usage error; and the core-count default is serial at 4 cores or fewer.
+
+## [1.92.46.0] - 2026-11-01
+
+**brain-sync no longer publishes a synced JSON file that doesn't parse, and the profile and doctor now say when one is broken.** When two machines edit `developer-profile.json` before syncing, git's merge can leave conflict markers in it. brain-sync committed and pushed that file, so every machine got a profile that no longer parsed, while `gstack-developer-profile --profile` and `gstack-doctor` both reported everything ok (#3763).
+
+### Fixed
+- **brain-sync holds back a synced `.json` file that doesn't parse** (`bin/gstack-brain-sync`). Before each commit it parses every staged `*.json` file (today `developer-profile.json` and `projects/*/decisions.active.json`). A file that doesn't parse is held with rule `invalid-json`, along with any file coupled to it (`decisions.jsonl` with its snapshot). It stays queued and syncs on the next run after you repair it; everything else syncs as usual. The fix line says to repair the file. It does not offer `--skip-file`, which would stop the profile syncing for good.
+- **A held file in an unfinished git merge stops the sync instead of committing half the merge.** If a held file is part of a merge that git could not finish, committing the merge without it would quietly keep only this machine's version and drop the other machine's edit. brain-sync now commits nothing and reports `blocked` until you repair the file; the merge and the queue are kept.
+- **Held-status messages name the right cause.** The skill-start attention line, `--status` and `gstack-doctor` no longer blame the secret scan for every held file; doctor reports how many held files are not valid JSON.
+- **`gstack-doctor` warns when a synced JSON file holds conflict markers**, naming the file and how to restore it from the sync repo's history.
+
+### Changed
+- **`gstack-developer-profile --profile` now exits 1 when the profile is not valid JSON.** It prints `<file> is not valid JSON: <parse error>` on stderr (noting conflict markers when it finds them) and nothing on stdout. It used to print the broken file and exit 0, so scripts that read `--profile` should check its exit status.
+
+### Tests
+- `test/brain-sync.test.ts`: a queued profile with conflict markers, a marker-free syntax error, an invalid `decisions.active.json` holding its coupled `decisions.jsonl` until repaired, two machines editing the profile (the other machine's edit stays on the remote), and an unfinished merge with a held profile. `test/gstack-developer-profile.test.ts`: `--profile` on an unparseable profile. `test/gstack-doctor.test.ts`: a conflict-marker warning, and a JSON hold not attributed to the secret scan. All fail on main.
+
+## [1.92.45.0] - 2026-11-01
+
+### /ship review scales to risk, not size
+
+- **Review depth follows risk.** Code that touches security, user data, money, secrets, auth or the merge checks gets the full review panel. Other code goes to the light tier at any size, with one batched reader plus the native adversarial pass. Docs, tests and eval write-ups get one reader. UI text and SVG files stay code for now. A larger diff never raises the depth by itself.
+- **New risk classes.** `lib/review-risk.ts` holds the money, auth and secret matchers the targeted pass already used, plus new security (trust boundaries, shell and HTML sinks, shells run through argv, recursive deletes, `eval`) and user-data (persistence paths, `DELETE FROM`, `deleteMany`, `destroy_all`) signals.
+- **At most 2 review rounds.** A fix-check counts as a round. A blocker that is still open or fixed in round 2 stops for the owner, who may grant one scoped fix-check; there is no round 3. A fix in round 2 that edits gate code also stops for the owner. Below-floor fixes in round 2 finish, with the notes listed.
+- **Receipts record tier and rounds.** `review_loop.rounds` and `review_depth.risk` are on the receipt, and the summary line prints `rounds=`. `gstack-ship-queue ready` still refuses a receipt below its head's depth.
+- Replayed on the 26-unit no-loss panel, no historical blocker was lost. Over the last 100 main commits (an estimate from replaying the depth rules), 8 go from standard to light, 12 go up to full, and no commit with a risk class goes down.
+
+## [1.92.44.0] - 2026-11-01
+
+**`literals` stops treating a same-name sibling file as the changed module (GST-820).** A test that only mentioned `test/postgres-unit-arms.txt` was counted as a consumer of `scripts/postgres-unit-arms.ts`, so any `12` in it failed `PREGATE_LITERALS` when `ARM_SHARDS` moved from 12 to 18. In gbrain #8372 that gave 17 false files. A path now names the module only when its stem is followed by the module's own extension (for a JS/TS module, any JS/TS extension), or by anything other than a letter, digit, `_`, `-` or another extension, and the full file name no longer matches with a further extension such as `.snap`. Extensionless imports, `.js` imports and the module's own path still count.
+
+### Fixed
+- **`literals` module matching.** A sibling file that shares the module's stem (`<stem>.txt`, `<stem>.json`, `<stem>-v2.ts`, `<file>.snap`, or `<stem>.ts` beside a shell script) is no longer the module.
+
+## [1.92.43.0] - 2026-11-01
+
+**New page: [docs/support-tiers.md](docs/support-tiers.md) says what gstack supports fully and what it supports minimally.** macOS and Linux, with Claude and OpenAI models, get full support: the whole free suite and the paid evals. Windows (Git Bash or MSYS) and Gemini models get minimal support: install and the core skills (`/ship`, `/review`, `/qa-only`, `/investigate`, `/browse` on gstack's own browser) work without errors, checked on Windows by the `windows-smoke` job, which replaces the six-shard suite as the required Windows check when it lands, and by hand or one cheap smoke run on Gemini. Windows-only and Gemini-only reports that don't break install, startup or a core workflow close as won't fix with a link to the page.
+
+### Documentation
+- `docs/support-tiers.md`: the two tiers, what we stop doing, the Windows CI shape today (the six-shard `windows-free-tests` suite required on every pull request) and once `windows-smoke` lands (`windows-smoke` required, the six-shard suite nightly on main and non-blocking) and what doesn't change (eval models, the cross-family review voice).
+- README's platform notes and AGENTS.md's platform support section link to it.
+
+## [1.92.42.0] - 2026-11-01
+
+**A /ship review pass that only left notes now binds at Step 11.5.** A pass whose findings were all fixed, deferred or noted has no open defect, but a driver could still log it as `issues_found`. Step 11.5 then refused it, and the only way out was an extra rebind pass (CAPY-2, qm#2837). When the tree changes during a pass, the refusal now names the start and end trees and the cheapest repair (GST-430).
+
+**Receipt carry and write handle results PRs with thousands of files (GST-448).** A PR that adds about 8,300 run receipts (harness-evals#147) refused every carry with `git could not compute HEAD's product patch-id: git diff … failed`, and every base move cost it about 3 hours of /ship. The name-only listing ran past a 1 MB output buffer.
+
+### Fixed
+- **`gstack-ship-receipt carry` and `write`** read git's path listings with a 256 MB buffer instead of the 1 MB default, so a large PR's `product_patch_id` is recorded and carried. The product patch-id streams `git diff` through a file under the git directory (`.git/gstack-patch-id`) into `git patch-id --verbatim` and no longer holds the diff in memory; a directory a killed run left is removed after an hour. The per-path walk compares only touched paths that changed at either head or either base, so a 6,000-path PR refuses or carries in seconds.
+- **/ship Step 1's carry check takes the scoped-review route (GST-442).** When the base edited context next to a reviewed hunk, `gstack-ship-preflight` now prints `NEXT: carry route`: fix what the base merge broke, commit and push, write the packet, one fix-check, then `carry --scoped-review`, instead of running the full loop. `carry --dry-run` writes no packet and offers this route only when none of carry's other checks would refuse.
+- **Step 16 names finish's scoped-review STOP and the `--docs-requested` fix (GST-444).** Stage 2 sends a STOP that names a scoped-review packet to its fix-check and `--context-reviewed` rerun, and stage 3 offers a fix the audit's result named before a re-audit or a named risk. The RECEIPT_CARRY_PRODUCT_CHANGED fix text points to the scoped-review refusal. Trims in Steps 3, 12 and 16 keep ship/SKILL.md under its cap.
+- **`gstack-tree-receipt`** fails closed (`EVIDENCE_IDENTITY_UNKNOWN`) when git cannot produce the diff between the gated and current heads, and names git's reason. Before, it read a failed diff as no changes.
+- **`gstack-review-log`** records a completed `review` or `review-fix-check` row claimed as `issues_found` as `clean` with zero counts when every finding's logger-stamped action is `fixed` or `auto-fixed`, or `deferred` or `noted` on a finding marked `blocking: false` that is not CRITICAL, and the findings account for the claimed issue and critical counts. A skipped finding, a gate finding left open, a CRITICAL or blocking note, a finding with no action, or an incomplete pass keeps the claimed status.
+- **Findings files** (`--findings`) count `auto-fixed` as resolved, the same as `fixed`, and `deferred` or `noted` only below the floor. Their gate rows are stamped like inline ones, so an unattended run's gate stays open whatever its status or disposition says.
+- **`review_freshness`** reads a claimed clean row as UNVERIFIED when a finding is a gate left `open`, a CRITICAL or blocking deferral or note, or any other unresolved CRITICAL finding.
+- **`review_freshness`** for a pass whose tree moved now reads `content changed during review: the tree moved from <start> to <end> while <skill> ran …`, followed by the repair: keep the checkout frozen until every reviewer returns, then rerun on the frozen tree (docs/troubleshooting.md#review-content-changed).
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: preflight on a founderstar-style adjacent edit prints the scoped-review `NEXT: carry route`, and its dry run writes no packet. `test/ship-control-flow.test.ts`: Step 1.4 and Step 16 stages 2 and 3 name the routes.
+- `test/ship-receipt-carry-large-diff.test.ts`: a PR that adds 6,000 receipts under a long directory name writes a receipt with its product patch-id and carries across a base merge. Negative control: one rescored receipt still refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.
+- `test/review-notes-only-pass.test.ts`: a pass with three notes is recorded clean and reads CURRENT. Negative controls: a skipped finding, an open gate finding (also under a caller's resolved status), a CRITICAL or blocking note, a note with no `blocking` field, counts the findings do not cover, a finding with no action, and an incomplete pass keep `issues_found`. A claimed clean row with an open gate, a CRITICAL deferral, or a skipped or action-less CRITICAL finding is not CURRENT, while kept and restored gates, skipped advisories and an INFORMATIONAL deferral stay CURRENT. A `--findings` gate row stays open in an unattended run. Also checks the reason a pass gets when its tree moved.
+- `test/ship-receipt-carry-large-diff.test.ts` also: the patch-id file lives under the git directory (an unwritable TMPDIR still carries; an unwritable spot refuses by name), and a stale directory is swept. `test/train-gate.test.ts`: a diff git cannot produce refuses the tree receipt with git's reason. `test/ship-rereview-triggers.test.ts`: a dry run the receipt would refuse anyway names that refusal.
+
 ## [1.92.41.0] - 2026-11-01
 
 **The Ubicloud runner works on macOS and on a project with no VMs (#3680, #3679, #3678).** On a Mac, `gstack-ubi pack` failed, so every `sync`, `run` and `verify` broke after the VM was already created, and `gstack-ubi usage` was a syntax error that also switched off the vCPU quota check. On any machine, an empty Ubicloud project made `reap` and every `up` die. All three were reported by Jared.
