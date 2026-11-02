@@ -82,6 +82,7 @@ describe('validatePolicy (schema + containment, pure)', () => {
     expect(at(['x'.repeat(32)])).toEqual([]);
     expect(at(['TB\nD'])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
     expect(at([''])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
+    expect(at(['  '])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
     expect(at(['{version}'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
     expect(at(['next-{version}'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
     expect(at(['1.2.3.0'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);

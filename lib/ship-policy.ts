@@ -352,7 +352,7 @@ function placeholderErrors(value: unknown, out: PolicyError[]): void {
   value.forEach((p, i) => {
     const at = `stamp_placeholders[${i}]`;
     if (typeof p !== 'string') { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be a string' }); return; }
-    if (!p || p.length > MAX_PLACEHOLDER || /[\0\r\n]/.test(p)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one non-empty line of at most ${MAX_PLACEHOLDER} characters` });
+    if (!p.trim() || p.length > MAX_PLACEHOLDER || /[\0\r\n]/.test(p)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one non-empty line of at most ${MAX_PLACEHOLDER} characters` });
     else if (p.includes(VERSION_SLOT)) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(p)} must not contain ${VERSION_SLOT}` });
     else if (parseVersion(p)) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(p)} is a version, not a placeholder` });
   });

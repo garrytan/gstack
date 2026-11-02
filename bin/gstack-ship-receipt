@@ -749,8 +749,8 @@ function cmdCarry(rest: string[], json: boolean): number {
   }
   // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
   // A receipt that records a version names HEAD's, read as write reads it: a restamp after a base merge moves it (GST-1030).
-  const version = receipt.version === undefined ? undefined : receiptVersion(repoRoot, head, base);
-  if (receipt.version !== undefined && version === undefined) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} has no readable release version, so the carried receipt cannot name one; fix the version source, then rerun carry`);
+  // A head with no version source keeps the recorded one (write --version named it).
+  const version = receipt.version === undefined ? undefined : (receiptVersion(repoRoot, head, base) ?? receipt.version);
   const rebound = { ...receipt, ...(version !== undefined ? { version } : {}), ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);

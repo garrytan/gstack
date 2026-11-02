@@ -145,6 +145,10 @@ describe('tree receipt: stamps, stamp-sensitive gates and negative fixtures', ()
     expect(line('  { since: TBD, id: mine },', '  { since: 0.60.553.0, id: mine },')).toBe(false);
     expect(line(row, "  { since: '0.60.553.0', id: 'yours' },")).toBe(false);
     expect(line(row, "  { since: '0.60.554.0', id: 'mine' },")).toBe(false);
+    const both = "  { since: 'TBD', note: 'Added in v0.60.552.0' },";
+    expect(line(both, "  { since: '0.60.553.0', note: 'Added in v0.60.553.0' },")).toBe(true);
+    expect(line(both, "  { since: '0.60.553.0', note: 'Added in v0.60.551.0' },")).toBe(false);
+    expect(line('  // TBD: tidy', '  // 0.60.553.0: tidy', { templates: ['{version}'] })).toBe(false);
   });
 
   test('negative fixture: a dependency pin equal to the old version is `changed`, not a stamp, even inside stamp_paths', () => {

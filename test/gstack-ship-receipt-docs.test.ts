@@ -53,6 +53,25 @@ describe('E18: a repository without a version source or CHANGELOG', () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, 'ship-run.json'), 'utf8')).version).toBe('none');
   });
 
+  // Value: protects=a receipt write --version named in a repository with no version source keeps that version through a
+  //   carry (GST-1030 review); fails_when=the carry refuses because HEAD has no readable version, or drops the version;
+  //   seam=bin/gstack-ship-receipt cmdCarry
+  test('a carry keeps the version write --version named when HEAD has no version source (GST-1030)', () => {
+    const repo = fixture();
+    for (const f of ['VERSION', 'package.json', 'package-lock.json']) fs.rmSync(path.join(repo.work, f));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'changelog only'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-unversioned');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n');
+    expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3', '--base', 'main', '--session-kind', 'x', '--version', '2.0.0', '--body', body]).status).toBe(EXIT.ok);
+    fs.mkdirSync(path.join(repo.work, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'test', 'a.test.ts'), 'test a\n');
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'a test-only change');
+    const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(carried.out, carried.err).toContain('CARRY: carried');
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.version).toBe('2.0.0');
+  });
+
   test('a repository with a version source keeps its version, and one with only a CHANGELOG records no version rather than "none"', () => {
     const repo = fixture();
     const w = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'x', '--json']);

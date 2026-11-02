@@ -30,14 +30,17 @@ import { cmpVersion, parseVersion, versionWidth } from './version-source';
  * branch line may change: the stage moves nothing else then. On such a branch
  * line a declared placeholder (`stamp_placeholders`, GST-1026: gbrain's
  * `since: 'TBD'`) may also become the new version, but only inside a
- * `stamp_patterns` template, never a built-in form: the line rewritten that way
- * must be the added line, with at least one rewrite.
+ * `stamp_patterns` template with literal text around its slot, never a built-in
+ * form: with at least one such rewrite, the line must then be the added line,
+ * or one whose remaining stamp-form moves pass the fork-version bound.
  */
 export function stampOnlyLine(removed: string, added: string, oldV: string, newV: string, templates: readonly string[] = [], side?: BranchSide, at?: number, placeholders: readonly string[] = []): boolean {
   if (removed === added) return false;
   if (oldV !== newV && stampOnlyWithin(removed, added, oldV, newV, templates)) return true;
   if (!side || at === undefined || !side.at.has(at) || !side.added.has(removed)) return false;
-  return stampOnlyWithin(removed, added, side.fork, newV, templates) || placeholderOnly(removed, added, newV, templates, placeholders);
+  if (stampOnlyWithin(removed, added, side.fork, newV, templates)) return true;
+  const filled = fillPlaceholders(removed, newV, templates, placeholders);
+  return filled.count > 0 && (filled.text === added || stampOnlyWithin(filled.text, added, side.fork, newV, templates));
 }
 
 /**
@@ -70,18 +73,19 @@ export function branchSides(repoRoot: string, baseRef: string, head: string, fal
   };
 }
 
-/** Each declared placeholder rewritten to `newV` inside each template (a bare edge of the slot at a word boundary): the added line, with at least one rewrite. */
-function placeholderOnly(removed: string, added: string, newV: string, templates: readonly string[], placeholders: readonly string[]): boolean {
+/** Each declared placeholder rewritten to `newV` inside each template with literal text around its slot (a bare edge at a word boundary). */
+function fillPlaceholders(removed: string, newV: string, templates: readonly string[], placeholders: readonly string[]): { text: string; count: number } {
   let text = removed;
   let count = 0;
   for (const t of templates) {
     const [pre, post] = t.split(VERSION_SLOT) as [string, string];
+    if (!pre && !post) continue;
     for (const p of placeholders) {
       const re = new RegExp(`${escapeRegExp(pre)}${pre ? '' : '(?<![A-Za-z0-9_.])'}${escapeRegExp(p)}${post ? '' : '(?![A-Za-z0-9_.])'}${escapeRegExp(post)}`, 'g');
       text = text.replace(re, () => { count++; return pre + newV + post; });
     }
   }
-  return count > 0 && text === added;
+  return { text, count };
 }
 
 function stampOnlyWithin(removed: string, added: string, oldV: string, newV: string, templates: readonly string[]): boolean {
