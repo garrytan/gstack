@@ -570,6 +570,9 @@ the base has moved.
 **Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
 its logged row: an edit, commit or merge landed while reviewers were still reading. The
 reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Review records fingerprint with `gstack-wtree --review`, which skips untracked root dot-folders
+that hold no tracked file (never `.github/` or `.gstack/`), so a test lane's scratch folder alone
+does not move the tree.
 Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
 cannot repair it.
 
@@ -3314,10 +3317,19 @@ for an older PR, write it once by hand with the same command.
 **Meaning.** The block exists but does not validate against the `ship-receipt`
 schema (`gstack-artifact schema ship-receipt`). `gstack-ship-receipt write`
 also refuses with this code, and writes nothing, when `--head` is not the
-checked-out HEAD: the receipt binds the tree the review read.
+checked-out HEAD: the receipt binds the tree the review read. It refuses the
+same way when the head touches money, gate, auth or secret code and no done
+targeted record covers those classes (`REVIEW_TARGETED: … verdict=missing|failed`),
+or when `--review-targeted` names a read commit whose product patch is not
+the receipt's and a change after it carries a targeted class (money, gate,
+auth or secret code changed after the targeted reader read it, a test edit the
+gate scan tags included), or that is not an ancestor of HEAD.
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
-block. For the `--head` refusal, check out that commit and write there.
+block. For the `--head` refusal, check out that commit and write there. For a
+targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verify
+--targeted-out .gstack/tmp/targeted.json`, and write again with
+`--review-targeted @.gstack/tmp/targeted.json`.
 <a id="execution-unknown"></a>
 ### `EXECUTION_UNKNOWN`
 
@@ -5820,7 +5832,10 @@ working tree's status. It also refuses when an owner exception the receipt recor
 no longer stands, and, for a receipt from a gstack that records review
 depth, when HEAD needs a deeper review than the receipt records, `--head` is
 not the checked-out HEAD, or the receipt records `gstack_version` without
-`review_depth` ([ship-policy.md](ship-policy.md#ship-receipt)). The receipt in
+`review_depth` ([ship-policy.md](ship-policy.md#ship-receipt)). It refuses, too, when
+HEAD needs a targeted class (money, gate, auth, secret) that the receipt's
+`review_targeted` does not cover with a done pass, since the queue would refuse
+that receipt. The receipt in
 the body is unchanged and still names the old head, so `gstack-ship-queue
 ready` refuses `QUEUE_RECEIPT_STALE`.
 
@@ -5828,7 +5843,7 @@ ready` refuses `QUEUE_RECEIPT_STALE`.
 `gstack-ship-receipt carry --pr <n>` at the new head. When the history is
 already rewritten and the receipt predates `head_tree`, run /ship on the new
 head; next time merge the base in instead of rebasing. For a retargeted stacked
-PR whose older receipt lost its parent branch, or a depth or exception
+PR whose older receipt lost its parent branch, or a depth, targeted or exception
 refusal, run /ship on the new head. When `--head` is not the checked-out HEAD,
 check it out and carry there.
 
@@ -5923,8 +5938,9 @@ body that names a counter the receipt records (`passes=3` against
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
-`## Approvals` table `gstack-approvals` renders, and the `Review-loop exception: …`
-line the receipt's exception requires, are never read as claims.
+`## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`
+and `Documentation exception: …` lines the receipt's exceptions require, and
+the inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

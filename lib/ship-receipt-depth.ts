@@ -131,17 +131,26 @@ export function exceptionProblems(body: string, r: ShipReceipt, isAncestor?: (co
 
 export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
 
-/** `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here. */
-export function parseReviewTargeted(value: unknown, productPatchId: string): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
+/**
+ * `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here.
+ * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules. The
+ * record binds only on an equal product patch, and with `classesSince` also only when nothing changed after the read carries a
+ * targeted class (a test change the gate scan tags is gate class though the product patch leaves tests out), so a record never
+ * vouches for work it did not read (GST-986).
+ */
+export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by }');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by, head }');
   const v = value as Record<string, unknown>;
-  for (const key of Object.keys(v)) if (!['classes', 'rules', 'brief_sha', 'status', 'findings', 'raised_by'].includes(key)) return bad(`review_targeted: unknown key ${JSON.stringify(key)}${key === 'product_patch_id' ? ' (write binds the pass to the receipt\'s product_patch_id)' : ''}`);
+  for (const key of Object.keys(v)) if (!['classes', 'rules', 'brief_sha', 'status', 'findings', 'raised_by', 'head'].includes(key)) return bad(`review_targeted: unknown key ${JSON.stringify(key)}${key === 'product_patch_id' ? ' (write binds the pass to the receipt\'s product_patch_id)' : ''}`);
   if (!Array.isArray(v.classes) || !v.classes.every(c => (TARGETED_CLASSES as readonly unknown[]).includes(c))) return bad(`review_targeted.classes must list ${TARGETED_CLASSES.join(', ')}`);
   if (!text(v.rules) || !text(v.raised_by)) return bad('review_targeted.rules and raised_by must be non-empty one-line strings');
   if (typeof v.brief_sha !== 'string' || !/^[0-9a-f]{64}$/.test(v.brief_sha)) return bad('review_targeted.brief_sha must be the sha256 of review/specialists/targeted.md');
   if (!['done', 'failed', 'not-run'].includes(v.status as string)) return bad('review_targeted.status must be done, failed or not-run');
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
+  if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
+  const read = productPatchOf(v.head);
+  if (read !== productPatchId || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
@@ -219,3 +228,34 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   return { ...b, depthLine: d.line, targetedLine: t.line };
 }
 
+/**
+ * The targeted classes of what changed from `from` to the checked-out `head`, with gstack-gate-diff run over that range whenever
+ * a non-docs path changed (a test edit that skips a case is gate class); null when `from` is not an ancestor of `head`, the gate
+ * scan did not run, or a class input is unreadable.
+ */
+export function targetedClassesSince(root: string, from: string, head: string): readonly TargetedClass[] | null {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
+  const at = headInputs(root, from, head);
+  let gateTagged: number | null = 0;
+  if (gateScanNeeded(at.c.paths, at.c.root)) {
+    const g = runScriptSync(path.join(BIN_DIR, 'gstack-gate-diff'), [from], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
+    if (g.status !== 0 || !m) return null;
+    gateTagged = m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0);
+  }
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  return t.errors.length ? null : t.classes;
+}
+
+/**
+ * receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they
+ * publish (#3854). Classes that failed closed on an input this checkout cannot read (no origin base, no gate scan) are reported,
+ * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
+ */
+export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
+  const at = headInputs(root, baseRef, head);
+  const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  const v = receiptTargetedVerdict(t.classes, r);
+  return v.ok || !t.errors.length ? v : { ok: true, line: `${v.line} (unchecked: ${t.errors.join('; ')}; the queue decides at ready)` };
+}

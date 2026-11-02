@@ -43,7 +43,7 @@ import { sha256Hex, writeReceipt } from './egress-receipt';
 import { runBashSync } from './script-invocation';
 
 export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
-export interface RemoteGateRuns { profiles: string[]; inventory: string }
+export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
@@ -108,15 +108,16 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
   }
   if (gateRuns !== undefined && gateRuns !== null) {
     const g = gateRuns as Record<string, unknown>;
-    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command }' });
+    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command, skipped?: command }' });
     else {
-      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory' });
+      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory' && k !== 'skipped') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory, skipped' });
       if (!Array.isArray(g.profiles) || g.profiles.length === 0 || g.profiles.some(p => typeof p !== 'string')) errors.push({ path: 'remote_gate_runs.profiles', message: 'must be a non-empty array of run_profiles names' });
       else {
         for (const p of g.profiles as string[]) if (!names.has(p)) errors.push({ path: 'remote_gate_runs.profiles', message: `${JSON.stringify(p)} is not a run_profiles name` });
         if (new Set(g.profiles).size !== g.profiles.length) errors.push({ path: 'remote_gate_runs.profiles', message: 'names each profile once' });
       }
       if (typeof g.inventory !== 'string' || !g.inventory.trim() || g.inventory.length > 512 || /[\0\r\n]/.test(g.inventory)) errors.push({ path: 'remote_gate_runs.inventory', message: 'must be one command line under 512 characters that prints the remote gate\'s test files, one per line' });
+      if ('skipped' in g && (typeof g.skipped !== 'string' || !g.skipped.trim() || g.skipped.length > 512 || /[\0\r\n]/.test(g.skipped))) errors.push({ path: 'remote_gate_runs.skipped', message: 'must be one command line under 512 characters that prints which selected test files (PREGATE_FILES_FILE) the remote gate itself does not run, one per line' });
     }
   }
   return errors;
@@ -201,9 +202,9 @@ export function runChanged(deps: RunDeps, id: number, attempt: number): string |
   return again.run_attempt === attempt && again.status === 'completed' && again.conclusion === 'success' ? null : `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`;
 }
 
-/** The remote gate's inventory: `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
-export function runInventory(command: string, cwd: string): string[] | { error: string } {
-  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+/** The remote gate's inventory (or skipped list, with PREGATE_FILES_FILE in `env`): `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
+export function runInventory(command: string, cwd: string, env?: Record<string, string>): string[] | { error: string } {
+  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024, ...(env && { env: { ...process.env, ...env } }) });
   if (r.status !== 0 || r.error) return { error: `${command} exited ${r.status ?? r.error}: ${(r.stderr ?? '').trim().slice(0, 200)}` };
   return [...new Set(r.stdout.split('\n').map(l => l.trim()).filter(Boolean))];
 }

@@ -82,6 +82,12 @@ export function targetedPatchId(root: string, mergeBase: string): string {
   return git(['patch-id', '--verbatim'], diff.stdout).stdout?.trim().split(/\s+/)[0] || 'none';
 }
 
+/** What a targeted render records: the patch the reader reads and the commit it sits on, which receipt write binds to its product patch. */
+export function targetedRead(root: string, mergeBase: string): { patch_id: string; head: string | null } {
+  const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
+  return { patch_id: targetedPatchId(root, mergeBase), head: head || null };
+}
+
 /** A class list as printed and recorded: comma-joined, or `none`. */
 export const classList = (classes: readonly string[]) => (classes.length ? classes.join(',') : 'none');
 
