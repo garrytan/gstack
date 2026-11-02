@@ -572,3 +572,169 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
   });
 });
 
+describe('a CHANGELOG re-heading after the docs audit (GST-906, GBRA-258, gbrain #8372)', () => {
+  // Value: protects=a slot restamp after the Step 14.5 snapshot that only re-heads the branch's CHANGELOG entry
+  //   ([Unreleased], or its old version after a lost slot, moved to `## [<version>] - <date>`, with the audited VERSION moved
+  //   in the second case) keeps the audit fresh, while an entry edit beside the re-heading, or audited bytes git does not
+  //   hold, stays stale; fails_when=finish stops with DOCS: stale (CHANGELOG.md) or (VERSION) on a pure restamp (recovery
+  //   then needs a third audit or a named risk) or waves an entry edit through; seam=lib/ship-release.ts docsFresh;
+  //   no_claim=the restamp writer
+  test('a re-heading alone keeps the audit fresh; an entry edit or unheld audited bytes stays stale', () => {
+    const policy = JSON.stringify({ bump: 'patch', queue_mode: 'stamp-at-merge', changelog: 'CHANGELOG.md', stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const log = (heading: string, entry = '- b ships') => `# Changelog\n\n${heading}\n\n${entry}\n\n## [1.0.0.0] - 2026-10-30\n\n- base entry\n`;
+    const cases = [
+      ['[Unreleased] re-headed', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), true, 'fresh'],
+      ['old version re-headed after a lost slot', '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), '1.0.2.0', log('## [1.0.2.0] - 2026-11-02'), true, 'fresh'],
+      ['re-heading plus an entry edit', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01', '- b ships fast'), true, 'stale'],
+      ['audited bytes never committed or staged', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), false, 'stale'],
+    ] as const;
+    for (const [name, audited, auditedLog, stamped, stampedLog, committed, verdict] of cases) {
+      const f = fx({ '.gstack/ship-policy.json': policy, 'CHANGELOG.md': '# Changelog\n\n## [1.0.0.0] - 2026-10-30\n\n- base entry\n' });
+      const reviewed = wtree(f);
+      f.write({ VERSION: `${audited}\n`, 'CHANGELOG.md': auditedLog });
+      if (committed) f.commit('Steps 12-13: version and CHANGELOG');
+      const post = snapshot(f);
+      f.write({ VERSION: `${stamped}\n`, 'CHANGELOG.md': stampedLog }); f.commit('slot restamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (verdict === 'fresh') expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 0, expect.stringContaining('DOCS: fresh against the Step 14.5 post-audit snapshot')]);
+      else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
+    }
+  });
+
+  // Value: protects=the lost-slot restamp merges main first (CREW rule 6), so the CHANGELOG also gains main's new sections;
+  //   that merge plus the re-heading keeps the audit fresh, while a merge that drops or edits a main section, or hides an
+  //   entry edit, stays stale; fails_when=finish stops with DOCS: stale (CHANGELOG.md) after main merged a sibling's release,
+  //   or waves a changed section through; seam=lib/ship-release.ts docsFresh (mergeChangelogs as lib/restamp.ts calls it);
+  //   no_claim=the restamp writer
+  test('a main merge before the re-heading keeps the audit fresh; a dropped or edited section stays stale', () => {
+    const policy = JSON.stringify({ bump: 'patch', queue_mode: 'stamp-at-merge', changelog: 'CHANGELOG.md', stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const section = (heading: string, entry: string) => `${heading}\n\n${entry}\n\n`;
+    const log = (...sections: string[]) => `# Changelog\n\n${sections.join('')}## [1.0.0.0] - 2026-10-30\n\n- base entry\n`;
+    const own = section('## [1.0.1.0] - 2026-11-01', '- b ships');
+    const sibling = section('## [1.0.1.0] - 2026-11-01', '- sibling ships');
+    const cases = [
+      ['main merged, then re-headed', log(section('## [1.0.2.0] - 2026-11-02', '- b ships'), sibling), 'fresh'],
+      ['merge drops a main section', log(section('## [1.0.2.0] - 2026-11-02', '- b ships')), 'stale'],
+      ['merge edits a main section', log(section('## [1.0.2.0] - 2026-11-02', '- b ships'), section('## [1.0.1.0] - 2026-11-01', '- sibling ships fast')), 'stale'],
+      ['entry edit hidden inside a merge', log(section('## [1.0.2.0] - 2026-11-02', '- b ships fast'), sibling), 'stale'],
+    ] as const;
+    for (const [name, stampedLog, verdict] of cases) {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'CHANGELOG.md': log() });
+      const reviewed = wtree(f);
+      f.write({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': log(own) }); f.commit('Steps 12-13: version and CHANGELOG');
+      const post = snapshot(f);
+      f.advanceBase({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': log(sibling) });
+      mergeMain(f, { VERSION: '1.0.1.0\n', 'CHANGELOG.md': log(own, sibling) });
+      f.write({ VERSION: '1.0.2.0\n', 'CHANGELOG.md': stampedLog }); f.commit('slot restamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (verdict === 'fresh') expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 0, expect.stringContaining('DOCS: fresh against the Step 14.5 post-audit snapshot')]);
+      else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
+    }
+  });
+
+  // Value: protects=the base merge in the carry may only add the base's sections: dropping a header line the audit saw
+  //   stays stale with or without a main merge, and a branch that also corrected a released entry keeps a pure re-heading
+  //   fresh; fails_when=mergeChangelogs' base-wins resolution hides a deleted audited line (DOCS: fresh) or stales a pure
+  //   re-heading; seam=lib/ship-release.ts docsFresh; no_claim=the restamp writer
+  test('the base merge only adds base sections: a dropped audited line stays stale, a corrected released entry stays fresh', () => {
+    const policy = JSON.stringify({ bump: 'patch', queue_mode: 'stamp-at-merge', changelog: 'CHANGELOG.md', stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const released = (entry = '- base entry') => `## [1.0.0.0] - 2026-10-30\n\n${entry}\n`;
+    const log = (header: string, own: string, rest: string) => `# Changelog\n\n${header}${own}\n\n- b ships\n\n${rest}`;
+    const sibling = '## [1.0.1.0] - 2026-11-01\n\n- sibling ships\n\n';
+    const cases = [
+      ['audited header line dropped, no main merge', log('Notice: read this.\n\n', '## [1.0.1.0] - 2026-11-01', released()), false, log('', '## [1.0.2.0] - 2026-11-02', released()), 'stale'],
+      ['audited header line dropped in a main merge', log('Notice: read this.\n\n', '## [1.0.1.0] - 2026-11-01', released()), true, log('', '## [1.0.2.0] - 2026-11-02', sibling + released()), 'stale'],
+      ['released entry corrected, then re-headed', log('', '## [1.0.1.0] - 2026-11-01', released('- base entry, corrected')), false, log('', '## [1.0.2.0] - 2026-11-02', released('- base entry, corrected')), 'fresh'],
+    ] as const;
+    for (const [name, auditedLog, merges, stampedLog, verdict] of cases) {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'CHANGELOG.md': `# Changelog\n\n${released()}` });
+      const reviewed = wtree(f);
+      f.write({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': auditedLog }); f.commit('Steps 12-13: version and CHANGELOG');
+      const post = snapshot(f);
+      if (merges) {
+        f.advanceBase({ VERSION: '1.0.1.0\n', 'CHANGELOG.md': `# Changelog\n\n${sibling}${released()}` });
+        mergeMain(f, { VERSION: '1.0.1.0\n', 'CHANGELOG.md': stampedLog });
+      }
+      f.write({ VERSION: '1.0.2.0\n', 'CHANGELOG.md': stampedLog }); f.commit('slot restamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (verdict === 'fresh') expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 0, expect.stringContaining('DOCS: fresh against the Step 14.5 post-audit snapshot')]);
+      else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
+    }
+  });
+});
+
+describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-277, gbrain #8425)', () => {
+  const exceptionFile = (f: ShipFx, head: string, extra: Record<string, unknown> = {}) => {
+    const file = path.join(f.root, 'loop-exception.json');
+    fs.writeFileSync(file, JSON.stringify({ accepted_by: 'GStack Minder (rule 23 grant)', date: '2026-11-02', via: 'GSTA-36', reason: 'the pre-agreed fallback after the fix-check blocker, then ship', fix_check: { head, findings: 1 }, ...extra }));
+    return file;
+  };
+  const afterFixCheck = () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'README.md': '# Fx, with the branch feature\n' });
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.write({ 'src/x.ts': 'export const x = 3;\n', 'README.md': '# Fx, with the fallback\n' }); f.commit('owner fallback after the fix-check');
+    return { f, fixHead, reviewed, post };
+  };
+
+  // Value: protects=an edit the owner accepted after a fix-check ships through Step 16 without another review round (R51 cap);
+  //   fails_when=finish routes the accepted src edit as behavior or stales the docs stage on the accepted doc, or accepts it
+  //   without the exception file; seam=finish's route and docsFresh; no_claim=the receipt and queue checks (exceptionProblems)
+  test('paths changed since fix_check.head route as accepted and the docs stage carries them; without the file it still stops', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    const plain = finish(f, reviewed, post);
+    expect([plain.status, plain.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+    expect(lineOf(plain.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0$/);
+    const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`]);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=unknown context=0 accepted=2$/);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toBe(`REVIEW_LOOP_EXCEPTION: accepted README.md,src/x.ts (changed since fix-check ${fixHead.slice(0, 12)}; accepted by GStack Minder (rule 23 grant) 2026-11-02 via GSTA-36)`);
+    expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: fresh against the Step 14.5 post-audit snapshot (carried: tests=0 base=0 requested=0 accepted=2)');
+    expect([r.status, lineOf(r.stdout, 'EVIDENCE')]).toEqual([0, expect.stringMatching(/^EVIDENCE: FRESH label=tests /)]);
+  });
+
+  // Value: protects=the exception covers only the frozen scope and only a real fix-check; fails_when=a path the branch never
+  //   touched at the fix-check, or an exception naming a commit outside the branch or a malformed record, is accepted; seam=finish
+  test('a path outside the frozen scope still routes as behavior; a fix-check head off the branch or a malformed record stops', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/new.ts': 'export const n = 1;\n' }); f.commit('a new file after the fix-check');
+    const outside = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`]);
+    expect(lineOf(outside.stdout, 'ROUTE')).toMatch(/ behavior=1 .* accepted=2$/);
+    expect([outside.status, outside.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
+    const off = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, 'e'.repeat(40))}`]);
+    expect([off.status, off.stdout]).toEqual([3, expect.stringContaining(`STOP: --review-loop-exception: fix_check.head eeeeeeeeeeee is not HEAD or an ancestor of it`)]);
+    const bad = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { reason: '' })}`]);
+    expect([bad.status, bad.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: review_loop_exception.reason must be a non-empty one-line string')]);
+    const missing = finish(f, reviewed, post, ['--review-loop-exception', `@${path.join(f.root, 'no-such-record.json')}`]);
+    expect([missing.status, missing.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: ')]);
+  });
+
+  // Value: protects=fix_check.files only narrows the frozen scope; fails_when=a listed path the branch never touched at the
+  //   fix-check routes as accepted, or a touched path the list leaves out is accepted anyway; seam=finish's route
+  test('fix_check.files narrows the accepted scope and cannot add a path the branch had not touched at the fix-check', () => {
+    const { f, fixHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/new.ts': 'export const n = 1;\n' }); f.commit('a new file after the fix-check');
+    const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: ['src/x.ts', 'src/new.ts'] } })}`]);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=1 docs=1 metadata=0 tests=0 base=unknown context=0 accepted=1$/);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toStartWith('REVIEW_LOOP_EXCEPTION: accepted src/x.ts (');
+    expect([r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/new.ts)')]).toEqual([3, true]);
+    const none = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: [] } })}`]);
+    expect([none.status, none.stdout]).toEqual([3, expect.stringContaining('STOP: --review-loop-exception: fix_check.files lists no paths')]);
+  });
+
+  // Value: protects=a test weakened after the fix-check is never owner-accepted, with or without --reviewed-base;
+  //   fails_when=finish accepts a gate-edited test (a .skip, a removed assertion) because no base sides were given; seam=finish's route
+  test('a gate-edited test after the fix-check still routes as behavior under the exception', () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); });\n" });
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    const post = snapshot(f);
+    f.write({ 'test/x.test.ts': "import { test } from 'bun:test';\ntest.skip('a', () => {});\n" }); f.commit('weaken the test after the fix-check');
+    for (const extra of [[], ['--reviewed-base', reviewedBase]]) {
+      const r = finish(f, reviewed, post, ['--review-loop-exception', `@${exceptionFile(f, fixHead)}`, ...extra]);
+      expect([r.status, lineOf(r.stdout, 'ROUTE'), r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/x.test.ts)')]).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
+    }
+  });
+});
+

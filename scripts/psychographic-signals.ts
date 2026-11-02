@@ -307,29 +307,6 @@ export function resolveOptionKey(question_id: string, choice: string): string | 
 }
 
 /**
- * Apply a user choice for a question to the running dimension totals.
- *
- * @param dims - running total of dimension nudges (mutated)
- * @param signal_key - from the question registry entry
- * @param user_choice - the option key the user selected
- * @returns list of dimension deltas applied (empty if no mapping)
- */
-export function applySignal(
-  dims: Record<Dimension, number>,
-  signal_key: string,
-  user_choice: string,
-): DimensionDelta[] {
-  const subMap = SIGNAL_MAP[signal_key];
-  if (!subMap) return [];
-  const deltas = subMap[user_choice];
-  if (!deltas) return [];
-  for (const { dim, delta } of deltas) {
-    dims[dim] = (dims[dim] ?? 0) + delta;
-  }
-  return deltas;
-}
-
-/**
  * Validate that every signal_key referenced in the registry has a matching
  * entry in SIGNAL_MAP. Called by tests to catch drift.
  */
@@ -351,17 +328,6 @@ export function validateRegistrySignalKeys(): {
     if (!registrySignalKeys.has(k)) extra.push(k);
   }
   return { missing, extra };
-}
-
-/** Empty dimension totals — starting point for derivation. */
-export function newDimensionTotals(): Record<Dimension, number> {
-  return {
-    scope_appetite: 0,
-    risk_tolerance: 0,
-    detail_preference: 0,
-    autonomy: 0,
-    architecture_care: 0,
-  };
 }
 
 /** Sigmoid clamp: map accumulated delta total to [0, 1]. */

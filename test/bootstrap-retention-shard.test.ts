@@ -62,7 +62,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
       fs.writeFileSync(path.join(root, 'controller.stdout.log'), controller.stdout ?? '', { mode: 0o600 });
       fs.writeFileSync(path.join(root, 'controller.stderr.log'), controller.stderr ?? '', { mode: 0o600 });
       expect(controller.error).toBeUndefined();
-      expect(controller.status).toBe(0);
+      expect(controller.status, `controller exited ${controller.status} (signal ${controller.signal}); stderr tail: ${(controller.stderr ?? '').slice(-600).replace(/\s*\n\s*/g, ' | ')}`).toBe(0);
       const outcome = JSON.parse(fs.readFileSync(outcomePath, 'utf8'));
       if (scenario === 'ack-failure') {
         expect(controller.stdout).toContain('(fail) qa-bootstrap');

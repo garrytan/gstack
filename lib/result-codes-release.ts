@@ -360,6 +360,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'gstack-review-scope could not read the diff it scopes findings against: the base or the range base does not resolve, or the range base is not an ancestor of HEAD',
     fix: 'fetch origin/<base>, check --range-base against the saved pass heads, and start a full pass (--pass 1) when history was rewritten',
   },
+  REVIEW_SCOPE_LEDGER: {
+    anchor: 'review-scope-ledger',
+    summary: 'gstack-review-scope summary could not count the dispatch ledgers: none was named (no --run, --ledger or --no-ledger), --run holds no review-ledger.jsonl, or a ledger, its merged file or its judged set is unreadable or changed since judge',
+    fix: 'pass --run <run dir> (the directory the review passes wrote) or each --ledger <f>; --no-ledger only when no reader ran through gstack-review-dispatch; restore or re-collect a ledger file that moved',
+  },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
     summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the working tree has uncommitted changes, the receipt head is not an ancestor of HEAD and the receipt records no tree to compare, or the product diff could not be compared',

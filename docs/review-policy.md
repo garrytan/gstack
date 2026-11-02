@@ -181,7 +181,14 @@ follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a te
 fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
 directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
 `manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
-consumer each keep the path code, and YAML, TOML and SVG are always code. More than
+consumer each keep the path code, and YAML and TOML are always code. An SVG counts
+as data only when its whole text at the head is a drawing (GST-911): SVG drawing
+elements and RDF metadata, CSS made of declarations only (no `@` rule and no
+function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
+`image()`, `element()` and every other CSS load), no backslash escape, every
+`href` a same-file `#` reference or an inline raster image, no event handler and no
+entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded; anything else, a
+script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
@@ -215,23 +222,25 @@ input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
 `unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
 or removed), and any changed line that names the `child_process` or
-`node:child_process` module, in any import or require spelling. The GST-850
+`node:child_process` module, in any import or require spelling. A changed SVG
+line that can run code (a script or `foreignObject` element, an event handler, a
+`javascript:` URL) is security too (GST-911). The GST-850
 rules are coarse on purpose and parse no import clause or call arguments;
 `test/review-risk-linear.test.ts` holds each of them under 100 ms on
 200,000-character hostile lines, its anchor followed by a long run of the
-characters it repeats included. That claim covers only the rules GST-850 adds,
-not R51's older ones. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+characters it repeats included. `test/review-risk-redos.test.ts` (GST-898) holds every risk pattern, R51's `rm` and `rmSync` rules included, under 100 ms on 100,000-character hostile lines. An `rmSync(` call with more than 500 characters before the first `)` after it counts as security on its own. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
-**UI text and SVGs** stay code (light unless a risk class applies). A docs path
-for UI copy, locale values and chart SVGs was built as an allowlist in GST-850 and
-dropped for review cost: its first review round found a new bypass class in each
-version, the same pattern as three rounds of R51. When a diff publishes numbers,
-the batched specialist's diff keeps the write-up's text files instead of leaving
-docs out.
+**UI text** stays code (light unless a risk class applies). A docs path for UI
+copy and locale values was built as an allowlist in GST-850 and dropped for
+review cost: its first review round found a new bypass class in each version,
+the same pattern as three rounds of R51. Chart SVGs use the drawing allowlist
+above, which reads the whole file rather than changed lines. When a diff
+publishes numbers, the batched specialist's diff keeps the write-up's text files
+instead of leaving docs out.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -350,7 +359,7 @@ and matching is token-bounded: `costume` never reads as cost.
 |---|---|
 | money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
-| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
 
 An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
@@ -387,14 +396,17 @@ narrowed to the gate scan's tagged hunks.
 
 ## What the receipt records
 
-`gstack-review-scope summary --since <REVIEW_SINCE>` reads this invocation's
-review-log rows and writes the counters `gstack-ship-receipt write --review-loop`
+`gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads this invocation's
+review-log rows and the dispatch ledgers under the run directory (`--ledger <f>` names one;
+`--no-ledger` when no reader ran through `gstack-review-dispatch`) and writes the counters `gstack-ship-receipt write --review-loop`
 puts in the receipt:
 
 | Field | Meaning |
 |---|---|
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: all`) |
-| `review_loop.blocking_found` | distinct blocking findings across the passes |
+| `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
+| `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
+| `review_loop.ledgers_read` | dispatch ledgers the count read; absent under `--no-ledger` |
 | `review_loop.deferred` | blocking findings in unchanged code filed as issues (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |
@@ -417,7 +429,14 @@ rules hash, base and registry commits, the gate scan bound to the head and the r
 the queue refuses a receipt below the depth its head needs
 ([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). A stop the owner
 accepted after a fix-check edit goes in `review_loop_exception`, never in prose
-under `REVIEW_LOOP:`.
+under `REVIEW_LOOP:`. Step 16 takes the same record:
+`gstack-ship-release finish --review-loop-exception <json|@file>` routes the
+paths the branch touched at `fix_check.head` (narrowed to the record's
+`fix_check.files` when it lists them) and changed since as `accepted=` in
+`ROUTE:`, prints them on a `REVIEW_LOOP_EXCEPTION:` line, and carries them
+through the docs stage. A path outside that scope and a gate-edited test still
+route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
+too large for the scoped review, and without the record nothing changes.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
@@ -560,14 +579,26 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    missing coverage leaves the review incomplete. A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
-   against the merged lines they produced, and the judgment rerun against the
+   against the merged lines they produced, and each merged line against the finding collect
+   parses at that id's index from the unchanged output file, label and raw text byte for byte
+   (`merged_line_differs` on the OUTPUT and JUDGE rows otherwise, GST-541), so an edited
+   merged.jsonl cannot lower a finding or swap its text. A recorded output file that is missing
+   (`output_file_missing`), a judgment run on a merged file collect did not write
+   (`judge_merged_not_collected`) and merged rows collect never recorded
+   (`merged_rows_not_collected`) are dirty too, and so is an output whose re-parsed findings
+   outnumber or undercount the ids collect recorded (`merged_count_differs`). The one exception
+   is a reply collect refused for its tree: verify re-checks the reply's `REVIEWED_TREE` line
+   against the render's tree, and such an output stays `NOT_REVIEWED` until a re-sent brief is
+   answered by a reply that passes the same check. Deleting a whole output event with its rows is
+   not caught yet, because the ledger has no anchor for it. The judgment is then rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
-   are the parent's. Each reviewer keeps its plan entry and is rendered by the same code as
+   are the parent's. `--diff-base` sets every reader's base, a scoped pass's Red
+   Team included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
@@ -580,17 +611,26 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
    point is found against `origin/<base>` first, as preflight does.
-7. Every brief, audit readers' included, ends with a workspace paragraph naming the
-   checkout the bins run in (GST-482): a reader on a shared machine starts in the
-   machine's working directory, so it is told to `cd` there on every command, to give
-   every file tool an absolute path under it, and to start its reply with
-   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
-   section's render, which stays byte for byte. `collect` and `mark --state collected`
+7. Every brief, audit readers' included, opens with a fingerprint step and ends with a
+   workspace paragraph naming the checkout the bins run in (GST-482): a reader on a shared
+   machine starts in the machine's working directory, so it is told to `cd` there on every
+   command, to give every file tool an absolute path under it, and to start its reply with
+   the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   step comes first because a reader following a findings-only format skipped the request
+   when it only closed the brief (GST-897). The section's render sits between the two,
+   byte for byte. `collect` and `mark --state collected`
    compare that line with the fingerprint recorded at render: a missing or foreign line is
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
    is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
    outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
-   worked elsewhere by accident; it is not proof of reading, since diff text can predict it.
+   worked elsewhere by accident; it is not proof of reading, since diff text can predict it. A `printed:` label
+   before the line (plain, bold or inside its backticks) is still read, and its tree and toplevel are still compared
+   exactly (GST-776). Capy cannot start a subagent in a chosen directory, so before a stage takes a start token or sends
+   its first reader, the Capy pass program compares the checkout with the one shared readers start in (the thread's
+   working directory) and stops when that is another checkout or cannot be read: run /ship in the thread's own checkout.
+   A start directory outside any checkout, such as a multi-repo workspace root, holds no tree to review by mistake and
+   dispatches. Step 11's voices take the `adversarial-review` start
+   token by default, and a `logStart` list without it stops before anything runs.
 
 ## Where this is enforced
 
@@ -601,7 +641,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
 - `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
 - `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
-- `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`); refusals are `REVIEW_SCOPE_INPUT` and `REVIEW_SCOPE_RANGE` ([troubleshooting.md](troubleshooting.md#review-scope-input)).
+- `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`, `unrecorded`, `ledgers_read`); refusals are `REVIEW_SCOPE_INPUT`, `REVIEW_SCOPE_RANGE` and `REVIEW_SCOPE_LEDGER` ([troubleshooting.md](troubleshooting.md#review-scope-input)).
 - `lib/ship-policy.ts`: the `review_scope` key and its `ship: review_scope …` consequence line.
 - `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `bin/gstack-coauthor-trailers` for the contributor-credit trailers of a port.
 - `lib/ship-receipt-prose.ts`, `gstack-ship-receipt read --check-prose`: the body's quoted counters against the receipt (`RECEIPT_PROSE_MISMATCH`, [ship-policy.md](ship-policy.md#ship-receipt)).
