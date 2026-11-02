@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { gitFixtureTemplate, rebindGitDir, type GitFixtureTemplate } from './git-fixture-template';
 import { gitArgvIn } from './scratch-repo';
 import { mergeChangelogs } from '../../lib/changelog-check';
 import { runScriptSync } from '../../lib/script-invocation';
@@ -32,21 +33,51 @@ export const BASE_POLICY = {
   stamp_sensitive_gates: ['digest'],
 };
 
-export function makeFixtureRepo(opts: { policy?: Record<string, unknown> | null; version?: string; prefix?: string } = {}): FixtureRepo {
+export type FixtureOptions = { policy?: Record<string, unknown> | null; version?: string; prefix?: string };
+
+export function makeFixtureRepo(opts: FixtureOptions = {}): FixtureRepo {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), opts.prefix ?? 'gstack-restamp-fx-'));
+  seedFixtureRepo(root, opts);
+  return fixtureRepoAt(root);
+}
+
+/** The FixtureRepo handle for a root seedFixtureRepo filled, directly or through a template copy. */
+export function fixtureRepoAt(root: string): FixtureRepo {
   const origin = path.join(root, 'origin.git');
   const work = path.join(root, 'work');
   const home = path.join(root, 'home');
-  fs.mkdirSync(home, { recursive: true });
-  fs.mkdirSync(work, { recursive: true });
   const env = { GSTACK_HOME: home, GSTACK_STATE_DIR: home, HOME: home, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
-  fs.writeFileSync(env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n\temail = t@test\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n');
   const git = (...args: string[]): string => {
     const r = gitArgvIn(work, args, 30_000, { ...process.env, ...env });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr?.toString()}`);
     return r.stdout?.toString().trim() ?? '';
   };
+  return { root, work, origin, home, git, env };
+}
+
+/** A template of makeFixtureRepo(opts), built once and copied per test (helpers/git-fixture-template.ts). */
+export function fixtureTemplate(opts: FixtureOptions = {}): GitFixtureTemplate<null> {
+  return gitFixtureTemplate({
+    prefix: opts.prefix ?? 'gstack-restamp-fx-',
+    build: root => { seedFixtureRepo(root, opts); return null; },
+    rebind: (copy, tpl) => rebindGitDir(path.join(copy, 'work', '.git'), tpl, copy),
+  });
+}
+
+/** A fresh copy of a fixtureTemplate as its own FixtureRepo (cleanup() removes it like any other). */
+export function cloneFixture(template: GitFixtureTemplate<unknown>, prefix?: string): FixtureRepo {
+  return fixtureRepoAt(template.copy(prefix).root);
+}
+
+/** makeFixtureRepo's repository, written into an existing root. */
+export function seedFixtureRepo(root: string, opts: FixtureOptions): void {
+  const { origin, work, home, env, git } = fixtureRepoAt(root);
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(work, { recursive: true });
+  fs.writeFileSync(env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n\temail = t@test\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n');
   spawnSync('git', ['init', '-q', '--bare', origin], { timeout: 30_000, env: { ...process.env, ...env } });
+  git('--git-dir', origin, 'config', 'maintenance.auto', 'false');
+  git('--git-dir', origin, 'config', 'gc.auto', '0');
   git('init', '-q', '-b', 'main');
   const version = opts.version ?? '1.2.3.0';
   const npm = version.split('.').slice(0, 3).join('.');
@@ -66,7 +97,6 @@ export function makeFixtureRepo(opts: { policy?: Record<string, unknown> | null;
   git('remote', 'add', 'origin', origin);
   git('push', '-q', 'origin', 'main');
   git('remote', 'set-head', 'origin', 'main');
-  return { root, work, origin, home, git, env };
 }
 
 /** A PR branch from origin/main with an `[Unreleased]` CHANGELOG entry and a doc mentioning the version it expects. */
