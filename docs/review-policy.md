@@ -215,9 +215,12 @@ input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
 `unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
 or removed), and any changed line that names the `child_process` or
-`node:child_process` module, in any import or require spelling. These rules are
-coarse on purpose: they parse no import clause or call arguments, and every
-quantifier is bounded, so they run in linear time on any line. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+`node:child_process` module, in any import or require spelling. The GST-850
+rules are coarse on purpose and parse no import clause or call arguments;
+`test/review-risk-linear.test.ts` holds each of them under 100 ms on
+200,000-character hostile lines, its anchor followed by a long run of the
+characters it repeats included. That claim covers only the rules GST-850 adds,
+not R51's older ones. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes

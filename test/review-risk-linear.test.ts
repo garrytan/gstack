@@ -17,11 +17,16 @@ const scan = (lines: string[]) => matchRisk({ codePaths: ['src/a.ts'], added: { 
 describe('linear time on hostile input', () => {
   // Value: protects=gstack-review-plan and the queue verdict never hang on a diff (the R51 resource regex did at about 50
   //   backslashes; GST-850 rounds 1 and 2 found quadratic import and exec-binding scans); fails_when=any risk pattern
-  //   backtracks on a long or minified line; seam=every pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE and MONEY_LINE, and matchRisk
+  //   backtracks on a long or minified line, or on its anchor followed by a long run of the class it repeats; seam=every
+  //   pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE and MONEY_LINE (R51's rm rule is a known pre-existing issue, filed apart), and matchRisk
   const L = 200_000;
   const fill = (s: string) => s.repeat(Math.ceil(L / s.length));
   const hostile = [' ', '(', "'", '"', 'a', '{', '\\', '..', 'import a, {', 'fetch(', 'path.join(', 'rmSync(', '  exec', 'new URL("', 'child_process', 'http.get(', 'requests.',
-    'tar -', 'unzip ', 'DELETE FROM ', 'delete from a ', 'process.env.', 'x_usd', 'aUsd'].map(fill).concat(['  exec' + ' '.repeat(L) + '// c', 'import a, {' + 'b,'.repeat(L / 2)]);
+    'tar -', 'unzip ', 'DELETE FROM ', 'delete from a ', 'process.env.', 'x_usd', 'aUsd'].map(fill).concat(['  exec' + ' '.repeat(L) + '// c', 'import a, {' + 'b,'.repeat(L / 2)],
+    ['fetch', 'globalThis.fetch', 'http.get', 'https.request', 'got', 'urlopen', 'urljoin', 'url.resolve', 'exec', 'execSync', 'cp.exec', 'proxy', 'redirect', 'maxRedirects', 'tar.extract', 'unzip', 'tar'].map(a => a + ' '.repeat(L)),
+    ['got.', 'requests.', 'httpx.', 'tar -', 'tar x', 'rm -', 'allowed_', 'host_allow', 'node_modules/adm-'].map(a => a + 'x'.repeat(L)),
+    ['new' + ' '.repeat(L) + 'URL(', 'new URL(' + ' '.repeat(L), 'new URL("' + 'a'.repeat(L), "'" + 'node:'.repeat(L / 5), 'path.join(' + 'a'.repeat(L), 'path.join(' + ')'.repeat(L),
+      "includes(" + ' '.repeat(L), '==' + ' '.repeat(L) + "'..'", "'..'" + ' '.repeat(L) + '==', '\\.' + '\\'.repeat(L)]);
   test.each(Object.entries({ SECURITY_LINE, DATA_LINE, SECRET_LINE, MONEY_LINE }))('every %s pattern finishes under 100 ms on each 200k-character hostile line', (_n, patterns) => {
     const slow = patterns.flatMap(r => hostile.map((s, k) => [r.source.slice(0, 40), k, fast(() => r.test(s))] as const)).filter(([, , ms]) => ms >= 100);
     expect(slow).toEqual([]);
