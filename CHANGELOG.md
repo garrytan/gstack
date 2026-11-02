@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.92.66.0] - 2026-11-02
+
+**The secrets check reads Python and Dart string context from what git diffed, and a quote inside an interpolation no longer ends a string (GST-738).** env.kv's source-syntax exemption treats a `password:` line as code only when it sits outside every string. Two inputs could make the scanner place a committed string's contents outside a string. One was a working copy that no longer matched what git diffed. The other was a quote inside an f-string or Dart `${…}` expression. A scoped review pass now applies an explicit `--diff-base` to its Red Team as well.
+
+### Fixed
+- **`lib/pregate/checks/secrets.ts`:** a changed Python or Dart file's whole text comes from a full-context `git diff`, never from the working copy. A `diff.suppressBlankEmpty` setting can't shift its lines.
+- **`lib/redact-patterns.ts`:** a Python f-string's `{…}`, or t-string's, and a non-raw Dart string's `${…}` are read as code. Their nested strings count as strings, and a quote or comment inside them doesn't end the outer string. A Python format spec, such as `{n:#x}`, is text, and `\{` still opens a field. A `password:` line inside a Dart `/* */` comment is now read as text, not code. An expression left open, or nested more than 256 deep, runs to the end of the file, so the exemption fails closed.
+- **`bin/gstack-review-dispatch`:** `pass --diff-base` now sets the scoped Red Team's base too.
+
 ## [1.92.65.0] - 2026-11-02
 
 - **Every /ship reviewer brief now starts with the `REVIEWED_TREE` step instead of saving it for the last paragraph** (`lib/review-brief.ts`, GST-897). Before, the brief only asked for the fingerprint line in its closing paragraph, after the whole diff and a rule that the reply ends with its `Recommendation:` line. On GST-850, two gpt-6.1-sol outside-voice replies never ran the command, so `collect` refused both (`COLLECT_WRONG_TREE reported="none"`) and their findings were lost. Other readers misread "the line <command> prints" and pasted the command instead of its output. Now the brief opens with "First step, before anything else: run `cd <checkout> && echo "REVIEWED_TREE: …"`", says the command outputs one `REVIEWED_TREE: <tree hash> <path>` line, and asks the reader to copy that output line, not the command, as the first line of its reply. The closing paragraph repeats the request with "(the output, not the command)". `collect` is unchanged and still refuses a reply without the line, and the dispatcher never stamps the tree for a reader.
