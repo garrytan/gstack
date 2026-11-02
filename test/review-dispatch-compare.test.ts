@@ -34,7 +34,7 @@ describe('scripts/review-dispatch-compare.ts', () => {
       const table = run(['--tokens', tok]);
       expect(table).toContain(`TOKENS: measured (${tok})`);
       expect(table).toMatch(/^SHIP_TOKEN_RATIO: median=0\.\d+ min=0\.\d+ max=\d\.\d+ \(n=10\)$/m);
-      expect(table).toMatch(/^SHIP_TOKEN_RATIO_BY_CLASS: docs median=0\.\d+ \(n=5\); code median=0\.\d+ \(n=5\)$/m);
+      expect(table).toMatch(/^SHIP_TOKEN_RATIO_BY_CLASS: docs median=0\.\d+ \(n=5\); gate median=0\.\d+ \(n=5\)$/m);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

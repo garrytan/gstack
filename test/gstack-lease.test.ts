@@ -654,6 +654,31 @@ describe('gstack-lease', () => {
     expect(mixed.stdout.trim().split('\n')).toEqual([expect.stringMatching(new RegExp(`^${foreign} \\d+m sleep$`))]);
   });
 
+  // GST-396: on Capy every session runs under one capy-server, so its lease is in every caller's ancestry.
+  test('live --count-shared-harness keeps a capy-server ancestor\'s lease while it is under 120 minutes old; without the flag that ancestor is still dropped', () => {
+    const { dir, leases } = checkout();
+    const harness = path.join(dir, 'harness', 'capy-server');
+    fs.mkdirSync(path.dirname(harness), { recursive: true });
+    fs.copyFileSync(fs.realpathSync(spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim()), harness);
+    fs.chmodSync(harness, 0o755);
+    const script = [
+      '"$LEASE" touch --root "$ROOT" --pid $$ || exit 9',
+      '[ "$AGE" -gt 0 ] && "$BUN" -e "const t = Date.now() / 1000 - Number(process.argv[2]) * 60; require(\'fs\').utimesSync(process.argv[1], t, t)" "$ROOT/.git/gstack-leases/$$" "$AGE"',
+      'echo "plain=$(bash -c \'"$LEASE" live --root "$ROOT" --exclude-ancestry-of $$\')"',
+      'echo "shared=$(bash -c \'"$LEASE" live --root "$ROOT" --exclude-ancestry-of $$ --count-shared-harness\')"',
+      'echo "pid=$$"',
+    ].join('\n');
+    const go = (age: number) => spawnSync(harness, ['-c', script], { encoding: 'utf8', env: { ...baseEnv, LEASE, ROOT: dir, AGE: String(age), BUN: process.execPath }, timeout: 30_000 }).stdout;
+    const fresh = go(0);
+    const pid = fresh.match(/^pid=(\d+)$/m)![1];
+    expect(fresh).toMatch(/^plain=$/m);
+    expect(fresh).toMatch(new RegExp(`^shared=${pid} 0m capy-server$`, 'm'));
+    fs.rmSync(leases, { recursive: true, force: true });
+    const aged = go(121);
+    expect(aged).toMatch(/^plain=$/m);
+    expect(aged).toMatch(/^shared=$/m);
+  });
+
   test('touch without --pid uses the same harness pid gstack-skill-start derives (this process past the tool-call shell)', () => {
     const { dir, leases } = checkout();
     const r = spawnSync('bash', ['-c', `"$LEASE" touch --root "$ROOT"; true`], {

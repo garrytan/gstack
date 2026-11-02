@@ -1,0 +1,5 @@
+I couldn't run the review because the diff base doesn't exist. `git diff 1b68e637c07cea38f01c01120e02d184575da82c` fails with "bad object", and fetching that sha from origin is refused with "not our ref", so the commit is neither in this checkout nor on the remote.
+
+This checkout is on `main` at 047dad7 (v1.91.357.0), tracking origin/main with no uncommitted changes, so there's nothing local to review against either. I'm not returning NO FINDINGS, because that would claim a clean diff I never saw.
+
+To continue I need one of these: a diff base that exists, or the branch or sha holding the c3-36-p1 change. It may only exist on another machine and was never pushed. I've read all three checklists (testing, security, state-machines) and will apply them as soon as I have a diff.

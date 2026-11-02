@@ -119,13 +119,13 @@ describe('the rendered table is display only', () => {
   });
 });
 
-function autoplanRun(dir: string, answers: Array<{ by: string; words?: string; at: string; p1: string }>) {
+function autoplanRun(dir: string, answers: Array<{ by: string; words?: string; at: string; p1: string; own?: boolean }>) {
   const rows = [];
   for (const a of answers) {
     for (const id of ['d1', 'p1']) rows.push({
       schema_version: 1, run: 'run-1', id: `run-1-${id}`, label: id.toUpperCase(), title: id === 'p1' ? 'Plan approval' : 'Split the CLI [run-1-ceo-native-2]',
       options: ['a', 'b'], recommended: 'a', kind: id === 'p1' ? 'approval' : 'auto', status: 'approved', gate_rev: 1,
-      chosen: id === 'p1' ? a.p1 : 'a', answered_at: a.at, reply: a.words ?? 'rec', answered_by: a.by, ...(a.by === 'human' ? {} : { owner_reply: a.words }),
+      chosen: id === 'p1' ? a.p1 : 'a', answered_at: a.at, reply: a.words ?? 'rec', answered_by: a.by, ...(a.by === 'human' ? {} : a.own ? { answer_words: a.words, words_by: a.by } : { owner_reply: a.words }),
     });
   }
   fs.writeFileSync(path.join(dir, 'decisions.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n');
@@ -145,6 +145,14 @@ describe('import --autoplan', () => {
     const cwd = repo(); const state = tmp('appr-state-');
     expect(bin(['import', '--autoplan', run, '--by', 'Garry'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).toMatch(/^APPROVAL_IMPORTED: n=2 skipped=0 /);
     expect(bin(['import', '--autoplan', run, '--by', 'Garry'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).toMatch(/^APPROVAL_IMPORTED: n=0 skipped=2 /);
+  });
+
+  test("each row names its own answerer: --by names only the owner's words, an agent's own words import under the agent (GEVA-2)", () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'Do it', at: '2026-10-20T21:35:42.697Z', p1: 'a' }, { by: 'agent:GSTA-36', words: 'Accepted on the standing approval', at: '2026-10-21T08:00:00.000Z', p1: 'a', own: true }]);
+    const rows = importAutoplan(run, 'b', 'Garry');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => [r.by, r.words])).toEqual([['Garry, relayed by agent:GSTA-36', 'Do it'], ["agent:GSTA-36, its own decision (not the owner's words)", 'Accepted on the standing approval']]);
   });
 
   test('a default run id whose YYYYMMDDHHMMSS stamp passes Luhn still imports (capy-captain-flow flake)', () => {
@@ -194,5 +202,45 @@ describe('Capy mirror', () => {
     const read = readRecord({ file: path.join(d, 'local.jsonl'), mirror: path.join(d, 'mirror.jsonl'), branch: 'x', slug: 's', ephemeral: true });
     expect(read.rows.map(r => r.ask).sort()).toEqual(['a', 'b']);
     expect(read.state).toBe('present');
+  });
+});
+
+describe('import --autoplan --stack', () => {
+  function stackRepo(): string {
+    const d = repo('feature/one');
+    const g = (args: string[]) => expect(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: d, timeout: 30_000 }).status).toBe(0);
+    g(['commit', '-q', '--allow-empty', '-m', 'seed']);
+    g(['branch', 'feature/two']);
+    return d;
+  }
+
+  test('writes the same rows to every branch, each in its own record; a retry adds nothing', () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'Garry: Do it', at: '2026-10-29T03:40:00.000Z', p1: 'a' }]);
+    const cwd = stackRepo(); const state = tmp('appr-state-');
+    const env = { GSTACK_STATE_ROOT: state };
+    const r = bin(['import', '--autoplan', run, '--by', 'Garry', '--stack', 'feature/one,feature/two'], { cwd, env });
+    expect(r.status, r.err).toBe(0);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED: branch=feature\/one n=1 skipped=0 /m);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED: branch=feature\/two n=1 skipped=0 /m);
+    expect(r.out).toMatch(/^APPROVAL_IMPORTED_STACK: branches=2 added=2$/m);
+    for (const b of ['feature/one', 'feature/two']) expect(bin(['render', '--branch', b], { cwd, env }).out).toContain('Garry: Do it');
+    expect(bin(['import', '--autoplan', run, '--by', 'Garry', '--stack', 'feature/one,feature/two'], { cwd, env }).out).toMatch(/^APPROVAL_IMPORTED_STACK: branches=2 added=0$/m);
+  });
+
+  test('one unknown branch writes nothing to any branch', () => {
+    const run = tmp('appr-run-');
+    autoplanRun(run, [{ by: 'agent:GSTA-36', words: 'rec', at: '2026-10-29T03:40:00.000Z', p1: 'a' }]);
+    const cwd = stackRepo(); const state = tmp('appr-state-');
+    const r = bin(['import', '--autoplan', run, '--stack', 'feature/one,feature/nope'], { cwd, env: { GSTACK_STATE_ROOT: state } });
+    expect(r.status).toBe(3);
+    expect(r.err).toContain('feature/nope');
+    expect(r.err).toContain('(APPROVAL_RECORD_NO_BRANCH)');
+    expect(bin(['render', '--branch', 'feature/one'], { cwd, env: { GSTACK_STATE_ROOT: state } }).out).not.toContain('Approve the plan');
+  });
+
+  test('--stack goes with import --autoplan and without --branch', () => {
+    const cwd = stackRepo();
+    expect(bin(['import', '--autoplan', tmp('appr-run-'), '--branch', 'feature/one', '--stack', 'feature/one'], { cwd }).status).toBe(2);
   });
 });

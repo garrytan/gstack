@@ -317,22 +317,16 @@ export interface ArrivalTrainResult {
 interface Waiting { pr: number; readyMs: number; enqueuedMs: number; screened: boolean; defect: boolean }
 
 /**
- * The next train, or null to keep waiting: five or more waiting screened (or
- * unscreened) PRs dispatch a full train of their own; otherwise a full mixed
- * train, screened first; otherwise everything waiting, screened first, once
- * the oldest has waited the fill limit. The train with the oldest PR goes first.
+ * The next train, or null to keep waiting, as orderSlots and fillDue seat it:
+ * screened PRs first, then unscreened PRs fill the remaining seats, each by
+ * age; a full train dispatches at once, a smaller one once its oldest PR has
+ * waited the fill limit.
  */
 export function pickTrain<T extends { enqueuedMs: number; screened: boolean }>(pool: T[], nowMs: number, size: number, fillMs: number): T[] | null {
   const byAge = (a: T, b: T) => a.enqueuedMs - b.enqueuedMs;
-  const screened = pool.filter(x => x.screened).sort(byAge), unscreened = pool.filter(x => !x.screened).sort(byAge);
-  const options = [screened, unscreened].filter(list => list.length >= size).map(list => list.slice(0, size));
-  if (!options.length) {
-    const mixed = [...screened, ...unscreened];
-    if (mixed.length >= size) options.push(mixed.slice(0, size));
-    else if (mixed.length && nowMs - Math.min(...mixed.map(x => x.enqueuedMs)) >= fillMs) options.push(mixed);
-  }
-  const oldest = (train: T[]) => Math.min(...train.map(x => x.enqueuedMs));
-  return options.sort((a, b) => oldest(a) - oldest(b))[0] ?? null;
+  const mixed = [...pool.filter(x => x.screened).sort(byAge), ...pool.filter(x => !x.screened).sort(byAge)];
+  if (mixed.length >= size) return mixed.slice(0, size);
+  return mixed.length && nowMs - Math.min(...mixed.map(x => x.enqueuedMs)) >= fillMs ? mixed : null;
 }
 
 /**

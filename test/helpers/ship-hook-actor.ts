@@ -130,7 +130,7 @@ export function shipHookFailures(fixture: ReturnType<typeof createShipHookFixtur
       const labels = evidence.interactions.filter(event => event.disposition === 'declined')
         .flatMap(event => (event.input as { questions: Array<{ options: Array<{ label: string }> }> }).questions[0].options.map(option => option.label));
       const own = labels.reduce((text, label) => text.replaceAll(`"${label}"`, '').replaceAll(`“${label}”`, ''), result.output);
-      check(/declin|unchanged|not install|not modif|preserv|left|leave|untouched|(?:installed|changed|modified) nothing|nothing (?:was |is )?(?:installed|changed|modified)|did(?: not|n['’]t) (?:install|modify|change|replace|touch)/i.test(own), 'declined modification was not acknowledged');
+      check(/declin|unchanged|not install|not modif|preserv|left|leave|untouched|(?:installed|changed|modified) nothing|(?:nothing|\bno (?:hooks?|changes?|files?)) (?:was |were |is )?(?:installed|changed|modified|overwritten|replaced)|did(?: not|n['’]t) (?:install|modify|change|replace|touch)/i.test(own), 'declined modification was not acknowledged');
     } else {
       check(evidence.localHook === localPolicy, 'existing local policy changed');
       check(evidence.interactions.length === 0, 'existing local policy requires manual integration, not consent to overwrite');

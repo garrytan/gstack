@@ -792,6 +792,7 @@ describeIfSelected('Cookie setup workflow quality', ['setup-browser-cookies/SKIL
       startMarker: '# Setup Browser Cookies',
       endMarker: null,
       ...COOKIE_WORKFLOW_JUDGE,
+      schemaTransport: true,
       readInput: () => buildCookieWorkflowJudgeInput(ROOT),
     });
   }, WORKFLOW_JUDGE_TEST_MS);

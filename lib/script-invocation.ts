@@ -243,8 +243,8 @@ export type WtreeResult = { tree: string } | { error: string; kind: 'launch' | '
 
 /**
  * The working-tree content fingerprint (bin/gstack-wtree): tracked and
- * untracked non-ignored files, as a 40- or 64-hex git tree id (SHA-1 or
- * SHA-256 repositories). `launch` means gstack-wtree never ran (no bash, a
+ * untracked non-ignored files except an untracked root .bun/ folder, as a
+ * 40- or 64-hex git tree id (SHA-1 or SHA-256 repositories). `launch` means gstack-wtree never ran (no bash, a
  * spawn error; `tried` lists each Windows bash candidate when none was
  * found); `exit` means it ran and failed (its stderr says why).
  */

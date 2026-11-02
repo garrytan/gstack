@@ -84,6 +84,22 @@ describe('write (FRESH bump)', () => {
     expect(code).toBe(2);
   });
 
+  test('--manifest-form full keeps a four-part manifest and its lockfile as written', () => {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-full-'));
+    fs.writeFileSync(path.join(d2, 'VERSION'), '0.60.482.0\n');
+    fs.writeFileSync(path.join(d2, 'package.json'), JSON.stringify({ name: 'g', version: '0.60.482.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d2, 'package-lock.json'), JSON.stringify({ name: 'g', version: '0.60.482.0', lockfileVersion: 3, packages: { '': { version: '0.60.482.0' } } }, null, 2) + '\n');
+    const out = JSON.parse(execFileSync('bun', [BIN, 'write', '--version', '0.60.483.0', '--manifest-form', 'full'], { cwd: d2, timeout: 30_000 }).toString());
+    expect(out.packageJsonVersion).toBe('0.60.483.0');
+    expect(JSON.parse(fs.readFileSync(path.join(d2, 'package.json'), 'utf-8')).version).toBe('0.60.483.0');
+    const lock = JSON.parse(fs.readFileSync(path.join(d2, 'package-lock.json'), 'utf-8'));
+    expect([lock.version, lock.packages[''].version]).toEqual(['0.60.483.0', '0.60.483.0']);
+    const bad = spawnSync('bun', [BIN, 'write', '--version', '0.60.484.0', '--manifest-form', 'wide'], { cwd: d2, timeout: 30_000 });
+    expect(bad.status).toBe(2);
+    expect(fs.readFileSync(path.join(d2, 'VERSION'), 'utf-8').trim()).toBe('0.60.483.0');
+    fs.rmSync(d2, { recursive: true, force: true });
+  });
+
   test('VERSION-only repo (no package.json) writes just VERSION', () => {
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-noPkg-'));
     fs.writeFileSync(path.join(d2, 'VERSION'), '0.1.0.0\n');

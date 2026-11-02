@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="4" assertions="2" failures="1" skipped="1" time="0.02640424">
+  <testsuite name="a.test.ts" file="a.test.ts" tests="4" assertions="2" failures="1" skipped="1" time="0.014448064" hostname="ci-host">
+    <testsuite name="outer" file="a.test.ts" line="2" tests="3" assertions="2" failures="1" skipped="1" time="0" hostname="ci-host">
+      <testsuite name="inner" file="a.test.ts" line="2" tests="2" assertions="2" failures="1" skipped="0" time="0.006" hostname="ci-host">
+        <testcase name="passes" classname="inner &gt; outer" time="0.000069" file="a.test.ts" line="2" assertions="1" />
+        <testcase name="fails" classname="inner &gt; outer" time="0.006322" file="a.test.ts" line="2" assertions="1">
+          <failure type="AssertionError" message="expect(received).toBe(expected)&#10;&#10;Expected: 2&#10;Received: 1&#10;">AssertionError: expect(received).toBe(expected)&#10;&#10;Expected: 2&#10;Received: 1&#10;&#10;      at a.test.ts:2:131&#10;</failure>
+        </testcase>
+      </testsuite>
+      <testcase name="skipped" classname="outer" time="0" file="a.test.ts" line="2" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testcase name="top level" classname="" time="0.000039" file="a.test.ts" line="3" assertions="0" />
+  </testsuite>
+</testsuites>

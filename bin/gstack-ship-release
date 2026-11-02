@@ -1,0 +1,10 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-ship-release — /ship Step 12 (version), Steps 15-16 (finish) and Step 17 (push),
+ * with STOP:/NEXT: lines wherever the agent must judge. Logic: lib/ship-release.ts.
+ */
+import { release } from '../lib/ship-release';
+
+const out = await release(process.argv.slice(2), process.cwd());
+(out.exit === 2 ? process.stderr : process.stdout).write(out.text);
+process.exit(out.exit);

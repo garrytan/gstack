@@ -5,6 +5,7 @@
  * `gstack-ship-receipt read --check-prose` runs it; a disagreement is
  * RECEIPT_PROSE_MISMATCH. Prose that quotes no receipt counter is not a claim.
  */
+import { APPROVALS_FOOTER_END, APPROVALS_TABLE_HEADER } from './approval-record';
 import { RECEIPT_FENCE } from './ship-receipt';
 
 export interface ProseClaim { field: string; prose: number; receipt: number }
@@ -26,10 +27,47 @@ export function receiptCounters(receipt: Record<string, unknown>): Map<string, n
 
 const BLOCK_RE = new RegExp('```' + RECEIPT_FENCE + '[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```', 'g');
 const ESCAPE = /[.*+?^${}()|[\]\\]/g;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * The body without the `## Approvals` blocks gstack-approvals renders (lib/approval-record.ts renderRecord): the
+ * heading, the Date | Asked | Exact words table and its `Source: gstack-approvals record for …` footer. Those rows
+ * quote the owner's words (`one Step 11 pass`), not this PR's counters (GST-412). A heading inside a code fence is
+ * not a heading, with the fence rules of splitSections in lib/gstack-post.ts (a fence closes only on a run of its own
+ * character at least as long as the opener with nothing after it), and CRLF reads as LF. A heading not followed by
+ * exactly that table and footer, a row the renderer would not write (six cells, a date first), and any text after
+ * the footer stay prose. A marker line takes the block's place so the text on either side never joins into a claim.
+ */
+function withoutApprovalsBlocks(body: string): string {
+  const lines = body.split(/(?<=\n)/);
+  const bare = (i: number) => (lines[i] ?? '').replace(/\r?\n$/, '');
+  const skipBlank = (i: number) => { while (i < lines.length && bare(i).trim() === '') i++; return i; };
+  const blockEnd = (heading: number): number | undefined => {
+    let i = skipBlank(heading + 1);
+    if (bare(i) !== APPROVALS_TABLE_HEADER || !/^\|(?:---\|)+$/.test(bare(i + 1))) return undefined;
+    for (i += 2; bare(i).startsWith('|'); i++) if (!/^\| \d{4}-\d{2}-\d{2} \|/.test(bare(i)) || bare(i).split(/(?<!\\)\|/).length !== 8) return undefined;
+    i = skipBlank(i);
+    return bare(i).startsWith('Source: gstack-approvals record for ') && bare(i).endsWith(APPROVALS_FOOTER_END) ? i : undefined;
+  };
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = bare(i);
+    if (fence !== null) {
+      if (new RegExp(`^ {0,3}${fence[0] === '`' ? '`' : '~'}{${fence.length},}\\s*$`).test(line)) fence = null;
+    } else if (FENCE_OPEN.test(line)) fence = FENCE_OPEN.exec(line)![1]!;
+    else if (/^ {0,3}## Approvals\s*$/.test(line)) {
+      const end = blockEnd(i);
+      if (end !== undefined) { out.push('(gstack-approvals block)\n'); i = end; continue; }
+    }
+    out.push(lines[i]!);
+  }
+  return out.join('');
+}
 
 /**
  * Every `<name>=<n>`, `<name>: <n>` and `<n> <name>` in the prose (the body
- * without its receipt block), where `<name>` is a counter's leaf key with `_`
+ * without its receipt block and its rendered Approvals block), where `<name>` is a counter's leaf key with `_`
  * matched as `_`, space or `-` and not part of a longer word (`3 pass-through`
  * is not a `pass` claim), compared with the receipt. A leaf key shared by
  * several counters (`pass` under every gate lane, `passed` under gate and ci)
@@ -39,7 +77,7 @@ const ESCAPE = /[.*+?^${}()|[\]\\]/g;
  * `<n> <name>` claim about the next key (#3513).
  */
 export function checkReceiptProse(receipt: Record<string, unknown>, body: string): ProseCheck {
-  const prose = body.replace(BLOCK_RE, '');
+  const prose = withoutApprovalsBlocks(body.replace(BLOCK_RE, ''));
   const byLeaf = new Map<string, Array<{ field: string; value: number }>>();
   for (const [field, value] of receiptCounters(receipt)) {
     const leaf = field.split('.').at(-1)!;

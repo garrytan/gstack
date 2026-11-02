@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deriveReviewStatus, readJsonl } from './headless-artifacts';
+import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
@@ -248,11 +248,12 @@ const DERIVED_KEYS = ['status', 'unresolved', 'issues_found', 'critical_gaps'] a
  * severity + disposition/action). A claimed value that disagrees rejects the
  * row with REVIEW_STATUS_MISMATCH; the file is the record, never the claim.
  */
-export function deriveFromFindings(rec: Record<string, any>, findingsPath: string): Record<string, any> {
+export function deriveFromFindings(rec: Record<string, any>, findingsPath: string, sessionKind?: string): Record<string, any> {
   let read;
   try { read = readJsonl(findingsPath); }
   catch (e: any) { throw new ReviewLogError('ARTIFACT_MISSING', resultLine('review-log', 'ARTIFACT_MISSING', `${findingsPath}: ${e.message}`)); }
   if (read.errors.length) throw new ReviewLogError('ARTIFACT_MALFORMED_JSONL', resultLine('review-log', 'ARTIFACT_MALFORMED_JSONL', `${read.errors[0]!.path}: ${read.errors[0]!.message}`));
+  stampGateFindings(read.rows, sessionKind);
   const derived = deriveReviewStatus(read.rows);
   const mismatches = DERIVED_KEYS.filter(key => rec[key] !== undefined && rec[key] !== derived[key])
     .map(key => `claimed ${key} ${JSON.stringify(rec[key])}, findings file has ${JSON.stringify(derived[key])}`);
@@ -266,11 +267,20 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   for (const key of ['commit_full', 'tree', 'wtree', 'dirty', 'review_binding', 'review_freshness', 'shared_libs_coverage_version', 'status_source', 'findings_total', 'findings_open', 'findings_resolved', 'findings_file', 'scope', 'fix_base']) delete rec[key];
   // The findings file is validated BEFORE the start token is consumed below:
   // a rejected row must leave the token for the retry.
-  rec = findingsPath ? deriveFromFindings(rec, findingsPath) : { ...rec, status_source: 'claimed' };
+  rec = findingsPath ? deriveFromFindings(rec, findingsPath, env.GSTACK_STAMP_SESSION_KIND) : { ...rec, status_source: 'claimed' };
   if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
   stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
+  // A /ship pass whose findings were all fixed, or deferred or noted below the floor, left no open defect (review-army
+  // item 6), so a claimed issues_found is recorded clean with zero counts and Step 11.5 can bind it (GST-430). Only the
+  // logger-stamped action counts (never a caller's status), and the findings must account for every claimed issue.
+  if (!findingsPath && (rec.skill === 'review' || rec.skill === 'review-fix-check') && rec.status === 'issues_found' && rec.completed === true &&
+      Array.isArray(rec.findings) && rec.findings.length > 0 && rec.findings.length >= Number(rec.issues_found ?? 0) &&
+      rec.findings.filter(f => record(f) && isCriticalFinding(f)).length >= Number(rec.critical ?? 0) &&
+      rec.findings.every(f => record(f) && typeof f.action === 'string' && !isOpenByAction(f))) {
+    Object.assign(rec, { status: 'clean', issues_found: 0, critical: 0, informational: 0 });
+  }
   if (!DIFF_REVIEWS.has(rec.skill)) {
     if (env.GSTACK_STAMP_WTREE) rec.wtree = env.GSTACK_STAMP_WTREE;
     return rec;
@@ -326,7 +336,10 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   if (!DIFF_REVIEWS.has(rec.skill)) return;
   if (rec.skill === 'ship') return { status: 'UNVERIFIED', reason: 'ship telemetry is not a review pass' };
   const binding = rec.review_binding;
-  if (binding?.state === 'changed') return { status: 'STALE', reason: 'content changed during review' };
+  if (binding?.state === 'changed') {
+    const short = (w: unknown) => typeof w === 'string' ? w.slice(0, 12) : 'unknown';
+    return { status: 'STALE', reason: `content changed during review: the tree moved from ${short(binding.start_wtree)} to ${short(binding.end_wtree)} while ${rec.skill} ran (an edit, commit or merge landed before its row was logged), so the record cannot bind. Repair: freeze the checkout until every reviewer returns, then rerun the steps 11.5 names on the frozen tree; when the edit was your own fix, log it as a fix so gstack-review-plan picks the repeat depth (docs/troubleshooting.md#review-content-changed)` };
+  }
   if (rec.scope === 'fix-range') return { status: 'UNVERIFIED', reason: 'fix-range pass; only a later full pass can clear review' };
   if (binding?.state !== 'verified' || rec.completed !== true || rec.converged !== true ||
       !rec.wtree || binding.start_wtree !== rec.wtree || binding.end_wtree !== rec.wtree) {
@@ -340,7 +353,10 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   // issues_found, and the legacy `critical` and Codex counters stay as they were.
   const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
   if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
-      (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0))) {
+      (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0)) ||
+      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && (f.action === 'open' ||
+        ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
+        (!f.gate && isCriticalFinding(f) && isOpenByAction(f)))))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };

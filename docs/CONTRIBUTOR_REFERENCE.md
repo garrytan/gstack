@@ -20,7 +20,7 @@ cuts to the coverage audit, review army, or voice directive have real quality co
 
 A second, harder ceiling guards the DISCOVERY surface: `test/catalog-budget.test.ts`
 caps the aggregate frontmatter `name` + `description` across all skills at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,393 today; each new skill ratchets it)
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,423 today; each new skill ratchets it)
 token-equivalents (260-byte per-skill sub-cap), counted through the shared census
 in `test/helpers/skill-census.ts`. This one is enforced, not a warning — every
 host loads the full catalog every session, so growth here taxes every
@@ -50,7 +50,7 @@ send off the machine MUST write a hash-chained receipt to
 polarity is per-class: fail-closed for sensitive sinks (brain-sync, memory-ingest,
 gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision, and the
 Memorable bridge's per-prompt memorable-recall hand-off), fail-open
-+ stderr warning for user-facing ones (design OpenAI calls, update-check,
++ stderr warning for user-facing ones (design OpenAI and Gemini calls, update-check,
 dashboards, git-class ops). The new-sink scanner in
 `test/egress-receipt-wiring.test.ts` fails CI on an unreceipted `curl` /
 `git push` / `fetch` to a non-loopback host unless the file carries a reasoned

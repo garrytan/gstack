@@ -108,6 +108,9 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
   const id = args?.[0];
   if (!id) throw new Error('{{SECTION:id}} requires a section id');
   const entry = findSection(ctx.skillName, id);
+  if (ctx.modules?.excluded.has(`section:${ctx.skillName}/${id}`)) {
+    return `> Not loaded in the ${ctx.modules!.name} loadout: skip ${entry.trigger}. Do not offer it, and treat it as not run.`;
+  }
 
   if (usesLazySections(ctx.host, ctx.skillName)) {
     if (ctx.skillName === 'qa' || ctx.skillName === 'qa-only') {
@@ -129,6 +132,21 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
   return fs.readFileSync(tmplPath, 'utf-8').trimEnd();
 };
 
+const SECTION_GUARD_RE = /\{\{IF_SECTION:([a-z0-9-]+)\}\}([\s\S]*?)\{\{\/IF_SECTION\}\}/g;
+
+/**
+ * {{IF_SECTION:id}}…{{/IF_SECTION}}: skeleton text that belongs to one of this
+ * skill's sections (an offer, a self-check naming it). The markers vanish and
+ * the text stays when the section loads, so `full` bytes are unchanged; a
+ * loadout that excludes the section drops the text with it.
+ */
+export function applySectionGuards(content: string, ctx: TemplateContext): string {
+  return content.replace(SECTION_GUARD_RE, (_match, id: string, inner: string) => {
+    findSection(ctx.skillName, id);
+    return ctx.modules?.excluded.has(`section:${ctx.skillName}/${id}`) ? '' : inner;
+  });
+}
+
 /**
  * {{SECTION_INDEX:skill}} — situation→section table from the passive manifest.
  * Lazy skills only; an index would be noise for inlined skills.
@@ -149,7 +167,7 @@ export const SECTION_INDEX: ResolverFn = (ctx: TemplateContext, args?: string[])
     '|------|-------------------|',
   ];
   for (const s of manifest.sections) {
-    if (s.runner_only) continue;
+    if (s.runner_only || ctx.modules?.excluded.has(`section:${skill}/${s.id}`)) continue;
     const reference = skill === 'qa' || skill === 'qa-only' ? sectionPath(ctx, skill, s.id) : `\`sections/${s.file}\``;
     if (skill === 'review' && s.id === 'review-army') {
       lines.push(`| Select surfaces and read QA methods | Inline in [Step 4](#step-4-critical-pass-core-review); setup and probes run in Step 4.7 |`);

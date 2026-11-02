@@ -194,6 +194,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # Optional pins: model_frontier_claude, model_frontier_openai,
 # model_smart_claude and model_smart_openai. Leave pins absent for catalog defaults;
 # empty pins are invalid. gstack-models list prints copyable set/unset commands.
+# agent_model: the model for gstack agents (lanes, subagents, reviewers): host,
+# a family (opus, fable, sonnet, haiku, astra, sol, luna, terra) or <provider>/<model>.
+# Absent = host. A preference, not a policy: gstack-models resolve --role agent.
 # Invalid writes are rejected and preserve the stored value.
 # codex_effort:             # Codex reasoning effort for outside reviews and /codex:
 #                           #   minimal | low | medium | high | xhigh | max | ultra.
@@ -204,6 +207,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   (nothing that can block a ship) run at light effort on
 #                           #   the same model; every reviewer keeps full.
 # Docs: docs/model-policy.md
+#
+# harness_start_hook:       # on | off. on: ./setup and gstack-harness add the
+#                           #   gstack-start plugin to OpenClaw and Hermes registrations
+#                           #   (a one-line note on every turn to run the start
+#                           #   command of a skill; edits openclaw.json or config.yaml via the
+#                           #   harness CLI). off: takes it out. Absent = each
+#                           #   registration keeps its saved choice (default off).
+#                           #   GSTACK_HARNESS_START_HOOK=1|0 overrides it. Docs: docs/hosts.md
 #
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Outside review (Codex or Claude Code by harness): sends
@@ -362,8 +373,10 @@ lookup_default() {
     plan_review_tier) echo "frontier" ;; # frontier | smart | host — lib/model-policy.ts reads it strictly
     implementation_tier) echo "smart" ;; # frontier | smart
     model_frontier_claude|model_frontier_openai|model_smart_claude|model_smart_openai) echo "" ;; # empty = shipped catalog ID (gstack-models list)
+    agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
+    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice (docs/hosts.md#start-hook)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
@@ -829,11 +842,25 @@ $_gstack_legacy_root"
       echo "Error: review_effort_tiers '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
+    if [ "$KEY" = "harness_start_hook" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: harness_start_hook '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged. fix: gstack-config unset harness_start_hook keeps each registration's saved choice (docs/hosts.md#start-hook)" >&2
+      exit 1
+    fi
     if [ "$KEY" = "codex_effort" ]; then
       case "$VALUE" in
         minimal|low|medium|high|xhigh|max|ultra) ;;
         *) echo "Error: codex_effort '$VALUE' not recognized. Valid values: minimal, low, medium, high, xhigh, max, ultra. Existing value left unchanged. fix: gstack-config unset codex_effort restores each gate's own effort (https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#reasoning-effort)" >&2
            exit 1 ;;
+      esac
+    fi
+    if [ "$KEY" = "agent_model" ]; then
+      VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+      VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+      case "$(printf '%s' "$VALUE" | LC_ALL=C tr 'A-Z' 'a-z')" in
+        host|opus|fable|sonnet|haiku|astra|sol|luna|terra) ;;
+        *) printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[a-z][a-z0-9-]{0,31}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$' || {
+             echo "Error: agent_model '$VALUE' not recognized. Use host, a family (opus, fable, sonnet, haiku, astra, sol, luna, terra) or <provider>/<model> such as anthropic/claude-opus-5-5. Existing value left unchanged. fix: gstack-config unset agent_model returns to host (https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference)" >&2
+             exit 1; } ;;
       esac
     fi
     case "$KEY" in
@@ -1086,7 +1113,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1111,7 +1138,7 @@ $_gstack_legacy_root"
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

@@ -21,7 +21,9 @@
 # is not a gstack checkout, HEAD is detached or not on the remote default
 # branch (a pin), any tracked byte is dirty, a local commit diverged, the
 # incoming release's Bun floor holds, or another updater holds the setup
-# lock; never stashes, never resets. An unreachable remote is
+# lock; never stashes, never resets. Before any fetch it also refuses when
+# bin/gstack-ff-update --preflight does: an enclosing project tracks the
+# install's files, or VERSION was put back behind HEAD (#1022). An unreachable remote is
 # UPGRADE_FETCH_FAILED (exit 3). While another live session holds a workflow
 # lease on this installation (bin/gstack-lease live) it refuses with
 # UPGRADE_BUSY (exit 3); GSTACK_UPGRADE_FORCE=1 overrides. Prints
@@ -50,7 +52,7 @@ case "${1:-}" in
   --check) CHECK=1 ;;
   --ff-only-no-reinstall) REINSTALL=0 ;;
   '') ;;
-  -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-upgrade: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
@@ -64,11 +66,15 @@ bounded() { if command -v timeout >/dev/null 2>&1; then timeout "${GSTACK_UPGRAD
 
 # Git for Windows answers --show-toplevel as C:/x while pwd -P in Git Bash is
 # /c/x; compare the paths, not their spellings.
+# shellcheck source=bin/gstack-harness-pid.sh
+. "$ROOT/bin/gstack-harness-pid.sh" 2>/dev/null || GSTACK_SHARED_HARNESSES="capy-server"
 # shellcheck source=bin/gstack-path-spelling.sh
 . "$ROOT/bin/gstack-path-spelling.sh" 2>/dev/null || gstack_path_same() { [ "$1" = "$2" ]; }
 TOPLEVEL=$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)
 [ -f "$ROOT/VERSION" ] && [ -f "$ROOT/setup" ] && [ -n "$TOPLEVEL" ] && gstack_path_same "$TOPLEVEL" "$ROOT" \
   || refuse "$ROOT is not a gstack checkout" "run gstack-upgrade from a git checkout of https://github.com/garrytan/gstack"
+PF=$(bash "$ROOT/bin/gstack-ff-update" --preflight "$ROOT" 2>/dev/null)
+[ $? -eq 6 ] && { echo "gstack-upgrade: $PF (UPGRADE_REFUSED)" >&2; exit 3; }
 export GIT_TERMINAL_PROMPT=0
 HOST=$(git -C "$ROOT" remote get-url origin 2>/dev/null); HOST="${HOST#*://}"; HOST="${HOST#*@}"; HOST="${HOST%%[/:]*}"
 R="user ran gstack-upgrade"
@@ -208,14 +214,24 @@ if ! git -C "$ROOT" merge-base --is-ancestor HEAD FETCH_HEAD 2>/dev/null; then
 fi
 # Workflow leases (bin/gstack-lease): sessions sharing this installation that
 # are alive and not this process's own chain. Moving the checkout under them
-# is what the lease exists to prevent; the caller's own session never counts.
+# is what the lease exists to prevent; the caller's own session never counts,
+# except under a shared harness (capy-server), where every session on the
+# machine is in the caller's chain: its lease counts until it is 120 minutes
+# old (GST-396).
 if [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && [ -x "$ROOT/bin/gstack-lease" ] \
-  && BUSY=$("$ROOT/bin/gstack-lease" live --root "$ROOT" --exclude-ancestry-of $$ 2>/dev/null); then
-  HOLDERS=""
-  while read -r _pid _age; do HOLDERS="$HOLDERS${HOLDERS:+, }pid $_pid ($_age)"; done <<EOF_BUSY
+  && BUSY=$("$ROOT/bin/gstack-lease" live --root "$ROOT" --exclude-ancestry-of $$ --count-shared-harness 2>/dev/null); then
+  HOLDERS="" SHARED_HOLDER=""
+  while read -r _pid _age _comm; do
+    HOLDERS="$HOLDERS${HOLDERS:+, }pid $_pid ($_age${_comm:+ $_comm})"
+    case " $GSTACK_SHARED_HARNESSES " in *" ${_comm:-none} "*) SHARED_HOLDER="$_comm, pid $_pid) holds a lease $_age old" ;; esac
+  done <<EOF_BUSY
 $BUSY
 EOF_BUSY
-  echo "gstack-upgrade: live gstack sessions hold this installation: $HOLDERS; nothing was changed; fix: wait for those sessions to finish, or re-run with GSTACK_UPGRADE_FORCE=1 when you know they are idle (UPGRADE_BUSY)" >&2
+  if [ -n "$SHARED_HOLDER" ]; then
+    echo "gstack-upgrade: a shared harness ($SHARED_HOLDER; every session on this machine runs under it, so the upgrade waits until the lease is 120 minutes old (counted from the last renewal by any session); nothing was changed; fix: re-run then, or with GSTACK_UPGRADE_FORCE=1 when no other session uses this checkout (UPGRADE_BUSY)" >&2
+  else
+    echo "gstack-upgrade: live gstack sessions hold this installation: $HOLDERS; nothing was changed; fix: wait for those sessions to finish, or re-run with GSTACK_UPGRADE_FORCE=1 when you know they are idle (UPGRADE_BUSY)" >&2
+  fi
   exit 3
 fi
 # shellcheck source=bin/gstack-bun-version.sh

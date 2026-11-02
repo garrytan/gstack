@@ -25,7 +25,21 @@ passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
 changes a pin file) is accepted only with `--allow-repo-commands` and the record
-says `policy head (unreviewed)`. An unresolvable base exits 3 with
+says `policy head (unreviewed)`. Under it the branch's `pregate.json` may only
+add test lanes over the trusted policy (the base copy, or the user-owned file
+when the base has none): a new `dependencies` glob with at least one test, or
+more tests on a glob the trusted policy already maps. A removed or shrunk glob,
+a new `[]` declaration, or any other key that differs (runner, guards, warn,
+allowlist, timeouts, the remote gate, ...) refuses the run with
+[`PREGATE_HEAD_POLICY_LOOSENS`](troubleshooting.md#pregate-head-policy-loosens).
+A branch behind its base is measured from the copy at its merge base and runs
+the base tip's policy plus its additions. With no trusted policy at all, the
+head file is a bootstrap and runs as written. `.gstack/generated.json` is still
+read from the branch under `--policy-from head`. So an allowlist entry or a
+`[]` declaration a branch adds counts only once it is on the base, and a lane it
+adds counts on the base policy only once it lands; `PREGATE_NO_LANE`'s fix line
+says so when the branch edits the file
+([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
 
@@ -61,18 +75,21 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | Key | Meaning |
 |---|---|
 | `runner` | the local test command with `{files}` (gstack: `bun test {files}`); unset, it is detected (bun, vitest, jest, pytest, `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; every other JS/TS test keeps the root detection); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
-| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences) |
+| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
-| `warn` | check ids downgraded to warn; `secrets` and required lanes never |
+| `warn` | check ids downgraded to warn; `secrets` and required lanes never. `"lanes"` downgrades only a touched file with no lane: the selected tests still run, a red lane stays `fail` (`PREGATE_LANE_FAILED`) and an unfinished one `incomplete`; a green run is `warn` `PREGATE_NO_LANE` naming the unmapped files |
 | `strays.allow` | intentional root files or new top-level directories |
 | `local` | `workflow.yml/job` lanes a local run satisfies: a platform-agnostic toolchain (an `ubuntu-latest` suite that runs the same on a Mac), or a repo whose CI is off. Their tests run here instead of becoming `requires-remote`, except that on a machine under 8 cores with a `remote_gate` or a remote `test_backend` the small-machine rule still records the test tier as a `requires-remote` obligation. `--explain` notes an id that matches no workflow lane |
 | `guards` | `[{ id, when: [globs], command, fix?, timeout_s? }]`: repo commands a lane must pass when a touched file matches `when` (manifest checks, subprocess goldens the import graph cannot see); see [guards](#guards) |
 | `serial_patterns` | test-file globs the `lanes` check runs one process per file, apart from the unit files (default `**/*.serial.test.*`) |
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
-| `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides (see [supervision](#supervision)) |
+| `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
+| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
+| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `remote_gate_runs` | `{ profiles, inventory }`: the run profiles that together clear `pregate.json/remote_gate`, and the command that prints the remote gate's test files, one per line, which their runs must cover (see [run evidence](#run-evidence)) |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -81,9 +98,9 @@ keeps `.gstack/` out of git (a shared repo where gstack is one contributor's
 tool) can hold the same file at `<state root>/projects/<slug>/pregate.json`. The
 state root is `GSTACK_STATE_ROOT`, else `GSTACK_HOME`, else `GSTACK_STATE_DIR`,
 else a gstack plugin's data directory, else `~/.gstack` ([docs/state-root.md](state-root.md)); `<slug>` is what
-`~/.claude/skills/gstack/bin/gstack-slug` prints as `SLUG=` in the repository
-(`GSTACK_PROJECT_SLUG` overrides it). It is read only when the base carries none
-(never under `--policy-from head`), it lives outside the repository so a PR still
+`~/.claude/skills/gstack/bin/gstack-slug --get REPO_SLUG` prints in the repository
+(`GSTACK_PROJECT_SLUG` overrides it; a `.gstack-project` marker does not). It is read only when the base carries none
+(under `--policy-from head` it is the trusted policy the head file is compared with), it lives outside the repository so a PR still
 cannot reach it, and the record names it (`policy user <path>`) and fingerprints
 its bytes (`policy_digest`, and each check's `inputs.policy`); `verify` and the
 ship receipt treat an edited or deleted user file, or one that appears (or a
@@ -97,9 +114,10 @@ the caller's environment, never the checkout's `.env`: the bin's shebang passes
 `--no-env-file`, and a bare `bun gstack-pregate` launched beside any `.env` file
 refuses (`POLICY_SOURCE_UNAVAILABLE`). `verify` reads both paths from the
 record, not from its own environment.
-It covers `gstack-pregate run` only: `sealed` and `price_file` are read from the
-base branch's copy, so the user file refuses them (`PREGATE_CONFIG_INVALID`)
-rather than holding a policy nothing reads. A user file that exists but cannot
+It covers `gstack-pregate run` only: `sealed`, `price_file`, `run_profiles` and
+`remote_gate_runs` are read from the base branch's copy, so the user file refuses
+them (`PREGATE_CONFIG_INVALID`; an empty `run_profiles` is accepted) rather than
+holding a policy nothing reads. A user file that exists but cannot
 be read, or a symlink on its path that points nowhere, refuses the same way
 instead of falling back to defaults. A base copy git cannot read (and
 `git ls-tree` cannot confirm is absent) refuses with `POLICY_SOURCE_UNAVAILABLE`
@@ -123,6 +141,19 @@ unmapped file is `PREGATE_NO_LANE` again: the warning is for the first /ship
 in a new repository (three Captains lost their first pass to it), never a way
 to hide missing coverage. `--policy-from head` with a head policy is strict too.
 
+<a id="lane-requirements"></a>
+**Lane requirements.** "Any policy" above means a policy that declares lanes:
+one with a `dependencies`, `empty_lanes`, `selection` or `local` key, even an
+empty one (`gstack-pregate init` writes the first three). A policy with none of
+them, such as
+`{"timeout_s": 1800}` to give long tests more time, keeps the no-policy lane
+verdicts: an unmapped file is the `warn` `PREGATE_NO_POLICY`, the selected
+tests run, a red lane is `fail`, and the starter says the active policy
+declares no lanes instead of claiming there is none. So raising
+`timeout_s` never needs a `"**": []` catch-all. Add `dependencies` when you
+want unmapped files to fail. The same rule applies to the user-owned file and to
+a `--policy-from head` bootstrap (gbrain-evals #272, GST-775).
+
 `gstack-pregate init` writes a draft built from the repo, not a fixed example.
 It prints the languages it found and the runner each language's tests would
 get, then maps every file the import graph cannot place to the tests of the
@@ -132,11 +163,17 @@ writes `[]`, which would clear a file without a test. A file with no nearby
 test, and a lane whose matrix a planner computes, is printed as a `TODO`.
 Review each entry before committing the file on the base branch.
 
+## `.gstack/always-run.json`
+
+`{ "tests": [globs] }` names whole-tree tests that scan every file of a kind (tripwires, ratchets, conformance and fixture inventories). A diff-selected run never maps a touched file to them, so they used to pass the selected gate and then fail CI (GST-98). When a branch selects any test, owes a lane, or edits this file, the `lanes` selection adds every tracked test file a glob matches. `--explain` prints each one as `<test> (always_run, .gstack/always-run.json)`, and a glob that matches no test as `<glob> matches no test file`. A docs-only branch adds nothing.
+
+The list lives in its own file, not in `pregate.json`, because older pregate readers reject unknown keys there. A repository that ignores `.gstack/` (gstack does) tracks the file with `git add -f`, as it does `pregate.json`. A missing file means an empty list. A file that is not JSON, or whose `tests` is not a list of non-empty strings, stops the check with that message. gstack's own list matches 16 test files; the 13 with a seed in `scripts/free-test-durations.json` (recorded 2026-10-19) total about 13 s there, and `bun-entry-isolation`, `launch-env-echo-ratchet` and `review-packets-removed` have no seed yet.
+
 ## `gstack-pregate`
 
 ```
 gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
-               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--explain] [--json]
+               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
 
@@ -146,16 +183,40 @@ Two stages with separate clocks, both printed:
 ~2.5 s for `regen` and under 200 ms for each of the others):
 
 - `regen`: every registry entry whose inputs or outputs are touched is fresh
-  (`gstack-regen check` in a scratch worktree).
+  (`gstack-regen check` in a scratch worktree). A fresh entry with touched
+  outputs then runs once more with those outputs deleted; the ones the command
+  recreates byte-identically are the check's `proven` paths, which
+  `gstack-ship-receipt carry` reads. The verdict comes from the first run: an
+  output the second run does not recreate, or a second run that fails, is
+  simply not proven.
 - `secrets`: `gstack-redact` over the branch's added lines (merge-base to the
   working tree, untracked files included). HIGH, or MEDIUM in the `secret`
-  category, fails; other MEDIUM findings warn. Cannot be downgraded.
+  category, fails; other MEDIUM findings warn. Cannot be downgraded. A
+  changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
+  findings on its added lines count, so a line added inside an existing
+  `"""` or `'''` string is still read as a literal; its rows give the file's
+  line number (`app.py, line 10`).
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
   literal, the whole test tree (nightly- and Heavy-only files included) is
-  searched for the old value; a consumer the branch did not update fails with
-  `file:line`.
+  searched for the old value in files that name the constant or, when the old
+  value is longer than one character, its module (the module's file name not
+  followed by another extension, or a path ending
+  in its stem followed by its own extension, for a JS/TS module also any JS/TS
+  extension or `.d.ts`, a sentence-ending `.`, or anything but a word
+  character, `.` or `-`; so a sibling `<stem>.txt`, `<stem>-v2.ts` or
+  `<file>.snap`, or `<stem>.ts` beside a shell module, is not the module); a
+  consumer the branch did not update fails with
+  `file:line`. A version-history row, a line that starts a bracketed row with
+  the old value (`[45, "<digest>"]`), is skipped when the same table (a run of
+  consecutive lines starting with `[`) also holds a row for the new value that
+  the branch added (the file at the merge base, read through a rename git
+  detects, has no new-value row). A table the branch did not extend, a file that already held a
+  new-value row at the merge base, a merge base that cannot be read, and every
+  other line holding the old value still fail. Only the row itself is exempt:
+  the old value after its closing bracket on the same line still fails. Rows in object form (`{ v: 45 }`) or spread over several
+  lines are not recognized as history rows.
 
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
@@ -185,7 +246,8 @@ Two stages with separate clocks, both printed:
   `*_test.dart` files under a `test/` directory are tests, except under `integration_test/` and
   `test_driver/`: they need a device, so pregate never runs them, and a touched
   one has no lane until you declare `"**/integration_test/**": []` (and
-  `"**/test_driver/**": []`) under `dependencies` and let CI run them; Dart files, device tests
+  `"**/test_driver/**": []`) under `dependencies` on the base branch and let CI run them
+  (a `[]` only on the branch is refused under `--policy-from head`); Dart files, device tests
   included, are source code, so a `dependencies` `[]` declaration clears them and `empty_lanes`
   does not); in a Rust crate (the nearest Cargo.toml with a `[package]` name) a `.rs` file is a
   test when it sits under `<crate>/tests/`, holds a `#[cfg(test)]` (any cfg predicate naming
@@ -224,9 +286,10 @@ Two stages with separate clocks, both printed:
   `.cjs`, `.mts`, `.cts`, then `index.ts`, `index.tsx`, `index.js`, `index.jsx`
   and `index.mjs` inside the directory; the first file that exists wins.
   A touched source file with no lane is `FAIL lanes — <file> has no test lane`
-  once any policy exists (the base copy, the user-owned file or `--policy-from
-  head`); with no policy anywhere it is the `warn` `PREGATE_NO_POLICY` with a
-  starter printed ([no policy](#no-policy)); never a pass. Markdown that no
+  once a policy that [declares lanes](#lane-requirements) exists (the base copy,
+  the user-owned file or `--policy-from head`); with no policy anywhere, or one
+  that declares no lanes, it is the `warn` `PREGATE_NO_POLICY` with a starter
+  printed ([no policy](#no-policy)); never a pass. Markdown that no
   test depends on is a docs/no-tests empty lane
   instead (`docs/no-tests: N documentation file(s)`), including when the base
   branch has no `.gstack/pregate.json`. The dependency is the same import graph
@@ -299,9 +362,9 @@ Two stages with separate clocks, both printed:
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
   so a Capy host's older image Bun cannot flip the verdict.
 - Every test-tier command (the lanes runner, each guard, the `--remote` gate)
-  runs supervised: see [supervision](#supervision). `--timeout` bounds each
-  runner process (the unit-file group, each serial file, each guard without
-  its own `timeout_s`), not their total; the stall timeout catches a hung or
+  runs supervised: see [supervision](#supervision). `--timeout` (else the
+  policy's `timeout_s`, else 600 s) bounds each runner process (the unit-file
+  group, each serial file, each guard without its own `timeout_s`), not their total; the stall timeout catches a hung or
   silent one sooner.
 - Under 8 cores, a `remote_gate` in the active policy or a remote `test_backend`
   (`gstack-config set test_backend ubicloud`) records the local test tier as a
@@ -376,10 +439,13 @@ test-tier command:
 - is killed as **stalled** when its log does not grow for the stall timeout
   (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the
   check is `incomplete` with `PREGATE_STALLED` and names the last file
-  started; the next serial file still runs;
-- is killed as **timed out** when that runner process reaches `--timeout`
-  (per runner process, so many serial files that each fit still pass); the
-  check is `incomplete` and the next serial file still runs.
+  started; the next serial file still runs. The `--remote` gate is exempt: a
+  gate that waits on CI is quiet by design, so only its timeout bounds it, and
+  its heartbeats add `; last output: <the gate's last line>`;
+- is killed as **timed out** when that runner process reaches its timeout
+  (`--timeout <s>`, else `timeout_s`, else 600; per runner process, so many
+  serial files that each fit still pass): the check is `incomplete`, its detail
+  names which of the three set the timeout, and the next serial file still runs.
 
 A kill is SIGTERM to the group, then SIGKILL after 5 s (a group that ignores
 SIGTERM still dies). SIGINT or SIGTERM to `gstack-pregate` itself SIGKILLs every
@@ -397,7 +463,7 @@ the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or
 `test_backend/<backend>` (gstack's `scripts/ubicloud/ubi-runner.sh run --src
 <repo> -- '<runner> <files>'`). Without either, the tier runs locally under
-the supervision above. Close the obligation one of two ways:
+the supervision above. Close the obligation one of three ways:
 
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output, validated as `--remote` validates it
@@ -406,16 +472,25 @@ the supervision above. Close the obligation one of two ways:
   accepted and recorded, see [below](#remote-gate-stamp-only)), or
   `gstack-pregate clear --remote test_backend/<backend> --run-url <url>`, which
   has no machine-checkable receipt and is recorded as `attested:<url>`; or
+- when CI already ran the full suite on this tree, `gstack-pregate clear --remote
+  pregate.json/remote_gate --run <id|url> [--run …] --allow-repo-commands`, one
+  verified GitHub Actions run per `remote_gate_runs` profile (see
+  [run evidence](#run-evidence)); or
 - `gstack-pregate --stage tests --remote --spend-cap <usd> --allow-repo-commands`,
-  which runs the declared `remote_gate` now (never under `--policy-from head`;
+  which runs the declared `remote_gate` now (under `--policy-from head`, still the trusted copy's gate;
   a `test_backend` without `remote_gate` cannot be run this way). The gate runs
   in the repository root with `PREGATE_TREE` (the working-tree fingerprint
-  being tested), `PREGATE_FILES_FILE` (the selected files, one per line) and
-  `PREGATE_SPEND_CAP_USD`, and must print
+  being tested), `PREGATE_FILES_FILE` (the selected files, one per line),
+  `PREGATE_SPEND_CAP_USD` and `PREGATE_TIMEOUT_S` (this run's per-process
+  timeout in whole seconds), and must print
   `PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n> [spent=<usd>]`, reporting the
   tree it actually tested. The obligation clears only when that tree is
   `PREGATE_TREE`, `tests` > 0, `failed` = 0 and the gate exits 0; anything else
-  leaves it uncleared and the check `incomplete`. The cap defaults to
+  leaves it uncleared and the check `incomplete`. The gate runs until it exits
+  or reaches the timeout (`--timeout`, else `timeout_s`, else 600 s); the stall
+  timer does not apply, and each 60 s heartbeat names the gate's last output
+  line, so a gate that prints what it is waiting on (a CI run id and its
+  status) shows it. The cap defaults to
   `$GSTACK_SPEND_CAP_USD`; there is no default spend. Spend prints as
   `spent, reserved, unknown`: a gate that prints no `spent=` is `unknown`,
   counted at the cap.
@@ -442,7 +517,8 @@ receipt for H when the two trees differ only as a stamp does:
   stamps, each hunk in them must be the exact old → new rewrite under
   `stamp_patterns` (literal `{version}` templates) or the built-in forms
   (`(was X)`, `since: X`, `vX`), and the version file, `package.json`'s
-  `version`, a lockfile's root version keys and a CHANGELOG re-heading have
+  `version`, a lockfile's root version keys and a CHANGELOG re-heading (under
+  `changelog_fragments`, also the fold of the fragments the head deletes) have
   their own built-in rules. There is no second list and no looser rule here:
   the file verdicts `clear` reaches on a pair are the verdicts
   `gstack-tree-receipt --gated G --current H` reaches, and its gate rule holds
@@ -461,7 +537,9 @@ receipt for H when the two trees differ only as a stamp does:
   the policy label (`origin/<base>@<sha>:.gstack/ship-policy.json`) and every
   differing path with the rule that classed it (`version-file`,
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
-  `changelog-heading`, `stamp_files`, `stamp_paths`, `release_outputs`). `clear` prints the same
+  `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
+  `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
+  `stamp_paths`, `release_outputs`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when
@@ -510,7 +588,7 @@ gstack-pregate verify                             # PREGATE_VERIFY: ok …; preg
 
 gstack's own example: `.gstack/pregate.json` declares
 `"remote_gate": "bash scripts/ubicloud/pregate-remote.sh"`. With
-`UBICLOUD_API_KEY` set the script runs the selected files on one Ubicloud VM
+`UBICLOUD_API_KEY` and `UBI_OWNER` set the script runs the selected files on one Ubicloud VM
 with `bun run test:ubicloud`'s environment, refuses before creating the VM when
 the cap cannot buy a 20-minute run at the size's list price (`UBI_SIZE`,
 default `standard-16`), checks the tree and the planned file set on the VM
@@ -523,10 +601,10 @@ are named and left to the paid PR gate; a selection of only paid files reports
 `tests=0`, which never clears the obligation. The command is the same either way
 (`--remote` always needs a cap; the keyless path spends nothing).
 
-pregate kills the gate at its `--timeout` (default 600 s) with a 5 s grace, so
-the script finishes before that deadline: it reads the deadline from
-`PREGATE_TIMEOUT_S`, else from the `gstack-pregate` command it runs under (its
-`--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
+pregate kills the gate at its `--timeout` (default the policy's `timeout_s`, else
+600 s) with a 5 s grace, so the script finishes before that deadline: it reads the
+deadline from `PREGATE_TIMEOUT_S`, which pregate sets to that same timeout, else from
+the `gstack-pregate` command it runs under (its `--timeout`, else 600), reserves 120 s for teardown plus 15 s margin, and tells
 the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
@@ -561,8 +639,218 @@ Every refusal line starts with a reason code:
 | `PREGATE_REMOTE_CAP_TOO_LOW` | 5 | the cap cannot buy a 20-minute run at the size's price; nothing created |
 | `PREGATE_REMOTE_NO_PRICE` | 5 | `UBI_SIZE` has no list price in the script |
 | `PREGATE_REMOTE_TIMEOUT_TOO_SHORT` | 5 | pregate's deadline leaves the VM under 300 s after the 135 s teardown reserve; nothing created |
-| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed; the VM, its teardown line and `spent=` follow |
+| `PREGATE_REMOTE_OWNER_REQUIRED` | 2 | `UBI_OWNER` is unset; nothing created (every VM must name its owner) |
+| `PREGATE_REMOTE_INFRA` | 4 | create, setup, SSH or the stop deadline failed, or the runner's `UBICLOUD: left=` line is not `0`; the VM, its teardown line and `spent=` follow |
 | `PREGATE_REMOTE_INTERRUPTED` | 130 | TERM or INT; ubi-runner tears the VM down on its own |
+
+<a id="run-evidence"></a>
+## Run evidence: one full suite per tree (`clear --run`)
+
+A repository that runs its full suite in CI and again as its remote gate on the
+same tree paid twice for one result (gbrain: a 30–45 min Ubicloud gate, then an
+18–20 min full-ci dispatch, every serial slot). `clear --run` lets a passed
+GitHub Actions run stand in for the gate, on the runner's own record and never
+on prose: a pasted URL is only a pointer the verifier resolves.
+
+**Declare it on the base branch.** In `.gstack/pregate.json`:
+
+```json
+{
+  "run_profiles": {
+    "test": { "workflow": "test.yml", "events": ["workflow_dispatch", "push"], "jobs": ["full-suite"], "artifact": "full-suite-tree" },
+    "e2e":  { "workflow": "e2e.yml",  "events": ["workflow_dispatch", "push"], "jobs": ["e2e-full-suite"], "artifact": "e2e-full-suite-tree" }
+  },
+  "remote_gate_runs": { "profiles": ["test", "e2e"], "inventory": "bash scripts/pregate-remote-gate.sh --list" }
+}
+```
+
+Profiles are read only from `origin/<base>`, so a pull request can tighten
+them but never relax them. That covers the profile, not the suite it names: the
+workflow file a run executed and the inventory command are the branch's own, as
+the remote gate's script already is, so a diff to either is reviewed like any
+other gate change. Each profile names the workflow file, the events it
+accepts, every job that must have passed (each exactly once), and the artifact
+holding the run's `tree.json`. `max_age_hours` (1–168, default 24) bounds how
+old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
+`tree.json` to record that runner OS. Each workflow uploads `tree.json` from
+its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
+`tree` (`git rev-parse HEAD^{tree}` as tested), `files` (every test file the
+run executed), `tests` (the count) and, with `os`, the runner OS or a list of
+every OS the run's test jobs ran on (the profile's `os` must be one of them).
+
+**What `clear --run` checks** (`lib/run-evidence.ts`), for every run, online,
+once:
+
+- The run belongs to this repository and ran for a same-repository head. Its
+  workflow file is the profile's, its event is one the profile lists (`push`,
+  `workflow_dispatch` or `pull_request`), and it completed with success. A
+  `pull_request` run tested GitHub's merge commit, not its head, so its
+  `tree.json` must name the head (`head_sha`) and the merge commit (`sha`), and
+  the tree git computes for that merge commit must equal the head's tree: the
+  head already contained its base, so the merge tested exactly the head tree
+  (`tree_mismatch` otherwise). The API answers with
+  the newest attempt, so an earlier green attempt under a newer red one is
+  refused, and the run is read again after the evidence is collected: a new
+  attempt meanwhile is `run_changed`.
+- Every job the profile names appears exactly once in that attempt and
+  succeeded. Jobs and runs are read across every page.
+- `tree.json` (an artifact of at most 8 MiB) names this run, attempt, event and
+  head (`sha` and `head_sha`, each checked when present). It is not a reuse
+  record (a reuse is never evidence). Its tree equals the tree git computes for
+  the run's head commit. `files` is a list of paths and `tests` a
+  non-negative integer when present; without `tests` the file count stands in.
+- No run of the same workflow on that head, or on pregate.json's own head,
+  whose newest attempt started at or after the second this run was created
+  failed, was cancelled or is still running (`run_started_at`, so a red re-run
+  of an older run counts, a run started in the same second counts, and
+  re-running this run does not hide a failure in between).
+- The run finished within `max_age_hours` (its jobs' latest `completed_at`,
+  else the run's `updated_at`), and on the profile's OS when it names one.
+  Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
+  that uploads `tree.json` re-runs too, because that file must name the
+  newest attempt. The 8 MiB cap is read from the artifact's zipped size before
+  download, so a workflow on the branch itself can still unpack a larger file
+  into the temporary directory.
+
+Then, for the lane:
+
+- pregate.json was recorded against this repository's base, whose profiles
+  apply (`base_mismatch` otherwise).
+- Each profile gets its own run (a run id given twice is a usage error), and
+  every run verifies under its profile. The assignment is searched, so a run
+  valid for two profiles cannot starve the other. A lane with a profile needs
+  one run; `pregate.json/remote_gate` needs one per `remote_gate_runs`
+  profile.
+- All runs tested one tree: pregate.json's tree, or a stamp-only predecessor of
+  it under exactly the rule [above](#remote-gate-stamp-only) (a policy whose
+  `stamp_sensitive_gates` names `tests` refuses that substitution).
+- Every run executed something (`no_tests` names one that did not), and the
+  runs' `files` together cover the obligation's selected test files, plus, for
+  the remote gate, every file the `inventory` command prints. The inventory is
+  a pin-file command, so it runs only with `--allow-repo-commands`, and only
+  while the working tree is pregate.json's tree (checked before and after it
+  runs); an empty or failing inventory refuses, and it runs under `pipefail`,
+  so a pipeline whose first command fails refuses too.
+- Every run is read once more after the inventory: a run that moved to a new
+  attempt or stopped being a success meanwhile refuses (`run_changed`).
+
+Any API or git error refuses. Each refusal prints `REUSE: refused
+reason=<code> — …` as `PREGATE_RECEIPT_INVALID`, and a run that fails
+verification is named with its own reason (`fork_run`, `event_mismatch`,
+`run_not_success`, `job_missing`, `artifact_mismatch`, `artifact_reused`,
+`tree_mismatch`, `newer_run_vetoes`, `run_changed`, `run_stale`,
+`os_mismatch`, `api_error`, …); the clear-level codes are `base_mismatch`,
+`no_verified_run`, `tree_mismatch` (runs on different trees),
+`tree_not_stamp_only`, `no_tests`, `inventory_failed`, `inventory_empty`,
+`inventory_uncovered` (the remote gate) and `tests_uncovered` (a lane's own
+selected tests). A wrong run count, a repeated run or a lane with no
+profile is a usage error (exit 2), not a REUSE refusal.
+
+Accepted, `clear` prints `REUSE: accepted <lane> <receipt>`, and the receipt
+reads `remote-gate tree=<t12> tests=<n> runs=<id>/<attempt>,… profiles=<p>,…
+heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
+stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
+the same way; for such a lane `--run-url` is verified as `--run` is, and
+`--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
+recording. When the base config or the GitHub origin cannot be read, `--run`
+fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
+shows the lane has no profile; then the lane is recorded as before, with a
+warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
+records its dispatched runs by URL; routing it through the verifier is a
+follow-up (GST-555), so a repository that declares lane profiles clears those
+lanes with `gstack-pregate clear --run`.
+
+**gstack's own profiles.** gstack's `.gstack/pregate.json` declares two, and
+names neither after a lane: `ci-reuse/free-tests` (the complete Free Tests run:
+every non-matrix job and the `free-tests` aggregate, `os` Linux) and
+`ci-reuse/windows-free-tests` (`windows-plan` and the `windows-free-tests`
+aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
+runs and reads the `tested-tree` artifact, which both aggregates upload only
+after their strict verification passes. The main-push reuse job and
+`--from-run` read them. No lane has a profile, so every macOS and Windows lane
+still clears by `--run-url` as before. A pull request cut before these
+workflows uploaded `tested-tree` has no record a lane profile could verify, so
+lane profiles wait until open pull requests carry the producer (GST-555).
+
+**`verify` stays offline.** The check ran at `clear`. `gstack-pregate verify`,
+and `gstack-ship-queue ready` through it, refuse a run receipt whose `tree=`
+is not pregate.json's tree unless a substitution for it is recorded. They make
+no network call, so GitHub's availability and the run's age never sit on the
+merge path.
+
+**What is never reusable.** Security and advisory scans (osv, audit,
+gitleaks) depend on the day, not on the tree, so they are not run profiles:
+they run on every head as before, and `--from-run` never skips them.
+Pull-request required checks and dispatched runs always run fresh; only a
+push to main reuses ([below](#ci-reuse)).
+
+<a id="from-run"></a>
+### The tests stage from a Free Tests run (`--from-run`)
+
+`gstack-pregate --stage tests --from-run <run id|url>` takes a Free Tests run
+that already passed on this exact tree, for example the one CI ran on the
+pushed head, instead of running its files again here. The run is verified
+online, once, against the base branch's run profiles for this machine's OS
+whose workflow holds a lane this machine runs (gstack's `ci-reuse/free-tests`
+on Linux), with pregate.json's own head as a further veto head. Its tree must be this tree exactly (no
+stamp-only substitution). Then:
+
+- The selected local test files the run's `tree.json` lists count as passed.
+  The lanes check records them under `from_run` with the run receipt
+  (`run tree=… tests=… runs=<id>/<attempt> profiles=… heads=… verified=…`) and
+  prints `REUSE: accepted <n> of <m> selected local test file(s) from <receipt>;
+  <k> still run`.
+- The rest run as they would have: locally, or recorded as the remote gate
+  obligation on a small machine, or through `--remote`.
+- A run that does not verify prints `REUSE: refused reason=<code> — …; every
+  selected test runs here` and changes nothing else. The codes are
+  verifyRun's, plus `tree_mismatch` (another tree), `no_tests`, `no_profile`
+  (no profile for this OS covers a local lane's workflow), `no_verified_run`
+  (more than one profile applied and each refused; the detail lists every
+  refusal) and `profiles_unavailable` (the base config or the GitHub origin
+  could not be read).
+
+`--from-run` applies to the tests stage only, so `--stage preflight` refuses it
+as a usage error. It changes nothing in the preflight stage: with `--stage all`
+the preflight checks, the secrets scan included, run as before, and
+`--stage tests` runs no preflight check in that invocation, with or without it.
+
+<a id="ci-reuse"></a>
+### Main pushes reuse the merged pull request's run
+
+A squash merge whose pull request head already held main produces a push with
+the identical tree, and Free Tests and Windows Free Tests used to run on it a
+second time. Now each workflow starts with a `reuse` job that runs only on a
+push to `main`, with job-level `contents: read` and `actions: read` (every other
+job keeps the workflow's `contents: read`). It runs
+`scripts/ci-tree-reuse.ts find`, which:
+
+1. finds the pull request whose merge commit is the pushed commit
+   (`repos/{repo}/commits/{sha}/pulls`, one page of at most 10), merged into
+   main from a same-repository head (`no_pr`, `ambiguous_pr`, `fork_head`);
+2. requires that head's tree to equal the pushed tree (`tree_mismatch`);
+3. lists that head's `pull_request` and `workflow_dispatch` runs of the same
+   workflow, newest first, at most 10 (`no_candidate`); and
+4. accepts the first one `verifyRun` accepts under the profile in the pushed
+   tree's `.gstack/pregate.json` (`no_verified_run` lists each refusal; a newer
+   red run on the head vetoes an older green one).
+
+It writes `reused=true` with the run's id and link, or `reused=false` and the
+reason, and prints one `REUSE:` line in the step summary. Every suite job
+needs `reuse` and runs unless it succeeded with `reused=true`; their
+conditions start with `!cancelled()` because GitHub otherwise skips a job whose
+needed job was skipped, and `reuse` is skipped on every pull request and
+dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
+choose a path in their first step, before any download. A verified reuse writes
+the reused run's link to the summary and passes; anything else, a failed or
+skipped `reuse` job included, takes the strict path unchanged. Only the strict
+path records and uploads `tested-tree`, after its verification passes, so a
+red, partial or reused run never leaves a record and a reuse is never reused.
+The pull request lookup needs no `pull-requests` permission on a public
+repository; a private fork of this setup would need `pull-requests: read`,
+and without it every push falls back to the full run. Windows Free Tests now
+runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
+`reuse` job is always skipped and every nightly run takes the strict path.
 
 <a id="guards"></a>
 ## Guards and the lane-done rule
@@ -625,6 +913,20 @@ those, each with its scope and its reason:
   the entry is inert for that finding and the row says so (`allowlist[0]
   env.kv not tested on env.kv (<file>): the scanner gave no position for its
   pattern; the finding is kept`) rather than silently keeping it.
+- The position is where the flagged value starts, not the name before it.
+  For `session: HttpSession` in a YAML file the pattern is `HttpSession`;
+  `session: HttpSession` never matches there. An entry that names a finding
+  by id and path, and whose pattern matches the line but not at the value,
+  prints `allowlist[0] env.kv pattern did not match env.kv (<file>, added
+  line N, col C): …; the finding is kept`.
+- In Python and Dart source, a parameter or field annotation
+  (`session: HttpSession,`) and a dict entry or Dart named argument that reads
+  a name (`"password": request.password`) are code, not credentials, as they
+  are in TypeScript (#3630). Python's keyword form (`password=request.password`)
+  still reports. The same line inside a `"""` docstring is text and still
+  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  so it scans Python and Dart lines without this exemption and may still warn
+  (MEDIUM, non-blocking) on them.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line
@@ -763,11 +1065,13 @@ with a timing flake: never raise the bound.
 
 ```json
 { "sealed": {
-    "paths": ["heldout/**"],
+    "paths": ["heldout/**", "**/sealed/**"],
     "transcripts": ["runs/**/transcript*.jsonl"],
+    "allow_paths": ["**/sealed/*/MANIFEST.json", "**/protected/MANIFEST.json"],
     "answer_markers": ["SEALED ANSWER:"],
     "seed_patterns": ["shuffle_seed=\\d+"],
-    "local_paths": true } }
+    "local_paths": true,
+    "case_insensitive": true } }
 ```
 
 A repo with a `sealed` key gets a configured local check against accidental
@@ -785,13 +1089,53 @@ gstack-pregate sealed [--range <a..b>] [--remote origin] [--base <branch>] [--js
 - **Rules.** `sealed.path` and `sealed.transcript` check every path a commit
   adds, renames or copies, whatever its content (binary, empty, deleted again
   in a later commit); `sealed.answer`, `sealed.seed` and `sealed.local_path`
-  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) check each commit's added
-  lines. Findings print rule, `file[:line]` and commit, never the text.
+  (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`, including after a shell
+  default such as `${VAR:-…}` or `${VAR-…}`) check each commit's added lines.
+  Known limit: a path glued to the text before it, by a hyphen (`docs-…`,
+  `$VAR-…`, `${VAR}-…`) or a letter (`-I…`, `-L…`), is not matched. Findings print rule, `file[:line]` and commit, never the text.
+- **Globs.** `paths`, `transcripts` and `allow_paths` match the whole
+  repo-relative path from the repository root. `*` and `?` stay inside one
+  path segment; `**/` spans zero or more directories; a `**` not followed by
+  `/` matches across directories (`heldout/**` covers every depth under
+  `heldout/`); `[` and `{` are literal. So `sealed/**` misses `tasks/x/sealed/a.json`:
+  to guard a `sealed/` directory wherever it sits, write `**/sealed/**`.
+- **Case.** Matching is case-sensitive. `case_insensitive: true` folds case
+  for `paths` and `transcripts` only, so `**/heldout/**` also catches
+  `HELDOUT/` and `HeldOut/`. Separator and spelling variants (`hold-out/`,
+  `held_out/`, `heldout-v2/`) are not folded: list each as its own glob.
+  The effective value is the base branch's OR the pushed one (it only tightens).
+- **Exceptions.** `allow_paths` exempts publishable files that sit next to
+  sealed data (a `MANIFEST.json` of hashes and counts) from `sealed.path` and
+  `sealed.transcript`, applied after the deny globs and before waivers. They
+  are read from the destination base branch only: an exception a push adds
+  takes effect once it lands on the base branch, so a branch can never widen
+  its own. They never fold case. An entry whose file name contains `**`, or
+  is only wildcards before its extension (`**`, `sealed/*`, `**/*.json`,
+  `sealed/**.json`), is refused; a partial wildcard such as `MANIFEST*.json`
+  is accepted and matches every file it spells, so name the file. An exempt file is checked by the
+  text rules only, so configure `answer_markers` when you exempt files next to
+  sealed data. Each exempt path is listed on every push (`exempt <rule>
+  <file> commit <sha> (sealed.allow_paths <glob>)`) and counted as
+  `exempt=<n>` on the `SEALED:` line.
+- **Version skew.** A gstack older than the release whose CHANGELOG adds
+  `sealed.allow_paths` refuses `allow_paths` and `case_insensitive` as
+  unknown keys, so every push and `gstack-pregate run` in the repository
+  fail on that machine. Raise `min_gstack_version` in
+  `.gstack/ship-policy.json` to that release before landing either key.
 - **Policy.** The union of the destination base branch's `sealed` and the
-  pushed commit's: a push can tighten it, never relax it. A malformed or
+  pushed commit's: a push can tighten it, never relax it (`allow_paths` come
+  from the base branch alone, and a pushed deny glob cannot override one). The
+  `SEALED:` line names both as `policy=<remote>/<base> + commit <sha12>`.
+  `gstack-pregate sealed` only checks and never pushes, so confirm a push with
+  `git ls-remote <remote> <ref>`. A malformed or
   unreadable policy refuses. Waivers come only from the base branch's
   `.gstack/sealed-allow.tsv` (`rule<TAB>path<TAB>sha<TAB>reason`) and are
-  listed on every push.
+  listed on every push. A waiver counts only when `sha` is the finding's full
+  commit sha (40 hex characters, 64 in a SHA-256 repository); a shortened or
+  mistyped one is ignored, so the finding still refuses, and stderr names it
+  (`ignored waiver <rule>  <path>  sha <value> (...)`) with the finding's full
+  commit, which needs a review before anyone waives it.
+  `--json` lists them as `ignoredWaivers`.
 - **Visibility.** `sealed.visibility` from the base branch, else a cache under
   the state root (`sealed-visibility.json`: a `public` answer for 24 hours, a
   `private` one for 1 hour before it may turn a refusal into a warning), else

@@ -139,7 +139,7 @@ Every other specialist, including Testing, reads the full diff with fixtures.
 5. Instructions:
 
 "You are a specialist code reviewer. Read the checklist at {checklist path}, then run
-\`${diffBase(ctx)} && git diff "$DIFF_BASE"\` to get the ${ctx.skillName === 'ship' ? 'diff (`<diff-base>`: write the sha in before dispatch, the merge base on pass 1 and `RANGE_BASE` from pass 2 on; never a shell variable)' : 'full diff'}. Apply the checklist against the diff.
+\`${diffBase(ctx)} && git diff "$DIFF_BASE"${ctx.skillName === 'ship' ? ' <exclude>' : ''}\` to get the ${ctx.skillName === 'ship' ? 'diff (`<diff-base>`: write the sha in before dispatch, the merge base on pass 1 and `RANGE_BASE` from pass 2 on; never a shell variable; `<exclude>`: everything after `<diff-base>` on this reviewer\'s `DIFF_CMD:` line, verbatim; empty on `DIFF_EXCLUDE: none`)' : 'full diff'}. Apply the checklist against the diff.
 
 \`NO FINDINGS\` alone is the expected, complete result for a clean diff; never invent an item. Otherwise output one JSON object per finding per line, 400 words at most:
 {\\"severity\\":\\"CRITICAL|INFORMATIONAL\\",\\"confidence\\":N,\\"path\\":\\"file\\",\\"line\\":N,\\"category\\":\\"category\\",\\"summary\\":\\"description\\",\\"fix\\":\\"recommended fix\\",\\"fingerprint\\":\\"path:line:category\\",\\"specialist\\":\\"name\\"}
@@ -186,7 +186,12 @@ their source labels: specialist scoring is not the final review's defect count.
 After specialist attempts settle, collect their outputs, tagged by actual source.
 \`NO FINDINGS\` is a completed, clean result, never a failed reviewer. Otherwise parse
 each JSON line and skip invalid lines. Missing or unusable output is incomplete
-coverage, not an empty success. Keep each specialist's returned findings for activity stats.
+coverage, not an empty success. Keep each specialist's returned findings for activity stats.${isShip ? `
+An output that carries a state-machine matrix record (State Machines, or a batched
+reader that read its checklist) is parsed from \`${ctx.paths.binDir}/gstack-state-matrix findings <file>\`,
+after \`check\` ran on the raw file: an untested cell that is the only finding on its
+cell comes back INFORMATIONAL (\`"state_matrix":"untested-cell"\`), the test-gap ruling
+in \`docs/review-policy.md\`; a wrong row or collapsed kinds stays CRITICAL.` : ''}
 
 #### 2. Validate severity
 

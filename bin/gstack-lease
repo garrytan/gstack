@@ -16,11 +16,14 @@
 #       passes its parent pid); leases older than 120 min are pruned. Exits 3
 #       and writes nothing when a live process holds the directory lock or
 #       the lock cannot be taken
-#   gstack-lease live [--root <checkout>] [--exclude-ancestry-of <pid>]
+#   gstack-lease live [--root <checkout>] [--exclude-ancestry-of <pid>] [--count-shared-harness]
 #       print `<pid> <age>m <command>` per lease held by a live process that
 #       is neither the given pid nor one of its ancestors (the caller's own
 #       session); exit 0 when any live lease exists, 1 when none. A stale lease
-#       is reclaimed (deleted, one `gstack-lease: reclaimed …` line on stderr)
+#       is reclaimed (deleted, one `gstack-lease: reclaimed …` line on stderr).
+#       --count-shared-harness (bin/gstack-upgrade only) still prints an
+#       ancestor that is a shared harness (capy-server: every session on the
+#       machine runs under it) while its lease is under 120 minutes old
 #   gstack-lease list [--root <checkout>]
 #       print `<pid> <age>m alive|dead|stale` for every lease
 # A pid alone is not a holder: pids are reused after a reboot or a machine
@@ -38,23 +41,27 @@ BIN="$(cd "$(dirname "$0")" && pwd -P)"
 # shellcheck source=bin/gstack-install-verdict.sh
 . "$BIN/gstack-install-verdict.sh" 2>/dev/null || gstack_source_root() { (cd "$1/.." && pwd -P); }
 # shellcheck source=bin/gstack-harness-pid.sh
-. "$BIN/gstack-harness-pid.sh" 2>/dev/null || gstack_harness_pid() { printf '%s\n' "$1"; }
+. "$BIN/gstack-harness-pid.sh" 2>/dev/null || {
+  gstack_harness_pid() { printf '%s\n' "$1"; }
+  gstack_shared_harness() { [ "$(ps -o comm= -p "$1" 2>/dev/null | head -1 | sed 's|.*/||; s/^-//')" = capy-server ]; }
+}
 
 VERB="${1:-}"; [ $# -gt 0 ] && shift
-ROOT="" PID="" EXCLUDE="" FROM=""
+ROOT="" PID="" EXCLUDE="" FROM="" SHARED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="${2:-}"; shift ;;
     --pid) PID="${2:-}"; shift ;;
     --from) FROM="${2:-}"; shift ;;
     --exclude-ancestry-of) EXCLUDE="${2:-}"; shift ;;
+    --count-shared-harness) SHARED=1 ;;
     *) echo "gstack-lease: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
 done
 case "$VERB" in
   touch|live|list) ;;
-  -h|--help|'') sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help|'') sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-lease: unknown verb '$VERB'" >&2; exit 2 ;;
 esac
 [ -n "$ROOT" ] || ROOT=$(gstack_source_root "$BIN")
@@ -290,8 +297,9 @@ FOUND=1
 for f in "$DIR"/*; do
   [ -f "$f" ] || continue
   p=${f##*/}
-  case "$ANCESTRY" in *" $p "*) continue ;; esac
-  _rec=$(head -1 "$f" 2>/dev/null) _age=$(age_min "$f")
+  _age=$(age_min "$f")
+  case "$ANCESTRY" in *" $p "*) [ "$SHARED" -eq 1 ] && [ "$_age" -lt 120 ] && gstack_shared_harness "$p" || continue ;; esac
+  _rec=$(head -1 "$f" 2>/dev/null)
   case "$(state "$p" "$_rec" "$_age")" in
     dead) continue ;;
     stale)

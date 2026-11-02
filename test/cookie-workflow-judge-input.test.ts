@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,8 @@ import { selectTests } from './helpers/test-selection';
 import { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectPrProfile } from '../scripts/test-pr-profile';
 import { JUDGE_MS } from './helpers/eval-budgets';
-import { JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
+import { Messages } from '@anthropic-ai/sdk/resources/messages';
+import { callJudge, type CallJudgeOptions, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS, judgePanel, judgePanelMean, judgePanelMedian, judgePanelReasoning, JUDGE_SCORE_DIMENSIONS, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
 import { COOKIE_MANUAL_REVIEW_FILE, getCookieWorkflowManualReview, isManualReviewEntry } from './helpers/cookie-workflow-manual-review';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -51,6 +52,7 @@ const passingScore: FixtureScore = { ...COOKIE_WORKFLOW_JUDGE.thresholds, reason
 
 function actualCookieCallback(root: string, overrides: {
   judge?: () => Promise<FixtureScore>;
+  callJudge?: (prompt: string, model: string | undefined, options: CallJudgeOptions) => Promise<FixtureScore>;
   clock?: () => number;
   budget?: number;
   setTimer?: typeof setTimeout;
@@ -74,7 +76,11 @@ function actualCookieCallback(root: string, overrides: {
     (_suite: string, names: string[], run: () => void) => { expect(names).toEqual([NAME]); run(); },
     (name: string, run: () => Promise<void>, budget: number) => { expect(name).toBe(NAME); expect(budget).toBe(JUDGE_MS + 10_000); callback = run; },
     root, buildCookieWorkflowJudgeInput, (_kind: string, explicit?: string) => explicit ?? 'fixture-model',
-    async (prompt: string, model: string | undefined, options: { signal: AbortSignal }) => { requests.push({ prompt, model, signal: options.signal }); return overrides.judge ? overrides.judge() : passingScore; },
+    async (prompt: string, model: string | undefined, options: CallJudgeOptions & { signal: AbortSignal }) => {
+      requests.push({ prompt, model, signal: options.signal });
+      if (overrides.callJudge) return overrides.callJudge(prompt, model, options);
+      return overrides.judge ? overrides.judge() : passingScore;
+    },
     COOKIE_WORKFLOW_JUDGE, overrides.budget ?? JUDGE_MS, JUDGE_MS + 10_000, 5_000,
     { addTest: (record: EvalTestEntry) => records.push(record) }, expect, { log() {} },
     readWorkflowJudgeInput, buildWorkflowJudgePrompt,
@@ -267,6 +273,46 @@ describe('cookie workflow judge input', () => {
       expect(profile.needsFullValidation).toBe(false);
     }
     expect(selectTests(['README.md'], LLM_JUDGE_TOUCHFILES).selected).not.toContain(NAME);
+  });
+
+  test('the registered cookie judge sends the response schema, so a free-text reply like train 42\'s is not what gets parsed', async () => {
+    const { replies } = JSON.parse(readFileSync(join(ROOT, 'test/fixtures/cookie-judge-train42-replies.json'), 'utf8')) as {
+      replies: Array<{ id: string; model: string; stop_reason: string; text: string }> };
+    expect(replies.map(reply => reply.id)).toEqual(['msg_011CgVnRtVj5vyLvb56m6KJH', 'msg_011CgVne5GStZ6f9pRoCvgWE']);
+    const original = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'fake';
+    const create = spyOn(Messages.prototype, 'create');
+    try {
+      for (const reply of replies) {
+        expect(() => JSON.parse(reply.text)).toThrow();
+        const marker = '"reasoning": "';
+        const judgment: FixtureScore = {
+          clarity: Number(/"clarity": (\d)/.exec(reply.text)![1]),
+          completeness: Number(/"completeness": (\d)/.exec(reply.text)![1]),
+          actionability: Number(/"actionability": (\d)/.exec(reply.text)![1]),
+          reasoning: reply.text.slice(reply.text.indexOf(marker) + marker.length, reply.text.lastIndexOf('"}')),
+        };
+        expect(judgment.reasoning).toContain('"one --domain per run"');
+        create.mockReset();
+        create.mockResolvedValue({ id: reply.id, model: reply.model, stop_reason: 'end_turn',
+          content: [{ type: 'text', text: JSON.stringify(judgment) }], usage: { input_tokens: 1, output_tokens: 1 } } as never);
+        const root = fixture();
+        const h = actualCookieCallback(root, { callJudge: (prompt, model, options) => callJudge<FixtureScore>(prompt, model, options) });
+        await h.run();
+        expect(create).toHaveBeenCalledTimes(JUDGE_PANEL_SAMPLES);
+        for (const [request, options] of create.mock.calls as unknown as Array<[Record<string, unknown>, { signal: AbortSignal }]>) {
+          expect(request).toEqual({ model: COOKIE_WORKFLOW_JUDGE.model, max_tokens: DEFAULT_JUDGE_MAX_TOKENS,
+            output_config: { format: { type: 'json_schema', schema: WORKFLOW_JUDGE_RESPONSE_SCHEMA } },
+            messages: [{ role: 'user', content: buildCookieWorkflowJudgeInput(root).prompt }] });
+          expect(options.signal).toBeInstanceOf(AbortSignal);
+        }
+        expect(h.records[0]).toMatchObject({ name: NAME, passed: true, execution: 'executed',
+          judge_scores: { clarity: judgment.clarity, completeness: judgment.completeness, actionability: judgment.actionability } });
+      }
+    } finally {
+      create.mockRestore();
+      if (original === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = original;
+    }
   });
 
   test('the managed callback sends and records exact custom input without borrowing a normal cache identity', async () => {

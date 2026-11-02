@@ -4,9 +4,9 @@
  *
  *   gstack-pregate [run] [--stage preflight|tests|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
- *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--explain] [--json]
+ *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
  *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
- *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
+ *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
  *   gstack-pregate validate | init [--explain] [--force]         the working-tree .gstack/pregate.json
  *   gstack-pregate sealed [--range <a..b>] [--remote <name>] [--base <branch>] [--json]
@@ -29,6 +29,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp, formatResult, type PregateFile } from '../lib/headless-artifacts';
 import { PREGATE_CONFIG_PATH, explainConfig, loadConfigFromHead } from '../lib/pregate/config';
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
+import { buildRunCheck } from '../lib/pregate/run-check';
 import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
 import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
@@ -40,7 +41,7 @@ import { DEFAULT_STALL_TIMEOUT_S } from '../lib/pregate/context';
 import { cancelActive } from '../lib/pregate/supervise';
 import { defaultGh, evaluateRegate, renderRegate } from '../lib/pregate/regate';
 import { GATE_AHEAD_REL } from '../lib/restamp';
-import { evaluateSealed, publishedCommits, rangeCommits, renderSealed } from '../lib/sealed-guard';
+import { evaluateSealed, publishedCommits, rangeCommits, renderSealed, sealedErrorReport } from '../lib/sealed-guard';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { fromGateAhead } from '../lib/tree-receipt';
 
@@ -52,12 +53,17 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                   --receipt <file> (the gate's PREGATE_REMOTE: line, checked against the tested tree; a tree that
                   differs from pregate.json's only in the base branch's stamp rule is accepted and recorded as a
                   substitution, docs/pregate.md#remote-gate-stamp-only); a
-                  test_backend/<backend> run URL is recorded as attested, not validated
+                  test_backend/<backend> run URL is recorded as attested, not validated. --run <id|url> (repeatable)
+                  verifies GitHub Actions runs against the base branch's run_profiles instead (docs/pregate.md#run-evidence):
+                  one run of the profile named after the lane, or for pregate.json/remote_gate one run per
+                  remote_gate_runs profile covering the gate's inventory (needs --allow-repo-commands); where a lane has a
+                  profile, --run-url is verified the same way
   lanes           print every CI lane with its platform tier (from .github/workflows/*.yml)
   validate | init the working-tree ${PREGATE_CONFIG_PATH}
   sealed [--range <a..b>] [--remote <name>] [--base <branch>]
                   the sealed-output guard (docs/pregate.md#sealed) over the commits <remote> lacks, or the range:
-                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED)
+                  run it before any push or PR creation in a repo with a \`sealed\` config; exit 1 refuses (SEALED_OUTPUT_REFUSED);
+                  it never pushes: policy=<base> + commit <sha> names where the policy was read
   regate --against <gated-head> --bundle <file> [--require <lanes>] [--pr <n>] [--predecessor-pr <n> | --predecessor-ref <ref>]
                   a fresh tree receipt, each lane's reuse verdict, migration collisions (base branch and open PRs), then
                   REGATE: needed|not-needed (docs/pregate.md#regate); \`gstack-pregate --against <head>\` is the same verb; exit 1 = needed
@@ -66,20 +72,25 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
   --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch, else main)
   --allow-repo-commands         run pin-file commands and the test runner (what /ship passes); without it those checks are incomplete
-  --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands)
+  --policy-from base|head       base (default, reviewed) or head (unreviewed; needs --allow-repo-commands; the head file may
+                                only add test lanes over the base copy, else PREGATE_HEAD_POLICY_LOOSENS)
   --out <file>                  pregate.json path (default ${PREGATE_OUT_REL})
-  --timeout <s>                 timeout for each runner process (default 600): the unit-file group, each serial file, each guard
-                                without timeout_s; the stall timeout catches a silent one sooner
+  --timeout <s>                 timeout for each runner process (default timeout_s from the base .gstack/pregate.json, else 600):
+                                the unit-file group, each serial file, each guard without timeout_s, the remote gate; the stall
+                                timeout catches a silent one sooner
   --stall-timeout <s>           kill a test command's process group after this long with no output and record the check
                                 incomplete (PREGATE_STALLED); default stall_timeout_s from the base .gstack/pregate.json,
-                                else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables
-  --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands and
-                                --policy-from base); it clears the requires-remote obligation only on its
+                                else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables; the --remote gate is exempt (only --timeout bounds it)
+  --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands;
+                                under --policy-from head the gate is still the base copy's); it clears the requires-remote obligation only on its
                                 PREGATE_REMOTE: tree=<tested tree> tests=<n> failed=0 line with n > 0
   --spend-cap <usd>             the cap --remote passes to the gate (default \$GSTACK_SPEND_CAP_USD); spend is reported as
                                 spent, reserved and unknown
   --run <id>                    the run label recorded in pregate.json and the name of this run's scratch directory (a taken name gets a numbered sibling, <id>-2 … -9)
                                 (<state root>/projects/<slug>/pregate/runs/<id>: lane and guard logs, scan files; default a unique id)
+  --from-run <id|url>           a Free Tests run on this exact tree, verified against the base branch's run profile for this OS
+                                whose workflow holds a local lane (docs/pregate.md#from-run): the selected test files its tree.json lists count as passed and
+                                are recorded with its receipt; the rest still run. A refused run prints REUSE: refused and runs everything
   --explain                     print each selected test's provenance and each uncertain mapping
   --json                        one JSON object on stdout; a refusal before any check runs (unavailable base, invalid pin
                                 file, WTREE_UNAVAILABLE) is {ok:false,status:'refused',code,detail,fix,docs} with exit 3,
@@ -98,9 +109,9 @@ function flag(args: string[], name: string): string | undefined { const i = args
 
 /** Flags each verb accepts: `[flags that take a value, bare flags]`. Anything else is usage (exit 2), never a silent default run. */
 const VERB_FLAGS: Record<string, [string[], string[]]> = {
-  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run'], ['--allow-repo-commands', '--explain', '--json', '--remote']],
+  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote']],
   verify: [['--out'], ['--json']],
-  clear: [['--remote', '--run-url', '--bundle-lane', '--receipt', '--out'], []],
+  clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out'], ['--allow-repo-commands']],
   lanes: [[], ['--explain', '--json']],
   validate: [[], ['--json']],
   init: [[], ['--explain', '--force']],
@@ -131,6 +142,8 @@ function outPath(root: string, rest: string[]): string { const o = flag(rest, '-
 async function cmdRun(root: string, rest: string[], json: boolean): Promise<number> {
   const stage = (flag(rest, '--stage') ?? 'all') as 'preflight' | 'tests' | 'all';
   if (!['preflight', 'tests', 'all'].includes(stage)) { process.stderr.write('gstack-pregate: --stage needs preflight, tests or all\n'); return EXIT.usage; }
+  const fromRun = flag(rest, '--from-run');
+  if (fromRun !== undefined && stage === 'preflight') { process.stderr.write('gstack-pregate: --from-run applies to the tests stage (--stage tests or all)\n'); return EXIT.usage; }
   const only = flag(rest, '--only')?.split(',').map(s => s.trim()).filter(Boolean);
   const unknown = (only ?? []).filter(id => !CHECK_IDS.includes(id));
   if (unknown.length) { process.stderr.write(`gstack-pregate: unknown check(s) ${unknown.join(', ')}${unknown.some(u => (PREGATE_TIER2 as readonly string[]).includes(u)) ? ' (tier 2, not in this gstack)' : ''}; known: ${CHECK_IDS.join(', ')}\n`); return EXIT.usage; }
@@ -138,14 +151,15 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   if (!['base', 'head'].includes(policyFrom)) { process.stderr.write('gstack-pregate: --policy-from needs base|head\n'); return EXIT.usage; }
   const allow = rest.includes('--allow-repo-commands');
   if (policyFrom === 'head' && !allow) { process.stderr.write('gstack-pregate: --policy-from head needs --allow-repo-commands (the working-tree pin files are unreviewed)\n'); return EXIT.refused; }
-  const timeoutMs = Number(flag(rest, '--timeout') ?? 600) * 1000;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
+  const timeoutFlag = flag(rest, '--timeout');
+  const timeoutMs = timeoutFlag === undefined ? undefined : Number(timeoutFlag) * 1000;
+  if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) { process.stderr.write('gstack-pregate: --timeout needs a positive number of seconds\n'); return EXIT.usage; }
   const stallFlag = flag(rest, '--stall-timeout');
   const stallTimeoutMs = stallFlag === undefined ? undefined : Number(stallFlag) * 1000;
   if (stallTimeoutMs !== undefined && (!Number.isFinite(stallTimeoutMs) || stallTimeoutMs < 0)) { process.stderr.write('gstack-pregate: --stall-timeout needs a number of seconds (0 disables)\n'); return EXIT.usage; }
   let remote: { spendCapUsd: number } | null = null;
   if (rest.includes('--remote')) {
-    if (!allow || policyFrom === 'head') { process.stderr.write('gstack-pregate: --remote runs the active policy\'s remote_gate (the base branch\'s copy, or the user-owned file when the base carries none) and needs --allow-repo-commands with --policy-from base\n'); return EXIT.refused; }
+    if (!allow) { process.stderr.write('gstack-pregate: --remote runs the trusted policy\'s remote_gate (the base branch\'s copy, or the user-owned file when the base carries none; a head policy may not change it) and needs --allow-repo-commands\n'); return EXIT.refused; }
     const cap = Number(flag(rest, '--spend-cap') ?? process.env.GSTACK_SPEND_CAP_USD ?? NaN);
     if (!Number.isFinite(cap) || cap <= 0) { process.stderr.write('gstack-pregate: --remote spends money; pass --spend-cap <usd> (or set GSTACK_SPEND_CAP_USD)\n'); return EXIT.usage; }
     remote = { spendCapUsd: cap };
@@ -161,6 +175,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     return EXIT.refused;
   }
   const ctx = loaded.ctx;
+  if (fromRun !== undefined) ctx.fromRun = { ref: fromRun, check: buildRunCheck(root, null, allow, base) };
   ensureTmpExcluded(root);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
@@ -214,16 +229,26 @@ function cmdClear(root: string, rest: string[]): number {
   const out = outPath(root, rest);
   const read = fs.existsSync(out) ? readPregateFile(out) : { file: null, errors: [] };
   if (!read.file) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} is missing or invalid; run gstack-pregate first`) + '\n'); return EXIT.fail; }
-  const decision = clearDecision(read.file, lane, { runUrl: flag(rest, '--run-url'), bundleLane: flag(rest, '--bundle-lane'), receiptPath: flag(rest, '--receipt') }, root);
+  const runs = rest.flatMap((a, i) => a === '--run' ? [rest[i + 1]!] : []);
+  const runUrl = flag(rest, '--run-url');
+  const bundleLane = flag(rest, '--bundle-lane');
+  const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands')) : undefined;
+  if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }
+  const evidence = checked && !('error' in checked) ? checked : undefined;
+  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence }, root);
   if ('refused' in decision) {
     if (decision.refused === 'usage') { process.stderr.write(`gstack-pregate clear: ${decision.message}\n`); return EXIT.usage; }
     process.stderr.write(`gstack-pregate clear: receipt refused — ${decision.message}; fix: ${decision.fix ?? RESULT_CODES.PREGATE_RECEIPT_INVALID.fix} ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`);
     return EXIT.fail;
   }
-  const file = clearObligation(read.file, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution);
+  const current = readPregateFile(out).file;
+  if (!current || current.tree !== read.file.tree || current.generated_at !== read.file.generated_at) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} changed while ${lane} was being verified; rerun the clear against the new file`) + '\n'); return EXIT.fail; }
+  const file = clearObligation(current, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution);
   writePregateFile(root, out, file);
+  if (/ runs=\S+ profiles=/.test(decision.receipt)) process.stdout.write(`REUSE: accepted ${lane} ${decision.receipt}\n`);
   if (decision.substitution) process.stdout.write(`PREGATE_RECEIPT_SUBSTITUTED: ${describeSubstitution(decision.substitution)}\n`);
   process.stdout.write(`PREGATE_CLEARED: ${lane} receipt=${decision.receipt} verdict=${file.verdict}${decision.attested ? ` (attested, not validated: ${lane} has no machine-checkable receipt)` : ''}\n`);
+  if (checked && 'error' in checked) process.stderr.write(`gstack-pregate clear: run profiles unavailable (${checked.error}); ${lane} was recorded without run verification\n`);
   return EXIT.ok;
 }
 
@@ -244,13 +269,13 @@ function cmdSealed(root: string, rest: string[], json: boolean): number {
   const baseRef = gitOut(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]) ? `refs/remotes/${remote}/${base}` : null;
   const remoteUrl = gitOut(root, ['remote', 'get-url', remote]);
   const report = 'error' in listed
-    ? { status: 'error' as const, error: listed.error, policyLabels: [], commits: 0, findings: [], waived: [], visibility: 'unknown' as const, visibilitySource: '', target: remoteUrl ?? remote }
+    ? sealedErrorReport(listed.error, remoteUrl ?? remote)
     : evaluateSealed({ repoRoot: root, targets: [{ commits: listed.commits, pushedSha }], baseRef, baseLabel: `${remote}/${base}`, remoteUrl, target: remoteUrl ?? remote });
   const blocks = report.status === 'refused' || report.status === 'error';
   if (json) { process.stdout.write(JSON.stringify({ ...report, ok: !blocks }) + '\n'); return blocks ? EXIT.fail : EXIT.ok; }
   process.stderr.write(renderSealed(report, 'gstack-pregate sealed'));
   const policy = report.policyLabels.length ? report.policyLabels.join(' + ') : `no sealed key on ${baseRef ?? `${remote}/${base}`} or ${end}`;
-  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} policy=${policy}\n`);
+  process.stdout.write(`SEALED: ${report.status} findings=${report.findings.length} commits=${report.commits} visibility=${report.visibility}${report.visibility === 'unknown' ? ' (counted public)' : ''} waived=${report.waived.length} exempt=${report.exempt.length} policy=${policy}\n`);
   return blocks ? EXIT.fail : EXIT.ok;
 }
 

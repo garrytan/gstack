@@ -1,0 +1,94 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-checks — the build-and-verify loop's checks for /verify. Logic: lib/checks.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import { cancelActive } from '../lib/pregate/supervise';
+import { MAX_FAIL_LINES, TESTS, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
+
+const USAGE = `Usage: gstack-checks <detect|trust|run|status> [options]
+
+  detect                 list the checks run would execute and whether they are trusted (reads files only)
+  trust                  trust the current command set for this repo (checks, the pregate runner and its
+                         selection manifest commands); any change to one of them needs trust again
+  run [--only a,b] [--allow-repo-commands] [--timeout <s>]
+                         run the checks and the tests pregate selects for the change; one line per check:
+                         CHECK <name> PASS|FAIL|ZERO_RUN|UNMAPPED|TOO_BROAD|ENV|TIMEOUT|INCOMPLETE <secs>
+  status                 READY_FOR_SHIP when the last run passed every check at this tree, else NOT_READY;
+                         runs nothing
+
+  --base <branch>        the branch pregate selects against (default: origin/HEAD's branch, else main)
+
+Exit codes: 0 green or ready · 1 a red check or not ready · 2 an environment failure or timeout ·
+3 consent required, no checks, or no pregate context · 64 usage
+`;
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function repoRoot(): string | null {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+
+function loadOrRefuse(root: string, args: string[], timeoutMs: number): Loaded | null {
+  const l = load(root, flag(args, '--base'), timeoutMs);
+  if ('refused' in l) { process.stderr.write(`gstack-checks: no pregate context, so tests cannot be selected: ${l.refused}\n`); return null; }
+  return l;
+}
+
+async function main(argv: string[]): Promise<number> {
+  const [verb, ...args] = argv;
+  if (!verb || verb === '--help' || verb === '-h') { process.stdout.write(USAGE); return verb ? 0 : 64; }
+  if (!['detect', 'trust', 'run', 'status'].includes(verb)) { process.stderr.write(USAGE); return 64; }
+  const root = repoRoot();
+  if (!root) { process.stderr.write('gstack-checks: not inside a git repository\n'); return 3; }
+  const timeoutS = Number(flag(args, '--timeout') ?? 600);
+  if (!Number.isFinite(timeoutS) || timeoutS <= 0) { process.stderr.write('gstack-checks: --timeout needs a positive number of seconds\n'); return 64; }
+  const l = loadOrRefuse(root, args, timeoutS * 1000);
+  if (!l) return 3;
+  const trusted = isTrusted(root, l.set);
+  const NONE = 'CHECKS: none (no gstack:verify: line, Health Stack section, manifest check, pregate policy or test file); nothing to run\n';
+  if (nothingToRun(l) && (verb === 'run' || verb === 'detect')) { process.stdout.write(NONE); return verb === 'run' ? 3 : 0; }
+  if (verb === 'detect') {
+    for (const c of l.checks) process.stdout.write(`CHECK ${c.name} ${c.command}${c.body ? ` (runs: ${c.body})` : ''}  (${c.source})\n`);
+    if (!l.checks.length) process.stdout.write('CHECKS: tests only (no gstack:verify: line, Health Stack section or manifest check)\n');
+    const selection = Object.values(l.ctx.config.selection ?? {});
+    process.stdout.write(`TESTS pregate selection against ${l.ctx.baseRef} (policy ${l.ctx.configLabel}; runner ${l.ctx.config.runner ?? 'detected per file'}${selection.length ? `; selection commands: ${selection.join(' | ')}` : ''})\n`);
+    process.stdout.write(`TRUST ${trusted ? 'trusted' : 'untrusted (run gstack-checks trust after the user agrees, or pass --allow-repo-commands)'}\n`);
+    return 0;
+  }
+  if (verb === 'trust') {
+    recordTrust(root, l.set, l.checks, l.ctx.config);
+    process.stdout.write(`gstack-checks: trusted ${l.checks.length} check(s) and the pregate test commands for ${root}\n`);
+    return 0;
+  }
+  if (verb === 'status') {
+    const s = status(l, readLedger(ledgerPath(root)));
+    process.stdout.write(s.line + '\n');
+    return s.ready ? 0 : 1;
+  }
+  if (!trusted && !args.includes('--allow-repo-commands')) {
+    process.stderr.write(`gstack-checks: these commands are not trusted for ${root}; nothing was run (CHECKS_CONSENT_REQUIRED)\n`);
+    for (const c of l.checks) process.stderr.write(`  ${c.name}: ${c.command}\n`);
+    process.stderr.write(`  tests: ${l.ctx.config.runner ?? 'the runner pregate detects'} on the files pregate selects${Object.keys(l.ctx.config.selection ?? {}).length ? ' (and its selection manifest commands)' : ''}\n`);
+    process.stderr.write('fix: ask the user, then gstack-checks trust; or pass --allow-repo-commands when the session was launched to run them\n');
+    return 3;
+  }
+  const only = flag(args, '--only')?.split(',').map(s => s.trim()).filter(Boolean);
+  const unknown = (only ?? []).filter(n => n !== TESTS && !l.checks.some(c => c.name === n));
+  if (unknown.length) { process.stderr.write(`gstack-checks: unknown check(s) ${unknown.join(', ')}; known: ${[...l.checks.map(c => c.name), TESTS].join(', ')}\n`); return 64; }
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { cancelActive(); process.exit(signal === 'SIGINT' ? 130 : 143); });
+  const { outcomes, ledger } = await runChecks(l, { root, only, timeoutMs: timeoutS * 1000 });
+  for (const o of outcomes) {
+    process.stdout.write(`CHECK ${o.name} ${o.verdict} ${(o.ms / 1000).toFixed(1)}s${o.verdict === 'PASS' ? '' : `  ${o.detail}`}\n`);
+    if (o.verdict !== 'PASS') { for (const line of o.lines.slice(-MAX_FAIL_LINES)) process.stdout.write(`  | ${line}\n`); if (o.log) process.stdout.write(`  log: ${o.log}\n`); }
+  }
+  if (ledger.notCovered.length) process.stdout.write(`NOT_COVERED ${ledger.notCovered.join(' ')} (platform lanes /ship's pregate owns)\n`);
+  if (outcomes.every(o => o.verdict === 'PASS')) return 0;
+  return outcomes.some(o => o.verdict === 'FAIL' || o.verdict === 'ZERO_RUN' || o.verdict === 'UNMAPPED' || o.verdict === 'TOO_BROAD' || o.verdict === 'INCOMPLETE') ? 1 : 2;
+}
+
+main(process.argv.slice(2)).then(code => process.exit(code), e => { process.stderr.write(`gstack-checks: ${e?.stack ?? e}\n`); process.exit(1); });

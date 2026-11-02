@@ -12,7 +12,7 @@
  * `substituteStampOnlyTree` is the one accepted substitution. The gated tree
  * and the head tree are diffed path by path, and every differing file is
  * classified by the tree receipt's own rule (lib/tree-receipt.ts
- * `classifyFile`: the repo's `stamp_files` allowlist and `stamp_patterns`
+ * `classifyFiles`, the changelog_fragments fold included: the repo's `stamp_files` allowlist and `stamp_patterns`
  * templates from `.gstack/ship-policy.json` on the base branch, beside the
  * built-in version-file, manifest-version, lockfile-root-version and
  * changelog-heading forms). The receipt is accepted for the head only when
@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 import type { PregateReceiptSubstitution } from '../headless-artifacts';
 import { parseUnifiedDiff, versionAtRef } from '../restamp';
 import { isUnavailable, loadPolicyFromBase, SHIP_POLICY_PATH } from '../ship-policy';
-import { classifyFile } from '../tree-receipt';
+import { classifyFiles } from '../tree-receipt';
 import { treeMismatch } from './checks/lanes';
 
 /** What `clear` records when a remote_gate receipt from a stamp-only predecessor tree is accepted for the head (the pregate.json shape, lib/headless-artifacts.ts). */
@@ -103,7 +103,7 @@ export function substituteStampOnlyTree(repoRoot: string, base: string, gatedTre
   if (diff === null) return { problem: `${mismatch}; git diff ${short(gatedTree)} ${short(headTree)} failed`, fix: rerun };
   const inventory = git(repoRoot, ['diff-tree', '-r', '-z', '--name-only', '--no-renames', '--ignore-submodules=none', '--end-of-options', gatedTree, headTree]);
   if (inventory === null) return { problem: `${mismatch}; git diff-tree ${short(gatedTree)} ${short(headTree)} failed`, fix: rerun };
-  const files = parseUnifiedDiff(diff).map(f => classifyFile(repoRoot, f, gatedTree, headTree, loaded.policy, versionRel, oldV, newV));
+  const files = classifyFiles(repoRoot, parseUnifiedDiff(diff), gatedTree, headTree, loaded.policy, versionRel, oldV, newV);
   if (!files.length) return { problem: `${mismatch}; the trees differ but git diff produced no file entry to classify`, fix: rerun };
   const expected = new Set(inventory.split('\0').filter(Boolean));
   const seen = new Set(files.map(f => f.path));

@@ -1,0 +1,4 @@
+{
+  "bytes": 302,
+  "why": "GST-257: Step 11 dispatches the targeted reader on money, gate, auth and secret diffs, on the merge base every pass"
+}

@@ -1,0 +1,4 @@
+{
+  "bytes": -1,
+  "why": "GSTA-154: the ship-policy paragraph says its ship: lines bind Steps 12-16, so the changelog_fragments line reaches Step 13's entry (an ASCII hyphen keeps the skeleton within maxSkeletonBytes)"
+}

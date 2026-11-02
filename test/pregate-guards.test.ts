@@ -193,6 +193,12 @@ describe('pregate config: sealed (CD4)', () => {
     expect(codes({ sealed: { seed_patterns: ['('] } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.seed_patterns[0]']);
     expect(codes({ sealed: { visibility: 'internal' } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.visibility']);
     expect(codes({ sealed: { block: true } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.block']);
+    expect(codes({ sealed: { paths: ['**/sealed/**'], allow_paths: ['**/sealed/*/MANIFEST.json', '**/protected/MANIFEST.json'], case_insensitive: true } })).toEqual([]);
+    expect(codes({ sealed: { allow_paths: '**/sealed/*/MANIFEST.json' } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.allow_paths']);
+    expect(codes({ sealed: { allow_paths: ['../x/MANIFEST.json'] } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.allow_paths[0]']);
+    expect(codes({ sealed: { allow_paths: Array.from({ length: 65 }, (_, i) => `s${i}/MANIFEST.json`) } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.allow_paths']);
+    expect(codes({ sealed: { allow_paths: ['**', 'sealed/**', 'sealed/*', '**/*.json', 'sealed/*.*', '**/sealed/**.json', '**/sealed/*/MANIFEST.json', '**/sealed/*/transcript-*.jsonl', '.hidden'] } })).toEqual([0, 1, 2, 3, 4, 5].map(i => `PREGATE_CONFIG_INVALID:sealed.allow_paths[${i}]`));
+    expect(codes({ sealed: { case_insensitive: 'yes' } })).toEqual(['PREGATE_CONFIG_INVALID:sealed.case_insensitive']);
   });
 });
 

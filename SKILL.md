@@ -208,6 +208,7 @@ quality gates that produce better results than answering inline.
 - User asks to write a skill, improve or slim a skill, or add a lesson to a named skill → invoke `/write-skill`
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
+- User asks to run the checks, make the tests pass, "verify my change", "check my work" while building → invoke `/verify`
 - User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
 - User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
 - User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → invoke `/modernize`

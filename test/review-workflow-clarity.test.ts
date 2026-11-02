@@ -684,3 +684,18 @@ test('review suppressions allow a clean result and skip common false positives b
   expectTokens(suppressions, ['"Function too long"', '"Possible null dereference"', '"N+1 query"', '"Hardcoded value"', '`Math.random()`'], 'suppressions');
   expectAbsent(suppressions, [/missing input validation/i, /missing await/i], 'suppressions');
 });
+
+test('judged repeat-pass QA reruns and unresolved record actions each have one rule (paid screen 40617200857)', () => {
+  // Every sample of the red panel and its rerun named one of these: "post-expiry smoke rechecks are not-run" vs
+  // Step 5.8's rerun of superseded probes, materialize's once-per-PROBE_DIR limit vs reruns into the same report,
+  // and no record action for an unresolved non-gate defect (an unanswered question or an unproven repair).
+  // fails_when=the rerun stops being revalidation, materialize may run per pass, or such a defect has no action.
+  const flat = skill.replace(/\s+/g, ' ');
+  const repeat = flat.slice(flat.indexOf('2. On a repeat, execute Steps 3–5 in order.'), flat.indexOf('3. **Verify completed actions.**'));
+  expect(repeat).toContain('These reruns are revalidation, so they run even after smoke expiry; keep the PROBE_DIR. Earlier provisional sections link checkpoints; only the final pass runs its once-only `materialize`.');
+  expect(repeat.indexOf('rerun each probe the verdict relies on')).toBeLessThan(repeat.indexOf('These reruns are revalidation'));
+  const actions = flat.slice(flat.indexOf('Actions: `auto-fixed` (Step 5b)'), flat.indexOf('Advice is never `auto-fixed`'));
+  expect(actions).toContain('`fixed` (approved **and completed** in Step 5d)');
+  expect(actions).toContain('`skipped` (explicit Skip in Step 5c), `open` (any other defect, e.g. unanswered).');
+  expect(flat).toContain('Do not record an unanswered question as skipped');
+});

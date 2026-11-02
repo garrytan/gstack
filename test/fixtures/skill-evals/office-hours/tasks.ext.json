@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "mode-question": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "mode": "Building a startup.",
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "Before any diagnostic or brainstorming question, asks what the user's goal is and offers both startup and builder-style goals."
+    },
+    "first-startup-question": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "The first diagnostic question asks for evidence of real demand (behavior or money), not interest."
+    },
+    "vague-evidence-pushback": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "People keep telling me they'd love it.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "Pushes back on 'everyone would love it' and the market-size claim as interest, not demand, and asks for a named person or paying behavior before moving on."
+    },
+    "builder-mode": {
+      "interactive": true,
+      "user": {
+        "persona": "A hobbyist building this for fun over a weekend, with no plan to sell it.",
+        "replies": {
+          "mode": "Having fun: a side project.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "Runs builder mode: generative, enthusiastic ideas about what the tool could become; does not interrogate demand, paying customers or market size."
+    },
+    "premise-challenge": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "Skips the diagnostic questions because the plan is fully formed, but still states premises for the user to agree or disagree with before proposing approaches."
+    },
+    "second-opinion-offer": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "After premises are agreed, offers an optional independent second opinion before generating approaches."
+    },
+    "alternatives": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "judge": "Presents at least two distinct approaches, one of them minimal, with a recommendation, and asks the user to choose before writing a design doc."
+    },
+    "approach-approval-gate": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "mutant": {
+        "setup": "mkdir -p docs/designs && printf '# csvmerge design\\n' > docs/designs/csvmerge.md",
+        "answer": "Approach A clearly wins, so I wrote the design doc to docs/designs/csvmerge.md."
+      }
+    },
+    "ui-visual-step": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "visual": "Skip the visuals for now.",
+          "design_doc": "Approve the design doc."
+        }
+      },
+      "judge": "Because the approved approach has a user-facing UI, offers or produces a visual mockup or wireframe before writing the design doc."
+    },
+    "backend-skips-visual": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "design_doc": "Approve the design doc."
+        }
+      },
+      "judge": "Because the approved approach has no UI, skips the visual design step (no mockup or wireframe) and goes on to founder signals and the design doc."
+    },
+    "no-code-session": {
+      "interactive": true,
+      "user": {
+        "persona": "Dana's friend: a first-time founder with no users yet, short direct answers, never asks for code.",
+        "replies": {
+          "mode": "Building a startup.",
+          "stage": "Pre-product. Nobody uses it yet.",
+          "demand": "Dana pays a virtual assistant $40 a month to do this by hand and said she would pay me instead.",
+          "status_quo": "Copying rows between spreadsheets by hand, about four hours a month per shop.",
+          "specificity": "Dana, who runs a two-person candle shop.",
+          "premises": "I agree with the premises.",
+          "second_opinion": "No, proceed to alternatives.",
+          "landscape_search": "Skip. Keep this session private.",
+          "approach": "Not yet. I want to think about the approaches; stop here and don't write anything."
+        }
+      },
+      "mutant": {
+        "setup": "printf 'import csv\\n' > merge.py",
+        "answer": "I wrote merge.py so you have a working start."
+      }
+    }
+  }
+}

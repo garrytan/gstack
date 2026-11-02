@@ -193,9 +193,10 @@ describe('without a train block nothing changes (the inert proof)', () => {
 });
 
 describe('under a train block (the gate edits, each only on its mode)', () => {
-  test('a PR push starts no paid slice: route, readiness and the free screening summary only', () => {
+  test('a PR push starts no paid slice and waits for nothing: route, the image and the free screening summary only', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, ...train, mode: 'pr-summary' } } });
-    expect(sim.jobs).toEqual(['build-image', 'readiness', 'route', 'screen-summary']);
+    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary']);
+    expect(simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toContain('readiness');
     const summary = evals.jobs['screen-summary']!;
     expect(summary.permissions).toEqual({ contents: 'read' });
     expect(JSON.stringify(summary)).not.toMatch(/secrets\.|restore-deps|bun install/);
@@ -391,13 +392,19 @@ describe.skipIf(!Bun.which('jq') || !Bun.which('bash'))('the route job reads the
   const block = { gate_workflow: 'evals.yml', free_workflow: 'free-tests.yml', full_gate_check: 'gstack/full-gate', record_artifact: 'gstack-train-record', max_size: 5, fill_hours: 3, screen_selection: 'none', trial_reservation_usd: 1.5 };
 
   test('no policy, no train block, or an invalid one: train=false, and a PR push routes pr', () => {
-    for (const policy of [undefined, { bump: 'patch' }, { bump: 'patch', train: null }, { train: { ...block, record_artifact: 'bad name!' } }, '{not json']) {
+    for (const policy of [undefined, { bump: 'patch' }, { bump: 'patch', train: null }, { train: { ...block, record_artifact: 'bad name!' } }]) {
       const fx = fixture(policy);
       const out = run(policyStep.run!, fx.dir, { BASE_SHA: fx.base, DEFAULT_BRANCH: 'main' });
       expect(out, JSON.stringify(policy)).toEqual({ train: 'false' });
       expect(run(routeStep.run!, fx.dir, { GITHUB_EVENT_NAME: 'pull_request', TRAIN_POLICY: out.train! })).toEqual({ mode: 'pr' });
       fs.rmSync(fx.dir, { recursive: true, force: true });
     }
+  });
+
+  test('a policy that is not JSON fails the route instead of routing as before (GSTA-203 H1)', () => {
+    const fx = fixture('{not json');
+    expect(() => run(policyStep.run!, fx.dir, { BASE_SHA: fx.base, DEFAULT_BRANCH: 'main' })).toThrow('.gstack/ship-policy.json is not valid JSON');
+    fs.rmSync(fx.dir, { recursive: true, force: true });
   });
 
   test('a train block names the record artifact and check, and a PR push routes pr-summary', () => {

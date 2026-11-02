@@ -56,21 +56,22 @@ Conventions:
 - [/plan-devex-review](plan-devex-review/SKILL.md): Interactive developer experience plan review.
 - [/plan-eng-review](plan-eng-review/SKILL.md): Eng manager-mode plan review.
 - [/plan-tune](plan-tune/SKILL.md): Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
-- [/qa](qa/SKILL.md): Fix browser/API/CLI/job/worker/webhook bugs.
+- [/qa](qa/SKILL.md): Test the site, API or CLI and fix the bugs it finds.
 - [/qa-only](qa-only/SKILL.md): Report browser/API/CLI/job/worker/webhook bugs.
 - [/retro](retro/SKILL.md): Weekly engineering retrospective.
-- [/review](review/SKILL.md): Pre-landing PR review.
+- [/review](review/SKILL.md): Review this PR's diff.
 - [/scrape](scrape/SKILL.md): Pull data from a web page through the Aside browser — your real, already signed-in sessions.
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
 - [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.
 - [/setup-gbrain](setup-gbrain/SKILL.md): Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or Supabase brain, register MCP, capture per-remote trust policy.
-- [/ship](ship/SKILL.md): Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
+- [/ship](ship/SKILL.md): Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR.
 - [/skillify](skillify/SKILL.md): Codify the most recent successful /scrape flow into a permanent browser-skill on disk.
 - [/spec](spec/SKILL.md): Turn vague intent into a precise, executable spec in five phases.
 - [/sync-gbrain](sync-gbrain/SKILL.md): Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.
 - [/test-audit](test-audit/SKILL.md): Find low-value or duplicate tests and the test-only code they keep alive.
 - [/ubicloud](ubicloud/SKILL.md): Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs, a reaper, quota preflight and a hang watchdog.
 - [/unfreeze](unfreeze/SKILL.md): Clear the freeze boundary set by /freeze, allowing edits to all directories again.
+- [/verify](verify/SKILL.md): Build loop while coding: run the repo's checks and the tests /ship would pick, fix, repeat until green.
 - [/write-skill](write-skill/SKILL.md): Write a new agent skill or improve one without bloat: the edit ladder, levels, drift and size checks, full diets.
 
 ## Browse Commands

@@ -8,9 +8,7 @@ description: |
   Rates each design dimension 0-10, explains what would make it a 10,
   then fixes the plan to get there. Works in plan mode. For live site
   visual audits, use /design-review. Use when asked to "review the design plan"
-  or "design critique".
-  Proactively suggest when the user has a plan with UI/UX components that
-  should be reviewed before implementation. (gstack)
+  or "design critique". (gstack)
 allowed-tools:
   - Read
   - Edit
@@ -174,8 +172,8 @@ and tell the user you are generating them.
 
 Skip mockups only when:
 - `DESIGN_NOT_AVAILABLE` was printed (designer binary not found)
-- The first `$D` generation command fails before producing an image (for
-  example `No OpenAI API key found`): treat it exactly as `DESIGN_NOT_AVAILABLE`
+- The first `$D` generation command fails before any image (e.g.
+  `No image API key found`): show its `Fix:` line and treat it as `DESIGN_NOT_AVAILABLE`
 - The plan has zero UI scope (pure backend/API/infrastructure)
 
 If the user explicitly says "skip mockups" or "text only", respect that. Otherwise, generate.
@@ -288,10 +286,10 @@ Exit 0: show the image at the printed `outputPath` via the Read tool. Exit 2 or 
 
 {{SECTION:review-sections}}
 
-## Section self-check (before you finish)
+{{IF_SECTION:review-sections}}## Section self-check (before you finish)
 
 Confirm you Read the review section the Section index named, and executed all 7 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
-Before summaries, review logs or next-step menus, run approval check 0 below.
+{{/IF_SECTION}}Before summaries, review logs or next-step menus, run approval check 0 below.
 
 {{EXIT_PLAN_MODE_GATE}}
