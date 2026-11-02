@@ -63,7 +63,7 @@ const LATER_COOKIE_ORDER_EDITS: Array<[string, string]> = [
 
 // The #3338 trust warning (GSTA-84) added one paragraph after step 3's goto
 // (two lines longer). Removing it first lets the GSTA-49 reversal match.
-const LATER_TRUST_PARAGRAPH = "Tell the user once, before the import: this browser trusts the root store built into gstack's bundled Chromium, which still accepts certificates from the compromised eMudhra intermediates ([#3338](https://github.com/garrytan/gstack/issues/3338)). Until gstack moves to a Playwright release that drops them, don't use the imported sessions on a network the user does not trust. That same root's `BROWSER.md`, **TLS trust: the bundled Chromium's root store**, has the details and the check.\n\n";
+const LATER_TRUST_PARAGRAPH = "Tell the user once, before the import: gstack's headless browser trusts the root store built into gstack's bundled Chromium, which still accepts certificates from the compromised eMudhra intermediates ([#3338](https://github.com/garrytan/gstack/issues/3338)). Until gstack moves to a Playwright release that drops them, don't use the imported sessions on a network the user does not trust. That same root's `BROWSER.md`, **TLS trust: the bundled Chromium's root store**, has the details and the check.\n\n";
 
 export function approvedCookieWorkflowSource(source: string): string {
   let removedLines = 0;
