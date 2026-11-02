@@ -1,0 +1,161 @@
+{
+  "provenance": {
+    "kind": "public native AskUserQuestion calls and answers only (observation.json fingerprints[].nativeCall, byte-exact)",
+    "runId": 41178131219,
+    "artifact": "paid-slice-6-a1",
+    "prNumber": 3662,
+    "headSha": "e18cccbcc482d2a8212cc41993fee052a4701e26",
+    "testedSha": "a77fae2837695ffc3e7937bb8f3e9dc5eb337fc4",
+    "recordedOutcome": "ceiling_reached",
+    "recordedReviewCount": 1,
+    "recordedStep0Count": 3,
+    "recordedPassed": false,
+    "note": "Step 0D titled only 'Review focus', with the 4/10 design-completeness rating in the ELI10 body, and lettered its options: 'A) All 7 passes (recommended)'. The runner reached the review ceiling on the issue-labeled D4 finding, but the focus predicate accepted an all-seven option only when 'All 7' led the label, so the letter prefix hid Step 0D and the gate failed."
+  },
+  "calls": [
+    {
+      "preReview": true,
+      "observedAtMs": 25355,
+      "call": {
+        "sessionId": "4b0b022d-3033-4d11-b220-4c86f38f9712",
+        "toolUseId": "toolu_014Adzj8rsKq2ftZ6cFLdA7h",
+        "questions": [
+          {
+            "question": "D1 — What should I review? The project instructions name two targets: PLAN.md as the current plan, and a request to review the UI plan in review-input.md. They may hold the same \"User Dashboard Page\" plan, but I can't check before you choose. If I review the wrong file, the design fixes go into the wrong plan. Recommendation: B, review-input.md, because the request explicitly says to read it before choosing scope. <gstack-qid:plan-design-review-scope-target>",
+            "header": "Scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "B) review-input.md (recommended)",
+                "description": "✅ Matches the explicit request to review the supplied UI plan in review-input.md. ✅ Audit, Step 0 and mockups all anchor on that file. ❌ If PLAN.md has diverged, any edits made only there won't be reviewed."
+              },
+              {
+                "label": "B) PLAN.md",
+                "description": "✅ Matches the line in the project instructions that names PLAN.md as the current plan. ✅ Same full review: audit, Step 0, mockups and 7 passes. ❌ Ignores review-input.md if that file has newer content."
+              },
+              {
+                "label": "A) Current branch diff",
+                "description": "✅ Reviews the work in progress on main against the base branch. ✅ Good fit if UI code has already landed. ❌ The tree is clean with one seed commit, so there's probably nothing to review."
+              },
+              {
+                "label": "C) A specific page/file/path",
+                "description": "✅ Lets you point at one specific file or screen to review. ✅ Narrower and faster than a whole-plan review. ❌ You need to say which path, and the rest of the dashboard plan goes unreviewed."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — What should I review? The project instructions name two targets: PLAN.md as the current plan, and a request to review the UI plan in review-input.md. They may hold the same \"User Dashboard Page\" plan, but I can't check before you choose. If I review the wrong file, the design fixes go into the wrong plan. Recommendation: B, review-input.md, because the request explicitly says to read it before choosing scope. <gstack-qid:plan-design-review-scope-target>": "B) review-input.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T06:52:50.945Z"
+      }
+    },
+    {
+      "preReview": true,
+      "observedAtMs": 76985,
+      "call": {
+        "sessionId": "4b0b022d-3033-4d11-b220-4c86f38f9712",
+        "toolUseId": "toolu_01FkeNMEVef5iKQZApVURMDs",
+        "questions": [
+          {
+            "question": "D2 — Review focus. Project/branch/task: plan-design-review of the User Dashboard plan in review-input.md on main.\nELI10: I rated this plan 4/10 on design completeness. The biggest gaps: the plan never says which panel matters most, how the layout changes per screen size, or what the modal, toasts and partial-failure states look like and how they behave. Next I'll generate visual mockups, then review all 7 design dimensions, unless you want me to narrow the focus.\nStakes if we pick wrong: if I narrow the focus, gaps in the skipped areas (like accessibility or responsive layout) go to implementation undecided.\nRecommendation: A, all 7 passes, because this is a brand-new landing page with no design system, so every dimension has open gaps.\nCompleteness: A=10/10, B=6/10, C=5/10\nPros / cons:\nA) All 7 passes (recommended)\n  ✅ Covers hierarchy, states, journey, AI-slop risk, design system, responsive and accessibility, and unresolved decisions\n  ✅ With no DESIGN.md, this pins down tokens and patterns before any code is written\n  ❌ More decisions to work through, roughly one question per gap found\nB) Hierarchy + states + responsive only\n  ✅ Concentrates on what users notice first on the post-login landing page\n  ✅ Fewer questions; gets to an improved plan faster\n  ❌ Leaves modal/toast accessibility and design tokens unspecified, so the implementer guesses\nC) Accessibility + interaction states only\n  ✅ Locks down the keyboard, screen-reader, modal and toast contracts the plan only gestures at\n  ✅ Matches the plan's existing keyboard-navigation test intent\n  ❌ Skips layout hierarchy, so the page can ship as a generic three-card grid\nNet: full coverage of a new landing page versus fewer decisions now.",
+            "header": "Focus",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) All 7 passes (recommended)",
+                "description": "✅ Covers hierarchy, states, journey, AI-slop risk, design system, responsive/accessibility, and unresolved decisions. ✅ Pins down tokens before code with no DESIGN.md. ❌ More decisions, roughly one question per gap found."
+              },
+              {
+                "label": "B) Hierarchy+states+responsive",
+                "description": "✅ Concentrates on what users notice first on the post-login landing page. ✅ Fewer questions, faster improved plan. ❌ Modal/toast accessibility and tokens stay unspecified, so the implementer guesses."
+              },
+              {
+                "label": "C) Accessibility+interaction only",
+                "description": "✅ Locks down the keyboard, screen-reader, modal and toast contracts the plan only gestures at. ✅ Matches the plan's existing keyboard test intent. ❌ Skips hierarchy, so the page can ship as a generic three-card grid."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Review focus. Project/branch/task: plan-design-review of the User Dashboard plan in review-input.md on main.\nELI10: I rated this plan 4/10 on design completeness. The biggest gaps: the plan never says which panel matters most, how the layout changes per screen size, or what the modal, toasts and partial-failure states look like and how they behave. Next I'll generate visual mockups, then review all 7 design dimensions, unless you want me to narrow the focus.\nStakes if we pick wrong: if I narrow the focus, gaps in the skipped areas (like accessibility or responsive layout) go to implementation undecided.\nRecommendation: A, all 7 passes, because this is a brand-new landing page with no design system, so every dimension has open gaps.\nCompleteness: A=10/10, B=6/10, C=5/10\nPros / cons:\nA) All 7 passes (recommended)\n  ✅ Covers hierarchy, states, journey, AI-slop risk, design system, responsive and accessibility, and unresolved decisions\n  ✅ With no DESIGN.md, this pins down tokens and patterns before any code is written\n  ❌ More decisions to work through, roughly one question per gap found\nB) Hierarchy + states + responsive only\n  ✅ Concentrates on what users notice first on the post-login landing page\n  ✅ Fewer questions; gets to an improved plan faster\n  ❌ Leaves modal/toast accessibility and design tokens unspecified, so the implementer guesses\nC) Accessibility + interaction states only\n  ✅ Locks down the keyboard, screen-reader, modal and toast contracts the plan only gestures at\n  ✅ Matches the plan's existing keyboard-navigation test intent\n  ❌ Skips layout hierarchy, so the page can ship as a generic three-card grid\nNet: full coverage of a new landing page versus fewer decisions now.": "A) All 7 passes (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T06:53:41.125Z"
+      }
+    },
+    {
+      "preReview": true,
+      "observedAtMs": 107434,
+      "call": {
+        "sessionId": "4b0b022d-3033-4d11-b220-4c86f38f9712",
+        "toolUseId": "toolu_01CaKQSWyyBPxTVGn1UfseQM",
+        "questions": [
+          {
+            "question": "Want outside design voices before the detailed review? D3. Project/branch/task: User Dashboard plan review on main. ELI10: two outside reviewers can critique the plan before my 7 passes. Codex checks it against hard design rules and a litmus scorecard, and a separate Claude reviewer does a fresh completeness read. Stakes if we pick wrong: without them, every finding comes from one reviewer; with them, the review takes a few minutes longer. Recommendation: B, proceed without, because no mockup was generated and the 7 passes cover the same ground. Note: options differ in kind, not coverage, so there's no completeness score. Net: a cross-model check versus fewer steps.",
+            "header": "Voices",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Yes, run outside design voices",
+                "description": "✅ Codex hard-rule + litmus scorecard plus an independent Claude completeness read. ✅ Disagreements surface with both perspectives in the relevant pass. ❌ Adds a few minutes; Codex may be missing here, in which case only the Claude voice runs and it's tagged single-model."
+              },
+              {
+                "label": "No, proceed without (recommended)",
+                "description": "✅ Straight into the 7 passes with the approved mockup as anchor. ✅ Fewest steps to a fixed plan. ❌ Findings rest on one reviewer; no cross-model check on slop risk or hierarchy."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "Want outside design voices before the detailed review? D3. Project/branch/task: User Dashboard plan review on main. ELI10: two outside reviewers can critique the plan before my 7 passes. Codex checks it against hard design rules and a litmus scorecard, and a separate Claude reviewer does a fresh completeness read. Stakes if we pick wrong: without them, every finding comes from one reviewer; with them, the review takes a few minutes longer. Recommendation: B, proceed without, because no mockup was generated and the 7 passes cover the same ground. Note: options differ in kind, not coverage, so there's no completeness score. Net: a cross-model check versus fewer steps.": "No, proceed without (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T06:54:12.032Z"
+      }
+    },
+    {
+      "preReview": false,
+      "observedAtMs": 176665,
+      "call": {
+        "sessionId": "4b0b022d-3033-4d11-b220-4c86f38f9712",
+        "toolUseId": "toolu_01N9Au3JQo4gsvMyrb2bbzck",
+        "questions": [
+          {
+            "question": "D4 — Issue 1: panel hierarchy on /dashboard. Project/branch/task: User Dashboard plan review on main.\nELI10: Users land here right after login and scan the page. The plan has three panels but doesn't say which one they see first. Without that, the panels get equal weight and nothing tells the user what to do next. This violates \"every screen has a hierarchy\" and Krug's billboard rule.\nStakes if we pick wrong: users hunt for their next step on every login, and unread notifications compete with ambient activity.\nRecommendation: 1A, because quick actions are the most common next step and unread notifications are the only actionable content, so they come first and activity is supporting context.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Actions in header, Notifications primary, Activity secondary (recommended)\n  ✅ Page header holds the greeting plus quick actions, so the next step is in the first viewport\n  ✅ Notifications get the wide column (8/12 at lg), and activity sits in a narrower 4/12 rail\n  ❌ Users who mainly come back for the activity history scroll or look to the side for it\n1B) Actions in header, Activity primary, Notifications secondary\n  ✅ Activity gets the wide column: suits teams that use the dashboard as a history log\n  ✅ Notifications become a compact rail with an unread badge\n  ❌ The only action on the page (mark all as read) sits in the secondary rail\n1C) Three equal panels\n  ✅ Simplest to build, with no ranking decision needed\n  ✅ Every panel looks equally important, matching the plan text as written\n  ❌ Exactly the generic three-card mosaic; no single obvious next step\nNet: an opinionated, scannable landing page versus neutral equal weighting.",
+            "header": "Hierarchy",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Notifs primary (recommended)",
+                "description": "✅ Header holds greeting plus quick actions, so the next step is in the first viewport. ✅ Notifications get 8/12 at lg, activity a 4/12 rail. ❌ Users who come back mainly for activity look to the side or scroll."
+              },
+              {
+                "label": "1B) Activity primary",
+                "description": "✅ Activity gets the wide column, suiting teams that use the dashboard as a history log. ✅ Notifications become a compact rail with an unread badge. ❌ The page's only action (mark all read) sits in the secondary rail."
+              },
+              {
+                "label": "1C) Three equal panels",
+                "description": "✅ Simplest to build, with no ranking decision needed. ✅ Matches the plan text exactly as currently written. ❌ The generic three-card mosaic, with no single obvious next step for the user."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Issue 1: panel hierarchy on /dashboard. Project/branch/task: User Dashboard plan review on main.\nELI10: Users land here right after login and scan the page. The plan has three panels but doesn't say which one they see first. Without that, the panels get equal weight and nothing tells the user what to do next. This violates \"every screen has a hierarchy\" and Krug's billboard rule.\nStakes if we pick wrong: users hunt for their next step on every login, and unread notifications compete with ambient activity.\nRecommendation: 1A, because quick actions are the most common next step and unread notifications are the only actionable content, so they come first and activity is supporting context.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Actions in header, Notifications primary, Activity secondary (recommended)\n  ✅ Page header holds the greeting plus quick actions, so the next step is in the first viewport\n  ✅ Notifications get the wide column (8/12 at lg), and activity sits in a narrower 4/12 rail\n  ❌ Users who mainly come back for the activity history scroll or look to the side for it\n1B) Actions in header, Activity primary, Notifications secondary\n  ✅ Activity gets the wide column: suits teams that use the dashboard as a history log\n  ✅ Notifications become a compact rail with an unread badge\n  ❌ The only action on the page (mark all as read) sits in the secondary rail\n1C) Three equal panels\n  ✅ Simplest to build, with no ranking decision needed\n  ✅ Every panel looks equally important, matching the plan text as written\n  ❌ Exactly the generic three-card mosaic; no single obvious next step\nNet: an opinionated, scannable landing page versus neutral equal weighting.": "1A) Notifs primary (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-10-31T06:55:20.477Z"
+      }
+    }
+  ]
+}

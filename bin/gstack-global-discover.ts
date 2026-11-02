@@ -10,7 +10,7 @@
  */
 
 import { existsSync, readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from "fs";
-import { join, basename, dirname, resolve } from "path";
+import { join, basename, dirname, resolve, isAbsolute } from "path";
 import { spawnSync } from "child_process";
 import { homedir } from "os";
 import { canonicalRemote } from "../lib/remote-identity";
@@ -20,8 +20,11 @@ import { canonicalRemote } from "../lib/remote-identity";
 type CodexOriginator = "cli" | "desktop" | "exec" | "claude_code" | "other";
 type CodexOriginatorCounts = Record<CodexOriginator, number>;
 
+type ToolId = "claude_code" | "codex" | "gemini" | "kimi_code" | "omp";
+type ToolCounts = Record<ToolId, number>;
+
 interface Session {
-  tool: "claude_code" | "codex" | "gemini";
+  tool: ToolId;
   cwd: string;
   codexOriginator?: CodexOriginator;
 }
@@ -30,19 +33,24 @@ interface Repo {
   name: string;
   remote: string;
   paths: string[];
-  sessions: { claude_code: number; codex: number; gemini: number };
+  sessions: ToolCounts;
   codex_originators: CodexOriginatorCounts;
+}
+
+interface ToolSummary {
+  label: string;
+  total_sessions: number;
+  repos: number;
+  originators?: CodexOriginatorCounts;
+  /** Sessions counted without a recorded cwd: they count in total_sessions, like sessions outside any repo, but belong to no repo. */
+  unattributed?: true;
 }
 
 interface DiscoveryResult {
   window: string;
   start_date: string;
   repos: Repo[];
-  tools: {
-    claude_code: { total_sessions: number; repos: number };
-    codex: { total_sessions: number; repos: number; originators: CodexOriginatorCounts };
-    gemini: { total_sessions: number; repos: number };
-  };
+  tools: Record<ToolId | "agy", ToolSummary>;
   total_sessions: number;
   total_repos: number;
 }
@@ -521,6 +529,128 @@ function scanGemini(since: Date): Session[] {
   return sessions;
 }
 
+/**
+ * Kimi Code: ~/.kimi-code/session_index.jsonl lists { sessionId, sessionDir, workDir };
+ * the session's state.json carries updatedAt (epoch ms). workDir is the absolute cwd.
+ */
+function scanKimiCode(since: Date): Session[] {
+  const root = join(homedir(), ".kimi-code");
+  let index: string;
+  try {
+    index = readFileSync(join(root, "session_index.jsonl"), { encoding: "utf-8" });
+  } catch {
+    return [];
+  }
+  const sessions: Session[] = [];
+  for (const line of index.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof entry?.sessionDir !== "string" || !entry.sessionDir) continue;
+    const dir = isAbsolute(entry.sessionDir) ? entry.sessionDir : join(root, entry.sessionDir);
+    let state: any = {};
+    try {
+      state = JSON.parse(readFileSync(join(dir, "state.json"), { encoding: "utf-8" }));
+    } catch {}
+    let updated = typeof state?.updatedAt === "number" ? state.updatedAt : NaN;
+    if (Number.isNaN(updated)) {
+      try {
+        updated = statSync(dir).mtimeMs;
+      } catch {
+        continue;
+      }
+    }
+    if (updated < since.getTime()) continue;
+    const cwd = typeof entry.workDir === "string" && entry.workDir ? entry.workDir : typeof state?.cwd === "string" ? state.cwd : null;
+    if (cwd) sessions.push({ tool: "kimi_code", cwd });
+  }
+  return sessions;
+}
+
+/**
+ * OMP: one <timestamp>_<uuid>.jsonl per session under ~/.omp/agent/sessions/<workspace>/.
+ * The workspace directory name is a lossy encoding of the path, so the cwd comes from
+ * the session file itself. A session counts when its file was written inside the
+ * window, like the other scanners; ~/.omp/logs holds per-launch logs and is never read.
+ */
+function scanOmp(since: Date, stats: CwdScanStats): Session[] {
+  const sessionsDir = join(homedir(), ".omp", "agent", "sessions");
+  let workspaces: string[];
+  try {
+    workspaces = readdirSync(sessionsDir);
+  } catch {
+    return [];
+  }
+  const sessions: Session[] = [];
+  for (const workspace of workspaces) {
+    const dir = join(sessionsDir, workspace);
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      const path = join(dir, file);
+      try {
+        if (statSync(path).mtime < since) continue;
+      } catch {
+        continue;
+      }
+      const cwd = extractCwdFromJsonl(path, stats);
+      if (cwd) sessions.push({ tool: "omp", cwd });
+    }
+  }
+  return sessions;
+}
+
+/**
+ * Antigravity CLI (agy) keeps each conversation as SQLite under
+ * ~/.gemini/antigravity-cli/conversations/*.db, with the cwd inside an undocumented
+ * blob (#1977). Sessions are counted by the later of the .db and its -wal file's
+ * mtime and are not attributed to a repo.
+ */
+function countAntigravity(since: Date): number {
+  const dir = join(homedir(), ".gemini", "antigravity-cli", "conversations");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".db"));
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (const file of files) {
+    let latest = 0;
+    for (const path of [join(dir, file), join(dir, `${file}-wal`)]) {
+      try {
+        latest = Math.max(latest, statSync(path).mtimeMs);
+      } catch {}
+    }
+    if (latest >= since.getTime()) count++;
+  }
+  return count;
+}
+
+const SCANNERS: ReadonlyArray<{ id: ToolId; label: string; scan: (since: Date, stats: CwdScanStats) => Session[] }> = [
+  { id: "claude_code", label: "CC", scan: scanClaudeCode },
+  { id: "codex", label: "Codex", scan: (since) => scanCodex(since) },
+  { id: "gemini", label: "Gemini", scan: (since) => scanGemini(since) },
+  { id: "kimi_code", label: "Kimi Code", scan: (since) => scanKimiCode(since) },
+  { id: "omp", label: "OMP", scan: scanOmp },
+];
+
+function emptyCounts(): ToolCounts {
+  return Object.fromEntries(SCANNERS.map((s) => [s.id, 0])) as ToolCounts;
+}
+
+function countTotal(counts: ToolCounts): number {
+  return SCANNERS.reduce((n, s) => n + counts[s.id], 0);
+}
+
 // ── Deduplication ──────────────────────────────────────────────────────────
 
 async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
@@ -555,7 +685,7 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
       }
     }
 
-    const sessionCounts = { claude_code: 0, codex: 0, gemini: 0 };
+    const sessionCounts = emptyCounts();
     for (const s of data.sessions) {
       sessionCounts[s.tool]++;
     }
@@ -570,11 +700,7 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
   }
 
   // Sort by total sessions descending
-  repos.sort(
-    (a, b) =>
-      b.sessions.claude_code + b.sessions.codex + b.sessions.gemini -
-      (a.sessions.claude_code + a.sessions.codex + a.sessions.gemini)
-  );
+  repos.sort((a, b) => countTotal(b.sessions) - countTotal(a.sessions));
 
   return repos;
 }
@@ -588,21 +714,19 @@ async function main() {
 
   // Run all scanners
   const cwdStats: CwdScanStats = { oversizedLines: 0 };
-  const ccSessions = scanClaudeCode(sinceDate, cwdStats);
-  const codexSessions = scanCodex(sinceDate);
-  const geminiSessions = scanGemini(sinceDate);
-
-  const allSessions = [...ccSessions, ...codexSessions, ...geminiSessions];
+  const byTool = SCANNERS.map((s) => ({ ...s, sessions: s.scan(sinceDate, cwdStats) }));
+  const agySessions = countAntigravity(sinceDate);
+  const allSessions = byTool.flatMap((t) => t.sessions);
+  const codexSessions = byTool.find((t) => t.id === "codex")!.sessions;
+  const toolCounts = byTool.map((t) => `${t.label}: ${t.sessions.length}`).join(", ");
 
   // Summary to stderr
-  console.error(
-    `Discovered: ${ccSessions.length} CC sessions, ${codexSessions.length} Codex sessions, ${geminiSessions.length} Gemini sessions`
-  );
+  console.error(`Discovered: ${toolCounts}; Antigravity: ${agySessions} (repo unattributed)`);
 
   if (cwdStats.oversizedLines > 0) {
     console.error(
-      `Skipped ${cwdStats.oversizedLines} Claude Code JSONL line(s) over 1 MiB while reading session cwds; ` +
-        `a session whose cwd appears only after such lines counts with its project directory's other sessions.`,
+      `Skipped ${cwdStats.oversizedLines} session JSONL line(s) over 1 MiB while reading session cwds; ` +
+        `a Claude Code session whose cwd appears only after such lines counts with its project directory's other sessions.`,
     );
   }
 
@@ -611,23 +735,25 @@ async function main() {
 
   console.error(`→ ${repos.length} unique repos`);
 
-  // Count per-tool repo counts
-  const ccRepos = new Set(repos.filter((r) => r.sessions.claude_code > 0).map((r) => r.remote)).size;
-  const codexRepos = new Set(repos.filter((r) => r.sessions.codex > 0).map((r) => r.remote)).size;
-  const geminiRepos = new Set(repos.filter((r) => r.sessions.gemini > 0).map((r) => r.remote)).size;
-
   const codexOriginators = countCodexOriginators(codexSessions);
+  const tools = Object.fromEntries(
+    byTool.map((t) => [
+      t.id,
+      {
+        label: t.label,
+        total_sessions: t.sessions.length,
+        repos: repos.filter((r) => r.sessions[t.id] > 0).length,
+        ...(t.id === "codex" ? { originators: codexOriginators } : {}),
+      },
+    ]),
+  ) as Record<ToolId, ToolSummary>;
 
   const result: DiscoveryResult = {
     window: since,
     start_date: startDate,
     repos,
-    tools: {
-      claude_code: { total_sessions: ccSessions.length, repos: ccRepos },
-      codex: { total_sessions: codexSessions.length, repos: codexRepos, originators: codexOriginators },
-      gemini: { total_sessions: geminiSessions.length, repos: geminiRepos },
-    },
-    total_sessions: allSessions.length,
+    tools: { ...tools, agy: { label: "Antigravity", total_sessions: agySessions, repos: 0, unattributed: true } },
+    total_sessions: allSessions.length + agySessions,
     total_repos: repos.length,
   };
 
@@ -636,17 +762,16 @@ async function main() {
   } else {
     // Summary format
     console.log(`Window: ${since} (since ${startDate})`);
-    console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length})`);
+    console.log(`Sessions: ${allSessions.length + agySessions} total (${toolCounts}, Antigravity: ${agySessions})`);
     if (codexSessions.length > 0) console.log(`  Codex originators: ${formatCodexOriginators(codexOriginators)}`);
+    if (agySessions > 0) console.log(`  Antigravity sessions are not attributed to a repo`);
     console.log(`Repos: ${repos.length} unique`);
     console.log("");
     for (const repo of repos) {
-      const total = repo.sessions.claude_code + repo.sessions.codex + repo.sessions.gemini;
-      const tools = [];
-      if (repo.sessions.claude_code > 0) tools.push(`CC:${repo.sessions.claude_code}`);
-      if (repo.sessions.codex > 0) tools.push(`Codex:${repo.sessions.codex} (${formatCodexOriginators(repo.codex_originators)})`);
-      if (repo.sessions.gemini > 0) tools.push(`Gemini:${repo.sessions.gemini}`);
-      console.log(`  ${repo.name} (${total} sessions) — ${tools.join(", ")}`);
+      const parts = byTool
+        .filter((t) => repo.sessions[t.id] > 0)
+        .map((t) => (t.id === "codex" ? `Codex:${repo.sessions.codex} (${formatCodexOriginators(repo.codex_originators)})` : `${t.label}:${repo.sessions[t.id]}`));
+      console.log(`  ${repo.name} (${countTotal(repo.sessions)} sessions) — ${parts.join(", ")}`);
       console.log(`    Remote: ${repo.remote}`);
       console.log(`    Paths: ${repo.paths.join(", ")}`);
     }

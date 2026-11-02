@@ -4,13 +4,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runGeneration } from '../scripts/gen-skill-docs';
-import { acceptedChangedPaths, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
+import { acceptedChangedPaths, docsAttemptContracts, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
 import { fixtureDocs, repoSnapshot, changedFiles, gitAt, DOC_PATH, preserveDocsEvidence } from './helpers/docsync-fixture';
 import { parseNDJSON, type SkillTestResult } from './helpers/session-runner';
 import { observeDocsWrites, docsWriteFailures, docsCommandAllowed, docsPreambleCommands, docsCompletedRead } from './helpers/docsync-observer';
 import { docsActorCommand, docsActorHook, installDocsActor, type DocsActorState, type DocsFault } from './helpers/docsync-fault-actor';
 import { docsActorVerdict } from './helpers/docsync-fault-eval';
 import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import missingSection from './fixtures/docsync-spawned-missing-section-public.json';
 
 const ROOT = path.join(import.meta.dir, '..');
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -625,6 +626,28 @@ describe('two-attempt documentation audits', () => {
     for (const index of dispatches) expect(calls[index].input.run_in_background).toBe(false);
   });
 
+  // Screen 40805543956 slice 3 (ship-docsync-completion, red on "completion fields", green on the in-run rerun): attempt 1
+  // edited the document and returned a completion without documentation_section; the parent rejected it and re-audited, and
+  // the case threw while parsing the rejected attempt with the accepted attempt's strict contract.
+  test('a rejected attempt that broke the completion contract still reports its edit; the accepted attempt stays strict', () => {
+    const { completions } = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-invalid-first-attempt-public.json'), 'utf8')) as { completions: string[] };
+    const [first, second] = completions;
+    expect(() => parseDocsCompletion(first, JSON.parse(first).audit_id)).toThrow('completion fields');
+    expect(Object.keys(JSON.parse(first))).not.toContain('documentation_section');
+    const { accepted, attempts } = docsAttemptContracts(completions);
+    expect(attempts.map(attempt => [attempt.audit_id, attempt.status, attempt.files_updated])).toEqual([['ship145-a1', 'updated', [DOC_PATH]], ['ship145-a2', 'current', []]]);
+    expect(attempts.at(-1)).toBe(accepted);
+    const evidence = { settled: true, markerSeen: true, headUnchanged: true, indexUnchanged: true, candidateUnchanged: true, readOnly: false, allowedDocs: [DOC_PATH] };
+    expect(acceptedChangedPaths([DOC_PATH], attempts)).toEqual([]);
+    expect(() => vetDocsCompletion(accepted, { ...evidence, changedPaths: acceptedChangedPaths([DOC_PATH], attempts) })).not.toThrow();
+    expect(() => vetDocsCompletion(accepted, { ...evidence, changedPaths: acceptedChangedPaths([DOC_PATH, 'README.md'], attempts) })).toThrow('unreported edits');
+    expect(() => docsAttemptContracts([second, first])).toThrow('completion fields');
+    expect(() => docsAttemptContracts([first])).toThrow('completion fields');
+    const report = JSON.parse(first);
+    for (const broken of [{ ...report, status: 'done' }, { ...report, files_updated: DOC_PATH }, { ...report, files_updated: [''] }, { ...report, audit_id: undefined }, []])
+      expect(() => docsAttemptContracts([JSON.stringify(broken), second]), JSON.stringify(broken)).toThrow('rejected attempt report');
+  });
+
   test('a third dispatch exceeds the attempt budget and a lone dispatch stays the accepted one', () => {
     const { toolCalls: calls } = replay('/tmp/ds-replay');
     const dispatches = docsDispatchIndices(calls);
@@ -633,5 +656,25 @@ describe('two-attempt documentation audits', () => {
     expect(docsDispatchIndices(calls.filter((_, index) => index !== dispatches[0]))).toHaveLength(1);
     expect(docsDispatchIndices(calls.filter((_, index) => !dispatches.includes(index)))).toEqual([]);
     expect(docsDispatchIndex(calls.filter((_, index) => !dispatches.includes(index)))).toBe(-1);
+  });
+});
+
+// Gates 41217563527 and 41238366045 (docsync-spawned): the child returned every field
+// except documentation_section, and the red read only "completion fields".
+describe('completion field failures name the fields', () => {
+  test('the captured spawned completions name the omitted documentation_section; the reruns parse', () => {
+    for (const { run, attempt, recordedPassed, output } of missingSection.outputs) {
+      const auditId = JSON.parse(output.trimEnd().split('\n').at(-1)!).audit_id;
+      if (recordedPassed) expect(parseDocsCompletion(output, auditId).status, run + attempt).toBe('blocked');
+      else expect(() => parseDocsCompletion(output, auditId), run + attempt).toThrow('completion fields: missing documentation_section; extra none');
+    }
+  });
+
+  test('an extra or legacy field is named too', () => {
+    const accepted = missingSection.outputs.find(row => row.recordedPassed)!.output;
+    const report = JSON.parse(accepted.trimEnd().split('\n').at(-1)!);
+    expect(() => parseDocsCompletion(JSON.stringify({ ...report, commit_sha: null }), report.audit_id)).toThrow('completion fields: missing none; extra commit_sha');
+    const { files_reviewed: _, ...rest } = report;
+    expect(() => parseDocsCompletion(JSON.stringify({ ...rest, pushed: false }), report.audit_id)).toThrow('completion fields: missing files_reviewed; extra pushed');
   });
 });

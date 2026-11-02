@@ -22,7 +22,10 @@
  *   not hide a failure in between); it finished within the profile's
  *   max_age_hours (default 24); its runner OS matches when the profile names
  *   one; and a second read of the run still shows the same successful attempt
- *   (run_changed otherwise).
+ *   (run_changed otherwise). A pull_request run tested GitHub's merge commit,
+ *   not its head, so it counts only when its tree.json names that head and a
+ *   merge commit (sha) whose tree git computes equal to the head's tree: the
+ *   head already contained its base, so the merge tested the head tree.
  *
  * Profiles are the base branch's `.gstack/pregate.json` `run_profiles`, so a
  * pull request can tighten them but never relax them. The workflow a run
@@ -40,7 +43,7 @@ import { sha256Hex, writeReceipt } from './egress-receipt';
 import { runBashSync } from './script-invocation';
 
 export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
-export interface RemoteGateRuns { profiles: string[]; inventory: string }
+export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
@@ -65,6 +68,7 @@ export interface RunEvidence { run_id: number; run_attempt: number; head_sha: st
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
 
 const SHA = /^[0-9a-f]{40}$/;
+const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
 const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os'];
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
@@ -96,7 +100,7 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
         const v = p[k];
         if (!Array.isArray(v) || v.length === 0 || v.length > 32 || v.some(s => typeof s !== 'string' || !s.trim())) errors.push({ path: `${at}.${k}`, message: 'must be a non-empty array of up to 32 names' });
       }
-      if (Array.isArray(p.events) && p.events.some(e => e !== 'push' && e !== 'workflow_dispatch')) errors.push({ path: `${at}.events`, message: 'events are push or workflow_dispatch (a pull_request run tests the merge commit, not the head tree)' });
+      if (Array.isArray(p.events) && p.events.some(e => !RUN_EVENTS.includes(e))) errors.push({ path: `${at}.events`, message: 'events are push, workflow_dispatch or pull_request (a pull_request run counts only when its merge commit\'s tree is its head\'s tree)' });
       if (typeof p.artifact !== 'string' || !NAME.test(p.artifact)) errors.push({ path: `${at}.artifact`, message: 'must be the artifact name holding tree.json' });
       if ('max_age_hours' in p && (!Number.isInteger(p.max_age_hours) || (p.max_age_hours as number) < 1 || (p.max_age_hours as number) > 168)) errors.push({ path: `${at}.max_age_hours`, message: 'must be an integer from 1 to 168' });
       if ('os' in p && (typeof p.os !== 'string' || !/^(Linux|macOS|Windows)$/.test(p.os))) errors.push({ path: `${at}.os`, message: 'must be Linux, macOS or Windows' });
@@ -104,15 +108,16 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
   }
   if (gateRuns !== undefined && gateRuns !== null) {
     const g = gateRuns as Record<string, unknown>;
-    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command }' });
+    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command, skipped?: command }' });
     else {
-      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory' });
+      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory' && k !== 'skipped') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory, skipped' });
       if (!Array.isArray(g.profiles) || g.profiles.length === 0 || g.profiles.some(p => typeof p !== 'string')) errors.push({ path: 'remote_gate_runs.profiles', message: 'must be a non-empty array of run_profiles names' });
       else {
         for (const p of g.profiles as string[]) if (!names.has(p)) errors.push({ path: 'remote_gate_runs.profiles', message: `${JSON.stringify(p)} is not a run_profiles name` });
         if (new Set(g.profiles).size !== g.profiles.length) errors.push({ path: 'remote_gate_runs.profiles', message: 'names each profile once' });
       }
       if (typeof g.inventory !== 'string' || !g.inventory.trim() || g.inventory.length > 512 || /[\0\r\n]/.test(g.inventory)) errors.push({ path: 'remote_gate_runs.inventory', message: 'must be one command line under 512 characters that prints the remote gate\'s test files, one per line' });
+      if ('skipped' in g && (typeof g.skipped !== 'string' || !g.skipped.trim() || g.skipped.length > 512 || /[\0\r\n]/.test(g.skipped))) errors.push({ path: 'remote_gate_runs.skipped', message: 'must be one command line under 512 characters that prints which selected test files (PREGATE_FILES_FILE) the remote gate itself does not run, one per line' });
     }
   }
   return errors;
@@ -164,13 +169,21 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
-    const recHeads = rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
+    const pr = run.event === 'pull_request';
+    const recHeads = pr ? [['head_sha', rec.head_sha, run.head_sha] as const] : rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
     const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, run.run_attempt], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);
     if (wrong.length) return fail('artifact_mismatch', `${at}'s ${p.artifact} records ${wrong.map(([k, got, want]) => `${k} ${String(got)} (expected ${want})`).join(', ')}`);
     const headTree = deps.commitTree(run.head_sha);
     if (!headTree) return fail('api_error', `git cannot read the tree of ${run.head_sha}`);
     if (rec.tree !== headTree) return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
-    if (p.os && rec.os !== p.os) return fail('os_mismatch', `${at} ran on ${String(rec.os ?? 'an unrecorded OS')}; ${o.profileName} requires ${p.os}`);
+    if (pr) {
+      if (typeof rec.sha !== 'string' || !SHA.test(rec.sha)) return fail('artifact_mismatch', `${at}'s ${p.artifact} names no merge commit (sha) for its pull_request run`);
+      const mergeTree = deps.commitTree(rec.sha);
+      if (!mergeTree) return fail('api_error', `git cannot read the tree of merge commit ${rec.sha}`);
+      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base`);
+    }
+    const oses = Array.isArray(rec.os) ? rec.os : [rec.os];
+    if (p.os && !oses.includes(p.os)) return fail('os_mismatch', `${at} ran on ${oses.filter(Boolean).map(String).join(', ') || 'an unrecorded OS'}; ${o.profileName} requires ${p.os}`);
     if (rec.files !== undefined && (!Array.isArray(rec.files) || rec.files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} files is not a list of paths`);
     if (rec.tests !== undefined && (!Number.isInteger(rec.tests) || (rec.tests as number) < 0)) return fail('artifact_mismatch', `${at}'s ${p.artifact} tests is not a non-negative integer`);
     const files = ((rec.files ?? []) as string[]).map(normalPath);
@@ -189,9 +202,9 @@ export function runChanged(deps: RunDeps, id: number, attempt: number): string |
   return again.run_attempt === attempt && again.status === 'completed' && again.conclusion === 'success' ? null : `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`;
 }
 
-/** The remote gate's inventory: `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
-export function runInventory(command: string, cwd: string): string[] | { error: string } {
-  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+/** The remote gate's inventory (or skipped list, with PREGATE_FILES_FILE in `env`): `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
+export function runInventory(command: string, cwd: string, env?: Record<string, string>): string[] | { error: string } {
+  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024, ...(env && { env: { ...process.env, ...env } }) });
   if (r.status !== 0 || r.error) return { error: `${command} exited ${r.status ?? r.error}: ${(r.stderr ?? '').trim().slice(0, 200)}` };
   return [...new Set(r.stdout.split('\n').map(l => l.trim()).filter(Boolean))];
 }
@@ -200,6 +213,29 @@ export function runInventory(command: string, cwd: string): string[] | { error: 
 export function uncoveredFiles(inventory: string[], evidence: RunEvidence[]): string[] {
   const ran = new Set(evidence.flatMap(e => e.files.map(normalPath)));
   return inventory.filter(f => !ran.has(normalPath(f)));
+}
+
+/** What a run check reads: the repository, the verifier's dependencies, the base branch's profiles and the clock. */
+export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date }
+export type FromRunVerdict = { ok: true; evidence: RunEvidence; receipt: string } | { ok: false; reason: string; detail: string };
+
+/**
+ * `gstack-pregate --stage tests --from-run <run>`: the run as evidence for `tree` under the first profile in `names`
+ * it verifies against (the base branch's profiles for this machine's OS whose workflow holds a local lane), with `head` as a further veto
+ * head. The run must have tested exactly this tree (no stamp-only substitution) and list the files it ran.
+ */
+export function verifyFromRun(src: RunSource, ref: string, names: string[], tree: string, head: string): FromRunVerdict {
+  if (!names.length) return { ok: false, reason: 'no_profile', detail: 'the base branch declares no run_profiles entry for this machine\'s OS whose workflow holds a lane this machine runs (gstack\'s ci-reuse/free-tests, for example)' };
+  const refusals: Array<{ reason: string; detail: string }> = [];
+  for (const name of names) {
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: ref, profileName: name, profile: src.profiles[name]!, vetoHeads: SHA.test(head) ? [head] : [], now: src.now });
+    if (!v.ok) { refusals.push({ reason: v.reason, detail: `${name}: ${v.detail}` }); continue; }
+    const e = v.evidence;
+    if (e.tree !== tree) return { ok: false, reason: 'tree_mismatch', detail: `run ${e.run_id} tested tree ${e.tree.slice(0, 12)}, not this tree ${tree.slice(0, 12)}` };
+    if (!e.files.length || e.tests === 0) return { ok: false, reason: 'no_tests', detail: `run ${e.run_id}'s tree.json ${e.files.length ? `records 0 tests for ${e.files.length} file(s)` : 'lists no test files'}` };
+    return { ok: true, evidence: e, receipt: `run tree=${tree.slice(0, 12)} tests=${e.tests ?? e.files.length} ${runReceiptFields([e], src.now)}` };
+  }
+  return refusals.length === 1 ? { ok: false, ...refusals[0]! } : { ok: false, reason: 'no_verified_run', detail: refusals.map(r => `${r.detail} (${r.reason})`).join(' | ') };
 }
 
 /** The receipt suffix a run clear records: runs, profiles and the verification time, read back by `parseRunReceipt`. */
@@ -215,7 +251,7 @@ export function parseRunReceipt(receipt: string): { runs: string[]; profiles: st
 }
 
 /** Egress receipts for the reads below (fail-open, like contributor-mode): only this repository's name, run ids and a commit sha leave the machine. */
-const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'user ran gstack-pregate clear --run (or --run-url on a profiled lane); reads its own repository\'s Actions runs and fetches a run head by sha' });
+const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'a run verification the user or the repository\'s own workflow started (gstack-pregate clear --run or --from-run, the main-push reuse job); reads its own repository\'s Actions runs and fetches a run head by sha' });
 const receiptFailed = (err: unknown) => process.stderr.write(`[run-evidence] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`);
 
 function gh(args: string[], timeoutMs = 60_000): string {
@@ -224,6 +260,9 @@ function gh(args: string[], timeoutMs = 60_000): string {
   if (r.status !== 0 || r.error) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || String(r.error ?? '')).trim().slice(0, 300)}`);
   return r.stdout;
 }
+
+/** One `gh api` read on this repository's own data, receipted like every read here. */
+export function ghApiJson<T>(apiPath: string): T { return JSON.parse(gh(['api', apiPath])) as T; }
 
 /** The gh- and git-backed dependencies for `repo`, reading trees in `repoRoot` (fetching a missing head from origin once). */
 export function ghRunDeps(repo: string, repoRoot: string): RunDeps {

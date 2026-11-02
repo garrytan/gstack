@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { writeSync } from 'node:fs';
-import { createNativeCookieJob, joinNativeCookieJob, nativeCookieDiagnostic, parseNativeCookieDiagnostic, type NativeCookieDiagnostic, type NativeCookieJob } from './cookie-import-native-job';
+import { createNativeCookieJob, joinNativeCookieJob, NATIVE_CLEANUP_MS, nativeCookieDiagnostic, parseNativeCookieDiagnostic, type NativeCookieDiagnostic, type NativeCookieJob } from './cookie-import-native-job';
 import type { PlaywrightCookie } from './cookie-import-browser';
 import { emptyBunConfig } from './bun-child-config';
 
@@ -114,11 +114,11 @@ export async function superviseNativeCookieImport(
     void member.closed.then(() => { closed = true; }, () => { closed = true; });
     while (!reply && !closed && now() < deadline && !dependencies.signal?.aborted) await sleep(Math.min(20, deadline - now()));
     reply ??= { error: now() >= deadline ? 'native_timeout' : 'native_failed' };
-    const cleanupDeadline = now() + 5_000;
+    const cleanupDeadline = now() + NATIVE_CLEANUP_MS;
     const graceDeadline = now() + ('cookies' in reply ? 2_000 : 0);
-    while ((!closed || job.activeProcesses() !== 0) && now() < graceDeadline) await sleep(20);
+    while ((job.activeProcesses() !== 0 || !closed) && now() < graceDeadline) await sleep(20);
     if (job.activeProcesses() !== 0) job.terminate();
-    while ((!closed || job.activeProcesses() !== 0) && now() < cleanupDeadline) await sleep(20);
+    while ((job.activeProcesses() !== 0 || !closed) && now() < cleanupDeadline) await sleep(20);
     if (!closed || job.activeProcesses() !== 0) return { error: 'native_cleanup_failed' };
     return reply;
   } catch (error) {
