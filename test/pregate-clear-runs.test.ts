@@ -196,6 +196,8 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const url = 'https://github.com/fx/fx/actions/runs/300';
     const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}` : `cleared ${d.receipt}`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: ranWorkflow('b.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/b.yml, not .github/workflows/a.yml; ${PLATFORM} stays uncleared`);
+    const mismatch = clearDecision(file, PLATFORM, { runUrl: url, evidence: ranWorkflow('b.yml') }, repo.work);
+    expect('refused' in mismatch && mismatch.fix).toBe(`clear ${PLATFORM} with a run of its own workflow: gh workflow run a.yml --ref <branch>, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`);
     expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: ranWorkflow('a.yml') }, repo.work)).toEqual({ receipt: url, attested: false });
     expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://github.com/fx/fx/actions/runs/301', evidence: ranWorkflow('a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=api_error — reading run 301 failed: HTTP 404; ${PLATFORM} stays uncleared`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: 'https://ci.example.com/runs/300', evidence: ranWorkflow('a.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_ref_invalid — "https://ci.example.com/runs/300" is not a run id or a run URL on fx/fx; ${PLATFORM} stays uncleared`);
