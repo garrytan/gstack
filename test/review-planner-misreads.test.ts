@@ -159,10 +159,18 @@ describe('GST-911 misread 1: a chart SVG is data, an SVG that can run code is se
     ['a character-reference comment in a style element', '  <style>&#60;!-- rect{fill:image-set("https://x.test/p.png" 1x)} --></style>'],
     ['CSS after an HTML empty comment in a style element', '  <style><!-->rect{fill:image-set("https://x.test/p.png" 1x)}--></style>'],
     ['CSS after an HTML --!> comment end in a style element', '  <style><!-- --!>rect{fill:image-set("https://x.test/p.png" 1x)} --></style>'],
+    ['a </style> inside a quoted style attribute', '  <style title="></style>">rect{fill:image-set("https://x.test/p.png" 1x)}</style>'],
+    ['an escaped ampersand in a style element', '  <style>text{font-family:"A &amp; B"}</style>'],
   ])('%s keeps the SVG code', (_name, line) => {
     const fx = fixture();
     expect(plan(fx, fx.commit({ 'results/chart.svg': chart(5, line) })).class).toBe('code');
   }, 60_000);
+
+  // Value: protects=the GST-940 style walker still reads a plain chart style as a drawing: a comment, CDATA and a quoted attribute
+  //   without markup; fails_when=the walker over-refuses them, so chart SVGs lose the light review; seam=svgDrawing
+  test('a style comment, CDATA and quoted attribute keep a chart a drawing (GST-940)', () => {
+    expect(svgDrawing(chart(5, '  <style type="text/css" media="all"><!-- plot --><![CDATA[ rect{fill:#000} ]]></style>'))).toBe(true);
+  });
 
   // Value: protects=a passive edit to an SVG that already carries a script is still code, because the whole file decides, not the
   //   changed lines; and an SVG code names stays code like any consumed data file; fails_when=either plans as docs; seam=collectCommit
