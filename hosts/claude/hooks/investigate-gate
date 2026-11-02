@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Bash shim for the /investigate reproduce-first gate (investigate-gate.ts).
+# Skill frontmatter runs this file on every Edit/Write/Bash during /investigate,
+# so the off path stays in bash builtins: no config line "investigate_gates: true"
+# in the state root (and no GSTACK_INVESTIGATE_GATES=1) exits before bun starts.
+# FAIL-OPEN: bun missing or a crash allows the call.
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+case "${GSTACK_INVESTIGATE_GATES:-}" in
+  0) exit 0 ;;
+  1) ;;
+  *)
+    [ -f "$HERE/../../../bin/gstack-state-root.sh" ] || exit 0
+    . "$HERE/../../../bin/gstack-state-root.sh" || exit 0
+    gstack_state_root_select
+    grep -q '^investigate_gates: *true' "$_gstack_sr_root/config.yaml" 2>/dev/null || exit 0
+    ;;
+esac
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/investigate-gate.ts" || true
+exit 0

@@ -1,0 +1,80 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-investigate-step — record-only helper for /investigate's opt-in
+ * reproduce-first gate (GST-938 plan v3; lib/investigate-gate.ts). It never
+ * runs a command: it binds runs the gate hook already recorded.
+ *
+ *   hypothesis "<claim>" --repro-last        bind the most recent failing run since open
+ *   hypothesis "<claim>" --no-repro "<why>"  log the escape for bugs that cannot fail on demand
+ *   report                                    close the investigation (unbound = recorded bypass)
+ *   open                                      start a new investigation with a fresh baseline
+ *   check                                     print what is missing
+ *
+ * Every subcommand needs --session <id>; the gate hook adds it to calls made
+ * through Claude Code's Bash tool. Exit 0 ok, 1 refused, 2 usage.
+ */
+import {
+  bindableRun, currentInvestigation, HELPER, missingSteps, openInvestigation, repoTop, statePath, withState,
+} from '../lib/investigate-gate';
+
+const USAGE = `usage: ${HELPER} --session <id> hypothesis "<claim>" (--repro-last | --no-repro "<why>") | report | open | check`;
+
+function fail(code: number, msg: string): never {
+  process.stderr.write(`${msg}\n`);
+  process.exit(code);
+}
+
+const argv = process.argv.slice(2);
+const sIdx = argv.findIndex((a) => a === '--session' || a.startsWith('--session='));
+let session = '';
+if (sIdx >= 0) {
+  session = argv[sIdx].includes('=') ? argv[sIdx].split('=').slice(1).join('=') : (argv[sIdx + 1] ?? '');
+  argv.splice(sIdx, argv[sIdx].includes('=') ? 1 : 2);
+}
+if (argv[0] === '--help' || argv[0] === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
+if (!session) fail(2, `${HELPER}: --session is required (run it through Claude Code's Bash tool during /investigate)\n${USAGE}`);
+const sub = argv[0];
+const top = repoTop(process.cwd());
+if (!top) fail(1, `${HELPER}: not inside a git repository`);
+const now = new Date().toISOString();
+
+const out = withState(statePath(top, session), top, session, (state): { code: number; text: string } => {
+  const inv = currentInvestigation(state);
+  if (sub === 'open') {
+    const next = openInvestigation(state, now);
+    return { code: 0, text: `OPEN: investigation ${next.id}, baseline ${Object.keys(next.baseline).length} dirty source file(s)` };
+  }
+  if (sub === 'check') {
+    if (!inv) return { code: 0, text: 'CHECK: no open investigation; edits are allowed' };
+    const missing = missingSteps(inv);
+    return { code: 0, text: missing.length ? `CHECK: missing\n- ${missing.join('\n- ')}` : 'CHECK: reproduction bound; edits are allowed' };
+  }
+  if (sub === 'report') {
+    if (!inv) return { code: 1, text: 'REPORT: no open investigation' };
+    if (!inv.hypothesis) inv.bypasses.push({ ts: now, kind: 'report-unbound', detail: 'report with no bound reproduction or logged escape' });
+    inv.closed_at = now;
+    const h = inv.hypothesis;
+    const bound = h?.bound_run !== undefined ? `repro: ${inv.runs[h.bound_run].command} (exit ${inv.runs[h.bound_run].exit})` : h?.no_repro ? `no repro: ${h.no_repro}` : 'no reproduction bound (recorded as bypass)';
+    return { code: 0, text: `REPORT: investigation ${inv.id} closed\nclaim: ${h?.claim ?? '(none)'}\n${bound}\nruns: ${inv.runs.length} denials: ${inv.denials} bypasses: ${inv.bypasses.length}` };
+  }
+  if (sub === 'hypothesis') {
+    const claim = argv[1];
+    if (!claim || claim.startsWith('--')) return { code: 2, text: USAGE };
+    const target = inv ?? openInvestigation(state, now);
+    const nr = argv.indexOf('--no-repro');
+    if (nr >= 0) {
+      const why = argv[nr + 1];
+      if (!why) return { code: 2, text: USAGE };
+      target.hypothesis = { claim, ts: now, no_repro: why };
+      return { code: 0, text: `HYPOTHESIS: logged without a reproduction (${why}); edits are allowed` };
+    }
+    if (!argv.includes('--repro-last')) return { code: 2, text: USAGE };
+    const found = bindableRun(target);
+    if ('error' in found) return { code: 1, text: `HYPOTHESIS: not bound: ${found.error}` };
+    target.hypothesis = { claim, ts: now, bound_run: found.index };
+    return { code: 0, text: `HYPOTHESIS: bound to ${found.run.command} (exit ${found.run.exit}); edits are allowed` };
+  }
+  return { code: 2, text: USAGE };
+});
+(out.code === 0 ? process.stdout : process.stderr).write(`${out.text}\n`);
+process.exit(out.code);
