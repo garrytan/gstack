@@ -541,6 +541,35 @@ describe('declared placeholders and the receipt carry (GST-1026, GST-1030)', () 
     expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.version).toBe('1.2.5.0');
   });
 
+/** package.json with its dependency pin set to `pin`, every other field kept. */
+  const pinned = (repo: FixtureRepo, pin: string) => {
+    const pkg = JSON.parse(readFile(repo, 'package.json'));
+    pkg.dependencies = { ...pkg.dependencies, 'left-pad': pin };
+    write(repo, 'package.json', JSON.stringify(pkg, null, 2) + '\n');
+  };
+
+  // Value: protects=a pin-bump PR's receipt carries across a main merge and a restamp when package.json's only change since
+  //   review is its version field, and refuses when the pin itself moved (GST-1030, GBEV-3, gbrain-evals #306);
+  //   fails_when=the carry counts the PR's package.json as product and refuses RECEIPT_CARRY_PRODUCT_CHANGED on a version-only
+  //   move, or lets a changed dependency pin ride; seam=bin/gstack-ship-receipt cmdCarry walk
+  test.each([['the pin unchanged since review', false], ['the pin moved since review', true]])('the carry and a pin-bump PR after a main merge: %s (GST-1030)', (_, moved) => {
+    const { repo, body } = receiptThenStamp(`restamp-carry-pin-${moved}-`, policy(true), r => pinned(r, '1.3.0'));
+    repo.git('reset', '-q', '--hard');
+    makePr(repo, 'pr-other');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp other');
+    mergeToMain(repo, 'pr-other');
+    repo.git('checkout', '-q', 'pr-carry');
+    mergeMain(repo);
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    if (moved) pinned(repo, '1.3.1');
+    repo.git('commit', '-qam', 'restamp after the lost slot');
+    expect(JSON.parse(readFile(repo, 'package.json')).version).toBe('1.2.5');
+    const carried = carry(repo, body);
+    if (moved) expect([carried.status, carried.err.includes('RECEIPT_CARRY_PRODUCT_CHANGED')], carried.err).toEqual([EXIT.refused, true]);
+    else expect(carried.out, carried.err).toContain('CARRY: carried');
+  });
+
   // Value: protects=a version-only restamp of EVIDENCE.md is release metadata to the carry when the policy declares it in
   //   stamp_files, and product when it does not (GST-1030 point 2, GGST-1); fails_when=the carry counts the declared
   //   file's stamp as a product change (RECEIPT_CARRY_PRODUCT_CHANGED), or lets an undeclared file's version edit ride;

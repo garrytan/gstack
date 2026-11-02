@@ -675,6 +675,16 @@ function cmdCarry(rest: string[], json: boolean): number {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
         if (cls === 'metadata' && spec.ownRows.includes(p) && !movedBase.has(p)) stampOnly.push(p);
+        if (cls === 'metadata' && spec.demoted.includes(p) && movedBase.has(p) && /(^|\/)package\.json$/.test(p)) {
+          const masked = Object.values(sides).map(ref => {
+            const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+            try { const { version: _, ...rest } = JSON.parse(r.status === 0 ? r.stdout : 'null') ?? {}; return JSON.stringify(rest); } catch { return null; }
+          });
+          const [rb, rv, cb, cv] = masked;
+          if (masked.some(m => m === null) || rv !== cv || rb !== cb) changedProduct.push(p);
+          else stampOnly.push(p);
+          continue;
+        }
         if (cls !== 'product') continue;
         const verdict = comparePath(repoRoot, sides, p);
         if (verdict === 'changed') changedProduct.push(p);
