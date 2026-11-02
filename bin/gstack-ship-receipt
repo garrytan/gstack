@@ -37,6 +37,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts';
 import { resultLine, resultLineWithDocs } from '../lib/result-codes';
 import { versionAtRef } from '../lib/restamp';
+import { runScriptSync } from '../lib/script-invocation';
 import { readPregateFile, verifyPregate } from '../lib/pregate/index';
 import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, runningGstackVersion, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
 import { approvalForReceipt } from '../lib/approval-citations';
@@ -179,7 +180,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const tree = receiptFile ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) : null;
   let sessionKind = flag(rest, '--session-kind') ?? process.env.GSTACK_SESSION_KIND;
   if (!sessionKind) {
-    const r = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
+    const r = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
     sessionKind = r.status === 0 ? r.stdout.trim() || undefined : undefined;
   }
   let pregate: PregateField | undefined;

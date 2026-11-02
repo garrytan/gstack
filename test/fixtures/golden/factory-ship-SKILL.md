@@ -19,9 +19,10 @@ This skill follows gstack shared preamble `99cd6cb5d373` (AskUserQuestion format
 ## Preamble (run first)
 
 ```bash
-[ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.factory/skills/gstack;[ -d "$_r/bin" ]||_r=~/.factory/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host factory from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
-GSTACK_BIN=$GSTACK_ROOT/bin
-"$GSTACK_BIN/gstack-skill-start" --skill "ship" --model "claude"
+[ -d "${GSTACK_ROOT:-/-}/lib" ]&&[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/.factory/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=~/.factory/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||echo "gstack: no install found (tried $GSTACK_ROOT). Fix: ./setup --host factory from your gstack checkout; ./setup --status shows it.">&2
+"$GSTACK_ROOT/bin/gstack-skill-start" --skill "ship" --model "claude"
 ```
 
 Read the echoed `KEY: value` STATUS lines — they drive every preamble rule
