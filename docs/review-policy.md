@@ -208,16 +208,16 @@ beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
 (GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
 `required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
 consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
-raw HTML sinks, a shell run through argv, recursive deletes), outbound URL
-handling (`fetch`, `http(s).request`, axios, got, undici, `requests` or `urlopen`
-on anything but one string literal, `new URL` from input, redirect toggles, proxy
-settings and host allowlists), archive extraction and path traversal (`tar.x`,
-adm-zip, yauzl, extract-zip, `extractall`, `tar -x`, `unzip`, `path.join` or
-`resolve` on request or entry input, a `'..'` check added or removed), and Node
-exec through any `child_process` spelling: a named import of `exec`, `execSync`
-or `spawn` (on one line, split over lines when the whole statement is in the
-diff, or an added `exec` binding line inside one), a default or namespace
-import, a whole-module or destructured `require` or dynamic `import`. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+raw HTML sinks, a shell run through argv, recursive deletes), any call to an
+outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
+`requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
+input, redirect toggles, proxy settings and host allowlists, archive extraction
+and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
+`unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
+or removed), and any changed line that names the `child_process` or
+`node:child_process` module, in any import or require spelling. These rules are
+coarse on purpose: they parse no import clause or call arguments, and every
+quantifier is bounded, so they run in linear time on any line. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
@@ -229,11 +229,6 @@ dropped for review cost: its first review round found a new bypass class in each
 version, the same pattern as three rounds of R51. When a diff publishes numbers,
 the batched specialist's diff keeps the write-up's text files instead of leaving
 docs out.
-
-A write-up with one clean chart and no code is one reader (the outside voice on
-its numbers). When a diff publishes numbers, the batched specialist's diff keeps
-the write-up's text files instead of leaving docs out. `ALLOWLIST_RULES` hashes
-the lists and patterns and `DEPTH_RULES` includes it.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus

@@ -1,13 +1,13 @@
 /**
- * GST-850: the new security and money patterns (lib/review-risk.ts) finish in linear time on hostile input, and every one of
- * them is in RISK_RULES, which DEPTH_RULES folds in (docs/review-policy.md#risk-classes).
+ * GST-850: every risk pattern (lib/review-risk.ts) finishes in linear time on hostile input, and every new one is in
+ * RISK_RULES, which DEPTH_RULES folds in (docs/review-policy.md#risk-classes).
  */
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { matchRisk } from '../lib/review-risk';
+import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECURITY_LINE, matchRisk } from '../lib/review-risk';
 
 const ROOT = path.join(import.meta.dir, '..');
 const N = 10_000;
@@ -16,16 +16,19 @@ const scan = (lines: string[]) => matchRisk({ codePaths: ['src/a.ts'], added: { 
 
 describe('linear time on hostile input', () => {
   // Value: protects=gstack-review-plan and the queue verdict never hang on a diff (the R51 resource regex did at about 50
-  //   backslashes; round 1 of GST-850 found a quadratic split-import scan); fails_when=a risk pattern or the split-import
-  //   scan backtracks on long input; seam=matchRisk
-  test('a 512 KB comment of unclosed imports and a long path.join chain finish under 200 ms', () => {
-    expect(fast(() => scan(Array.from({ length: 65_536 }, () => 'import {')))).toBeLessThan(200);
-    expect(fast(() => scan(['path.join('.repeat(50_000)]))).toBeLessThan(200);
+  //   backslashes; GST-850 rounds 1 and 2 found quadratic import and exec-binding scans); fails_when=any risk pattern
+  //   backtracks on a long or minified line; seam=every pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE and MONEY_LINE, and matchRisk
+  const L = 200_000;
+  const fill = (s: string) => s.repeat(Math.ceil(L / s.length));
+  const hostile = [' ', '(', "'", '"', 'a', '{', '\\', '..', 'import a, {', 'fetch(', 'path.join(', 'rmSync(', '  exec', 'new URL("', 'child_process', 'http.get(', 'requests.',
+    'tar -', 'unzip ', 'DELETE FROM ', 'delete from a ', 'process.env.', 'x_usd', 'aUsd'].map(fill).concat(['  exec' + ' '.repeat(L) + '// c', 'import a, {' + 'b,'.repeat(L / 2)]);
+  test.each(Object.entries({ SECURITY_LINE, DATA_LINE, SECRET_LINE, MONEY_LINE }))('every %s pattern finishes under 100 ms on each 200k-character hostile line', (_n, patterns) => {
+    const slow = patterns.flatMap(r => hostile.map((s, k) => [r.source.slice(0, 40), k, fast(() => r.test(s))] as const)).filter(([, , ms]) => ms >= 100);
+    expect(slow).toEqual([]);
   });
-  test('the risk patterns finish under 100 ms on 10k-character lines', () => {
-    for (const body of ['\\'.repeat(N), 'fetch(' + "'".repeat(N), 'import {' + ' exec'.repeat(N / 5), 'path.join(' + 'a'.repeat(N), 'import ' + 'a '.repeat(N / 2) + 'from', 'require(' + ' '.repeat(N),
-      ' '.repeat(N) + '} = require(', "'..".repeat(N / 3), 'x'.repeat(N) + 'Usage', 'tar ' + '-'.repeat(N), 'import {'.repeat(N / 8), 'new URL(' + '"'.repeat(N)])
-      expect(fast(() => scan([body]))).toBeLessThan(100);
+  test('a 512 KB comment of unclosed imports and a minified import line run through matchRisk in under 1 s', () => {
+    expect(fast(() => scan(Array.from({ length: 65_536 }, () => 'import {')))).toBeLessThan(1000);
+    expect(fast(() => scan(['import a, {'.repeat(32_000)]))).toBeLessThan(1000);
   });
 });
 

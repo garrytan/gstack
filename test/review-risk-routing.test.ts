@@ -253,14 +253,14 @@ describe('GST-850: security reaches outbound URLs, archives, path traversal and 
     "import { exec } from 'node:child_process';", 'import { execSync as run } from "child_process";', "import { spawn, spawnSync } from 'node:child_process';",
     "import cp from 'node:child_process';", "import * as cp from 'child_process';", "import cp, { spawnSync } from 'child_process';",
     "const { exec } = require('child_process');", "const cp = require('node:child_process');", "const cp = await import('node:child_process');",
-    'exec(cmd, cb);', 'cp.exec(cmd);',
-    'const res = await fetch(url);', "await fetch('https://' + host + '/v1');", 'https.get(target, cb);', 'await axios.get(req.query.u);', 'const body = await got(url).text();',
+    'exec(cmd, cb);', 'cp.exec(cmd);', "import { spawnSync } from 'node:child_process';", "import type { ExecOptions } from 'node:child_process';",
+    "const r = await fetch('https://api.github.com/repos');", 'r = requests.request("GET", user_url)', "http.get('http://x.example/', { hostname: req.query.t }, cb);", 'const res = await fetch(url);', "await fetch('https://' + host + '/v1');", 'https.get(target, cb);', 'await axios.get(req.query.u);', 'const body = await got(url).text();',
     'r = requests.get(url, timeout=5)', 'urllib.request.urlopen(target)', 'const next = new URL(req.query.next, base);', "import { request } from 'undici';",
     "const res = await fetch('https://x.example', { redirect: 'follow' });", 'maxRedirects: 10,', 'r = httpx.get("https://x.example", follow_redirects=True)', 'const p = process.env.HTTPS_PROXY;', 'const agent = new HttpsProxyAgent(p);',
     "const ALLOWED_HOSTS = ['api.example.com'];", 'hostAllowlist.push(h);',
     'await tar.x({ file, cwd: dest });', 'new AdmZip(buf).extractAllTo(dir, true);', "import yauzl from 'yauzl';", "import extract from 'extract-zip';", 'zipfile.ZipFile(p).extractall(d)',
     'tarfile.open(p).extractall(d)', 'tar -xzf "$TGZ" -C "$DIR"', 'unzip -o "$ZIP" -d "$DIR"', 'fs.writeFileSync(path.join(root, entry.path), data);', 'const dest = path.resolve(out, req.params.name);',
-    "if (rel.startsWith('..')) throw new Error('escape');", "if (parts.includes('..')) return;", '  exec as run,', '  exec: run,',
+    "if (rel.startsWith('..')) throw new Error('escape');", "if (parts.includes('..')) return;",
   ])('%s is security', line => {
     expect(risk(['src/net.ts'], { 'src/net.ts': [line] })).toEqual(['security']);
   });
@@ -268,11 +268,10 @@ describe('GST-850: security reaches outbound URLs, archives, path traversal and 
     const split = ['import {', '  spawnSync,', '  exec,', "} from 'node:child_process';"];
     expect(risk(['src/run.ts'], { 'src/run.ts': split })).toEqual(['security']);
     expect([...matchRisk({ codePaths: ['src/run.ts'], added: {}, removed: { 'src/run.ts': split }, scopeAuth: false }).keys()]).toEqual(['security']);
-    expect(risk(['src/run.ts'], { 'src/run.ts': ['import {', '  spawnSync,', "} from 'node:child_process';"] })).toEqual([]);
+    expect(risk(['src/run.ts'], { 'src/run.ts': ['import {', '  type ExecOptions,', '  exec as run,', "} from 'node:child_process';"] })).toEqual(['security']);
   });
-  test('literal URLs, spawnSync imports, tarball creation and parent-dir joins are not security', () => {
-    for (const line of ["const r = await fetch('https://api.github.com/repos');", "const u = new URL('https://example.com');", 'const here = new URL(import.meta.url);',
-      "import { spawnSync } from 'node:child_process';", "import type { ExecOptions } from 'node:child_process';", 'tar -czf out.tgz dir', "const root = path.join(import.meta.dir, '..');",
+  test('a literal new URL, tarball creation, parent-dir joins and look-alike names are not security', () => {
+    for (const line of ["const u = new URL('https://example.com');", 'const here = new URL(import.meta.url);', 'tar -czf out.tgz dir', "const root = path.join(import.meta.dir, '..');",
       'const m = re.exec(line);', "ENV.fetch('HOME')", 'git fetch origin main'])
       expect(risk(['src/run.ts'], { 'src/run.ts': [line] })).toEqual([]);
   });

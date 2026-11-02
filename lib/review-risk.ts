@@ -5,7 +5,7 @@
  *
  * money, auth and secret are the targeted pass's matchers (GST-257). security is a trust-boundary path or line
  * (a redaction, sanitizer, consent or trust module; a shell, eval or raw HTML sink; outbound URL handling; archive
- * extraction and path traversal; Node exec through any import spelling); data is user data (a path naming personal or
+ * extraction and path traversal; any line naming the child_process module); data is user data (a path naming personal or
  * stored data, or a line that drops or bulk-deletes it). Path and identifier signals are token-bounded: costume never
  * names cost, and a CLI's usage text never names money.
  */
@@ -40,50 +40,29 @@ export const SECRET_LINE = [
 ];
 
 const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape'];
-/** An argument that is one plain string literal: outbound calls and URL building on anything else are input-driven. */
-const NOT_LITERAL = String.raw`\s*\(\s*(?![rbu]?['"][^'"\\]*['"]\s*[,)])`;
-const CHILD_PROCESS = String.raw`['"](?:node:)?child_process['"]`;
-const SECURITY_LINE = [
+/** Coarse, linear-time rules (GST-850 B+): any changed line naming the child_process module, any outbound HTTP client call; quantifiers bounded. */
+export const SECURITY_LINE = [
   /\bshell\s*:\s*true\b/, /\bshell\s*=\s*True\b/, /(?<![.\w$])exec(?:Sync)?\s*\(/, /\b(?:child_process|childProcess|cp)\.exec(?:Sync)?\s*\(/, /\bos\.system\s*\(/,
-  new RegExp(String.raw`^(?=.*${CHILD_PROCESS})(?=.*\b(?:exec|execSync|spawn)\b)\s*(?:import|const|let|var)\b(?!\s+type\b)`),
-  new RegExp(String.raw`\bimport\s+(?:\*\s+as\s+)?[\w$]+\s*(?:,\s*\{[^}]*\}\s*)?from\s*${CHILD_PROCESS}`), new RegExp(String.raw`(?<!\}\s*=\s*(?:await\s+)?)\b(?:require|import)\s*\(\s*${CHILD_PROCESS}`),
-  new RegExp(String.raw`(?:(?<![.\w$])|\b(?:globalThis|window|self)\.)fetch${NOT_LITERAL}`), new RegExp(String.raw`\bhttps?\.(?:request|get)${NOT_LITERAL}`),
-  new RegExp(String.raw`\baxios(?:\.(?:get|post|put|patch|delete|head|options|request))?${NOT_LITERAL}`), new RegExp(String.raw`(?<![.\w$])got(?:\.(?:get|post|put|patch|delete|head|stream))?${NOT_LITERAL}`),
-  new RegExp(String.raw`\b(?:requests|httpx)\.(?:get|post|put|patch|delete|head|request)${NOT_LITERAL}`), new RegExp(String.raw`\burlopen${NOT_LITERAL}`), new RegExp(String.raw`\bnew\s+URL\s*\(\s*(?!['"][^'"\\]*['"]\s*\)|import\.meta\.url\s*\))`),
-  /\b(?:from\s+|require\s*\(\s*)['"]undici['"]|\bundici\.(?:request|fetch|stream)\s*\(|\burllib3\b|\b(?:urljoin|url\.resolve)\s*\(/,
+  /['"`](?:node:)?child_process['"`]/,
+  /(?:(?<![.\w$])|\b(?:globalThis|window|self)\.)fetch\s{0,20}\(/, /\bhttps?\.(?:request|get)\s{0,20}\(/, /\baxios\b/, /(?<![.\w$])got(?:\.[a-z]{1,10})?\s{0,20}\(/, /\bundici\b/,
+  /\b(?:requests|httpx)\.[a-z]{1,10}\s{0,20}\(/, /\burllib(?:3|\.request)?\b|\burlopen\s{0,20}\(/, /\bnew\s{1,20}URL\s{0,20}\(\s{0,20}(?!['"][^'"\\]{0,2000}['"]\s{0,20}\)|import\.meta\.url\s{0,20}\))/, /\b(?:urljoin|url\.resolve)\s{0,20}\(/,
   /\bredirect\s*:\s*['"](?:follow|manual)['"]|\b(?:maxRedirects|followRedirects?|follow_redirects|allow_redirects)\s*[:=]/,
   /\b(?:HTTPS?_PROXY|NO_PROXY|ALL_PROXY|https?_proxy|no_proxy)\b|\b(?:Https?)?ProxyAgent\b|\bproxy\s*(?::|=(?![=>]))/, /\b(?:allowed|trusted|blocked|denied)[_-]?(?:hosts?|domains?|origins?|urls?)|\b(?:hosts?|domains?|origins?|urls?)[_-]?(?:allow|deny|block)[_-]?list/i,
   /\btar\.(?:x|extract)\s*\(|\.(?:extractall|extractAllTo|extractEntryTo)\s*\(|\b(?:tar|tf|zf|zip|archive)\.extract\s*\(|\bshutil\.unpack_archive\s*\(|\b(?:adm-zip|AdmZip|yauzl|extract-zip|unzipper|node-stream-zip)\b/,
   /\btar\s+(?:-[A-Za-z]*x|x[A-Za-z]*\s|--extract)|\bunzip\s+[-\w"'$]/,
   /\bpath\.(?:join|resolve)\s*\([^)]{0,300}?(?:\b(?:req|request|params|query|argv|headers?|filename|fileName|entryName|member|upload|untrusted|userInput)\b|\bentry\.(?:path|name|fileName)\b)/,
   /\b(?:includes|startsWith|endsWith|indexOf)\s*\(\s*['"`]\.\.[/\\]{0,2}['"`]|[!=]==?\s*['"`]\.\.['"`]|['"`]\.\.['"`]\s*[!=]==?|\\\.\\\./,
-  /^\s*(?:exec|execSync)(?:\s+as\s+[\w$]+|\s*:\s*[\w$]+)?\s*,?\s*$/,
   /(?<![.\w])eval\s*\(/, /(?:^|[;&|])\s*eval\s+["'$]/, /\bnew\s+Function\s*\(/,
   /\b(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/, /\bBun\.spawn(?:Sync)?\s*\(\s*\[\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/,
-  /\brmSync\s*\([^)]*recursive\s*:\s*true/, /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/,
+  /\brmSync\s*\([^)]{0,500}recursive\s*:\s*true/, /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/,
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
-const DATA_LINE = [
+export const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
 ];
 
-/** A named import split over lines (`import {\n  exec,\n} from 'node:child_process'`), read over a path's joined added or deleted lines in one forward pass. */
-function execImport(text: string): boolean {
-  IMPORT_OPEN.lastIndex = 0;
-  for (let m = IMPORT_OPEN.exec(text); m; m = IMPORT_OPEN.exec(text)) {
-    const close = text.indexOf('}', IMPORT_OPEN.lastIndex);
-    if (close < 0) return false;
-    const names = text.slice(IMPORT_OPEN.lastIndex, close).trim();
-    if (EXEC_NAME.test(names) && !/^type\b/.test(names) && FROM_CHILD_PROCESS.test(text.slice(close + 1, close + 40))) return true;
-    IMPORT_OPEN.lastIndex = close + 1;
-  }
-  return false;
-}
-const IMPORT_OPEN = /\bimport\s*\{/g;
-const FROM_CHILD_PROCESS = new RegExp(String.raw`^\s*from\s*${CHILD_PROCESS}`);
-const EXEC_NAME = /(?:^|[\s,{])(?:exec|execSync|spawn)(?:\s+as\s+[\w$]+)?\s*(?:,|$)/;
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
 const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || MONEY_PAIRS.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
 
@@ -91,7 +70,7 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_TEXT: [IMPORT_OPEN, FROM_CHILD_PROCESS, EXEC_NAME], DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -116,9 +95,6 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
-    for (const side of [i.added?.[p], i.removed?.[p]]) {
-      if (!why.has('security') && side?.length && execImport(side.join('\n'))) hit('security', 'security import: ' + p);
-    }
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
