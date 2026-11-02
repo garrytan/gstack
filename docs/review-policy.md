@@ -401,10 +401,11 @@ block without new floor words. The reader is read-only, and `NO FINDINGS` is a
 result. `gstack-review-dispatch render --role targeted --classes <classes>`
 renders its brief; `verify --targeted-out <file>` writes the record that
 `gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
-`gstack-ship-queue ready` and `train build` print
+`gstack-ship-queue ready`, `train build` and `land` print
 `REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
-verdict=ok|missing` and refuse nothing yet; enforcement comes in a later
-release.
+verdict=ok|missing|failed` and refuse
+[`QUEUE_RECEIPT_TARGETED_MISSING`](troubleshooting.md#queue-receipt-targeted-missing)
+when a required class has no done pass covering it.
 
 Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 21, gate 18, auth 3 and secret 8. The gate class first used the gate paths,
@@ -556,10 +557,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
-   wherever they stand, headings and table rows included; a top-level list item under a
+   wherever they stand, headings and table rows included, except that a line with its own `Severity` field takes that
+   field's label (any letter case; a field stating more than one label, "High/Critical", counts as none), so a severity word in the finding's text does not raise it, and a label leading the line stays its floor (GST-976); a top-level list item under a
    label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
-   second line for the same field starts another: `Severity` raises its label,
+   second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
@@ -596,7 +598,18 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    missing coverage leaves the review incomplete. A mismatched send re-sent
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
-   against the merged lines they produced, and the judgment rerun against the
+   against the merged lines they produced, and each merged line against the finding collect
+   parses at that id's index from the unchanged output file, label and raw text byte for byte
+   (`merged_line_differs` on the OUTPUT and JUDGE rows otherwise, GST-541), so an edited
+   merged.jsonl cannot lower a finding or swap its text. A recorded output file that is missing
+   (`output_file_missing`), a judgment run on a merged file collect did not write
+   (`judge_merged_not_collected`) and merged rows collect never recorded
+   (`merged_rows_not_collected`) are dirty too, and so is an output whose re-parsed findings
+   outnumber or undercount the ids collect recorded (`merged_count_differs`). The one exception
+   is a reply collect refused for its tree: verify re-checks the reply's `REVIEWED_TREE` line
+   against the render's tree, and such an output stays `NOT_REVIEWED` until a re-sent brief is
+   answered by a reply that passes the same check. Deleting a whole output event with its rows is
+   not caught yet, because the ledger has no anchor for it. The judgment is then rerun against the
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a

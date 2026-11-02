@@ -51,6 +51,7 @@ import { SPAWNED_ESCAPE_SENTENCE, CONDUCTOR_SPAWNED_DENY_REASON, spawnedByEnv } 
 import { resolveStateRoot } from '../../../lib/state-root';
 import { readVersionedSlugCache } from '../../../lib/bin-context';
 import { logHookError as sharedLogHookError } from './hook-log';
+import { QID_MARKER_RE as MARKER_RE } from '../../../scripts/qid-marker';
 
 interface HookStdin {
   session_id?: string;
@@ -67,7 +68,6 @@ interface HookStdin {
   cwd?: string;
 }
 
-const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
 
 const stateRoot = (): string => resolveStateRoot();
