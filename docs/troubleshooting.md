@@ -5646,6 +5646,24 @@ pass).
 the invocation record, and start a full pass (`--pass 1`) when the branch was
 rebased; /ship's own rule is to merge the base in, never rebase a reviewed head.
 
+<a id="review-scope-ledger"></a>
+### `REVIEW_SCOPE_LEDGER`
+
+**Meaning.** `gstack-review-scope summary` could not count the review's
+dispatch ledgers, so it wrote no `REVIEW_LOOP:` line rather than a count that
+might be low (GST-951). Either no ledger was named (`--run`, `--ledger` or
+`--no-ledger`), `--run` holds no `review-ledger.jsonl`, or a ledger, the
+`merged.jsonl` it names or its judged set is unreadable, or the judged set
+changed after `judge` checked it. The ledgers hold every reader's findings
+(specialists, Red Team, both adversarial voices, targeted, fix-check) before any
+review-log row classifies them, which is why the count reads them.
+
+**Fix.** Pass `--run <run dir>`, the directory the review passes wrote (on
+Capy, `ship/DRIVER.md`'s run directory), or each `--ledger <f>`. Pass
+`--no-ledger` only when no reader ran through `gstack-review-dispatch`. When a
+file moved, restore it; when a judged set changed, rerun `gstack-review-dispatch
+judge` on it.
+
 <a id="receipt-carry-refused"></a>
 ### `RECEIPT_CARRY_REFUSED`
 

@@ -106,7 +106,7 @@ export interface ShipReceipt {
   // Related open PRs by other authors (Lane D): `supersedes` / `credit` only on the owner's confirmation.
   issues?: { fixes: number[]; refs: number[]; flakes: Array<{ issue: number; run: string }>; related?: Array<{ pr: number; repo?: string; author: string; closes: number[]; supersedes?: boolean; credit?: boolean }> };
   /** Harness lane E: the review loop's counters (gstack-review-scope summary) and the carry record when the receipt followed a head whose product diff was unchanged (gstack-ship-receipt carry). */
-  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; rounds?: number; dispatches?: Record<string, number>; est_input_tokens?: number };
+  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; rounds?: number; dispatches?: Record<string, number>; est_input_tokens?: number; unrecorded?: number; ledgers?: number };
   carry?: { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' };
   /** The reviewed head's tree and its product patch-id against the base (gstack-ship-receipt write; carry rebinds both): what a carry across rewritten history compares. */
   head_tree?: string; product_patch_id?: string;

@@ -1,0 +1,153 @@
+/**
+ * GST-951: the /ship receipt's review_loop counters (gstack-review-scope summary) missed real blockers three times on
+ * 2026-11-02, because summary read only the review-log rows while /ship's readers report through the dispatch ledgers
+ * (gstack-review-dispatch collect and judge). Each case below is a minimal reconstruction of that PR's rows and ledgers,
+ * built from its public PR body and receipt (the rows and ledgers themselves stayed on the lanes' machines): the rows
+ * reproduce the receipt's published counters on the old summary, and the ledgers hold what the PR body says the readers found.
+ * Ledgers are written with the real collect and judge, so the parser and judge rules apply as in a run.
+ */
+import { afterEach, describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT } from '../lib/headless-artifacts';
+import { collect, readJsonl, recordJudgment, type JudgedLine, type MergedLine } from '../lib/review-ledger';
+import { parseReviewLoop } from '../lib/ship-receipt';
+import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+
+const repos: FixtureRepo[] = [];
+afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+
+const SINCE = '2026-11-02T01:00:00Z';
+const at = (min: number) => new Date(Date.parse(SINCE) + min * 60_000).toISOString();
+const review = (min: number, pass: number, findings: object[]) => ({ skill: 'review', via: 'ship', timestamp: at(min), status: findings.length ? 'issues_found' : 'clean', review_scope: 'frozen', pass, findings });
+const fixCheck = (min: number, findings: object[]) => ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), review_scope: 'frozen', findings });
+const note = (fp: string, raised_by: string) => ({ fingerprint: fp, severity: 'INFORMATIONAL', action: 'noted', blocking: false, raised_by });
+
+/** One pass directory: each reader's output collected into its ledger, then lead judgment keeping every label. */
+function pass(dir: string, readers: Array<[string, string]>): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const ledger = path.join(dir, 'review-ledger.jsonl');
+  const mergedFile = path.join(dir, 'merged.jsonl');
+  fs.writeFileSync(mergedFile, '');
+  for (const [reader, output] of readers) expect(collect(ledger, reader, output, mergedFile).review).toBe(true);
+  const merged = readJsonl<MergedLine>(mergedFile);
+  const judged: JudgedLine[] = merged.map(m => ({ id: m.id, severity: m.label }));
+  const judgedFile = path.join(dir, 'judged.jsonl');
+  fs.writeFileSync(judgedFile, judged.map(j => JSON.stringify(j) + '\n').join(''));
+  expect(recordJudgment(ledger, merged, judged, judgedFile, mergedFile).ok).toBe(true);
+  return ledger;
+}
+
+function branchWith(rows: object[]): FixtureRepo {
+  const repo = makeFixtureRepo({ prefix: 'gst951-' });
+  repos.push(repo);
+  repo.git('checkout', '-qb', 'feat');
+  const slug = runBin(repo, 'gstack-slug', ['--get', 'SLUG']).out.trim();
+  const logDir = path.join(repo.home, 'projects', slug);
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.writeFileSync(path.join(logDir, 'feat-reviews.jsonl'), rows.map(r => JSON.stringify(r) + '\n').join(''));
+  return repo;
+}
+const summary = (repo: FixtureRepo, ...args: string[]) => runBin(repo, 'gstack-review-scope', ['summary', '--since', SINCE, '--json', ...args]);
+const loop = (r: { status: number | null; out: string; err: string }) => { expect(r.err).not.toContain('(REVIEW_SCOPE_'); expect(r.status).toBe(EXIT.ok); return JSON.parse(r.out); };
+
+const CLEAN = 'NO FINDINGS';
+const OUTSIDE_CLEAN = 'No issues found in the diff.\nRecommendation: ship because no finding reaches the floor';
+
+describe('GST-951: the receipt counts every blocker the readers found', () => {
+  // #3841 (reconstruction): the native adversarial pass's FIXABLE (CRITICAL) finding was fixed, but no row recorded it; the
+  // receipt's blocking_found=1 fixed=1 was entered by hand. Its two other findings were noted in pass 2.
+  test('#3841: an adversarial-only blocker counts', () => {
+    const repo = branchWith([
+      review(0, 1, []),
+      review(40, 2, [note('lib/pregate.ts:88:docs', 'adversarial-native'), note('docs/pregate.md:12:docs', 'adversarial-native')]),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist/testing', CLEAN], ['red-team', CLEAN]]);
+    pass(path.join(run, 'p1-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', [
+      '1. lib/pregate-clear.ts:140 The receipt stores the raw run URL, not the attempt it judged. FIXABLE',
+      '2. lib/pregate.ts:88 The refusal text does not name the attempt. INVESTIGATE',
+      '3. docs/pregate.md:12 The docs do not say a rerun replaces the attempt. INVESTIGATE',
+      'Recommendation: fix 1 because a later attempt would be judged by the first',
+    ].join('\n')]]);
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 2, fixed: 0 });
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 2, blocking_found: 1, noted: 2, fixed: 0, unrecorded: 1, ledgers: 2, rounds: 2 });
+  });
+
+  // #3838 (reconstruction): the rows reproduce its receipt (passes=2 blocking_found=0 noted=8 fixed=4 fix_checks=3). Pass 2's
+  // red-team CRITICAL was logged fixed without classify's blocking stamp; Step 11's native adversarial CRITICAL (CSS
+  // image-set loading an outside image) was fixed in 0f61362c1 and no row holds it.
+  test('#3838: CRITICALs fixed without a classified row count', () => {
+    const repo = branchWith([
+      review(0, 1, ['a', 'b', 'c'].map(x => ({ fingerprint: `lib/review-depth.ts:1${x}:style`, severity: 'INFORMATIONAL', action: 'fixed', blocking: false, raised_by: 'security' }))),
+      review(50, 2, [{ fingerprint: 'lib/review-depth.ts:212:security', severity: 'CRITICAL', action: 'fixed', raised_by: 'red-team' },
+        note('lib/review-depth.ts:220:style', 'red-team'), note('lib/review-depth.ts:230:style', 'red-team')]),
+      fixCheck(60, [note('lib/review-depth.ts:240:style', 'fix-check'), note('lib/review-depth.ts:241:style', 'fix-check')]),
+      fixCheck(90, [note('lib/review-depth.ts:250:style', 'fix-check')]),
+      fixCheck(120, [note('lib/review-depth.ts:260:perf', 'fix-check'), note('lib/review-depth.ts:261:perf', 'fix-check'), note('lib/review-depth.ts:262:perf', 'fix-check')]),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist/security', '- [INFORMATIONAL] lib/review-depth.ts:1a a CSS escape\n- [INFORMATIONAL] lib/review-depth.ts:1b a zero-padded reference\n- [INFORMATIONAL] lib/review-depth.ts:1c a split handler line'], ['red-team', CLEAN]]);
+    pass(path.join(run, 'p2'), [['red-team', '[CRITICAL] lib/review-depth.ts:212 a stray quote hides an external href from the drawing check']]);
+    pass(path.join(run, 'p2-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', 'lib/review-depth.ts:300 CSS image-set() loads an outside image. FIXABLE\nRecommendation: fix because the drawing loads a remote URL']]);
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 1, noted: 8, fixed: 4, fix_checks: 3, rounds: 5 });
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 2, blocking_found: 2, deferred: 0, noted: 8, fixed: 4, fix_checks: 3, rounds: 5, unrecorded: 1, ledgers: 3 });
+  });
+
+  // #3837 (reconstruction): pass 1's row was logged before the outside voice's seven findings were classified, so they sit in the
+  // row with no severity, blocking stamp or action; the fix batch under the Captain's exception fixed them, and the receipt said
+  // blocking_found=0 fixed=0 noted=11 fix_checks=3.
+  test('#3837: blockers logged before classification count', () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({ fingerprint: `lib/inventory.ts:${10 + i}:logic`, raised_by: 'outside-voice' }));
+    const repo = branchWith([
+      review(0, 1, [...seven, ...Array.from({ length: 9 }, (_, i) => note(`docs/inventory.md:${i + 1}:docs`, 'specialist'))]),
+      review(60, 2, [note('lib/inventory.ts:90:docs', 'red-team'), note('lib/inventory.ts:91:docs', 'red-team')]),
+      fixCheck(80, []), fixCheck(100, []), fixCheck(120, []),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist-batched/1', CLEAN], ['red-team', CLEAN]]);
+    pass(path.join(run, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', [
+      ...seven.map((f, i) => `${i + 1}. ${f.fingerprint.split(':').slice(0, 2).join(':')} finding ${i + 1} Severity: High Blocks: yes`),
+      'Recommendation: fix 1-6 because a self-grandfathered row skips every plan rule',
+    ].join('\n')]]);
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 11, fixed: 0, fix_checks: 3, rounds: 5 });
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 2, blocking_found: 7, noted: 11, fixed: 0, unrecorded: 7, ledgers: 2, rounds: 5 });
+    const line = runBin(repo, 'gstack-review-scope', ['summary', '--since', SINCE, '--run', run]);
+    expect(line.out.trim()).toBe('REVIEW_LOOP: passes=2 blocking_found=7 deferred=0 noted=11 fixed=0 scope=frozen unrecorded=7 ledgers=2 fix_checks=3');
+    expect(parseReviewLoop(s)).toMatchObject({ blocking_found: 7, unrecorded: 7, ledgers: 2, rounds: 5 });
+  });
+
+  test('a blocker both sources hold counts once, and a disposed one is not unrecorded', () => {
+    const repo = branchWith([review(0, 1, [{ fingerprint: 'src/a.ts:3:logic', severity: 'CRITICAL', blocking: true, action: 'fixed', raised_by: 'red-team' }])]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist/testing', CLEAN], ['red-team', '[CRITICAL] src/a.ts:3 the guard is inverted']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ blocking_found: 1, fixed: 1, ledgers: 1 });
+    expect(s.unrecorded).toBeUndefined();
+  });
+
+  test('summary refuses REVIEW_SCOPE_LEDGER instead of counting without a ledger it needs, and writes nothing', () => {
+    const repo = branchWith([review(0, 1, [])]);
+    const run = path.join(repo.root, 'run');
+    const ledger = pass(path.join(run, 'p1'), [['red-team', '[CRITICAL] src/a.ts:3 the guard is inverted']]);
+    const out = path.join(repo.root, 'loop.json');
+    const refused = (r: { status: number | null; err: string }, why: string) => { expect(r.status).toBe(EXIT.fail); expect(r.err).toContain('(REVIEW_SCOPE_LEDGER;'); expect(r.err).toContain(why); expect(fs.existsSync(out)).toBe(false); };
+    refused(summary(repo, '--out', out), '--no-ledger when no reader ran through gstack-review-dispatch');
+    fs.mkdirSync(path.join(repo.root, 'empty'));
+    refused(summary(repo, '--run', path.join(repo.root, 'empty'), '--out', out), 'holds no review-ledger.jsonl');
+    refused(summary(repo, '--ledger', path.join(run, 'nope.jsonl'), '--out', out), 'is unreadable');
+    const judged = path.join(run, 'p1', 'judged.jsonl');
+    const kept = fs.readFileSync(judged, 'utf8');
+    fs.writeFileSync(judged, kept.replace('CRITICAL', 'INFORMATIONAL'));
+    refused(summary(repo, '--ledger', ledger, '--out', out), 'changed since judge');
+    fs.writeFileSync(judged, kept);
+    fs.rmSync(path.join(run, 'p1', 'merged.jsonl'));
+    refused(summary(repo, '--run', run, '--out', out), 'is unreadable');
+    const both = summary(repo, '--run', run, '--no-ledger');
+    expect(both.status).toBe(EXIT.fail);
+    expect(both.err).toContain('(REVIEW_SCOPE_INPUT;');
+  });
+});

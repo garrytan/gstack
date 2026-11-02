@@ -1268,11 +1268,11 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
-`gstack-review-scope summary --since <REVIEW_SINCE>` reads the branch's review-log
-rows for this invocation and writes the counters the ship receipt carries
+`gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
+rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,
-blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`
-and `est_input_tokens` when the run recorded them, printed on the receipt summary
+blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`,
+`est_input_tokens`, `unrecorded` and `ledgers` when the run recorded them, printed on the receipt summary
 line as `passes=<n> blocking_found=<k> deferred=<m>`, so a scorecard can track
 passes per PR.
 

@@ -14,7 +14,7 @@ gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
 there, come back. Unattended, take a question's recommended option (log it); gate
-dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, then fill each as its phase ends: **Checks**
+dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1 and fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
@@ -28,7 +28,7 @@ file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` r
 small model at low effort; their findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
-section read or a fix-check, plus a keep-alive per 200 s waited. A fix repeats Phases 3-4.
+section read or a fix-check, plus a keep-alive per 200 s waited. Fixes redo 3-4.
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
@@ -119,7 +119,7 @@ STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` an
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 
 - Step 18: the open-PR lookup; a title file starting `v<NEW_VERSION> `. `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
-- Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
+- Step 19 body: the receipt block, then the sections `sections/pr-body.md` lists (Pre-Landing Review: `REVIEW_LOOP:`, `Gate edits:`, deferred, notes), led under `CAPY_PR: on` (Step 19-C) by What changed, Why, Blast radius and Approvals (`gstack-approvals render`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" --run <run dir> && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --body <body>`; `gstack-post pr-body` and `pr-title` (a new PR via the host's PR tool; a draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
 - Step 20: the metrics row via `gstack-review-log`.
 - Step 22: `gstack-ship-budget close --reading R --credits C` (report `BUDGET_FINAL:`, `BUDGET_TIMELINE:` (tokens, credits), any `METER:` line), then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 

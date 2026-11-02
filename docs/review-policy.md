@@ -387,14 +387,17 @@ narrowed to the gate scan's tagged hunks.
 
 ## What the receipt records
 
-`gstack-review-scope summary --since <REVIEW_SINCE>` reads this invocation's
-review-log rows and writes the counters `gstack-ship-receipt write --review-loop`
+`gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads this invocation's
+review-log rows and the dispatch ledgers under the run directory (`--ledger <f>` names one;
+`--no-ledger` when no reader ran through `gstack-review-dispatch`) and writes the counters `gstack-ship-receipt write --review-loop`
 puts in the receipt:
 
 | Field | Meaning |
 |---|---|
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: all`) |
-| `review_loop.blocking_found` | distinct blocking findings across the passes |
+| `review_loop.blocking_found` | every blocker found (GST-951): per reviewer, the larger of the rows' blocking findings (classified, or an unclassified CRITICAL) and the ledgers' CRITICAL findings as collected or judged, so an adversarial, outside-voice or not-yet-classified blocker counts. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
+| `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
+| `review_loop.ledgers` | dispatch ledgers the count read; absent under `--no-ledger` |
 | `review_loop.deferred` | blocking findings in unchanged code filed as issues (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |

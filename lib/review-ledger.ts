@@ -237,6 +237,40 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
 }
 
 /**
+ * The blocking findings a run's ledger holds (GST-951): every collected line whose label ranks CRITICAL, raised to its judged
+ * severity when the newest judge accepted a judged set that is unchanged since; lead judgment's additions count and a folded
+ * duplicate does not. Every reader counts the same way, whatever it is and whether or not Step 9.4 classified its findings.
+ * A ledger, merged file or judged set it cannot read, or a judged set changed since judge, throws: the count is never a guess.
+ */
+export function ledgerBlockers(ledger: string): string[] {
+  const fail = (why: string): never => { throw new Error(`${ledger}: ${why}`); };
+  const read = (file: unknown, what: string): string => {
+    try { return fs.readFileSync(String(file), 'utf8'); } catch { return fail(`${what} ${String(file)} is unreadable`); }
+  };
+  const jsonLines = (text: string, what: string): any[] =>
+    text.split('\n').filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return fail(`${what} has a line that is not JSON`); } });
+  const events = jsonLines(read(ledger, 'ledger'), 'the ledger') as LedgerEvent[];
+  const ranks = new Map<string, number>();
+  for (const o of events.filter(e => e.event === 'output' && Array.isArray(e.ids) && e.ids.length)) {
+    const lines = jsonLines(read(o.merged, `merged file of ${String(o.reader)}`), String(o.merged)) as MergedLine[];
+    for (const id of o.ids as string[]) {
+      const line = lines.find(l => l.id === id) ?? fail(`collected id ${id} is missing from ${String(o.merged)}`);
+      ranks.set(id, rank(line.label) ?? 0);
+    }
+  }
+  const verdict = [...events].reverse().find(e => e.event === 'judge');
+  if (verdict?.ok === true) {
+    const text = read(verdict.judged, 'judged set');
+    if (promptHash(text) !== verdict.judged_sha256) fail(`judged set ${String(verdict.judged)} changed since judge`);
+    for (const j of jsonLines(text, String(verdict.judged)) as JudgedLine[]) {
+      if (j.duplicate_of) ranks.delete(j.id);
+      else ranks.set(j.id, Math.max(ranks.get(j.id) ?? 0, rank(j.severity) ?? 0));
+    }
+  }
+  return [...ranks].filter(([, r]) => r >= 4).map(([id]) => id);
+}
+
+/**
  * Whether a recorded output was a review: it has findings, or its file (unchanged since collect) carries the reader's clean marker, so
  * a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own review field.
  */
