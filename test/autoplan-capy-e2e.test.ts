@@ -12,7 +12,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { RESULT_CODES } from '../lib/result-codes';
-import { ROOT, SMALL_PLAN, boundOf, resultOf } from './helpers/autoplan-run-fixture';
+import { ROOT, SMALL_PLAN, boundOf, recCarrying, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan, type CapyRunner } from './helpers/autoplan-capy';
 
 const r = capyRunner();
@@ -55,11 +55,11 @@ describe('unattended runs on the Capy host', () => {
       phaseVia(r, s.out, 'ceo');
       expect(phaseVia(r, s.out, 'eng').outside.stdout).toContain('status=gate_pending');
       expectReviewedHashes(s.out);
-      expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', String(rev), '--reply', 'all except p1d'])).stdout).toMatch(/^REOPENED: ceo,eng \(Eng last\) reason=revise$/m);
+      expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', String(rev), '--reply', recCarrying(s.out, 'all', ['p1d'])])).stdout).toMatch(/^REOPENED: ceo,eng \(Eng last\) reason=revise$/m);
     }
     phaseVia(r, s.out, 'ceo');
     phaseVia(r, s.out, 'eng');
-    expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '3', '--reply', 'all'])).stdout).toContain('status=complete');
+    expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '3', '--reply', recCarrying(s.out)])).stdout).toContain('status=complete');
     ok(r.ap(['export', '--out', s.out]));
     const v = ok(r.validate(s.out));
     expect(v.stdout).toMatch(/^ARTIFACT_VALID: run=\S+ status=complete/m);
@@ -83,7 +83,7 @@ describe('unattended runs on the Capy host', () => {
     const gated = ok(r.ap(['submit', '--out', s.out, '--phase', 'eng', '--voice', 'outside', '--unavailable', 'no cross-family subagent on this host']));
     expect(gated.stdout).toMatch(/^PHASE_CLOSED: eng .*coverage=native_only/m);
     expect(gated.stdout).toContain('status=gate_pending');
-    expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', 'all'])).stdout).toContain('status=complete');
+    expect(ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', recCarrying(s.out)])).stdout).toContain('status=complete');
     ok(r.ap(['export', '--out', s.out]));
     expect(ok(r.validate(s.out)).stdout).toMatch(/^ARTIFACT_VALID: run=\S+ status=complete attested=1$/m);
     expect(fs.readFileSync(path.join(s.out, 'review-record.md'), 'utf8')).toMatch(/attested/);
@@ -94,7 +94,7 @@ describe('unattended runs on the Capy host', () => {
     const s = start();
     phaseVia(r, s.out, 'ceo');
     phaseVia(r, s.out, 'eng');
-    ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', 'all except p1d']));
+    ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', recCarrying(s.out, 'all', ['p1d'])]));
     phaseVia(r, s.out, 'ceo');
     phaseVia(r, s.out, 'eng');
     const file = path.join(s.out, 'decisions.jsonl');
@@ -102,7 +102,7 @@ describe('unattended runs on the Capy host', () => {
     const manifest = readRunJson(s.out);
     delete manifest.gstack_version;
     fs.writeFileSync(path.join(s.out, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
-    const res = ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '2', '--reply', 'all']));
+    const res = ok(r.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '2', '--reply', recCarrying(s.out)]));
     expect(res.stdout).toMatch(/^GSTACK_VERSION_CHANGED: run unknown -> /m);
     expect(res.stdout).toContain('status=complete');
     ok(r.ap(['export', '--out', s.out]));
@@ -150,7 +150,7 @@ describe('conformance: one run through every mechanism', () => {
     const accept = JSON.parse(fs.readFileSync(path.join(s.out, 'gate.json'), 'utf8')).items.find((i: any) => i.title.startsWith('Gate the backoff')).id;
     // partial, then full
     expect(ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', `${accept}b`])).stdout).toMatch(/^GATE_PENDING: p1/m);
-    const full = ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', 'all']));
+    const full = ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '1', '--reply', recCarrying(s.out)]));
     expect(full.stdout).toMatch(new RegExp(`^APPLY: ${run}-${accept} `, 'm'));
     const pendingNext = c.ap(['next', '--out', s.out]).stderr;
     expect(pendingNext).toMatch(/\(PLAN_AMEND_PENDING\)$/m);
@@ -169,10 +169,10 @@ describe('conformance: one run through every mechanism', () => {
     for (const voice of ['native', 'outside']) ok(c.ap(['submit', '--out', s.out, '--phase', 'ceo', '--voice', voice, '--result', resultOf(s.out, 'ceo', voice as 'native' | 'outside'), '--model', voice === 'native' ? 'anthropic/claude-opus-5-5' : 'openai/gpt-6.1-sol']));
     phaseVia(c, s.out, 'eng');
     expect(readRunJson(s.out).gate_rev).toBe(2);
-    ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '2', '--reply', 'all except p1d']));
+    ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '2', '--reply', recCarrying(s.out, 'all', ['p1d'])]));
     phaseVia(c, s.out, 'ceo');
     phaseVia(c, s.out, 'eng');
-    expect(ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '3', '--reply', 'all'])).stdout).toContain('status=complete');
+    expect(ok(c.ap(['answer', '--by', 'human', '--out', s.out, '--gate-rev', '3', '--reply', recCarrying(s.out)])).stdout).toContain('status=complete');
     ok(c.ap(['export', '--out', s.out]));
     expect(ok(c.validate(s.out)).stdout).toMatch(/^ARTIFACT_VALID: run=\S+ status=complete/m);
     const final = readRunJson(s.out);
