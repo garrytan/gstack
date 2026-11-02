@@ -140,7 +140,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
 | Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
-| No-gstack arm | required with `stack: loaded`: `arms:`, `inputs:`, `prompt:`, `panel:`, `report:` (below) |
+| No-gstack arm | required with `stack: loaded` (below) |
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-eval-plan prereg --init <path>
@@ -153,11 +153,12 @@ preregistration.
 
 **No-gstack arm.** A head-to-head where any arm loads gstack or another skill stack
 (review variants, preamble loadouts, skill diets, a model panel under a stack) also
-runs each model with no skill stack at all. Add `<model>#no-gstack` to Arms for every
-model, and fill `## No-gstack arm`: `arms:` lists those arms; `inputs:` the same rows
-and fixture; `prompt:` the task text only, with no SKILL.md, preamble, hooks or installed
-skills, and the same tools; `panel:` the same E2E kind, trials, judge and blinding labels;
-`report:` its row beside the variants in every results table and verdict.
+runs each model with no skill stack. Add `<model>#no-gstack` to Arms for every model and
+fill `## No-gstack arm`: `arms:` those arms; `inputs:` same rows; `prompt:` the task text
+only, same tools; `panel:` the same kind, trials, judge and
+labels; `report:` its row beside the variants; `masking:` both Capy drives hidden from the
+run agent; `install:` no gstack installed; `audit:` drive reads per arm. An arm that read a
+gstack skill file is contaminated and gets zero credit.
 `PREREG_NO_GSTACK_ARM` (exit 1) names what is missing. The PREREG line shows
 `stack=loaded no_gstack_arm=ok` when it is complete, or `stack=none` for an opt-out.
 

@@ -36,6 +36,9 @@ inputs: the same five fixtures, tickets and hidden checks as the skill arms; the
 prompt: the ticket text only; the cell's CLAUDE.md is "# Project / Small fixture repo for one ticket." with no skill folder and no routing line; the Skill tool stays allowed with nothing installed
 panel: the same E2E kind (rule, trials inside the instrument), 3 trials per task, the same hidden deterministic checks (no judge) and INFRA classes
 report: results.md holds one table with a row per arm identity, each `<model>#no-gstack` row beside its skill row, and passes `gstack-eval-plan results --check test/fixtures/model-panel/PREREG.md results.md` before any number is published
+masking: the panel starts only where the run agent sees no Capy drive: a CI runner, or an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain first
+install: no gstack at ~/.local/share/gstack or ~/.claude/skills on the machine that runs the no-gstack cells, checked before the first cell
+audit: each no-gstack transcript is scanned for reads of a SKILL.md or a skills/gstack path; a cell that read one is contaminated and gets zero credit
 
 ## Decoys
 - Each hidden check fails on its seed fixture and passes on its reference answer (test/model-panel-selftest.test.ts runs both before any spend).
