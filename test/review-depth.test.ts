@@ -70,6 +70,46 @@ describe('nextStep: the transition table', () => {
   test('a clean fix-check is done', () => expect(nextStep({ fullPasses: 1, last: 'fix-check' }).step).toBe('done'));
 });
 
+// Value: protects=on gate class Step 11's adversarial, outside and targeted voices run before any owner exit the round cap reaches, and a recorded owner grant dispatches its one scoped fix-check after round 2, once; fails_when=a gate-class round-2 blocker fix stops before Step 11 (C6-36 after-opus: next=stop, no voice ran), or a recorded grant still stops (C6-36 after-opus-grant: the lane hand-dispatched the fix-check);
+//   why_new=GST-967; seam=nextStep, planReview; no_claim=the voices' or the fix-check's verdicts
+describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a recorded grant runs its fix-check', () => {
+  const capStop = { fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true } as const;
+  test('a gate-class round-2 blocker fix runs Step 11\'s voices before the owner stop, then stops', () => {
+    expect(nextStep({ ...capStop, gate: true })).toMatchObject({ step: 'voices', reason: expect.stringContaining("Step 11's voices") });
+    for (const o of [{ blockingOpen: true }, { fixedBlocking: false, fixedBelow: true, touchedGate: true }, { fullPasses: 1, last: 'fix-check' as const }, { fullPasses: 1, blockingOpen: true }]) expect(nextStep({ ...capStop, gate: true, ...o }).step).toBe('voices');
+    expect(nextStep({ ...capStop, gate: true, adversarialRan: true }).step).toBe('stop');
+    expect(nextStep(capStop).step).toBe('stop');
+  });
+  test('C6-36 run 1 replanned: the plan lists Step 11\'s three voices, and once they ran the stop stands', () => {
+    const h = { ...capStop, touchedGate: true };
+    const p = planReview(base({ gateTagged: 1, targeted: { classes: ['gate'] }, history: h }));
+    expect([p.class, p.next.step, roles(p)]).toEqual(['gate', 'voices', ['adversarial-native:adversarial:full', 'outside-voice:outside-voice:host', 'targeted:targeted:full']]);
+    expect(planReview(base({ gateTagged: 1, adversarialRan: true, targeted: { classes: ['gate'] }, history: h })).next.step).toBe('stop');
+  });
+  test('a recorded grant dispatches one scoped fix-check after round 2, after the gate-class voices, and never a second', () => {
+    const g = { ...capStop, granted: 'a-feb4aba31633' };
+    expect(nextStep(g)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-feb4aba31633') });
+    expect(roles(planReview(base({ history: g })))).toEqual(['fix-check:fix-check:full']);
+    expect(nextStep({ ...g, gate: true }).step).toBe('voices');
+    expect(nextStep({ ...g, gate: true, adversarialRan: true }).step).toBe('fix-check');
+    expect(nextStep({ ...g, fixedBlocking: false, fixedBelow: true, touchedGate: true }).step).toBe('fix-check');
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1', fixChecks: 1 }).step).toBe('fix-check');
+    expect(nextStep({ ...g, blockingOpen: true }).step).toBe('stop');
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', granted: 'a-1' }).step).toBe('done');
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1', fixChecks: 2 }).step).toBe('stop');
+  });
+  test('docs/review-policy.md\'s transitions table and rule 3 say both', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'review-policy.md'), 'utf8');
+    const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('A **fix-check** is one reviewer'));
+    expect(table).toContain("| a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |");
+    expect(table).toContain('| a round-2 stop for a fixed blocking finding or a gate-class edit, with the owner\'s recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |');
+    const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
+    expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
+    expect(rule3).toContain('`gstack-review-plan --grant <approval id>`');
+  });
+});
+
 describe('scanNumbers', () => {
   test('finds claims and fingerprints them', () => {
     const a = scanNumbers({ 'docs/bench.md': ['Median dropped 48% to 1.2s', 'no numbers here'] });

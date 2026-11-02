@@ -20,7 +20,7 @@ export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'medium' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check' | 'targeted';
-export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
+export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
@@ -338,6 +338,14 @@ export interface History {
   /** Runtime lines of the fix range (RANGE_BASE..HEAD) as classifyDiff counts them, 0 when it touches none; undefined or null when the range was not read. */
   rangeRuntimeLines?: number | null;
   pass1Depth?: Depth;
+  /** The diff is gate class (planReview sets it): Step 11's voices run before any stop. */
+  gate?: boolean;
+  /** Step 11's native adversarial pass already ran (planReview sets it from PlanInput.adversarialRan). */
+  adversarialRan?: boolean;
+  /** The approval id of the owner's recorded grant of one scoped fix-check after round 2 (review_loop_exception). */
+  granted?: string;
+  /** Fix-checks already run, the step that just finished included; default 1 after a fix-check, else 0. */
+  fixChecks?: number;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -349,8 +357,19 @@ export interface NextStep { step: Step; reason: string }
  * changes no runtime lines; two rounds is the cap (R51: a scoped pass or a fix-check is
  * one): after round 2, below-floor fixes finish with notes, and a blocker open or fixed
  * there, or a gate-class edit there, stops for the owner, whose grant may add one scoped fix-check.
+ * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
+ * and the owner's recorded grant (`granted`) turns a round-2 stop for a fixed finding into its one fix-check.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
+  const n = loopStep(h, depth);
+  if (n.step !== 'stop') return n;
+  if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's voices (adversarial, outside, targeted) run before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
+  const rounds = h.fullPasses + (h.fixChecks ?? (h.last === 'fix-check' ? 1 : 0));
+  if (h.granted && !h.blockingOpen && rounds === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
+  return n;
+}
+
+function loopStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1 reviews the whole diff' };
   const fixed = !!(h.fixedBlocking || h.fixedBelow);
   if (h.last === 'fix-check') return h.blockingOpen || h.fixedBlocking || h.touchedGate ? { step: 'stop', reason: `the fix-check ${h.touchedGate && !h.blockingOpen && !h.fixedBlocking ? 'edited a gate-class path' : 'found a blocking finding'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` } : { step: 'done', reason: fixed ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
@@ -475,7 +494,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const c = classifyDiff(i);
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
-  const next = nextStep(i.history, depth.depth);
+  const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan }, depth.depth);
   const h = i.history;
   const raise = depth.depth === 'light' && (h.fixedBlocking || h.blockingOpen || i.criticalFound);
   const stepDepth: Depth = raise ? 'standard' : depth.depth;
@@ -535,8 +554,11 @@ export function planReview(i: PlanInput): ReviewPlan {
   } else if (next.step === 'fix-check') {
     add('fix-check', 'fix-check', 'full');
     if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
+  } else if (next.step === 'voices') {
+    add('adversarial-native', 'adversarial', 'full');
+    add('outside-voice', 'outside-voice', 'host');
   }
-  if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check'].includes(next.step)) {
+  if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check', 'voices'].includes(next.step)) {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);
   }
