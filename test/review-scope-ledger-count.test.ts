@@ -285,4 +285,17 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     const s = loop(summary(repo, '--run', run));
     expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 0, fix_checks: 1, rounds: 2, unrecorded: 2 });
   });
+
+  // Value: protects=a blocker the last fix-check raises again is not fixed: only a fix-check after its last occurrence follows it
+  //   (round 2 outside voice on this PR: the re-raised blocker read blocking_found=1 fixed=1 with nothing unrecorded);
+  //   fails_when=an earlier occurrence's follow-up marks it fixed; seam=gstack-review-scope summary --run
+  test('a blocker the last fix-check raises again stays unrecorded', () => {
+    const repo = branchWith([review(0, 1, [{ fingerprint: 'lib/a.ts:10:logic', raised_by: 'red-team' }])]);
+    const run = path.join(repo.root, 'run');
+    const step = (dir: string, readers: Array<[string, string]>) => { pass(path.join(run, dir), readers); Bun.sleepSync(5); };
+    step('p1', [['red-team', '[CRITICAL] lib/a.ts:10 the cap is never enforced']]);
+    step('fc1', [['fix-check', '[CRITICAL] lib/a.ts:10 the cap is still never enforced']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 1, blocking_found: 1, fixed: 0, fix_checks: 1, unrecorded: 1 });
+  });
 });

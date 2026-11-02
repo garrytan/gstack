@@ -37,10 +37,10 @@ const commit = (repo: FixtureRepo, file: string, text: string, msg: string) => {
 };
 
 /** One targeted read through the real dispatch steps; `reply` is the reader's raw output after its REVIEWED_TREE line. */
-function targetedRead(repo: FixtureRepo, base: string, dir: string, reply: string | null, sent = true): string {
+function targetedRead(repo: FixtureRepo, base: string, dir: string, reply: string | null, sent = true, classes = 'money'): string {
   const out = path.join(repo.root, dir);
   const ledger = path.join(out, 'review-ledger.jsonl');
-  const render = runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', 'money', '--diff-base', base, '--out', out]);
+  const render = runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', classes, '--diff-base', base, '--out', out]);
   expect(render.status, render.err).toBe(0);
   const file = /file=(\S+)/.exec(render.out)![1]!;
   if (sent) expect(runBin(repo, 'gstack-review-dispatch', ['sent', '--ledger', ledger, '--role', 'targeted', '--sent', file]).status).toBe(0);
@@ -107,6 +107,18 @@ describe('verify records the targeted reader\'s outcome and the commit it read (
     expect(recordLine(v.out)).toBe('');
     expect(fs.existsSync(record)).toBe(false);
   });
+
+  // Value: protects=a verify that stops early (an empty ledger: no brief records) still removes the stale record (round 2 Red
+  //   Team and adversarial on this PR); fails_when=the early return leaves it; seam=gstack-review-dispatch verify --targeted-out
+  test('verify on a ledger with no brief records removes a stale --targeted-out file too', () => {
+    const { repo } = moneyBranch();
+    const ledger = path.join(repo.root, 'empty-ledger.jsonl');
+    fs.writeFileSync(ledger, '');
+    const record = path.join(repo.root, 'targeted.json');
+    fs.writeFileSync(record, '{"stale":true}\n');
+    expect(verify(repo, ledger, record).status).toBe(EXIT.refused);
+    expect(fs.existsSync(record)).toBe(false);
+  });
 });
 
 describe('write binds a targeted record only to the product patch the reader read (item 2)', () => {
@@ -158,6 +170,30 @@ describe('write binds a targeted record only to the product patch the reader rea
     expect(stale.status).toBe(EXIT.fail);
     expect(stale.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
   });
+
+  // Value: protects=a test edit after the read that skips a case is gate-class work the reader never saw, so the record does not
+  //   bind though the product patch (which leaves tests out) is unchanged (round 2 outside voice and adversarial on this PR);
+  //   a record whose read commit is not an ancestor of the head is refused; fails_when=write binds either;
+  //   seam=gstack-ship-receipt write --review-targeted
+  test('a test skipped after the read is refused though the product patch is unchanged; a rewritten read is refused', () => {
+    const { repo, base } = moneyBranch();
+    const cases = (cap: string) => `import { test, expect } from "bun:test";\ntest.skip("unit", () => { expect(1).toBe(1); });\n${cap}("cap", () => { expect(5).toBe(5); });\n`;
+    commit(repo, 'test/charge.test.ts', cases('test'), 'cap test, unit case skipped');
+    const head = repo.git('rev-parse', 'HEAD');
+    const record = path.join(repo.root, 'targeted.json');
+    expect(verify(repo, targetedRead(repo, base, 'h1', 'NO FINDINGS', true, 'money,gate'), record).status).toBe(0);
+    expect(write(repo, ['--review-targeted', `@${record}`]).status).toBe(EXIT.ok);
+    commit(repo, 'test/charge.test.ts', cases('test.skip'), 'skip the cap test');
+    const skipped = write(repo, ['--review-targeted', `@${record}`]);
+    expect(skipped.status).toBe(EXIT.fail);
+    expect(skipped.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+
+    repo.git('reset', '-q', '--hard', base);
+    commit(repo, 'src/charge.ts', 'export const spend_cap_usd = 75;\n', 'rewritten money change');
+    const rewritten = write(repo, ['--review-targeted', `@${record}`]);
+    expect(rewritten.status).toBe(EXIT.fail);
+    expect(rewritten.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+  });
 });
 
 describe('write and carry refuse a receipt the queue\'s targeted verdict refuses (item 4, #3854)', () => {
@@ -204,6 +240,7 @@ describe('write and carry refuse a receipt the queue\'s targeted verdict refuses
     const uncovered = carry(versioned);
     expect(uncovered.status).toBe(EXIT.refused);
     expect(uncovered.err).toMatch(/requires the targeted reader on money, but the receipt records no targeted pass.*\(RECEIPT_CARRY_REFUSED/);
+    expect(uncovered.err).toContain('the queue refuses it once #3859 lands');
     expect(extractReceipt(fs.readFileSync(uncovered.body, 'utf8')).receipt!.head).toBe(head);
     const ok = carry(covered);
     expect(ok.status, ok.err).toBe(EXIT.ok);
