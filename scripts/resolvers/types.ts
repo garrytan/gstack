@@ -125,6 +125,21 @@ export interface TemplateContext {
    * still apply.
    */
   planMode?: boolean;
+  /**
+   * Module loadout filter (modules/loadouts.json, gen-skill-docs --loadout/--modules).
+   * Undefined = the `full` loadout: every module renders and committed bytes are unchanged.
+   */
+  modules?: ModuleFilter;
+}
+
+/** A resolved loadout: which module ids it leaves out, and which ids can never be left out. */
+export interface ModuleFilter {
+  /** Loadout name, or `adhoc` for a --modules spec. */
+  name: string;
+  excluded: ReadonlySet<string>;
+  pinned: ReadonlySet<string>;
+  /** Unpinned preamble pieces render as if the skill's preamble-tier were at most this. */
+  preambleTierMax?: number;
 }
 
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */

@@ -189,7 +189,7 @@ describe('collectHealth over recorded fixture data', () => {
       [/workflows\/free-tests\.yml\/runs/, () => ({ workflow_runs: [run(60), run(61, { conclusion: 'failure' })] })],
       [/runs\/60\/artifacts/, () => ({ artifacts: [{ id: 61, name: 'flake-ledger-2', size_in_bytes: 10 }] })],
       [/runs\/61\/artifacts/, () => ({ artifacts: [] })],
-      [/workflows\/windows-free-tests\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
+      [/workflows\/windows-smoke\.yml\/runs/, () => ({ workflow_runs: windowsRuns })],
     ], {
       11: { 'manifest.json': JSON.stringify({ prCoverage: { mode: 'full-fallback', e2e: ['gate-a', 'gate-b'], judges: ['judge-a'],
         shadow: { e2e: ['gate-a', 'gate-b'], wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0 } } }) },
@@ -218,7 +218,7 @@ describe('collectHealth over recorded fixture data', () => {
     expect(value('census-redispatch').value).toBe('0 of 1 census(es) re-dispatched; longest paid slice job 20.0 min');
     expect(value('quarantine-evidence').value).toContain('insufficient evidence (not the same as healthy)');
     expect(value('free-flaky-pass-rate').value).toStartWith('50.0% (1/2 main runs');
-    expect(value('free-wall').value).toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) 0.0 min (1 runs)');
+    expect(value('free-wall').value).toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) 0.0 min (1 runs)');
     expect(value('free-serial').value).toBe('3 s over 3 files');
     for (const entry of report.metrics.filter(entry => entry.id !== 'net-complexity')) {
       expect(entry.rule.length).toBeGreaterThan(10);
@@ -287,10 +287,10 @@ describe('collectHealth over recorded fixture data', () => {
     const pr = (id: number, minutes: number, extra: Record<string, unknown> = {}) => run(id, { event: 'pull_request', head_branch: `pr-${id}`,
       run_started_at: day(1), updated_at: new Date(Date.parse(day(1)) + minutes * 60_000).toISOString(), ...extra });
     expect(wall([pr(70, 6), pr(71, 7), pr(74, 8), pr(72, 30, { conclusion: 'failure' }), run(73, { event: 'workflow_dispatch', run_started_at: day(3), updated_at: day(1) })]).value)
-      .toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) 7.0 min (3 runs)');
+      .toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) 7.0 min (3 runs)');
     expect(wall([run(73, { event: 'workflow_dispatch', run_started_at: day(3), updated_at: day(1) })]).value)
-      .toBe('free-tests 0.0 min (1 runs); windows-free-tests (successful PR runs) no successful PR runs in window');
-    expect(wall([]).rule).toContain('workflow_dispatch duration recordings excluded');
+      .toBe('free-tests 0.0 min (1 runs); windows-smoke (successful PR runs) no successful PR runs in window');
+    expect(wall([]).rule).toContain('workflow_dispatch runs excluded');
   });
 
   test('a rate-limited API degrades every remote metric to a named unavailable reason, never 0, and keeps the issue open', () => {

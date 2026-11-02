@@ -1,7 +1,9 @@
 # Slot call
 
 Sent by the controller to one lane at a time, in train order, after the train verdict is
-GREEN and the previous slot has merged and verified.
+GREEN and the previous slot has merged and verified. Plain trains only: a train built under
+`changelog_fragments` has no slot call; the controller runs `train land --train <nonce> --pr <n>`
+(docs/ship-policy.md#train-land).
 
 ```text
 #<n> slot <X>, base <BASE sha40>, order <remaining order, e.g. 41,42,43>

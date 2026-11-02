@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { missingDependencies, parseRegistry, selectEntries, validateRegistry } from '../lib/regen';
+import { missingDependencies, parseRegistry, runRegen, selectEntries, validateRegistry } from '../lib/regen';
 import { BASE_REGISTRY, cleanup, commit, makeFixtureRepo, readFile, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -133,6 +133,21 @@ describe('gstack-regen (bin)', () => {
     const parsed = JSON.parse(again.out);
     expect(parsed.results.map((x: any) => [x.id, x.status])).toEqual([['digest', 'fresh'], ['goldens', 'listed']]);
     expect(parsed.wtree).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  // Value: protects=the receipt carry's generated class (only outputs a generator recreates) and a generator that reads
+  // its own registered output (gen-skill-docs and qa/templates/functional-report-template.md); fails_when=the proof
+  // deletes outputs before the verdict run, or proves a path the command never wrote; seam=runRegen; no_claim=-
+  test('prove: a writer proves its touched output; a generator that reads its own output stays fresh and proves nothing', () => {
+    const registryOf = (repo: FixtureRepo) => parseRegistry(fs.readFileSync(path.join(repo.work, '.gstack/generated.json'), 'utf8')).registry;
+    const writer = fixture();
+    commit(writer, { 'src/version.js': "module.exports = { VERSION: '1.1.0' };\n", 'generated/digest.md': '# digest v1.1.0\n', 'generated/notes.md': '# hand-written\n' });
+    expect(runRegen({ repoRoot: writer.work, registry: registryOf(writer), mode: 'check', only: ['digest'], prove: ['generated/digest.md', 'generated/notes.md', 'src/version.js'] }).results)
+      .toMatchObject([{ id: 'digest', status: 'fresh', proven: ['generated/digest.md'] }]);
+    const selfRead = fixture({ registry: { entries: [{ id: 'self', command: 'node selfread.js', outputs: ['generated/**'], inputs: ['selfread.js'] }] }, baseFiles: { 'selfread.js': "const fs=require('fs');fs.writeFileSync('generated/digest.md',fs.readFileSync('generated/digest.md','utf8'));\n" } });
+    commit(selfRead, { 'generated/digest.md': '# hand edit\n' });
+    expect(runRegen({ repoRoot: selfRead.work, registry: registryOf(selfRead), mode: 'check', prove: ['generated/digest.md'] }).results)
+      .toMatchObject([{ id: 'self', status: 'fresh', proven: [] }]);
   });
 
   test('a failing command is failed (exit 1, REGEN_COMMAND_FAILED, status incomplete); an output outside the declared globs is stale', () => {

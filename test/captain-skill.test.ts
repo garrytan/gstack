@@ -15,7 +15,7 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const skill = read('captain/SKILL.md');
 const tmpl = read('captain/SKILL.md.tmpl');
 const flat = skill.replace(/\s+/g, ' ');
-const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md'];
+const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md', 'merge-train-peer.md'];
 
 describe('/captain skill', () => {
   test('frontmatter names the skill and its /crew alias trigger', () => {
@@ -79,6 +79,17 @@ describe('/captain skill', () => {
     expect(read('captain/templates/plan-ask.md')).toContain('**do it**');
     expect(read('captain/templates/plan-ask.md')).toContain('gstack-approvals import --autoplan');
     expect(read('captain/templates/automation-flaky-pass.md')).toContain('never merge');
+  });
+
+  test('every copy of the plan-first exemptions names the two fix exemptions and the eng-only plan for every other fix', () => {
+    for (const rel of ['docs/captain.md', 'captain/SKILL.md', 'captain/templates/CREW.md', 'capy/skill/gstack/SKILL.md']) {
+      const text = read(rel).replace(/\s+/g, ' ');
+      expect(text, rel).toMatch(/S1 emergenc(?:y|ies) \(a? ?broken install or upgrade, a? ?red main, a security bug\)/);
+      expect(text, rel).toMatch(/already[- ]diagnosed,? (?:and )?audited problem list|problem list that was already diagnosed and audited/);
+      expect(text, rel).toContain('one-round, eng-only plan');
+    }
+    expect(read('docs/captain.md')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
+    expect(read('captain/templates/brief.md').replace(/\s+/g, ' ')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
   });
 
   test('is generic: parameters, not one crew\'s codes, names or repository', () => {

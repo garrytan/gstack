@@ -1,0 +1,4 @@
+{
+  "bytes": 281,
+  "why": "pr-body's exit-64 branch stops and reports a duplicate-title refusal instead of the no-remote by-hand path (#3575)"
+}

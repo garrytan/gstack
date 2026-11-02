@@ -7,7 +7,8 @@
  *   gstack-model-benchmark <skill-or-prompt-file> [options]
  *
  * Options:
- *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
+ *   --models claude,gpt,gemini   Comma-separated provider list (default: claude); particle and
+ *                                deepseek run in Claude Code through OpenRouter (OPENROUTER_API_KEY)
  *   --prompt "<text>"            Inline prompt instead of a file
  *   --workdir <path>             Working dir passed to each CLI (default: cwd)
  *   --timeout-ms <n>             Per-provider timeout (default: 300000)
@@ -28,15 +29,7 @@ import '../lib/conductor-env-shim';
 import * as fs from 'fs';
 import * as path from 'path';
 import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
-import { ClaudeAdapter } from '../test/helpers/providers/claude';
-import { GptAdapter } from '../test/helpers/providers/gpt';
-import { GeminiAdapter } from '../test/helpers/providers/gemini';
-
-const ADAPTER_FACTORIES = {
-  claude: () => new ClaudeAdapter(),
-  gpt: () => new GptAdapter(),
-  gemini: () => new GeminiAdapter(),
-};
+import { PROVIDERS, PROVIDER_NAMES, isProviderName, type ProviderName } from '../test/helpers/providers/registry';
 
 type OutputFormat = 'table' | 'json' | 'markdown';
 
@@ -76,16 +69,20 @@ function positionalArgs(args: string[]): string[] {
   return positional;
 }
 
-function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+function parseProviders(s: string | undefined): ProviderName[] {
   if (!s) return ['claude'];
-  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  const seen = new Set<ProviderName>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
-    if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
+    if (isProviderName(p)) seen.add(p);
     else {
-      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
+      console.error(`WARN: unknown provider '${p}' — skipping. Valid: ${PROVIDER_NAMES.join(', ')}.`);
     }
   }
-  return seen.size ? Array.from(seen) : ['claude'];
+  if (!seen.size) {
+    console.error(`No valid provider in --models '${s}'. Valid: ${PROVIDER_NAMES.join(', ')}.`);
+    process.exit(1);
+  }
+  return Array.from(seen);
 }
 
 function parsePositiveIntegerFlag(name: string, def: string): number {
@@ -163,7 +160,7 @@ async function main(): Promise<void> {
 
 async function dryRunReport(opts: {
   prompt: string;
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  providers: ProviderName[];
   workdir: string;
   timeoutMs: number;
   output: OutputFormat;
@@ -181,7 +178,7 @@ async function dryRunReport(opts: {
   lines.push('Adapter availability:');
   let authFailures = 0;
   for (const name of opts.providers) {
-    const factory = ADAPTER_FACTORIES[name];
+    const factory = PROVIDERS[name];
     if (!factory) {
       lines.push(`  ${name}: UNKNOWN PROVIDER`);
       authFailures += 1;

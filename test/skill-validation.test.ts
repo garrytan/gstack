@@ -1794,22 +1794,28 @@ describe('Skill trigger phrases', () => {
     });
   }
 
-  // Skills with proactive triggers should have "Proactively suggest" somewhere in the skill.
-  const SKILLS_REQUIRING_PROACTIVE = [
-    'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
-    'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
-    'design-review', 'design-consultation', 'retro', 'document-release',
-  ];
+  // Only the four core skills (the proactive: core default) may invite unasked
+  // suggestions; a non-core description that says "Proactively suggest" reaches
+  // every host that keeps full descriptions, under core too (#3446).
+  const SKILLS_REQUIRING_PROACTIVE = ['qa', 'ship', 'review', 'office-hours'];
 
   for (const skill of SKILLS_REQUIRING_PROACTIVE) {
     test(`${skill}/SKILL.md.tmpl has proactive routing phrase`, () => {
-      const skillPath = path.join(ROOT, skill, 'SKILL.md.tmpl');
-      if (!fs.existsSync(skillPath)) return;
-      const content = fs.readFileSync(skillPath, 'utf-8');
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md.tmpl'), 'utf-8');
       // Same catalog-trim consideration — check the template description.
       expect(content).toMatch(/Proactively (suggest|invoke)/i);
     });
   }
+
+  test('no non-core skill description invites proactive suggestions (#3446)', () => {
+    const offenders = fs.readdirSync(ROOT)
+      .filter(dir => !SKILLS_REQUIRING_PROACTIVE.includes(dir) && fs.existsSync(path.join(ROOT, dir, 'SKILL.md.tmpl')))
+      .filter(dir => {
+        const tmpl = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf-8');
+        return /Proactively (suggest|invoke)/i.test(tmpl.slice(0, tmpl.indexOf('\n---', 4)));
+      });
+    expect(offenders).toEqual([]);
+  });
 });
 
 // ─── Private-path leak detector ──────────────────────────────

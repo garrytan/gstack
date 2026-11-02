@@ -123,9 +123,9 @@ export function getChangedFiles(
   // and the dependent test is silently DESELECTED — under-selection, the
   // exact direction selection must fail away from.
   const noQuote = ['-c', 'core.quotePath=false'];
-  const committed = runGitOrThrow([...noQuote, 'diff', '--name-only', `${baseBranch}...HEAD`], cwd, spawnImpl)
+  const committed = runGitOrThrow([...noQuote, 'diff', '--name-only', `${baseBranch}...HEAD`, '--no-renames'], cwd, spawnImpl)
     .trim().split('\n').filter(Boolean);
-  const uncommitted = runGitOrThrow([...noQuote, 'diff', '--name-only', 'HEAD'], cwd, spawnImpl)
+  const uncommitted = runGitOrThrow([...noQuote, 'diff', '--name-only', 'HEAD', '--no-renames'], cwd, spawnImpl)
     .trim().split('\n').filter(Boolean);
   const untracked = runGitOrThrow([...noQuote, 'status', '--porcelain', '--untracked-files=all'], cwd, spawnImpl)
     .split('\n')

@@ -1,0 +1,4 @@
+{
+  "bytes": 1008,
+  "why": "GSTA-147 review depth: Step 9 saves REVIEW_DEPTH/GATE_SCAN, passes --depth-floor, records depth fields and reads each reviewer's DIFF_CMD; the batched light specialist; Step 11's light note; the skeleton's Review policy paragraph names the depth and --depth-floor (trimmed to hold the skeleton cap); the pr-body section's --review-loop-exception instruction (#3559)"
+}

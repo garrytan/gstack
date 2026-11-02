@@ -95,21 +95,29 @@ export interface CiJob { id: number; name: string; conclusion: string | null; st
 
 const PAGE = 100;
 
+/** The runs API's `created` filter, by UTC day (both ends inclusive): `>=since`, or `since..until` when the window has an end. */
+export function createdFilter(since: string, until?: string): string {
+  return `created=${encodeURIComponent(until ? `${since.slice(0, 10)}..${until.slice(0, 10)}` : `>=${since.slice(0, 10)}`)}`;
+}
+
 /**
- * Every completed run of `workflow` created at or after `since`, newest first,
- * paging until a page is short or older than `since`. A failure on any page
- * throws: a partial history is never reported as a complete one.
+ * Every completed run of `workflow` created at or after `since` (and before
+ * `until` when given), newest first, paging until a page is short (the
+ * `created` filter bounds the range server-side). A run whose created_at does
+ * not parse is skipped. A failure on any page throws: a partial history is
+ * never reported as a complete one.
  */
 export function listWorkflowRuns(client: GhClient, repo: string, workflow: string,
-  opts: { since: string; branch?: string; event?: string; maxPages?: number }): CiRun[] {
+  opts: { since: string; until?: string; branch?: string; event?: string; maxPages?: number }): CiRun[] {
   const out: CiRun[] = [];
-  const query = [`status=completed`, `per_page=${PAGE}`, `created=${encodeURIComponent(`>=${opts.since.slice(0, 10)}`)}`,
+  const query = [`status=completed`, `per_page=${PAGE}`, createdFilter(opts.since, opts.until),
     ...(opts.branch ? [`branch=${encodeURIComponent(opts.branch)}`] : []), ...(opts.event ? [`event=${encodeURIComponent(opts.event)}`] : [])];
   for (let page = 1; page <= (opts.maxPages ?? 20); page++) {
     const body = client.getJson(`repos/${repo}/actions/workflows/${workflow}/runs?${query.join('&')}&page=${page}`) as { workflow_runs?: any[] };
     const runs = Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
     for (const run of runs) {
-      if (String(run.created_at) < opts.since) continue;
+      const created = Date.parse(String(run.created_at));
+      if (!(created >= Date.parse(opts.since)) || (opts.until && created >= Date.parse(opts.until))) continue;
       if ((opts.branch && run.head_branch !== opts.branch) || (opts.event && run.event !== opts.event)) continue;
       out.push({ id: Number(run.id), attempt: Number(run.run_attempt ?? 1), sha: String(run.head_sha ?? ''), branch: String(run.head_branch ?? ''),
         event: String(run.event ?? ''), status: String(run.status ?? ''), conclusion: run.conclusion ?? null,

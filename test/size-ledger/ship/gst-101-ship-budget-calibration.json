@@ -1,0 +1,4 @@
+{
+  "bytes": 535,
+  "why": "GST-101: budget-handoff names check --returned for reviewers admitted one at a time; GSTA-167: a child never stops on the context rule and hands off after a completed step, and an ADMIT k of n batch re-checks its remaining readers"
+}

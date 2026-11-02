@@ -91,6 +91,28 @@ describe('supervise: process group, log file, stall and deadline', () => {
     expect(r.lines.filter(l => l.startsWith('PREGATE_HEARTBEAT: fixture running ')).length).toBeGreaterThanOrEqual(2);
     expect(r.lines.some(l => l.startsWith('PREGATE_TEST:'))).toBe(false);
   });
+
+  // Value: protects=a remote gate's heartbeat says what the gate last printed (GST-431); fails_when=the heartbeat for a gate that
+  //   reports its CI wait shows only "last file none reported"; why_new=a CI-waiting gate looked dead on qm (CAPY-1); seam=none; no_claim=none
+  test('with lastLine, a heartbeat names the command\'s last output line', async () => {
+    const dir = scratch();
+    const r = await run(dir, 'echo "waiting on run 7 (in_progress)"; sleep 1.2; echo done', { heartbeatMs: 300, lastLine: true });
+    expect(r.outcome).toBe('exited');
+    expect(r.lines.some(l => l.startsWith('PREGATE_HEARTBEAT: fixture running ') && l.includes('last output: waiting on run 7 (in_progress)'))).toBe(true);
+    const redraw = await run(dir, "printf 'run 7 queued\\r\\033[2Krun 7 in_progress\\n'; sleep 1.2", { heartbeatMs: 300, lastLine: true });
+    expect(redraw.lines.some(l => l.endsWith('last output: run 7 in_progress'))).toBe(true);
+    expect(redraw.lines.some(l => l.includes('\x1b') || l.includes('\r'))).toBe(false);
+  });
+
+  // Value: protects=reading the last line is best effort: a log that disappears mid-run never throws out of the supervisor's timer, which would
+  //   abandon the gate's deadline and cleanup (GST-431 review); fails_when=lastLine sampling throws ENOENT; why_new=lastLine is new; seam=none; no_claim=none
+  test('with lastLine, a log removed mid-run still ends in a normal outcome', async () => {
+    const dir = scratch();
+    const log = path.join(dir, 'run.log');
+    fs.writeFileSync(log, '');
+    const r = await supervise({ command: `echo hi; sleep 0.4; rm -f "${log}"; sleep 1.2; echo done`, cwd: dir, env: process.env, log, deadline: Date.now() + 30_000, stallMs: 0, graceMs: 300, pollMs: 50, heartbeatMs: 300, lastLine: true, label: 'fixture', progress: () => {} });
+    expect(r.outcome).toBe('exited');
+  });
 });
 
 describe('supervise: per-file progress adapters', () => {

@@ -14,7 +14,7 @@ import { checkPrereg, parsePreregDiagnostics, preregTemplate } from '../lib/eval
 import { capyHost, type CapyHost } from './helpers/capy-host';
 
 const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-eval-plan');
-const FILLED = ['Bars', 'Arms', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n');
+const FILLED = ['Bars', 'Arms', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n') + '\n## Comparison\nstack: none\nwhy: one arm, no skill stack\n';
 const SUMMARIZER = [
   'touch ran.marker',
   'r=$(grep -c \'"kind":"refusal"\' "$1")',
@@ -54,7 +54,7 @@ describe('prereg --check: the Diagnostics section', () => {
     const r = check(FILLED + diagnostics([['refusals', '2'], ['truncated', '1']]));
     expect(r.code).toBe(3);
     expect(r.ran).toBe(false);
-    expect(r.out).toContain('PREREG: ok present=5/5 diagnostics=2 file=');
+    expect(r.out).toContain('PREREG: ok present=6/6 stack=none diagnostics=2 file=');
     expect(r.out).toContain(`PREREG_COMMAND: summarizer="sh summarize.sh {fixture}" fixture=fixtures/synthetic records.jsonl cwd=${fs.realpathSync(repo)}`);
     expect(r.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
     expect(r.out).not.toContain('PREREG_DIAGNOSTICS:');
@@ -104,7 +104,7 @@ describe('prereg --check: the Diagnostics section', () => {
     const r = check(FILLED + diagnostics([['refusals', 'two']], { summarizer: 'sh summarize.sh fixtures/x.jsonl' }), '--allow-repo-commands');
     expect(r.code).toBe(1);
     expect(r.ran).toBe(false);
-    expect(r.out).toContain('PREREG: incomplete present=5/5 diagnostics=invalid');
+    expect(r.out).toContain('PREREG: incomplete present=6/6 stack=none diagnostics=invalid');
     expect(r.err).toContain('diagnostics: row "| refusals | two |"');
     expect(r.err).toContain('diagnostics: the summarizer command never names the fixture ({fixture})');
     expect(r.err).toContain('diagnostics: no | diagnostic | expected | rows');
@@ -114,7 +114,7 @@ describe('prereg --check: the Diagnostics section', () => {
   test('without a Diagnostics section the check is unchanged; the template mentions the section without adding a heading', () => {
     const r = check(FILLED);
     expect(r.code).toBe(0);
-    expect(r.out).toBe(`PREREG: ok present=5/5 file=${path.join(repo, 'evals', 'prereg.md')}\n`);
+    expect(r.out).toBe(`PREREG: ok present=6/6 stack=none file=${path.join(repo, 'evals', 'prereg.md')}\n`);
     expect(parsePreregDiagnostics(FILLED)).toBeNull();
     expect(parsePreregDiagnostics(FILLED + '\n## Diagnostics\n<!-- none -->\n')).toBeNull();
     expect(preregTemplate()).toContain('## Diagnostics');

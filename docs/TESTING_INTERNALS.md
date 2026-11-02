@@ -197,7 +197,15 @@ shards get duration-aware walls (`max(base, predicted × 3, files × 5s)`). The
 legacy `--shards N --shard i` path keeps stable hash indices. Required CI uses
 one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
-independent machines without ordering unrelated jobs. The public
+independent machines without ordering unrelated jobs. Two workflow-level
+constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
+(`ubicloud-standard-4`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+resolves into the shards' runner and shard count. A `workflow_dispatch` run may
+override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
+`free_shards` (1–40) for runner-sizing experiments only; its job summary says
+so, and it is never cited as a PR or train Free Tests result. Each shard prints
+`RESOURCES: peak_used_mib=… min_free_disk_mib=… samples=…` from a memory and
+disk sample every 2 seconds, even when the suite fails. The public
 `TREE_MUTATING` map now classifies exclusive host-state fixtures; its sole
 entry is `test/bootstrap-retention.test.ts`, whose same-UID nondumpable actors
 affect host-wide procfs permission checks. Locally, this file runs only after
@@ -783,6 +791,16 @@ once, plus cleanup. Each still has 120 seconds of model work. Its 17 workflow
 judges own their deadline and abort signal, with five seconds for terminal
 recording inside a ten-second Bun grace; the other 11 retain their existing
 120-second Bun timeout. Late responses cannot create records or cache passes.
+When a judge's abort signal cancels its request, `callJudge`
+(`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
+stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
+`httpRequests` and `httpStatuses` (so SDK retries show), `connectedMs`,
+`firstEventMs` and `lastEventMs`, `bytesReceived` and `lastByteMs` (every body
+byte, pings included, so a silent socket differs from a model thinking on a live
+connection), the open `block` type, `thinkingChars` and
+`textChars`, `messageId`, `requestId` and the `reason` (at most 200
+characters). It holds counts and ids only, never content, and changes no
+request, score or verdict.
 
 The ship documentation file reserves 4,920 seconds for four 600-second cases and
 eight 300-second fault cases, run once, plus cleanup; in CI each case runs as its
@@ -971,32 +989,40 @@ namespaces Chromium's sandbox needs, and `python3-venv` is absent (required by
 the Python runner tests).
 
 VMs are named `ubirun-<owner>-<epoch>-<hex>`, plus a `-t<hours>` TTL suffix
-(below); `<owner>` is `UBI_OWNER` (set it to the thread id on a Capy machine;
-lowercase letters and digits, at most 12), else a stable per-machine id. Every exit
+(below); `<owner>` is `UBI_OWNER` (the thread id on a Capy machine; lowercase
+letters and digits, at most 12), which `up`, `run` and `verify` require. Every exit
 path destroys the client's own VM (`trap` on EXIT, INT, TERM, HUP and QUIT), and
 `down` fails loudly (`FAILED to destroy <location>/<name> (HTTP <code>)`) unless
 the VM is confirmed gone. `list --mine` shows this owner's VMs, `usage` the
 project's, and `records` the VM-id scratch file (`UBI_VM_RECORD`, default
 `~/.capy/work/ubi-runner/vms.tsv`, else `<state root>/vms.tsv`): every VM is
 recorded there before the create call and forgotten only after a confirmed
-destroy, so a killed runner leaves a name to clean up. No age-based sweep runs
-by default, because the project quota is shared with other agents' runners (the
-TTL reaper below destroys only a VM whose own `-t<hours>` TTL has ended); set
+destroy, so a killed runner leaves a name to clean up. `run` and `verify` end
+with `UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`, checked
+against the project's VM list after teardown; anything but `left=0` turns a
+passing command into exit 1. pregate-remote.sh reads that line from the file
+named by `UBI_LEFT_FILE`, never from the command's output. No owner-age sweep runs by default (the TTL reaper
+below covers every owner); set
 `UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
 sweep only this owner's VMs older than that. For other commands, use the runner
 directly: `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`,
 or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 
 The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
-A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, default 4; 0 omits it),
-the creator's own statement of how long the VM may live: `reap` destroys every
-VM in the project whose TTL ended more than ten minutes ago, whichever owner
-made it, and every `up` runs it first (`UBI_REAP=0` skips it); names without a
-TTL, such as the ones pregate-remote.sh builds itself, are never reaped. The
+A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
+uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
+destroys every VM in the project whose TTL ended more than ten minutes ago,
+whichever owner made it, and the caller's own `ubirun-<UBI_OWNER>-*` names
+without a TTL (older runner copies) once they are `UBI_LEGACY_HOURS` old
+(default 4). Another owner's TTL-less VM and an untagged one are never reaped,
+because only a TTL lets reap judge another lane's VM. Every `up` runs it
+first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
-state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). `run`, `verify`
+state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). When the usage read fails (`usage` exits 1 on an
+unreadable VM list or size and skips a VM that 404s), the preflight retries
+within `UBI_QUOTA_WAIT`, then logs and leaves the decision to the API. `run`, `verify`
 and `ssh NAME COMMAND` stream the remote output through a watchdog: a heartbeat
 line every `UBI_HEARTBEAT` seconds (300), and a command silent for
 `UBI_IDLE_TIMEOUT` seconds (1800) or older than `UBI_RUN_TIMEOUT` (0, unlimited)
@@ -1009,8 +1035,24 @@ repository content: its setup script and pull destinations must resolve inside
 `--src`, and a name it lists under `pass` is forwarded only when the command
 line grants it (`--pass NAME`, or all of them with `--trust-config`); `--pass`
 never forwards `UBICLOUD_*`. All of this is pinned offline in
-`test/ubicloud-runner.test.ts` against a fake API and a fake `ssh`, including
+`test/ubicloud-runner*.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
+
+`run` and `verify` start their setup, command and tier phases detached on the
+VM (output, leader pid and exit status in `~/.ubirun-<phase>.*`) and key each
+run locally before any VM exists (content tree, command, setup content, env,
+pass-value hashes, size, location, image, storage, origin/HEAD, the runner's
+own sha256). A rerun of the same command after the runner died reattaches to
+the live VM and continues from the first phase without an exit file
+(`UBI_ATTACH_BUSY` while another runner owns it, exit 125 `UBI_ATTACH_LOST`
+when the session left no status); HUP detaches (`UBI_DETACHED`, exit 129), INT
+and TERM still tear down. A `.gstack/ubicloud.json` with `tiers` records
+start/pass/fail per tier under `UBI_CHECKPOINT_DIR/<run key>/`, so a resume on
+a fresh VM reruns setup and only the tiers without a pass; `pregate-remote.sh`
+adds its tree and planned-set digest to the key, so a rerun of
+`gstack-pregate --stage tests --remote` reattaches and bills from the original
+`created_at`. The fake VM in `test/helpers/ubi-runner-fake-vm.ts` runs these phases
+for real in a directory.
 
 Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
 E2E tiers on a remote gate: `gstack-config set test_backend ubicloud` records
@@ -1028,7 +1070,7 @@ machine swap, in this order:
    one side local and the other remote.
 4. Profiling very large imports (a whole-repo ingest, the full free suite under
    a profiler) is warned about before it starts: it holds the VM for hours, and
-   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 4)
+   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 3)
    plus ten minutes has passed, so set `UBI_TTL_HOURS` above the expected
    duration and name that duration in the thread before launching.
 
@@ -1124,6 +1166,15 @@ list each unmapped file that caused a fallback with one of these labels:
 - **real unknown dependency**: a file outside the derivable directories that no
   list classifies (for example `ETHOS.md`); map it, exempt it, or derive its
   directory.
+
+Narrow screens (`gstack-ship-queue ready --screen` without `--broad`) and
+`eval:bg:pr` (`test:pr` defaults `EVALS_SCREEN_POLICY=narrow`) leave out a
+derived file whose closure reaches every gate case; the plan lists it as left to
+the train gate's full census, and that census runs those cases.
+`pull_request` runs, broad screens, `EVALS_SCREEN_POLICY=broad` and
+`--profile full` keep every derived dependent. Full-gate inputs and unknown files
+still restore the full gate on a narrow screen. The policy is in
+[ship-policy.md](ship-policy.md#run-a-merge-train).
 
 The fallback rate is a label, not the bill: a dependents run whose derived
 closure reaches every gate case costs about what a full-fallback run does.
@@ -1251,7 +1302,10 @@ re-run keeps the creation time, so it does not wait out the window again). A
 head that is no longer the PR's head reports "superseded by <sha>" and plans
 nothing. Selection, trials and verdict rules do not change. Version Gate is not
 an input, so a stamp push waits only for its own Free Tests and always gets a
-gate. Dispatches (`eval:bg`, the census) never wait.
+gate. Dispatches (`eval:bg`, the census) never wait. Neither does a
+`pr-summary` run (a repository whose policy declares a train): it plans no paid
+slices, so `readiness` is skipped, the run ends with the screening summary, and
+a red Free Tests shows on Free Tests alone.
 
 **Verdict reuse (R2a restamp-only, R2 main moved; a gate edit).** A PR head
 reuses the verdict of the newest executed gate of the same PR instead of
@@ -1401,6 +1455,13 @@ prints a run's ledgers as a table. A flaky file is fixed at source; the retry
 never masks it. `bun run eval:pass-rates` lists only the local ledger
 (`flakeLedgerPath()`, overridden by `GSTACK_FLAKE_LEDGER`).
 
+Other repositories get the same rule per test with `bin/gstack-flaky run`
+([docs/flaky.md](flaky.md)): it reads a JUnit report from any runner, reruns
+the command once when tests failed (counting only the runner's full green
+verdict), and writes `flaky-pass` and `rerun-fail` lines to its
+own ledger (`flake-ledger-junit.jsonl`, or `GSTACK_FLAKE_LEDGER_JUNIT`), kept apart
+from this file-level ledger.
+
 The aggregate job of `free-tests.yml` downloads every `flake-ledger-*` artifact
 of the run and appends `bun run scripts/test-health-report.ts flake-summary <dir>`
 to its job summary. The Windows lane uploads `flake-ledger-windows-<shard>`.
@@ -1481,10 +1542,12 @@ refresh to a maintainer.
 - `free-durations-record.yml` (Mondays 04:00 UTC, before test-health, and on
   dispatch) records the Linux seed on `ubicloud-standard-8` with
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
-  `windows-free-tests.yml`'s `record_durations` path. When either recording adds
+  `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
+  `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
+  (`ubicloud-standard-4`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
-  dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
+  dispatches Free Tests, Windows Smoke and Quality gate on it. Those
   dispatched runs are the seed PR's checks, and Free Tests supplies the required
   `free-tests` check. GitHub holds the pull_request runs of a token-opened PR as
   "action required" until someone approves them. A file that fails while recording turns its
@@ -1498,6 +1561,13 @@ refresh to a maintainer.
 
 ### Windows free lane
 
+Windows has minimal support ([support tiers](support-tiers.md)). The required
+PR check is `windows-smoke.yml`: one `windows-latest` job runs `./setup`, starts
+the core skills, drives `/browse` on gstack's own browser, and runs the short
+test list in its last step, where each file's reason sits beside it.
+`test/windows-native-workflows.test.ts` keeps that list Windows-safe and fast.
+
+The curated suite below runs nightly on main and on dispatch, never on a PR.
 `windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),
 runs one strict serial shard per `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
@@ -1586,9 +1656,11 @@ word list: `test/fixtures/arm-benchmark/` and its four children, `browse-judge/`
 names under `paid-report-census/` and the `test/` subdirectories of
 `state-matrix-6792/`. All of these are runner-side: no candidate's working
 directory is one of them. Candidate-visible gaps are in the temporary roots
-the harnesses create: `test/helpers/arm-benchmark-harness.ts` copies each fixture
-into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory is
-named after the arm rather than after a project; `test/skill-e2e-deploy.test.ts`
+the harnesses create: `test/helpers/arm-benchmark-harness.ts` copied each fixture
+into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory was
+named after the arm rather than after a project (since GST-469 it is named after
+the task's project: `hike-booking-*`, `notes-api-*`, `receipts-*`);
+`test/skill-e2e-deploy.test.ts`
 runs the /benchmark case in `skill-e2e-benchmark-*`, a root that carries a listed
 word; `test/skill-e2e-test-value.test.ts` creates `skill-e2e-<id>-*` roots as the
 candidate's working directory, and two of its ids (`review-test-value`,
@@ -1600,6 +1672,99 @@ lower-case words in path components under `test/fixtures/`; a substring match
 (`factory-scorecard/`, `ios-qa/FixtureApp/Tests/`) was not counted. Renaming is a
 separate change with its own touchfile updates; the list is here so that change
 can be scoped.
+
+## No-gstack arm
+
+Garry, 2026-10-31: "all of our head to head tests have to test no gstack from
+here so that that case is tested obviously Do it for science". A variant that
+beats another variant can still lose to the plain model, and only a no-gstack
+arm shows that.
+
+**Scope.** Every preregistered comparison where any arm loads gstack or another
+skill stack: review variants, preamble loadouts, skill diets scored by behavior
+evals, and model panels run under gstack or under another stack. The
+preregistration says which kind it is in `## Comparison`: `stack: loaded`, or
+`stack: none` with a `why:` line (a scorer calibration, for example, where no
+arm loads any skill text). `gstack-eval-plan prereg --check` refuses a loaded
+comparison without the arm (`PREREG_NO_GSTACK_ARM`).
+
+**How the arm is built.** One arm per model in the comparison, named
+`<model>#no-gstack` in the Arms section and listed on the `arms:` line of
+`## No-gstack arm`. Arm identities are `<model>[#<loadout>]` and are priced by
+the model, so the pilot reserves the no-gstack arm beside its variants under its
+own attempts. The arm gets:
+
+- the same model, settings, inputs, fixture and tools as the variants;
+- a plain prompt: the task text only, with no SKILL.md, preamble, hooks,
+  installed skills or routing lines from gstack or any other stack;
+- the same panel: the same `E2E_KINDS` kind and trial count, the same judge and
+  rubric, and the same blinding labels (the judge reads it as `A` or `B` like
+  any other arm, per [Candidate-side blinding](#candidate-side-blinding));
+- the same budget treatment: it is priced and reserved in the pilot like every
+  other arm.
+
+**Reporting.** The no-gstack result is one row beside the variants in every
+results table and every verdict, including when it wins. A comparison that
+drops the row has not reported its result. `gstack-eval-plan results --check
+<prereg> <results.md>` enforces it: one table in the results file must hold a
+filled row for every Arms identity (`EVAL_REPORT_NO_GSTACK_ROW` otherwise), and
+no number is published before it passes.
+
+**Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
+evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
+rule paragraph deleted), and the router failure-routing evals compare
+`GSTACK_ROUTER_ARM=current` with `before` (the base branch's router). Both
+variables also take `none` (GST-470): the same fixture, tools and user request,
+with no skill excerpt, rule text, step file or installed skill. Any other value
+throws, so a typo cannot run one arm under another's label. The `rule`,
+`removed`, `current` and `before` prompts are byte for byte what they were
+before `none` existed (`test/safety-none-arm.test.ts`,
+`test/failure-routing-arm.test.ts`). To run the three arms as a comparison, run
+the same case once per arm, each as its CI panel:
+
+```bash
+for arm in rule removed none; do
+  GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
+done
+for arm in current before none; do
+  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-contradicted-cause
+done
+```
+
+The arm variable is part of the shard-reuse environment, so one arm's result is
+never reused for another. Report the three rows side by side in one results
+table and pass `gstack-eval-plan results --check` on it.
+
+**The descriptive exception.** Under `none` every behavioral check, the plain
+`expect`s on model actions included, is recorded as an observation in
+`none-arm-observations.jsonl` in the eval directory and on stderr
+(`test/helpers/none-arm.ts`). It never fails the case and never writes
+`contract-violations.jsonl`; harness preconditions (the fixture built, the CLI
+ran, the session ended normally) still assert. This departs from "the same
+panel" above because these contracts are gstack's own rules: a plain model was
+never asked to keep them, so a failing `none` trial is the measurement, not a
+regression, and a red verdict would block the gate on behavior nobody
+specified. The router's `none` arm has no "routed to /investigate" metric,
+since no skill is installed to route to; it records plain metrics instead:
+whether the suite is green, whether an edit came before the first read, and
+how many read-only calls came before the first edit. The first paid comparison
+with these arms gets its own preregistration.
+
+**Cases without a `none` arm.** `safety-pair-agent-block` and
+`safety-ios-demo-ui-only` refuse `GSTACK_SAFETY_ARM=none` with the reason
+(`NO_NONE_ARM` in `test/helpers/safety-rules.ts`). Their task exists only in
+the skill: relaying /pair-agent's remote instruction block, and /ios-qa's demo
+mode with its device routes. A plain prompt has nothing to relay and no device
+interface to drive, so the arm would measure the prompt, not gstack.
+
+**Precedent.** `test/skill-e2e-arm-benchmark.test.ts` runs a `with-skill` and a
+`without-skill` arm (named `<model>#no-gstack` in its preregistration) as 3
+pairs per task under a spend ledger and cap. A paired judge reads both diffs as
+`A` and `B` in both orders, counts a win only when the orders agree, and
+decides only after it passes calibration; the per-diff `armJudge` stays beside
+it as the diagnostic. Candidate folders and git identity name a project, never
+the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
+`<model>#no-gstack` arm beside each model (GST-468, GST-469).
 
 ## Running evals as an agent: detach
 

@@ -20,6 +20,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { canonicalRows, parseReceipt, parseRecordFindings, parseReviewResult, type CanonicalFinding } from './autoplan-reconcile';
 import { amendmentSteps, applyGuidance, closeDeferred, closePhase, finishGate } from './autoplan-gate';
+import { carryLines } from './autoplan-carry';
 import { GSTACK_VERSION } from './autoplan-migrate';
 import { driftLine, normalizeFindingFile, reviewHash, scaffold } from './autoplan-plan-text';
 import { PHASES, SNAPSHOT_TOOL, attemptFile, bindPromptResult, detectScope, driverFile, extractHeading, phaseOrder, reviewSkillFile, scopeLines, scopeSourceLabel, sectionLoadFor, snapshotTool, writePrompts, type Phase, type Scope, type ScopeFlags } from './autoplan-prompts';
@@ -30,7 +31,7 @@ import type { RunStatus } from './headless-artifacts';
 import { sha256File } from './headless-artifacts';
 import { outsideConsent } from './outside-consent';
 import { familyConflict, modelFamily } from './outside-voice-runner';
-import { renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
+import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
 
@@ -71,7 +72,7 @@ export function withRunLock<T>(out: string, fn: () => T, opts: { steal?: boolean
 // ---------------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------------
-export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number }
+export interface InitOptions { plan: string; out: string; cwd: string; scope?: ScopeFlags; planHeading?: string; outsideEnabled?: boolean; spendCap?: number | null; sessionKind?: string; deadlineMin?: number; light?: boolean; runId?: string; scaffold?: boolean; maxRounds?: number; carryForward?: boolean; carryCheckCapUsd?: number }
 
 /** `lines` receives what init itself reports (SCAFFOLDED:). A plan with one section heading missing refuses, or with `scaffold` is reviewed from a scaffolded copy. */
 export function initRun(o: InitOptions, lines: string[] = []): RunState {
@@ -121,6 +122,7 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
     ...(o.light ? { light: true } : {}),
     gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },
     ...(o.planHeading ? { plan_heading: o.planHeading } : {}), ...(scaffolded ? { scaffolded: true } : {}),
+    ...(o.carryForward === false ? { carry_forward: false } : {}), ...(o.carryCheckCapUsd !== undefined ? { carry_check_cap_usd: o.carryCheckCapUsd } : {}),
   };
   fs.writeFileSync(path.join(out, 'timing.json'), JSON.stringify({ schema_version: 1, run, phases: [], started_at: now(), session_kind: state.session_kind }, null, 2) + '\n');
   journal(out, { event: 'init', run, plan_source: source, scope, phase_order: order, ...(consentMissing ? { outside: 'not_run', reason: 'consent_missing' } : {}) });
@@ -140,7 +142,11 @@ export function voiceState(state: RunState, phase: Phase, voice: Voice): VoiceSt
 }
 const openAttempt = (v: VoiceState) => v.attempts?.find(a => a.state === 'dispatched' || a.state === 'execution_unknown');
 
-export interface NextOptions { out: string; cwd: string; estimateUsd?: number; redispatch?: string[] }
+export interface NextOptions {
+  out: string; cwd: string; estimateUsd?: number; redispatch?: string[];
+  /** `run`: a voice's priced reservation from its prompt (undefined when unpriced); `--estimate-usd` wins over it. */
+  price?: (voice: Voice, promptFile: string) => number | undefined;
+}
 export interface NextResult { state: RunState; phase?: Phase; attempts: Array<{ attempt: string; voice: Voice; prompt: string; result: string; model_family: string; new: boolean }>; lines: string[] }
 
 function openPhase(state: RunState, phase: Phase, cwd: string): void {
@@ -176,6 +182,17 @@ function openPhase(state: RunState, phase: Phase, cwd: string): void {
   journal(state.out, { event: 'phase_opened', phase, snapshot: snap.sha256, prompts: Object.fromEntries(Object.entries(prompts).map(([k, p]) => [k, path.relative(state.out, p)])) });
 }
 
+/** The first next's price line: the most the review can reserve at this scope and round cap (a reservation total, not a spend ceiling). */
+export function reviewEstimateLine(state: RunState, perVoiceUsd: number): string {
+  const voices = state.phase_order.map(p => (!state.outside_enabled || (p === 'ceo' && state.scope.docs_only) ? 1 : 2));
+  const perRound = voices.reduce((a, b) => a + b, 0);
+  const rounds = state.max_rounds ?? null;
+  const per = perVoiceUsd > 0 ? perVoiceUsd.toFixed(2) : 'unknown';
+  const attempts = rounds === null ? `${perRound} per round, rounds uncapped` : `<=${perRound * rounds}`;
+  const total = rounds === null || perVoiceUsd <= 0 ? 'unknown' : `<=${(perRound * rounds * perVoiceUsd).toFixed(2)}`;
+  return `REVIEW_ESTIMATE: phases=${state.phase_order.join(',')} voices=${voices.join('+')} rounds${rounds === null ? '=uncapped' : `<=${rounds}`} attempts${attempts.startsWith('<=') ? attempts : `=${attempts}`} per_voice=${per} reservations${total === 'unknown' ? '=unknown' : total} (a reservation total, not a spend ceiling; actual host spend stays unknown; round grants at the gate add more)`;
+}
+
 export function nextStep(o: NextOptions): NextResult {
   const state = readState(path.resolve(o.out));
   const lines: string[] = [];
@@ -193,7 +210,7 @@ export function nextStep(o: NextOptions): NextResult {
     lines.push(...closeDeferred(state, phase, { reason: `round cap: round ${roundOf(state, phase)} would pass max ${roundCap(state, phase)}`, by: 'runner', cause: 'cap' }).lines);
     phase = currentPhase(state);
   }
-  if (!phase) { finishGate(state); writeState(state); return result; }
+  if (!phase) { finishGate(state); lines.push(...carryLines(state)); writeState(state); return result; }
   const first = !state.phase_order.some(p => state.phases[p]?.snapshot);
   openPhase(state, phase, o.cwd);
   const ps = state.phases[phase]!;
@@ -206,14 +223,20 @@ export function nextStep(o: NextOptions): NextResult {
   if (ps.outside?.reason === 'docs_only') lines.push(`OUTSIDE: ${phase} not_run reason=docs_only (native voice only)`);
   if (ps.sections) lines.push(`Skipped sections: ${ps.sections.skipped.length ? ps.sections.skipped.join(',') : 'none'} (scope: ui=${state.scope.ui ? 'yes' : 'no'},dx=${state.scope.dx ? 'yes' : 'no'},source=${scopeSourceLabel(state.scope)}; checklist=${ps.sections.checklist ? 'loaded' : 'none'})`);
   const prompts = ps.prompts!;
+  if (o.estimateUsd !== undefined) state.estimate_usd = o.estimateUsd;
   const estimate = attemptEstimate(state, o.estimateUsd, process.env);
-  if (estimate.line) lines.push(estimate.line);
+  const usdFor = (voice: Voice) => (state.estimate_usd === undefined ? o.price?.(voice, prompts[voice]) : undefined) ?? estimate.usd;
+  if (estimate.line && (['native', 'outside'] as const).some(voice => usdFor(voice) === estimate.usd)) lines.push(estimate.line);
+  if (first) lines.push(reviewEstimateLine(state, estimate.usd));
   const fresh = (['native', 'outside'] as const).filter(voice => { const v = voiceState(state, phase!, voice); const open = openAttempt(v); return !voiceTerminal(v) && (!open || (open.state === 'execution_unknown' && o.redispatch?.includes(open.attempt))); });
+  const resultOf = (voice: Voice, attempt: string) => path.join(state.out, attemptFile(phase!, voice, attempt.slice(state.run.length + 1), 'md'));
+  fresh.forEach((voice, i) => bindPromptResult(prompts[voice], resultOf(voice, `${state.run}-a${state.attempt_counter + i + 1}`)));
   const before = summarize(readLedger(path.join(state.out, FILES.spend), state.spend_cap_usd));
-  if (state.spend_cap_usd !== null && fresh.length && before.worst_case_usd + fresh.length * estimate.usd > state.spend_cap_usd + 1e-9) {
-    const stop = stopForBudget(state, phase, fresh.length * estimate.usd);
+  const asked = fresh.reduce((sum, voice) => sum + usdFor(voice), 0);
+  if (state.spend_cap_usd !== null && fresh.length && before.worst_case_usd + asked > state.spend_cap_usd + 1e-9) {
+    const stop = stopForBudget(state, phase, asked);
     writeState(state);
-    throw new RunError('SPEND_CAP_EXCEEDED', `spent ${before.spent_usd} + reserved ${before.reserved_usd} + unknown ${before.unknown_usd} + ${fresh.length} x estimate ${estimate.usd} > cap ${state.spend_cap_usd}; the run stopped incomplete (budget_exhausted)`, 3, { status: 'incomplete', lines: [...lines, ...stop] });
+    throw new RunError('SPEND_CAP_EXCEEDED', `spent ${before.spent_usd} + reserved ${before.reserved_usd} + unknown ${before.unknown_usd} + ${fresh.length} attempt(s) reserving ${+asked.toFixed(6)} > cap ${state.spend_cap_usd}; the run stopped incomplete (budget_exhausted)`, 3, { status: 'incomplete', lines: [...lines, ...stop] });
   }
   for (const voice of ['native', 'outside'] as const) {
     const v = voiceState(state, phase, voice);
@@ -229,11 +252,12 @@ export function nextStep(o: NextOptions): NextResult {
       continue;
     }
     const attempt = `${state.run}-a${++state.attempt_counter}`;
-    try { reserve(path.join(state.out, FILES.spend), attempt, estimate.usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
+    const resultFile = resultOf(voice, attempt);
+    const usd = usdFor(voice);
+    try { reserve(path.join(state.out, FILES.spend), attempt, usd, { cap: state.spend_cap_usd, label: `${phase}/${voice}` }); }
     catch (e: any) { if (e.code === 'SPEND_CAP_EXCEEDED') { state.attempt_counter--; writeState(state); throw new RunError('SPEND_CAP_EXCEEDED', e.message, 3); } throw e; }
-    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: path.join(state.out, attemptFile(phase, voice, attempt.slice(state.run.length + 1), 'md')), estimate_usd: estimate.usd, dispatched_at: now() };
-    bindPromptResult(row.prompt, row.result);
-    journal(state.out, { event: 'dispatched', attempt, phase, voice, snapshot: ps.snapshot, prompt: path.relative(state.out, row.prompt), prompt_sha256: sha256File(row.prompt), prompt_bytes: fs.statSync(row.prompt).size, result: path.relative(state.out, row.result), estimate_usd: estimate.usd });
+    const row: AttemptState = { attempt, state: 'dispatched', prompt: prompts[voice], result: resultFile, estimate_usd: usd, dispatched_at: now() };
+    journal(state.out, { event: 'dispatched', attempt, phase, voice, snapshot: ps.snapshot, prompt: path.relative(state.out, row.prompt), prompt_sha256: sha256File(row.prompt), prompt_bytes: fs.statSync(row.prompt).size, result: path.relative(state.out, row.result), estimate_usd: usd });
     (v.attempts ??= []).push(row);
     v.attempt = attempt; v.status = 'running';
     result.attempts.push({ attempt, voice, prompt: row.prompt, result: row.result, model_family: familyHint(state, voice), new: true });
@@ -369,8 +393,9 @@ export function submitResult(o: SubmitOptions): SubmitResult {
 
 function closeAndAdvance(state: RunState, phase: Phase, reconcile?: string): string[] {
   const close = closePhase(state, phase, { overridesFile: reconcile });
-  if (!currentPhase(state)) finishGate(state); else state.status = 'running';
-  return [`PHASE_CLOSED: ${phase} confirmed=${close.consensus.confirmed}${close.consensus.unverified ? ` unverified=${close.consensus.unverified}` : ''} disagree=${close.consensus.disagree} new=${close.consensus.new} native_only=${close.consensus.native_only} coverage=${close.consensus.coverage}`];
+  const gated = !currentPhase(state);
+  if (gated) finishGate(state); else state.status = 'running';
+  return [`PHASE_CLOSED: ${phase} confirmed=${close.consensus.confirmed}${close.consensus.unverified ? ` unverified=${close.consensus.unverified}` : ''} disagree=${close.consensus.disagree} new=${close.consensus.new} native_only=${close.consensus.native_only} coverage=${close.consensus.coverage}`, ...(gated ? carryLines(state) : [])];
 }
 
 /**
@@ -388,6 +413,44 @@ export function closeOutside(state: RunState, phase: Phase, status: 'unavailable
   if (state.phases[phase]?.native?.status === 'completed') lines.push(...closeAndAdvance(state, phase));
   else if (state.status !== 'gate_pending') state.status = 'awaiting_result';
   return lines;
+}
+
+/** Raise an open attempt's reservation to what the call about to run can cost; the cap still binds (SPEND_CAP_EXCEEDED). */
+export function fitReservation(out: string, phase: Phase, voice: Voice, attempt: string, usd: number): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a || usd <= a.estimate_usd + 1e-9) return;
+  const file = path.join(out, FILES.spend);
+  release(file, attempt);
+  const label = `${phase}/${voice}`;
+  try { reserve(file, attempt, usd, { cap: state.spend_cap_usd, label }); }
+  catch (e) {
+    reserve(file, attempt, a.estimate_usd, { label });
+    if (e instanceof SpendCapExceeded) throw new RunError('SPEND_CAP_EXCEEDED', `${attempt} (${phase} ${voice}) was admitted at ${a.estimate_usd}; the call it is about to make can cost ${usd}, past the cap ${state.spend_cap_usd}`, 3);
+    throw e;
+  }
+  a.estimate_usd = usd;
+  writeState(state);
+}
+
+/** Record that `run`'s paid call for an open attempt is going out (true) or never left this machine (false). */
+export function markSent(out: string, phase: Phase, voice: Voice, attempt: string, sent: boolean): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a) return;
+  if (sent) a.sent_at = now(); else delete a.sent_at;
+  writeState(state);
+}
+
+/** A paid call that did not bind a result (failed, refused, lost with its process): settle what it cost and supersede its open attempt, so a retry is admitted afresh. */
+export function retireAttempt(out: string, phase: Phase, voice: Voice, attempt: string, usd: number | 'unknown'): void {
+  const state = readState(out);
+  const a = voiceState(state, phase, voice).attempts?.find(x => x.attempt === attempt);
+  if (!a || a.state !== 'dispatched') return;
+  a.state = 'superseded'; a.terminal_at = now();
+  settle(path.join(out, FILES.spend), attempt, usd);
+  journal(out, { event: 'superseded', attempt, phase, voice, usage_usd: usd });
+  writeState(state);
 }
 
 /** Mark the outside voice of the current phase unavailable/failed (the runner could not run); closes the phase if native is bound. */
@@ -451,14 +514,15 @@ export function resumeRun(out: string): ResumeResult {
     if (ps.native?.status === 'completed' && voiceTerminal(ps.outside)) closePhase(state, phase, {});
   }
   const stopped = resumeStop(state);
-  if (!currentPhase(state) && !['gate_pending', 'amend_pending', 'complete', 'incomplete', 'refused'].includes(state.status)) finishGate(state);
+  const gated = !currentPhase(state) && !['gate_pending', 'amend_pending', 'complete', 'incomplete', 'refused'].includes(state.status);
+  if (gated) finishGate(state);
   else if (state.status === 'interrupted' || state.status === 'running' || state.status === 'awaiting_result') {
     const anyOpen = state.phase_order.some(p => (['native', 'outside'] as const).some(v => openAttempt(voiceState(state, p, v))));
     state.status = anyOpen ? 'awaiting_result' : 'running';
   }
   journal(out, { event: 'resumed', unknown, rebound, status: state.status });
   writeState(state);
-  const lines = [...recovered, ...stopped, `RESUMED: run=${state.run} status=${state.status} execution_unknown=${unknown.length} rebound=${rebound.length}`];
+  const lines = [...recovered, ...stopped, ...(gated ? carryLines(state) : []), `RESUMED: run=${state.run} status=${state.status} execution_unknown=${unknown.length} rebound=${rebound.length}`];
   for (const a of unknown) lines.push(`EXECUTION_UNKNOWN: ${a}`);
   return { state, unknown, rebound, lines };
 }

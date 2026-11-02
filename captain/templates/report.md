@@ -16,7 +16,7 @@ READY block sent: <yes, date> · SHIP_RECEIPT: pr=<n> head=<sha12 of the pin, as
 
 ## Needs
 
-<what the owner must do, each with the one-word default; or "nothing">
+<"nothing", or the owner's decisions in the ask format (gstack docs/captain.md): one lettered line each, "A1 to take recommendation">
 
 ## Cost
 

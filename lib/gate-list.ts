@@ -2,7 +2,9 @@
  * gate-list — one gate list instead of four-option sequences (plan B9).
  * A gate list is numbered items, each with a stable id, a recommended default
  * and lettered options; `auto` items take their recommendation when
- * unanswered, `approval` items stay pending until answered. One reply
+ * unanswered (one whose recommendation changes the plan keeps the plan's
+ * direction instead, unless the reply approves with the recommended changes,
+ * `p1b`), `approval` items stay pending until answered. One reply
  * grammar: `rec` (every item takes its recommendation, plan changes
  * included), `<id><option>` tokens (`d3b uc1a`), or `rec except <tokens>`
  * (the same operation as listing the overrides). `all`, `approve all`,
@@ -39,10 +41,19 @@ export interface GateItem {
   carried?: { from: string; chosen: string; gate_rev: number };
   /** A round-cap item (lib/autoplan-budget.ts): `b` grants the phase one more round and reopens it. */
   cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string };
+  /** An open Critical or High finding (its ids, a paired twin included): `a` applies the reviewer's fix to the plan. */
+  finding?: string[];
 }
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
-  rec_rev?: number }
+  rec_rev?: number;
+  /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
+  eli5?: GateEli5;
+  /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
+  carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
+/** The captain approvals shape (docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
+export interface GateEli5 { summary: string; before_after: string; why: string; cause: string; decisions: string; plan_file_sha256: string }
+export const ELI5_FIELDS = [['before_after', 'Before → after'], ['why', 'Why it matters'], ['cause', 'What caused this work'], ['decisions', 'Big decisions']] as const;
 
 export interface GateChoice { id: string; chosen: string; kind: 'auto' | 'approval'; how: 'recommended' | 'override' | 'auto_default'; prior?: boolean }
 export interface ParsedReply {
@@ -64,6 +75,10 @@ export function validateGateList(list: unknown): string[] {
   if (g.schema_version !== 1) problems.push('schema_version must be 1');
   if (typeof g.run !== 'string' || !g.run) problems.push('run is required');
   if (!Number.isInteger(g.gate_rev) || (g.gate_rev as number) < 1) problems.push('gate_rev must be an integer >= 1');
+  if (g.eli5 !== undefined) {
+    if (!g.eli5 || typeof g.eli5 !== 'object') problems.push('eli5 must be an object');
+    else for (const k of ['summary', 'before_after', 'why', 'cause', 'decisions', 'plan_file_sha256'] as const) if (typeof g.eli5[k] !== 'string') problems.push(`eli5.${k} must be a string`);
+  }
   if (!Array.isArray(g.items) || g.items.length === 0) return [...problems, 'items must be a non-empty array'];
   const seen = new Set<string>();
   g.items.forEach((item, i) => {
@@ -103,6 +118,8 @@ export function renderGate(list: GateList, page = 1, pageSize = PAGE_SIZE): stri
   const lines: string[] = [];
   lines.push(`GATE: run=${list.run} gate_rev=${list.gate_rev} items=${list.items.length} page=${current}/${pages}${list.title ? ` — ${list.title}` : ''}`);
   lines.push('');
+  if (list.eli5 && current === 1) lines.push(...renderEli5(list.eli5), '');
+  if (list.carry_check) lines.push(`Carry check ${list.carry_check.attempt}: ${list.carry_check.verdict} (${list.carry_check.model}; ${list.carry_check.findings} finding(s), highest ${list.carry_check.max_severity}).`, '');
   list.items.slice(start, start + pageSize).forEach((item, i) => {
     const n = start + i + 1;
     lines.push(`${n}. [${item.id}] ${item.title} (${item.kind}; recommended: ${item.recommended}${item.recommended_basis ? ` (${item.recommended_basis}${item.recommended_by ? `; set by ${item.recommended_by}` : ''})` : ''}${item.phase ? `; from ${item.phase}` : ''})`);
@@ -119,6 +136,13 @@ export function renderGate(list: GateList, page = 1, pageSize = PAGE_SIZE): stri
   const rec = parseReply('rec', list);
   lines.push(`Reply binds to gate_rev=${list.gate_rev} rec_hash=${recHash(list)}. \`rec\` resolves to: ${JSON.stringify({ gate_rev: list.gate_rev, rec_hash: recHash(list), choices: Object.fromEntries(rec.choices.map(c => [c.id, c.chosen])) })}`);
   return lines.join('\n') + '\n';
+}
+
+/** The ELI5 block: the summary, then each approvals-shape section under its title. An empty summary says so (CAPTAIN_BRIEF_INCOMPLETE). */
+export function renderEli5(e: GateEli5): string[] {
+  const lines = e.summary.trim() ? ['ELI5', e.summary.trim()] : [];
+  for (const [key, title] of ELI5_FIELDS) if (e[key].trim()) lines.push(...(lines.length ? [''] : []), `${title}:`, e[key].trim());
+  return lines;
 }
 
 function exampleTokens(list: GateList): string {
@@ -176,6 +200,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
   const choices: GateChoice[] = [];
   const pending: string[] = [];
   const how = (item: GateItem, chosen: string) => (chosen === item.recommended ? 'recommended' : 'override') as GateChoice['how'];
+  const withChanges = overrides.get('p1') === 'b';
   for (const item of list.items) {
     const chosen = overrides.get(item.id);
     const earlier = prior[item.id] ?? item.carried?.chosen;
@@ -183,7 +208,7 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
     else if (earlier !== undefined && item.options.some(o => o.key === earlier)) choices.push({ id: item.id, chosen: earlier, kind: item.kind, how: how(item, earlier), prior: true });
     else if (asIs) { const keep = keepDirection(item); choices.push({ id: item.id, chosen: keep, kind: item.kind, how: how(item, keep) }); }
     else if (rec) choices.push({ id: item.id, chosen: item.recommended, kind: item.kind, how: 'recommended' });
-    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: item.recommended, kind: item.kind, how: 'auto_default' });
+    else if (item.kind === 'auto') choices.push({ id: item.id, chosen: withChanges ? item.recommended : autoDefault(item), kind: item.kind, how: 'auto_default' });
     else pending.push(item.id);
   }
   return { ...base, valid: true, choices, pending, mode: rec ? 'rec' : asIs ? 'as-is' : 'tokens' };
@@ -192,6 +217,11 @@ export function parseReply(reply: string, list: GateList, gateRev?: number, prio
 /** The option that keeps the plan's direction: the first with `changes_plan: false`; plan approval `a`; else the recommendation. */
 export function keepDirection(item: GateItem): string {
   return item.options.find(o => o.changes_plan === false)?.key ?? (item.id === 'p1' && item.options.some(o => o.key === 'a') ? 'a' : item.recommended);
+}
+
+/** What an unanswered `auto` item resolves to: its recommendation, unless that changes the plan (then the plan's direction). */
+export function autoDefault(item: GateItem): string {
+  return item.options.find(o => o.key === item.recommended)?.changes_plan ? keepDirection(item) : item.recommended;
 }
 
 /** The decisions.jsonl id for a gate item. Item ids restart at every gate revision, so revisions after the first carry `r<rev>-`. */
@@ -204,7 +234,7 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
   return list.items.map(item => ({
     schema_version: 1, run: list.run, id: decisionId(list.run, list.gate_rev, item.id), label: item.id.toUpperCase(), title: item.title,
     options: item.options.map(o => o.key), recommended: item.recommended, kind: item.kind, status: 'pending',
-    default_if_unanswered: item.kind === 'auto' ? item.recommended : null, gate_rev: list.gate_rev,
+    default_if_unanswered: item.kind === 'auto' ? autoDefault(item) : null, gate_rev: list.gate_rev,
     ...(item.phase ? { phase: item.phase } : {}), ...(item.cost ? { cost: item.cost } : {}),
     ...(item.recommended_basis ? { recommended_basis: item.recommended_basis } : {}), ...(item.changes ? { changes: item.changes } : {}),
     ...(item.origin ? { origin: item.origin } : {}), ...(item.reopens === false ? { source: 'agent' } : {}), ...extra,
@@ -214,14 +244,19 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
 /** `--by` values: the owner typing tokens, or an agent relaying or deciding them. */
 export const ANSWERED_BY_RE = /^(human|agent:[A-Za-z0-9_.:-]+)$/;
 
+/** Who answered and in whose words: a new answer replaces all of it, so an earlier answerer's fields never survive under a later one. */
+const PROVENANCE = ['answered_by', 'owner_reply', 'owner_reply_parsed', 'answer_words', 'answer_words_parsed', 'words_by', 'carried_gate_from', 'carried_gate_rev', 'carry_reason', 'carried_answered_by'] as const;
+
 export function applyReply(rows: DecisionRow[], parsed: ParsedReply, answeredAt: string, answeredBy?: string, extra: Partial<DecisionRow> = {}): DecisionRow[] {
   if (!parsed.valid) return rows;
   const byId = new Map(parsed.choices.map(c => [c.id, c]));
   return rows.map(row => {
     const choice = byId.get(row.label?.toLowerCase() ?? '') ?? byId.get(row.id.slice(row.run.length + 1).replace(/^r\d+-/, ''));
     if (!choice || choice.prior || row.gate_rev !== parsed.gate_rev) return row;
+    const fresh = { ...row };
+    for (const k of PROVENANCE) delete (fresh as Record<string, unknown>)[k];
     return {
-      ...row, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
+      ...fresh, chosen: choice.chosen, answered_at: answeredAt, reply: parsed.reply, ...(answeredBy ? { answered_by: answeredBy } : {}), ...extra,
       status: choice.how === 'override' ? 'overridden' : 'approved',
     };
   });

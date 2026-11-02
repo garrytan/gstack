@@ -18,7 +18,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import {
-  POLICY_KEYS, POLICY_KEY_INTRODUCED, SHIP_POLICY_PATH, examplePolicyJson, explainPolicy, isUnavailable, loadPolicyFromBase, loadPolicyFromHead,
+  BUMP_NEVER_KEY_VERSION, POLICY_KEYS, POLICY_KEY_INTRODUCED, SHIP_POLICY_PATH, examplePolicyJson, explainPolicy, isUnavailable, loadPolicyFromBase, loadPolicyFromHead,
   minimumReader, policyUnavailableLine, renderEffective, resolveBaseBranch, type LoadedPolicy,
 } from '../lib/ship-policy';
 
@@ -87,8 +87,8 @@ function main(argv: string[]): number {
     const loaded = load(root, rest, cmd === 'validate' ? 'head' : 'base');
     if (typeof loaded === 'number') return loaded;
     const set = POLICY_KEYS.filter(k => loaded.values[k] && loaded.values[k] !== 'default');
-    const introduced = Object.fromEntries(set.map(k => [k, POLICY_KEY_INTRODUCED[k]]));
-    const minReader = set.length ? minimumReader(introduced) : null;
+    const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k]]));
+    const minReader = set.length ? minimumReader(Object.fromEntries(set.map(k => [k, loaded.policy[k]]))) : null;
     if (json) {
       process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, errors: loaded.errors }) + '\n');
       return loaded.errors.length ? EXIT.fail : EXIT.ok;

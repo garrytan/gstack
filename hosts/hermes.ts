@@ -6,11 +6,14 @@ const hermes = defineHost({
   tier: 'experimental',
   capabilities: { toolExecution: true, questions: 'native', planMode: false, delegation: true, browser: true, safetyHooks: 'advisory' },
 
-  // Hermes indexes skills by frontmatter name, first match wins (#2825).
+  // Hermes indexes skills by frontmatter name, first match wins (#2825). Its
+  // skills index shows 57 chars of a description and "..." (agent/skill_utils.py
+  // SKILL_PROMPT_DESC_LIMIT = 60), so each description leads with when to use it.
   frontmatter: {
     mode: 'allowlist',
     keepFields: ['name', 'description'],
     descriptionLimit: null,
+    descriptionLead: 57,
     nameMatchesDirectory: true,
   },
 

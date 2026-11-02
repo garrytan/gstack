@@ -41,7 +41,7 @@ export const CAPY_RESULT_CODES = {
   },
   CAPTAIN_BRIEF_INCOMPLETE: {
     anchor: 'captain-brief-incomplete',
-    summary: 'the plan lacks one or more of the sections the Captain brief needs (Before → after, Why it matters, What caused this work, Big decisions), so the brief is not ready for approval',
+    summary: 'the plan lacks one or more of the sections the Captain brief needs (ELI5 on a run whose gate carries it, Before → after, Why it matters, What caused this work, Big decisions), so the brief is not ready for approval',
     fix: 'add the named sections to the plan, revise the run if the plan is under review, and render again; --allow-incomplete prints a preview that still says it is not ready',
   },
   PR_SHOTS_INPUT_NOT_FOUND: {

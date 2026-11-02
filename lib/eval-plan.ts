@@ -23,8 +23,14 @@ import { readLedger, release, reserve, settle, SpendCapExceeded, summarize, type
 // ---------------------------------------------------------------------------
 // preregistration
 // ---------------------------------------------------------------------------
-export const PREREG_SECTIONS = ['Bars', 'Arms', 'Decoys', 'Stop rules', 'Held-out exposure'] as const;
-export interface PreregCheck { ok: boolean; present: string[]; missing: string[]; empty: string[]; diagnostics: PreregDiagnostics | null }
+export const PREREG_SECTIONS = ['Bars', 'Arms', 'Comparison', 'Decoys', 'Stop rules', 'Held-out exposure'] as const;
+/** `## Comparison`: `stack: loaded` when any arm loads gstack or another skill stack, `stack: none` with a `why:` otherwise. */
+export interface ComparisonCheck { stack: 'loaded' | 'none' | null; why: string | null; errors: string[] }
+/** `## No-gstack arm`, required when `stack: loaded`: one `<model>#no-gstack` Arms line per model, and the inputs, prompt, panel and report it shares with the variants. */
+export interface NoGstackArmCheck { required: boolean; ok: boolean; arms: string[]; problems: string[] }
+export interface PreregCheck { ok: boolean; present: string[]; missing: string[]; empty: string[]; comparison: ComparisonCheck; no_gstack: NoGstackArmCheck; diagnostics: PreregDiagnostics | null }
+export const NO_GSTACK_LOADOUT = 'no-gstack';
+export const NO_GSTACK_KEYS = ['arms', 'inputs', 'prompt', 'panel', 'report'] as const;
 
 export function preregTemplate(title = 'Eval preregistration'): string {
   return `# ${title}
@@ -33,7 +39,13 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 <!-- One line per metric: name, the pass bar, the direction, and what a miss means for the decision. -->
 
 ## Arms
-<!-- One line per arm: model id (must be in lib/pricing.ts), settings, and the per-item cost from \`gstack-eval-plan arms\`. -->
+<!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. -->
+
+## Comparison
+<!-- \`stack: loaded\` when any arm loads gstack or another skill stack (review variants, preamble loadouts, skill diets, a model panel under a stack); otherwise \`stack: none\` and a \`why:\` line. -->
+
+## No-gstack arm
+<!-- Required with \`stack: loaded\`: \`arms:\` one \`<model>#no-gstack\` Arms line per model; \`inputs:\` the same rows and fixture; \`prompt:\` the task only (no SKILL.md, preamble, hooks or installed skills); \`panel:\` the same E2E kind, trials and judge; \`report:\` its row beside the variants. -->
 
 ## Decoys
 <!-- Inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves. -->
@@ -47,14 +59,71 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 `;
 }
 
-/** A section's content lines (blank lines and one-line `<!-- -->` guidance dropped); null when the heading is absent. */
+/** A section's content lines (blank lines and `<!-- -->` guidance, one-line or multi-line, dropped); null when the heading is absent. */
 function sectionBody(text: string, name: string): string[] | null {
   const lines = text.split('\n');
   const headings = lines.map((l, i) => ({ i, m: /^#{1,6}\s+(.+?)\s*$/.exec(l) })).filter(x => x.m) as Array<{ i: number; m: RegExpExecArray }>;
   const idx = headings.findIndex(h => h.m[1]!.toLowerCase().replace(/[^a-z]/g, '') === name.toLowerCase().replace(/[^a-z]/g, ''));
   if (idx < 0) return null;
   const end = idx + 1 < headings.length ? headings[idx + 1]!.i : lines.length;
-  return lines.slice(headings[idx]!.i + 1, end).filter(l => l.trim() && !/^\s*<!--.*-->\s*$/.test(l));
+  return lines.slice(headings[idx]!.i + 1, end).join('\n').replace(/<!--[\s\S]*?-->/g, '').split('\n').filter(l => l.trim());
+}
+
+/** The model an arm identity `<model>[#<loadout>]` is priced by. */
+export const armModel = (id: string) => id.split('#')[0]!;
+const armLoadout = (id: string) => (id.includes('#') ? id.slice(id.indexOf('#') + 1) : null);
+
+/** The first token of each Arms line (bullets, table pipes and backticks stripped; a table's header row skipped). */
+export function armIdentities(text: string): string[] {
+  const body = sectionBody(text, 'Arms') ?? [];
+  const row = (l: string) => /^\s*\|/.test(l);
+  const separator = (l: string | undefined) => !!l && /^[\s:|-]+$/.test(l) && l.includes('-');
+  const ids: string[] = [];
+  body.forEach((line, i) => {
+    if (separator(line) || (row(line) && separator(body[i + 1]))) return;
+    const token = line.replace(/^\s*(?:[-*+]|\d+[.)])?\s*\|?\s*/, '').split(/[\s|]+/)[0]!.replace(/[`,;:]+$/g, '').replace(/^`/, '');
+    if (token) ids.push(token);
+  });
+  return ids;
+}
+
+const keyValues = (body: string[]) => {
+  const kv: Record<string, string> = {};
+  for (const line of body) {
+    const m = /^\s*(?:[-*]\s+)?([a-z]+):(.*)$/i.exec(line);
+    if (m) kv[m[1]!.toLowerCase()] = m[2]!.trim();
+  }
+  return kv;
+};
+
+function checkComparison(text: string): ComparisonCheck {
+  const body = sectionBody(text, 'Comparison');
+  if (!body?.length) return { stack: null, why: null, errors: [] };
+  const kv = keyValues(body);
+  const why = kv.why || null;
+  if (kv.stack === undefined) return { stack: null, why, errors: ['no stack: line (stack: loaded or stack: none)'] };
+  if (kv.stack !== 'loaded' && kv.stack !== 'none') return { stack: null, why, errors: [`stack: ${kv.stack} is neither loaded nor none`] };
+  return { stack: kv.stack, why, errors: kv.stack === 'none' && !why ? ['stack: none needs a why: line saying why no arm loads a skill stack'] : [] };
+}
+
+function checkNoGstackArm(text: string, stack: ComparisonCheck['stack']): NoGstackArmCheck {
+  if (stack !== 'loaded') return { required: false, ok: true, arms: [], problems: [] };
+  const body = sectionBody(text, 'No-gstack arm');
+  if (!body?.length) return { required: true, ok: false, arms: [], problems: ['missing section'] };
+  const kv = keyValues(body);
+  const problems = NO_GSTACK_KEYS.filter(k => !kv[k]).map(k => `missing ${k}`);
+  const listed = (kv.arms ?? '').split(/[\s,]+/).map(a => a.replace(/^`|`$/g, '')).filter(Boolean);
+  const ids = armIdentities(text);
+  for (const a of listed) {
+    if (armLoadout(a) !== NO_GSTACK_LOADOUT) problems.push(`${a} is not a <model>#${NO_GSTACK_LOADOUT} identity`);
+    else if (!ids.includes(a)) problems.push(`${a} is not an Arms line`);
+  }
+  const loaded = [...new Set(ids.filter(id => armLoadout(id) !== NO_GSTACK_LOADOUT).map(armModel))];
+  for (const m of loaded) {
+    const arm = `${m}#${NO_GSTACK_LOADOUT}`;
+    if (!ids.includes(arm) || !listed.includes(arm)) problems.push(`no no-gstack arm for ${m}`);
+  }
+  return { required: true, ok: problems.length === 0, arms: listed, problems };
 }
 
 export function checkPrereg(text: string): PreregCheck {
@@ -63,8 +132,10 @@ export function checkPrereg(text: string): PreregCheck {
     const body = sectionBody(text, name);
     if (body === null) missing.push(name); else if (body.length === 0) empty.push(name); else present.push(name);
   }
+  const comparison = checkComparison(text);
+  const no_gstack = checkNoGstackArm(text, comparison.stack);
   const diagnostics = parsePreregDiagnostics(text);
-  return { ok: missing.length === 0 && empty.length === 0 && !diagnostics?.errors.length, present, missing, empty, diagnostics };
+  return { ok: missing.length === 0 && empty.length === 0 && !comparison.errors.length && no_gstack.ok && !diagnostics?.errors.length, present, missing, empty, comparison, no_gstack, diagnostics };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +223,8 @@ export const DEFAULT_TOKENS: TokenEstimate = { input: 4_000, output: 2_000 };
 const POLICY_DOCS = ['docs/model-policy.md', 'MODEL_POLICY.md', 'docs/MODELS.md'];
 
 function priceArm(model: string, source: string, provider: string | null, tokens: TokenEstimate): Arm {
-  const row = pricingRow(model);
-  return { model, provider, source, priced: !!row, input_per_mtok: row?.input_per_mtok ?? null, output_per_mtok: row?.output_per_mtok ?? null, per_item_usd: row ? estimateCostUsd(tokens, model) : null };
+  const row = pricingRow(armModel(model));
+  return { model, provider, source, priced: !!row, input_per_mtok: row?.input_per_mtok ?? null, output_per_mtok: row?.output_per_mtok ?? null, per_item_usd: row ? estimateCostUsd(tokens, armModel(model)) : null };
 }
 
 /** Models named in the repo's policy document that the price table knows. */
@@ -249,10 +320,10 @@ export function dryRun(o: DryRunOptions): DryRunResult {
     if (missing.length) bad.push({ line: i + 1, ok: false, missing, input_tokens: t });
   });
   const retryText = o.retryPrompt && fs.existsSync(o.retryPrompt) ? fs.readFileSync(o.retryPrompt, 'utf8').trim() : null;
-  const missingPrice = o.arms.filter(a => !hasPricing(a));
+  const missingPrice = o.arms.filter(a => !hasPricing(armModel(a)));
   const perItem: Record<string, number | null> = {};
   const avgIn = rows ? Math.ceil(inputTokens / rows) : 0;
-  for (const a of o.arms) perItem[a] = hasPricing(a) ? estimateCostUsd({ input: avgIn, output: budget }, a) : null;
+  for (const a of o.arms) perItem[a] = hasPricing(armModel(a)) ? estimateCostUsd({ input: avgIn, output: budget }, armModel(a)) : null;
   const checks = {
     price_table: { ok: missingPrice.length === 0 && o.arms.length > 0, missing: missingPrice },
     output_budget: { ok: budget >= REASONING_OUTPUT_FLOOR, budget, floor: REASONING_OUTPUT_FLOOR },
@@ -260,7 +331,7 @@ export function dryRun(o: DryRunOptions): DryRunResult {
   } as DryRunResult['checks'];
   if (o.cap !== undefined) {
     const perArm: Record<string, number | null> = {};
-    for (const a of o.arms) perArm[a] = hasPricing(a) ? estimateCostUsd({ input: maxInput, output: budget }, a) : null;
+    for (const a of o.arms) perArm[a] = hasPricing(armModel(a)) ? estimateCostUsd({ input: maxInput, output: budget }, armModel(a)) : null;
     checks.reservation_fits_cap = { ok: Object.values(perArm).every(v => v === null || v <= o.cap!), cap: o.cap, max_input_tokens: maxInput, per_arm: perArm };
   }
   if (o.modelRules) checks.model_rules = { ok: o.modelRules.ok, source: o.modelRules.source, refused: o.modelRules.errors.map(e => e.message) };
@@ -295,24 +366,38 @@ function renderReservationCheck(c: NonNullable<DryRunResult['checks']['reservati
 // ---------------------------------------------------------------------------
 export const PILOT_FILES = { spend: 'spend.json', pilot: 'pilot.json' } as const;
 export interface PilotAttempt { attempt: string; model: string; row: number; estimate_usd: number }
-export interface PilotRecord { schema_version: 1; n: number; arms: string[]; cap_usd: number; dry_run: string; attempts: PilotAttempt[]; started_at: string; status: 'reserved' | 'budget_exhausted' }
-export interface PilotStartOptions { out: string; cap: number; n: number; arms: string[]; dryRun: string; tokens?: TokenEstimate; now?: Date }
+export interface PilotRecord { schema_version: 1; n: number; arms: string[]; seat_metered?: string[]; cap_usd: number; dry_run: string; attempts: PilotAttempt[]; started_at: string; status: 'reserved' | 'budget_exhausted' }
+export interface PilotStartOptions { out: string; cap: number; n: number; arms: string[]; seatMetered?: string[]; dryRun: string; tokens?: TokenEstimate; now?: Date }
 
-/** Reserve n attempts per arm under the cap; a refused reservation ends the pilot `budget_exhausted` with nothing else reserved. */
+/**
+ * Reserve n attempts per arm under the cap; a refused reservation ends the pilot `budget_exhausted` with nothing else reserved.
+ * A seat-metered arm (operator-declared: a subscription call with no incremental charge) reserves $0 and stays outside the projection.
+ */
 export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?: { code: ResultCodeName; message: string } } {
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
+  const seat = o.seatMetered ?? [];
+  const stray = seat.filter(a => !o.arms.includes(a));
+  if (stray.length) throw new Error(`--seat-metered ${stray.join(',')} needs to name arms listed in --arms`);
+  const prior = path.join(o.out, PILOT_FILES.pilot);
+  const priorSeat = fs.existsSync(prior) ? (JSON.parse(fs.readFileSync(prior, 'utf8')) as PilotRecord).seat_metered ?? [] : seat;
+  if ([...priorSeat].sort().join(',') !== [...seat].sort().join(',')) throw new Error(`${o.out} holds a pilot started with --seat-metered ${priorSeat.join(',') || '(none)'}; seat-metered arms are fixed when a pilot starts, so this one needs a new --out`);
+  const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, ...(seat.length ? { seat_metered: seat } : {}), cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
+  const keyOf = (a: string) => `${armModel(a).replace(/[^A-Za-z0-9.-]/g, '_')}${armLoadout(a) !== null ? `.${armLoadout(a)!.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}`;
+  const keys = o.arms.map(keyOf);
+  const duplicates = [...new Set(o.arms.filter((_, i) => keys.indexOf(keys[i]!) !== i).map(a => o.arms.filter(b => keyOf(b) === keyOf(a)).join(' = ')))];
+  if (duplicates.length) return { record, error: { code: 'EVAL_ARM_DUPLICATE', message: `arm ${duplicates.join(', ')} is listed more than once or shares one ledger attempt name; give each arm its own <model>#<loadout> identity` } };
   fs.mkdirSync(o.out, { recursive: true });
   const ledgerFile = path.join(o.out, PILOT_FILES.spend);
-  const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
   let error: { code: ResultCodeName; message: string } | undefined;
   outer: for (const model of o.arms) {
-    if (!hasPricing(model)) { error = { code: 'EVAL_PRICE_MISSING', message: `${model} has no row in lib/pricing.ts` }; break; }
+    const seated = seat.includes(model);
+    if (!hasPricing(armModel(model))) { error = { code: 'EVAL_PRICE_MISSING', message: `${armModel(model)} has no row in lib/pricing.ts` }; break; }
     for (let i = 1; i <= o.n; i++) {
-      const estimate = estimateCostUsd(tokens, model);
-      const attempt = `pilot-${model.replace(/[^A-Za-z0-9.-]/g, '_')}-${i}`;
-      try { reserve(ledgerFile, attempt, estimate, { cap: o.cap, label: `pilot ${model} #${i}`, now: o.now }); }
+      const estimate = seated ? 0 : estimateCostUsd(tokens, armModel(model));
+      const attempt = `pilot-${keyOf(model)}-${i}`;
+      try { reserve(ledgerFile, attempt, estimate, { cap: o.cap, label: `pilot ${model} #${i}${seated ? ' (seat-metered)' : ''}`, now: o.now }); }
       catch (e) {
         if (e instanceof SpendCapExceeded) { record.status = 'budget_exhausted'; error = { code: 'EVAL_BUDGET_EXHAUSTED', message: e.message }; break outer; }
         throw e;
@@ -333,31 +418,44 @@ export function releasePilot(out: string, attempt: string): SpendLedger {
 
 /** Two-sided 95% Student t for n-1 degrees of freedom (n settled items); 2.0 past the table. */
 const T95: Record<number, number> = { 2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571, 7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262 };
-export interface Projection { n: number; per_item_usd: number | null; sd_usd: number | null; total: number; projected_usd: number | null; band_usd: [number, number] | null; verdict: 'within' | 'exceeds' | 'unknown' }
+export interface ArmProjection { arm: string; n: number; per_item_usd: number | null; sd_usd: number | null; projected_usd: number | null; band_usd: [number, number] | null }
+export interface Projection { n: number; per_item_usd: number | null; sd_usd: number | null; total: number; projected_usd: number | null; band_usd: [number, number] | null; verdict: 'within' | 'exceeds' | 'unknown'; arms: ArmProjection[] }
 export interface SpendTable { summary: SpendSummary; workers: number; max_estimate_usd: number; worst_case_usd: number; worst_case_overrun_usd: number }
-export interface PilotReport { record: PilotRecord; spend: SpendTable; projection: Projection; settled_known: number; settled_unknown: number }
+export interface PilotReport { record: PilotRecord; spend: SpendTable; projection: Projection; settled_known: number; settled_unknown: number; seat_metered: Array<{ arm: string; calls: number; settled: number }> }
 
 export function pilotReport(out: string, o: { total: number; workers?: number }): PilotReport {
   const record = JSON.parse(fs.readFileSync(path.join(out, PILOT_FILES.pilot), 'utf8')) as PilotRecord;
   const ledger = readLedger(path.join(out, PILOT_FILES.spend), record.cap_usd);
   const summary = summarize(ledger);
-  const known = ledger.settled.filter(s => typeof s.usd === 'number').map(s => s.usd as number);
-  const unknown = ledger.settled.length - known.length;
+  const armOf = new Map(record.attempts.map(a => [a.attempt, a.model]));
+  const charged = new Set(ledger.settled.filter(s => typeof s.usd === 'number' && s.usd > 0).map(s => armOf.get(s.attempt)));
+  const seat = new Set((record.seat_metered ?? []).filter(arm => !charged.has(arm)));
+  const unknown = ledger.settled.filter(s => s.usd === 'unknown' && !seat.has(armOf.get(s.attempt) ?? '')).length;
   const workers = Math.max(1, o.workers ?? 1);
   const maxEstimate = Math.max(0, ...record.attempts.map(a => a.estimate_usd));
   const worst = summary.worst_case_usd + workers * maxEstimate;
-  const n = known.length;
-  const mean = n ? known.reduce((s, x) => s + x, 0) / n : null;
-  const sd = n > 1 && mean !== null ? Math.sqrt(known.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : null;
-  const perArmTotal = o.total * Math.max(1, record.arms.length);
-  const projected = mean === null ? null : mean * perArmTotal;
-  const half = sd !== null && mean !== null ? (T95[n] ?? 2.0) * (sd / Math.sqrt(n)) * perArmTotal : null;
-  const band: [number, number] | null = projected !== null && half !== null ? [Math.max(0, projected - half), projected + half] : null;
-  const verdict: Projection['verdict'] = projected === null || band === null || unknown > 0 ? 'unknown' : band[1] + summary.worst_case_usd <= record.cap_usd ? 'within' : 'exceeds';
+  const arms: ArmProjection[] = record.arms.filter(arm => !seat.has(arm)).map(arm => {
+    const xs = ledger.settled.filter(s => armOf.get(s.attempt) === arm && typeof s.usd === 'number').map(s => s.usd as number);
+    const n = xs.length;
+    const mean = n ? xs.reduce((s, x) => s + x, 0) / n : null;
+    const sd = n > 1 && mean !== null ? Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : null;
+    const projected = mean === null ? null : mean * o.total;
+    const half = sd !== null ? (T95[n] ?? 2.0) * (sd / Math.sqrt(n)) * o.total : null;
+    return { arm, n, per_item_usd: mean, sd_usd: sd, projected_usd: projected, band_usd: projected !== null && half !== null ? [Math.max(0, projected - half), projected + half] : null };
+  });
+  const priced = arms.filter(a => a.per_item_usd !== null);
+  const n = priced.reduce((s, a) => s + a.n, 0);
+  const mean = priced.length || !arms.length ? priced.reduce((s, a) => s + a.per_item_usd!, 0) : null;
+  const sd = mean !== null && priced.every(a => a.sd_usd !== null) ? priced.reduce((s, a) => s + a.sd_usd!, 0) : null;
+  const projected = mean === null ? null : mean * o.total;
+  const band: [number, number] | null = projected !== null && priced.every(a => a.band_usd)
+    ? [priced.reduce((s, a) => s + a.band_usd![0], 0), priced.reduce((s, a) => s + a.band_usd![1], 0)] : null;
+  const verdict: Projection['verdict'] = band === null || unknown > 0 || priced.length < arms.length ? 'unknown' : band[1] + summary.worst_case_usd <= record.cap_usd ? 'within' : 'exceeds';
   return {
     record, settled_known: n, settled_unknown: unknown,
     spend: { summary, workers, max_estimate_usd: maxEstimate, worst_case_usd: worst, worst_case_overrun_usd: Math.max(0, worst - record.cap_usd) },
-    projection: { n, per_item_usd: mean, sd_usd: sd, total: o.total, projected_usd: projected, band_usd: band, verdict },
+    projection: { n, per_item_usd: mean, sd_usd: sd, total: o.total, projected_usd: projected, band_usd: band, verdict, arms },
+    seat_metered: [...seat].map(arm => ({ arm, calls: record.attempts.filter(a => a.model === arm).length, settled: ledger.settled.filter(s => armOf.get(s.attempt) === arm).length })),
   };
 }
 
@@ -374,11 +472,17 @@ export function renderSpendTable(t: SpendTable, cap: number): string {
 
 export function renderPilotReport(r: PilotReport): string {
   const p = r.projection;
+  const band = (b: [number, number] | null) => (b ? `[${usd(b[0])}, ${usd(b[1])}]` : 'unknown');
+  const notReady = r.settled_unknown > 0
+    ? 'unknown charges make the band meaningless; settle them with actual cost, or start a new pilot in a new `--out` with `pilot start --seat-metered <arm>` for an arm on a subscription with no incremental charge'
+    : 'settle at least 2 attempts per priced arm with actual cost';
   return [
     `PILOT: n=${r.record.n} arms=${r.record.arms.join(',')} settled=${r.settled_known} unknown=${r.settled_unknown} status=${r.record.status}`,
     renderSpendTable(r.spend, r.record.cap_usd),
-    `PILOT_PROJECTION: items=${p.total} per_item=${usd(p.per_item_usd)} sd=${usd(p.sd_usd)} projected=${usd(p.projected_usd)} band=${p.band_usd ? `[${usd(p.band_usd[0])}, ${usd(p.band_usd[1])}]` : 'unknown'} cap=$${r.record.cap_usd.toFixed(2)} verdict=${p.verdict}`,
-    p.verdict === 'unknown' ? `APPROVAL: not ready — ${r.settled_known < 2 ? 'settle at least 2 pilot attempts with actual cost' : 'unknown charges make the band meaningless'}; settle, then rerun report` : `APPROVAL: run ${p.total} items at projected ${usd(p.projected_usd)} (95% band ${usd(p.band_usd![0])}–${usd(p.band_usd![1])}) under cap $${r.record.cap_usd.toFixed(2)}: ${p.verdict === 'within' ? 'fits; ask the owner before any further priced call' : 'EXCEEDS the cap; stop, raise the cap on purpose or cut arms or items'}`,
+    ...p.arms.map(a => `PILOT_ARM: arm=${a.arm} n=${a.n} per_item=${usd(a.per_item_usd)} sd=${usd(a.sd_usd)} projected=${usd(a.projected_usd)} band=${band(a.band_usd)}`),
+    ...r.seat_metered.map(s => `PILOT_SEAT_METERED: arm=${s.arm} calls=${s.calls} settled=${s.settled} (declared seat-metered: no incremental charge, outside the cap and the projection; usage-limited)`),
+    `PILOT_PROJECTION: items=${p.total} known_arms=${p.arms.filter(a => a.per_item_usd !== null).length}/${p.arms.length} per_item=${usd(p.per_item_usd)} sd=${usd(p.sd_usd)} projected=${usd(p.projected_usd)} band=${band(p.band_usd)} cap=$${r.record.cap_usd.toFixed(2)} verdict=${p.verdict}`,
+    p.verdict === 'unknown' ? `APPROVAL: not ready — ${notReady}; then rerun report` : `APPROVAL: run ${p.total} items at projected ${usd(p.projected_usd)} (95% band ${usd(p.band_usd![0])}–${usd(p.band_usd![1])}) under cap $${r.record.cap_usd.toFixed(2)}: ${p.verdict === 'within' ? 'fits; ask the owner before any further priced call' : 'EXCEEDS the cap; stop, raise the cap on purpose or cut arms or items'}`,
   ].join('\n') + '\n';
 }
 

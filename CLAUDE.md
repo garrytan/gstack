@@ -129,7 +129,7 @@ and commit both; never edit the generated file
 (`test/design-checklist-sync.test.ts` fails on drift).
 
 Generation uses each host's `defaultModel` (`claude` for most hosts, `gpt`
-for Codex, `gemini` for Antigravity's `agy`) unless `--model` is explicit. Codex installs additionally read the
+for Codex, `gemini` for Antigravity's `agy` and Gemini CLI) unless `--model` is explicit. Codex installs additionally read the
 top-level model from `${CODEX_HOME:-~/.codex}/config.toml`; rerun
 `./setup --host codex` after changing that model. Note: `bun run build` and a
 bare `gen:skill-docs --host codex` render the host default (gpt) — if your
@@ -148,7 +148,7 @@ a skill's own bash.
 
 **Size budgets:** generated SKILL.md files warn above 160KB (~40K tokens);
 `test/catalog-budget.test.ts` caps the always-loaded skill catalog at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,393 today; each new skill ratchets it); and
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,423 today; each new skill ratchets it); and
 `test/context-budget-ratchet.test.ts` pins per-skill token ceilings against
 `test/fixtures/context-budget.json` (for legitimate growth or a landed
 reduction, re-run `bun test/helpers/capture-context-budget.ts` and commit the

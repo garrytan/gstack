@@ -26,9 +26,18 @@ import { runClaudeProducerStream } from './claude-stream';
  * format. CSO producers stream events instead (claude-stream.ts) so a timed-out
  * run still reports its usage.
  */
+export interface ClaudeAdapterOptions {
+  /** Child environment for a non-producer run; defaults to claudeExecEnvironment over process.env. */
+  environment?: (opts: RunOpts) => Record<string, string>;
+  /** Treat an explicit error or empty `result` envelope as a failed run, as paid producers do. */
+  strict?: boolean;
+}
+
 export class ClaudeAdapter implements ProviderAdapter {
   readonly name = 'claude';
   readonly family = 'claude' as const;
+
+  constructor(private readonly options: ClaudeAdapterOptions = {}) {}
 
   async available(opts?: RunOpts): Promise<AvailabilityCheck> {
     // Binary on PATH (or GSTACK_CLAUDE_BIN override). Routes through the shared
@@ -79,7 +88,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     const model = opts.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
     const stateDirectory = csoProducerStateDirectory(opts);
     const args = claudeExecArgs(opts, model, resolved.argsPrefix);
-    const env = claudeExecEnvironment(opts, process.env);
+    const env = !opts.csoProducer && this.options.environment ? this.options.environment(opts) : claudeExecEnvironment(opts, process.env);
     if (stateDirectory) {
       assertClaudeProducerPrerequisites();
       assertClaudeProducerSandboxPolicy(args, env, csoProducerHelperLauncher(opts)!);
@@ -100,7 +109,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         // AskUserQuestion failure BLOCKs rather than emitting unanswerable prose).
         env,
       });
-      return resultFromClaudeOutput(out,{model,durationMs:Date.now()-start,producer:!!opts.csoProducer});
+      return resultFromClaudeOutput(out,{model,durationMs:Date.now()-start,producer:!!opts.csoProducer||!!this.options.strict});
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
@@ -143,7 +152,8 @@ export function resultFromClaudeOutput(raw:string,opts:{model?:string;durationMs
     const obj=JSON.parse(raw),explicitError=obj?.is_error===true||(typeof obj?.subtype==='string'&&obj.subtype!=='success'),validResult=!explicitError&&typeof obj?.result==='string'&&obj.result.trim().length>0;
     if(opts.producer&&!validResult)return{output:'',tokens:{input:0,output:0},durationMs,toolCalls:0,modelUsed:typeof obj?.model==='string'&&obj.model?obj.model:defaultModel,error:{code:'unknown',reason:'empty or invalid output from claude CLI (exit 0)'}};
     const output=typeof obj?.result==='string'?obj.result:String(obj?.result??''),usage=obj?.usage??{};
-    return{output,tokens:{input:usage.input_tokens??0,output:usage.output_tokens??0,cached:usage.cache_read_input_tokens},durationMs,toolCalls:obj?.num_turns??0,modelUsed:typeof obj?.model==='string'&&obj.model?obj.model:defaultModel};
+    const modelsBilled=obj?.modelUsage&&typeof obj.modelUsage==='object'?Object.keys(obj.modelUsage):undefined;
+    return{output,tokens:{input:usage.input_tokens??0,output:usage.output_tokens??0,cached:usage.cache_read_input_tokens,cacheWrite:usage.cache_creation_input_tokens},durationMs,toolCalls:obj?.num_turns??0,modelUsed:typeof obj?.model==='string'&&obj.model?obj.model:defaultModel,...(modelsBilled?{modelsBilled}:{})};
   }catch{
     if(opts.producer)return{output:'',tokens:{input:0,output:0},durationMs,toolCalls:0,modelUsed:defaultModel,error:{code:'unknown',reason:'empty or invalid output from claude CLI (exit 0)'}};
     return{output:raw,tokens:{input:0,output:0},durationMs,toolCalls:0,modelUsed:defaultModel};
