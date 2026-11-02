@@ -686,7 +686,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
 
   // Value: protects=verify re-derives every merged row from the reader's unchanged output by its index, so a merged.jsonl edited
   //   after collect cannot lower a finding or swap a blocker's text for a summary and still verify clean; fails_when=a forged label
-  //   or a copied raw line on a real blocker's id verifies clean (GST-541: both did at main c830c9b); why_new=verify compared only
+  //   or a copied raw line on a real blocker's id verifies clean (GST-541: both did at main c830c9b), or a clean run collected through a
+  //   symlinked run directory and judged there with relative paths verifies dirty (GST-541 ship2-p11); why_new=verify compared only
   //   output hashes and line counts; seam=verify; no_claim=that an output collected without a recorded file can be re-derived
   test('verify re-derives each merged row by index: a forged label or a summary copied onto a blocker id is dirty', () => {
     const blocker = '{"severity":"CRITICAL","path":"log.ts","line":3,"category":"security","summary":"bearer token written to a public log","specialist":"testing"}';
@@ -724,6 +725,17 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(run(['judge', '--ledger', copy.ledger, '--merged', forgedCopy, '--judged', copy.w('judged.jsonl', readJsonl<MergedLine>(copy.merged).map(m => JSON.stringify({ id: m.id, severity: 'INFORMATIONAL' })).join('\n') + '\n')]).status).toBe(0);
     const viaCopy = run(['verify', '--ledger', copy.ledger]);
     expect([viaCopy.status, viaCopy.stdout]).toEqual([1, expect.stringMatching(/^JUDGE - MISMATCH .*judge_merged_not_collected/m)]);
+    const relinked = pass();
+    const linkDir = path.join(tmp(), 'run');
+    fs.symlinkSync(relinked.out, linkDir);
+    const ledgerViaLink = path.join(linkDir, 'review-ledger.jsonl');
+    run(['sent', '--ledger', ledgerViaLink, '--role', 'specialist', '--name', 'testing', '--sent', relinked.file]);
+    const linkOut = relinked.w('spec.out', blocker + '\n' + summary + '\n');
+    expect(run(['collect', '--ledger', ledgerViaLink, '--role', 'specialist', '--name', 'testing', '--output', path.join(linkDir, path.basename(linkOut)), '--merged', path.join(linkDir, 'merged.jsonl')]).status).toBe(0);
+    relinked.w('judged.jsonl', readJsonl<MergedLine>(relinked.merged).map(m => JSON.stringify({ id: m.id, severity: m.label })).join('\n') + '\n');
+    expect(run(['judge', '--ledger', 'review-ledger.jsonl', '--merged', 'merged.jsonl', '--judged', 'judged.jsonl'], linkDir).status).toBe(0);
+    const linked = run(['verify', '--ledger', ledgerViaLink]);
+    expect([linked.status, linked.stdout.includes('judge_merged_not_collected'), linked.stdout.includes('VERIFY: clean')]).toEqual([0, false, true]);
     const quiet = pass();
     run(['sent', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--sent', quiet.file]);
     const none = quiet.w('none.out', 'NO FINDINGS\n');

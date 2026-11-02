@@ -248,6 +248,9 @@ function unchangedOutput(o: LedgerEvent): string | undefined {
 const treeHolds = (render: LedgerEvent | undefined, reply: string | undefined) => !render || !('tree' in render)
   || (reply !== undefined && checkReviewedTree(reply, typeof render.tree === 'string' ? render.tree : null).ok);
 
+/** One file however its path is spelled: collect and judge may reach a run directory through a symlink. */
+const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { return path.resolve(f); } };
+
 /**
  * Whether a recorded output was a review: its unchanged reply names its render's tree, and it has findings or carries the reader's
  * clean marker, so a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own
@@ -360,7 +363,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     if (missing.length) notes.push(`merged_ids_missing=${missing.join(',')}`);
     // The judged set must come from the merged file collect wrote, holding only rows collect recorded.
     const outputs = events.slice(0, lastJudge).filter(e => e.event === 'output' && Array.isArray(e.ids) && e.ids.length);
-    if (outputs.some(e => typeof e.merged !== 'string' || path.resolve(e.merged) !== path.resolve(String(v.merged)))) notes.push('judge_merged_not_collected');
+    if (outputs.some(e => typeof e.merged !== 'string' || realPath(e.merged) !== realPath(String(v.merged)))) notes.push('judge_merged_not_collected');
     let rerun: Judgment | null = null;
     try {
       const judgedText = fs.readFileSync(String(v.judged), 'utf8');
