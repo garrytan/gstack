@@ -525,3 +525,32 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
   });
 });
 
+describe('a CHANGELOG re-heading after the docs audit (GST-906, GBRA-258, gbrain #8372)', () => {
+  // Value: protects=a slot restamp after the Step 14.5 snapshot that only re-heads the branch's CHANGELOG entry
+  //   ([Unreleased], or its old version after a lost slot, moved to `## [<version>] - <date>`, with the audited VERSION moved
+  //   in the second case) keeps the audit fresh, while an entry edit beside the re-heading, or audited bytes git does not
+  //   hold, stays stale; fails_when=finish stops with DOCS: stale (CHANGELOG.md) or (VERSION) on a pure restamp (recovery
+  //   then needs a third audit or a named risk) or waves an entry edit through; seam=lib/ship-release.ts docsFresh;
+  //   no_claim=the restamp writer
+  test('a re-heading alone keeps the audit fresh; an entry edit or unheld audited bytes stays stale', () => {
+    const policy = JSON.stringify({ bump: 'patch', queue_mode: 'stamp-at-merge', changelog: 'CHANGELOG.md', stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const log = (heading: string, entry = '- b ships') => `# Changelog\n\n${heading}\n\n${entry}\n\n## [1.0.0.0] - 2026-10-30\n\n- base entry\n`;
+    const cases = [
+      ['[Unreleased] re-headed', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), true, 'fresh'],
+      ['old version re-headed after a lost slot', '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), '1.0.2.0', log('## [1.0.2.0] - 2026-11-02'), true, 'fresh'],
+      ['re-heading plus an entry edit', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01', '- b ships fast'), true, 'stale'],
+      ['audited bytes never committed or staged', '1.0.0.0', log('## [Unreleased]'), '1.0.1.0', log('## [1.0.1.0] - 2026-11-01'), false, 'stale'],
+    ] as const;
+    for (const [name, audited, auditedLog, stamped, stampedLog, committed, verdict] of cases) {
+      const f = fx({ '.gstack/ship-policy.json': policy, 'CHANGELOG.md': '# Changelog\n\n## [1.0.0.0] - 2026-10-30\n\n- base entry\n' });
+      const reviewed = wtree(f);
+      f.write({ VERSION: `${audited}\n`, 'CHANGELOG.md': auditedLog });
+      if (committed) f.commit('Steps 12-13: version and CHANGELOG');
+      const post = snapshot(f);
+      f.write({ VERSION: `${stamped}\n`, 'CHANGELOG.md': stampedLog }); f.commit('slot restamp');
+      const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+      if (verdict === 'fresh') expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 0, expect.stringContaining('DOCS: fresh against the Step 14.5 post-audit snapshot')]);
+      else expect([name, r.status, lineOf(r.stdout, 'DOCS')]).toEqual([name, 3, 'DOCS: stale (CHANGELOG.md)']);
+    }
+  });
+});
