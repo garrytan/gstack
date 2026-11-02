@@ -653,10 +653,9 @@ function git(repoRoot: string, args: string[]): { ok: boolean; out: string; err:
 }
 
 /**
- * `--base` when given, else the default base (lib/default-base.ts): origin/HEAD's
- * branch unless it is the checked-out one, the PR's base, origin/main, origin/master.
- * When none resolves it stays `main`, which origin then lacks, so every reader of
- * origin/<base> refuses; when origin/HEAD named the checked-out branch, stderr says why.
+ * `--base` when given, else the default base (lib/default-base.ts): origin/HEAD's branch unless it is the checked-out
+ * one, the PR's base, origin/main, origin/master. When none resolves it stays `main`, which origin then lacks, so every
+ * reader of origin/<base> refuses; when origin/HEAD named the checked-out branch, stderr says why.
  */
 export function resolveBaseBranch(repoRoot: string, explicit?: string): string {
   if (explicit && explicit.trim()) return explicit.trim().replace(/^origin\//, '');
