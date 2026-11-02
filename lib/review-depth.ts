@@ -92,7 +92,8 @@ const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+
 /**
  * Whether an SVG's whole text is a drawing (GST-911): every element in SVG_ELEMENTS, no event handler, every href or src a
  * same-document reference or an inline raster image, and nothing SVG_REFUSED names, read after character references are
- * decoded. Anything else, an SVG that can run code included, stays code.
+ * decoded. Every name= in the text is read, so a stray quote cannot hide a later attribute inside its value; an unquoted value
+ * stops at the next =, which keeps the scan linear. Anything else, an SVG that can run code included, stays code.
  */
 export function svgDrawing(text: string): boolean {
   const t = decodeCharRefs(text);
@@ -102,7 +103,7 @@ export function svgDrawing(text: string): boolean {
     const tag = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)/.exec(t.slice(at, at + 256));
     if (!tag || !SVG_ELEMENTS.has(tag[1]!.toLowerCase())) return false;
   }
-  for (const m of t.matchAll(/(?<![\w.:-])([A-Za-z_][\w.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g)) {
+  for (const m of t.matchAll(/(?<![\w.:-])([A-Za-z_][\w.:-]*)\s*=\s*(?=(?:"([^"]*)"|'([^']*)'|([^\s"'<>=]+)))/g)) {
     const local = m[1]!.slice(m[1]!.lastIndexOf(':') + 1).toLowerCase();
     if (local.startsWith('on') || ((local === 'href' || local === 'src') && !SVG_HREF.test(m[2] ?? m[3] ?? m[4] ?? ''))) return false;
   }
