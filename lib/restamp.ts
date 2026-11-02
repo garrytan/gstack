@@ -362,36 +362,9 @@ export function stampMentions(text: string, templates: readonly string[] = []): 
   return found;
 }
 
-/**
- * A removed/added line pair that a restamp alone explains: every version the
- * removed line mentions in a stamp form and the added line no longer does
- * moves to `newV`, and the rewritten line is the added line byte for byte.
- * The moved versions are the ones the stamp_paths stage moves, not only the
- * old version `oldV` (the gated head's): a tentative `*_KEY_VERSION = '<next
- * minor>'` never equals the base version at the slot and is a stamp all the
- * same (#3512). The stage's own bound applies: a tentative mention is newer
- * than the version the branch was written against, so a moved version older
- * than `oldV` (a released key moved by hand) is not a stamp, and neither is
- * one of another width (`tentativeMentions`: a 3-digit dependency pin in a
- * 4-digit repo is never a candidate, so moving it is a hand edit). A line that
- * moves nothing, or changes anything beyond those mentions, is not one either.
- */
-export function stampOnlyLine(removed: string, added: string, oldV: string, newV: string, templates: readonly string[] = []): boolean {
-  if (removed === added) return false;
-  const floor = parseVersion(oldV);
-  const width = versionWidth(oldV);
-  const after = stampMentions(added, templates);
-  const moved = [...stampMentions(removed, templates)].filter(v => v !== newV && !after.has(v));
-  if (!moved.length || !floor) return false;
-  if (moved.some(v => { const p = parseVersion(v); return !p || versionWidth(v) !== width || cmpVersion(p, floor) < 0; })) return false;
-  let text = removed;
-  for (const v of moved) text = rewriteStamps(text, v, newV, templates).text;
-  return text === added;
-}
-
 /** The version at the branch's original fork point: the first parent of its oldest own commit (base when it has none). */
-export function forkVersion(repoRoot: string, baseRef: string, fallback: string): string {
-  const first = git(repoRoot, ['rev-list', '--reverse', '--first-parent', `${baseRef}..HEAD`]).out.split('\n')[0]?.trim();
+export function forkVersion(repoRoot: string, baseRef: string, fallback: string, head = 'HEAD'): string {
+  const first = git(repoRoot, ['rev-list', '--reverse', '--first-parent', `${baseRef}..${head}`]).out.split('\n')[0]?.trim();
   if (!first) return fallback;
   const v = versionAtRef(repoRoot, `${first}^`);
   return 'version' in v ? v.version : fallback;
