@@ -341,6 +341,8 @@ Parse the JSON. Present in **plain English**, not raw floats:
   the inferred column next to declared:
   "**scope_appetite:** declared 0.8 (boil the ocean) ↔ observed 0.72 (close)"
   Use words for the gap: 0.0-0.1 "close", 0.1-0.3 "drift", 0.3+ "mismatch".
+  When `inferred.contributing_events[dim]` is below 3, show "not enough
+  observed answers yet" for that dimension instead of an observed value or gap word.
 
   This display gate is intentionally lower than the E1 **promotion gate**
   (90+ days stable across 3+ skills, per `docs/designs/PLAN_TUNING_V0.md`).
