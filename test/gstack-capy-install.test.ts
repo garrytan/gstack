@@ -605,6 +605,7 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     ]);
     script(path.join(f.root, 'bin/gstack-models'), [
       'echo "models $* prefs=${GSTACK_PREFERENCES_FILE:-}" >> "$CAPY_LOG"',
+      '[ -z "${FAKE_BAD_MODEL:-}" ] || { echo "agent: agent_model $FAKE_BAD_MODEL is not a model"; exit 1; }',
       '[ -z "${FAKE_CONFIG_MODEL:-}" ] || { echo "agent: anthropic/$FAKE_CONFIG_MODEL (opus) - from agent_model in $HOME/.gstack/config.yaml, this machine"; exit 0; }',
       'case "$(sed -n "s/^agent_model: *//p" "${GSTACK_PREFERENCES_FILE:-/dev/null}" 2>/dev/null)" in',
       '  opus) echo "agent: anthropic/claude-opus-5-5 (opus) - from agent_model in $GSTACK_PREFERENCES_FILE, the preferences file" ;;',
@@ -632,6 +633,13 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
       expect(ev.status, ev.stdout + ev.stderr).toBe(0);
       expect(ev.stdout).not.toMatch(/^(LOADOUT|LOADOUT_ASSUMED|SKILL_ROOT):/m);
     }
+    expect(f.calls().filter(l => l.startsWith('modules ')).length).toBe(modulesBefore);
+
+    const bad = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, FAKE_BAD_MODEL: 'gpt-6.1-sol' });
+    expect(bad.status, bad.stdout + bad.stderr).toBe(0);
+    expect(bad.stdout).toContain('LOADOUT_FALLBACK: agent_model unreadable: agent: agent_model gpt-6.1-sol is not a model; serving full (docs/troubleshooting.md#loadout-fallback)\n');
+    expect(bad.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
+    expect(launchOf(bad.stdout)).toBe(verdicts(f)[0].replace(/\.json$/, '.env'));
     expect(f.calls().filter(l => l.startsWith('modules ')).length).toBe(modulesBefore);
 
     const env = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, GSTACK_MODEL: 'claude-sonnet-5-5' });
