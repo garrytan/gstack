@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.92.50.0] - 2026-11-01
+
+### Fixed
+- **`/autoplan` no longer locks a Claude Code session after a snapshot init run as `cd <dir> && …` (#3651).** When that `cd` leaves the session's folder, Claude Code adds a `Shell cwd was reset to …` line to the command's output. The guard now removes exactly that one line before reading the init or checkpoint JSON; any other extra text still fails. An init whose output still can't be read now counts as a failed init with a "re-run" hint, so a later clean init in the same session works again. Before, every later phase read was denied with code `evidence` until a new session.
+
+### Fixed
+- **`/eval-plan` pilots with a subscription arm can now be approved, and the cost projection is per arm (#3653).** `gstack-eval-plan pilot start --seat-metered <arm>` declares an arm that runs on a subscription with no extra charge (for example `claude -p` on a seat). Its attempts hold none of the spend cap, settle as `unknown` (an arm that settles a real charge is projected like any priced arm), and get their own `PILOT_SEAT_METERED:` line, so the verdict covers the arms that cost money. `pilot report` now projects each arm from its own attempts (one `PILOT_ARM:` line each) and adds them up. Before, it averaged all arms together: a priced arm's cost was multiplied across arms with no price, and two arms at different prices got a band so wide that a pilot that fit the cap was told it exceeded it. The skill also says to stop a seat-metered run at its first quota or rate-limit error, with no retry (idea from #3273 by @merit-blake).
+
+**`/autoplan --ceo-only` runs the CEO review by itself and asks nothing from start to finish (GST-537).** Garry asked for a CEO review that "just automatically does the right thing", and the planning eval needed a gstack CEO arm that a harness can run without a simulated user. Before, /autoplan always ran the Eng review too and stopped at a final approval question, and standalone /plan-ceo-review asks for the mode, offers to chain to the next skill and adds a Codex voice.
+
+### Added
+- **`/autoplan --ceo-only`** (`autoplan/sections/ceo-only.md`): runs Phase 0, the outside-reviewer preflight and the CEO phase only. Every question takes its recommendation and gets an audit-trail row; consent and destructive options take the conservative choice. The review mode comes from plan-ceo-review's 0E rule. User challenges are never applied; each one is listed at the top of `<run dir>/ceo-review.md`, with scope added, conservative choices, findings and the audit trail. The run ends with `GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>` and approves nothing.
+- **`--no-outside`** with `--ceo-only` skips the outside voice, so one model does the whole review.
+- **`gstack-ceo-mode-handoff --ceo-only`** prints `Auto-selected review mode → <mode> (CEO-only run: Step 0E's rule)` instead of crediting a saved preference.
+- **`status=reviewed`** joins the `GSTACK_RESULT` statuses (`docs/unattended.md`, "CEO-only runs").
+
+### For contributors
+- The paid case `autoplan-ceo-only` fails if the mode asks anything, skips a later phase's file, or leaves new files in HOME outside its folders. It takes 6 to 16 minutes, so it runs in the weekly marathon lane, not on autoplan PRs. The mode needs Claude Code for now.
+
+**/autoplan fixes from a field report (GBRA-223): findings without a line number pair across voices, open Critical and High findings reach the gate, a spend cap binds on any host, `run` works with the API runner, and an earlier item-by-item answer carries forward.** OpenClaw's /autoplan run on a real plan hit six problems at once. We reproduced each on main with a failing test first (GST-672). A follow-up from GEVA-2 adds a record of whose words answered a gate.
+
+### Fixed
+- **Plan reviews that name a file but no line now pair across voices.** A same-file pair, with a line missing on either side, is associated as `unverified` instead of both findings counting as new. Title matching ignores a leading DX cap code (`CAP4:<path>:`) and never pairs findings on two different files. The same-file fallback runs only after every title and line match is placed, and a same-file pair never merges two findings into one gate item.
+- **DX cap findings carry real titles.** `CAP4` and `CAP6` findings are titled `CAP<n>:<path>:<item> <what fails>`, so the gate shows the problem and not only the item name.
+- **Every open Critical or High finding becomes a gate item.** `a` applies the reviewer's fix to the plan and is recommended. `b` carries it into the build as a blocking task. `rec` and `p1b` apply the fix. An unanswered item keeps the plan as written unless the reply is `p1b`, and a partial reply never locks that choice early. A finding carried with `b` stays open, so a rerun that raises it again asks again.
+- **A spend cap binds on any host.** With `--spend-cap` set and no `--estimate-usd`, each host-subagent attempt reserves the default $5 per voice, on Capy or off it, in any session kind, and so does an API call whose model has no price. `next --estimate-usd <n>` sets the reservation for the rest of the run. `run` reserves each API call's priced worst case (prompt size plus the output limit) and settles it at its real token cost, so `--spend-cap 0` refuses before any call.
+- **`gstack-autoplan run` with `--native-runner api --runner api` reaches the gate.** Results are checked as autoplan results, so they bind. A response cut off at the output limit is named `truncated` and interrupts the run instead of binding a partial review. The default output limit is 16384 tokens for both providers (OpenAI counts reasoning tokens toward it), `--max-tokens <n>` sets it, and an outside result refused at submit leaves the run native-only instead of aborting it.
+- **An earlier item-by-item answer carries forward when nothing changed.** When every item on the new gate is carried by origin, the owner's `p1` choice is replayed and their tokens are recorded verbatim as the basis. Any new or changed item still goes to the owner.
+- **A spend cap stays closed when a call fails.** For the native voice, a call cut off at its output limit is settled at what it cost, and a retry with a larger `--max-tokens` is admitted against the cap afresh. A call that timed out, dropped, was cancelled or had its result refused after it was sent is settled at its usage, or its full reservation when the usage is unknown, because the provider may have billed it. A call still in flight when the process died is charged its reservation by the next `run`, which then sends a fresh attempt. A call refused before anything was sent (no API key, for example) charges nothing, and the rerun reuses its reservation. A failed outside call is still counted at its full reservation while the phase continues native-only.
+- **A finding you chose to fix stays open until the revised plan is reviewed.** If the reviewer raises it again after a revise that missed it, it comes back to the gate instead of being treated as settled. A withdrawn fix leaves its finding open.
+- **Two findings that only sit near each other are no longer merged.** A user challenge one line away from an unrelated Critical no longer hides the Critical. Findings are merged only when their titles match or the parent says they are the same problem.
+- **A plan gate answered in an agent's own words is not owner approval.** `gstack-ship-receipt` rejects a plan-sha approval citation whose gate was answered with `--words-by agent:<id>`.
+- **A later gate answer replaces the earlier answer's authorship.** When someone else answers again, the earlier answerer's words, `words_by` and carry fields are cleared, so the approval record names who actually answered.
+
+### Added
+- **`gstack-autoplan answer --words-by agent:<id>`** records that the words came from the answering agent itself, as `answer_words` and `words_by`, never as `owner_reply`. The default stays `owner`. A later gate never carries those words forward, and `gstack-approvals import` lists that row under the agent, while `--by` names only the rows that hold the owner's words.
+
+### Tests
+- New failing-first tests in test/autoplan-pairing.test.ts, test/autoplan-gate-judgment.test.ts, test/autoplan-budget.test.ts, test/autoplan-run-api.test.ts (a local fake provider, no key or network), test/autoplan-carry.test.ts and test/approval-record.test.ts.
+
 ## [1.92.49.0] - 2026-11-01
 
 **The timeline Stop hook returns within its 2-second budget even when the host keeps stdin open.** The hook read its payload with a blocking read that waits for end of input, so a host that writes the Stop payload and leaves the pipe open held the hook for as long as the pipe stayed open. A local run with the pipe held for 8 seconds took 8 seconds, past the hook's 2-second budget and on the way to Claude Code's 15-second hook window (#3628, reported on Windows). Rewritten from PR #3628 by shahab (mashtii85).
