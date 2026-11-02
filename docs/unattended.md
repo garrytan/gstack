@@ -230,6 +230,14 @@ credits outside coverage. A parent reads the rows with
 `gstack-review-read` and treats `outside_status: unavailable` as missing
 coverage, not as a clean outside review.
 
+The pass program (`lib/capy-review-pass.js`) picks the outside voice's model
+when `input.models['outside-voice']` is empty and the lane model is
+`anthropic/`: `openai/gpt-6.1-sol` at medium reasoning, the pairing the no-loss
+rounds ran. Any other lane must name a model. An outside voice from the same
+provider as the lane model or the native voice stops the pass (`STOP:`) before
+either voice is created, including on a rerun, and each outside voice prints an
+`OUTSIDE_VOICE:` line saying whether it is the certified configuration.
+
 ### The carry across a base merge or a test-only fix
 
 When the parent merges the base in or fixes a test after the receipt was
@@ -259,7 +267,7 @@ tree no review saw, so /ship runs again;
 | File | Schema | Contents |
 |------|--------|----------|
 | `run.json` | `run` v1 | The manifest: `run` id, `status`, `required_phases`, each phase's `native` and `outside` outcome (`status`, `model`, `provider`), input `snapshot` hashes, `counts`, every artifact's `path` (relative to the run directory) and `sha256`, `session_kind`, `gate_rev`, `deviations`, `consumed_by`. |
-| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`. |
+| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`. |
 | `findings.jsonl` | `findings` v1 | One row per reviewer finding: `id`, `phase`, `voice` (`native`/`outside`), `model`, `severity`, `title`, `disposition`, `plan_items`, `native_counterpart` (string or null), `source`. Rows share the review-log row shape, so `gstack-review-log --findings` derives review status from this file. |
 | `tasks.jsonl` | `tasks` v2 | Implementation tasks with `id`, `title`, `status`, `depends_on`, `findings` (ids in `findings.jsonl`), `blocked_by`, `acceptance`, optional `pr`/`item`/`tier`. |
 | `timing.json` | `timing` v1 | Per-phase `started_at`, `ended_at`, `wall_s`, `outside_s`, `native_s`; `started_at` and `total_wall_s` for the run; the Phase 0 `estimate`. |
@@ -596,12 +604,12 @@ without being shown to the owner.
 ## CEO-only runs
 
 `/autoplan --ceo-only` runs the CEO review by itself and asks nothing. It runs
-in the session that invokes the skill; `gstack-autoplan`, the driver a parent
-agent uses, has no CEO-only mode yet, and `run.json` does not accept the
-`reviewed` status. It needs Claude Code: other hosts inline autoplan's sections
-and do not carry this one yet. It is for a harness or a crew that wants the strategy pass
-without the full gauntlet, such as an eval comparing gstack's CEO review with a
-plain prompt.
+in the session that invokes the skill and needs Claude Code: other hosts inline
+autoplan's sections and do not carry this one yet. A parent agent on any host
+gets the same run from the driver with `gstack-autoplan next --ceo-only` (see
+below). It is for a harness or a crew that wants the strategy pass without the
+full gauntlet, such as an eval comparing gstack's CEO review with a plain
+prompt.
 
 - **What runs:** Phase 0, the outside-reviewer preflight and the CEO phase.
   Design, DX, Eng and the final gate do not run.
@@ -626,6 +634,30 @@ plain prompt.
 
 `test/skill-e2e-autoplan-ceo-only.test.ts` runs it on a plan that makes the
 interactive CEO review ask a question and fails if this mode asks anything.
+
+**From the driver.** `gstack-autoplan next --out <dir> --plan <file>
+--ceo-only` opens only the CEO phase; the parent dispatches and submits its
+voices as usual. When CEO closes, the run prints `REVIEWED:` and ends
+`GSTACK_RESULT: skill=autoplan status=reviewed run=<dir>`, with
+`<dir>/ceo-review.md` in the same sections, hashed in `run.json`. Each item a
+gate would have asked becomes a `decisions.jsonl` row of kind `auto` and status
+`auto_kept` (nobody answered: the plan's direction is kept, and a round-cap item
+only the owner can accept, such as a Critical left open, stays undecided with
+no chosen option), and tasks are blocked on no decision. An open Critical or
+High finding, which a full gate asks about, gets no row: nobody decides it, and
+it stays in the report's Findings and in `tasks.jsonl` for the owner. The driver never edits the plan, writes no `gate.json` and never
+approves, so `gstack-artifact validate` accepts the run as it stands.
+
+- The flag goes on the first `next` only. It refuses beside `--ui`,
+  `--developer-tool` or `--agent-primary` on the command line or in the plan's
+  scope marker, when the marker names it, and on a plan at the report path
+  (`CEO_ONLY_CONFLICT`); a directory that holds a full run refuses it
+  (`CEO_ONLY_AFTER_INIT`).
+- `answer`, `recommend` and `revise` refuse a CEO-only run, and so does
+  `gstack-approvals import` (`CEO_ONLY_NO_GATE`): there is no gate to answer and
+  nothing was approved. A run stopped by `--spend-cap` recovers as a full run
+  does: `budget` then `resume`, or `close --phase ceo --deferred`, which ends
+  it `reviewed`.
 
 ## Owner brief
 
