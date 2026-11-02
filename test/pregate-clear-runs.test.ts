@@ -194,6 +194,8 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const repo = fixture();
     const head = repo.git('rev-parse', 'HEAD');
     const base = await pregateAt(repo);
+    fs.mkdirSync(path.join(repo.work, '.github/workflows'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, '.github/workflows/a.yml'), 'name: A\non: [pull_request, workflow_dispatch]\njobs:\n  job:\n    runs-on: windows-latest\n    steps:\n      - run: echo a\n');
     const PLATFORM = 'a.yml/job';
     const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'a.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
     const url = 'https://github.com/fx/fx/actions/runs/300';
@@ -210,6 +212,8 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const repo = fixture();
     const head = repo.git('rev-parse', 'HEAD');
     const base = await pregateAt(repo);
+    fs.mkdirSync(path.join(repo.work, '.github/workflows'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, '.github/workflows/a.yml'), 'name: A\non: [pull_request, workflow_dispatch]\njobs:\n  job:\n    runs-on: windows-latest\n    steps:\n      - run: echo a\n');
     const PLATFORM = 'a.yml/job';
     const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'a.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
     const url = 'https://github.com/fx/fx/actions/runs/300';

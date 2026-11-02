@@ -183,6 +183,36 @@ export function parseWorkflow(file: string, text: string, platform: NodeJS.Platf
   });
 }
 
+/** A workflow's `on:` trigger names, from `on: x`, `on: [x, y]` or its keys and list items. */
+function triggers(top: Block[]): string[] {
+  const on = top.find(b => /^['"]?on['"]?$/.test(b.key));
+  if (!on) return [];
+  return [...on.value.replace(/\s+#.*$/, '').replace(/[[\]]/g, '').split(','), ...on.children.map(c => c.key)].map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Whether `workflow` has a workflow_dispatch trigger, and the repo's workflow files with a job that calls it as a local
+ * reusable workflow (`uses: ./.github/workflows/<workflow>`), each with its own workflow_dispatch trigger. A workflow_call
+ * run reports its caller's file, so a caller's run is a run of the lane (GST-971). A missing or unreadable file has no trigger.
+ */
+export function workflowCallers(repoRoot: string, workflow: string): { dispatch: boolean; callers: Array<{ file: string; dispatch: boolean }> } {
+  const dir = path.join(repoRoot, '.github', 'workflows');
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir).filter(n => /\.ya?ml$/.test(n)).sort(); } catch { return { dispatch: false, callers: [] }; }
+  const want = `./.github/workflows/${workflow}`;
+  let dispatch = false;
+  const callers: Array<{ file: string; dispatch: boolean }> = [];
+  for (const n of names) {
+    let top: Block[];
+    try { top = outline(fs.readFileSync(path.join(dir, n), 'utf8')); } catch { continue; }
+    const canDispatch = triggers(top).includes('workflow_dispatch');
+    if (n === workflow) dispatch = canDispatch;
+    const calls = (find(top, 'jobs')?.children ?? []).some(job => (find(job.children, 'uses')?.value ?? '').replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, '') === want);
+    if (calls && n !== workflow) callers.push({ file: n, dispatch: canDispatch });
+  }
+  return { dispatch, callers };
+}
+
 /** Every job of every workflow, in file order. */
 export function discoverLanes(repoRoot: string, platform: NodeJS.Platform = process.platform): Lane[] {
   const dir = path.join(repoRoot, '.github', 'workflows');

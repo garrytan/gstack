@@ -762,7 +762,12 @@ workflow file is the lane's own `<workflow.yml>`. A run of another workflow
 refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
 ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
 run gh cannot read refuses with `api_error`, and a URL that is not an Actions
-run URL or id on this repository with `run_ref_invalid`. The run must also
+run URL or id on this repository with `run_ref_invalid`. A reusable-workflow
+lane (one whose file runs only through `workflow_call`) also clears from a run
+of a caller: a workflow in the branch's own `.github/workflows/` with a job
+that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), and fix lines
+only suggest `gh workflow run` for a file with a `workflow_dispatch` trigger.
+The run must also
 have finished green (GSTA-203 PR 8): a run that is still queued or running
 refuses with `run_in_progress`, and one that concluded anything but `success`
 (`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line

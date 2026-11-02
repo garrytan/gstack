@@ -29,6 +29,7 @@ import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnl
 import { resolveBaseBranch } from '../ship-policy';
 import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
+import { workflowCallers } from './workflows';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
 export const CHECK_IDS = CHECKS.map(c => c.id);
@@ -267,10 +268,21 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     try { run = input.evidence.deps.run(id); }
     catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
     const want = `.github/workflows/${target.workflow}`;
-    if (!run || run.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`, `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
+    const { dispatch, callers } = workflowCallers(repoRoot, target.workflow);
+    const runPath = run?.path;
+    const caller = callers.find(c => runPath === `.github/workflows/${c.file}`);
+    if (!run || (run.path !== want && !caller)) {
+      const names = callers.map(c => c.file).join(', ');
+      const dispatchable = dispatch ? [target.workflow] : callers.filter(c => c.dispatch).map(c => c.file);
+      const start = dispatchable.length ? dispatchable.map(f => `gh workflow run ${f} --ref <branch>`).join(' or ')
+        : callers.length ? `neither ${target.workflow} nor its callers have a workflow_dispatch trigger, so push a commit that starts ${callers.map(c => c.file).join(' or ')}`
+        : `${target.workflow} has no workflow_dispatch trigger, so push a commit that starts it`;
+      return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}${callers.length ? ` or a workflow that calls it (${names})` : ''}`, `clear ${lane} with a run of its own workflow${callers.length ? ` or of a workflow that calls it (${names})` : ''}: ${start}, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
+    }
+    const ran = caller ?? { file: target.workflow, dispatch };
     const green = `then gstack-pregate clear --remote ${lane} --run-url <the green run's URL>`;
-    if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${target.workflow} if it fails), ${green}`);
-    if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${target.workflow} (gh run rerun ${id}, or gh workflow run ${target.workflow} --ref <branch>), ${green}`);
+    if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${ran.file} if it fails), ${green}`);
+    if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${ran.file} (gh run rerun ${id}${ran.dispatch ? `, or gh workflow run ${ran.file} --ref <branch>` : ''}), ${green}`);
     return { receipt: `https://github.com/${repo}/actions/runs/${id}/attempts/${run.run_attempt}`, attested: false };
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);
