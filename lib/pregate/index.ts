@@ -219,8 +219,9 @@ export type ClearDecision = { receipt: string; attested: boolean; substitution?:
  * has no machine-checkable receipt, so its run URL is recorded as attested.
  * Platform lanes take a run URL or an evidence-bundle lane label. When the run
  * evidence is readable, a run URL must name a run of this repository whose
- * workflow file is the lane's own; a run of another workflow, an unreadable
- * run or a URL that is not an Actions run refuses (GSTA-203).
+ * workflow file is the lane's own and that completed with success; a run of
+ * another workflow, a red or unfinished run, an unreadable run or a URL that
+ * is not an Actions run refuses (GSTA-203).
  *
  * `--run` (and `--run-url` on a lane the base branch profiles) goes to
  * clearByRuns, which accepts only verified Actions runs; a profiled lane
@@ -265,7 +266,10 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     try { run = input.evidence.deps.run(id); }
     catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
     const want = `.github/workflows/${target.workflow}`;
-    if (run?.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`, `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
+    if (!run || run.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}`, `clear ${lane} with a run of its own workflow: gh workflow run ${target.workflow} --ref <branch>, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
+    const green = `then gstack-pregate clear --remote ${lane} --run-url <the green run's URL>`;
+    if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${target.workflow} if it fails), ${green}`);
+    if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${target.workflow} (gh run rerun ${id}, or gh workflow run ${target.workflow} --ref <branch>), ${green}`);
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);
   if (!receipt) return { refused: 'usage', message: `${lane} clears with --run-url <url> or --bundle-lane <label>` };

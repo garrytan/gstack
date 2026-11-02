@@ -759,9 +759,14 @@ workflow file is the lane's own `<workflow.yml>`. A run of another workflow
 refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
 ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
 run gh cannot read refuses with `api_error`, and a URL that is not an Actions
-run URL or id on this repository with `run_ref_invalid`. Only the workflow
-file is checked there, not the job, conclusion or tree; that is what a run
-profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
+run URL or id on this repository with `run_ref_invalid`. The run must also
+have finished green (GSTA-203 PR 8): a run that is still queued or running
+refuses with `run_in_progress`, and one that concluded anything but `success`
+(`failure`, `cancelled`, `timed_out`, …) with `run_not_success`; each fix line
+says to rerun the workflow and clear with the green run. The check reads the
+run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
+the whole run, not that job or attempt. The job, tree and age are not
+checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
 unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
@@ -778,10 +783,15 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url`, checked only for its workflow file. On main the
-Windows obligation is `windows-smoke.yml/windows-smoke` (the six-shard
+still clears by `--run-url`, checked for its workflow file and a green
+conclusion. On main the free tier's Windows smoke lane is
+`windows-smoke.yml/windows-smoke`, and a `windows-smoke.yml` run clears it.
+Two narrower Windows lanes are owed only when a branch selects their own test
+files: `free-tests.yml/cso-windows-launcher` (cleared by a `free-tests.yml`
+run) and `windows-setup-e2e.yml/windows-setup` (cleared by a
+`windows-setup-e2e.yml` run). The six-shard
 `windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
-obligation), and a `windows-smoke.yml` run clears it. A branch cut before
+obligation. A branch cut before
 `windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
 from its own workflows, and only a `windows-free-tests.yml` run clears that. A
 pull request cut before these
