@@ -14,8 +14,8 @@ import { EXIT } from '../lib/headless-artifacts';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { resolveReleaseConflicts } from '../lib/ship-queue-land';
-import { receiptDepthAtHead } from '../lib/ship-receipt-depth';
-import { mergePolicy } from '../lib/ship-policy';
+import { receiptDepthAtHead, receiptExclude, receiptReviewAtHead } from '../lib/ship-receipt-depth';
+import { mergePolicy, REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -581,6 +581,26 @@ describe('land: one pass, base, lock and history', () => {
     const again = land(fx, ['--pr', '14']);
     expect(again.out + again.err).not.toMatch(/BASE_CONTAINS_HEAD|QUEUE_RECEIPT_DEPTH_RAISED/);
     expect(again.out).toMatch(/^REVIEW_DEPTH: receipt=light required=light /m);
+    expect(again.out).toContain('LANDED: ');
+  }, 90_000);
+
+  // Value: protects=the same merged resume when review_exclude_paths excluded files from the PR's range; fails_when=the queue
+  //   recomputes the exclusion over the merged (empty) range and refuses the receipt's digest as RECEIPT_INVALID; why_new=the
+  //   case above has no review_exclude_paths; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
+  test('merge-only: a merged resume lands when review_exclude_paths excluded files from the range', () => {
+    const fx = setup({ ...POLICY, history: 'merge-only', review_exclude_paths: ['data/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION });
+    const head = openPr(fx, '15', { edit: work => { fs.mkdirSync(path.join(work, 'data', 'a'), { recursive: true }); fs.writeFileSync(path.join(work, 'data', 'a', 'result.json'), '{"ok": true}\n'); } });
+    fx.repo.git('checkout', '-q', '--detach', head);
+    const { depth, exclude } = receiptReviewAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const recorded = receiptExclude(exclude);
+    expect(recorded?.excluded).toBe(1);
+    fx.write(d => { d.prs['15'].body = shippedBody('15', head, { gstack_version: REVIEW_EXCLUDE_KEY_VERSION, review_depth: depth, review_exclude: recorded }); });
+    land(fx, ['--pr', '15']);
+    fx.write(d => { d.trueMerge = true; d.mergeErrorAfter = true; });
+    expect(land(fx, ['--pr', '15']).err).toContain('HTTP 502');
+    const again = land(fx, ['--pr', '15']);
+    expect(again.out + again.err).not.toMatch(/RECEIPT_INVALID|BASE_CONTAINS_HEAD|QUEUE_RECEIPT_DEPTH_RAISED/);
     expect(again.out).toContain('LANDED: ');
   }, 90_000);
 });

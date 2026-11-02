@@ -243,7 +243,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
 }
 
-/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed, except for a PR GitHub already merged (`merged`: land resuming after a merge-only true merge), whose depth then reads the range with diff-scope's `--merged`. */
+/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed, except for a PR GitHub already merged (`merged`: land resuming after a merge-only true merge), whose depth then reads the range with diff-scope's `--merged` and whose exclusion digest is not recomputed over that emptied range. */
 export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[], merged = false):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
   | { ok: false; code: ReceiptBindingCode | 'BASE_CONTAINS_HEAD' | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID' | 'RECEIPT_INVALID' | Extract<Exclusion, { state: 'refused' }>['code']; message: string; line: string; depthLine?: string; targetedLine?: string } {
@@ -256,7 +256,7 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   if (problems.length) return { ok: false, code: 'QUEUE_RECEIPT_EXCEPTION_INVALID', message: `the receipt's owner exception does not stand: ${problems.join('; ')}`, line: b.line };
   const at = headInputs(root, baseRef, b.head, b.receipt, merged);
   if (at.x.state === 'refused') return { ok: false, code: at.x.code, message: at.x.lines.join('; '), line: b.line };
-  const mismatch = excludeMismatch(at.x, b.receipt, b.head, baseRef);
+  const mismatch = merged ? null : excludeMismatch(at.x, b.receipt, b.head, baseRef);
   if (mismatch) return { ok: false, code: 'RECEIPT_INVALID', message: mismatch, line: b.line };
   const d = receiptDepthVerdict(root, baseRef, b.receipt, b.head, at);
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);

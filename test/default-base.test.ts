@@ -128,14 +128,14 @@ describe('resolveBaseBranch skips an origin/HEAD that names the checked-out bran
 });
 
 describe('the review depth ship-queue ready binds', () => {
-  // Value: protects=a READY on the bug checkout never binds a light depth for an 80-line diff; fails_when=the queue compares the
-  //   PR head with itself and reports required=light runtime_lines=0; seam=bindShippedReceipt
-  test('origin/<PR branch> refuses BASE_CONTAINS_HEAD; the resolved default base binds standard; the control binds the same', () => {
+  // Value: protects=a READY on the bug checkout binds the 80-line diff's real depth inputs (light under R51, runtime_lines=80);
+  //   fails_when=the queue compares the PR head with itself and reports runtime_lines=0; seam=bindShippedReceipt
+  test('origin/<PR branch> refuses BASE_CONTAINS_HEAD; the resolved default base binds runtime_lines=80; the control binds the same', () => {
     const body = path.join(fx.root, 'body.md');
     const w = bin('gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], fx.clone);
     expect(w.status, w.err).toBe(0);
     const text = fs.readFileSync(body, 'utf8');
-    expect(extractReceipt(text).receipt!.review_depth).toMatchObject({ depth: 'standard', runtime_lines: 80 });
+    expect(extractReceipt(text).receipt!.review_depth).toMatchObject({ depth: 'light', runtime_lines: 80 });
     const head = git(fx.clone, 'rev-parse', 'HEAD');
     withEnv(fx.env, () => {
       const self = bindShippedReceipt(fx.clone, 'origin/pr-branch', text, '7', [head]);
@@ -144,9 +144,9 @@ describe('the review depth ship-queue ready binds', () => {
       expect(self.code as string).toBe('BASE_CONTAINS_HEAD');
       expect(self.message).toContain(head.slice(0, 12));
       const real = bindShippedReceipt(fx.clone, `origin/${resolveBaseBranch(fx.clone)}`, text, '7', [head]);
-      expect(real.ok && real.depthLine).toContain('receipt=standard required=standard runtime_lines=80 class=code');
+      expect(real.ok && real.depthLine).toContain('receipt=light required=light runtime_lines=80 class=code');
       const control = bindShippedReceipt(fx.control, `origin/${resolveBaseBranch(fx.control)}`, text, '7', [head]);
-      expect(control.ok && control.depthLine).toContain('receipt=standard required=standard runtime_lines=80 class=code');
+      expect(control.ok && control.depthLine).toContain('receipt=light required=light runtime_lines=80 class=code');
     });
   }, 120_000);
 });
@@ -161,7 +161,7 @@ describe('gstack-review-plan', () => {
     const depth = (out: string) => /^REVIEW_DEPTH: .*$/m.exec(out)?.[0];
     const real = bin('gstack-review-plan', ['--base', 'main'], fx.clone);
     expect(real.status, real.err).toBe(0);
-    expect(depth(real.out)).toContain('REVIEW_DEPTH: standard runtime_lines=80');
+    expect(depth(real.out)).toContain('REVIEW_DEPTH: light runtime_lines=80');
     const control = bin('gstack-review-plan', ['--base', 'main'], fx.control);
     expect(depth(control.out)).toBe(depth(real.out));
     git(fx.control, 'checkout', '-q', 'main');

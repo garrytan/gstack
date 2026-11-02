@@ -123,6 +123,21 @@ describe('what review_exclude_paths excludes and keeps', () => {
     for (const b of briefs) expect(b).toContain(`(selection ${m.review_exclude.digest})`);
   }, 180_000);
 
+  // Value: protects=Step 11's standalone targeted render cannot record a brief with no selection beside the pass's briefs;
+  //   fails_when=render --role targeted without --disclosure writes a rendered event with no exclude digest, so verify sees
+  //   mixed digests and never prints VERIFY: clean; why_new=/ship review of the GST-508 wave (Red Team); seam=gstack-review-dispatch render
+  test('a standalone targeted render under an active exclusion refuses and leaves the ledger as the pass wrote it', () => {
+    const repo = census();
+    const out = path.join(repo.root, 'pass');
+    expect(runBin(repo, 'gstack-review-dispatch', ['pass', '--base', 'main', '--out', out, '--pass', 'p1', '--', '--gate-tagged', '0']).status).toBe(EXIT.ok);
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const before = fs.readFileSync(ledger, 'utf8');
+    const r = runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'targeted', '--classes', 'money', '--base', 'main', '--diff-base', mergeBase(repo), '--out', out]);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain("review_exclude_paths is active, so the targeted reader renders in the pass manifest's voices stage");
+    expect(fs.readFileSync(ledger, 'utf8')).toBe(before);
+  }, 120_000);
+
   // Value: protects=excluded receipts cannot dispatch the outside voice or the targeted money reader on lines no reader sees,
   //   and a credential line inside a matched file keeps it; fails_when=scanNumbers or targetedClasses read excluded lines, or
   //   a secret-bearing data file is excluded; why_new=task 9; seam=bin/gstack-review-plan; no_claim=pregate's credential scan

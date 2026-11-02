@@ -782,16 +782,18 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
   test('the fingerprint step opens the brief and its command prints a line collect accepts; GST-850 gpt-6.1-sol replies stay refused (GST-897)', () => {
     const out = tmp();
     const ledger = path.join(out, 'review-ledger.jsonl');
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
-    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    const wt = cleanCheckout();
+    const wtTop = fs.realpathSync(wt);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
     const brief = fs.readFileSync(file, 'utf8');
     const first = brief.split('\n')[0]!;
-    expect(first).toStartWith(`First step, before anything else: run \`cd '${top}' && echo "REVIEWED_TREE: `);
+    expect(first).toStartWith(`First step, before anything else: run \`cd '${wtTop}' && echo "REVIEWED_TREE: `);
     expect(first).toContain('Copy that output line, not the command, as the first line of your final reply');
     expect(brief.slice(brief.lastIndexOf('\n\n') + 2)).toContain('(the output, not the command)');
     const command = /run `([^`]+)`/.exec(first)![1]!;
     const printed = spawnSync('bash', ['-c', command], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 30_000 }).stdout.trim();
-    expect(checkReviewedTree(printed + '\nNO FINDINGS', expected).ok).toBe(true);
+    expect(checkReviewedTree(printed + '\nNO FINDINGS', `${tree} ${wtTop}`).ok).toBe(true);
     run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
     for (const p of ['p1', 'p2']) {
       const reply = path.join(ROOT, `test/fixtures/review-wrong-tree/gpt-6.1-sol-gst850-${p}.out`);
