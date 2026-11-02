@@ -679,6 +679,20 @@ describe('gstack-developer-profile --check-mismatch', () => {
     expect(JSON.parse(runDev('--gap').stdout).gap.scope_appetite).toBeCloseTo(0.45, 2);
   });
 
+  test('derive stores the gap for a dimension with 3 contributing events', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', session_id: `s${i}`, ts: `2026-10-2${i}T12:00:00Z` });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.architecture_care).toBe(3);
+    p.declared = { architecture_care: 0.1 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    expect(runDev('--derive').status).toBe(0);
+    expect((readProfile() as any).gap.architecture_care).toBeGreaterThan(0.3);
+  });
+
   test('derive stores no gap for a dimension without evidence', () => {
     deriveWithOneSignal();
     expect(runDev('--derive').status).toBe(0);
