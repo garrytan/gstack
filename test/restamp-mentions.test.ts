@@ -329,4 +329,58 @@ describe('a branch-added row left at the fork version after the base moved (GST-
     expect(receipt.out).toContain("id: 'base_row'");
     expect(receipt.out).not.toContain("id: 'mine'");
   });
+
+  // Value: protects=a base row whose text a branch row duplicates keeps the old-version floor in the tree receipt
+  //   (GST-979, the #3862 outside voice); fails_when=the side matches by text, so a hand move of the base copy reads as
+  //   same-modulo-stamps; seam=lib/stamp-only.ts branchSides positions
+  test('a base row whose text the branch duplicates still refuses a hand move; the branch copy\'s own move passes (GST-979)', () => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-dup-row-', policy: receiptPolicy(true) }); repos.push(repo);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-dup');
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp 1.2.4.0');
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), '', '', row('1.2.3.0', 'base_row')]));
+    repo.git('commit', '-qam', 'dup: the same row text at the fork version');
+    const gated = repo.git('rev-parse', 'HEAD');
+    expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
+    expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.3.0', 'base_row'), '', '', row('1.2.5.0', 'base_row')]));
+    repo.git('commit', '-qam', 'stamp dup');
+    const own = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(own.out, own.err).toContain('TREE: same-modulo-stamps');
+    write(repo, NOTICE, notice([row('1.2.5.0', 'base_row'), '', '', row('1.2.5.0', 'base_row')]));
+    repo.git('commit', '-qam', 'move the base copy by hand');
+    const hand = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(hand.out, hand.err).toContain('TREE: changed');
+  });
+
+  // Value: protects=the receipt carry follows a stamp that moves the branch's own fork-version row, the move the writer
+  //   makes since GST-963 (GST-980); fails_when=the carry keeps the branch-added row's bytes in both product patch-ids and
+  //   refuses RECEIPT_CARRY_PRODUCT_CHANGED; seam=bin/gstack-ship-receipt carry walk
+  test('the carry follows a stamp that moves the branch\'s own fork-version row, and still refuses a product edit beside it (GST-980)', () => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-carry-row-', policy: policy(true) }); repos.push(repo);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row')]));
+    fs.rmSync(path.join(repo.work, 'package-lock.json'));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows, no lockfile'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-carry');
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp 1.2.4.0');
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), '', row('1.2.3.0', 'mine')]));
+    repo.git('commit', '-qam', 'mine: claims 1.2.4.0 with a row at the fork version');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n');
+    const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3', '--base', 'main', '--session-kind', 'x', '--body', body]);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
+    expect(readFile(repo, NOTICE)).toBe(notice([row('1.2.3.0', 'base_row'), '', row('1.2.5.0', 'mine')]));
+    repo.git('commit', '-qam', 'stamp 1.2.5.0');
+    const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(carried.err).not.toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(carried.out, carried.err).toContain('CARRY: carried');
+    write(repo, 'src.ts', 'export const x = 1;\n');
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'a product change after the stamp');
+    const changed = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(changed.status).toBe(EXIT.refused);
+    expect(changed.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+  });
 });
