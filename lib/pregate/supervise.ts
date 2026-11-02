@@ -68,6 +68,8 @@ const ACTIVE = new Set<number>();
 const USER_HZ = 100;
 const CPU_SAMPLE_MS = 1_000;
 const CPU_BUSY_SHARE = 0.1;
+/** What a stall means beyond silence, for the PREGATE_STALLED detail and the guard line; Windows reads no CPU time. */
+export const STALL_IDLE = process.platform === 'win32' ? '' : ' and its process group used under a tenth of one CPU';
 
 /** SIGKILL every supervised process group still running (the CLI's SIGINT/SIGTERM handler, before it exits). */
 export function cancelActive(): number {
@@ -99,7 +101,7 @@ export function groupCpuMs(pgid: number): number | null {
     }
     return ticks * 1000 / USER_HZ;
   }
-  const ps = spawnSync('ps', ['-A', '-o', 'pgid=,time='], { encoding: 'utf8', timeout: 15_000 });
+  const ps = spawnSync('ps', ['-A', '-S', '-o', 'pgid=,time='], { encoding: 'utf8', timeout: 15_000 });
   if (ps.status !== 0) return null;
   let ms = 0;
   for (const line of ps.stdout.split('\n')) {
@@ -141,7 +143,7 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
   let partial = '';
   let lastGrowth = started;
   let lastBusy = started;
-  let cpu: { at: number; ms: number } | null = { at: started, ms: 0 };
+  let cpu = { at: started, ms: 0 };
   let lastProgress = started;
   let current: { file: string; at: number; failed: boolean } | null = null;
   let lastFile: string | null = null;
@@ -216,10 +218,12 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
       if (grown > size) { size = grown; lastGrowth = now; readNew(); }
       if (outcome) return;
       if (now >= o.deadline) { stop('timeout'); return; }
-      if (o.stallMs > 0 && cpu && now - cpu.at >= CPU_SAMPLE_MS) {
+      if (o.stallMs > 0 && process.platform !== 'win32' && now - cpu.at >= CPU_SAMPLE_MS) {
         const used = groupCpuMs(child.pid!);
-        if (used !== null && used - cpu.ms >= CPU_BUSY_SHARE * (now - cpu.at)) lastBusy = now;
-        cpu = used === null ? null : { at: now, ms: used };
+        if (used !== null) {
+          if (used - cpu.ms >= CPU_BUSY_SHARE * (now - cpu.at)) lastBusy = now;
+          cpu = { at: now, ms: used };
+        }
       }
       if (o.stallMs > 0 && now - Math.max(lastGrowth, lastBusy) >= o.stallMs) { stop('stalled'); return; }
       if (now - lastProgress < heartbeatMs) return;

@@ -3843,7 +3843,7 @@ the lane log, then rerun or split the selection. A tool missing from PATH is
 <a id="pregate-stalled"></a>
 ### `PREGATE_STALLED`
 
-**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log and its process group used no CPU for the stall timeout (default 300 s,
+**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log, and its process group used under a tenth of one CPU (Windows: log growth alone), for the stall timeout (default 300 s,
 `stall_timeout_s` in the base branch's `.gstack/pregate.json` or the user-owned file, or
 `--stall-timeout`). pregate killed its process group and names the last test
 file started. The check is incomplete, never pass.
