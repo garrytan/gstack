@@ -71,7 +71,7 @@ test('report-dir refuses outside a git work tree instead of guessing a location'
 
 test('/ship Step 9.2.1 resolves REPORT_DIR through report-dir, not the product tree', () => {
   const ctx: TemplateContext = { host: 'claude', skillName: 'ship', tmplPath: '', paths: HOST_PATHS.claude };
-  expect(RESOLVERS.QA_REVIEW(ctx)).toContain('/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded');
+  expect(RESOLVERS.QA_REVIEW(ctx)).toContain('that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded');
   const rendered = fs.readFileSync(path.resolve(import.meta.dir, '../ship/sections/review-army.md'), 'utf8');
   expect(rendered).toContain('gstack-qa-evidence report-dir` prints: git-excluded');
 });

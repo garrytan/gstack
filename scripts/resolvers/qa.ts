@@ -244,7 +244,7 @@ export function generateQAReview(ctx: TemplateContext): string {
 
 Only the parent runs report-only discovery.
 Never overwrite another run's reports. Batch only independent Reads.
-${ship ? `Without a caller REPORT_DIR, use the \`reportDir\` that \`bun ${quoteSafePath(ctx.paths.binDir)}/gstack-qa-evidence report-dir\` prints: git-excluded, so QA never changes the reviewed tree.\n` : ''}
+${ship ? `Without a caller REPORT_DIR, use the \`reportDir\` that \`${quoteSafePath(ctx.paths.binDir)}/gstack-qa-evidence report-dir\` prints: git-excluded, so QA never changes the reviewed tree.\n` : ''}
 ${ship ? `**1. Load methods before any QA or explicit-verification probe.**
 
 ${generateQAReviewPreflight(ctx)}` : `**1. Set the charter and isolation.**
