@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.62.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` checks the run's workflow.** On a lane with no run profile, `clear` used to record any URL as the receipt, so a `windows-smoke.yml` run could clear `windows-free-tests.yml/windows-free-shard` on a branch cut before #3806. When the base config and the GitHub origin can be read, `clear` now reads the run and refuses `PREGATE_RECEIPT_INVALID` (`workflow_mismatch`) unless its workflow file is the lane's own; a run gh cannot read (`api_error`) or a URL that is not an Actions run on this repository (`run_ref_invalid`) refuses too, and each refusal names its own fix. A run of the lane's own workflow clears as before, including a job link copied with `?pr=` or `#step`. `test_backend/*` lanes, `--bundle-lane` and non-GitHub origins are unchanged. On main the Windows obligation is `windows-smoke.yml/windows-smoke`, and a test now checks that against the repository's own workflows. The `ready` conflict hint now says to clear each lane with a run of that lane's own workflow. `test/pregate-clear-runs.test.ts` covers the mismatch, the matching control, the unreadable run, the non-run URL and the copied job links; each failed before its fix.
+
 ## [1.92.61.0] - 2026-11-02
 
 - **The security class reaches outbound URLs, archives and every `child_process` spelling** (GST-850). `lib/review-risk.ts` now flags any call to an outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici, `requests`, `httpx`, urllib), `new URL` from input, redirect toggles, proxy settings and host allowlists; tar, zip and unzip extraction, `path.join` or `resolve` on request or entry input, and `'..'` checks; and any changed line that names the `child_process` module. The new rules parse no import clause or call arguments, and a test holds each under 100 ms on 200,000-character hostile lines.
