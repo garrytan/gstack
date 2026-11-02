@@ -523,10 +523,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
-   wherever they stand, headings and table rows included; a top-level list item under a
+   wherever they stand, headings and table rows included, except that a line with its own `Severity` field takes that
+   field's label, so a severity word in the finding's text does not raise it, and a label leading the line stays its floor (GST-976); a top-level list item under a
    label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
-   second line for the same field starts another: `Severity` raises its label,
+   second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
    adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167). An unnumbered, unlabeled bullet with no file:line
