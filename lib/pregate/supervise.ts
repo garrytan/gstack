@@ -220,10 +220,8 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
       if (now >= o.deadline) { stop('timeout'); return; }
       if (o.stallMs > 0 && process.platform !== 'win32' && now - cpu.at >= CPU_SAMPLE_MS) {
         const used = groupCpuMs(child.pid!);
-        if (used !== null) {
-          if (used - cpu.ms >= CPU_BUSY_SHARE * (now - cpu.at)) lastBusy = now;
-          cpu = { at: now, ms: used };
-        }
+        if (used !== null && used - cpu.ms >= CPU_BUSY_SHARE * (now - cpu.at)) lastBusy = now;
+        cpu = { at: now, ms: used ?? cpu.ms };
       }
       if (o.stallMs > 0 && now - Math.max(lastGrowth, lastBusy) >= o.stallMs) { stop('stalled'); return; }
       if (now - lastProgress < heartbeatMs) return;

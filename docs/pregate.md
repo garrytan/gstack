@@ -448,7 +448,7 @@ test-tier command:
   runner. Other runners (node --test, vitest, jest, pytest, playwright test, flutter test, dart test, cargo test) get heartbeats
   only. A heartbeat follows each 60 s with no progress line;
 - is killed as **stalled** when its log does not grow and its process group
-  uses no CPU for the stall timeout (`--stall-timeout <s>`, else
+  stays under a tenth of one CPU for the stall timeout (`--stall-timeout <s>`, else
   `stall_timeout_s`, else 300; `0` disables): the check is `incomplete` with
   `PREGATE_STALLED` and names the last file started; the next serial file
   still runs. The group counts as busy when its CPU time, sampled each second,
