@@ -155,7 +155,7 @@ For Codex, setup reads the top-level `model` from
 `${CODEX_HOME:-~/.codex}/config.toml` and generates the matching behavioral
 profile, falling back to `gpt-6-astra` when no usable model is configured.
 The current OpenAI tiers are `gpt-6-astra` (frontier), `gpt-6.1-sol` (smart, the
-default eval and outside-voice tier) and `gpt-6-luna` (lowest cost); `gpt-6.1-sol`
+default eval tier) and `gpt-6-luna` (lowest cost); `gpt-6.1-sol`
 and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
 bounded-scope instructions that finish the requested lake without expanding into
 adjacent cleanup or speculative hardening, because that patch was measured on 5.6
