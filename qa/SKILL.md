@@ -315,8 +315,8 @@ Prefer the richer of recent project test plans and plans in conversation over gi
 ## Phases 1-6: QA Baseline
 
 Follow the shared section's ordered preparation, then run its probe loop.
-Inside that loop, browser runs apply qa-patterns.md's numbered Phases 1-6 as techniques,
-and functional runs apply system-functional.md's contract map; neither is a separate workflow.
+In that loop, browser runs use qa-patterns.md's Phases 1-6 as techniques (touch: `$B device "iPhone 15"`, then `tap`),
+and functional runs use system-functional.md's contract map; neither is a separate workflow.
 
 > **STOP.** Before running the selected target's QA baseline and exploratory probes, with caller-owned authority, Read `sections/exploratory.md` relative to the installed `qa`/`gstack-qa` SKILL.md directory in full and follow it.
 > Use this host's installed path, never the product working directory or another host's assets.
