@@ -724,9 +724,13 @@ fi
 [ "$RC" -eq 0 ] || { [ "$PROFILE" -eq 1 ] && rm -rf "${VERDICT%.json}.profile" 2>/dev/null; verdict_kept || rm -f "$LAUNCH_FILE" 2>/dev/null; LAUNCH_FILE=""; }
 record_verdict "$TRAILER" "$([ "$RC" -eq 0 ] && echo 1 || echo 0)"
 LOADOUT_LINES=""
-if [ "$RC" -eq 0 ] && [ -z "$MODEL" ] && [ -n "${GSTACK_PREFERENCES_FILE:-}" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
-  MODEL=$(cd "$ROOT" && bin/gstack-models resolve --role agent 2>/dev/null | sed -n '1s|^agent: [a-z0-9-]*/\([A-Za-z0-9._-]*\) .*|\1|p')
-  MODEL_SOURCE=preferences
+if [ "$RC" -eq 0 ] && [ -z "$MODEL" ] && [ -n "${GSTACK_PREFERENCES_FILE:-}" ] && [ -z "${GSTACK_EVAL_DIR:-}${EVALS_RUN_ID:-}" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
+  _ag_first=$(cd "$ROOT" && bin/gstack-models resolve --role agent 2>/dev/null | head -1)
+  case "$_ag_first" in
+    *", this machine") MODEL_SOURCE=config ;;
+    *", the preferences file") MODEL_SOURCE=preferences ;;
+  esac
+  [ "$MODEL_SOURCE" = GSTACK_MODEL ] || MODEL=$(printf '%s' "$_ag_first" | sed -n 's|^agent: [a-z0-9-]*/\([A-Za-z0-9._-]*\) .*|\1|p')
 fi
 if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_FILE" ]; then
   _lo_full=$(. "$SELF/bin/gstack-claude-root.sh" && dirname "$(gstack_canonical_claude_root)")
@@ -736,9 +740,11 @@ if [ "$RC" -eq 0 ] && [ -n "$MODEL" ] && [ "$PROFILE" -eq 0 ] && [ -n "$LAUNCH_F
     _lo_out=$(cd "$ROOT" && bin/gstack-modules install --model "$MODEL" --full-root "$_lo_full" 2>&1)
   fi
   _lo_line=$(printf '%s\n' "$_lo_out" | grep -m1 '^LOADOUT: ')
-  [ "$MODEL_SOURCE" = preferences ] && _lo_line=$(printf '%s' "$_lo_line" | sed 's/ source=model-flag/ source=preferences/')
+  case "$MODEL_SOURCE" in preferences|config) _lo_line=$(printf '%s' "$_lo_line" | sed "s/ source=model-flag/ source=$MODEL_SOURCE/") ;; esac
   _lo_root=$(printf '%s\n' "$_lo_out" | sed -n 's/^SKILL_ROOT: //p' | head -1)
   _lo_notes=$(printf '%s\n' "$_lo_out" | grep -E '^(LOADOUT_INVALID_MODEL|LOADOUT_FALLBACK): ')
+  case "$MODEL_SOURCE" in preferences|config) _lo_notes="${_lo_notes:+$_lo_notes
+}LOADOUT_ASSUMED: model=$MODEL is the owner's agent_model ($MODEL_SOURCE), not read from the session; a session on another model sets GSTACK_MODEL=<its id>" ;; esac
   _lo_name=$(printf '%s' "$_lo_line" | sed -n 's/^LOADOUT: \([a-z0-9-]*\) .*/\1/p')
   _lo_digest=$(printf '%s' "$_lo_line" | sed -n 's/.* digest=\([0-9a-f]\{12\}\) .*/\1/p')
   if [ -n "$_lo_name" ] && [ "$_lo_name" != full ]; then

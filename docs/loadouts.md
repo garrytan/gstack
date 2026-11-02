@@ -55,7 +55,7 @@ A model id is lowercased, its `provider/` prefix and a trailing `[…]` are drop
 
 ### Capy
 
-A plain `bash scripts/install.sh --check --for <skill>` picks the loadout from the owner's `agent_model` preference, so the skill needs no model sentence (`source=preferences` on the line below). A session can still name its own model with `GSTACK_MODEL=<id>`, which wins over the preference and, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
+A plain `bash scripts/install.sh --check --for <skill>` picks the loadout from the owner's `agent_model` preference, so the skill needs no model sentence (`source=preferences` on the line below, or `source=config` when this machine's `config.yaml` sets `agent_model`). The preference names the model Garry starts sessions on, not the model reading the skill, so the installer says so in a `LOADOUT_ASSUMED:` line, and it skips the preference inside an eval run (`GSTACK_EVAL_DIR` or `EVALS_RUN_ID` set), where the model under test may differ. A session on another model names its own with `GSTACK_MODEL=<id>`, which wins over the preference and, unlike `--model`, is safe on a checkout whose installer predates loadouts: that installer ignores it instead of refusing an unknown argument. The installer prints two lines before the launch lines:
 
 ```
 LOADOUT: lite model=claude-opus-5-5 source=GSTACK_MODEL digest=3f2a9c01d4e7 reused=yes

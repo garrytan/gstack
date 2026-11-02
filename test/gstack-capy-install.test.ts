@@ -605,6 +605,7 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     ]);
     script(path.join(f.root, 'bin/gstack-models'), [
       'echo "models $* prefs=${GSTACK_PREFERENCES_FILE:-}" >> "$CAPY_LOG"',
+      '[ -z "${FAKE_CONFIG_MODEL:-}" ] || { echo "agent: anthropic/$FAKE_CONFIG_MODEL (opus) - from agent_model in $HOME/.gstack/config.yaml, this machine"; exit 0; }',
       'case "$(sed -n "s/^agent_model: *//p" "${GSTACK_PREFERENCES_FILE:-/dev/null}" 2>/dev/null)" in',
       '  opus) echo "agent: anthropic/claude-opus-5-5 (opus) - from agent_model in $GSTACK_PREFERENCES_FILE, the preferences file" ;;',
       '  *) echo "agent: host - keep the running agent\'s own model and omit the model field (no preference set)" ;;',
@@ -618,6 +619,20 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     expect(f.calls().filter(l => l.startsWith('modules '))).toEqual([`modules install --model claude-opus-5-5 --full-root ${f.home}/.claude/skills`]);
     expect(opus.stdout).toContain(`LOADOUT: lite model=claude-opus-5-5 source=preferences digest=0123456789ab reused=no\nSKILL_ROOT: ${f.home}/lite-0123456789ab\n`);
     expect(launchOf(opus.stdout)).toBe(verdicts(f)[0].replace(/\.json$/, '.loadout-lite-0123456789ab.env'));
+    expect(opus.stdout).toContain("LOADOUT_ASSUMED: model=claude-opus-5-5 is the owner's agent_model (preferences), not read from the session; a session on another model sets GSTACK_MODEL=<its id>\n");
+
+    const config = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, FAKE_CONFIG_MODEL: 'claude-opus-5-5' });
+    expect(config.status, config.stdout + config.stderr).toBe(0);
+    expect(config.stdout).toContain('LOADOUT: lite model=claude-opus-5-5 source=config digest=0123456789ab');
+    expect(config.stdout).toContain("is the owner's agent_model (config)");
+
+    const modulesBefore = f.calls().filter(l => l.startsWith('modules ')).length;
+    for (const evalEnv of [{ GSTACK_EVAL_DIR: path.join(f.home, 'evals') }, { EVALS_RUN_ID: 'r1' }]) {
+      const ev = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, ...evalEnv });
+      expect(ev.status, ev.stdout + ev.stderr).toBe(0);
+      expect(ev.stdout).not.toMatch(/^(LOADOUT|LOADOUT_ASSUMED|SKILL_ROOT):/m);
+    }
+    expect(f.calls().filter(l => l.startsWith('modules ')).length).toBe(modulesBefore);
 
     const env = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, GSTACK_MODEL: 'claude-sonnet-5-5' });
     expect(env.status, env.stdout + env.stderr).toBe(0);
