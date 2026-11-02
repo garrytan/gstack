@@ -366,15 +366,24 @@ function renderReservationCheck(c: NonNullable<DryRunResult['checks']['reservati
 // ---------------------------------------------------------------------------
 export const PILOT_FILES = { spend: 'spend.json', pilot: 'pilot.json' } as const;
 export interface PilotAttempt { attempt: string; model: string; row: number; estimate_usd: number }
-export interface PilotRecord { schema_version: 1; n: number; arms: string[]; cap_usd: number; dry_run: string; attempts: PilotAttempt[]; started_at: string; status: 'reserved' | 'budget_exhausted' }
-export interface PilotStartOptions { out: string; cap: number; n: number; arms: string[]; dryRun: string; tokens?: TokenEstimate; now?: Date }
+export interface PilotRecord { schema_version: 1; n: number; arms: string[]; seat_metered?: string[]; cap_usd: number; dry_run: string; attempts: PilotAttempt[]; started_at: string; status: 'reserved' | 'budget_exhausted' }
+export interface PilotStartOptions { out: string; cap: number; n: number; arms: string[]; seatMetered?: string[]; dryRun: string; tokens?: TokenEstimate; now?: Date }
 
-/** Reserve n attempts per arm under the cap; a refused reservation ends the pilot `budget_exhausted` with nothing else reserved. */
+/**
+ * Reserve n attempts per arm under the cap; a refused reservation ends the pilot `budget_exhausted` with nothing else reserved.
+ * A seat-metered arm (operator-declared: a subscription call with no incremental charge) reserves $0 and stays outside the projection.
+ */
 export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?: { code: ResultCodeName; message: string } } {
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
-  const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
+  const seat = o.seatMetered ?? [];
+  const stray = seat.filter(a => !o.arms.includes(a));
+  if (stray.length) throw new Error(`--seat-metered ${stray.join(',')} needs to name arms listed in --arms`);
+  const prior = path.join(o.out, PILOT_FILES.pilot);
+  const priorSeat = fs.existsSync(prior) ? (JSON.parse(fs.readFileSync(prior, 'utf8')) as PilotRecord).seat_metered ?? [] : seat;
+  if ([...priorSeat].sort().join(',') !== [...seat].sort().join(',')) throw new Error(`${o.out} holds a pilot started with --seat-metered ${priorSeat.join(',') || '(none)'}; seat-metered arms are fixed when a pilot starts, so this one needs a new --out`);
+  const record: PilotRecord = { schema_version: 1, n: o.n, arms: o.arms, ...(seat.length ? { seat_metered: seat } : {}), cap_usd: o.cap, dry_run: o.dryRun, attempts: [], started_at: (o.now ?? new Date()).toISOString(), status: 'reserved' };
   const keyOf = (a: string) => `${armModel(a).replace(/[^A-Za-z0-9.-]/g, '_')}${armLoadout(a) !== null ? `.${armLoadout(a)!.replace(/[^A-Za-z0-9.-]/g, '_')}` : ''}`;
   const keys = o.arms.map(keyOf);
   const duplicates = [...new Set(o.arms.filter((_, i) => keys.indexOf(keys[i]!) !== i).map(a => o.arms.filter(b => keyOf(b) === keyOf(a)).join(' = ')))];
@@ -383,11 +392,12 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   const ledgerFile = path.join(o.out, PILOT_FILES.spend);
   let error: { code: ResultCodeName; message: string } | undefined;
   outer: for (const model of o.arms) {
+    const seated = seat.includes(model);
     if (!hasPricing(armModel(model))) { error = { code: 'EVAL_PRICE_MISSING', message: `${armModel(model)} has no row in lib/pricing.ts` }; break; }
     for (let i = 1; i <= o.n; i++) {
-      const estimate = estimateCostUsd(tokens, armModel(model));
+      const estimate = seated ? 0 : estimateCostUsd(tokens, armModel(model));
       const attempt = `pilot-${keyOf(model)}-${i}`;
-      try { reserve(ledgerFile, attempt, estimate, { cap: o.cap, label: `pilot ${model} #${i}`, now: o.now }); }
+      try { reserve(ledgerFile, attempt, estimate, { cap: o.cap, label: `pilot ${model} #${i}${seated ? ' (seat-metered)' : ''}`, now: o.now }); }
       catch (e) {
         if (e instanceof SpendCapExceeded) { record.status = 'budget_exhausted'; error = { code: 'EVAL_BUDGET_EXHAUSTED', message: e.message }; break outer; }
         throw e;
@@ -408,31 +418,44 @@ export function releasePilot(out: string, attempt: string): SpendLedger {
 
 /** Two-sided 95% Student t for n-1 degrees of freedom (n settled items); 2.0 past the table. */
 const T95: Record<number, number> = { 2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571, 7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262 };
-export interface Projection { n: number; per_item_usd: number | null; sd_usd: number | null; total: number; projected_usd: number | null; band_usd: [number, number] | null; verdict: 'within' | 'exceeds' | 'unknown' }
+export interface ArmProjection { arm: string; n: number; per_item_usd: number | null; sd_usd: number | null; projected_usd: number | null; band_usd: [number, number] | null }
+export interface Projection { n: number; per_item_usd: number | null; sd_usd: number | null; total: number; projected_usd: number | null; band_usd: [number, number] | null; verdict: 'within' | 'exceeds' | 'unknown'; arms: ArmProjection[] }
 export interface SpendTable { summary: SpendSummary; workers: number; max_estimate_usd: number; worst_case_usd: number; worst_case_overrun_usd: number }
-export interface PilotReport { record: PilotRecord; spend: SpendTable; projection: Projection; settled_known: number; settled_unknown: number }
+export interface PilotReport { record: PilotRecord; spend: SpendTable; projection: Projection; settled_known: number; settled_unknown: number; seat_metered: Array<{ arm: string; calls: number; settled: number }> }
 
 export function pilotReport(out: string, o: { total: number; workers?: number }): PilotReport {
   const record = JSON.parse(fs.readFileSync(path.join(out, PILOT_FILES.pilot), 'utf8')) as PilotRecord;
   const ledger = readLedger(path.join(out, PILOT_FILES.spend), record.cap_usd);
   const summary = summarize(ledger);
-  const known = ledger.settled.filter(s => typeof s.usd === 'number').map(s => s.usd as number);
-  const unknown = ledger.settled.length - known.length;
+  const armOf = new Map(record.attempts.map(a => [a.attempt, a.model]));
+  const charged = new Set(ledger.settled.filter(s => typeof s.usd === 'number' && s.usd > 0).map(s => armOf.get(s.attempt)));
+  const seat = new Set((record.seat_metered ?? []).filter(arm => !charged.has(arm)));
+  const unknown = ledger.settled.filter(s => s.usd === 'unknown' && !seat.has(armOf.get(s.attempt) ?? '')).length;
   const workers = Math.max(1, o.workers ?? 1);
   const maxEstimate = Math.max(0, ...record.attempts.map(a => a.estimate_usd));
   const worst = summary.worst_case_usd + workers * maxEstimate;
-  const n = known.length;
-  const mean = n ? known.reduce((s, x) => s + x, 0) / n : null;
-  const sd = n > 1 && mean !== null ? Math.sqrt(known.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : null;
-  const perArmTotal = o.total * Math.max(1, record.arms.length);
-  const projected = mean === null ? null : mean * perArmTotal;
-  const half = sd !== null && mean !== null ? (T95[n] ?? 2.0) * (sd / Math.sqrt(n)) * perArmTotal : null;
-  const band: [number, number] | null = projected !== null && half !== null ? [Math.max(0, projected - half), projected + half] : null;
-  const verdict: Projection['verdict'] = projected === null || band === null || unknown > 0 ? 'unknown' : band[1] + summary.worst_case_usd <= record.cap_usd ? 'within' : 'exceeds';
+  const arms: ArmProjection[] = record.arms.filter(arm => !seat.has(arm)).map(arm => {
+    const xs = ledger.settled.filter(s => armOf.get(s.attempt) === arm && typeof s.usd === 'number').map(s => s.usd as number);
+    const n = xs.length;
+    const mean = n ? xs.reduce((s, x) => s + x, 0) / n : null;
+    const sd = n > 1 && mean !== null ? Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : null;
+    const projected = mean === null ? null : mean * o.total;
+    const half = sd !== null ? (T95[n] ?? 2.0) * (sd / Math.sqrt(n)) * o.total : null;
+    return { arm, n, per_item_usd: mean, sd_usd: sd, projected_usd: projected, band_usd: projected !== null && half !== null ? [Math.max(0, projected - half), projected + half] : null };
+  });
+  const priced = arms.filter(a => a.per_item_usd !== null);
+  const n = priced.reduce((s, a) => s + a.n, 0);
+  const mean = priced.length || !arms.length ? priced.reduce((s, a) => s + a.per_item_usd!, 0) : null;
+  const sd = mean !== null && priced.every(a => a.sd_usd !== null) ? priced.reduce((s, a) => s + a.sd_usd!, 0) : null;
+  const projected = mean === null ? null : mean * o.total;
+  const band: [number, number] | null = projected !== null && priced.every(a => a.band_usd)
+    ? [priced.reduce((s, a) => s + a.band_usd![0], 0), priced.reduce((s, a) => s + a.band_usd![1], 0)] : null;
+  const verdict: Projection['verdict'] = band === null || unknown > 0 || priced.length < arms.length ? 'unknown' : band[1] + summary.worst_case_usd <= record.cap_usd ? 'within' : 'exceeds';
   return {
     record, settled_known: n, settled_unknown: unknown,
     spend: { summary, workers, max_estimate_usd: maxEstimate, worst_case_usd: worst, worst_case_overrun_usd: Math.max(0, worst - record.cap_usd) },
-    projection: { n, per_item_usd: mean, sd_usd: sd, total: o.total, projected_usd: projected, band_usd: band, verdict },
+    projection: { n, per_item_usd: mean, sd_usd: sd, total: o.total, projected_usd: projected, band_usd: band, verdict, arms },
+    seat_metered: [...seat].map(arm => ({ arm, calls: record.attempts.filter(a => a.model === arm).length, settled: ledger.settled.filter(s => armOf.get(s.attempt) === arm).length })),
   };
 }
 
@@ -449,11 +472,17 @@ export function renderSpendTable(t: SpendTable, cap: number): string {
 
 export function renderPilotReport(r: PilotReport): string {
   const p = r.projection;
+  const band = (b: [number, number] | null) => (b ? `[${usd(b[0])}, ${usd(b[1])}]` : 'unknown');
+  const notReady = r.settled_unknown > 0
+    ? 'unknown charges make the band meaningless; settle them with actual cost, or start a new pilot in a new `--out` with `pilot start --seat-metered <arm>` for an arm on a subscription with no incremental charge'
+    : 'settle at least 2 attempts per priced arm with actual cost';
   return [
     `PILOT: n=${r.record.n} arms=${r.record.arms.join(',')} settled=${r.settled_known} unknown=${r.settled_unknown} status=${r.record.status}`,
     renderSpendTable(r.spend, r.record.cap_usd),
-    `PILOT_PROJECTION: items=${p.total} per_item=${usd(p.per_item_usd)} sd=${usd(p.sd_usd)} projected=${usd(p.projected_usd)} band=${p.band_usd ? `[${usd(p.band_usd[0])}, ${usd(p.band_usd[1])}]` : 'unknown'} cap=$${r.record.cap_usd.toFixed(2)} verdict=${p.verdict}`,
-    p.verdict === 'unknown' ? `APPROVAL: not ready — ${r.settled_known < 2 ? 'settle at least 2 pilot attempts with actual cost' : 'unknown charges make the band meaningless'}; settle, then rerun report` : `APPROVAL: run ${p.total} items at projected ${usd(p.projected_usd)} (95% band ${usd(p.band_usd![0])}–${usd(p.band_usd![1])}) under cap $${r.record.cap_usd.toFixed(2)}: ${p.verdict === 'within' ? 'fits; ask the owner before any further priced call' : 'EXCEEDS the cap; stop, raise the cap on purpose or cut arms or items'}`,
+    ...p.arms.map(a => `PILOT_ARM: arm=${a.arm} n=${a.n} per_item=${usd(a.per_item_usd)} sd=${usd(a.sd_usd)} projected=${usd(a.projected_usd)} band=${band(a.band_usd)}`),
+    ...r.seat_metered.map(s => `PILOT_SEAT_METERED: arm=${s.arm} calls=${s.calls} settled=${s.settled} (declared seat-metered: no incremental charge, outside the cap and the projection; usage-limited)`),
+    `PILOT_PROJECTION: items=${p.total} known_arms=${p.arms.filter(a => a.per_item_usd !== null).length}/${p.arms.length} per_item=${usd(p.per_item_usd)} sd=${usd(p.sd_usd)} projected=${usd(p.projected_usd)} band=${band(p.band_usd)} cap=$${r.record.cap_usd.toFixed(2)} verdict=${p.verdict}`,
+    p.verdict === 'unknown' ? `APPROVAL: not ready — ${notReady}; then rerun report` : `APPROVAL: run ${p.total} items at projected ${usd(p.projected_usd)} (95% band ${usd(p.band_usd![0])}–${usd(p.band_usd![1])}) under cap $${r.record.cap_usd.toFixed(2)}: ${p.verdict === 'within' ? 'fits; ask the owner before any further priced call' : 'EXCEEDS the cap; stop, raise the cap on purpose or cut arms or items'}`,
   ].join('\n') + '\n';
 }
 

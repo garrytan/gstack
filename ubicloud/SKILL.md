@@ -102,7 +102,7 @@ telemetry — it never blocks the workflow.
 A full suite or verify that takes an hour on a 4-core sandbox takes minutes on a
 `standard-16` VM, and a VM that outlives its run costs the whole project its
 shared vCPU quota. This skill is one runner with the discipline built in: every
-VM carries its owner and a TTL in its name, any later run reaps expired VMs, the
+VM carries its owner and a TTL in its name, its owner's next run reaps it once expired, the
 create is refused before the quota fills, a silent remote command is killed with
 its last output instead of hanging, and a repository's verify is one committed
 definition rather than a wrapper per lane.
@@ -143,12 +143,12 @@ $U usage          # VMs and vCPUs per owner: who holds the shared quota
 ```
 
 A VM in `records` but absent from `list` is already gone: `$U down <name>`
-forgets it. A VM in the project under another owner is theirs; leave it (its
-TTL will reap it). Every `up` runs `$U reap` first, destroying any VM whose
-`-t<hours>` TTL ended more than ten minutes ago, whichever owner made it, and
-this owner's own `ubirun-<UBI_OWNER>-*` names with no TTL once they are
-`UBI_LEGACY_HOURS` old (default 4). Another owner's TTL-less VM, an untagged
-one and names outside the `ubirun-` prefix are never reaped.
+forgets it. A VM in the project under another owner is theirs; leave it.
+Every `up` runs `$U reap` first, destroying only this owner's
+`ubirun-<UBI_OWNER>-*` VMs whose `-t<hours>` TTL ended more than ten minutes
+ago, and those with no TTL once they are `UBI_LEGACY_HOURS` old (default 4).
+Another owner's VM, expired or not, an untagged one and names outside the
+`ubirun-` prefix are never reaped.
 
 Quota: with `UBI_QUOTA_VCPUS=<project ceiling>` exported (or after one refusal,
 whose maximum the runner remembers), `up` adds the size's vCPUs to the project's
@@ -171,7 +171,7 @@ background operation leaves its VM until the reaper. So:
   `### gstack-detach EXIT=<code> ###` sentinel.
 - Set `UBI_TTL_HOURS` above the longest plausible run (default 3; 1-999) and
   name the expected duration in the thread before launching anything over an
-  hour. A run that outlives its TTL is reaped by the next `up` anywhere.
+  hour. A run that outlives its TTL is reaped by its owner's next `up` or `reap`.
 
 The runner prints `<name> carries a <n>h TTL ...; if this process dies first:
 <self> down <name>` right after the VM is ready; quote that line in your report

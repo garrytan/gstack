@@ -292,13 +292,13 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
       detail: window.files.slice(0, 15).map(file => `${file.file}: ${file.flakyRuns}/${window.runs} runs (${pct(file.rate)})${file.failing ? ' FAIL > 5%' : ''}`) };
   }));
 
-  metrics.push(metric('free-wall', 'Free-suite and Windows wall', 'p50 of run_started_at to updated_at for successful main runs of free-tests.yml and successful pull_request runs of windows-free-tests.yml (its workflow_dispatch duration recordings excluded)', () => {
+  metrics.push(metric('free-wall', 'Free-suite and Windows wall', 'p50 of run_started_at to updated_at for successful main runs of free-tests.yml and successful pull_request runs of windows-smoke.yml, the required Windows check (its workflow_dispatch runs excluded)', () => {
     const walls = (workflow: string, filter: { branch?: string; event?: string }) =>
       listWorkflowRuns(client, repo, workflow, { since, ...filter }).filter(run => run.conclusion === 'success').map(run => span(run.startedAt, run.updatedAt)!);
     const free = walls('free-tests.yml', { branch: 'main' });
-    const windows = walls('windows-free-tests.yml', { event: 'pull_request' });
+    const windows = walls('windows-smoke.yml', { event: 'pull_request' });
     const windowsValue = windows.length ? `${minutes(percentile(windows, 0.5))} (${windows.length} runs)` : 'no successful PR runs in window';
-    return { value: `free-tests ${minutes(percentile(free, 0.5))} (${free.length} runs); windows-free-tests (successful PR runs) ${windowsValue}` };
+    return { value: `free-tests ${minutes(percentile(free, 0.5))} (${free.length} runs); windows-smoke (successful PR runs) ${windowsValue}` };
   }));
 
   metrics.push(metric('free-serial', 'Free-suite serial time', 'sum of scripts/free-test-durations.json (the committed seed)', () => {
