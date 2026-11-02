@@ -145,10 +145,12 @@ const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && m
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
 /**
  * An allowlisted docs path (GST-850, lib/review-allowlist.ts): a new SVG whose whole file is presentational, or a locale resource
- * edit that changes only literal string values. Agent prose, gate paths and config files never qualify; an edited SVG stays code.
+ * edit that changes only literal string values. Agent prose, gate paths, config files and any path a risk class matches never qualify;
+ * an edited SVG stays code.
  */
 const allowlisted = (i: ClassInput, p: string): 'svg' | 'locale' | null => {
   if (!i.added?.[p]?.length || classifyPath(p, i.root) !== 'code' || [...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p))) return null;
+  if (matchRisk({ codePaths: [p], added: i.added, removed: i.removed, scopeAuth: false }).size) return null;
   if (/\.svg$/i.test(p)) return i.created?.includes(p) && !i.removed?.[p]?.length && presentationalSvg(i.added[p]!.join('\n')) ? 'svg' : null;
   return localeTextOnly(p, i.removed?.[p], i.added[p]) ? 'locale' : null;
 };

@@ -158,7 +158,7 @@ describe('GST-850: allowlisted docs paths (a new presentational SVG, a locale va
     ['strings', 'Resources/lang/en.lproj/Localizable.strings', '"save" = "Save";', '"save" = "Save now";'],
     ['xliff', 'translations/messages.fr.xlf', '        <target>Enregistrer</target>', '        <target>Sauvegarder</target>'],
     ['ftl', 'locales/en-US/main.ftl', 'welcome = Welcome, { $user }!', 'welcome = Hello, { $user }!'],
-    ['properties', 'src/main/resources/i18n/messages.properties', 'button.save=Save', 'button.save=Save now'],
+    ['properties', 'src/main/resources/i18n/messages_en.properties', 'button.save=Save', 'button.save=Save now'],
   ])('a %s value edit under a locale directory is docs', (_n, p, before, after) => {
     expect(classOf(p, [after], [before])).toBe('docs');
   });
@@ -198,6 +198,10 @@ describe('GST-850: every bypass of the line-pattern docs paths stays code', () =
     ['an unclosed root', CHART.slice(0, -2)],
     ['two roots', [...CHART, '<svg xmlns="http://www.w3.org/2000/svg"></svg>']],
     ['text after the root', [...CHART, 'trailing']],
+    ['an HTML-closed empty comment <!-->', swap('<title>', '<!--><image width="1" height="1"/>--><title>')],
+    ['an HTML-closed empty comment <!--->', swap('<title>', '<!---><foreignObject/>--><title>')],
+    ['numeric references spelling an interpolation', swap('33/41 &amp; up', '&#123;&#123;run()&#125;&#125;')],
+    ['an attribute interpolation', swap('<text x="30"', '<text class="{{run()}}" x="30"')],
   ])('a new SVG with %s is code', (_n, lines) => {
     expect(svgClass(lines as string[])).toBe('code');
   });
@@ -220,11 +224,21 @@ describe('GST-850: every bypass of the line-pattern docs paths stays code', () =
     ['a script URL', 'locales/en.yml', '  link: "https://example.com"', '  link: "javascript:alert(1)"'],
     ['a locale file outside a locale directory', 'src/en.json', '  "save": "Save",', '  "save": "Save now",'],
     ['a locale file under config/', 'config/locales/en.yml', '  save: "Save"', '  save: "Save now"'],
+    ['an escaped script scheme', 'locales/en.json', '  "go": "Continue",', '  "go": "java\\nscript:alert(1)",'],
+    ['a protocol-relative link', 'locales/en.json', '  "help": "[docs](/help)",', '  "help": "[docs](//evil.example/help)",'],
+    ['a YAML null', 'locales/en.yml', '  label: Save', '  label: null'],
+    ['a YAML boolean', 'locales/en.yml', '  label: Save', '  label: false'],
+    ['a renamed gettext placeholder', 'locale/fr/LC_MESSAGES/app.po', 'msgstr "Bonjour %(name)s"', 'msgstr "Bonjour %(password)s"'],
+    ['an Ansible task under a locale role', 'roles/locale/tasks/main.yml', '    command: a-tool one', '    command: b-tool two'],
+    ['a non-message .properties under lang/', 'src/main/resources/lang/app.properties', 'db.url=host-a', 'db.url=host-b'],
+    ['a non-locale JSON under lang/', 'tools/lang/rules.json', '  "pattern": "^[a-z]+$",', '  "pattern": ".*",'],
+    ['a locale value carrying a risk line', 'src/i18n/en.yml', '  command: echo ok', '  command: rm -rf /tmp/x'],
   ])('%s is code', (_n, p, before, after) => {
     expect(classOf(p, [after], [before])).toBe('code');
   });
   test('an added key and the backtracking input are code, and the input finishes fast', () => {
     expect(classOf('locales/en.json', ['  "extra": "Extra",'])).toBe('code');
+    expect(classOf('src/i18n/en.yml', ['  title: Hello', '  sub: World'], ['  title: Hello', '  sub: World'])).toBe('code');
     const t = performance.now();
     expect(classOf('locales/en.yml', ['  save: "' + '\\'.repeat(10_000) + 'x'], ['  save: "Save"'])).toBe('code');
     expect(classOf('locales/en.yml', ['  save: "' + '\\'.repeat(9_999) + '"'], ['  save: "Save"'])).toBe('code');
@@ -246,7 +260,7 @@ describe('GST-850: security reaches outbound URLs, archives, path traversal and 
     "const ALLOWED_HOSTS = ['api.example.com'];", 'hostAllowlist.push(h);',
     'await tar.x({ file, cwd: dest });', 'new AdmZip(buf).extractAllTo(dir, true);', "import yauzl from 'yauzl';", "import extract from 'extract-zip';", 'zipfile.ZipFile(p).extractall(d)',
     'tarfile.open(p).extractall(d)', 'tar -xzf "$TGZ" -C "$DIR"', 'unzip -o "$ZIP" -d "$DIR"', 'fs.writeFileSync(path.join(root, entry.path), data);', 'const dest = path.resolve(out, req.params.name);',
-    "if (rel.startsWith('..')) throw new Error('escape');", "if (parts.includes('..')) return;",
+    "if (rel.startsWith('..')) throw new Error('escape');", "if (parts.includes('..')) return;", '  exec as run,', '  exec: run,',
   ])('%s is security', line => {
     expect(risk(['src/net.ts'], { 'src/net.ts': [line] })).toEqual(['security']);
   });

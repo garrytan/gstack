@@ -216,8 +216,9 @@ settings and host allowlists), archive extraction and path traversal (`tar.x`,
 adm-zip, yauzl, extract-zip, `extractall`, `tar -x`, `unzip`, `path.join` or
 `resolve` on request or entry input, a `'..'` check added or removed), and Node
 exec through any `child_process` spelling: a named import of `exec`, `execSync`
-or `spawn` (one line or split over lines), a default or namespace import, a
-whole-module or destructured `require` or dynamic `import`. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+or `spawn` (on one line, split over lines when the whole statement is in the
+diff, or an added `exec` binding line inside one), a default or namespace
+import, a whole-module or destructured `require` or dynamic `import`. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
@@ -234,18 +235,26 @@ the whole input in linear time and fail closed on anything they do not parse.
   `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, gradients and `stop`,
   `clipPath`, `use`, `symbol`, `marker`, `pattern`, `mask`) and presentational
   attributes. No namespace prefixes, `on*` or binding attributes (`:x`, `v-bind:`,
-  `x-bind:`, `@x`), entities other than the five predefined ones, doctype,
-  CDATA or processing instructions other than the XML declaration; `href` only
-  on `use` and only `#fragment`; `url(#id)` only in presentation attributes and
-  no `url(` in `style`; no backslash escapes; no `{{` or `${` in text. An edited
-  SVG stays code.
+  `x-bind:`, `@x`), entities other than the five predefined named ones (no
+  numeric references), doctype, CDATA or processing instructions other than the
+  XML declaration, and no comment HTML would close early (`<!-->`, `<!--->`) or
+  that holds `<` or `>`; `href` only on `use` and only `#fragment`; `url(#id)`
+  only in presentation attributes and no `url(` in `style`; no backslash escapes,
+  braces or `${` in attribute values; no `{{` or `${` in text. An edited SVG
+  stays code.
 - **A locale resource edit**: a JSON, ARB, YAML, PO, `.strings`, XLIFF, Fluent
   or `.properties` file under a `locale(s)`, `i18n`, `l10n`, `translation(s)` or
-  `lang` directory, where every deleted line pairs with an added line with the
-  same key and only the literal string value changes, with no markup, encoded
-  character, script or link scheme, and the same placeholders. Added or removed
-  keys, UI component files (`.tsx`, `.vue` and the rest), i18n source files and
-  anything under `config/` stay code.
+  `lang` directory (JSON, YAML and `.properties` also need a locale code such as
+  `en` or `pt-BR` as the parent directory or the file name), where every deleted
+  line pairs with an added line with the same key and a changed literal string
+  value, with no markup, escape other than `\n` or `\t`, script, link scheme or
+  protocol-relative link (read after escapes and whitespace are removed), no YAML
+  value that loads as null, a boolean or a number, and the same placeholders
+  (`{x}`, `%s`, `%(name)s` and the rest). Added, removed or moved keys, UI
+  component files (`.tsx`, `.vue` and the rest), i18n source files and anything
+  under `config/` stay code.
+
+A path any risk class matches stays code whatever its shape.
 
 A write-up with one clean chart and no code is one reader (the outside voice on
 its numbers). When a diff publishes numbers, the batched specialist's diff keeps

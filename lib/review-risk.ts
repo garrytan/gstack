@@ -55,8 +55,9 @@ const SECURITY_LINE = [
   /\b(?:HTTPS?_PROXY|NO_PROXY|ALL_PROXY|https?_proxy|no_proxy)\b|\b(?:Https?)?ProxyAgent\b|\bproxy\s*(?::|=(?![=>]))/, /\b(?:allowed|trusted|blocked|denied)[_-]?(?:hosts?|domains?|origins?|urls?)|\b(?:hosts?|domains?|origins?|urls?)[_-]?(?:allow|deny|block)[_-]?list/i,
   /\btar\.(?:x|extract)\s*\(|\.(?:extractall|extractAllTo|extractEntryTo)\s*\(|\b(?:tar|tf|zf|zip|archive)\.extract\s*\(|\bshutil\.unpack_archive\s*\(|\b(?:adm-zip|AdmZip|yauzl|extract-zip|unzipper|node-stream-zip)\b/,
   /\btar\s+(?:-[A-Za-z]*x|x[A-Za-z]*\s|--extract)|\bunzip\s+[-\w"'$]/,
-  /\bpath\.(?:join|resolve)\s*\([^)]*(?:\b(?:req|request|params|query|argv|headers?|filename|fileName|entryName|member|upload|untrusted|userInput)\b|\bentry\.(?:path|name|fileName)\b)/,
+  /\bpath\.(?:join|resolve)\s*\([^)]{0,300}?(?:\b(?:req|request|params|query|argv|headers?|filename|fileName|entryName|member|upload|untrusted|userInput)\b|\bentry\.(?:path|name|fileName)\b)/,
   /\b(?:includes|startsWith|endsWith|indexOf)\s*\(\s*['"`]\.\.[/\\]{0,2}['"`]|[!=]==?\s*['"`]\.\.['"`]|['"`]\.\.['"`]\s*[!=]==?|\\\.\\\./,
+  /^\s*(?:exec|execSync)(?:\s+as\s+[\w$]+|\s*:\s*[\w$]+)?\s*,?\s*$/,
   /(?<![.\w])eval\s*\(/, /(?:^|[;&|])\s*eval\s+["'$]/, /\bnew\s+Function\s*\(/,
   /\b(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/, /\bBun\.spawn(?:Sync)?\s*\(\s*\[\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/,
   /\brmSync\s*\([^)]*recursive\s*:\s*true/, /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/,
@@ -68,8 +69,20 @@ const DATA_LINE = [
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
 ];
 
-/** A named import split over lines (`import {\n  exec,\n} from 'node:child_process'`): read over a path's joined added or deleted lines. */
-const SECURITY_TEXT = new RegExp(String.raw`\bimport\s*\{([^}]*)\}\s*from\s*${CHILD_PROCESS}`, 'g');
+/** A named import split over lines (`import {\n  exec,\n} from 'node:child_process'`), read over a path's joined added or deleted lines in one forward pass. */
+function execImport(text: string): boolean {
+  IMPORT_OPEN.lastIndex = 0;
+  for (let m = IMPORT_OPEN.exec(text); m; m = IMPORT_OPEN.exec(text)) {
+    const close = text.indexOf('}', IMPORT_OPEN.lastIndex);
+    if (close < 0) return false;
+    const names = text.slice(IMPORT_OPEN.lastIndex, close).trim();
+    if (EXEC_NAME.test(names) && !/^type\b/.test(names) && FROM_CHILD_PROCESS.test(text.slice(close + 1, close + 40))) return true;
+    IMPORT_OPEN.lastIndex = close + 1;
+  }
+  return false;
+}
+const IMPORT_OPEN = /\bimport\s*\{/g;
+const FROM_CHILD_PROCESS = new RegExp(String.raw`^\s*from\s*${CHILD_PROCESS}`);
 const EXEC_NAME = /(?:^|[\s,{])(?:exec|execSync|spawn)(?:\s+as\s+[\w$]+)?\s*(?:,|$)/;
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
 const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || MONEY_PAIRS.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
@@ -78,7 +91,7 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_TEXT: [SECURITY_TEXT], DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_TEXT: [IMPORT_OPEN, FROM_CHILD_PROCESS, EXEC_NAME], DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -104,7 +117,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
     for (const side of [i.added?.[p], i.removed?.[p]]) {
-      if (!why.has('security') && side?.length && [...side.join('\n').matchAll(SECURITY_TEXT)].some(m => EXEC_NAME.test(m[1]!.trim()) && !/^\s*type\b/.test(m[1]!))) hit('security', 'security import: ' + p);
+      if (!why.has('security') && side?.length && execImport(side.join('\n'))) hit('security', 'security import: ' + p);
     }
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);

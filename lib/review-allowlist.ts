@@ -19,7 +19,6 @@ export const SVG_ATTRIBUTES = [
 ];
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XML_DECL = /^<\?xml version="1\.[01]"(?: encoding="[A-Za-z0-9._-]+")?(?: standalone="(?:yes|no)")?\s*\?>$/;
-const ENTITY = /^&(?:amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});/;
 const NAMED_ENTITY = /^&(?:amp|lt|gt|quot|apos);/;
 const FRAGMENT = /^#[A-Za-z_][\w.-]*$/;
 const LOCAL_URL = /url\(#[A-Za-z_][\w.-]*\)/g;
@@ -27,17 +26,17 @@ const STYLE_VALUE = /^[A-Za-z0-9\s#%.,:;()_+-]*$/;
 
 const isWs = (c: string | undefined) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
 const isNameChar = (c: string | undefined) => !!c && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '-');
-/** Every & starts an allowed reference; named allows only the five predefined entities. */
-function entitiesOk(s: string, named: boolean): boolean {
-  for (let k = s.indexOf('&'); k >= 0; k = s.indexOf('&', k + 1)) if (!(named ? NAMED_ENTITY : ENTITY).test(s.slice(k, k + 12))) return false;
+/** Every & starts one of the five predefined entities: a numeric reference could spell an interpolation or a scheme. */
+function entitiesOk(s: string): boolean {
+  for (let k = s.indexOf('&'); k >= 0; k = s.indexOf('&', k + 1)) if (!NAMED_ENTITY.test(s.slice(k, k + 8))) return false;
   return true;
 }
 function textOk(s: string, inside: boolean): boolean {
   if (!inside) { for (const c of s) if (!isWs(c)) return false; return true; }
-  return !/[\0-\x08\x0b\x0c\x0e-\x1f]|\{\{|\$\{|\]\]>/.test(s) && entitiesOk(s, false);
+  return !/[\0-\x08\x0b\x0c\x0e-\x1f]|\{\{|\$\{|\]\]>/.test(s) && entitiesOk(s);
 }
 function valueOk(element: string, name: string, v: string): boolean {
-  if (/[<\\`\0-\x1f]/.test(v) || !entitiesOk(v, true)) return false;
+  if (/[<\\`{}\0-\x1f]|\$\{/.test(v) || !entitiesOk(v)) return false;
   if (name === 'xmlns') return v === SVG_NS;
   if (name === 'href') return element === 'use' && FRAGMENT.test(v);
   if (name === 'style') return STYLE_VALUE.test(v) && !/url\(|expression/i.test(v);
@@ -87,7 +86,8 @@ export function presentationalSvg(text: string): boolean {
     if (lt < 0) break;
     if (text.startsWith('<!--', lt)) {
       const end = text.indexOf('-->', lt + 4);
-      if (end < 0 || text.slice(lt + 4, end).includes('--')) return false;
+      const body = text.slice(lt + 4, end);
+      if (end < 0 || body.includes('--') || /[<>]/.test(body) || body.startsWith('-')) return false;
       i = end + 3;
       continue;
     }
@@ -111,9 +111,16 @@ export function presentationalSvg(text: string): boolean {
 
 export const LOCALE_DIR = /(^|\/)(locales?|i18n|l10n|translations?|lang)\//i;
 export const LOCALE_FORMATS = ['json', 'arb', 'yaml', 'yml', 'po', 'strings', 'xliff', 'xlf', 'ftl', 'properties'];
-const PLACEHOLDER = /\{\{[^{}]*\}\}|\{[^{}]*\}|%(?:[1-9]\d*\$)?[-+ #0]*(?:[1-9]\d*)?(?:\.\d+)?[a-zA-Z@]|\$\{[^{}]*\}|\$t\([^()]*\)|@[:.][\w.:-]+|\$[A-Za-z_]\w*/g;
+const PLACEHOLDER = /\{\{[^{}]*\}\}|\{[^{}]*\}|%(?:[1-9]\d*\$|\([^()]*\))?[-+ #0]*(?:[1-9]\d*)?(?:\.\d+)?[a-zA-Z@]|\$\{[^{}]*\}|\$t\([^()]*\)|@[:.][\w.:-]+|\$[A-Za-z_]\w*/g;
 /** Never UI text: markup, an encoded character that could spell markup, a script or link scheme, a template literal. */
-const NOT_TEXT = /[<>`]|&(?:lt|gt|#)|\\[uUx]|(?:javascript|vbscript|data):|:\/\//i;
+const NOT_TEXT = /[<>`]|&(?:lt|gt|#)|\\[^nt"']|%\(/i;
+/** A link scheme or a protocol-relative link, read after escapes, whitespace and control characters are removed (a URL parser drops them). */
+const LINK = /(?:javascript|vbscript|data):|\/\//i;
+/** YAML plain scalars that load as null, a boolean or a number, not a string. */
+const YAML_NOT_STRING = /^(?:null|~|true|false|yes|no|on|off|y|n|[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|0o[0-7]+|[-+]?\.(?:inf|nan))$/i;
+/** A locale code as a path segment or a part of the file name: en, fr, pt-BR, zh_Hant. */
+const LOCALE_CODE = /^[a-z]{2}(?:[-_][A-Za-z]{2,4})?$/;
+const LOCALE_ONLY_FORMATS = ['po', 'strings', 'xliff', 'xlf', 'arb', 'ftl'];
 const YAML_PLAIN = /^[A-Za-z0-9][^#:{}[\]&*!|>%@`"'<\\]*$/;
 const XLIFF_TARGET = /^(\s*<target(?:\s+state="[a-z-]+")?>)([^<]*)(<\/target>\s*)$/;
 const FTL_ENTRY = /^(\s*[.-]?[A-Za-z][\w-]*\s*=\s*)(\S.*)$/;
@@ -160,7 +167,8 @@ function yamlPair(line: string): Entry {
     if (close !== end - 1) return null;
     return { key: line.slice(0, k + 1) + '\0' + line.slice(close), value: line.slice(k + 1, close) };
   }
-  return YAML_PLAIN.test(line.slice(k, end)) ? { key: line.slice(0, k), value: line.slice(k, end) } : null;
+  const plain = line.slice(k, end);
+  return YAML_PLAIN.test(plain) && !YAML_NOT_STRING.test(plain) ? { key: line.slice(0, k), value: plain } : null;
 }
 function poPair(line: string): Entry {
   const m = /^msgstr(?:\[\d+\])? "/.exec(line);
@@ -186,25 +194,28 @@ function entryOf(format: string, line: string): Entry {
 }
 /** The value's placeholders, sorted, or null when it is not plain text (markup, an encoded character, a scheme, an unpaired brace). */
 function placeholders(value: string): string | null {
-  if (NOT_TEXT.test(value)) return null;
+  if (NOT_TEXT.test(value) || LINK.test(value.replace(/\\[nt]|[\s\0-\x1f]/g, ''))) return null;
   const found = value.match(PLACEHOLDER) ?? [];
   if (/[{}]/.test(value.replace(PLACEHOLDER, ''))) return null;
   return found.sort().join('\0');
 }
 
-/** The resource format of a path under a locale directory, or null. */
+/** The resource format of a path under a locale directory, or null; JSON, YAML and .properties also need a locale code as the parent directory, the file stem or the stem's last . or _ part. */
 export function localeFormat(p: string): string | null {
   const ext = /\.([A-Za-z]+)$/.exec(p)?.[1]?.toLowerCase();
-  return ext && LOCALE_FORMATS.includes(ext) && LOCALE_DIR.test(p) ? ext : null;
+  if (!ext || !LOCALE_FORMATS.includes(ext) || !LOCALE_DIR.test(p)) return null;
+  const parts = p.split('/');
+  const stem = parts[parts.length - 1]!.slice(0, -ext.length - 1);
+  return LOCALE_ONLY_FORMATS.includes(ext) || [parts[parts.length - 2] ?? '', stem, stem.split(/[._]/).pop()!].some(s => LOCALE_CODE.test(s)) ? ext : null;
 }
 
-/** Whether an edit to a locale resource changes only literal string values: lines pair up with the same key, and each value is plain text with the same placeholders. */
+/** Whether an edit to a locale resource changes only literal string values: lines pair up with the same key and a changed value (an unchanged pair is a moved key), and each value is plain text with the same placeholders. */
 export function localeTextOnly(p: string, removed: readonly string[] = [], added: readonly string[] = []): boolean {
   const format = localeFormat(p);
   if (!format || !added.length || removed.length !== added.length) return false;
   return removed.every((line, n) => {
     const a = entryOf(format, line), b = entryOf(format, added[n]!);
-    if (!a || !b || a.key !== b.key) return false;
+    if (!a || !b || a.key !== b.key || a.value === b.value) return false;
     const ha = placeholders(a.value);
     return ha !== null && ha === placeholders(b.value);
   });
@@ -213,5 +224,6 @@ export function localeTextOnly(p: string, removed: readonly string[] = [], added
 /** A hash of the lists and patterns that decide an allowlisted docs path; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const ALLOWLIST_RULES = createHash('sha256').update(JSON.stringify({
   SVG_ELEMENTS, SVG_ATTRIBUTES, SVG_NS, LOCALE_FORMATS,
-  patterns: [XML_DECL, ENTITY, NAMED_ENTITY, FRAGMENT, LOCAL_URL, STYLE_VALUE, LOCALE_DIR, PLACEHOLDER, NOT_TEXT, YAML_PLAIN, XLIFF_TARGET, FTL_ENTRY, PROPERTIES_ENTRY].map(r => '/' + r.source + '/' + r.flags),
+  LOCALE_ONLY_FORMATS,
+  patterns: [XML_DECL, NAMED_ENTITY, LINK, YAML_NOT_STRING, LOCALE_CODE, FRAGMENT, LOCAL_URL, STYLE_VALUE, LOCALE_DIR, PLACEHOLDER, NOT_TEXT, YAML_PLAIN, XLIFF_TARGET, FTL_ENTRY, PROPERTIES_ENTRY].map(r => '/' + r.source + '/' + r.flags),
 })).digest('hex').slice(0, 16);

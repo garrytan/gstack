@@ -34,6 +34,11 @@ describe('linear time on hostile input', () => {
       expect(fast(() => localeTextOnly(p, [line], [line]))).toBeLessThan(100);
     }
   });
+  test('a 512 KB comment of unclosed imports and a long path.join chain finish under 200 ms', () => {
+    const lines = Array.from({ length: 65_536 }, () => 'import {');
+    expect(fast(() => matchRisk({ codePaths: ['src/a.ts'], added: { 'src/a.ts': lines }, removed: {}, scopeAuth: false }))).toBeLessThan(200);
+    expect(fast(() => matchRisk({ codePaths: ['src/a.ts'], added: { 'src/a.ts': ['path.join('.repeat(50_000)] }, removed: {}, scopeAuth: false }))).toBeLessThan(200);
+  });
   test('the risk patterns finish under 100 ms on 10k-character lines', () => {
     for (const body of ['fetch(' + "'".repeat(N), 'import {' + ' exec'.repeat(N / 5), 'path.join(' + 'a'.repeat(N), 'import ' + 'a '.repeat(N / 2) + 'from', 'require(' + ' '.repeat(N),
       ' '.repeat(N) + '} = require(', "'..".repeat(N / 3), 'x'.repeat(N) + 'Usage', 'tar ' + '-'.repeat(N), 'import {'.repeat(N / 8)]) {
@@ -46,7 +51,7 @@ describe('the rules hashes cover every new pattern', () => {
   // Value: protects=a receipt or queue verdict notices an allowlist or risk-pattern edit; fails_when=an edit to an SVG element,
   //   a locale format, a security pattern or a money word leaves DEPTH_RULES unchanged; seam=DEPTH_RULES over ALLOWLIST_RULES and RISK_RULES
   test.each([
-    ['review-allowlist.ts', "'foreignObject'", "'clipPath', 'foreignObject'", "'clipPath'"],
+    ['review-allowlist.ts', "'foreignObject'", "'clipPath', 'foreignObject',", "'clipPath',"],
     ['review-allowlist.ts', "'properties'];", "'properties', 'ini'];", null],
     ['review-risk.ts', "'billable', 'billed'", "'billable', 'billed', 'tariff'", null],
     ['review-risk.ts', 'extract-zip|unzipper', 'extract-zip|unzipper|jszip', null],
