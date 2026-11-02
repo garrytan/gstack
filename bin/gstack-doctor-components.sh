@@ -325,6 +325,7 @@ gstack_result_anchor() {
     REGEN_DEPS_MISSING) printf '%s' 'regen-deps-missing' ;;
     REVIEW_SCOPE_INPUT) printf '%s' 'review-scope-input' ;;
     REVIEW_SCOPE_RANGE) printf '%s' 'review-scope-range' ;;
+    REVIEW_SCOPE_LEDGER) printf '%s' 'review-scope-ledger' ;;
     RECEIPT_CARRY_REFUSED) printf '%s' 'receipt-carry-refused' ;;
     PROSE_LINT_FOUND) printf '%s' 'prose-lint-found' ;;
     REVIEW_LOOP_EXCEPTION_INVALID) printf '%s' 'review-loop-exception-invalid' ;;
