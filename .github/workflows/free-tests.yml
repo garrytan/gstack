@@ -52,10 +52,16 @@ on:
 # that free-suite reads. FREE_SUITE_JOBS is k in `--ci-plan --shard-jobs k`:
 # each shard runs min(k, its parallel files) sandboxed sub-shards side by side
 # (scripts/lib/shard-jobs.ts); the exclusive host-state shard stays one child.
+# FREE_SUITE_SETUP_SECONDS is a free-suite job's time outside the "Run free
+# suite" step. --ci-plan adds it to each shard's runner wall and flaky-retry
+# wall to emit that shard's job timeout (#3850), so GitHub never kills a job
+# before the runner can name a hung file. Measured over 110 free-suite jobs in
+# PR runs 41467261350..41478988224: p50 60 s, p90 80 s, max 142 s.
 env:
   FREE_SUITE_RUNNER: ubicloud-standard-8
   FREE_SUITE_SHARDS: '10'
   FREE_SUITE_JOBS: '4'
+  FREE_SUITE_SETUP_SECONDS: '300'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
 # prefix, so same-name branches from two forks would share one group and a
@@ -149,7 +155,7 @@ jobs:
           if [ "$runner" != "$FREE_SUITE_RUNNER" ] || [ "$shards" != "$FREE_SUITE_SHARDS" ] || [ "$jobs" != "$FREE_SUITE_JOBS" ]; then
             echo "- Runner-sizing experiment: $shards shards on $runner at $jobs sub-shards each (defaults $FREE_SUITE_SHARDS on $FREE_SUITE_RUNNER at $FREE_SUITE_JOBS); not a PR or train Free Tests result" >> "$GITHUB_STEP_SUMMARY"
           fi
-          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs")
+          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs" --job-setup-seconds "$FREE_SUITE_SETUP_SECONDS")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "runner=$runner" >> "$GITHUB_OUTPUT"
       - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)
@@ -434,10 +440,12 @@ jobs:
         run: xvfb-run -a bun run test:quick
 
   free-suite:
+    name: free-suite (${{ matrix.shard }})
     needs: [free-plan, reuse]
     if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ${{ needs.free-plan.outputs.runner }}
-    timeout-minutes: 20
+    # Per shard, from the plan: runner wall + flaky retry + setup (#3850).
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       max-parallel: 20
