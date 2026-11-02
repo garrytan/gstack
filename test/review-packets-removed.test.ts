@@ -84,13 +84,8 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-<<<<<<< HEAD
-    'lib/review-depth.ts': { sha: '166dd7b1148a272b345dd9d2ceccd14348cc59c52ef9c88109436f6f61cf6b69', replay: 'GST-911-redos' },
-    'lib/review-risk.ts': { sha: '08464b78a723ee463ca3a28d0abbc4eb8f4f512192061c703743707b66b5a311', replay: 'GST-942' },
-=======
     'lib/review-depth.ts': { sha: 'c5fd958b6c9a1116be9fc3418844239c01168476abb72c1db85bc26ab0adf4b4', replay: 'GST-967' },
-    'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-911' },
->>>>>>> 8f08cb76ac63ec9393e382568e30e511e8d70069
+    'lib/review-risk.ts': { sha: '08464b78a723ee463ca3a28d0abbc4eb8f4f512192061c703743707b66b5a311', replay: 'GST-942' },
 };
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
