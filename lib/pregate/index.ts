@@ -371,6 +371,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
       if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed: ${skipped.error}; ${lane} stays uncleared` };
       const inventory = new Set(listed);
       for (const f of skipped) if (!inventory.has(f) && required.delete(f)) skippedCount++;
+      if (!required.size) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=paid_only — the remote gate skips every selected test file (${skippedCount}), so no selected test ran; like the gate's own tests=0 report, that never clears; ${lane} stays uncleared` };
     }
     for (const f of listed) required.add(f);
   }

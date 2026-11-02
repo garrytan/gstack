@@ -121,7 +121,7 @@ describe.skipIf(process.platform === 'win32')('clear --run with the Free Tests p
     expect(msg(d)).toStartWith(`cleared remote-gate tree=${file.tree.slice(0, 12)} tests=${files.length * 20} skipped=1 runs=41484634592/1 profiles=${PROFILE} heads=${head.slice(0, 12)} verified=`);
   }, 120_000);
 
-  test('refusals: no skipped command, the wrong tree, the wrong workflow, a failed or cancelled run, a fork run, a merge behind its base, an uncovered inventory file, a skipped list that names an inventory file', async () => {
+  test('refusals: no skipped command, a paid-only selection, the wrong tree, the wrong workflow, a failed or cancelled run, a fork run, a merge behind its base, an uncovered inventory file, a skipped list that names an inventory file', async () => {
     const repo = fixture({ profiles: [PROFILE], inventory: INVENTORY, skipped: SKIPPED });
     const older = repo.git('rev-parse', 'HEAD~1');
     const head = repo.git('rev-parse', 'HEAD');
@@ -136,7 +136,19 @@ describe.skipIf(process.platform === 'win32')('clear --run with the Free Tests p
     expect(clear({ head, files, headRepo: 'attacker/fx' })).toContain('reason=fork_run run 41484634592 attempt 1 ran for attacker/fx, not fx/fx');
     expect(clear({ head, files, mergeTree: repo.git('rev-parse', `${older}^{tree}`) })).toContain('reason=tree_mismatch');
     expect(clear({ head, files: files.filter(f => f !== 'test/other.test.js') })).toContain("reason=inventory_uncovered — 1 of the");
-    expect(clear({ head, files: files.filter(f => f !== 'test/other.test.js') }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: 'cat "$PREGATE_FILES_FILE"; echo test/other.test.js' } })).toContain('(test/other.test.js)');
+    expect(clear({ head, files: files.filter(f => f !== 'test/other.test.js') }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: `${SKIPPED}; echo test/other.test.js` } })).toContain('(test/other.test.js)');
     expect(clear({ head, files }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: 'exit 3' } })).toContain('reason=skipped_failed');
+    const paidOnly = structuredClone(file);
+    paidOnly.requires_remote!.find(r => r.lane === LANE)!.tests = [PAID];
+    expect(msg(clearDecision(paidOnly, LANE, { runs: [RUN], evidence: gateCheck(repo, { head, files }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=paid_only — the remote gate skips every selected test file (1), so no selected test ran; like the gate's own tests=0 report, that never clears; ${LANE} stays uncleared`);
   }, 120_000);
+
+  test('remote_gate_runs.skipped must be one command line, and an unknown key names it as valid', () => {
+    const profiles = { p: { workflow: 'w.yml', events: ['push'], jobs: ['j'], artifact: 'a' } };
+    for (const skipped of [3, '', ' ', 'a\nb', 'x'.repeat(513)]) {
+      expect(runProfileErrors(profiles, { profiles: ['p'], inventory: 'echo t', skipped }).map(e => e.path)).toEqual(['remote_gate_runs.skipped']);
+    }
+    expect(runProfileErrors(profiles, { profiles: ['p'], inventory: 'echo t', skipped: 'echo s' })).toEqual([]);
+    expect(runProfileErrors(profiles, { profiles: ['p'], inventory: 'echo t', skip: 'echo s' })).toEqual([{ path: 'remote_gate_runs.skip', message: 'unknown key; valid keys: profiles, inventory, skipped' }]);
+  });
 });

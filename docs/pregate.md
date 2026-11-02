@@ -740,7 +740,9 @@ Then, for the lane:
   (gstack's gate leaves paid test files to the paid PR gate). Those files need
   no run, and the receipt counts them as `skipped=<n>`. A file the inventory
   prints stays required even when `skipped` names it, and a failing `skipped`
-  command refuses (`skipped_failed`). Without `skipped`, every selected file
+  command refuses (`skipped_failed`). When `skipped` names every selected file,
+  no selected test ran, so the clear refuses (`paid_only`), just as the gate's
+  own `tests=0` report never clears. Without `skipped`, every selected file
   must appear in a run's `files`.
 - Every run is read once more after the inventory: a run that moved to a new
   attempt or stopped being a success meanwhile refuses (`run_changed`).
@@ -753,7 +755,7 @@ verification is named with its own reason (`fork_run`, `event_mismatch`,
 `os_mismatch`, `api_error`, …); the clear-level codes are `base_mismatch`,
 `no_verified_run`, `tree_mismatch` (runs on different trees),
 `tree_not_stamp_only`, `no_tests`, `inventory_failed`, `inventory_empty`,
-`skipped_failed`, `inventory_uncovered` (the remote gate) and `tests_uncovered` (a lane's own
+`skipped_failed`, `paid_only`, `inventory_uncovered` (the remote gate) and `tests_uncovered` (a lane's own
 selected tests). A wrong run count, a repeated run or a lane with no
 profile is a usage error (exit 2), not a REUSE refusal.
 
