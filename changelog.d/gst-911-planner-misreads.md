@@ -5,4 +5,4 @@
 
 ### Tests
 
-- `test/review-planner-misreads.test.ts`: a 600-point matplotlib-style chart plans docs, light, runtime 0 (before: code, 636 runtime lines); six ways an SVG can run script keep it code with the security class, and six other non-drawing constructs keep it code; session data files leave `SCOPE_AUTH` false while session code and config set it; a stale local `main` and tags named `main` or `origin/main` leave the scope and the receipt base unchanged.
+- `test/review-planner-misreads.test.ts`: a 600-point matplotlib-style chart plans docs, light, runtime 0 (before: code, 636 runtime lines); six ways an SVG can run script keep it code with the security class, and other non-drawing constructs (external images, any CSS beyond declarations and `url(#id)`, animations, entity declarations) keep it code; session data files leave `SCOPE_AUTH` false while session code and config set it; a stale local `main` and tags named `main` or `origin/main` leave the scope and the receipt base unchanged.
