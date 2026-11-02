@@ -196,7 +196,8 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
     const version = entry.slice(entry.indexOf('## Step 12:'), entry.indexOf('1. **Classify state**')).replace(/\s+/g, ' ');
     expect(version).not.toContain('replaces items 1–4');
     expect(version).toContain('`VERSION: skipped`');
-    expect(version).toContain('`VERSION: <v> kept` ends Step 12 with `NEW_VERSION` unset');
+    expect(version).toContain('`VERSION: <v> kept (…; no write)` ends Step 12 with `NEW_VERSION` unset');
+    expect(version).toContain('ALREADY_BUMPED derives it in item 1');
     expect(version).toContain("Steps 18 and 20 take NO_VERSION's branch");
   });
 
