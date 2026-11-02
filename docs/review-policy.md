@@ -181,7 +181,12 @@ follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a te
 fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
 directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
 `manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
-consumer each keep the path code, and YAML, TOML and SVG are always code. More than
+consumer each keep the path code, and YAML and TOML are always code. An SVG counts
+as data only when its whole text at the head is a drawing (GST-911): SVG drawing
+elements and RDF metadata, CSS with no import and no `url()` outside the file, every
+`href` a same-file `#` reference or an inline raster image, no event handler and no
+entity declaration, read after character references are decoded; anything else, a
+script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
@@ -203,15 +208,18 @@ added and deleted lines; any class makes the depth full (`risk:<class>` in
 [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code)'s matchers.
 **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
 consent, escape) or line (`shell: true`, `execSync(`, `eval`, `new Function(`,
-raw HTML sinks, a shell run through argv, recursive deletes). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+raw HTML sinks, a shell run through argv, recursive deletes), or a changed SVG
+line that can run code (a script or `foreignObject` element, an event handler, a
+`javascript:` URL). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
-**UI text and SVGs** stay code (light unless a risk class applies). A docs path
-for UI copy, locale values and chart SVGs waits for an allowlist classifier: three
-rounds of R51 review found bypasses in line-pattern versions of both.
+**UI text** stays code (light unless a risk class applies). A docs path for UI
+copy and locale values waits for an allowlist classifier: three rounds of R51
+review found bypasses in line-pattern versions. Chart SVGs use the drawing
+allowlist above, which reads the whole file rather than changed lines.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -330,7 +338,7 @@ and matching is token-bounded: `costume` never reads as cost.
 |---|---|
 | money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
-| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
 
 An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate

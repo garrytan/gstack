@@ -6,7 +6,8 @@
  * money, auth and secret are the targeted pass's matchers (GST-257). security is a trust-boundary path or line
  * (a redaction, sanitizer, consent or trust module; a shell, eval or raw HTML sink); data is user data (a path
  * naming personal or stored data, or a line that drops or bulk-deletes it). Path and identifier signals are
- * token-bounded: costume never names cost.
+ * token-bounded: costume never names cost. A changed SVG line that can run code (a script or foreignObject element, an
+ * event handler, a javascript: URL; character references decoded) is security (GST-911).
  */
 import { createHash } from 'node:crypto';
 
@@ -40,6 +41,15 @@ const SECURITY_LINE = [
   /\brmSync\s*\([^)]*recursive\s*:\s*true/, /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/,
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
+export const SVG_PATH = /\.svg$/i;
+/** An SVG line that can run code, read decoded and again with whitespace removed (java&#9;script: is javascript:). */
+export const SVG_ACTIVE = [/<(?:[\w.-]+:)?(?:script|foreignObject)\b/i, /(?:^|[\s"'/])on[a-z]+\s*=/i, /(?:java|vb)script:|data:text\/html/i];
+/** XML character references decoded (&#106; and &#x6a; are j); an out-of-range one decodes to nothing. */
+export const decodeCharRefs = (s: string) => s.replace(/&#(x[0-9a-f]{1,8}|\d{1,10});?/gi, (_, n: string) => {
+  const c = n[0] === 'x' || n[0] === 'X' ? parseInt(n.slice(1), 16) : Number(n);
+  return c <= 0x10ffff ? String.fromCodePoint(c) : '';
+});
+export const svgActive = (line: string) => { const d = decodeCharRefs(line); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
@@ -49,7 +59,7 @@ const DATA_LINE = [
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -78,6 +88,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
       if (!why.has('money') && MONEY_LINE.some(r => r.test(line))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
+      if (!why.has('security') && SVG_PATH.test(p) && svgActive(line)) hit('security', 'active SVG line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }
   }
