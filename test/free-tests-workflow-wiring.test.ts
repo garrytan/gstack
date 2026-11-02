@@ -252,6 +252,7 @@ describe('free-tests workflow wiring', () => {
       loadFreeTestDurations() ?? {}, 'wiring', Number(workflow.env.FREE_SUITE_JOBS));
     const declared = workflow.jobs['free-suite']['timeout-minutes'];
     const emitted = ciPlanMatrix(plan, setupSeconds);
+    if (!('include' in emitted)) throw new Error('the CI matrix carries no per-shard timeouts');
     const short = plan.shards.flatMap(shard => {
       const neededMs = wallTimeoutForPackedShard(shard.predictedMs, DEFAULT_WALL_TIMEOUT_MS, shard.files.length)
         + wallTimeoutForShard(FLAKY_RETRY_CAP) + setupSeconds * 1000;

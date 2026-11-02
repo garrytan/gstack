@@ -440,6 +440,7 @@ jobs:
         run: xvfb-run -a bun run test:quick
 
   free-suite:
+    name: free-suite (${{ matrix.shard }})
     needs: [free-plan, reuse]
     if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ${{ needs.free-plan.outputs.runner }}
