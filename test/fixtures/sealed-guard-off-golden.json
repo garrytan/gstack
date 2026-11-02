@@ -1,0 +1,65 @@
+{
+  "refused": {
+    "code": 1,
+    "stdout": "SEALED: refused findings=2 commits=1 visibility=unknown (counted public) waived=0 exempt=0 policy=origin/main + commit <sha>\n",
+    "stderr": "\n⛔ gstack-pregate sealed BLOCKED the publication of <root>/origin.git (visibility: unknown, counted public; not a GitHub remote) — sealed or eval output in 1 published commit(s):\n  sealed.transcript  runs/c1/transcript.jsonl  commit <sha>\n  sealed.answer  runs/c1/summary.md:1  commit <sha>\nRemove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's .gstack/pregate.json, or waive one reviewed finding with a `rule<TAB>path<TAB>full-commit-sha<TAB>reason` line in the base branch's .gstack/sealed-allow.tsv. A private destination: set sealed.visibility \"private\" in the base branch's .gstack/pregate.json (SEALED_OUTPUT_REFUSED)\n",
+    "jsonCode": 1,
+    "json": "{\"status\":\"refused\",\"policyLabels\":[\"origin/main\",\"commit <sha>\"],\"commits\":1,\"findings\":[{\"rule\":\"sealed.transcript\",\"file\":\"runs/c1/transcript.jsonl\",\"commit\":\"<sha>\"},{\"rule\":\"sealed.answer\",\"file\":\"runs/c1/summary.md\",\"line\":1,\"commit\":\"<sha>\"}],\"exempt\":[],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"not a GitHub remote\",\"target\":\"<root>/origin.git\",\"ok\":false}\n",
+    "hookCode": 1,
+    "hookStderr": "\n⛔ gstack sealed-output guard BLOCKED the publication of <root>/origin.git (visibility: unknown, counted public; not a GitHub remote) — sealed or eval output in 1 published commit(s):\n  sealed.transcript  runs/c1/transcript.jsonl  commit <sha>\n  sealed.answer  runs/c1/summary.md:1  commit <sha>\nRemove it from every published commit before this branch reaches a public repository, exempt a publishable path with a sealed.allow_paths glob in the base branch's .gstack/pregate.json, or waive one reviewed finding with a `rule<TAB>path<TAB>full-commit-sha<TAB>reason` line in the base branch's .gstack/sealed-allow.tsv. A private destination: set sealed.visibility \"private\" in the base branch's .gstack/pregate.json (SEALED_OUTPUT_REFUSED)\n"
+  },
+  "clear": {
+    "code": 0,
+    "stdout": "SEALED: clear findings=0 commits=1 visibility=unknown (counted public) waived=0 exempt=0 policy=origin/main + commit <sha>\n",
+    "stderr": "",
+    "jsonCode": 0,
+    "json": "{\"status\":\"clear\",\"policyLabels\":[\"origin/main\",\"commit <sha>\"],\"commits\":1,\"findings\":[],\"exempt\":[],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"not a GitHub remote\",\"target\":\"<root>/origin.git\",\"ok\":true}\n",
+    "hookCode": 0,
+    "hookStderr": ""
+  },
+  "exempt": {
+    "code": 0,
+    "stdout": "SEALED: clear findings=0 commits=1 visibility=unknown (counted public) waived=0 exempt=1 policy=origin/main + commit <sha>\n",
+    "stderr": "gstack-pregate sealed: exempt sealed.path  sealed/s1/MANIFEST.json  commit <sha> (sealed.allow_paths **/sealed/*/MANIFEST.json)\n",
+    "jsonCode": 0,
+    "json": "{\"status\":\"clear\",\"policyLabels\":[\"origin/main\",\"commit <sha>\"],\"commits\":1,\"findings\":[],\"exempt\":[{\"rule\":\"sealed.path\",\"file\":\"sealed/s1/MANIFEST.json\",\"commit\":\"<sha>\",\"glob\":\"**/sealed/*/MANIFEST.json\"}],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"not a GitHub remote\",\"target\":\"<root>/origin.git\",\"ok\":true}\n",
+    "hookCode": 0,
+    "hookStderr": "gstack sealed-output guard: exempt sealed.path  sealed/s1/MANIFEST.json  commit <sha> (sealed.allow_paths **/sealed/*/MANIFEST.json)\n"
+  },
+  "waived": {
+    "code": 0,
+    "stdout": "SEALED: clear findings=0 commits=1 visibility=unknown (counted public) waived=1 exempt=0 policy=origin/main + commit <sha>\n",
+    "stderr": "gstack-pregate sealed: waived sealed.transcript  runs/c1/transcript.jsonl  commit <sha> (.gstack/sealed-allow.tsv: synthetic fixture)\n",
+    "jsonCode": 0,
+    "json": "{\"status\":\"clear\",\"policyLabels\":[\"origin/main\",\"commit <sha>\"],\"commits\":1,\"findings\":[],\"exempt\":[],\"waived\":[{\"rule\":\"sealed.transcript\",\"file\":\"runs/c1/transcript.jsonl\",\"commit\":\"<sha>\",\"reason\":\"synthetic fixture\"}],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"not a GitHub remote\",\"target\":\"<root>/origin.git\",\"ok\":true}\n",
+    "hookCode": 0,
+    "hookStderr": "gstack sealed-output guard: waived sealed.transcript  runs/c1/transcript.jsonl  commit <sha> (.gstack/sealed-allow.tsv: synthetic fixture)\n"
+  },
+  "warned": {
+    "code": 0,
+    "stdout": "SEALED: warned findings=1 commits=1 visibility=private waived=0 exempt=0 policy=origin/main + commit <sha>\n",
+    "stderr": "gstack-pregate sealed: warning — sealed or eval output in a push to a private destination (visibility: private; sealed.visibility override); it would be refused for a public one:\n  sealed.transcript  runs/c1/transcript.jsonl  commit <sha>\n",
+    "jsonCode": 0,
+    "json": "{\"status\":\"warned\",\"policyLabels\":[\"origin/main\",\"commit <sha>\"],\"commits\":1,\"findings\":[{\"rule\":\"sealed.transcript\",\"file\":\"runs/c1/transcript.jsonl\",\"commit\":\"<sha>\"}],\"exempt\":[],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"private\",\"visibilitySource\":\"sealed.visibility override\",\"target\":\"<root>/origin.git\",\"ok\":true}\n",
+    "hookCode": 0,
+    "hookStderr": "gstack sealed-output guard: warning — sealed or eval output in a push to a private destination (visibility: private; sealed.visibility override); it would be refused for a public one:\n  sealed.transcript  runs/c1/transcript.jsonl  commit <sha>\n"
+  },
+  "error": {
+    "code": 1,
+    "stdout": "SEALED: error findings=0 commits=0 visibility=unknown (counted public) waived=0 exempt=0 policy=no sealed key on refs/remotes/origin/main or HEAD\n",
+    "stderr": "\n⛔ gstack-pregate sealed BLOCKED the publication of <root>/origin.git — the sealed policy in commit <sha> is unreadable: sealed.answer_markers[0]: \"(\" is not a valid regex (Invalid regular expression: missing )).\nFix the sealed policy (gstack-pregate validate), then retry; an unreadable policy never passes (SEALED_OUTPUT_REFUSED)\n",
+    "jsonCode": 1,
+    "json": "{\"status\":\"error\",\"error\":\"the sealed policy in commit <sha> is unreadable: sealed.answer_markers[0]: \\\"(\\\" is not a valid regex (Invalid regular expression: missing ))\",\"policyLabels\":[],\"commits\":0,\"findings\":[],\"exempt\":[],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"\",\"target\":\"<root>/origin.git\",\"ok\":false}\n",
+    "hookCode": 1,
+    "hookStderr": "\n⛔ gstack sealed-output guard BLOCKED the publication of <root>/origin.git — the sealed policy in commit <sha> is unreadable: sealed.answer_markers[0]: \"(\" is not a valid regex (Invalid regular expression: missing )).\nFix the sealed policy (gstack-pregate validate), then retry; an unreadable policy never passes (SEALED_OUTPUT_REFUSED)\n"
+  },
+  "no-policy": {
+    "code": 0,
+    "stdout": "SEALED: no-policy findings=0 commits=0 visibility=unknown (counted public) waived=0 exempt=0 policy=no sealed key on refs/remotes/origin/main or HEAD\n",
+    "stderr": "",
+    "jsonCode": 0,
+    "json": "{\"status\":\"no-policy\",\"policyLabels\":[],\"commits\":0,\"findings\":[],\"exempt\":[],\"waived\":[],\"ignoredWaivers\":[],\"visibility\":\"unknown\",\"visibilitySource\":\"\",\"target\":\"<root>/origin.git\",\"ok\":true}\n",
+    "hookCode": 0,
+    "hookStderr": ""
+  }
+}

@@ -190,6 +190,7 @@ describe('link_claude_skill_dirs prefers rendered SKILL.md (behavior)', () => {
         '_FOREIGN_SKIPPED_ENTRIES=()',
         '_BACKED_UP_SKILL_MDS=()',
         `_SKILL_BACKUP_ROOT="${os.tmpdir()}/gstack-harness-backups-${process.pid}"`,
+        `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
         extractFn(SETUP_SRC, 'link_claude_skill_dirs'),
         `link_claude_skill_dirs "${src}" "${skills}"`,
       ].join('\n');
