@@ -172,7 +172,8 @@ unpushed head is `QUEUE_RECEIPT_STALE` to the queue.
 The receipt's `review_loop` object, written from `gstack-review-scope summary
 --since <REVIEW_SINCE>`, is the loop's machine-readable outcome: `passes`
 (Step 9 full passes this ship ran, 1 or 2; up to 3 under `review_scope: all`),
-`blocking_found` (distinct blocking findings across them), `deferred`
+`blocking_found` (every blocker the readers found, rows and dispatch ledgers
+both, [review-policy.md](review-policy.md#what-the-receipt-records)), `deferred`
 (blocking findings in unchanged code filed as issues, Step 11's late defers
 included), `noted`, `fixed` and `scope`. The
 summary line a parent reads prints it as `passes=<n> blocking_found=<k>
