@@ -1,0 +1,4 @@
+{
+  "bytes": 183,
+  "why": "GST-969: /ship Step 9.2.1 QA writes its reports under gstack-qa-evidence report-dir (git-excluded .gstack/tmp), not the product tree"
+}
