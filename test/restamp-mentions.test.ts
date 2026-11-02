@@ -383,4 +383,52 @@ describe('a branch-added row left at the fork version after the base moved (GST-
     expect(changed.status).toBe(EXIT.refused);
     expect(changed.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
   });
+
+  /** The GST-980 carry state: a receipt written at the claim 1.2.4.0 with the branch's own row, then the stamp to 1.2.5.0, uncommitted. */
+  function carryAfterStamp(prefix: string, baseRows: string[], mine: string, stamped: string[]): { repo: FixtureRepo; body: string } {
+    const repo = makeFixtureRepo({ prefix, policy: policy(true) }); repos.push(repo);
+    write(repo, NOTICE, notice(baseRows));
+    fs.rmSync(path.join(repo.work, 'package-lock.json'));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'notice rows, no lockfile'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-carry');
+    expect(restamp(repo, ['--version', '1.2.4.0']).status).toBe(EXIT.ok);
+    repo.git('commit', '-qam', 'stamp 1.2.4.0');
+    write(repo, NOTICE, notice([...baseRows, '', mine]));
+    repo.git('commit', '-qam', 'mine: a row of its own');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n');
+    const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3', '--base', 'main', '--session-kind', 'x', '--body', body]);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
+    expect(readFile(repo, NOTICE)).toBe(notice(stamped));
+    return { repo, body };
+  }
+
+  // Value: protects=the carry leaves out only a stamp on the branch's own rows, never a version edit on a base line of
+  //   the same file (GST-980 review); fails_when=the carry trusts the whole-text version swap, so a hand move of a base
+  //   line's version mention rides along with the row stamp; seam=bin/gstack-ship-receipt productSpec ownRows
+  test('the carry refuses a hand version edit on a base line of a stamp file whose own row it follows (GST-980)', () => {
+    const min = "export const MIN = '1.2.4.0';";
+    const { repo, body } = carryAfterStamp('restamp-carry-base-line-', [row('1.2.3.0', 'base_row'), min], row('1.2.4.0', 'mine'),
+      [row('1.2.3.0', 'base_row'), min, '', row('1.2.5.0', 'mine')]);
+    write(repo, NOTICE, notice([row('1.2.3.0', 'base_row'), min.replace('1.2.4.0', '1.2.5.0'), '', row('1.2.5.0', 'mine')]));
+    repo.git('commit', '-qam', 'stamp 1.2.5.0, and move the base pin by hand');
+    const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(carried.status, carried.out).toBe(EXIT.refused);
+    expect(carried.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+  });
+
+  // Value: protects=a mode change rides on no stamp: the carry leaves out a stamp file only when its mode is the
+  //   reviewed one (GST-980 review); fails_when=the left-out stamp file drops its mode line from both patch-ids;
+  //   seam=bin/gstack-ship-receipt productSpec ownRows
+  test('the carry refuses a mode change on a stamp file whose own row it follows (GST-980)', () => {
+    const { repo, body } = carryAfterStamp('restamp-carry-mode-', [row('1.2.3.0', 'base_row')], row('1.2.3.0', 'mine'),
+      [row('1.2.3.0', 'base_row'), '', row('1.2.5.0', 'mine')]);
+    fs.chmodSync(path.join(repo.work, NOTICE), 0o755);
+    repo.git('commit', '-qam', 'stamp 1.2.5.0, and make the file executable');
+    expect(repo.git('ls-tree', 'HEAD', '--', NOTICE)).toStartWith('100755 ');
+    const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(carried.status, carried.out).toBe(EXIT.refused);
+    expect(carried.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+  });
 });
