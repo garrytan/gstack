@@ -694,7 +694,8 @@ const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s
  * text) records every string's content span: a `'''`/`"""` block, or a
  * `'`/`"` string that ends at its line unless a backslash continues it.
  * Comments are skipped (`#` in Python; `//` and nested `/* *\/` in Dart), so a
- * delimiter inside one opens nothing; a backslash escapes the next character, except in a Dart raw
+ * delimiter inside one opens nothing, and a Dart block comment's own span is
+ * recorded too: a `password:` line in it is text, not code (GST-738); a backslash escapes the next character, except in a Dart raw
  * string (`r'''…'''`). The exemption needs the
  * whole file to see a block's opener: pregate passes Dart and Python files
  * whole, and the pre-push hook, which scans added lines alone, passes them
@@ -708,34 +709,133 @@ export function clearStringSpanCache(): void {
   stringSpansCache = null;
 }
 
-function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
+/** The index after the comment at `i`: a line comment ends at its newline, a Dart block comment at its matching `*\/` (they nest). */
+function commentEnd(text: string, i: number, lang: "py" | "dart"): number {
+  if (lang === "py" || !text.startsWith("/*", i)) {
+    const eol = text.indexOf("\n", i);
+    return eol < 0 ? text.length : eol;
+  }
+  let depth = 1;
+  let j = i + 2;
+  while (j < text.length && depth > 0) {
+    if (text.startsWith("/*", j)) { depth += 1; j += 2; }
+    else if (text.startsWith("*/", j)) { depth -= 1; j += 2; }
+    else j += 1;
+  }
+  return j;
+}
+
+const MAX_INTERPOLATION_DEPTH = 256;
+
+type Spans = Array<[number, number]>;
+
+/**
+ * The index after a Dart `${…}` expression starting at `j`. Its code is not
+ * text; its strings and block comments add their own spans.
+ */
+function dartExpressionEnd(text: string, j: number, depth: number, spans: Spans): number {
+  if (depth > MAX_INTERPOLATION_DEPTH) return text.length;
+  for (let open = 1; j < text.length && open > 0; ) {
+    const d = text[j]!;
+    if (text.startsWith("//", j)) { j = commentEnd(text, j, "dart"); continue; }
+    if (text.startsWith("/*", j)) { const end = commentEnd(text, j, "dart"); spans.push([j, end]); j = end; continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "dart", depth, spans); continue; }
+    if (d === "{") open += 1;
+    else if (d === "}") open -= 1;
+    j += 1;
+  }
+  return Math.min(j, text.length);
+}
+
+/**
+ * The index after a Python replacement field whose expression starts at `j`.
+ * The expression is code: its `#` comments are skipped and its strings add
+ * their own spans. A `:` or `!` outside its brackets starts the conversion and
+ * format spec, which is text apart from nested `{…}` fields (`{n:#x}`, `{n:'>10}`).
+ */
+function pythonFieldEnd(text: string, j: number, depth: number, spans: Spans): number {
+  const n = text.length;
+  if (depth > MAX_INTERPOLATION_DEPTH) return n;
+  let nest = 0;
+  while (j < n) {
+    const d = text[j]!;
+    if (d === "#") { j = commentEnd(text, j, "py"); continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "py", depth, spans); continue; }
+    if (d === "}" && nest === 0) return j + 1;
+    if (nest === 0 && (d === ":" || (d === "!" && text[j + 1] !== "="))) {
+      let from = j + 1;
+      for (j += 1; j < n && text[j] !== "}"; ) {
+        if (text[j] !== "{") { j += 1; continue; }
+        if (from < j) spans.push([from, j]);
+        j = pythonFieldEnd(text, j + 1, depth + 1, spans);
+        from = j;
+      }
+      if (from < Math.min(j, n)) spans.push([from, Math.min(j, n)]);
+      return Math.min(j + 1, n);
+    }
+    if ("([{".includes(d)) nest += 1;
+    else if (")]}".includes(d)) nest = Math.max(0, nest - 1);
+    j += 1;
+  }
+  return n;
+}
+
+/**
+ * Adds the text spans of the string whose quote is at `i` and returns the index
+ * after its closing delimiter. An interpolated expression (`{…}` in a Python
+ * f- or t-string, `${…}` in a non-raw Dart string) is code: it is skipped
+ * whole, with its nested strings as their own spans, so a quote inside it never
+ * ends the outer string (GST-738). An expression left open, or nested past
+ * MAX_INTERPOLATION_DEPTH, is text to the end of the file. In a Python f-string
+ * `\{` still opens a field.
+ */
+function stringAt(text: string, i: number, lang: "py" | "dart", depth: number, spans: Spans): number {
+  const n = text.length;
+  const c = text[i]!;
+  const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+  const multiline = close.length === 3;
+  let k = i;
+  while (k > 0 && /[A-Za-z]/.test(text[k - 1]!)) k -= 1;
+  const prefix = k === 0 || !/[\w$]/.test(text[k - 1]!) ? text.slice(k, i) : "";
+  const raw = lang === "dart" && prefix === "r";
+  const interpolated = lang === "dart" ? !raw : /^(?:[rR]?[fFtT]|[fFtT][rR])$/.test(prefix);
+  let j = i + close.length;
+  let from = j;
+  while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) {
+    if (!raw && text[j] === "\\") { j += lang === "py" && interpolated && text[j + 1] === "{" ? 1 : 2; continue; }
+    if (!interpolated) { j += 1; continue; }
+    if (lang === "py" && text.startsWith("{{", j)) { j += 2; continue; }
+    if (lang === "py" ? text[j] !== "{" : !text.startsWith("${", j)) { j += 1; continue; }
+    if (from < j) spans.push([from, j]);
+    const field = j;
+    const mark = spans.length;
+    j = lang === "py" ? pythonFieldEnd(text, j + 1, depth + 1, spans) : dartExpressionEnd(text, j + 2, depth + 1, spans);
+    if (j >= n) { spans.length = mark; from = field; break; }
+    from = j;
+  }
+  const end = Math.min(j, n);
+  if (from < end) spans.push([from, end]);
+  return end + close.length;
+}
+
+function stringSpans(text: string, lang: "py" | "dart"): Spans {
   if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
-  const spans: Array<[number, number]> = [];
+  const spans: Spans = [];
   const n = text.length;
   for (let i = 0; i < n; ) {
     const c = text[i]!;
     if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
-      const eol = text.indexOf("\n", i);
-      i = eol < 0 ? n : eol;
+      i = commentEnd(text, i, lang);
       continue;
     }
     if (lang === "dart" && text.startsWith("/*", i)) {
-      let depth = 1;
-      for (i += 2; i < n && depth > 0; ) {
-        if (text.startsWith("/*", i)) { depth += 1; i += 2; }
-        else if (text.startsWith("*/", i)) { depth -= 1; i += 2; }
-        else i += 1;
-      }
+      const end = commentEnd(text, i, lang);
+      spans.push([i, end]);
+      i = end;
       continue;
     }
     if (c !== '"' && c !== "'") { i += 1; continue; }
-    const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
-    const multiline = close.length === 3;
-    const raw = lang === "dart" && text[i - 1] === "r" && !/[\w$]/.test(text[i - 2] ?? "");
-    let j = i + close.length;
-    while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) j += !raw && text[j] === "\\" ? 2 : 1;
-    spans.push([i + close.length, Math.min(j, n)]);
-    i = j + close.length;
+    i = stringAt(text, i, lang, 0, spans);
   }
   stringSpansCache = { text, lang, spans };
   return spans;

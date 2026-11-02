@@ -880,7 +880,11 @@ pick a new `--output`), then copy the recovery file to where you want it.
 **Meaning.** On Codex, Factory, OpenCode, Cursor, Copilot and Kiro every bash
 block finds gstack on its own: an exported `GSTACK_ROOT` (with `bin/` and
 `lib/`), then a repo-local install, then the host's global install
-(`$CODEX_HOME/skills/gstack` on Codex). None existed.
+(`$CODEX_HOME/skills/gstack` on Codex). None existed. A skill installed for one
+folder (Hermes, or the Codex install `./setup` writes) is the exception for its
+first block: that block runs the folder's own `bin/gstack-skill-start` and
+ignores an exported `GSTACK_ROOT`. When the folder is missing, the block prints
+this line and its start command then fails.
 
 **Fix.**
 
@@ -3276,6 +3280,42 @@ result.
 
 **Fix.** Run `gstack-autoplan status --out <dir>` and submit for the attempt
 the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
+
+<a id="ceo-only-conflict"></a>
+### `CEO_ONLY_CONFLICT`
+
+**Meaning.** `gstack-autoplan next --ceo-only` was combined with `--ui`,
+`--developer-tool` or `--agent-primary` (on the command line or in the plan's
+`gstack-autoplan-scope` marker), each of which adds a phase a CEO-only run
+never opens; or the marker names `--ceo-only` (the mode is a command-line
+choice for one run, so a plan can't pin it); or the plan is `<out>/ceo-review.md`
+(directly, through a symlink or a hard link), the report the run would write
+over it. The finish checks that last case again before it writes the report.
+
+**Fix.** Drop the conflicting flag (or the marker token), move the plan out of
+the report path, or run the full review without `--ceo-only`.
+
+<a id="ceo-only-after-init"></a>
+### `CEO_ONLY_AFTER_INIT`
+
+**Meaning.** `next --ceo-only` named a run directory that already holds a full
+review run. A run keeps the mode it started with.
+
+**Fix.** Start the CEO-only run in a new `--out` directory, passing
+`--ceo-only` on its first `next`.
+
+<a id="ceo-only-no-gate"></a>
+### `CEO_ONLY_NO_GATE`
+
+**Meaning.** `answer`, `recommend` or `revise` was run on a CEO-only run, or
+`gstack-approvals import` was pointed at one. A CEO-only
+run writes no gate, ends `status=reviewed` and is never approved, so there is
+nothing to answer, change or import. (`budget` and `close --deferred` still
+work: they are how a budget-stopped CEO-only run recovers.)
+
+**Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
+full review in a new directory: `gstack-autoplan next --out <new dir> --plan
+<file>` without `--ceo-only`.
 
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`

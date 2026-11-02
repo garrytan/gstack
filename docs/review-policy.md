@@ -201,17 +201,37 @@ in a data file still schedules the outside voice.
 added and deleted lines; any class makes the depth full (`risk:<class>` in
 `reasons=`, `review_depth.risk` in the receipt). money, auth and secret are the
 [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code)'s matchers.
-**security** is a trust-boundary path (trust, redact, sanitize, neutralize,
-consent, escape) or line (`shell: true`, `execSync(`, `eval`, `new Function(`,
-raw HTML sinks, a shell run through argv, recursive deletes). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+**money** also reads metering and charge words in a path or on a line (meter,
+metering, metered, charge, charged, billable, billed, credits) and three
+pairs: usage beside a token or cost word, proxy beside billing, and a client
+beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
+(GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
+`required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
+consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
+raw HTML sinks, a shell run through argv, recursive deletes), any call to an
+outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
+`requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
+input, redirect toggles, proxy settings and host allowlists, archive extraction
+and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
+`unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
+or removed), and any changed line that names the `child_process` or
+`node:child_process` module, in any import or require spelling. The GST-850
+rules are coarse on purpose and parse no import clause or call arguments;
+`test/review-risk-linear.test.ts` holds each of them under 100 ms on
+200,000-character hostile lines, its anchor followed by a long run of the
+characters it repeats included. That claim covers only the rules GST-850 adds,
+not R51's older ones. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
 **UI text and SVGs** stay code (light unless a risk class applies). A docs path
-for UI copy, locale values and chart SVGs waits for an allowlist classifier: three
-rounds of R51 review found bypasses in line-pattern versions of both.
+for UI copy, locale values and chart SVGs was built as an allowlist in GST-850 and
+dropped for review cost: its first review round found a new bypass class in each
+version, the same pattern as three rounds of R51. When a diff publishes numbers,
+the batched specialist's diff keeps the write-up's text files instead of leaving
+docs out.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -547,7 +567,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
-   are the parent's. Each reviewer keeps its plan entry and is rendered by the same code as
+   are the parent's. `--diff-base` sets every reader's base, a scoped pass's Red
+   Team included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
@@ -560,12 +581,14 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
    point is found against `origin/<base>` first, as preflight does.
-7. Every brief, audit readers' included, ends with a workspace paragraph naming the
-   checkout the bins run in (GST-482): a reader on a shared machine starts in the
-   machine's working directory, so it is told to `cd` there on every command, to give
-   every file tool an absolute path under it, and to start its reply with
-   `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` measured there. The paragraph follows the
-   section's render, which stays byte for byte. `collect` and `mark --state collected`
+7. Every brief, audit readers' included, opens with a fingerprint step and ends with a
+   workspace paragraph naming the checkout the bins run in (GST-482): a reader on a shared
+   machine starts in the machine's working directory, so it is told to `cd` there on every
+   command, to give every file tool an absolute path under it, and to start its reply with
+   the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   step comes first because a reader following a findings-only format skipped the request
+   when it only closed the brief (GST-897). The section's render sits between the two,
+   byte for byte. `collect` and `mark --state collected`
    compare that line with the fingerprint recorded at render: a missing or foreign line is
    `COLLECT_WRONG_TREE`, a later commit in the same checkout `COLLECT_TREE_MOVED`; nothing
    is merged, the reader becomes `failed`, and `verify` reports `NOT_COLLECTED`. An
