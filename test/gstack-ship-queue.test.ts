@@ -361,6 +361,34 @@ describe('ready', () => {
     expect(queue(repo, ['ready', '--pr', '1'], shim(moved, green)).err).toMatch(/uncommitted tracked changes: pr-a\.txt.*\(QUEUE_NOT_READY\)/);
   }, 180_000);
 
+  // Value: protects=a head whose required targeted reader is missing or failed is never READY (GST-966, gstack-evals#140);
+  // fails_when=ready prints REVIEW_TARGETED verdict=missing or failed and still exits 0, or refuses a covered or unrequired head;
+  // seam=bindShippedReceipt (ready, train build and land share it); no_claim=the ledger recording a clean reader as failed (GSTA-167)
+  test('ready refuses QUEUE_RECEIPT_TARGETED_MISSING when a required targeted class is missing or failed, and passes a covered head', () => {
+    const repo = fixture();
+    const head = makePr(repo, 'pr-auth', { file: 'session.ts' });
+    const pregate = pregateFor(repo, head);
+    const shim = (body: string) => ghQueueShim(repo, { prs: { '1': { headRefOid: head, url: 'https://github.com/o/r/pull/1', body } }, checks: { [head]: green } });
+    const base = repo.git('rev-parse', 'origin/main');
+    const depth = { gstack_version: '1.92.61.0', review_depth: { depth: 'full' as const, class: 'code', runtime_lines: 1, rules: '551486253e156572', base, registry: base, gate_scan: { tagged: 0, head }, reasons: ['runtime=1'], risk: [] } };
+    const targeted = (status: 'done' | 'failed') => ({ ...depth, review_targeted: { classes: ['auth' as const], rules: 'r', brief_sha: 'a'.repeat(64), product_patch_id: 'p', status, findings: 0, raised_by: 'targeted' } });
+    const legacy = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(shippedBody('1', head, depth)));
+    expect(line(legacy.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=auth receipt=legacy verdict=missing');
+    expect(legacy.status).toBe(EXIT.refused);
+    expect(legacy.err).toMatch(/requires the targeted reader on auth.*records no targeted pass.*\(QUEUE_RECEIPT_TARGETED_MISSING\)/);
+    const failed = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(shippedBody('1', head, targeted('failed'))));
+    expect(line(failed.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=auth receipt=none verdict=failed');
+    expect(failed.status).toBe(EXIT.refused);
+    expect(failed.err).toMatch(/requires the targeted reader on auth.*targeted pass failed.*\(QUEUE_RECEIPT_TARGETED_MISSING\)/);
+    const done = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(shippedBody('1', head, targeted('done'))));
+    expect(done.status, done.err).toBe(EXIT.ok);
+    expect(line(done.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=auth receipt=auth verdict=ok');
+    const plain = makePr(repo, 'pr-plain');
+    const unrequired = queue(repo, ['ready', '--pr', '1', '--pregate', pregateFor(repo, plain)], ghQueueShim(repo, { prs: { '1': { headRefOid: plain, body: shippedBody('1', plain) } }, checks: { [plain]: green } }));
+    expect(unrequired.status, unrequired.err).toBe(EXIT.ok);
+    expect(line(unrequired.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=none receipt=legacy verdict=ok');
+  }, 120_000);
+
   // Value: protects=the re-READY after a slot's stamp push accepts the receipt /ship wrote for the pinned head, and only then;
   // fails_when=ready binds the receipt to HEAD alone (every stamped READY turns QUEUE_RECEIPT_STALE) or accepts any ancestor's receipt;
   // why_new=the READY test above binds receipts to the exact head only; seam=none; no_claim=real gh and CI (shims; unit only)

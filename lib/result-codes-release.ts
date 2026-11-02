@@ -264,6 +264,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
     fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
   },
+  QUEUE_RECEIPT_TARGETED_MISSING: {
+    anchor: 'queue-receipt-targeted-missing',
+    summary: 'the head touches money, gate, auth or secret code that needs the targeted reader, and the PR body’s /ship receipt records no done targeted pass covering every required class (none recorded, failed, not run, or other classes)',
+    fix: 'run /ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
+  },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
     summary: 'GitHub’s refs/pull/<n>/merge is missing or still merges an older head than the PR’s: the PR conflicts with the base (a CHANGELOG-only conflict counts), so a screen dispatched on it would plan no cases and report success',

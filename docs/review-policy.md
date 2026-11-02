@@ -375,10 +375,11 @@ block without new floor words. The reader is read-only, and `NO FINDINGS` is a
 result. `gstack-review-dispatch render --role targeted --classes <classes>`
 renders its brief; `verify --targeted-out <file>` writes the record that
 `gstack-ship-receipt write --review-targeted @<file>` puts in the receipt.
-`gstack-ship-queue ready` and `train build` print
+`gstack-ship-queue ready`, `train build` and `land` print
 `REVIEW_TARGETED: required=<classes|none> receipt=<classes|none|legacy>
-verdict=ok|missing` and refuse nothing yet; enforcement comes in a later
-release.
+verdict=ok|missing|failed` and refuse
+[`QUEUE_RECEIPT_TARGETED_MISSING`](troubleshooting.md#queue-receipt-targeted-missing)
+when a required class has no done pass covering it.
 
 Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 21, gate 18, auth 3 and secret 8. The gate class first used the gate paths,

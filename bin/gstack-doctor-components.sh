@@ -308,6 +308,7 @@ gstack_result_anchor() {
     BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
+    QUEUE_RECEIPT_TARGETED_MISSING) printf '%s' 'queue-receipt-targeted-missing' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;
     QUEUE_SCREEN_NOT_RUN) printf '%s' 'queue-screen-not-run' ;;
     QUEUE_TRAIN_STACK_RED) printf '%s' 'queue-train-stack-red' ;;

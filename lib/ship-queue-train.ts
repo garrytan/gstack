@@ -367,7 +367,7 @@ function admitSlots(env: TrainEnv, pins: Array<{ pr: string; sha: string }>, dry
     }
     const ready = loadReady(env.repo.keys, p.pr, info.headRefOid);
     const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${env.remote}/${ctx.base}`, info.body, p.pr, [info.headRefOid], !!ready?.base_red);
-    if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : [])], `#${p.pr}'s lane runs /ship, then ${Q} ready --pr ${p.pr} --screen|--no-screen; then ${Q} train build --prs <pins>`, 'none');
+    if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []), ...(shipped.targetedLine ? [`${shipped.targetedLine} pr=${p.pr}`] : [])], `#${p.pr}'s lane runs /ship, then ${Q} ready --pr ${p.pr} --screen|--no-screen; then ${Q} train build --prs <pins>`, 'none');
     lines.push(`${shipped.targetedLine} pr=${p.pr}`);
     if (!ready) return outRefused({ code: 'QUEUE_NOT_READY', message: `no READY receipt for #${p.pr} at ${info.headRefOid.slice(0, 12)} (local state or ${'refs/notes/gstack-trains'})` }, [], `the lane runs ${Q} ready --pr ${p.pr} --screen|--no-screen`, 'none');
     let screen = ready.screen;
