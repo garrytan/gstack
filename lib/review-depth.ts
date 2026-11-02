@@ -131,6 +131,8 @@ export interface ClassInput {
    * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
    */
   consumed?: readonly string[] | 'all';
+  /** Paths the diff creates (untracked files included): their added lines are the whole file. */
+  created?: readonly string[];
   /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
@@ -395,7 +397,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const skipped: string[] = [];
   const dispatches: Dispatch[] = [];
   const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) => dispatches.push({ role, name, effort, exclude, ...extra });
-  const docsAndOutputs = i.paths.filter(p => pathClass(i, p) === 'docs' || isOutput(i, p)).map(excludeSpec);
+  const docsAndOutputs = i.paths.filter(p => (pathClass(i, p) === 'docs' && !(i.numbers.publishes && DOC_PATH.test(p))) || isOutput(i, p)).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
   const specialist: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;
