@@ -570,6 +570,9 @@ the base has moved.
 **Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
 its logged row: an edit, commit or merge landed while reviewers were still reading. The
 reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Review records fingerprint with `gstack-wtree --review`, which skips untracked root dot-folders
+that hold no tracked file (never `.github/` or `.gstack/`), so a test lane's scratch folder alone
+does not move the tree.
 Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
 cannot repair it.
 
