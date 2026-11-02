@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
+import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -705,7 +705,7 @@ describe('the workspace paragraph (GST-482)', () => {
       const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
       expect(r.status, role + ': ' + r.stderr).toBe(0);
       const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
-      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(main + '\n\n' + workspaceParagraph(top));
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(workspaceStep(top) + '\n\n' + main + '\n\n' + workspaceParagraph(top));
     }
     expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
     expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
@@ -759,6 +759,32 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     fs.writeFileSync(reply, 'Codex timed out before it reviewed anything.\n');
     const u = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
     expect([u.status, u.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice')]).toEqual([0, true]);
+  });
+
+  // Value: protects=the fingerprint request opens every brief and asks for the command's output line, so a reader that
+  //   follows a findings-only format still binds its tree; the captured gpt-6.1-sol replies from GST-850, which never ran
+  //   the command, stay refused; fails_when=the request only closes the brief (GST-850 p1/p2 COLLECT_WRONG_TREE) or reads
+  //   as "copy the command", or collect relaxes for a reply with findings and no line; seam=lib/review-brief.ts
+  //   withWorkspace, bin/gstack-review-dispatch collect; no_claim=a model's compliance (the GST-897 replay measures that)
+  test('the fingerprint step opens the brief and its command prints a line collect accepts; GST-850 gpt-6.1-sol replies stay refused (GST-897)', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    const brief = fs.readFileSync(file, 'utf8');
+    const first = brief.split('\n')[0]!;
+    expect(first).toStartWith(`First step, before anything else: run \`cd '${top}' && echo "REVIEWED_TREE: `);
+    expect(first).toContain('Copy that output line, not the command, as the first line of your final reply');
+    expect(brief.slice(brief.lastIndexOf('\n\n') + 2)).toContain('(the output, not the command)');
+    const command = /run `([^`]+)`/.exec(first)![1]!;
+    const printed = spawnSync('bash', ['-c', command], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    expect(checkReviewedTree(printed + '\nNO FINDINGS', expected).ok).toBe(true);
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
+    for (const p of ['p1', 'p2']) {
+      const reply = path.join(ROOT, `test/fixtures/review-wrong-tree/gpt-6.1-sol-gst850-${p}.out`);
+      const refused = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', path.join(out, `${p}.jsonl`)], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+      expect([p, refused.status, refused.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice reported="none"')]).toEqual([p, 1, true]);
+    }
   });
 
   test('render outside a readable checkout refuses instead of recording a fingerprint no reply can match', () => {

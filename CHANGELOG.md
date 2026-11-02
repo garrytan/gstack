@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.92.65.0] - 2026-11-02
+
+- **Every /ship reviewer brief now starts with the `REVIEWED_TREE` step instead of saving it for the last paragraph** (`lib/review-brief.ts`, GST-897). Before, the brief only asked for the fingerprint line in its closing paragraph, after the whole diff and a rule that the reply ends with its `Recommendation:` line. On GST-850, two gpt-6.1-sol outside-voice replies never ran the command, so `collect` refused both (`COLLECT_WRONG_TREE reported="none"`) and their findings were lost. Other readers misread "the line <command> prints" and pasted the command instead of its output. Now the brief opens with "First step, before anything else: run `cd <checkout> && echo "REVIEWED_TREE: …"`", says the command outputs one `REVIEWED_TREE: <tree hash> <path>` line, and asks the reader to copy that output line, not the command, as the first line of its reply. The closing paragraph repeats the request with "(the output, not the command)". `collect` is unchanged and still refuses a reply without the line, and the dispatcher never stamps the tree for a reader.
+
+### Tests
+- `test/review-dispatch.test.ts`: the rendered outside-voice brief's first line is the step, running its command prints a line `collect` accepts, and both captured GST-850 replies (`test/fixtures/review-wrong-tree/`) are still refused with `COLLECT_WRONG_TREE`. On main this test fails because the brief's first line is the filesystem boundary paragraph.
+
 ## [1.92.64.0] - 2026-11-02
 
 **/ship's Step 11 outside voice now defaults to the model it was tested with, and a same-family outside voice is refused.** On a lane running an Anthropic model, the pass program uses `openai/gpt-6.1-sol` at medium reasoning when no outside-voice model is given. That is the pairing no-loss rounds 3 to 6 and A3668 ran. Until now the lane picked the model (gpt-6-astra in replays 6c, 7e and 8g), and the only check was that some model was given, so a Claude outside voice beside a Claude native voice would have run as "outside" (GSTA-167 plan R2 and O2).
