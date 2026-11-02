@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.92.61.0] - 2026-11-02
+
+- **The security class reaches outbound URLs, archives and every `child_process` spelling** (GST-850). `lib/review-risk.ts` now flags any call to an outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici, `requests`, `httpx`, urllib), `new URL` from input, redirect toggles, proxy settings and host allowlists; tar, zip and unzip extraction, `path.join` or `resolve` on request or entry input, and `'..'` checks; and any changed line that names the `child_process` module. The new rules parse no import clause or call arguments, and a test holds each under 100 ms on 200,000-character hostile lines.
+- **The money class reads metering and charge code.** Paths and lines naming meter, metering, metered, charge, billable, billed or credits, plus token usage, a billing proxy and cost or charge clients, now route to the money reader. gbrain-evals #289, which changed a metering proxy and billing clients and read `required=none`, is now a regression test that reads money. "costume", a CLI's usage text and a plain proxy do not count.
+- **When a diff publishes numbers, the batched specialist reads the write-up's text files** instead of leaving docs out of its diff. The collector records the files a diff creates.
+- **UI text and SVGs stay code (light).** An allowlist docs path for chart SVGs and locale values was built and dropped for review cost: its first review round found a new bypass class in each version. Every bypass found so far is a test row that classes as code.
+- Replayed on the 26 GSTA-167 no-loss units, no unit loses a reviewer role. The replay checked which reviewers get dispatched, not R51's re-scored findings. Over the last 100 main commits, 3 move from light to full and no commit with a gate or risk class drops depth.
+
 ## [1.92.60.0] - 2026-11-02
 
 Free test shards can now run their files as several sub-shards side by side inside one CI job. `bun run scripts/test-free-shards.ts --ci-run <plan> --shard <i> --result <file> --jobs <k>` splits the shard into k parts that each run in their own sandboxed `bun test` process. The default stays at 1, so CI runs exactly as before until a workflow opts in. Bad `--jobs` values stop with `FREE_JOBS_INVALID`, a sub-shard that runs out of time prints `FREE_SUBSHARD_TIMEOUT` with a serial reproduce command, and every CI shard result now records per-file test and `expect()` counts. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
