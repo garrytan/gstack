@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.92.49.0] - 2026-11-01
+
+**The timeline Stop hook returns within its 2-second budget even when the host keeps stdin open.** The hook read its payload with a blocking read that waits for end of input, so a host that writes the Stop payload and leaves the pipe open held the hook for as long as the pipe stayed open. A local run with the pipe held for 8 seconds took 8 seconds, past the hook's 2-second budget and on the way to Claude Code's 15-second hook window (#3628, reported on Windows). Rewritten from PR #3628 by shahab (mashtii85).
+
+### Fixed
+- **`hosts/claude/hooks/timeline-stop-hook.ts`** reads stdin for at most 500 ms and stops at the first complete JSON payload, then repairs the timeline as before. The hook still exits 0 on every path.
+
+### Tests
+- `test/timeline-stop-hook-stdin.test.ts` (runs on windows-latest): a complete payload on a pipe that never closes returns within budget and still writes the repair; an open pipe with no data returns within budget. Both failed before the fix (10 s, killed).
+
 ## [1.92.48.0] - 2026-11-01
 
 **On Windows, `gstack-review-scope summary` works again, and the JSONL merge driver no longer fails on non-English text or rewrites files with CRLF.** Before, the summary started the bash script `gstack-review-read` directly, which Windows cannot run, so it always refused with an empty "gstack-review-read failed:" message and /ship could not write its review-loop file (#3541). The `jsonl-append` merge driver wrote its result with Python's `print()`, so a line the console code page could not encode (Cyrillic text under cp1250, for example) made it exit 1 and git reported a conflict with no markers, and every merge on Windows turned LF files into CRLF (#3659).
