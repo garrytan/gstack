@@ -219,10 +219,11 @@ Find the root cause, fix it with the smallest change, prove the fix, and finish 
 - Before timing anything that spawns git in a benchmark or bisect worktree, run `git update-index --refresh` there: a stale index makes the first `git status`/`git diff` pay a full refresh and the measurement lies.
 - Two fixes that shared one premise failed the same gate — write the premise down in one sentence and test it before a third fix. The evidence already points away from it.
 
-Two guards:
+Three guards:
 
 - **3-strike rule:** if 3 hypotheses fail, **STOP** and use AskUserQuestion: A) continue with a new hypothesis (describe it), B) escalate for human review, C) add logging and wait.
 - **Blast radius:** if the fix touches more than 5 files, use AskUserQuestion: A) proceed, the root cause spans these files, B) split, fixing the critical path now, C) rethink for a more targeted approach.
+- **Web searches:** search the generic error class, library and version, never the raw error text, hostnames, IPs, file paths, SQL, customer data or secrets.
 
 ---
 

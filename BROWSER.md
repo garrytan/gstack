@@ -99,7 +99,7 @@ through CDP before `goto`, as the cookbook does), and no `file://` navigation.
 | `/scrape` | Prototype the extraction with `aside repl`, hand back the table, list, or prices as structured data. Read-only. |
 | `/devex-review` | Walk the real onboarding flow and time it, carrying the cookbook inline. |
 | `/ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
-| `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review`, `/design-consultation`, `/review`, `/investigate`, `/cso`, `/office-hours` | Web research runs through `aside exec` in your real browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, answers treated as untrusted content. No Aside → the same queries go to the host's WebSearch tool; no WebSearch either → "Search unavailable" once and the skill proceeds on in-distribution knowledge. |
+| `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review`, `/design-consultation`, `/review`, `/cso`, `/office-hours` | Web research runs through `aside exec` in your real browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, answers treated as untrusted content. No Aside → the same queries go to the host's WebSearch tool; no WebSearch either → "Search unavailable" once and the skill proceeds on in-distribution knowledge. |
 
 ### Local-HTML rendering
 
