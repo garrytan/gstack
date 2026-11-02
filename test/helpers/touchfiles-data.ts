@@ -417,7 +417,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'tpa-apple-ban':               [ 'scripts/resolvers/third-party-actions.ts', 'ship/SKILL.md.tmpl', 'ship/sections/apple-release.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-third-party-actions.test.ts', 'test/helpers/third-party-actions.ts',
      'lib/eval-model.ts'
   ],
-  'ship-measure-seeded-flake': ['ship/**', 'scripts/ship-measure.ts', 'scripts/lib/measure-bar.ts', 'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/paid-select.ts', 'scripts/lib/free-home-guard.ts', 'bin/gstack-config', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'scripts/resolvers/sections.ts', 'scripts/resolvers/testing.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-ship-measure-loop.test.ts', 'test/helpers/ship-measure-seeded-fixture.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/sdk-system-prompt.ts', 'test/helpers/skill-fixture.ts'],
+  'ship-measure-seeded-flake': ['ship/**', 'scripts/ship-measure.ts', 'scripts/lib/measure-bar.ts', 'scripts/test-free-shards.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/paid-select.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/shard-jobs.ts', 'bin/gstack-config', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'scripts/resolvers/sections.ts', 'scripts/resolvers/testing.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-ship-measure-loop.test.ts', 'test/helpers/ship-measure-seeded-fixture.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/sdk-system-prompt.ts', 'test/helpers/skill-fixture.ts'],
   'ship-section-loading':        [ 'ship/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts',  'test/skill-e2e-ship-section-loading.test.ts',
       'scripts/resolvers/testing.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/sdk-system-prompt.ts', 'test/helpers/auq-native-capture.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/llm-judge.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts'],
   'plan-ceo-section-loading':    [ 'ETHOS.md',
@@ -917,6 +917,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
      'test/fixtures/autoplan-amend-input-77.json',
      'test/fixtures/autoplan-phase-handoff-6714.json','scripts/resolvers/learnings.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts',  'test/fixtures/plan-scope-recovery-av.json',   'test/fixtures/design-scope-checkpoint-at.json',  'scripts/resolvers/composition.ts',   'autoplan/**', 'lib/claude-journal-records.ts', 'lib/claude-owned-journal.ts', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/design.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts', 'bin/gstack-autoplan-snapshot.ts',    'test/fixtures/autoplan/t-ceo-omitted-obligations.json', 'test/fixtures/autoplan/u-ceo-original-loss.json', 'test/fixtures/autoplan/v-ceo-dangling-references.json',
     'scripts/resolvers/design-doc-discovery.ts', 'bin/gstack-design-doc-find', 'bin/gstack-ceo-plan-find', 'plan-ceo-review/**', 'ETHOS.md', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts',  'scripts/resolvers/tasks-section.ts', 'test/helpers/autoplan-phase-observer.ts', 'scripts/resolve-codex-generation-model.ts', 'scripts/resolvers/constants.ts'],
+
+  // /autoplan --ceo-only: zero questions through the CEO phase (GST-537)
+  'autoplan-ceo-only': ['autoplan/**', 'plan-ceo-review/**', 'ETHOS.md', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts',
+    'scripts/resolvers/preamble/generate-ask-user-format.ts', 'bin/gstack-state-root.sh', 'lib/state-root.ts',
+    'lib/headless-artifacts.ts', 'bin/gstack-ceo-mode-handoff', 'test/helpers/autoplan-ceo-only-evidence.ts', 'test/helpers/hermetic-env.ts',
+    'test/skill-e2e-autoplan-ceo-only.test.ts', 'test/fixtures/forcing-finding-seeds.ts'],
 
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
   'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts', 'test/skill-e2e-benchmark-providers.test.ts'],
@@ -1581,6 +1587,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-dual-voice': 'periodic',
+  'autoplan-ceo-only': 'marathon',  // Full /autoplan --ceo-only CEO review (349–984 s over 6 runs, GST-537); the gate (I5) and periodic lanes are at their caps
 
   // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
   'benchmark-providers-live': 'periodic',
@@ -1995,6 +2002,7 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'benchmark-workflow': 'rule',
   'setup-deploy-workflow': 'rule',
   'autoplan-dual-voice': 'rule',
+  'autoplan-ceo-only': 'rule',
   'benchmark-providers-live': 'rule',
   'scrape-match-path': 'behavior',
   'scrape-prototype-path': 'behavior',

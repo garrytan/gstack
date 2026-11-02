@@ -93,11 +93,14 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two full passes is the cap**, plus at most one fix-check; a scoped pass
-   ([below](#scoped-pass)) is a full pass. A blocking
-   finding still open after the last allowed step stops the run and names the
-   finding (path, severity, problem) for the owner; a third full pass is the
-   owner's call, never the loop's. The cap approves nothing.
+3. **Two rounds is the cap** (R51): a full pass, a scoped pass
+   ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
+   finishes with its open notes listed in the PR body and receipt, or stops for
+   the owner when a blocking finding is open, or was fixed in round 2 and is
+   unverified, or a round-2 fix edited a gate-class path, naming it (path,
+   severity, problem). A third round is the owner's
+   grant of one scoped fix-check (recorded in `review_loop_exception`), never the
+   loop's. The cap approves nothing.
 
 <a id="transitions"></a>
 ### Transitions
@@ -112,10 +115,12 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
 | a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
-| a full pass that fixed only below-floor findings | one fix-check |
-| a full pass at the cap that fixed a blocking finding | one fix-check |
+| a full pass that fixed only below-floor findings | one fix-check (round 2) |
+| a light pass 1 whose below-floor fixes change no runtime lines | done |
+| round 2 (a full pass or a fix-check) that fixed a blocking finding or edited a gate-class path | stop: name it for the owner, who may grant one scoped fix-check |
+| round 2 (a full pass or a fix-check) that fixed only below-floor findings | done: notes in the PR body |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking (below-floor fixes before it included) | done |
+| a fix-check that found nothing blocking | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
@@ -186,10 +191,47 @@ in a data file still schedules the outside voice.
 
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **light**, runtime 0 | docs and tests only, or only registered outputs | the core checklist only; the outside voice when the diff publishes numbers |
-| **light**, runtime 1–50 | `SMALL_DIFF_LINES` or fewer runtime lines | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
-| **standard** | more than 50 runtime lines | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
-| **full** | gate class, or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
+| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | one reader: the core checklist; the outside voice instead reads a diff that publishes numbers |
+| **light**, runtime above 0 | code with no risk class, at any size (R51: size never raises the depth) | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
+| **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
+| **full** | gate class, a [risk class](#risk-classes), or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
+
+<a id="risk-classes"></a>
+**Risk classes (R51).** `lib/review-risk.ts` reads a code diff's paths and its
+added and deleted lines; any class makes the depth full (`risk:<class>` in
+`reasons=`, `review_depth.risk` in the receipt). money, auth and secret are the
+[targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code)'s matchers.
+**money** also reads metering and charge words in a path or on a line (meter,
+metering, metered, charge, charged, billable, billed, credits) and three
+pairs: usage beside a token or cost word, proxy beside billing, and a client
+beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
+(GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
+`required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
+consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
+raw HTML sinks, a shell run through argv, recursive deletes), any call to an
+outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
+`requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
+input, redirect toggles, proxy settings and host allowlists, archive extraction
+and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
+`unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
+or removed), and any changed line that names the `child_process` or
+`node:child_process` module, in any import or require spelling. The GST-850
+rules are coarse on purpose and parse no import clause or call arguments;
+`test/review-risk-linear.test.ts` holds each of them under 100 ms on
+200,000-character hostile lines, its anchor followed by a long run of the
+characters it repeats included. That claim covers only the rules GST-850 adds,
+not R51's older ones. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+personal, account, customer, cookie, persistence, storage or database, or a line
+that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
+migrations and deleted code paths were already gate class. `RISK_RULES` hashes
+the patterns and `DEPTH_RULES` includes it.
+
+**UI text and SVGs** stay code (light unless a risk class applies). A docs path
+for UI copy, locale values and chart SVGs was built as an allowlist in GST-850 and
+dropped for review cost: its first review round found a new bypass class in each
+version, the same pattern as three rounds of R51. When a diff publishes numbers,
+the batched specialist's diff keeps the write-up's text files instead of leaving
+docs out.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -230,7 +272,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/review-targeted.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `lib/review-risk.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,
@@ -282,6 +324,10 @@ the specialists, audits and watchers at the host default too
   prompt. At runtime 0 light runs no adversarial pass either.
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
+- R51: size never raises the depth; non-risky code is light at any size, and a risk
+  class makes it full. Two rounds is the cap, a fix-check
+  included: a blocker fixed in round 2 stops for the owner instead of earning a
+  fix-check, and a light pass 1 whose below-floor fixes change no runtime lines is done.
 - A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
   part 4a). A binary image no code names is no longer a `binary_code_path` error
   that forces full depth; one that code names still is.
@@ -354,6 +400,7 @@ puts in the receipt:
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes) |
+| `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 | `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its output collected and the committed diff it was rendered on still the one at verify, else `failed`; absent when write got no record, which the queue reports as `legacy`), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
@@ -366,7 +413,7 @@ specialist stats they record). The summary line appends `fix_checks=`,
 loop prints the old line.
 
 Beside the counters, `write` records `review_depth` (the depth, runtime lines,
-rules hash, base and registry commits, and the gate scan bound to the head) and
+rules hash, base and registry commits, the gate scan bound to the head and the risk classes) and
 the queue refuses a receipt below the depth its head needs
 ([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). A stop the owner
 accepted after a fix-check edit goes in `review_loop_exception`, never in prose
@@ -385,8 +432,8 @@ difference passed a scoped review.
 
 | Value | Pass 1 | Blocking finding in unchanged code | Pass 2+ | Cap |
 |---|---|---|---|---|
-| `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 full passes + 1 fix-check |
-| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 2 full passes + 1 fix-check |
+| `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
+| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
 | `all` | everything | fixed in this PR | the whole diff, every finding | 3 fix cycles |
 
 `diff-plus-blocking` is the fallback for a repository where deferred issues pile
@@ -518,8 +565,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
    staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
-   the specialists with QA and the other audits, then the Red Team, then Step 11's
-   voices. Each reviewer keeps its plan entry and is rendered by the same code as
+   the specialists with the other audit readers, then the Red Team, then Step 11's
+   voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
+   are the parent's. Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a

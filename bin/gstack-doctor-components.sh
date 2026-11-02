@@ -338,6 +338,9 @@ gstack_result_anchor() {
     RECEIPT_GIT_TOO_OLD) printf '%s' 'receipt-git-too-old' ;;
     CHANGELOG_FRAGMENT_INVALID) printf '%s' 'changelog-fragment-invalid' ;;
     QUEUE_LAND_LOCKED) printf '%s' 'queue-land-locked' ;;
+    QUEUE_TRAIN_UNSTAMPED) printf '%s' 'queue-train-unstamped' ;;
+    RESTAMP_NOT_STAGED) printf '%s' 'restamp-not-staged' ;;
+    RESTAMP_UNSTAGED_EDITS) printf '%s' 'restamp-unstaged-edits' ;;
     QUEUE_LAND_CONFLICT) printf '%s' 'queue-land-conflict' ;;
     QUEUE_LAND_DRIFT) printf '%s' 'queue-land-drift' ;;
     QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;
@@ -361,6 +364,7 @@ gstack_result_anchor() {
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
@@ -374,6 +378,9 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
+    CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
+    CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
     *) return 1 ;;
   esac
 }
