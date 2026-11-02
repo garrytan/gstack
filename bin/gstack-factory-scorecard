@@ -11,7 +11,7 @@
  *   gstack-factory-scorecard [--repo owner/name] [--base main] [--since-days 7]
  *       [--crew login,login] [--gate-workflow evals.yml] [--gate-event workflow_dispatch|any]
  *       [--free-workflow free-tests.yml] [--train-prefix train/] [--ready-marker <regex>]
- *       [--pass-marker <regex>] [--pass-cap 3] [--max-artifact-runs 60]
+ *       [--pass-marker <regex>] [--pass-cap 2] [--max-artifact-runs 60]
  *       [--out-dir <dir>] [--csv <file>] [--json] [--cache-dir <dir>]
  *       [--fixtures <recorded gh responses.json>] [--now <iso>]
  *
