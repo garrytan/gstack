@@ -107,6 +107,7 @@ describe('recipe tokens', () => {
     const recipes = skeleton.slice(skeleton.indexOf('## Recipes'), skeleton.indexOf('## Report'));
     expect(recipes).toContain('sections/blast-radius.md');
     const how = skeleton.slice(skeleton.indexOf('## How to work'), skeleton.indexOf('## Scope Lock'));
+    expect(how).toMatch(/search the generic error class, library and version, never the raw error text, hostnames, IPs, file paths, SQL, customer data or secrets/);
     expect(how).toMatch(/Two fixes that shared one premise failed the same gate — write the premise down in one sentence and test it before a third fix/);
   });
 });
