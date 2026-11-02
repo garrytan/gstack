@@ -570,6 +570,9 @@ the base has moved.
 **Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
 its logged row: an edit, commit or merge landed while reviewers were still reading. The
 reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Review records fingerprint with `gstack-wtree --review`, which skips untracked root dot-folders
+that hold no tracked file (never `.github/` or `.gstack/`), so a test lane's scratch folder alone
+does not move the tree.
 Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
 cannot repair it.
 
@@ -3932,7 +3935,10 @@ and the table prints `environment: <kind> — <evidence>`. A test that failed an
 whose log also names a connection error is **not** this code: the runner's own
 summary counted a failure, so it is `PREGATE_LANE_FAILED` with `cause:
 "diff"`; nor is a runner, guard or gate script whose own binary is present but
-exits 127. `proof: "launch"` is certain (the command could not start, its
+exits 127. One exception: a Playwright lane where every test failed and
+Playwright says its browsers are not installed is `missing-binary` with
+`proof: "output"` (`npx playwright install`); a partial install stays the
+diff's failure. `proof: "launch"` is certain (the command could not start, its
 binary is off PATH, the runtime or a gstack tool refused); `proof: "output"`
 means a rule matched the command's text before any test was counted, which the
 diff's own output could have written, so the line says `(inferred from output)`
@@ -5915,8 +5921,9 @@ body that names a counter the receipt records (`passes=3` against
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
-`## Approvals` table `gstack-approvals` renders, and the `Review-loop exception: …`
-line the receipt's exception requires, are never read as claims.
+`## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`
+and `Documentation exception: …` lines the receipt's exceptions require, and
+the inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

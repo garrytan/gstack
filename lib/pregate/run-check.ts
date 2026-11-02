@@ -1,12 +1,16 @@
 /**
  * The run-evidence inputs one consumer needs (GSTA-156): the base branch's run
  * profiles, this repository on GitHub, the verifier's gh- and git-backed
- * dependencies, and the remote gate's inventory command (a pin-file command,
- * so it runs only with --allow-repo-commands). Shared by `gstack-pregate
+ * dependencies, and the remote gate's inventory and skipped commands (pin-file
+ * commands, so they run only with --allow-repo-commands; skipped reads the
+ * selected files from PREGATE_FILES_FILE). Shared by `gstack-pregate
  * clear` and `gstack-pregate --from-run`, so both read profiles from the
  * base and nowhere else.
  */
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { ghRunDeps, runInventory } from '../run-evidence';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
@@ -28,13 +32,19 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
   if (!repo) return { error: 'origin is not a github.com repository; run evidence is read from GitHub Actions', profiled: lane === null ? false : lane === REMOTE_GATE_LANE ? !!loaded.config.remote_gate_runs : !!loaded.config.run_profiles[lane] };
   return {
     repo, deps: ghRunDeps(repo, root), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
-    inventory: (command, tree) => {
+    inventory: (command, tree, selected) => {
       if (!allowRepoCommands) return { error: 'the inventory command is a pin-file command; pass --allow-repo-commands' };
       const at = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };
       if (at() !== tree) return { error: `the working tree is not pregate.json's tree ${tree.slice(0, 12)}; the inventory must list that tree's gate files` };
-      const listed = runInventory(command, root);
-      if (at() !== tree) return { error: `the working tree changed while ${command} ran` };
-      return listed;
+      const dir = selected && fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pregate-skipped-'));
+      try {
+        if (dir) fs.writeFileSync(path.join(dir, 'selected.txt'), selected!.map(f => `${f}\n`).join(''));
+        const listed = runInventory(command, root, dir ? { PREGATE_FILES_FILE: path.join(dir, 'selected.txt') } : undefined);
+        if (at() !== tree) return { error: `the working tree changed while ${command} ran` };
+        return listed;
+      } finally {
+        if (dir) fs.rmSync(dir, { recursive: true, force: true });
+      }
     },
   };
 }

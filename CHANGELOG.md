@@ -1,5 +1,103 @@
 # Changelog
 
+## [1.93.20.0] - 2026-11-02
+
+### Changed
+
+- `gstack-factory-scorecard` now counts a PR as "at the cap" once it reaches 2 review passes, the two-round cap the review policy sets, instead of 3. The default `--pass-cap` is 2, and the "Review passes per PR" benchmark reads "median 1 pass, few at the cap". Pass `--pass-cap 3` to get the old count. Rows from earlier weeks in `trend.csv` were counted at the old cap, and each row names the cap it used.
+
+### Docs
+
+- CLAUDE.md now describes how gstack versions its own PRs today: a branch writes its entry as `changelog.d/<branch-slug>.md` and never edits VERSION, package.json or CHANGELOG.md, and the merge train's stamp assigns the version (`bump: minor` or `bump: major` front matter asks for more than a patch). The old text said to claim a version slot with `bin/gstack-next-version`.
+- docs/CHANGELOG_STYLE.md, which CLAUDE.md says to read before writing an entry, now describes the same fragment flow: what goes in the fragment, when to add `bump:` front matter, and what to check after merging main. It no longer tells a branch to bump VERSION or claim a slot with `bin/gstack-next-version`.
+- docs/ship-policy.md marks the queue-side procedure as being for repos on `stamp-at-merge` without changelog fragments, and points gstack's own PRs to the fragment flow and `train land`. The old link to that section still works.
+
+## [1.93.19.0] - 2026-11-02
+
+**`gstack-ship-receipt read --check-prose` no longer reads the Documentation exception line or code fences as counter claims (GST-983, GST-984).** `write --docs` with an owner exception requires the PR body to carry the whole `Documentation exception: …` line word for word, but the prose check read the owner's reason in it as prose, so a reason like "sections 1 and 2 skip the audit" was a `2 skip` claim and no body could pass both checks. That is the deadlock GST-977 fixed for the Review-loop exception line. Separately, on gstack-evals #142, test output pasted in a fenced block ("113 passed, 0 failed") and a quoted code comment ("the first 35 fail") were read as receipt counts and refused.
+
+### Fixed
+- **`lib/ship-receipt-prose.ts`:** the line that matches the receipt's own docs exception exactly is skipped, like the Review-loop exception line. The same words anywhere else, or a line for a different exception, are still checked.
+- **`lib/ship-receipt-prose.ts`:** a closed code fence (backticks or tildes, closed by a run of its own character at least as long as the opener) is skipped. Counts outside the fence are still checked. A line that starts with inline code like ```` ```npm test``` ```` opens no fence, and a fence that never closes stays prose along with the rest of the body, so an unclosed opener cannot hide the claims after it.
+
+### Tests
+- `test/ship-receipt-prose.test.ts`: the docs exception line passes `--check-prose` beside a matching `70 skip` claim; the #142 fenced evidence passes while a wrong count outside the fence still fails; an unclosed fence stays prose; inline triple backticks and a shorter fence inside an unclosed one hide no claim. On main the first three cases failed.
+
+## [1.93.18.0] - 2026-11-02
+
+**A green Free Tests run at the pregate tree now clears gstack's remote gate, so a slow Ubicloud VM no longer blocks a PR whose CI already passed (GST-1024).** docs/pregate.md described `gstack-pregate clear --remote pregate.json/remote_gate --run <id|url> --allow-repo-commands`, but gstack's own `.gstack/pregate.json` declared no `remote_gate_runs`, so the route always refused. On #3869, every check passed at 3f2bcf3 (Free Tests run 41484634592), while two remote gate runs at the same tree failed on bun timeouts in files the PR doesn't touch.
+
+### Added
+- **`.gstack/pregate.json` `remote_gate_runs`:** the `ci-reuse/free-tests` profile, with `scripts/test-free-shards.ts --list` as the inventory (the complete free suite the Free Tests plan shards).
+- **`remote_gate_runs.skipped`** (optional, `lib/run-evidence.ts`, `lib/pregate/index.ts`, `lib/pregate/run-check.ts`): a command that reads the selected files from `PREGATE_FILES_FILE` and prints the ones the remote gate itself never runs. Those files need no run, and the receipt records them as `skipped=<n>`. An inventory file stays required even when `skipped` names it, and a failing command refuses with `skipped_failed`. When every selected file is skipped, the clear refuses with `paid_only`, just as the gate's own `tests=0` report never clears. gstack's command prints the selected paid test files, the same split `scripts/ubicloud/pregate-remote.sh` makes. Without it, run 41484634592 still refused: all 71 of the selected files it didn't cover are paid.
+
+### Tests
+- `test/pregate-remote-gate-runs.test.ts`: gstack's inventory equals the Free Tests plan's file set, and its skipped command prints exactly the paid files of a mixed list. In a fixture with gstack's real profile, a green Free Tests `pull_request` run clears the gate. A run at another tree, a run of another workflow, a failed or cancelled run, a fork run, a merge commit behind its base, an uncovered inventory file, a skipped list naming an inventory file, a failing skipped command, a paid-only selection, and a declaration without `skipped` all refuse. Malformed `skipped` values fail config validation. On main, all four tests fail.
+
+## [1.93.17.0] - 2026-11-02
+
+- `gstack-ship-queue wave plan` now leaves out a READY head that does not merge onto main. It prints `NOT_MERGEABLE: #<n> (...)` with the conflicting files, the same way `NOT_GREEN` works for red CI. A conflict only in the CHANGELOG doesn't count, since the train merges those. Before, such a head was planned into a wave and the wave build stopped on it.
+- A PR that renames a file and a PR that edits the old path are now linked into one wave group when the edit conflicts with the rename. Before, the conflict was reported at the new path, which the editing PR never touched, so the two ended up in different waves.
+- Linked PRs are never split across waves anymore. A group of linked PRs larger than the wave size prints `WAVE_OVERSIZE` with no build command and stays whole. Before, the packer cut such a group at the wave size, so its conflict reached two integrators.
+- `gstack-ship-queue ready` reports `STAMP_VERSION=unstamped` for a PR whose own changes leave VERSION alone, even after main moves to a newer version. Before, it compared the head with current main, so an unstamped PR showed its old version as a stamp (#3804 showed 1.92.30.0 while main was 1.92.32.0; #3558).
+
+## [1.93.16.0] - 2026-11-02
+
+### Fixed
+
+- **A test lane's scratch folder no longer breaks the /ship review bind.** When an untracked `.review-units-test-*/` folder appeared or vanished while reviewers ran, Step 11.5 saw a different tree and the only repair was rerunning Steps 9 to 11.5 (about 20M tokens). Review records now fingerprint with `gstack-wtree --review`, which leaves out root dot-folders that hold no tracked file. `.github/` and `.gstack/` always count, and any change to a tracked file still breaks the bind. The pregate, test evidence and every other caller keep the whole tree. (GST-985)
+
+## [1.93.15.0] - 2026-11-02
+
+**Pregate stops blaming a clean branch for a missing pytest, Playwright specs and mixed-language root tests, and the literals check stops flagging stray digits (#3598, #3492, gstack-evals#97).** A machine without pytest reported "fix the in-branch failure". Playwright specs in a vitest repo went to vitest, which found no tests and failed. Root tests in `.mjs` and `.py` got no runner at all. And any lone `2` in a file that named a changed constant (a comment, a `$2` in a shell stub, a fixture) failed `literals`. A wrapper bump from 3 to 4 would have raised 5 false hits here, and gstack-evals#97 hit 11. Rewritten from outside PRs #3639 and #3600 by @vilano93 and #3629 by @nfitzsimmons.
+
+### Fixed
+- **Missing pytest is the machine's gap.** Before planning `python3 -m pytest`, `lanes` asks that python3 whether it can import pytest (10 s probe, from the repo root). If it can't, the file is unclaimed and the lane is `PREGATE_ENVIRONMENT` (missing-binary, `pytest` or `python3`): "install pytest on this machine and rerun, or run the lane remotely; the diff is not at fault".
+- **Playwright specs run under Playwright.** A JS/TS test file that imports `@playwright/test` at the start of a line runs as `<pm exec> playwright test --reporter=list` from its nearest package. Other tests keep their runner. A declared `runner` still takes every file. Playwright's summary is read count line by count line. Failed and interrupted count as failed, flaky and passed as passed, and skipped as not run. A run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` naming `npx playwright install`.
+- **Mixed-language root tests each get a runner.** A repo's bun, vitest or jest now claims only JS/TS files. When no one runner fits every root test, they are split by language and each part is detected on its own. So `.mjs` with `.py` runs `node --test` and pytest, and a `.py` test in a vitest repo gets pytest instead of vitest. `gstack-pregate init` drops its "a selection mixing these languages needs runner set" note.
+- **`literals` binds a one-character old value to its statement.** The value counts on a line that names the constant, or on up to three lines that continue that statement, never on a comment line. Version-history rows count as before. A lowercase call-site name (`attempts`, `limit`) also needs the changed module named in the file. Values of two or more characters are unchanged.
+
+### Changed
+- **docs/pregate.md** describes the new detection and the literals binding. **docs/troubleshooting.md** names the Playwright missing-browsers case under `PREGATE_ENVIRONMENT`. **docs/state-root.md** lists `pregate/runs/<run id>/`.
+
+## [1.93.14.0] - 2026-11-02
+
+Free Tests no longer goes red with no named file when one test hangs. Each `free-suite` job's GitHub timeout used to be a fixed 20 minutes, shorter than the runner's own wall for a 10-shard plan (about 37 minutes), so GitHub killed the job before the runner could name the hung file or retry it, and no shard result was uploaded. The plan now emits each shard's job timeout as its runner wall plus the flaky-retry pass plus the job's measured setup (`--ci-plan --job-setup-seconds`), 49 minutes per shard today, and fails loudly above 90 minutes instead of truncating. See docs/TESTING_INTERNALS.md#runners-how-the-suites-execute-2026-08-overhaul. Closes #3850.
+
+## [1.93.13.0] - 2026-11-02
+
+**gstack's own tests no longer write into a developer's real gbrain.** If you export `GBRAIN_DATABASE_URL` for your working brain and run gstack's test suite, tests that spawn bins with a temp `HOME` used to pass that URL straight through. With no gbrain config under the temp `HOME`, the real `gbrain` on your PATH then added `brain-sync-remote-*` sources and test pages to your live brain. From #3466 by @AndreIntelas.
+
+### Fixed
+- **The test preload (`test-setup.ts`) strips the variables gbrain uses to pick a brain** before any test module loads: `GBRAIN_DATABASE_URL`, `GBRAIN_DIRECT_DATABASE_URL`, `DATABASE_URL` and `GBRAIN_HOME`. It prints one line on stderr for each variable it strips. This covers `bun test <file>` and every shard of `bun run test`.
+
+### Tests
+- `test/state-root-config-merge.test.ts`: a `bun test` run with all four variables exported spawns a child under a temp `HOME` that calls `buildGbrainEnv`, and the child sees none of them. It fails on main.
+
+## [1.93.12.0] - 2026-11-02
+
+**The Opus 5.5 `lite` skills now keep the install's gbrain blocks, disabled skills and the Claims Need Evidence rule (GST-944).** The lite tree Capy publishes was rendered without the install's settings. On a machine with gbrain detected, Opus 5.5 sessions lost the brain context-load and save-results blocks that the full install serves, and skills turned off with `disabled_skills` showed up again in the lite router. `./setup --loadout lite` was not affected.
+
+### Fixed
+- **`gstack-modules install`** renders lite with the state root's gbrain detection and `gstack-config` `disabled_skills`, and both are part of the folder's identity. A change in either publishes a new folder instead of reusing a stale one.
+
+### Changed
+- **`preamble:evidence` is pinned**, so `lite` drops ten coaching pieces instead of eleven. The honest-work design (W4) never retires the Claims Need Evidence rule while gstack reports evidence. It adds 804 bytes back to lite's shared preamble (16,175 → 16,979 bytes; full is 22,396).
+
+### Tests
+- `test/module-loadouts-install.test.ts`: with gbrain detected and `disabled_skills: qa`, the lite office-hours file carries the brain blocks, the router lists `/qa` as disabled, and the folder differs from the one published without those settings.
+- `test/module-loadouts.test.ts`: `preamble:evidence` is pinned and lite excludes the other ten pieces.
+
+## [1.93.11.0] - 2026-11-02
+
+**Capy sessions get their model's loadout again without a sentence in the skill (GST-982).** The browse wave (#3858) removed the Capy skill's instruction to run the installer with `GSTACK_MODEL`, to keep `capy/skill/gstack/SKILL.md` under its context budget. After that, every Capy session installed the full skills, including Opus 5.5 sessions that should get `lite`. Now the installer finds the model by itself.
+
+### Fixed
+- **`gstack-capy-install` reads the owner's model preference.** When it gets no `--model` and no `GSTACK_MODEL`, it uses the `agent_model` in the session's `GSTACK_PREFERENCES_FILE` (the Drive skill's `preferences.yaml`, which `gstack-capy-session` already exports), resolved by `gstack-models resolve --role agent`. So `opus` means `claude-opus-5-5` today. The line reads `LOADOUT: … source=preferences` (`source=config` when this machine's `config.yaml` sets it), followed by a `LOADOUT_ASSUMED:` note that the model came from the preference and not the session. Eval runs (`GSTACK_EVAL_DIR` or `EVALS_RUN_ID` set) skip the preference, and a preference `gstack-models` rejects prints `LOADOUT_FALLBACK` instead of serving full silently. `GSTACK_MODEL` and `--model` still win, and a `host` preference or no file still serves full. The frozen bootstrapper `capy/skill/gstack/scripts/install.sh` and the skill text are unchanged.
+
+### Tests
+- `test/gstack-capy-install.test.ts`: an `opus` preference picks lite with `source=preferences` and its own launch file, `GSTACK_MODEL` overrides the preference, a `config.yaml` preference reads `source=config`, eval runs skip the preference, a rejected preference prints `LOADOUT_FALLBACK`, a `host` preference prints no loadout lines, and the real `gstack-models resolve --role agent` keeps the `agent: <provider>/<model>` first line the installer reads.
+
 ## [1.93.10.0] - 2026-11-02
 
 ### Changed
