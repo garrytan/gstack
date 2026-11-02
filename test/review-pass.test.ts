@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { promptHash, sectionTexts, withWorkspace } from '../lib/review-brief';
+import { promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { CHUNK_CHARS, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 
@@ -798,7 +798,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(2);
-    for (const c of h.creates) expect(c.prompt.endsWith('\n\n' + withWorkspaceTail(wt)), c.title).toBe(true);
+    for (const c of h.creates) expect([c.prompt.startsWith(workspaceStep(wt) + '\n\n'), c.prompt.endsWith('\n\n' + workspaceParagraph(wt))], c.title).toEqual([true, true]);
     expect(bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout).not.toContain('wrong_tree');
   }, 240_000);
 
@@ -865,5 +865,4 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(v).toMatch(/^BRIEF outside-voice UNAVAILABLE /m);
   }, 240_000);
 });
-const withWorkspaceTail = (dir: string) => withWorkspace('', dir).slice(2);
 const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');
