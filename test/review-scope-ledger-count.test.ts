@@ -6,7 +6,7 @@
  * reproduce the receipt's published counters on the old summary, and the ledgers hold what the PR body says the readers found.
  * Ledgers are written with the real collect and judge, so the parser and judge rules apply as in a run.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
@@ -14,6 +14,7 @@ import { collect, readJsonl, recordJudgment, type JudgedLine, type MergedLine } 
 import { parseReviewLoop } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
+setDefaultTimeout(60_000);
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
@@ -23,15 +24,15 @@ const review = (min: number, pass: number, findings: object[]) => ({ skill: 'rev
 const fixCheck = (min: number, findings: object[]) => ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), review_scope: 'frozen', findings });
 const note = (fp: string, raised_by: string) => ({ fingerprint: fp, severity: 'INFORMATIONAL', action: 'noted', blocking: false, raised_by });
 
-/** One pass directory: each reader's output collected into its ledger, then lead judgment keeping every label. */
-function pass(dir: string, readers: Array<[string, string]>): string {
+/** One pass directory: each reader's output collected into its ledger, then lead judgment (default: every label kept). */
+function pass(dir: string, readers: Array<[string, string]>, judgeWith = (merged: MergedLine[]): JudgedLine[] => merged.map(m => ({ id: m.id, severity: m.label }))): string {
   fs.mkdirSync(dir, { recursive: true });
   const ledger = path.join(dir, 'review-ledger.jsonl');
   const mergedFile = path.join(dir, 'merged.jsonl');
   fs.writeFileSync(mergedFile, '');
   for (const [reader, output] of readers) expect(collect(ledger, reader, output, mergedFile).review).toBe(true);
   const merged = readJsonl<MergedLine>(mergedFile);
-  const judged: JudgedLine[] = merged.map(m => ({ id: m.id, severity: m.label }));
+  const judged = judgeWith(merged);
   const judgedFile = path.join(dir, 'judged.jsonl');
   fs.writeFileSync(judgedFile, judged.map(j => JSON.stringify(j) + '\n').join(''));
   expect(recordJudgment(ledger, merged, judged, judgedFile, mergedFile).ok).toBe(true);
@@ -129,6 +130,37 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     expect(s.unrecorded).toBeUndefined();
   });
 
+  test('a CRITICAL a row classified below the floor is not a blocker; distinct blockers from one reviewer each count', () => {
+    const repo = branchWith([review(0, 1, [
+      { fingerprint: 'src/a.ts:3:testing', path: 'src/a.ts', line: 3, severity: 'CRITICAL', kind: 'test-gap', blocking: false, action: 'noted', raised_by: 'testing' },
+      { fingerprint: 'src/b.ts:9:security', path: 'src/b.ts', line: 9, severity: 'CRITICAL', blocking: true, action: 'fixed', raised_by: 'security' },
+      { fingerprint: 'src/c.ts:1:logic', severity: 'CRITICAL', advisory: true, action: 'noted', raised_by: 'security' },
+    ])]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist/testing', '[CRITICAL] src/a.ts:3 the denied path has no test\n[CRITICAL] src/d.ts:7 the retry loop never ends']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ blocking_found: 2, fixed: 1, noted: 2, unrecorded: 1, ledgers: 1 });
+  });
+
+  test('judgment decides: a folded duplicate counts once, a lead addition counts, a rejected judgment keeps the collected labels', () => {
+    const repo = branchWith([review(0, 1, [])]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'fold'), [['red-team', '[CRITICAL] src/a.ts:3 the guard is inverted\n[CRITICAL] src/a.ts:4 the guard is inverted again']],
+      m => [{ id: m[0]!.id, severity: 'CRITICAL' }, { id: m[1]!.id, severity: 'CRITICAL', duplicate_of: m[0]!.id }, { id: 'lead#1', severity: 'CRITICAL', reason: 'src/e.ts:2 the lead found an unchecked write' }]);
+    expect(loop(summary(repo, '--run', run))).toMatchObject({ blocking_found: 2, unrecorded: 2, ledgers: 1 });
+    const rejected = path.join(repo.root, 'rejected');
+    fs.mkdirSync(rejected);
+    const ledger = path.join(rejected, 'review-ledger.jsonl');
+    const mergedFile = path.join(rejected, 'merged.jsonl');
+    fs.writeFileSync(mergedFile, '');
+    collect(ledger, 'red-team', '[CRITICAL] src/a.ts:3 the guard is inverted', mergedFile);
+    const merged = readJsonl<MergedLine>(mergedFile);
+    const judgedFile = path.join(rejected, 'judged.jsonl');
+    fs.writeFileSync(judgedFile, JSON.stringify({ id: merged[0]!.id, severity: 'INFORMATIONAL' }) + '\n');
+    expect(recordJudgment(ledger, merged, [{ id: merged[0]!.id, severity: 'INFORMATIONAL' }], judgedFile, mergedFile).ok).toBe(false);
+    expect(loop(summary(repo, '--ledger', ledger))).toMatchObject({ blocking_found: 1, unrecorded: 1, ledgers: 1 });
+  });
+
   test('summary refuses REVIEW_SCOPE_LEDGER instead of counting without a ledger it needs, and writes nothing', () => {
     const repo = branchWith([review(0, 1, [])]);
     const run = path.join(repo.root, 'run');
@@ -146,6 +178,10 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     fs.writeFileSync(judged, kept);
     fs.rmSync(path.join(run, 'p1', 'merged.jsonl'));
     refused(summary(repo, '--run', run, '--out', out), 'is unreadable');
+    refused(summary(repo, '--run', path.join(repo.root, 'nonesuch'), '--out', out), 'ENOENT');
+    const bare = summary(repo, '--out', out, '--ledger');
+    expect(bare.err).toContain('(REVIEW_SCOPE_INPUT;');
+    expect(bare.err).toContain('--ledger needs a file');
     const both = summary(repo, '--run', run, '--no-ledger');
     expect(both.status).toBe(EXIT.fail);
     expect(both.err).toContain('(REVIEW_SCOPE_INPUT;');

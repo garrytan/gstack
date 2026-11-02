@@ -30,7 +30,7 @@ import {
   parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   ALREADY_FILED_REASON, DEFERRED_MARKER, findingIdentity, findingWhere, REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
-import { ledgerBlockers } from '../lib/review-ledger';
+import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
 
 const HELP = `gstack-review-scope — finding scope for /ship's review loop (docs/ship-policy.md#review-scope)
 
@@ -267,7 +267,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   if (noLedger && files.length) return refuse('summary', 'REVIEW_SCOPE_INPUT', '--no-ledger contradicts --run and --ledger');
   // The ledgers hold every reader's findings, the voices' too, before any row classifies them; a summary without them can undercount.
   if (!noLedger && !files.length) return refuse('summary', 'REVIEW_SCOPE_LEDGER', 'name the review\'s dispatch ledgers (--run <run dir> or --ledger <f>), or --no-ledger when no reader ran through gstack-review-dispatch');
-  let ledgers: string[][];
+  let ledgers: LedgerBlocker[][];
   try { ledgers = files.map(ledgerBlockers); } catch (e: any) { return refuse('summary', 'REVIEW_SCOPE_LEDGER', e.message); }
   const summary = summarizeReviewLoop(rows, since, ledgers);
   const line = reviewLoopLine(summary);

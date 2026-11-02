@@ -14,7 +14,7 @@
  * Pure functions here; bin/gstack-review-scope runs git and gh.
  */
 import { SPECIALISTS } from './review-depth';
-import { rank } from './review-ledger';
+import { rank, type LedgerBlocker } from './review-ledger';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -357,25 +357,27 @@ function rowDispatches(row: Record<string, any>): Array<{ role: string; bytes: n
 const DISPOSITIONS = ['fixed', 'auto-fixed', 'deferred', 'noted', 'skipped', 'kept', 'restored', 'open'];
 /** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect (logged before Step 9.4's classify). */
 const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4);
-/** The reviewer a finding counts under: a row's raised_by or a ledger id's reader; every specialist is one group, as in the ledger. */
-function raiserGroup(raiser: unknown): string {
-  const role = typeof raiser === 'string' ? raiser.split(/[/#]/)[0]!.trim() : '';
-  if (!role || role === 'unknown') return 'unattributed';
-  return ['core', 'qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted'].includes(role) ? role : 'specialist';
+/** A row finding's path:line, from its path and line or its fingerprint (`path:line:category`). */
+function rowLocus(f: Record<string, any>): string | null {
+  if (typeof f.path === 'string' && Number.isInteger(f.line)) return `${f.path.replace(/^\.\//, '')}:${f.line}`;
+  const m = /^(.+?):(\d+):/.exec(typeof f.fingerprint === 'string' ? f.fingerprint : '');
+  return m ? `${m[1]!.replace(/^\.\//, '')}:${m[2]}` : null;
 }
 
 /**
- * The loop summary. blocking_found counts every blocker found (GST-951): per reviewer group, the larger of the rows'
- * blockers and the dispatch ledgers' CRITICAL findings (`ledgerBlockers`, one id list per ledger), so a blocker that only
- * a ledger holds (an adversarial or outside-voice finding, a finding logged before classification) still counts. Two
- * sources can each hold one the other lacks only when the rows name no reviewer; then the count may run high, never low.
+ * The loop summary. blocking_found counts every blocker found (GST-951): the rows' blockers, plus each CRITICAL the dispatch
+ * ledgers hold (`ledgerBlockers`, one list per ledger) that no row logged as a CRITICAL at the same path:line. So a blocker
+ * only a ledger holds (an adversarial or outside-voice finding, one logged before classification) counts, and unrecorded,
+ * while one a row classified below the floor (blocking: false) does not. A ledger blocker with no locus, or one raised again
+ * in another pass's ledger with no row, counts each time: the count may run high, never low.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly string[])[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly LedgerBlocker[])[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
   const loopRows = rows.filter(r => inRun(r) && (r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL));
   const passes = loopRows.filter(r => r.skill === 'review');
-  const blocking = new Map<string, { group: string; disposed: boolean }>();
+  const blocking = new Map<string, boolean>();
+  const rowCriticals = new Set<string>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
   const fixed = new Set<string>();
@@ -385,23 +387,17 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
     for (const f of Array.isArray(row.findings) ? row.findings : []) {
       if (!f || typeof f !== 'object') continue;
       const id = findingIdentity(f);
-      if (rowBlocks(f)) {
-        const b = blocking.get(id) ?? { group: raiserGroup(f.raised_by), disposed: false };
-        if (DISPOSITIONS.includes(f.action)) b.disposed = true;
-        blocking.set(id, b);
-      }
+      if (rowBlocks(f)) blocking.set(id, blocking.get(id) === true || DISPOSITIONS.includes(f.action));
+      const locus = rowLocus(f);
+      if (locus && (rowBlocks(f) || rank(f.severity) === 4)) rowCriticals.add(locus);
       if (f.action === 'deferred') deferred.add(id);
       if (f.action === 'noted') noted.add(id);
       if (f.action === 'fixed' || f.action === 'auto-fixed') fixed.add(id);
     }
   }
-  const groups = new Map<string, { rows: number; disposed: number; ledger: number }>();
-  const tally = (g: string) => groups.get(g) ?? groups.set(g, { rows: 0, disposed: 0, ledger: 0 }).get(g)!;
-  for (const b of blocking.values()) { const t = tally(b.group); t.rows++; if (b.disposed) t.disposed++; }
-  for (const id of ledgers.flat()) tally(raiserGroup(id)).ledger++;
-  let found = 0; let unrecorded = 0;
-  for (const t of groups.values()) { const n = Math.max(t.rows, t.ledger); found += n; unrecorded += n - t.disposed; }
-  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: found, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
+  const ledgerOnly = ledgers.flat().filter(b => !b.locus || !rowCriticals.has(b.locus)).length;
+  const unrecorded = ledgerOnly + [...blocking.values()].filter(disposed => !disposed).length;
+  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blocking.size + ledgerOnly, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
   if (unrecorded) out.unrecorded = unrecorded;
   if (ledgers.length) out.ledgers = ledgers.length;
   const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
