@@ -307,6 +307,42 @@ export function resolveOptionKey(question_id: string, choice: string): string | 
 }
 
 /**
+ * Map a choice on an unregistered question to an option key of its hinted
+ * signal (#3442). Only the exact key or the key's own words count, never
+ * OPTION_LABEL_CUES: a signal's keys mix several questions' options, so a
+ * cue such as "accept" could map a "yes" to the opposite delta. The longest
+ * matching key wins; a tie or no match returns undefined.
+ */
+export function resolveHintedOptionKey(signal_key: string, choice: string): string | undefined {
+  if (!Object.hasOwn(SIGNAL_MAP, signal_key)) return undefined;
+  const keys = Object.keys(SIGNAL_MAP[signal_key]!);
+  if (keys.includes(choice)) return choice;
+  const label = normalizeOptionLabel(choice);
+  if (!label) return undefined;
+  let best: string | undefined;
+  let bestWords = 0;
+  let tie = false;
+  for (const key of keys) {
+    const words = key.replace(/-/g, ' ');
+    if (label !== words && !label.startsWith(words + ' ')) continue;
+    const n = words.split(' ').length;
+    if (n > bestWords) {
+      best = key;
+      bestWords = n;
+      tie = false;
+    } else if (n === bestWords) {
+      tie = true;
+    }
+  }
+  return tie ? undefined : best;
+}
+
+/** One line per signal key with its option keys, as `--signal-keys` prints it. */
+export function signalKeyLines(): string[] {
+  return Object.entries(SIGNAL_MAP).map(([key, byChoice]) => `${key}: ${Object.keys(byChoice).join(' | ')}`);
+}
+
+/**
  * Validate that every signal_key referenced in the registry has a matching
  * entry in SIGNAL_MAP. Called by tests to catch drift.
  */

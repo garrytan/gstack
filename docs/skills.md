@@ -961,7 +961,10 @@ arms, decoys, stop rules, cap) and `--check` refuses to continue while a field i
 blank (`PREREG_INCOMPLETE`). `arms` resolves the `eval-arms` model role against
 `lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`
 runs every row through the stub model for $0 and flags malformed rows
-(`EVAL_DRY_RUN_FAILED`); `pilot start|settle|release|report` runs three priced
+(`EVAL_DRY_RUN_FAILED`), and refuses a plan whose every arm is Haiku or Sonnet
+unless `--tier-question` names what it asks about that tier, re-costing it on
+frontier models ([frontier models under test](TESTING_INTERNALS.md#frontier-models-under-test));
+`pilot start|settle|release|report` runs three priced
 items, records actual spend, extrapolates each priced arm to the full set against
 the cap (`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question
 shows. An arm on a subscription with no extra charge is declared with

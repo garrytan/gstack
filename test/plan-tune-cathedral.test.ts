@@ -62,6 +62,7 @@ function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string;
     'archetypes.ts',
     'one-way-doors.ts',
     'declared-annotation.ts',
+    'qid-marker.ts',
   ]) {
     const src = path.join(ROOT, 'scripts', f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(scriptsDir, f));
