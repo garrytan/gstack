@@ -116,8 +116,9 @@ function main(): number {
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
     return g.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
   };
-  const scope = scopeOf([base]);
-  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([base]);
+  const diffBase = collected.mergeBase ?? base;
+  const scope = scopeOf([diffBase]);
+  let gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([diffBase]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const force = flag('--force') === 'all' ? 'all' as const : list('--force');
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
