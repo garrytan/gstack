@@ -3723,6 +3723,15 @@ reads `gstack-pregate clear: receipt refused — REUSE: refused reason=<code> �
 branch's `run_profiles`. Each reason code and
 what it checks is listed in [run evidence](pregate.md#run-evidence).
 
+`gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` on a lane
+with no run profile refuses with this code too, reading `REUSE: refused
+reason=<code> — …`: `run_ref_invalid` (not an Actions run URL or id on this
+repository), `api_error` (gh could not read the run), `workflow_mismatch` (a
+run of another workflow), `run_in_progress` (still queued or running) or
+`run_not_success` (it failed, was cancelled or timed out). Each prints a fix
+line; after the last three, clear again with a finished green run of the
+lane's own workflow ([run evidence](pregate.md#run-evidence)).
+
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s
 tree only in the repo's stamp rule (`.gstack/ship-policy.json` on the base
 branch: `stamp_files`, `stamp_patterns`, the built-in version, manifest,
@@ -3824,7 +3833,7 @@ after `clear`), so it clears nothing here; or a `clear --run` receipt names
 another tree than `pregate.json`'s with no substitution recorded (`run
 receipt(s) verified for another tree`).
 
-**Fix.** Dispatch that job, then
+**Fix.** Dispatch that job, wait for it to finish green, then
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` (or
 `--bundle-lane <label>` from an evidence bundle). For `pregate.json/remote_gate`,
 `clear --remote pregate.json/remote_gate --receipt <gate output>`: the gate's

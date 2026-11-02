@@ -380,7 +380,7 @@ The record is `.gstack/tmp/pregate.json` (`gstack-artifact validate --as pregate
 (`PREGATE_STALE`: rerun after the final stamp), green (`PREGATE_LANE_FAILED`,
 `PREGATE_INCOMPLETE`, or `PREGATE_ENVIRONMENT` when every incomplete check is
 the machine's) and every `requires-remote` obligation carries a receipt
-(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, then
+(`PREGATE_REMOTE_UNCLEARED`: dispatch the job, wait for it to finish green, then
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>`). The ship
 receipt then carries `pregate` and `requires_remote`. `gstack-pregate verify`
 runs the same check standalone.
@@ -751,8 +751,8 @@ reads `remote-gate tree=<t12> tests=<n> runs=<id>/<attempt>,… profiles=<p>,…
 heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
 stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
 the same way; for such a lane `--run-url` is verified as `--run` is, and
-`--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
-recording, with one check (GSTA-203): when the base config and the GitHub
+`--bundle-lane` is refused. A lane with no profile still clears by
+`--run-url`, with run checks (GSTA-203): when the base config and the GitHub
 origin can be read, `clear` reads the run once and refuses
 `PREGATE_RECEIPT_INVALID` unless it is a run of this repository whose
 workflow file is the lane's own `<workflow.yml>`. A run of another workflow
