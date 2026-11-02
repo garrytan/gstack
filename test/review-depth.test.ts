@@ -113,6 +113,44 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
 });
 
 /**
+ * GST-967's safety property, as a permanent invariant over the transitions table (Captain, 2026-11-02: the invariant is the
+ * gate, a reader the second check). Every state: passes 0-3, each last step, every mix of the four fix flags, gate class or
+ * not, Step 11 run or not, grant recorded or not, fix-checks counted or defaulted.
+ */
+describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; a recorded grant always gets its fix-check', () => {
+  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant always turns a round-2 stop for a fixed finding into exactly one fix-check while changing nothing else; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
+  //   why_new=GST-967 (three earlier fixes failed open and a reviewer caught each after the fact); seam=nextStep, planReview; no_claim=the parent following NEXT
+  test('every state of the table holds the property', () => {
+    let states = 0, voices = 0, grants = 0;
+    for (const fullPasses of [0, 1, 2, 3]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++)
+      for (const gate of [false, true]) for (const adversarialRan of [false, true]) for (const fixChecks of [undefined, 0, 1, 2]) {
+        const h = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), gate, adversarialRan, fixChecks };
+        const plain = nextStep(h), granted = nextStep({ ...h, granted: 'a-1' });
+        const rounds = fullPasses + (fixChecks ?? (last === 'fix-check' ? 1 : 0));
+        const ungatedStop = nextStep({ ...h, gate: false }).step === 'stop';
+        states++;
+        for (const n of [plain, granted]) {
+          if (gate && !adversarialRan) expect(n.step).not.toBe('stop');
+          if (n.step === 'voices') expect([gate, adversarialRan, ungatedStop]).toEqual([true, false, true]);
+        }
+        if (plain.step === 'voices') voices++;
+        const owed = ungatedStop && !h.blockingOpen && rounds === FULL_PASS_CAP && (!gate || adversarialRan);
+        if (owed) grants++;
+        expect([granted.step === 'fix-check' && plain.step !== 'fix-check', granted.step === plain.step]).toEqual([owed, !owed]);
+        if (owed) expect(granted.reason).toContain('a-1');
+      }
+    expect(states).toBe(4 * 3 * 16 * 2 * 2 * 4);
+    expect([voices > 0, grants > 0]).toEqual([true, true]);
+    const gatePlan = (o: Partial<PlanInput>) => planReview(base({ gateTagged: 1, targeted: { classes: ['gate'] }, ...o }));
+    for (const fullPasses of [1, 2]) for (const last of ['full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) {
+      const p = gatePlan({ history: { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), granted: bits & 1 ? 'a-1' : undefined } });
+      expect(p.next.step).not.toBe('stop');
+      if (p.next.step === 'voices') expect(p.dispatches.map(d => d.role)).toEqual(['adversarial-native', 'outside-voice', 'targeted']);
+    }
+  });
+});
+
+/**
  * The GST-967 dispatch-superset no-loss check (crew rule 2026-10-30; replay 'GST-967' in test/review-packets-removed.test.ts).
  * On a 1,440-case grid (five diffs: light, standard, gate, docs, tests; passes 0-2; last none, full or fix-check; every mix of
  * the four fix flags; Step 11 run or not), main's planReview at 1022f4f (v1.92.81.0) hashes to MAIN_PLANS. The branch's plan,
