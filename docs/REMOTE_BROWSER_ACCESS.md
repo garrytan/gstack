@@ -154,7 +154,7 @@ CSS selectors. Always `snapshot -i` first, then use the refs.
 
 Paired agents get `read+write+admin+meta` by default; the pairing ceremony is the trust boundary. `--restrict` narrows the list (it can never grant `control`). `--control` adds the control scope (`--admin` is a legacy alias). Over the tunnel, the `js`/`cookies`/`storage` commands are blocked by the command allowlist regardless of scope; `eval` works. Pair with `--restrict "read,write"` when the agent will read untrusted web content — scope caps the prompt-injection blast radius.
 
-To tighten an already-paired agent, re-pair it with the **same `--client` name** and the narrower `--restrict`/`--domain`: a reducing re-pair revokes the previous session and releases its tabs immediately (the agent must reconnect with the new key), so the old wide access never lingers. Broadening or refreshing keeps the working session with no outage. Re-pairing without `--client` mints a new agent instead. `root` is a reserved client name.
+To tighten an already-paired agent, re-pair it with the **same `--client` name** and the narrower `--restrict`/`--domain`: a reducing re-pair revokes the previous session and releases its tabs immediately (the agent must reconnect with the new key), so the old wide access never lingers. Broadening or refreshing keeps the working session with no outage. Re-pairing without `--client` mints a new agent instead. `root` and names starting with `session:` (kept for local agent sessions) are reserved client names.
 
 ## Tab Isolation
 

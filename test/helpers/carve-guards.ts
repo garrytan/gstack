@@ -860,8 +860,9 @@ do not launch the downstream skill or open a browser.`,
 
   // ── Multi-agent wave PR D3 (2026-10-10): investigate recipes carve ──
   // Five lazy recipes (flake, polluter, race, eval-bisect, backlog) read when
-  // the Phase 2 pattern or the --backlog argument matches; Phases 1–5, the
-  // Iron Law and the Scope Lock stay always-loaded.
+  // the Recipes list or the --backlog argument matches; How to work, the
+  // Iron Law, the Scope Lock and the Report stay always-loaded (GST-938 dropped
+  // the Phases 1-5 prose: followed in 0 of 46 Opus 5.5 sessions).
   investigate: {
     skill: 'investigate',
     expectedSections: ['flake.md', 'polluter.md', 'race.md', 'eval-bisect.md', 'backlog.md', 'blast-radius.md'],
@@ -872,10 +873,10 @@ do not launch the downstream skill or open a browser.`,
       mustStayInSkeleton: [
         '## Iron Law',
         '## Arguments',
-        '## Phase 1: Root Cause Investigation',
+        '## How to work',
         '## Scope Lock',
-        '## Phase 3: Hypothesis Testing',
-        '## Phase 5: Verification & Report',
+        '## Recipes',
+        '## Report',
         'git update-index --refresh',
       ],
       mustPrecedeStop: ['## Arguments'],
