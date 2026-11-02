@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.93.26.0] - 2026-11-02
+
+**Editing the GBrain setup guide no longer runs every paid eval case on a PR screen.** The PR eval selector didn't recognize `USING_GBRAIN_WITH_GSTACK.md`, so it treated the file as an unknown dependency and fell back to the full suite. Two screens, #3727 and #3802, paid about $67 for it. No skill prompt or paid case reads the guide (only the README, `docs/gbrain-quick-tour.md` and free tests do), so it now selects nothing. A root doc that a paid prompt quotes, such as `ETHOS.md`, still selects its cases. The train gate's full census still runs every case, so coverage is unchanged (GST-1027).
+
 ## [1.93.25.0] - 2026-11-02
 
 **/setup-browser-cookies now warns that the fallback browser still trusts the compromised eMudhra intermediates (#3338).** BROWSER.md carried this warning since v1.91.239.0, but the cookie import skill did not, so an agent importing signed-in cookies into the bundled Chromium never told the user.
