@@ -1,5 +1,8 @@
 {
-  "released": true,
-  "by": "cox.local:5718",
-  "at": "2026-11-02T19:23:53.517Z"
+  "pr": "3873",
+  "holder": "cox.local:6800",
+  "started_at": "2026-11-02T19:24:03.937Z",
+  "phase": "stamping",
+  "journal": ".gstack/tmp/ship-queue/land/3873.json",
+  "phase_at": "2026-11-02T19:24:03.938Z"
 }
