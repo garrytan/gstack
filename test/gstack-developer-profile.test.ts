@@ -657,7 +657,7 @@ describe('gstack-developer-profile --check-mismatch', () => {
     const p = readProfile() as any;
     p.declared = { scope_appetite: 0.9 };
     p.inferred.values.scope_appetite = 0.45;
-    p.inferred.sample_size = 2;
+    p.inferred.sample_size = 10;
     p.inferred.contributing_events = { scope_appetite: 2 };
     fs.writeFileSync(file, JSON.stringify(p));
     const r = runDev('--check-mismatch');
@@ -672,11 +672,26 @@ describe('gstack-developer-profile --check-mismatch', () => {
     const p = readProfile() as any;
     p.declared = { scope_appetite: 0.9 };
     p.inferred.values.scope_appetite = 0.45;
-    p.inferred.sample_size = 3;
+    p.inferred.sample_size = 10;
     p.inferred.contributing_events = { scope_appetite: 3 };
     fs.writeFileSync(file, JSON.stringify(p));
     expect(runDev('--check-mismatch').stdout).toContain('scope_appetite: declared 0.9 vs inferred 0.45 (gap 0.45)');
     expect(JSON.parse(runDev('--gap').stdout).gap.scope_appetite).toBeCloseTo(0.45, 2);
+  });
+
+  test('three same-day answers that agree with the declaration are not a mismatch', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode?', user_choice: 'expand', session_id: `s${i}`, ts: '2026-10-20T12:00:00Z' });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(3);
+    p.declared = { scope_appetite: 0.9 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    const r = runDev('--check-mismatch');
+    expect(r.stdout).toContain('not enough data');
+    expect(r.stdout).not.toContain('scope_appetite: declared');
   });
 
   test('derive stores the gap for a dimension with 3 contributing events', () => {

@@ -736,7 +736,7 @@ do_check_mismatch() {
     const sampleSize = (p.inferred && p.inferred.sample_size) || 0;
     const contributing = p.inferred && p.inferred.contributing_events;
 
-    if (!contributing && sampleSize < 10) {
+    if (sampleSize < 10) {
       console.log('MISMATCH: not enough data (' + sampleSize + ' events; need 10+)');
       process.exit(0);
     }
