@@ -6,7 +6,7 @@
  * from the printed SKILL_ROOT; concurrent publishers of one identity agree;
  * the committed checkout stays byte-identical.
  */
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
@@ -20,7 +20,9 @@ import { LOCK_FILE } from '../scripts/modules-render';
 const ROOT = path.resolve(import.meta.dir, '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadout-install-'));
 const savedState = { GSTACK_HOME: process.env.GSTACK_HOME, GSTACK_STATE_ROOT: process.env.GSTACK_STATE_ROOT };
-process.env.GSTACK_HOME = process.env.GSTACK_STATE_ROOT = path.join(tmp, 'empty-state');
+beforeAll(() => {
+  process.env.GSTACK_HOME = process.env.GSTACK_STATE_ROOT = path.join(tmp, 'empty-state');
+});
 afterAll(() => {
   for (const [key, value] of Object.entries(savedState)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
   fs.rmSync(tmp, { recursive: true, force: true });
