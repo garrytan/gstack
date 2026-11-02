@@ -268,6 +268,7 @@ function cmdWrite(rest: string[], json: boolean): number {
     return EXIT.fail;
   }
   const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head);
+  if (targetedVerdict.line.includes('(unchecked: ')) process.stderr.write(targetedVerdict.line + '\n');
   if (!targetedVerdict.ok) {
     process.stderr.write(`${targetedVerdict.line}\n${resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targetedVerdict.message}; run the targeted reader on HEAD and pass its record (--review-targeted @<gstack-review-dispatch verify --targeted-out file>); nothing written`)}\n`);
     return EXIT.fail;

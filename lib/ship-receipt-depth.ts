@@ -230,9 +230,15 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   return { ...b, depthLine: d.line, targetedLine };
 }
 
-/** receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they publish (#3854). */
+/**
+ * receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they
+ * publish (#3854). Classes that failed closed on an input this checkout cannot read (no origin base, no gate scan) are reported,
+ * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
+ */
 export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
   const at = headInputs(root, baseRef, head);
   const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
-  return receiptTargetedVerdict(targetedClasses({ ...at.c, scope: at.scope, gateTagged }).classes, r);
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  const v = receiptTargetedVerdict(t.classes, r);
+  return v.ok || !t.errors.length ? v : { ok: true, line: `${v.line} (unchecked: ${t.errors.join('; ')}; the queue decides at ready)` };
 }
