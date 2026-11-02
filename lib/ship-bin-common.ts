@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
-import { parseUnifiedDiff, stampOnlyLine, versionAtRef } from './restamp';
+import { forkVersion, parseUnifiedDiff, stampOnlyLine, versionAtRef } from './restamp';
 import { matchesAny } from './ship-policy';
 import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
@@ -96,19 +96,22 @@ export function versionOnlyEdit(cwd: string, ref: string, p: string): boolean {
  * never a behavior change. A manifest counts only while its edit is version-only (a dependency, script or
  * lockfile change is a build input); bun.lock never counts.
  */
-export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string): string[] {
+export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string, base: string): string[] {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
   const fragment = fragmentPath(policy, cwd);
   return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'agents-digest/gstack-AGENTS.md', ...VERSIONED_MANIFESTS.filter(p => versionOnlyEdit(cwd, ref, p)),
     ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths),
-    ...stampedFiles(policy, cwd, ref)])];
+    ...stampedFiles(policy, cwd, ref, base)])];
 }
 
 /**
  * `stamp_files` paths whose working-tree edit against `ref` is a version stamp alone: every changed line swaps the
  * old version for the new one under a built-in form or a `stamp_patterns` template (lib/tree-receipt.ts classifyFile).
+ * A moved version is floored at `ref`'s VERSION, except on a line origin/<base> does not carry: that line is the
+ * branch's own, and after a lost slot and a merge of the base its stale stamp is older than `ref`'s VERSION, so it is
+ * floored at the fork point's version instead, the bound gstack-restamp's stamp_paths stage uses (GST-895).
  */
-export function stampedFiles(policy: Record<string, any> | null, cwd: string, ref: string): string[] {
+export function stampedFiles(policy: Record<string, any> | null, cwd: string, ref: string, base: string): string[] {
   const globs = Array.isArray(policy?.stamp_files) ? policy.stamp_files.filter((s: unknown): s is string => typeof s === 'string') : [];
   if (!globs.length) return [];
   const before = versionAtRef(cwd, ref);
@@ -119,8 +122,16 @@ export function stampedFiles(policy: Record<string, any> | null, cwd: string, re
   const templates = Array.isArray(policy?.stamp_patterns) ? policy.stamp_patterns.filter((s: unknown): s is string => typeof s === 'string') : [];
   const diff = git(cwd, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', ref]);
   if (diff.status !== 0) return [];
+  let fork: string | undefined;
+  const stamp = (rel: string, removed: string, added: string): boolean => {
+    if (stampOnlyLine(removed, added, before.version, after, templates)) return true;
+    const onBase = git(cwd, ['show', `origin/${base}:${rel}`]);
+    if (onBase.status === 0 && onBase.stdout.split('\n').includes(removed)) return false;
+    fork ??= forkVersion(cwd, `origin/${base}`, before.version);
+    return stampOnlyLine(removed, added, fork, after, templates);
+  };
   return parseUnifiedDiff(diff.stdout).filter(f => f.status === 'M' && !f.binary && !f.modeChanged && matchesAny(globs, f.path) && f.hunks.length > 0 &&
-    f.hunks.every(h => h.removed.length === h.added.length && h.removed.every((line, i) => stampOnlyLine(line, h.added[i]!, before.version, after, templates)))).map(f => f.path);
+    f.hunks.every(h => h.removed.length === h.added.length && h.removed.every((line, i) => stamp(f.path, line, h.added[i]!)))).map(f => f.path);
 }
 
 /** Under `changelog_fragments`, the branch's own Step 13 entry `<dir>/<branch-slug>.md` (docs/ship-policy.md#changelog-fragments); null without the key. */

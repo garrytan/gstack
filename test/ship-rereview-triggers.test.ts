@@ -202,6 +202,44 @@ describe('a version stamp after review (GBRA-251, gbrain #8095)', () => {
   });
 });
 
+describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => {
+  // Value: protects=after a lost slot and a merge of the base, the restamp moves the branch's own stale stamp (older
+  //   than the reviewed tree's VERSION, newer than its fork point) and finish routes that line as a stamp; a row the
+  //   base carries (another PR's release at the same version), or a branch row older than the fork point, moved the
+  //   same way still stops;
+  //   fails_when=stampedFiles floors every moved version at the reviewed tree's VERSION (behavior=1 on gbrain #8134) or
+  //   drops the floor for base lines; seam=lib/ship-bin-common.ts stampedFiles; no_claim=the restamp writer
+  const policy = JSON.stringify({ stamp_files: ['VERSION', 'src/notice.ts'], stamp_patterns: ["since: '{version}'"] });
+  const notice = (...rows: [string, string][]) => `export const NOTICES = [\n${rows.map(([v, text]) => `  { since: '${v}', text: '${text}' },`).join('\n')}\n];\n`;
+  const lostSlot = (ownRow: string) => {
+    const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old']) },
+      { VERSION: '1.0.1.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], [ownRow, 'mine']) });
+    f.advanceBase({ VERSION: '1.0.2.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs']) });
+    mergeMain(f, { VERSION: '1.0.2.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], [ownRow, 'mine']) });
+    return { f, reviewed: wtree(f), reviewedBase: mergeBase(f), post: snapshot(f) };
+  };
+  const behaviorStop = 'STOP: behavior, tests or build inputs changed since review (src/notice.ts): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)';
+
+  test('the moved stale stamp is metadata; a moved base row or pre-fork row stops', () => {
+    const own = lostSlot('1.0.1.0');
+    own.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], ['1.0.3.0', 'mine']) }); own.f.commit('restamp 1.0.3.0');
+    const ok = finish(own.f, own.reviewed, own.post, ['--reviewed-base', own.reviewedBase]);
+    expect([lineOf(ok.stdout, 'ROUTE'), lineOf(ok.stdout, 'DOCS')]).toEqual([expect.stringMatching(/ behavior=0 docs=0 metadata=2 tests=0 /), expect.not.stringContaining('src/notice.ts')]);
+
+    const base = lostSlot('1.0.1.0');
+    base.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.3.0', 'theirs'], ['1.0.3.0', 'mine']) }); base.f.commit('restamp plus the base row');
+    const b = finish(base.f, base.reviewed, base.post, ['--reviewed-base', base.reviewedBase]);
+    expect([b.status, lineOf(b.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+
+    const old = lostSlot('0.9.5.0');
+    old.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.1.0', 'theirs'], ['1.0.3.0', 'mine']) }); old.f.commit('moves a pre-fork row');
+    const o = finish(old.f, old.reviewed, old.post, ['--reviewed-base', old.reviewedBase]);
+    expect([o.status, lineOf(o.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+  });
+});
+
+
+
 describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
   // Value: protects=a base edit next to the branch's unchanged hunk asks for a scoped review of only those hunks (finish
   //   context=N, carry RECEIPT_CARRY_SCOPED_REVIEW), and a clean scoped review lets it through; fails_when=it forces the
