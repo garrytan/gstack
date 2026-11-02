@@ -91,8 +91,8 @@ gstack-brain-sync --status
 ```
 
 Shows: the status (`ok`, `idle`, `held`, `collision`, `blocked`,
-`push_failed`, `error`), files held back by the secret scan with their
-fixes, files held because their path differs only by letter case from
+`push_failed`, `error`), files held back by the secret scan or because
+they are not valid JSON, with their fixes, files held because their path differs only by letter case from
 another path (`case_held`, `case_names`; see
 [troubleshooting](troubleshooting.md#artifact-case-collision)), the
 `drainable` count, the last sync and push times, pending queue depth, and
@@ -156,7 +156,7 @@ to it); everything else syncs. The held file stays queued and is re-scanned
 at every sync, and skill start prints:
 
 ```
-ARTIFACTS_SYNC: attention: status=held held=1. The secret scan is holding back 1 file(s); everything else still syncs. See which files and how to fix them: <bin> --status
+ARTIFACTS_SYNC: attention: status=held held=1. Sync is holding back 1 file(s) that the secret scan flagged or that are not valid JSON; everything else still syncs. See which files and how to fix them: <bin> --status
 ```
 
 To remediate:
@@ -199,6 +199,12 @@ change, the other machine's version stays in the working tree and your edit
 is kept in a git stash; `gstack-brain-sync --status` names the stash and the
 `git -C ~/.gstack --literal-pathspecs restore --source=<stash> -- <path>`
 command that brings it back.
+
+JSON files such as `developer-profile.json` have no merge driver, so a
+merge can leave conflict markers in them. The sync parses every staged
+`.json` file and holds back one that does not parse (status `held`, rule
+`invalid-json`) until you repair it, and `gstack-doctor` warns when a synced profile or
+decision snapshot holds conflict markers.
 
 ## Cross-machine pull cadence
 

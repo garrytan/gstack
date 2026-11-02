@@ -210,8 +210,8 @@ not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots
 **Review policy** (docs/review-policy.md): only a finding that would fail a test,
 break production, or lose data or secrets blocks a pass; the rest is a PR-body
 note. Step 9's plan sets both reviews' depth (`--depth-floor standard|full` only
-raises it). Pass 1 reads the diff, later passes the range; the cap is two full
-passes and a fix-check. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
+raises it). Pass 1 reads the diff, later passes the range; the cap is two rounds,
+fix-checks included. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
 is the knob; the receipt's `review_loop` records the outcome.
 
 ### Ship control flow
