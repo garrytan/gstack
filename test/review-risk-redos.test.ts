@@ -43,19 +43,31 @@ describe('the rm rule matches what R51 matched', () => {
   //   one it did; seam=SECURITY_LINE's rm pattern against R51's original source
   const r51 = /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/;
   const rm = SECURITY_LINE.find(r => r.source.startsWith(String.raw`\brm\s+-`))!;
+  let x = 898;
+  const next = (n: number) => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) % n; };
   test('the same verdict on 60,000 seeded short lines and the hand-picked edges', () => {
-    let seed = 898;
-    const next = (n: number) => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed % n; };
+    x = 898;
     const prefixes = ['rm -', 'rm  -', 'xrm -', ' rm\t-', 'rm-', 'rm -- ', '"rm -', 'brm -', 'rm -r ', ''];
-    const alphabet = 'rfFRa1_- .x/m';
+    const alphabet = 'rfrfrfFRa1_- .x/m';
     const lines = Array.from({ length: 60_000 }, () => prefixes[next(prefixes.length)] + Array.from({ length: next(11) }, () => alphabet[next(alphabet.length)]).join(''));
     const edges = ['rm -rf /', 'rm -fr x', 'rm -Rf x', 'rm -rF x', 'rm -rvf x', 'rm -frv', 'rm -r -f x', 'rm -rf1', 'rm -rf_x', 'rm -rfx', 'rm -rf-x', 'rm -f', 'rm -r', 'rm -rrf', 'rm -ffr', 'rm -rfr', 'farm -rf x', 'rm-rf x', 'rm\t\t-rf', 'sudo rm -rf "$DIR"'];
     const differ = [...lines, ...edges].filter(s => rm.test(s) !== r51.test(s));
     expect(differ).toEqual([]);
+    expect(lines.filter(s => r51.test(s)).length).toBeGreaterThan(1000);
     expect(edges.filter(s => rm.test(s))).toEqual(['rm -rf /', 'rm -fr x', 'rm -rvf x', 'rm -rf-x', 'rm -rrf', 'rm -ffr', 'rm -rfr', 'rm\t\t-rf', 'sudo rm -rf "$DIR"']);
   });
-  test('rmSync with recursive: true still raises security, up to 500 characters into the call', () => {
+  test('the rmSync rule matches what R51 matched on 60,000 seeded short lines, and padding past its window still raises security', () => {
+    x = 898;
+    const r51Sync = /\brmSync\s*\([^)]*recursive\s*:\s*true/;
+    const rmSync = SECURITY_LINE.find(r => r.source.startsWith(String.raw`\brmSync`))!;
+    const parts = ['rmSync(', 'rmSync (', 'xrmSync(', 'recursive', ':', ' ', 'true', ')', 'a', 'recursive: true', 'rmSync', '(', '\t'];
+    const lines = Array.from({ length: 60_000 }, () => Array.from({ length: next(9) + 1 }, () => parts[next(parts.length)]).join(''));
+    expect(lines.filter(s => rmSync.test(s) !== r51Sync.test(s))).toEqual([]);
+    expect(lines.filter(s => r51Sync.test(s)).length).toBeGreaterThan(1000);
     expect(security('fs.rmSync(dir, { recursive: true, force: true });')).toBe(true);
     expect(security('fs.rmSync(' + 'a'.repeat(480) + ', { recursive: true })')).toBe(true);
+    expect(security('fs.rmSync(dir, /*' + 'x'.repeat(501) + '*/ { recursive: true, force: true });')).toBe(true);
+    expect(security('fs.rmSync(dir, /*' + 'x'.repeat(5_000_000) + '*/ { recursive: true });')).toBe(true);
+    expect(security('fs.rmSync(dir, { force: true });')).toBe(false);
   });
 });
