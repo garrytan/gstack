@@ -55,6 +55,7 @@ const ANY_LABEL = new RegExp(`(?<![A-Za-z0-9])(${LABELS})(?![A-Za-z0-9])`);
 const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
+const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)\d+[.)]\s/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
@@ -107,7 +108,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * states `Blocks: no` collects at its own Severity field; one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL.
  */
 export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -163,6 +164,12 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
     if (detail && !blocks) { current!.raw += ` | ${t}`; continue; }
+    if (afterGap && current?.heading && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t)) {
+      current.raw += ` | ${t}`;
+      if (blocks) current.label = 'CRITICAL';
+      else if (label) current.label = stronger(current.label, label);
+      continue;
+    }
     const fresh = (listItem && !detail) || (!indented && !detail && (t.startsWith('**') || afterGap)) || (!!current?.fields.size && locus);
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
@@ -170,6 +177,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     if (found) {
       current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
       current.fixable = inherited?.toUpperCase() === 'FIXABLE';
+      current.heading = !indented && NUMBERED_HEAD.test(t);
       if (!indented) head = t;
       continue;
     }

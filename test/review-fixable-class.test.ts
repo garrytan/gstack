@@ -37,6 +37,18 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(parseFindings('adversarial-native', '**FIXABLE**\n- Leak in a.ts:3\n  Severity: Medium', false).map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', 'FIXABLE: race in a.ts:3. Severity: Low. Blocks: no-op path only', false).map(f => f.label)).toEqual(['CRITICAL']);
   });
+  // Value: protects=a paragraph under a numbered finding heading joins that heading's finding, so the reader's later Severity and Blocks
+  //   fields attach to it instead of splitting it into a CRITICAL heading plus a body item (gstack-evals #149); fails_when=any of the three
+  //   shapes collects 4 findings or the heading alone keeps CRITICAL on a code-class plan; why_new=#149 split native findings in both
+  //   classes; seam=parseFindings; no_claim=how unnumbered headings group
+  test.each([
+    ['### 1. FIXABLE: race in a.ts:3\n\nThe body explains it.\n\nSeverity: Medium, Blocks: no\n\n### 2. FIXABLE: drift in b.ts:9\n\nMore body.\n\nSeverity: Low, Blocks: no'],
+    ['**1. Race in a.ts:3** FIXABLE\n\nBody.\n\nSeverity: Medium, Blocks: no\n\n**2. Drift in b.ts:9** FIXABLE\n\nBody.\n\nSeverity: Low, Blocks: no'],
+    ['### 1. Race in a.ts:3 — FIXABLE\n\nBody.\n\n**Severity:** Medium\n**Blocks:** no\n\n### 2. Drift in b.ts:9 — FIXABLE\n\nBody.\n\n**Severity:** Low\n**Blocks:** no'],
+  ])('a numbered finding heading keeps its body paragraph and fields (#149) %#', (output) => {
+    expect(parseFindings('adversarial-native', output, false).map(f => f.label)).toEqual(['Medium', 'Low']);
+    expect(parseFindings('adversarial-native', output, true).map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
+  });
   test('collect reads the class from --manifest and defaults to the gate class without one', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst987-'));
     const out = path.join(dir, 'native.txt');
