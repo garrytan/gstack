@@ -27,7 +27,7 @@ import { NON_DOWNGRADABLE, PREGATE_CONFIG_PATH, userPolicyAbsent } from './confi
 import { sha256, withFingerprint } from './context';
 import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnlyTree } from './remote-receipt';
 import { resolveBaseBranch } from '../ship-policy';
-import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
+import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 import { workflowCallers } from './workflows';
 
@@ -279,10 +279,17 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
         : `${target.workflow} has no workflow_dispatch trigger, so push a commit that starts it`;
       return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}${callers.length ? ` or a workflow that calls it (${names})` : ''}`, `clear ${lane} with a run of its own workflow${callers.length ? ` or of a workflow that calls it (${names})` : ''}: ${start}, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
     }
-    const ran = caller ?? { file: target.workflow, dispatch };
+    const runOf = caller ?? { file: target.workflow, dispatch };
     const green = `then gstack-pregate clear --remote ${lane} --run-url <the green run's URL>`;
-    if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${ran.file} if it fails), ${green}`);
-    if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${ran.file} (gh run rerun ${id}${ran.dispatch ? `, or gh workflow run ${ran.file} --ref <branch>` : ''}), ${green}`);
+    if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${runOf.file} if it fails), ${green}`);
+    if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${runOf.file} (gh run rerun ${id}${runOf.dispatch ? `, or gh workflow run ${runOf.file} --ref <branch>` : ''}), ${green}`);
+    if (caller) {
+      let jobs: ApiJob[];
+      try { jobs = input.evidence.deps.jobs(id, run.run_attempt); }
+      catch (e: any) { return invalid(`api_error — reading run ${id}'s jobs failed: ${String(e?.message ?? e).slice(0, 300)}`, `check gh auth status and that gh can read ${repo}'s Actions runs, then rerun the same clear`); }
+      const called = (name: string) => caller.jobs.some(n => name.startsWith(n) && /^(?: \([^)]*\))? \/ /.test(name.slice(n.length)));
+      if (!jobs.some(j => j.conclusion === 'success' && called(j.name))) return invalid(`caller_job_skipped — run ${id} attempt ${run.run_attempt} of ${caller.file} has no successful job under ${caller.jobs.map(n => `"${n} / …"`).join(' or ')}, so ${target.workflow} did not run in it`, `clear with a ${caller.file} run in which that job runs${caller.dispatch ? ` (gh workflow run ${caller.file} --ref <branch>)` : ''}, ${green}`);
+    }
     return { receipt: `https://github.com/${repo}/actions/runs/${id}/attempts/${run.run_attempt}`, attested: false };
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);

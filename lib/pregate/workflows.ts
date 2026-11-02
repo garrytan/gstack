@@ -192,23 +192,25 @@ function triggers(top: Block[]): string[] {
 
 /**
  * Whether `workflow` has a workflow_dispatch trigger, and the repo's workflow files with a job that calls it as a local
- * reusable workflow (`uses: ./.github/workflows/<workflow>`), each with its own workflow_dispatch trigger. A workflow_call
- * run reports its caller's file, so a caller's run is a run of the lane (GST-971). A missing or unreadable file has no trigger.
+ * reusable workflow (`uses: ./.github/workflows/<workflow>`), each with its own workflow_dispatch trigger and the display
+ * names of its calling jobs. A workflow_call run reports its caller's file, and its jobs as `<calling job> / <job>`, so a
+ * caller's run is a run of the lane (GST-971). A missing or unreadable file has no trigger.
  */
-export function workflowCallers(repoRoot: string, workflow: string): { dispatch: boolean; callers: Array<{ file: string; dispatch: boolean }> } {
+export function workflowCallers(repoRoot: string, workflow: string): { dispatch: boolean; callers: Array<{ file: string; dispatch: boolean; jobs: string[] }> } {
   const dir = path.join(repoRoot, '.github', 'workflows');
   let names: string[] = [];
   try { names = fs.readdirSync(dir).filter(n => /\.ya?ml$/.test(n)).sort(); } catch { return { dispatch: false, callers: [] }; }
   const want = `./.github/workflows/${workflow}`;
   let dispatch = false;
-  const callers: Array<{ file: string; dispatch: boolean }> = [];
+  const callers: Array<{ file: string; dispatch: boolean; jobs: string[] }> = [];
   for (const n of names) {
     let top: Block[];
     try { top = outline(fs.readFileSync(path.join(dir, n), 'utf8')); } catch { continue; }
     const canDispatch = triggers(top).includes('workflow_dispatch');
     if (n === workflow) dispatch = canDispatch;
-    const calls = (find(top, 'jobs')?.children ?? []).some(job => (find(job.children, 'uses')?.value ?? '').replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, '') === want);
-    if (calls && n !== workflow) callers.push({ file: n, dispatch: canDispatch });
+    const jobs = (find(top, 'jobs')?.children ?? []).filter(job => (find(job.children, 'uses')?.value ?? '').replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, '') === want)
+      .map(job => (find(job.children, 'name')?.value ?? job.key).replace(/^['"]|['"]$/g, ''));
+    if (jobs.length && n !== workflow) callers.push({ file: n, dispatch: canDispatch, jobs });
   }
   return { dispatch, callers };
 }

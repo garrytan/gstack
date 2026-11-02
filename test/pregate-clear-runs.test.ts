@@ -10,7 +10,7 @@ import { EXIT, type PregateFile } from '../lib/headless-artifacts';
 import { buildContext } from '../lib/pregate/context';
 import { discoverLanes } from '../lib/pregate/workflows';
 import { clearDecision, clearObligation, runPregate, verifyPregate, type RunCheck } from '../lib/pregate/index';
-import type { ApiRun, RunDeps, RunProfile } from '../lib/run-evidence';
+import type { ApiJob, ApiRun, RunDeps, RunProfile } from '../lib/run-evidence';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -74,13 +74,13 @@ function check(repo: FixtureRepo, runs: FakeRun[], over: Partial<RunCheck> = {})
 }
 
 /** A check whose only readable run is 300, a run of `workflow` on `head` (completed with success unless `state` says otherwise). */
-function runOfWorkflow(repo: FixtureRepo, head: string, workflow: string, state: Pick<ApiRun, 'status' | 'conclusion'> & Partial<Pick<ApiRun, 'run_attempt'>> = { status: 'completed', conclusion: 'success' }): RunCheck {
+function runOfWorkflow(repo: FixtureRepo, head: string, workflow: string, state: Pick<ApiRun, 'status' | 'conclusion'> & Partial<Pick<ApiRun, 'run_attempt'>> = { status: 'completed', conclusion: 'success' }, jobs: ApiJob[] = [{ name: 'native / job', conclusion: 'success' }]): RunCheck {
   const c = check(repo, []);
   const run = (id: number): ApiRun => {
     if (id !== 300) throw new Error('HTTP 404');
     return { id, run_attempt: 1, ...state, event: 'pull_request', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
   };
-  return { ...c, deps: { ...c.deps, run } };
+  return { ...c, deps: { ...c.deps, run, jobs: () => jobs } };
 }
 
 describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remote gate evidence', () => {
@@ -241,6 +241,10 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: `${url}/job/9`, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', undefined, [{ name: 'native (linux) / job', conclusion: 'success' }]) }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    for (const jobs of [[{ name: 'native', conclusion: 'skipped' }], [{ name: 'native / job', conclusion: 'skipped' }, { name: 'lint', conclusion: 'success' }], [{ name: 'native-other / job', conclusion: 'success' }]]) {
+      expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', undefined, jobs) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=caller_job_skipped — run 300 attempt 1 of c.yml has no successful job under "native / …", so r.yml did not run in it; ${PLATFORM} stays uncleared; fix: clear with a c.yml run in which that job runs (gh workflow run c.yml --ref <branch>), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
+    }
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'u.yml') }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=workflow_mismatch — run 300 attempt 1 ran .github/workflows/u.yml, not .github/workflows/r.yml or a workflow that calls it (c.yml); ${PLATFORM} stays uncleared; fix: clear ${PLATFORM} with a run of its own workflow or of a workflow that calls it (c.yml): gh workflow run c.yml --ref <branch>, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', { status: 'completed', conclusion: 'failure' }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_not_success — run 300 attempt 1 concluded failure; ${PLATFORM} stays uncleared; fix: rerun c.yml (gh run rerun 300, or gh workflow run c.yml --ref <branch>), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
     expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', { status: 'in_progress', conclusion: null }) }, repo.work))).toBe(`PREGATE_RECEIPT_INVALID: REUSE: refused reason=run_in_progress — run 300 attempt 1 is in_progress; ${PLATFORM} stays uncleared; fix: wait for run 300 to finish green (or rerun c.yml if it fails), then gstack-pregate clear --remote ${PLATFORM} --run-url <the green run's URL>`);
