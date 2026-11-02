@@ -388,6 +388,10 @@ gstack_result_anchor() {
     BROWSE_DEVICE_UNKNOWN) printf '%s' 'browse-device-unknown' ;;
     BROWSE_DEVICE_CDP_FAILED) printf '%s' 'browse-device-cdp-failed' ;;
     BROWSE_TOUCH_NO_DEVICE) printf '%s' 'browse-touch-no-device' ;;
+    GSTACK_CLEAN_USAGE) printf '%s' 'gstack-clean-usage' ;;
+    GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
+    GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
+    GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
     *) return 1 ;;
   esac
 }
