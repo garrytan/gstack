@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Touch fixture</title>
+<style>
+  body { margin: 0; font-family: sans-serif; touch-action: none; }
+  #carousel, #zoom, #joystick, #fire { position: absolute; display: flex; align-items: center; justify-content: center; }
+  #carousel { left: 10px; top: 10px; width: 300px; height: 120px; background: #def; }
+  #zoom { left: 10px; top: 150px; width: 300px; height: 200px; background: #fed; }
+  #joystick { left: 10px; top: 380px; width: 120px; height: 120px; background: #dfd; border-radius: 60px; }
+  #fire { left: 200px; top: 400px; width: 80px; height: 80px; background: #fdd; border-radius: 40px; }
+</style>
+</head>
+<body>
+<div id="carousel" data-index="0">item 0</div>
+<div id="zoom" data-scale="1">zoom 1</div>
+<div id="joystick" data-held="false">joystick</div>
+<button id="fire" data-shots="0">fire</button>
+<script>
+  window.__log = [];
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    document.addEventListener(type, (e) => {
+      window.__log.push({ type, touches: e.touches.length, changed: e.changedTouches.length, target: e.target.id || e.target.tagName });
+    }, { passive: false });
+  }
+
+  const carousel = document.getElementById('carousel');
+  let swipeStart = null;
+  carousel.addEventListener('touchstart', (e) => { swipeStart = { x: e.touches[0].clientX }; carousel.dataset.lastX = String(swipeStart.x); });
+  carousel.addEventListener('touchmove', (e) => { carousel.dataset.lastX = String(e.touches[0].clientX); });
+  carousel.addEventListener('touchend', () => {
+    if (!swipeStart) return;
+    const dx = Number(carousel.dataset.lastX) - swipeStart.x;
+    let index = Number(carousel.dataset.index);
+    if (dx < -50) index += 1;
+    if (dx > 50) index -= 1;
+    carousel.dataset.index = String(index);
+    carousel.textContent = 'item ' + index;
+    swipeStart = null;
+  });
+
+  const zoom = document.getElementById('zoom');
+  let pinchStart = null;
+  const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  zoom.addEventListener('touchmove', (e) => {
+    if (e.touches.length < 2) return;
+    if (pinchStart === null) pinchStart = { distance: spread(e.touches), scale: Number(zoom.dataset.scale) };
+    const scale = pinchStart.scale * spread(e.touches) / pinchStart.distance;
+    zoom.dataset.scale = scale.toFixed(2);
+    zoom.textContent = 'zoom ' + zoom.dataset.scale;
+  });
+  zoom.addEventListener('touchend', (e) => { if (e.touches.length < 2) pinchStart = null; });
+
+  const joystick = document.getElementById('joystick');
+  const fire = document.getElementById('fire');
+  joystick.addEventListener('touchstart', (e) => { joystick.dataset.touchId = String(e.changedTouches[0].identifier); joystick.dataset.held = 'true'; });
+  document.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) if (String(t.identifier) === joystick.dataset.touchId) joystick.dataset.held = 'false';
+  });
+  fire.addEventListener('touchstart', () => { fire.dataset.shots = String(Number(fire.dataset.shots) + 1); });
+</script>
+</body>
+</html>

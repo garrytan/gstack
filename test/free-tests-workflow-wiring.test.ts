@@ -174,7 +174,8 @@ describe('free-tests workflow wiring', () => {
     expect(workflow.env.FREE_SUITE_SHARDS).toMatch(/^[1-9][0-9]?$/);
     expect(planner.outputs.runner).toBe('${{ steps.plan.outputs.runner }}');
     expect(workflow.jobs['free-suite']['runs-on']).toBe('${{ needs.free-plan.outputs.runner }}');
-    expect(plan.env).toEqual({ RUNNER_OVERRIDE: '${{ inputs.free_runner }}', SHARDS_OVERRIDE: '${{ inputs.free_shards }}' });
+    expect(workflow.env.FREE_SUITE_JOBS).toMatch(/^[1-8]$/);
+    expect(plan.env).toEqual({ RUNNER_OVERRIDE: '${{ inputs.free_runner }}', SHARDS_OVERRIDE: '${{ inputs.free_shards }}', JOBS_OVERRIDE: '${{ inputs.free_jobs }}' });
     expect(plan.run).not.toContain('${{');
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'free plan '));
     const bin = path.join(directory, 'bin');
@@ -185,7 +186,7 @@ describe('free-tests workflow wiring', () => {
       const output = path.join(directory, 'output');
       fs.writeFileSync(output, '');
       const result = spawnSync('bash', ['-c', plan.run], {
-        env: { ...process.env, ...workflow.env, RUNNER_OVERRIDE: '', SHARDS_OVERRIDE: '', ...overrides,
+        env: { ...process.env, ...workflow.env, RUNNER_OVERRIDE: '', SHARDS_OVERRIDE: '', JOBS_OVERRIDE: '', ...overrides,
           PATH: `${toShell(bin)}:${process.env.PATH}`, RUNNER_TEMP: toShell(directory),
           GITHUB_OUTPUT: toShell(output), GITHUB_STEP_SUMMARY: toShell(path.join(directory, 'summary')) },
         encoding: 'utf8', timeout: 5000,
@@ -199,12 +200,13 @@ describe('free-tests workflow wiring', () => {
       const unset = resolve({});
       expect(unset.status).toBe(0);
       expect(unset.outputs.runner).toBe(workflow.env.FREE_SUITE_RUNNER);
-      expect(unset.args).toContain(`--shards ${workflow.env.FREE_SUITE_SHARDS}`);
-      const override = resolve({ RUNNER_OVERRIDE: 'ubicloud-standard-4', SHARDS_OVERRIDE: '16' });
+      expect(unset.args).toContain(`--shards ${workflow.env.FREE_SUITE_SHARDS} --shard-jobs ${workflow.env.FREE_SUITE_JOBS}`);
+      const override = resolve({ RUNNER_OVERRIDE: 'ubicloud-standard-4', SHARDS_OVERRIDE: '16', JOBS_OVERRIDE: '3' });
       expect(override.status).toBe(0);
       expect(override.outputs.runner).toBe('ubicloud-standard-4');
-      expect(override.args).toContain('--shards 16');
-      const refusals: Record<string, string>[] = [{ RUNNER_OVERRIDE: 'ubuntu-24.04' }, { RUNNER_OVERRIDE: 'ubicloud-standard-8 x' }, { SHARDS_OVERRIDE: '0' }, { SHARDS_OVERRIDE: '41' }, { SHARDS_OVERRIDE: '16; true' }];
+      expect(override.args).toContain('--shards 16 --shard-jobs 3');
+      const refusals: Record<string, string>[] = [{ RUNNER_OVERRIDE: 'ubuntu-24.04' }, { RUNNER_OVERRIDE: 'ubicloud-standard-8 x' }, { SHARDS_OVERRIDE: '0' }, { SHARDS_OVERRIDE: '41' }, { SHARDS_OVERRIDE: '16; true' },
+        { JOBS_OVERRIDE: '0' }, { JOBS_OVERRIDE: '9' }, { JOBS_OVERRIDE: '2; true' }, { JOBS_OVERRIDE: '-1' }];
       for (const bad of refusals) {
         const refused = resolve(bad);
         expect(refused.status, JSON.stringify(bad)).not.toBe(0);
