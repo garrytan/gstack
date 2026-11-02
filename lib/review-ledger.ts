@@ -433,7 +433,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
       differs.push(...ids);
     } else if (promptHash(text) === o.sha256) {
-      const parsed = parseFindings(reader, text);
+      const parsed = parseFindings(reader, text, o.fixable_raises !== false);
       const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
       else if (!unavailableOutput(o)) {

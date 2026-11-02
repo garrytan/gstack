@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fixableRaises, parseFindings } from '../lib/review-ledger';
+import { collect, fixableRaises, parseFindings, verify } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const NATIVE = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-141-native.md'), 'utf8').split('\n').filter(l => /^\d+\. /.test(l)).join('\n\n');
@@ -71,6 +71,15 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(labels([])).toEqual(['CRITICAL', 'CRITICAL']);
     expect(fs.readFileSync(ledger, 'utf8')).not.toContain('fixable_raises');
     expect(labels(['--manifest', foreign])).toEqual(['CRITICAL', 'CRITICAL']);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  test('verify re-derives a code-class collect with the class it was collected under', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst987v-'));
+    const out = path.join(dir, 'native.txt');
+    fs.writeFileSync(out, NATIVE + '\n');
+    const c = collect(path.join(dir, 'l.jsonl'), 'adversarial-native', NATIVE + '\n', path.join(dir, 'm.jsonl'), out, undefined, undefined, false);
+    expect(c.lines.map(l => l.label)).toEqual(['Medium', 'Low']);
+    expect(JSON.stringify(verify(path.join(dir, 'l.jsonl')))).not.toContain('merged_line_differs');
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
