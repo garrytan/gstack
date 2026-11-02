@@ -111,7 +111,8 @@ test.each([
   expect(facts.receipts.filter((receipt: any) => receipt.outcome === 'timeout')).toHaveLength(3 - scenario.passed);
   expect(facts.receipts.every((receipt: any) => receipt.timeoutMs === 240_000 && !receipt.answered)).toBe(true);
   expect(facts.active).toBe(0); expect(facts.answers).toBe(0); expect(facts.pendingTimers).toBe(0);
-  expect(facts.leftovers).toEqual([]); expect(facts.ownedStateLeftovers).toEqual([]);
+  expect(facts.leftovers).toEqual([]);
+  expect(facts.ownedStateLeftovers, JSON.stringify({ fixtures: facts.fixtures, inputs: facts.inputs.map((input: any) => [input.id, input.config, input.state]), events: facts.events.filter((event: any) => ['query-close', 'capture-settle', 'cleanup'].includes(event.kind)) })).toEqual([]);
   expect(facts.events.filter((event: any) => event.kind === 'query-close')).toHaveLength(scenario.queries);
   expect(facts.events.filter((event: any) => event.kind === 'cleanup')).toHaveLength(3);
 }, 20_000);

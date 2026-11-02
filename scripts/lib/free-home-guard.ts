@@ -5,8 +5,10 @@
  * the real home before and after each free shard, and names the shard's files
  * when one of those entries changed. It watches only these surfaces; it is not
  * a universal write-containment check. Live agent-session logs that a
- * concurrently running host keeps writing are excluded, and directory mtimes
- * are ignored, so only file, link and directory-set changes count.
+ * concurrently running host keeps writing are excluded, as is the one lane log
+ * `gstack-evidence run` tees this run's own output into (its exact path, from
+ * GSTACK_EVIDENCE_LOG). Directory mtimes are ignored, so only file, link and
+ * directory-set changes count.
  *
  * A shard that runs alone owns its window, so its guard names its files.
  * Concurrent shards share one HOME and cannot tell whose write a change was, so
@@ -104,6 +106,7 @@ export type FreeHomeGuardFactory = (files: string[], env: NodeJS.ProcessEnv, sta
 /** Take the baseline now; verify() returns null or the failure to report. */
 export function guardFreeHome(files: string[], env: NodeJS.ProcessEnv = process.env, scope: FreeHomeScope = { kind: 'shard' }): FreeHomeGuard {
   const home = freeHomeDir(env);
+  const ownLog = env.GSTACK_EVIDENCE_LOG && path.isAbsolute(env.GSTACK_EVIDENCE_LOG) ? path.relative(home, env.GSTACK_EVIDENCE_LOG) : null;
   const unreadable = (error: unknown) => `real home surfaces could not be snapshotted (${(error as NodeJS.ErrnoException).code ?? 'error'}); shard files: ${files.join(', ')}`;
   let before: FreeHomeSnapshot | undefined;
   let baselineError: string | undefined;
@@ -112,7 +115,7 @@ export function guardFreeHome(files: string[], env: NodeJS.ProcessEnv = process.
     verify() {
       if (!before) return baselineError!;
       try {
-        const changed = diffFreeHome(before, snapshotFreeHome(home));
+        const changed = diffFreeHome(before, snapshotFreeHome(home)).filter(entry => entry !== ownLog);
         return changed.length ? formatFreeHomeChange(changed, files, scope) : null;
       } catch (error) { return unreadable(error); }
     },
