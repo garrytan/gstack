@@ -300,7 +300,8 @@ fix-checks run at `full` effort (the lane's reasoning); specialists run at
 batched specialist, which carries the Red Team prompt and stays `full`. The
 outside voice and the native adversarial pass carry the floor sentence and end
 each finding with `Severity:` and `Blocks: yes|no`; a finding is CRITICAL when
-its label rule says so (native FIXABLE, outside Critical or High) or it says
+its label rule says so (native FIXABLE, except as the collect step below
+relaxes it on a runtime-only code or docs plan; outside Critical or High) or it says
 `Blocks: yes`, and `Blocks: no` never lowers one (`gstack-review-dispatch collect`). Work that cannot block (the Step 7 coverage audit, the Step 8
 plan-completion audit, the Step 14.5 docs audit, decision-trail reviewers,
 watchers) runs at `light`: the same model at a lower reasoning effort, never a
