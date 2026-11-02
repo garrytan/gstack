@@ -89,10 +89,16 @@ describe('submit records the shadow before GATE; the record stays private and ch
   });
   test('one row per item with the frozen item, the rule pick, eligibility, class and hashes', () => {
     expect(shadowRows.map(r => [r.item, r.item_class, r.ceo_eligible, r.rule_pick, r.status, r.retrospective])).toEqual([
-      ['uc1', 'challenge2', true, 'a', 'recorded', false], ['uc2', 'challenge2', false, 'a', 'recorded', false], ['p1', 'p1', true, 'a', 'recorded', false]]);
+      ['uc1', 'challenge2', true, 'a', 'recorded', false], ['d1', 'finding', false, null, 'recorded', false], ['d2', 'finding', false, null, 'recorded', false],
+      ['uc2', 'challenge2', false, 'a', 'recorded', false], ['d3', 'finding', false, null, 'recorded', false], ['d4', 'finding', false, null, 'recorded', false], ['p1', 'p1', true, 'a', 'recorded', false]]);
     expect(shadowRows[0].decision).toBe(`${readRun(out).run}-uc1`);
     expect(shadowRows[0].item_frozen.options.map((o: { key: string }) => o.key)).toEqual(['a', 'b']);
     expect(typeof shadowRows[0].audit).toBe('boolean');
+  });
+  test('a finding item is never ceo_eligible and has no rule pick: a CEO-only run leaves an open Critical or High finding to the owner', () => {
+    const findings = shadowRows.filter(r => r.item_class === 'finding');
+    expect(findings.map(r => [r.item, r.phase])).toEqual([['d1', 'ceo'], ['d2', 'ceo'], ['d3', 'eng'], ['d4', 'eng']]);
+    expect(findings.every(r => r.ceo_eligible === false && r.rule_pick === null)).toBe(true);
   });
   test('exactly one egress receipt per send, with the shadow sink and consent', () => {
     expect(f.receipts().map(r => [r.sink, r.consent])).toEqual([['autoplan-shadow', 'autoplan_shadow on']]);
@@ -147,20 +153,22 @@ describe('submit records the shadow before GATE; the record stays private and ch
     expect(r.stderr).toContain('(SHADOW_BEFORE_ANSWER)');
   });
   test('"Do it" relayed as tokens records owner_mode rec, owner_named false, the rec_hash and the agent role', () => {
-    ok(ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1a uc2a p1a', '--by', 'agent:capy', '--owner-reply', 'Do it'], e), 'answer');
+    ok(ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1a d1a d2a uc2a d3a d4a p1b', '--by', 'agent:capy', '--owner-reply', 'Do it'], e), 'answer');
     const d = rows(path.join(out, 'decisions.jsonl'));
     const gateRec = shadowRows[0].rec_hash;
     expect(d.map(r => [r.label, r.owner_mode, r.owner_named, r.answered_role, r.rec_hash === gateRec, r.answered_by])).toEqual([
-      ['UC1', 'rec', false, 'agent', true, 'agent:capy'], ['UC2', 'rec', false, 'agent', true, 'agent:capy'], ['P1', 'rec', false, 'agent', true, 'agent:capy']]);
+      ['UC1', 'rec', false, 'agent', true, 'agent:capy'], ['D1', 'rec', false, 'agent', true, 'agent:capy'], ['D2', 'rec', false, 'agent', true, 'agent:capy'],
+      ['UC2', 'rec', false, 'agent', true, 'agent:capy'], ['D3', 'rec', false, 'agent', true, 'agent:capy'], ['D4', 'rec', false, 'agent', true, 'agent:capy'], ['P1', 'rec', false, 'agent', true, 'agent:capy']]);
   });
   test('the reader exports the answered revision with the owner provenance', () => {
     const r = exported(['--out', out], e);
     expect(r.status).toBe(0);
     const x = JSON.parse(r.stdout);
     expect(x.rows.map((row: any) => [row.item, row.status, row.shadow.pick, row.owner.chosen, row.owner.owner_mode, row.owner.rec_hash_at_answer === row.owner.rec_hash_at_record])).toEqual([
-      ['uc1', 'recorded', 'a', 'a', 'rec', true], ['uc2', 'recorded', 'a', 'a', 'rec', true], ['p1', 'recorded', 'a', 'a', 'rec', true]]);
-    expect(x.counts.status).toEqual({ recorded: 3 });
-    expect(x.counts.ceo_eligible).toEqual({ true: 2, false: 1 });
+      ['uc1', 'recorded', 'a', 'a', 'rec', true], ['d1', 'recorded', 'a', 'a', 'rec', true], ['d2', 'recorded', 'a', 'a', 'rec', true],
+      ['uc2', 'recorded', 'a', 'a', 'rec', true], ['d3', 'recorded', 'a', 'a', 'rec', true], ['d4', 'recorded', 'a', 'a', 'rec', true], ['p1', 'recorded', 'a', 'b', 'rec', true]]);
+    expect(x.counts.status).toEqual({ recorded: 7 });
+    expect(x.counts.ceo_eligible).toEqual({ true: 2, false: 5 });
   });
 });
 
@@ -194,7 +202,7 @@ describe('a failed shadow never blocks: the gate prints and answers; owner words
     const d = rows(path.join(out, 'decisions.jsonl'));
     expect(d.find(r => r.label === 'UC2')).toMatchObject({ owner_mode: 'unparsed', owner_named: false, owner_reply_parsed: false });
     const x = JSON.parse(exported(['--out', out], e).stdout);
-    expect(x.rows.map((row: any) => [row.item, row.status, row.code])).toEqual([['uc1', 'failed', 'http'], ['uc2', 'failed', 'http'], ['p1', 'failed', 'http']]);
+    expect(x.rows.map((row: any) => [row.item, row.status, row.code])).toEqual([['uc1', 'failed', 'http'], ['d1', 'failed', 'http'], ['d2', 'failed', 'http'], ['uc2', 'failed', 'http'], ['d3', 'failed', 'http'], ['d4', 'failed', 'http'], ['p1', 'failed', 'http']]);
   });
 });
 
@@ -257,7 +265,7 @@ describe('a crash mid-call: the dispatched call settles unknown and answer recor
   });
   test('the reader labels those rows retrospective', () => {
     const x = JSON.parse(exported(['--out', out], e).stdout);
-    expect(x.counts.status).toEqual({ retrospective: 3 });
+    expect(x.counts.status).toEqual({ retrospective: 7 });
   });
 });
 
@@ -287,7 +295,7 @@ describe('every gate writer records the shadow before it prints GATE', async () 
     ok(ap(['next', '--out', out], g.env), 'next eng');
     const r = ok(ap(['close', '--out', out, '--phase', 'eng', '--deferred', 'out of time', '--by', 'human'], g.env), 'close');
     expect(lineIndex(r.stdout, 'SHADOW: recorded')).toBeLessThan(lineIndex(r.stdout, 'GATE: gate_rev=1'));
-    expect(rows(record(out)).map(x => [x.item, x.item_class, x.status])).toEqual([['uc1', 'challenge2', 'malformed'], ['d1', 'cap_deferred', 'recorded'], ['p1', 'p1', 'recorded']]);
+    expect(rows(record(out)).map(x => [x.item, x.item_class, x.status])).toEqual([['uc1', 'challenge2', 'malformed'], ['d1', 'finding', 'recorded'], ['d2', 'finding', 'recorded'], ['d3', 'cap_deferred', 'recorded'], ['p1', 'p1', 'recorded']]);
     ok(ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--by', 'human', '--rec-hash', rows(record(out))[0].rec_hash], g.env), 'answer');
     closeOut = out;
   });
@@ -298,7 +306,7 @@ describe('every gate writer records the shadow before it prints GATE', async () 
     const gateLineCalls = bin.split('\n').filter(l => /gateLines\((state|at), out\)/.test(l) && !l.includes('function gateLines'));
     expect(gateLineCalls.length).toBe(2);
     expect(gateLineCalls.every(l => l.includes('line ? [line] : []'))).toBe(true);
-    expect(bin).toContain("const step = withRunLock(out, () => { const r = doNext(out, rest); return r.gate ? claimed(out, r) : r; });");
+    expect(bin).toContain("const step = withRunLock(out, () => { const r = doNext(out, rest, price); return r.gate ? claimed(out, r) : r; });");
   });
 });
 let closeOut = '';
@@ -367,7 +375,7 @@ describe('the switch through the driver, and the spend cap', async () => {
     expect(noOutside.stdout).toContain('SHADOW: off (--no-outside)');
   });
   test('a cap that cannot cover the call journals shadow_failed budget and the gate prints', () => {
-    const { out } = start('switch-cap', f.env, ['--spend-cap', '0.05']);
+    const { out } = start('switch-cap', f.env, ['--spend-cap', '0.05', '--estimate-usd', '0.001']);
     phase(out, 'ceo', f.env);
     const r = phase(out, 'eng', f.env);
     expect(r.stdout).toContain('SHADOW: failed budget');
@@ -393,10 +401,11 @@ describe('the reader over many runs', () => {
     expect(r.status).toBe(0);
     expect(r.stderr).toContain('(CEO_ONLY_NO_GATE)');
     const x = JSON.parse(r.stdout);
-    expect(x.counts.status).toEqual({ missing: 3, failed: 3, retrospective: 3, malformed: 1, recorded: 5 });
-    expect(x.rows.length).toBe(15);
+    expect(x.counts.status).toEqual({ missing: 7, failed: 7, retrospective: 7, malformed: 1, recorded: 11 });
+    expect(x.rows.length).toBe(33);
     expect(x.counts.item_class.cap_deferred).toBe(1);
+    expect(x.rows.filter((row: any) => row.item_class === 'finding').every((row: any) => row.ceo_eligible === false)).toBe(true);
     const text = ap(['shadow', '--runs', list], e);
-    expect(text.stdout).toContain('SHADOW_EXPORT: rows=15 refused=1');
+    expect(text.stdout).toContain('SHADOW_EXPORT: rows=33 refused=1');
   });
 });

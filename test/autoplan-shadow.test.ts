@@ -117,12 +117,13 @@ describe('the reply contract: exactly one valid object per requested id', () => 
   const out = gateRun();
   const page = buildPage(readState(out), gateOf(out), decider());
   const valid = page.items.map(i => ({ id: i.item.id, action: 'decide', pick: 'a', confidence: 0.6, cites: i.findings.slice(0, 1).map(f => f.id), reason: 'r' }));
+  const P1 = valid.findIndex(v => v.id === 'p1');
   const reply = (objs: unknown[]) => '```json\n' + JSON.stringify(objs) + '\n```';
   test('the page carries each item as rendered, with its findings, and p1 lists every finding the others name', () => {
-    expect(page.items.map(i => i.item.id)).toEqual(['uc1', 'uc2', 'p1']);
+    expect(page.items.map(i => i.item.id)).toEqual(['uc1', 'd1', 'd2', 'uc2', 'd3', 'd4', 'p1']);
     expect(page.items[0]!.frozen).toMatchObject({ item_class: 'challenge2', kind: 'approval', recommended: 'a' });
     expect(page.items[0]!.findings.map(f => f.severity).every(Boolean)).toBe(true);
-    expect(page.items[2]!.findings.map(f => f.id).sort()).toEqual([...page.items[0]!.findings, ...page.items[1]!.findings].map(f => f.id).sort());
+    expect(page.items[P1]!.findings.map(f => f.id).sort()).toEqual(page.items.filter((_, i) => i !== P1).flatMap(i => i.findings).map(f => f.id).sort());
     expect(page.prompt).toContain('"id": "uc1"');
     expect(page.prompt).not.toContain('{{');
   });
@@ -132,7 +133,7 @@ describe('the reply contract: exactly one valid object per requested id', () => 
     const p = buildPage({ ...readState(out), active_plan: planFile }, gateOf(out), decider());
     expect(p.prompt).toContain('fill {{QUESTIONS}} and {{IDS}} in {{PLAN}}');
     expect(p.prompt).toContain('"id": "uc1"');
-    expect(p.prompt).toContain('uc1, uc2, p1');
+    expect(p.prompt).toContain('uc1, d1, d2, uc2, d3, d4, p1');
     expect(p.prompt.split('{{').length).toBe(4);
   });
   test('a good reply is clean', () => {
@@ -140,12 +141,12 @@ describe('the reply contract: exactly one valid object per requested id', () => 
   });
   const cases: Array<[string, unknown[] | string, string]> = [
     ['missing', valid.slice(0, 2), 'missing'],
-    ['duplicate', [...valid, valid[2]], 'duplicate'],
-    ['unknown option', valid.map((v, i) => (i === 2 ? { ...v, pick: 'z' } : v)), 'pick "z" is not an option of p1'],
-    ['foreign cite', valid.map((v, i) => (i === 2 ? { ...v, cites: ['nope'] } : v)), 'cites ["nope"] name a finding outside p1\'s origin'],
-    ['confidence above 1', valid.map((v, i) => (i === 2 ? { ...v, confidence: 1.2 } : v)), 'confidence 1.2 is not a number from 0 to 1'],
-    ['bad action', valid.map((v, i) => (i === 2 ? { ...v, action: 'approve' } : v)), 'action "approve" is not decide, send_back or hold'],
-    ['long reason', valid.map((v, i) => (i === 2 ? { ...v, reason: 'x'.repeat(401) } : v)), 'reason is not a string of at most 400 characters'],
+    ['duplicate', [...valid, valid[P1]], 'duplicate'],
+    ['unknown option', valid.map((v, i) => (i === P1 ? { ...v, pick: 'z' } : v)), 'pick "z" is not an option of p1'],
+    ['foreign cite', valid.map((v, i) => (i === P1 ? { ...v, cites: ['nope'] } : v)), 'cites ["nope"] name a finding outside p1\'s origin'],
+    ['confidence above 1', valid.map((v, i) => (i === P1 ? { ...v, confidence: 1.2 } : v)), 'confidence 1.2 is not a number from 0 to 1'],
+    ['bad action', valid.map((v, i) => (i === P1 ? { ...v, action: 'approve' } : v)), 'action "approve" is not decide, send_back or hold'],
+    ['long reason', valid.map((v, i) => (i === P1 ? { ...v, reason: 'x'.repeat(401) } : v)), 'reason is not a string of at most 400 characters'],
     ['no JSON', 'I would approve.', 'no JSON array in the reply'],
   ];
   for (const [name, objs, why] of cases) test(`${name} marks that item malformed`, () => {
@@ -206,7 +207,8 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     const { f, out, outcome } = await shadowed('good', [{ mode: 'valid' }]);
     expect(outcome.status).toBe('recorded');
     expect(outcome.line).toMatch(/^SHADOW: recorded model=claude-opus-5-5 usd=0\.0140$/);
-    expect(ids(out).map(r => [r.item, r.status, r.pick, r.rule_pick, r.prompt_sha256 === SHADOW_PROMPT_SHA256])).toEqual([['uc1', 'recorded', 'a', 'a', true], ['uc2', 'recorded', 'a', 'a', true], ['p1', 'recorded', 'a', 'a', true]]);
+    expect(ids(out).map(r => [r.item, r.status, r.pick, r.rule_pick, r.prompt_sha256 === SHADOW_PROMPT_SHA256])).toEqual([['uc1', 'recorded', 'a', 'a', true], ['d1', 'recorded', 'a', null, true], ['d2', 'recorded', 'a', null, true],
+      ['uc2', 'recorded', 'a', 'a', true], ['d3', 'recorded', 'a', null, true], ['d4', 'recorded', 'a', null, true], ['p1', 'recorded', 'a', 'a', true]]);
     expect(f.requests().map(r => r.body.max_tokens)).toEqual([4000]);
     expect(fs.existsSync(path.join(out, 'shadow', 'r1.prompt.md'))).toBe(true);
     expect(fs.readFileSync(path.join(out, 'shadow', 'shadow-r1-1.reply.txt'), 'utf8')).toContain('fake prediction');
@@ -245,9 +247,9 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     expect(ids(fixed.out).every(r => r.status === 'recorded')).toBe(true);
     const still = await shadowed('bad-twice', [{ mode: 'bad_option' }, { mode: 'bad_option' }]);
     expect(still.f.requests().length).toBe(2);
-    expect(ids(still.out).map(r => r.status)).toEqual(['malformed', 'recorded', 'recorded']);
+    expect(ids(still.out).map(r => r.status)).toEqual(['malformed', 'recorded', 'recorded', 'recorded', 'recorded', 'recorded', 'recorded']);
     expect(ids(still.out)[0]).toMatchObject({ pick: null, audit: false, malformed: 'pick "z" is not an option of uc1' });
-    expect(still.outcome.line).toContain('malformed=1/3');
+    expect(still.outcome.line).toContain('malformed=1/7');
   });
   test('a truncated reply raises max_tokens once to 8,000 (no page retry); truncated twice fails truncated', async () => {
     const raised = await shadowed('truncated-once', [{ mode: 'truncated' }, { mode: 'valid' }]);
@@ -272,7 +274,7 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     const r = await shadowed('deadline-retry', [{ mode: 'missing', delay_ms: 1200 }, { mode: 'valid', delay_ms: 1200 }], undefined, 1500);
     expect(r.ms).toBeLessThan(2400);
     expect(r.outcome.status).toBe('recorded');
-    expect(ids(r.out).map(x => x.status)).toEqual(['recorded', 'recorded', 'malformed']);
+    expect(ids(r.out).map(x => x.status)).toEqual(['recorded', 'recorded', 'recorded', 'recorded', 'recorded', 'recorded', 'malformed']);
     const slow = await shadowed('deadline-call', [{ mode: 'valid', delay_ms: 3000 }], undefined, 800);
     expect(slow.outcome.line).toBe('SHADOW: failed timeout');
     expect(slow.ms).toBeLessThan(2500);

@@ -362,7 +362,7 @@ function shadowRows(out: string, state: RunState, list: GateList, page: Page, pa
     const decision = decisionId(list.run, list.gate_rev, item.id);
     const base = {
       schema_version: 1, run: list.run, gate_rev: list.gate_rev, decision, item: item.id, item_class: item.item_class ?? null, phase: item.phase ?? null,
-      ceo_eligible: item.id === 'p1' || item.phase === 'ceo', item_frozen: frozen, rec_hash: recHash(list), rec_rev: list.rec_rev ?? 0,
+      ceo_eligible: item.item_class !== 'finding' && (item.id === 'p1' || item.phase === 'ceo'), item_frozen: frozen, rec_hash: recHash(list), rec_rev: list.rec_rev ?? 0,
       plan_sha256: page.plan_sha256, prompt_version: SHADOW_PROMPT_VERSION, prompt_sha256: page.prompt_sha256, request_sha256: page.request_sha256,
       model: replies[replies.length - 1]?.result.model ?? state.shadow?.model, gstack_version: GSTACK_VERSION, rule_pick: ruleKept(item),
       retrospective: false, page_usage: usage, page_usd: usdOf(replies), recorded_at: at,

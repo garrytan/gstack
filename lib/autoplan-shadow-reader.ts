@@ -59,7 +59,7 @@ export function exportShadow(dirs: string[]): ShadowExport {
         const status: ShadowStatus = s ? (s.retrospective ? 'retrospective' : s.status) : failed ? 'failed' : state.shadow?.enabled ? 'missing' : 'off';
         const gateItem = gate?.items.find(i => i.id === item);
         const row: ShadowExportRow = {
-          run: state.run, gate_rev: rev, item, decision: d.id, item_class: s?.item_class ?? gateItem?.item_class ?? null, ceo_eligible: s?.ceo_eligible ?? (item === 'p1' || d.phase === 'ceo'), status,
+          run: state.run, gate_rev: rev, item, decision: d.id, item_class: s?.item_class ?? gateItem?.item_class ?? null, ceo_eligible: s?.ceo_eligible ?? ((s?.item_class ?? gateItem?.item_class) !== 'finding' && (item === 'p1' || d.phase === 'ceo')), status,
           ...(status === 'failed' ? { code: String(failed!.code) } : {}),
           shadow: s ? Object.fromEntries(['action', 'pick', 'confidence', 'cites', 'reason', 'malformed', 'rule_pick', 'audit', 'model', 'prompt_version', 'prompt_sha256', 'rec_hash', 'rec_rev', 'recorded_at', 'retrospective'].filter(k => k in s).map(k => [k, s[k]])) : null,
           owner: { chosen: d.chosen ?? null, status: d.status, owner_mode: d.owner_mode ?? null, owner_named: d.owner_named ?? null, carried: !!(d.carried_from || d.carried_gate_from), carried_from: d.carried_from ?? d.carried_gate_from ?? null,

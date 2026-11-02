@@ -712,7 +712,8 @@ predictions with his answers.
   prospective evidence.
 - **The record.** `shadow/ceo-only.r<rev>.jsonl`, one row per gate item: the
   frozen item, `item_class` (`challenge2`, `challenge1`, `disagree`, `agent`,
-  `cap_deferred`, `cap_blocker`, `cap_delta`, `p1`), `ceo_eligible`, the
+  `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `p1`), `ceo_eligible`
+  (false for a `finding` item, which a CEO-only run leaves to the owner), the
   prediction, `rule_pick` (the driver's keep-direction pick, the free
   baseline), `rec_hash`, the plan and prompt hashes, the model, the gstack
   version, the page's tokens and cost, and `audit`. It is written once per
