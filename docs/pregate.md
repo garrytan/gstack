@@ -778,8 +778,13 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url`, checked only for its workflow file (a
-`windows-smoke.yml` run cannot clear `windows-free-tests.yml/windows-free-shard`). A pull request cut before these
+still clears by `--run-url`, checked only for its workflow file. On main the
+Windows obligation is `windows-smoke.yml/windows-smoke` (the six-shard
+`windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
+obligation), and a `windows-smoke.yml` run clears it. A branch cut before
+`windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
+from its own workflows, and only a `windows-free-tests.yml` run clears that. A
+pull request cut before these
 workflows uploaded `tested-tree` has no record a lane profile could verify, so
 lane profiles wait until open pull requests carry the producer (GST-555).
 
