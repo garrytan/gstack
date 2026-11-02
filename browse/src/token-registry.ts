@@ -56,6 +56,7 @@ export const SCOPE_WRITE = new Set([
   'upload', 'viewport', 'newtab', 'closetab',
   'dialog-accept', 'dialog-dismiss',
   'download', 'scrape', 'archive',
+  'device', 'tap', 'swipe', 'pinch', 'touch',
 ]);
 
 /** Page-level power tools — JS execution, credential access, page mutations */
@@ -133,6 +134,9 @@ export function assertValidClientId(clientId: unknown): asserts clientId is stri
   }
   if (clientId.trim().toLowerCase() === 'root') {
     throw new ReservedClientIdError("clientId 'root' is reserved");
+  }
+  if (clientId.trim().toLowerCase().startsWith('session:')) {
+    throw new ReservedClientIdError("clientId prefix 'session:' is reserved for agent sessions");
   }
 }
 
