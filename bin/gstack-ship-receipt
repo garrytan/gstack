@@ -97,7 +97,7 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   unreadable input records full).
   --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
   --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
-  commit the reader read (head) has another product patch and a change since it carries a targeted class. write and carry
+  commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry
   refuse a receipt whose head needs a targeted class (money, gate, auth, secret) that no done pass covers, as the queue's
   targeted verdict does once #3859 lands (RECEIPT_INVALID, RECEIPT_CARRY_REFUSED).
   --approval-run <autoplan run dir> (repeatable; resolves plan-sha citations) (W2: a class declared in origin/<base>'s
@@ -742,7 +742,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
   const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head);
-  if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue would refuse the carried receipt; run /ship on ${head.slice(0, 12)}`);
+  if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue refuses it once #3859 lands; run /ship on ${head.slice(0, 12)}`);
   const newBody = placeReceiptFirst(body, carried);
   const line = receiptSummaryLine(carried);
   if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);

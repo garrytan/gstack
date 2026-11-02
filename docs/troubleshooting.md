@@ -3235,7 +3235,8 @@ same way when the head touches money, gate, auth or secret code and no done
 targeted record covers those classes (`REVIEW_TARGETED: … verdict=missing|failed`),
 or when `--review-targeted` names a read commit whose product patch is not
 the receipt's and a change after it carries a targeted class (money, gate,
-auth or secret code changed after the targeted reader read it).
+auth or secret code changed after the targeted reader read it, a test edit the
+gate scan tags included), or that is not an ancestor of HEAD.
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
 block. For the `--head` refusal, check out that commit and write there. For a
