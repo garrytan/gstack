@@ -195,7 +195,10 @@ Two stages with separate clocks, both printed:
   changed Python (`.py`, `.pyi`) or Dart file is scanned whole and only
   findings on its added lines count, so a line added inside an existing
   `"""` or `'''` string is still read as a literal; its rows give the file's
-  line number (`app.py, line 10`).
+  line number (`app.py, line 10`). A tracked file's whole text is the version
+  git diffed (a full-context `git diff`), never the working copy; an untracked
+  file is read whole from disk. A file over the size limit, or whose full diff
+  does not parse, is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, `tmp*`, `scratch*`) anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
@@ -752,7 +755,17 @@ heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
 stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
 the same way; for such a lane `--run-url` is verified as `--run` is, and
 `--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
-recording. When the base config or the GitHub origin cannot be read, `--run`
+recording, with one check (GSTA-203): when the base config and the GitHub
+origin can be read, `clear` reads the run once and refuses
+`PREGATE_RECEIPT_INVALID` unless it is a run of this repository whose
+workflow file is the lane's own `<workflow.yml>`. A run of another workflow
+refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
+ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
+run gh cannot read refuses with `api_error`, and a URL that is not an Actions
+run URL or id on this repository with `run_ref_invalid`. Only the workflow
+file is checked there, not the job, conclusion or tree; that is what a run
+profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
+unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
 warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
@@ -768,7 +781,13 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url` as before. A pull request cut before these
+still clears by `--run-url`, checked only for its workflow file. On main the
+Windows obligation is `windows-smoke.yml/windows-smoke` (the six-shard
+`windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
+obligation), and a `windows-smoke.yml` run clears it. A branch cut before
+`windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
+from its own workflows, and only a `windows-free-tests.yml` run clears that. A
+pull request cut before these
 workflows uploaded `tested-tree` has no record a lane profile could verify, so
 lane profiles wait until open pull requests carry the producer (GST-555).
 
@@ -923,8 +942,11 @@ those, each with its scope and its reason:
   (`session: HttpSession,`) and a dict entry or Dart named argument that reads
   a name (`"password": request.password`) are code, not credentials, as they
   are in TypeScript (#3630). Python's keyword form (`password=request.password`)
-  still reports. The same line inside a `"""` docstring is text and still
-  reports; allowlist it by its value. The pre-push hook sees only added lines,
+  still reports. The same line inside a `"""` docstring, any other string or
+  a Dart `/* */` comment is text and still reports; allowlist it by its value.
+  Code inside a Python f-string or t-string `{…}` field, or a non-raw Dart
+  string's `${…}`, is read as code, and its nested strings and quotes do not
+  end the outer string (GST-738). The pre-push hook sees only added lines,
   so it scans Python and Dart lines without this exemption and may still warn
   (MEDIUM, non-blocking) on them.
 

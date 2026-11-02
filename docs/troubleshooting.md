@@ -880,7 +880,11 @@ pick a new `--output`), then copy the recovery file to where you want it.
 **Meaning.** On Codex, Factory, OpenCode, Cursor, Copilot and Kiro every bash
 block finds gstack on its own: an exported `GSTACK_ROOT` (with `bin/` and
 `lib/`), then a repo-local install, then the host's global install
-(`$CODEX_HOME/skills/gstack` on Codex). None existed.
+(`$CODEX_HOME/skills/gstack` on Codex). None existed. A skill installed for one
+folder (Hermes, or the Codex install `./setup` writes) is the exception for its
+first block: that block runs the folder's own `bin/gstack-skill-start` and
+ignores an exported `GSTACK_ROOT`. When the folder is missing, the block prints
+this line and its start command then fails.
 
 **Fix.**
 
@@ -3277,6 +3281,42 @@ result.
 **Fix.** Run `gstack-autoplan status --out <dir>` and submit for the attempt
 the last `next` printed (`ATTEMPT: ... phase=<p> voice=<v>`).
 
+<a id="ceo-only-conflict"></a>
+### `CEO_ONLY_CONFLICT`
+
+**Meaning.** `gstack-autoplan next --ceo-only` was combined with `--ui`,
+`--developer-tool` or `--agent-primary` (on the command line or in the plan's
+`gstack-autoplan-scope` marker), each of which adds a phase a CEO-only run
+never opens; or the marker names `--ceo-only` (the mode is a command-line
+choice for one run, so a plan can't pin it); or the plan is `<out>/ceo-review.md`
+(directly, through a symlink or a hard link), the report the run would write
+over it. The finish checks that last case again before it writes the report.
+
+**Fix.** Drop the conflicting flag (or the marker token), move the plan out of
+the report path, or run the full review without `--ceo-only`.
+
+<a id="ceo-only-after-init"></a>
+### `CEO_ONLY_AFTER_INIT`
+
+**Meaning.** `next --ceo-only` named a run directory that already holds a full
+review run. A run keeps the mode it started with.
+
+**Fix.** Start the CEO-only run in a new `--out` directory, passing
+`--ceo-only` on its first `next`.
+
+<a id="ceo-only-no-gate"></a>
+### `CEO_ONLY_NO_GATE`
+
+**Meaning.** `answer`, `recommend` or `revise` was run on a CEO-only run, or
+`gstack-approvals import` was pointed at one. A CEO-only
+run writes no gate, ends `status=reviewed` and is never approved, so there is
+nothing to answer, change or import. (`budget` and `close --deferred` still
+work: they are how a budget-stopped CEO-only run recovers.)
+
+**Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
+full review in a new directory: `gstack-autoplan next --out <new dir> --plan
+<file>` without `--ceo-only`.
+
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`
 
@@ -4604,7 +4644,10 @@ train still building, running or merging, `train watch` on an unknown record,
 unreadable run), `verify --pr <n> --train <nonce>` when main's tree mismatches
 and whether a slot merged on GitHub cannot be read (so whether the queue must
 freeze is unknown; it never answers "nothing merged" from an unreadable
-state), `train land` when the base or the train branch cannot be fetched or
+state), `verify --pr <n> --train <nonce>` when GitHub does not report the PR
+MERGED and it is not a release-only PR whose stamp-only diff already matches
+main, or when it could not read the PR's current head (`--no-fetch` or a failed
+fetch), without freezing the queue, `train land` when the base or the train branch cannot be fetched or
 the record's T0 and S_1..S_k are not the gated head's first-parent chain
 (each S_i's second parent slot i's pin), `train land` when main's tree is the
 slot's S_i but GitHub does not report the PR as MERGED (a record whose slot
@@ -4710,14 +4753,60 @@ the name already landed. Then rerun.
 <a id="queue-land-locked"></a>
 ### `QUEUE_LAND_LOCKED`
 
-**Meaning.** Another `gstack-ship-queue land` holds the repository land lock
-(`refs/notes/gstack-land`), or took it from under this run, so this one would
-race it for the next version. The line names the holder, its PR and phase.
+**Meaning.** Another `gstack-ship-queue land`, or a `train land` slot, holds the
+repository land lock (`refs/notes/gstack-land`), or took it from under this run,
+so this one would race it onto main. The line names the holder: `#<pr>` for a
+land, `train <nonce> slot <i> (#<pr>)` for a train, with its holder and phase. A
+train keeps the lock in phase `between` from one merged slot to the next, so no
+standalone land slips in between slots.
 
 **Fix.** Wait for the holder to finish. If it crashed, rerun with
-`--break-lock`; that is refused while the holder entered a push or a merge
-less than 10 minutes ago. A lock in phase `drift` is released by landing its
-repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)).
+`--break-lock`, which prints the holder (`LOCK_HOLDER:`). That is refused while
+the holder entered a push or a merge less than 10 minutes ago, while a train is
+between slots for less than 10 minutes, and for a live train run unless you also
+pass `--break-train-lock`. A lock in phase `drift` is released by landing its
+repair PR ([QUEUE_LAND_DRIFT](#queue-land-drift)); a lock in phase `freeze` is
+released by the verify that clears the freeze
+([QUEUE_TRAIN_FROZEN](#queue-train-frozen)). If that release push failed, the
+next `land` or `train land` takes the lock over once the freeze record it fetches
+shows the freeze cleared after the lock was written; `--break-lock` never does.
+
+<a id="queue-train-unstamped"></a>
+### `QUEUE_TRAIN_UNSTAMPED`
+
+**Meaning.** `verify --pr <n> --train <nonce>` found the slot head it would let
+merge without its own stamp: the head's `VERSION` is not above main's, or its
+CHANGELOG's top section is not headed with that version directly above main's
+top release (or keeps an `[Unreleased]` section main does not have). The line
+names the rule, the head's version and main's. Train 33 merged #3527 this way
+(a no-commit base merge, a restamp whose files were never staged, a bare
+commit) and shipped it under #3526's version. Nothing was merged.
+
+**Fix.** On the lane, run `gstack-restamp --next` on the head, commit what
+restamp staged, push, and rerun the verify.
+
+<a id="restamp-not-staged"></a>
+### `RESTAMP_NOT_STAGED`
+
+**Meaning.** `gstack-restamp` wrote the stamp but `git add` failed, so a bare
+`git commit` would leave the stamp out. The files stay written, and
+`.gstack/tmp/restamp-staging.json` records what is still to stage.
+
+**Fix.** Clear what blocked `git add` (a stale `.git/index.lock`, for
+example) and rerun `gstack-restamp`; the rerun is a noop that stages the files
+it wrote. When any of them changed since restamp wrote it (you committed by
+hand, switched branches or merged the base), the marker is stale: the noop
+rerun drops it and stages nothing, and a stamp still owed is restamped as usual.
+
+<a id="restamp-unstaged-edits"></a>
+### `RESTAMP_UNSTAGED_EDITS`
+
+**Meaning.** A file `gstack-restamp` would stamp holds unstaged edits of yours.
+Restamp stages what it writes, so those edits would ride along in the stamp
+commit. Nothing was written.
+
+**Fix.** Stage (`git add`) or stash your own edits to the named files, then
+rerun `gstack-restamp`.
 
 <a id="queue-land-conflict"></a>
 ### `QUEUE_LAND_CONFLICT`

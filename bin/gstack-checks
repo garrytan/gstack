@@ -1,14 +1,16 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * gstack-checks — the build-and-verify loop's checks for /verify. Logic: lib/checks.ts.
+ * gstack-checks — the build-and-verify loop's checks for /verify, and /health's tool detection. Logic: lib/checks.ts.
  */
 import { spawnSync } from 'node:child_process';
 import { cancelActive } from '../lib/pregate/supervise';
-import { MAX_FAIL_LINES, TESTS, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
+import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
 
 const USAGE = `Usage: gstack-checks <detect|trust|run|status> [options]
 
   detect                 list the checks run would execute and whether they are trusted (reads files only)
+  detect --for health    /health's dimensions: DIMENSION <name> <command>  (<source>), or DIMENSION <name> none
+                         (<reason>); a CLAUDE.md Health Stack section wins (reads files and PATH only)
   trust                  trust the current command set for this repo (checks, the pregate runner and its
                          selection manifest commands); any change to one of them needs trust again
   run [--only a,b] [--allow-repo-commands] [--timeout <s>]
@@ -43,6 +45,14 @@ async function main(argv: string[]): Promise<number> {
   const [verb, ...args] = argv;
   if (!verb || verb === '--help' || verb === '-h') { process.stdout.write(USAGE); return verb ? 0 : 64; }
   if (!['detect', 'trust', 'run', 'status'].includes(verb)) { process.stderr.write(USAGE); return 64; }
+  const mode = flag(args, '--for');
+  if (args.includes('--for')) {
+    if (verb !== 'detect' || mode !== 'health') { process.stderr.write(USAGE); return 64; }
+    const d = healthDimensions(process.cwd());
+    for (const c of d.checks) process.stdout.write(`DIMENSION ${c.dimension} ${c.command}  (${c.source})\n`);
+    for (const m of d.missing) process.stdout.write(`DIMENSION ${m.dimension} none  (${m.reason})\n`);
+    return 0;
+  }
   const root = repoRoot();
   if (!root) { process.stderr.write('gstack-checks: not inside a git repository\n'); return 3; }
   const timeoutS = Number(flag(args, '--timeout') ?? 600);
