@@ -192,6 +192,24 @@ describe('review start/end binding (#2803)', () => {
     expect(cli('gstack-wtree', ['--review'])).toBe(cli('gstack-wtree'));
   });
 
+  test('GST-985: an untracked file in a dot-directory that holds a tracked file still breaks the bind', () => {
+    mkdirSync(join(repo, '.tool'));
+    writeFileSync(join(repo, '.tool', 'a.json'), '{}\n');
+    git('add', '.tool/a.json');
+    git('commit', '-qm', 'tool');
+    const token = cli('gstack-review-log', ['--start', 'review']);
+    writeFileSync(join(repo, '.tool', 'b.json'), '{}\n');
+    expect(log(token).review_binding.state).toBe('changed');
+  });
+
+  test('GST-985: gstack-wtree refuses an unknown or extra argument', () => {
+    for (const args of [['--bogus'], ['--review', 'x']]) {
+      const r = spawnSync(join(ROOT, 'bin', 'gstack-wtree'), args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain('Usage: gstack-wtree [--review]');
+    }
+  });
+
   for (const file of ['.github/workflows/x.yml', '.gstack/ship-policy.json']) {
     test(`GST-985: an untracked ${file} added mid-review still breaks the bind`, () => {
       const token = cli('gstack-review-log', ['--start', 'review']);
