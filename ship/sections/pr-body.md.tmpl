@@ -214,6 +214,8 @@ or a body missing the exception line, is `DOCS_AUDIT_BLOCKED` with nothing writt
 When the owner accepted a stop after a fix-check edit, add
 `--review-loop-exception @<file>` (`{accepted_by, date, via, reason, fix_check: {head, findings}}`)
 and put its printed `Review-loop exception:` line in the body; never a prose line under `REVIEW_LOOP:`.
+When `gstack-review-dispatch verify` printed `REVIEW_EXCLUDE_RECORD: digest=<d>`, add `--review-exclude <d>`;
+a digest that no longer matches HEAD is `RECEIPT_INVALID field=review_exclude`: rerun the review, not the write.
 
 The summary reads this branch's review log for the invocation's passes (its
 `REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). The `&&`

@@ -57,15 +57,18 @@ const NO_LOSS_REPLAYS = {
   'PR-a': "GSTA-167 variant G Arm 4: structural plan identity at the 14 cohort heads and the free exact re-score of saved C, D and A' findings (parts 4a and 4b)",
   'G1': "GSTA-167 variant G Arm G1: live no-loss replay of both prose voices with part 1's prompts, 2 passes, normalizer v2, paired rule against pooled C' (parts 1 and 3; specialists at medium as in C and C2)",
   'L': "GSTA-167 variant G Arm L: live no-loss replay of one batched reader (testing and security plus scoped checklists) and the Red Team on its findings, 2 passes, scored L∘G1 against G1 on the paired rule (part 2)",
+  'GST-508': "GST-508 (#3744, GSTA-202) preregistered no-loss replay of review_exclude_paths at ef2760f: Arm V found 33 of 41 blockers vs R 33 of 41, exact sign flip with delta 4, p_NI 0.0279 (pass); Arm P identical depth, dispatch and reader sets on 26 of 26 units (GStack Minder drive handoffs/GSTA-202/noloss-results.md)",
   'GST-257': "GST-257 PR 1 dispatch-superset no-loss check (test/review-targeted.test.ts): on every fixture diff the branch dispatches main's reviewers at 8be7f21 unchanged plus only the targeted reader, and over the last 100 non-release commits on main it lost none; adds the targeted role and brief to the G1 and L bytes, whose existing reviewer text is unchanged",
   'GST-464': "GST-464 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/review-army.md and adversarial.md is byte-identical to the bodies at the L and GST-257 pins; only lead instructions outside the cut spans changed",
   'GST-850': "GST-850 dispatch-superset no-loss check: on the 26 GSTA-167 no-loss units the branch plan (wider security and money classes, write-up text in the batched diff) drops no reviewer role main dispatches, so no saved blocker can be lost, and over the last 100 main commits no commit with a gate or risk class drops depth (test/review-risk-routing.test.ts, test/review-risk-linear.test.ts); reviewer text is unchanged",
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
+  'GST-508+R51': "wave review-53cfb5bfe011 merge of #3744 into main: lib/review-depth.ts keeps both admitted changes, the GST-508 no-loss replay of review_exclude_paths (Arm V 33 of 41 blockers vs R 33 of 41, p_NI 0.0279; GStack Minder drive handoffs/GSTA-202/noloss-results.md) and the R51 risk-tier re-score with GST-850's dispatch-superset no-loss check: excluded paths sit beside the added and removed line maps, and the exclusion filter keeps the publishes-docs rule",
+  'GST-508+GST-464': "wave review-53cfb5bfe011 merge of #3744 into main: ship/sections/review-army.md and adversarial.md carry the GST-508 no-loss-replayed exclude pathspec placeholders inside the brief bodies (handoffs/GSTA-202/noloss-results.md) and the GST-464 lead-instruction edits outside the cut spans, which its brief-identity no-loss check admitted",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: 'c7edb2a8c19fc8b2c9aa31f443f6c49ebe28528390a0efc47ecc6ac3e3a057be', replay: 'GST-464' },
-    'ship/sections/adversarial.md': { sha: 'b70577b6987869acd76cc3865f16eeeed743558c0ea09e5f9933d0d8aec8b91e', replay: 'GST-464' },
+    'ship/sections/review-army.md': { sha: '08656d4272c3c2ebf288a6a2c5e2126fa27f3d2bb9910bad925534e10e22a669', replay: 'GST-508+GST-464' },
+    'ship/sections/adversarial.md': { sha: 'dacc8a01cd3ac8ffcf124334f55b0749d91b72d14eae059a0c8cfc8adca42b84', replay: 'GST-508+GST-464' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: '607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699', replay: '#3638' },
@@ -82,21 +85,22 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '839205a409014fb2cca6988a01aa04c98c495d8d24bd94895a86bf7794627338', replay: 'GST-850' },
+    'lib/review-depth.ts': { sha: 'a0824d6376dffcd1145f32fae9f5de7a9687025b76546c06b2a060a973495570', replay: 'GST-508+R51' },
     'lib/review-risk.ts': { sha: '18f0330ddfda0032eb93516b0eb941fa4244e0a68b028e19c436c74609093b03', replay: 'GST-850' },
 };
 
 /**
  * The six reviewer brief bodies lib/review-brief.ts cuts out of the two ship sections, pinned at
- * the bytes replays L and GST-257 admitted. A section repin under GST-464 is valid only while every
- * body still hashes here: the section may change outside the cut spans, never inside them.
+ * the bytes replays L and GST-257 admitted, except fixtures, redTeam and native, which carry the exclude
+ * pathspec placeholders the GST-508 replay admitted (byte-identical to #3744 at 995e442). A section repin under
+ * GST-464 is valid only while every body still hashes here: the section may change outside the cut spans, never inside them.
  */
 const BRIEF_BODIES: Record<string, string> = {
   specialist: '1ebe47ddb3291a9e4fe90b5a260eb57e328144959549bc95c119b68d23652cb5',
   framing: 'aad667b5ea4c6d23d930dafffa38178c04be388cd4364fb73759fc92af17bb63',
-  fixtures: '9517c86befe773e76acbf30a0642ed828e211b8ecb524325702072b26429ef16',
-  redTeam: '1cca7957d13f9da08434870290b92958f37750207047b92c9aa52a802da789e8',
-  native: 'ddb1041ec1e4dd373c3e4ab9017e49316e78c230055c1ef3db1bbba518b143a2',
+  fixtures: 'fbe52f3a9e0f4442eb755f1747a95944b373b439bd05c61f3eb68345d1061a5b',
+  redTeam: '6dd670ea040535ca6cceab81c29a395bb67ce5a2ab8fa2b81e51bc4711e4aada',
+  native: 'a7cc08fb31b6ca65932a316d589f0b09677426d193d63f88ec74fee6d93ce053',
   outside: 'bd96406da28b03742384560425a333b6d6d7ed2be95bd2026c90e0039632cee2',
 };
 const bodyHashes = (root: string) => Object.fromEntries(Object.entries(sectionTexts(root)).map(([k, v]) => [k, createHash('sha256').update(v).digest('hex')]));
