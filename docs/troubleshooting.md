@@ -2184,6 +2184,78 @@ command again.
 
 **Fixed in.** The first release after v1.91.101.0 (#3167).
 
+<a id="browse-session-invalid"></a>
+### ``browse: the session name is not 1-64 letters, digits, dots, colons, underscores or dashes ("<name>"); fix: pick a name like agent-1 ... (BROWSE_SESSION_INVALID)``
+
+**Meaning.** `BROWSE_SESSION` or `--session` holds a name browse will not use
+as a tab owner.
+
+**Fix.** Use a short name such as `agent-1`. An empty `BROWSE_SESSION=` turns
+sessions off and uses the shared active tab.
+
+<a id="browse-session-root-only"></a>
+### ``browse: only the local root token may name a session ... (BROWSE_SESSION_ROOT_ONLY)``
+
+**Meaning.** A paired or scoped agent sent a session name. Sessions are for
+local agents that share the root token; scoped agents already get their own
+tabs.
+
+**Fix.** Run `newtab` and pass the returned `tabId` on every command.
+
+<a id="browse-session-tab-reset"></a>
+### ``browse: this session's tab was closed ... (session <name>'s tab <id> was closed; it was on <url>); fix: open the page again ... (BROWSE_SESSION_TAB_RESET)``
+
+**Meaning.** The tab this session was working in is gone: someone ran
+`closetab` on it, closed the window, or it sat idle past
+`BROWSE_SESSION_IDLE_MINUTES` (default 120). browse refuses reads instead of
+answering from a blank page.
+
+**Fix.** `browse goto <url>` in the same session opens a new tab for it, then
+`snapshot` again before using `@refs`.
+
+<a id="browse-session-limit"></a>
+### ``browse: every session slot is running a command ... (BROWSE_SESSION_LIMIT)``
+
+**Meaning.** `BROWSE_MAX_SESSIONS` sessions (default 16) are all mid-command,
+so browse could not close an idle one to open a tab for a new session.
+
+**Fix.** Retry in a moment, or raise `BROWSE_MAX_SESSIONS`.
+
+<a id="browse-device-unknown"></a>
+### ``browse: no Playwright device has that name, so nothing on the tab changed ("<name>"; nearest: ...); fix: $B device --list (BROWSE_DEVICE_UNKNOWN)``
+
+**Meaning.** `$B device <name>` matches names from Playwright's `devices`
+table, case-insensitively. The name you gave is not in it, so the tab was not
+touched. The line lists the three nearest names.
+
+**Fix.** `$B device --list` prints every name; quote names with spaces
+(`$B device "iPhone 15"`). Add `--landscape` for the rotated profile.
+
+**Fixed in.** The first release after v1.92.61.0 (#3058).
+
+<a id="browse-device-cdp-failed"></a>
+### ``browse: Chromium refused a device emulation call on this tab (<method>: <error>; the tab is partly emulated); fix: $B device off (BROWSE_DEVICE_CDP_FAILED)``
+
+**Meaning.** Phone emulation is three DevTools calls on the tab's own session
+(size, touch, user agent). One failed; the line names it and says whether the
+calls before it already changed the tab.
+
+**Fix.** `$B device off` clears all three, then try the device again. If it
+keeps failing, the tab or browser is gone: `$B restart`.
+
+**Fixed in.** The first release after v1.92.61.0 (#3058).
+
+<a id="browse-touch-no-device"></a>
+### ``browse: touch input needs a phone profile on this tab first ($B tap on this tab); fix: $B device "iPhone 15" (BROWSE_TOUCH_NO_DEVICE)``
+
+**Meaning.** `tap`, `swipe`, `pinch` and `touch` send real touch events,
+which pages only see on a touch device. The current tab has no phone profile.
+
+**Fix.** `$B device "iPhone 15"` (or any name from `$B device --list`) on
+the same tab, then repeat the touch command.
+
+**Fixed in.** The first release after v1.92.61.0 (#3058).
+
 ---
 
 ## Windows
@@ -3316,6 +3388,19 @@ work: they are how a budget-stopped CEO-only run recovers.)
 **Fix.** Read `<run dir>/ceo-review.md`. For a gate and an approval, start a
 full review in a new directory: `gstack-autoplan next --out <new dir> --plan
 <file>` without `--ceo-only`.
+
+<a id="shadow-before-answer"></a>
+### `SHADOW_BEFORE_ANSWER`
+
+**Meaning.** `gstack-autoplan shadow` skipped a gate revision whose plan
+approval (`p1`) is unanswered or was answered `c` (interrogate). The export
+pairs each hidden prediction with the owner's answer, so a revision he has not
+answered has nothing to pair it with. Answered revisions of the same run still
+export; the command exits 3 only when nothing was exported.
+
+**Fix.** Answer the gate (`gstack-autoplan answer --out <dir> --gate-rev <n>
+...`), then run `gstack-autoplan shadow` again. See
+[Shadow mode](unattended.md#shadow-mode).
 
 <a id="attempt-mismatch"></a>
 ### `ATTEMPT_MISMATCH`
@@ -6242,7 +6327,7 @@ QM registration does not work yet. QM's skill-pack import clones the whole repos
 
 ## Module loadouts (gstack-modules)
 
-These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control.
+These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modules` (guide: [loadouts.md](loadouts.md)). Each one exits 2 before anything is written, and none falls back to the `full` loadout: an eval arm that silently rendered `full` would measure the control. The exceptions are the install-time notices `LOADOUT_INVALID_MODEL`, `LOADOUT_MISMATCH` and `LOADOUT_FALLBACK` (from `bin/gstack-modules install`, the Capy installer and `gstack-skill-start`): an install never fails on them and serves `full` instead.
 
 <a id="loadouts-invalid"></a>
 ### `LOADOUTS_INVALID: modules/loadouts.json …`
@@ -6253,6 +6338,21 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 ### `LOADOUT_UNKNOWN: "<name>" is not a loadout (valid: …)`
 
 **Meaning.** `--loadout` or the first token of `--modules` names no loadout in `modules/loadouts.json`. **Fix.** Use a name from the `valid:` list (`bin/gstack-modules list` prints them); `full` is always present.
+
+<a id="loadout-invalid-model"></a>
+### `LOADOUT_INVALID_MODEL: "<id>" is not a plain model id; using full`
+
+**Meaning.** The model id given to the installer (`--model`) or in `GSTACK_MODEL` is not a plain id after normalizing (lowercase letters, digits, `.`, `_` and `-`, at most 80 characters), so it never reaches a launch file or a start line. The full skills are served; nothing failed. **Fix.** Pass the model id as your model list names it, for example `--model claude-opus-5-5` or `--model anthropic/claude-opus-5-5` ([loadouts](loadouts.md#how-gstack-picks-a-loadout)).
+
+<a id="loadout-mismatch"></a>
+### `LOADOUT_MISMATCH: <baked id> vs <running id>: read <full root>/<skill>/SKILL.md now`
+
+**Meaning.** The skill you opened is the lite render made for one model, and `GSTACK_MODEL` says this session runs another. Lite is measured only on the baked model. **Fix.** Read the named full SKILL.md and follow it instead of the lite one. To stop it recurring, run the installer with this session's model (`scripts/install.sh --model <id>`) and read skills from the `SKILL_ROOT` it prints.
+
+<a id="loadout-fallback"></a>
+### `LOADOUT_FALLBACK: <reason>; serving full`
+
+**Meaning.** A lite tree could not be published (a render or dangling-reference failure, an unwritable state root, or a published folder whose files no longer match its `loadout.lock.json`), so the installer served the full skills and printed `SKILL_ROOT` for them. Nothing else changed. **Fix.** Fix the named reason; for a folder whose files changed, delete `<state root>/loadouts/<loadout>-<digest>` and rerun the installer, which publishes it again.
 
 <a id="module-spec-invalid"></a>
 ### `MODULE_SPEC_INVALID: …`
@@ -6283,3 +6383,27 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 ### `RENDER_DEST_NOT_OWNED: <dir> exists and holds no loadout.lock.json`
 
 **Meaning.** `--out-dir` is a non-empty directory that an earlier `gstack-modules render` did not write, so replacing it could delete someone's files. **Fix.** Pass a new or empty directory, or the directory of an earlier render.
+
+## Per-repo cleanup (gstack-clean)
+
+These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<repo>/.gstack/tmp/`, browse logs over 1 MB and, with `--audit-days N`, old browse audit entries. It changes nothing unless you pass `--apply`, and `gstack-clean --help` lists what it touches.
+
+<a id="gstack-clean-usage"></a>
+### `gstack-clean: an unknown flag or a bad --audit-days value … (GSTACK_CLEAN_USAGE)`
+
+**Meaning.** A flag is not one of `--apply`, `--audit-days N`, `--json` or `--help`, or `--audit-days` got something other than a whole number of days from 1 to 99999. The line quotes the bad value and the last line is the usage line. Exit 2; nothing was read or changed. **Fix.** `gstack-clean --audit-days 30`, for example.
+
+<a id="gstack-clean-target-refused"></a>
+### `gstack-clean: the folder to clean is not a safe per-repo .gstack folder … (GSTACK_CLEAN_TARGET_REFUSED)`
+
+**Meaning.** gstack-clean only cleans `<git toplevel>/.gstack` for the directory you run it in. It refuses outside a git checkout, when `.gstack` is a symlink, when `BROWSE_STATE_FILE` points at a different folder's `browse.json`, and when the folder is, holds or sits inside the gstack state root (`~/.gstack` by default), where your learnings and settings live. Exit 3; nothing was touched. **Fix.** Run it from inside the repository, unset `BROWSE_STATE_FILE` (or point it at this repository's `.gstack/browse.json`), and replace a symlinked `.gstack` with a real folder.
+
+<a id="gstack-clean-partial"></a>
+### `FAILED <path> <errno>` … `(GSTACK_CLEAN_PARTIAL)`
+
+**Meaning.** One or more removals or cuts failed, usually `EACCES` or `EPERM` (a read-only file or folder) or `EBUSY` (another program holds the file). Every other action finished. Exit 1. **Fix.** Rerunning is safe: fix the permissions on each FAILED path, or wait for the program holding it to finish, then run `gstack-clean --apply` again.
+
+<a id="gstack-clean-internal"></a>
+### `gstack-clean: unexpected gstack-clean failure … (GSTACK_CLEAN_INTERNAL)`
+
+**Meaning.** gstack-clean hit an error it does not expect; the line names it. Exit 1. Changes made before the error stay made, and each was checked right before it was made. **Fix.** Rerun once; if it repeats, report the printed error to the gstack maintainers.
