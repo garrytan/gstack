@@ -181,7 +181,8 @@ follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a te
 fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
 directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
 `manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
-consumer each keep the path code, and YAML, TOML and SVG are always code. More than
+consumer each keep the path code, and YAML, TOML and SVG are never data (an SVG can
+still be an [allowlisted docs path](#allowlisted-docs-paths)). More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
@@ -201,17 +202,55 @@ in a data file still schedules the outside voice.
 added and deleted lines; any class makes the depth full (`risk:<class>` in
 `reasons=`, `review_depth.risk` in the receipt). money, auth and secret are the
 [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code)'s matchers.
-**security** is a trust-boundary path (trust, redact, sanitize, neutralize,
-consent, escape) or line (`shell: true`, `execSync(`, `eval`, `new Function(`,
-raw HTML sinks, a shell run through argv, recursive deletes). **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+**money** also reads metering and charge words in a path or on a line (meter,
+metering, metered, charge, charged, billable, billed, credits) and three
+pairs: usage beside a token or cost word, proxy beside billing, and a client
+beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
+(GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
+`required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
+consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
+raw HTML sinks, a shell run through argv, recursive deletes), outbound URL
+handling (`fetch`, `http(s).request`, axios, got, undici, `requests` or `urlopen`
+on anything but one string literal, `new URL` from input, redirect toggles, proxy
+settings and host allowlists), archive extraction and path traversal (`tar.x`,
+adm-zip, yauzl, extract-zip, `extractall`, `tar -x`, `unzip`, `path.join` or
+`resolve` on request or entry input, a `'..'` check added or removed), and Node
+exec through any `child_process` spelling: a named import of `exec`, `execSync`
+or `spawn` (one line or split over lines), a default or namespace import, a
+whole-module or destructured `require` or dynamic `import`. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
 the patterns and `DEPTH_RULES` includes it.
 
-**UI text and SVGs** stay code (light unless a risk class applies). A docs path
-for UI copy, locale values and chart SVGs waits for an allowlist classifier: three
-rounds of R51 review found bypasses in line-pattern versions of both.
+<a id="allowlisted-docs-paths"></a>
+**Allowlisted docs paths (GST-850).** Two kinds of path are docs when
+`lib/review-allowlist.ts` accepts them, and code otherwise; three rounds of R51
+review found bypasses in line-pattern versions, so both are allowlists that read
+the whole input in linear time and fail closed on anything they do not parse.
+
+- **A new SVG** whose whole file is one `svg` root built from presentational
+  elements (`svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
+  `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, gradients and `stop`,
+  `clipPath`, `use`, `symbol`, `marker`, `pattern`, `mask`) and presentational
+  attributes. No namespace prefixes, `on*` or binding attributes (`:x`, `v-bind:`,
+  `x-bind:`, `@x`), entities other than the five predefined ones, doctype,
+  CDATA or processing instructions other than the XML declaration; `href` only
+  on `use` and only `#fragment`; `url(#id)` only in presentation attributes and
+  no `url(` in `style`; no backslash escapes; no `{{` or `${` in text. An edited
+  SVG stays code.
+- **A locale resource edit**: a JSON, ARB, YAML, PO, `.strings`, XLIFF, Fluent
+  or `.properties` file under a `locale(s)`, `i18n`, `l10n`, `translation(s)` or
+  `lang` directory, where every deleted line pairs with an added line with the
+  same key and only the literal string value changes, with no markup, encoded
+  character, script or link scheme, and the same placeholders. Added or removed
+  keys, UI component files (`.tsx`, `.vue` and the rest), i18n source files and
+  anything under `config/` stay code.
+
+A write-up with one clean chart and no code is one reader (the outside voice on
+its numbers). When a diff publishes numbers, the batched specialist's diff keeps
+the write-up's text files instead of leaving docs out. `ALLOWLIST_RULES` hashes
+the lists and patterns and `DEPTH_RULES` includes it.
 
 **Batched checklists (the lean ensemble, GSTA-167 part 2).** One specialist
 subagent reads Testing and Security on every code or gate diff, plus
@@ -252,7 +291,7 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/review-targeted.ts`, `lib/review-risk.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `lib/review-risk.ts`, `lib/review-allowlist.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,

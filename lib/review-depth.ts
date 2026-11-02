@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
+import { ALLOWLIST_RULES, localeTextOnly, presentationalSvg } from './review-allowlist';
 import { matchRisk, RISK_RULES, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
@@ -55,7 +56,7 @@ const RELEASE_METADATA = [/^CHANGELOG\.md$/, /^VERSION$/, /^agents-digest\//];
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope|targeted|risk)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted|risk|allowlist)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
@@ -68,7 +69,7 @@ const DATA_CONFIG = [
 
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
+  RISK_RULES, ALLOWLIST_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
   patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
@@ -131,7 +132,9 @@ export interface ClassInput {
    * (lib/review-collect.ts). A candidate not listed counts as docs; 'all' or no scan keeps every data file code.
    */
   consumed?: readonly string[] | 'all';
-  /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
+  /** Paths the diff creates (untracked files included): a new SVG is an allowlist candidate only when its added lines are the whole file. */
+  created?: readonly string[];
+  /** Added and deleted lines per path (lib/review-collect.ts): the allowlisted docs paths and the risk classes read them; without them neither applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
 }
@@ -140,7 +143,16 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
-const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
+/**
+ * An allowlisted docs path (GST-850, lib/review-allowlist.ts): a new SVG whose whole file is presentational, or a locale resource
+ * edit that changes only literal string values. Agent prose, gate paths and config files never qualify; an edited SVG stays code.
+ */
+const allowlisted = (i: ClassInput, p: string): 'svg' | 'locale' | null => {
+  if (!i.added?.[p]?.length || classifyPath(p, i.root) !== 'code' || [...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p))) return null;
+  if (/\.svg$/i.test(p)) return i.created?.includes(p) && !i.removed?.[p]?.length && presentationalSvg(i.added[p]!.join('\n')) ? 'svg' : null;
+  return localeTextOnly(p, i.removed?.[p], i.added[p]) ? 'locale' : null;
+};
+const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || allowlisted(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -152,6 +164,10 @@ export function classifyDiff(i: ClassInput): ClassResult {
   for (const p of i.paths) { const c = pathClass(i, p); if (CLASS_RANK[c] > CLASS_RANK[cls]) raise(c, `${c}: ${p}`); }
   const data = i.paths.filter(p => unconsumedData(i, p));
   if (data.length) reasons.push(`docs: ${data.length} data path(s) no code names`);
+  for (const kind of ['svg', 'locale'] as const) {
+    const n = i.paths.filter(p => allowlisted(i, p) === kind).length;
+    if (n) reasons.push(`docs: ${n} ${kind === 'svg' ? 'presentational SVG' : 'locale text'} path(s)`);
+  }
   const s = i.scope ?? {};
   if (s.SCOPE_ERROR) {
     raise('code', `scope error: ${s.SCOPE_ERROR}`);
@@ -395,7 +411,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const skipped: string[] = [];
   const dispatches: Dispatch[] = [];
   const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) => dispatches.push({ role, name, effort, exclude, ...extra });
-  const docsAndOutputs = i.paths.filter(p => pathClass(i, p) === 'docs' || isOutput(i, p)).map(excludeSpec);
+  const docsAndOutputs = i.paths.filter(p => (pathClass(i, p) === 'docs' && !(i.numbers.publishes && DOC_PATH.test(p))) || isOutput(i, p)).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
   const specialist: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;

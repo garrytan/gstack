@@ -21,14 +21,14 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
-import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_PATH_TOKENS, SECRET_LINE, SECRET_PATH, matchRisk } from './review-risk';
+import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_LINE_TOKENS, MONEY_PAIRS, MONEY_PATH_TOKENS, SECRET_LINE, SECRET_PATH, matchRisk } from './review-risk';
 
 export const TARGETED_CLASSES = ['money', 'gate', 'auth', 'secret'] as const;
 export type TargetedClass = (typeof TARGETED_CLASSES)[number];
 
 /** A hash of the patterns that decide the classes, not of this file's bytes: a comment edit keeps it, a pattern edit changes it. */
 export const TARGETED_RULES = createHash('sha256').update(JSON.stringify({
-  TARGETED_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME,
+  TARGETED_CLASSES, MONEY_PATH_TOKENS, MONEY_LINE_TOKENS, MONEY_PAIRS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME,
   patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
