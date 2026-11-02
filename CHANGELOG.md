@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.92.60.0] - 2026-11-02
+
+Free test shards can now run their files as several sub-shards side by side inside one CI job. `bun run scripts/test-free-shards.ts --ci-run <plan> --shard <i> --result <file> --jobs <k>` splits the shard into k parts that each run in their own sandboxed `bun test` process. The default stays at 1, so CI runs exactly as before until a workflow opts in. Bad `--jobs` values stop with `FREE_JOBS_INVALID`, a sub-shard that runs out of time prints `FREE_SUBSHARD_TIMEOUT` with a serial reproduce command, and every CI shard result now records per-file test and `expect()` counts. See docs/TESTING_INTERNALS.md#sub-shards-inside-one-ci-job.
+
 ## [1.92.59.0] - 2026-11-02
 
 **`test:health` and the factory scorecard leave reused main pushes out of their free-suite flake counts (#3725).** Since #3709, a main push whose merged pull request already passed on the same tree reuses that run. It finishes green, runs no shards and uploads nothing, so both readers counted it as a run with zero flakes. As reuse grows, that pulls real flake rates under the 5% bar, and `bun run test:health --enforce` stops flagging files without any error.
