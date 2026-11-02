@@ -401,7 +401,7 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
   const timedOut = r.runs.filter(x => x.outcome === 'timeout');
   const rest = r.failed ? `; ${r.failed} failed` : '';
   if (stalled.length) {
-    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in ${ctx.configFile}; 0 disables) for a test that is quiet for longer` };
+    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s and its process group used no CPU; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in ${ctx.configFile}; 0 disables) for a test that waits quietly for longer` };
   }
   const launch = r.runs.find(x => x.outcome === 'spawn-failed');
   if (launch) {
