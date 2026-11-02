@@ -843,16 +843,17 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   later review voids it, or an output with no recorded file passes on its review field (fix-checks at 721539c, 56ed6e3 and 50dc73c: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
   //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
   test('an output event edited to look refused, or a refused one edited to look accepted, is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
     const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
     const voice = (reply: string) => {
       const out = tmp();
       const ledger = path.join(out, 'review-ledger.jsonl');
       const merged = path.join(out, 'merged.jsonl');
-      const brief = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
-      const send = () => run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', brief]);
+      const brief = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
+      const send = () => run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', brief], wt);
       let n = 0;
-      const take = (text: string) => { const f = path.join(out, `ov${++n}.out`); fs.writeFileSync(f, text); return run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', f, '--merged', merged]); };
+      const take = (text: string) => { const f = path.join(out, `ov${++n}.out`); fs.writeFileSync(f, text); return run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', f, '--merged', merged], wt); };
       send();
       const c = take(reply);
       const forge = (edit: Record<string, unknown>) => {
@@ -861,8 +862,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       };
       const verify = () => {
         fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
-        expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
-        return run(['verify', '--ledger', ledger]);
+        expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')], wt).status).toBe(0);
+        return run(['verify', '--ledger', ledger], wt);
       };
       return { c, send, take, forge, verify };
     };
