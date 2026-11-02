@@ -187,7 +187,7 @@ export function checkInventory(root: string): { keys: string[]; ledger: Ledger |
   return { keys, ledger: loaded.ledger, dispatches, problems };
 }
 
-export interface PartRow { key: string; kind: 'skill' | 'shared'; label: string; loads: string; loadTokens: number | null; alwaysOnTokens: number | null; status: Status | 'missing'; ref: string }
+export interface PartRow { key: string; kind: 'skill' | 'shared'; label: string; loads: string; loadTokens: number | null; onDemandTokens: number | null; alwaysOnTokens: number | null; status: Status | 'missing'; ref: string }
 export interface Inventory {
   commit: string; date: string; tokenSource: string; keys: string[]; parts: PartRow[];
   tiers: Array<{ tier: string; skills: string[] }>; dispatches: CitedDispatch[];
@@ -219,13 +219,16 @@ export function buildInventory(root: string): Inventory {
   const evidence = (key: string) => (parts[key] ? { status: parts[key]!.status, ref: evidenceRef(parts[key]!) } : { status: 'missing' as const, ref: 'no row' });
   const rows: PartRow[] = skillKeys.map(key => {
     const s = bySkill.get(key);
-    return { key, kind: 'skill', label: key === ROOT_KEY ? 'root skill (/gstack router)' : `/${key}`, loads: 'every use', loadTokens: s ? Math.round(s.perInvocationTokens) : null, alwaysOnTokens: s ? Math.round(s.frontmatterTokens) : null, ...evidence(key) };
+    const hoisted = path.join(root, key, 'sections', 'preamble.md');
+    const shared = fs.existsSync(hoisted) ? tokensOf(`${key}/sections/preamble.md`, fs.statSync(hoisted).size) : 0;
+    const onDemand = s && key !== ROOT_KEY ? Math.max(0, Math.round(s.totalMdTokens - s.perInvocationTokens - shared)) : null;
+    return { key, kind: 'skill', label: key === ROOT_KEY ? 'root skill (/gstack router)' : `/${key}`, loads: 'every use', loadTokens: s ? Math.round(s.perInvocationTokens) : null, onDemandTokens: onDemand, alwaysOnTokens: s ? Math.round(s.frontmatterTokens) : null, ...evidence(key) };
   });
   const catalog = skillKeys.reduce((n, k) => n + (bySkill.get(k)?.frontmatterTokens ?? 0), 0);
   for (const part of SHARED_PARTS) {
     const sizes = part.files.map(f => { const file = path.join(root, f); return fs.existsSync(file) ? tokensOf(f, fs.statSync(file).size) : 0; });
     const tokens = part.key === 'catalog' ? Math.round(catalog) : sizes.reduce((a, b) => a + b, 0);
-    rows.push({ key: part.key, kind: 'shared', label: part.label, loads: part.load, loadTokens: tokens, alwaysOnTokens: part.key === 'catalog' ? tokens : null, ...evidence(part.key) });
+    rows.push({ key: part.key, kind: 'shared', label: part.label, loads: part.load, loadTokens: tokens, onDemandTokens: null, alwaysOnTokens: part.key === 'catalog' ? tokens : null, ...evidence(part.key) });
   }
   rows.sort((a, b) => (b.loadTokens ?? -1) - (a.loadTokens ?? -1) || a.key.localeCompare(b.key));
   const tiers = new Map<string, string[]>();
@@ -251,9 +254,9 @@ const n = (v: number | null) => (v === null ? 'n/a' : v.toLocaleString('en-US'))
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function renderRanking(inv: Inventory): string[] {
-  const out = ['## Parts by load per run', '', 'Load per run: a skill\'s SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part\'s files. Always-on: frontmatter every session\'s skill scanner reads.', '',
-    '| Rank | Part | Kind | Load per run (tokens) | Always-on (tokens) | Loads | Status | Source, plan or reason |', '|---|---|---|---|---|---|---|---|'];
-  inv.parts.forEach((p, i) => out.push(`| ${i + 1} | ${p.key} | ${p.kind} | ${n(p.loadTokens)} | ${n(p.alwaysOnTokens)} | ${cell(p.loads)} | ${p.status} | ${cell(p.ref)} |`));
+  const out = ['## Parts by load per run', '', 'Load per run: a skill\'s SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part\'s files. Tier 2+ skills also read the shared preamble once per session (its own row). On demand: the skill\'s other sections/ and references/ files, read when a step asks for them. Always-on: frontmatter every session\'s skill scanner reads.', '',
+    '| Rank | Part | Kind | Load per run (tokens) | On demand (tokens) | Always-on (tokens) | Loads | Status | Source, plan or reason |', '|---|---|---|---|---|---|---|---|---|'];
+  inv.parts.forEach((p, i) => out.push(`| ${i + 1} | ${p.key} | ${p.kind} | ${n(p.loadTokens)} | ${n(p.onDemandTokens)} | ${n(p.alwaysOnTokens)} | ${cell(p.loads)} | ${p.status} | ${cell(p.ref)} |`));
   return out;
 }
 
