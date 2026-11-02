@@ -34,8 +34,6 @@ const KNOWN_SITES: Record<string, string> = {
   'bin/gstack-issue-links': 'outside this wave: the gstack-issue-guard spawn moves to runScriptSync',
   // Found when the bin-constant rule was added (fix wave PR 5, item 10b).
   'bin/gstack-brain-cache': 'outside this wave: the gstack-config salience read moves to runScriptSync',
-  // Found when the scanner learned the import.meta.url bin path (#3541).
-  'bin/gstack-ship-receipt': 'the gstack-session-kind spawn moves to runScriptSync in the #3541 ship-receipt follow-up',
   'lib/autoplan-admission.ts': 'returns before the spawn on win32; the bin/gstack-lease touch moves to runScriptSync with that bin\'s owner',
 };
 
