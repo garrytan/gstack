@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.92.57.0] - 2026-11-02
+
+**Hermes can start gstack skills again (GST-882).** On stock Hermes, the Tirith scanner flagged every gstack skill's first command as HIGH ("Nested executable body could not be resolved"), so `gstack-skill-start` was denied in 8 of 8 trials. Tirith-only findings can't go on Hermes's permanent allowlist, so there was no workaround. The start line Tirith couldn't follow was a grouped fallback that picked the script through a variable.
+
+### Fixed
+- **The skill-start line on Codex, Hermes and the other env-var hosts is plain shell.** A skill installed for one folder (Hermes, and the Codex install `./setup` writes) now checks for that folder's `bin/gstack-skill-start` and then runs it by its literal path. Tirith 0.4.2 allows that line where it blocked the old one. A checked-in render keeps the same lookup order (an exported `GSTACK_ROOT`, then the repo's own install, then the global one) as plain lines, without the `{ …; exit 1;}` group. When no install exists, both print the same "no install found" line with the setup command, and the start command then fails.
+- **An install-root render's first block no longer honors an exported `GSTACK_ROOT`.** Tirith blocks any start command picked through a variable. Later blocks still honor it. `docs/troubleshooting.md` names this exception.
+
+### Tests
+- `test/skill-start-plain.test.ts`: on every host and both render kinds, the start fence has no grouped fallback, and a missing install fails loudly under `bash -u`. The install-root start command is a literal path that runs, and a checked-in render finds the global install. On each env-var host, the start lookup picks the same root as later blocks for global, repo-local and exported installs.
+
+## [1.92.56.0] - 2026-11-02
+
+**`gstack-ship-receipt write` records the session kind on Windows.** Without `--session-kind` or `GSTACK_SESSION_KIND`, it asks the `gstack-session-kind` bash helper. It used to spawn that helper by path, which never starts on Windows, so every /ship receipt there carried no `session_kind`. It now starts the helper through `lib/script-invocation.ts`, which uses Git Bash on Windows. This is the /ship half of #3541.
+
+### Fixed
+- **`bin/gstack-ship-receipt`** starts `gstack-session-kind` with `runScriptSync`.
+
+### Tests
+- `test/ship-receipt-session-kind.test.ts` (windows-free-tests too): a receipt written without a session kind records what `gstack-session-kind` prints.
+
+## [1.92.55.0] - 2026-11-02
+
+- **`/ship` finish no longer stops on a branch whose restamp moved its own stale stamp after a lost slot** (`gstack-ship-release finish`, GST-895). When a branch loses its merge slot, merges main and runs `gstack-restamp --next`, the restamp moves the branch's own `since:` rows from the lost version to the new one. Finish only accepted a moved version at or above the reviewed tree's VERSION, which now came from main, so it read those rows as a behavior change and stopped with "insert 5–11.5 → 12–14 → 16" (gbrain #8134 on 1.92.46.0). Now a line the branch added itself, by the same rule restamp uses (added since the merge base with main, and not added by main), may move any version newer than the branch's fork point, and finish routes it as release metadata. A row main carries, a row main edited after the merge, and a branch row at or before the fork point still stop. Only `stamp_files` paths count, and nothing else on the line may change.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: after a lost slot, a merge of main and a restamp, the branch's moved row routes as metadata; moving main's own row, a merged main row that main later edited, a branch row at the fork version, or one older than the fork point each stop. The first case fails on main with `behavior=1`.
+
+## [1.92.54.0] - 2026-11-02
+
+**`train land` and a single-PR `land` can no longer publish onto main at the same time, and a slot that forgot its version bump can no longer merge (#3599, #3531; GSTA-157).** Before, `train land` took no lock, so it and `land` could both read the same main and publish a combined tree neither tested. And train 33's `verify --train` said "may merge" for #3527's head after a bare commit dropped the stamp that restamp had written but not staged, so #3527 shipped under #3526's version.
+
+### Fixed
+- **`train land` takes the shared land lock** (`refs/notes/gstack-land`, now in lib/ship-queue-land-lock.ts) as `train <nonce> slot <i> (#<pr>)`. Whichever of `land` and `train land` starts second refuses with `QUEUE_LAND_LOCKED`, naming the holder. Once a slot has merged, the train keeps the lock in phase `between` until its last slot lands, through a refusal on the next slot too, so no single land slips in between slots and sets off a freeze. A stop that freezes the queue leaves the lock in phase `freeze`, which only the admitted repair train takes over while the freeze lasts; once the freeze is cleared, the next `land` or `train land` takes over a freeze lock whose release push failed. A lock ref deleted on origin now reads as no lock, not as this clone's cached copy.
+- **`--break-lock` prints the holder** (`LOCK_HOLDER:`), keeps land's staleness, mid-push and drift rules, never breaks a `freeze` lock, waits 10 minutes on a `between` lock, and refuses a live train run's lock unless `--break-train-lock` is also given. `train land` accepts both flags.
+- **`verify --train` checks the slot stamp itself**: the head's VERSION must be above main's and its CHANGELOG headed with that version directly above main's top release, or it refuses with the new `QUEUE_TRAIN_UNSTAMPED`, naming the rule and both versions. It prints `STAMP_VERSION:` from the head.
+- **`verify --train` calls a PR merged only when GitHub reports it MERGED.** An open release-only PR (#3530's shape) now gets the pre-merge check, and any other open or unreadable PR refuses with `QUEUE_PROOF_MISSING` without freezing the queue. So does a verify that could not read the PR's current head (`--no-fetch` or a failed fetch), instead of judging the unstamped pin.
+- **`gstack-restamp` stages the files it writes** and prints `STAGED:`. It refuses before writing when a stamp file holds unstaged edits of your own (`RESTAMP_UNSTAGED_EDITS`); when staging fails, it says `RESTAMP_NOT_STAGED` and the next run stages the files.
+- Two comments in lib/ship-queue-train-gate.ts now say "one spend cap per command gate across every prefix of the train", which is what the code does.
+
+### Tests
+- `test/ship-queue-land-lock.test.ts`: two writers racing one lock sha, the four lock read states, owner kinds, the `--break-lock` rules, and both lock directions, the between phase, refusal and resume, and the freeze lock's repair takeover through `bin/gstack-ship-queue`.
+- `test/ship-queue-train.test.ts`: the #3527 and #3530 shapes, the CHANGELOG rule, a claim-at-open pin, and no false freeze. `test/gstack-restamp-queue.test.ts`: staging after a no-commit merge, the unstaged-edits refusal, and a staging failure and its rerun.
+
+## [1.92.53.0] - 2026-11-02
+
+**`reap` and `up` now destroy only your own Ubicloud VMs (GST-573).** Before, every `up` destroyed any VM in the project whose TTL had ended, whoever created it, which broke the rule that cloud deletes stay with the owner who made the resource. Now reap destroys only the caller's own expired VMs and its own old TTL-less ones, and only counts other owners' expired VMs in its log (`reap: left N expired VMs of other owners; only their owners reap them`).
+
+### Changed
+- **Owner-scoped reap.** Another owner's VM, even an expired one, and an untagged one are never reaped. A lane's leftover VM is destroyed by that owner's own next `up` or `reap`, so a lane that never runs again leaves its VM until someone with that owner runs `reap` or `down`.
+
+## [1.92.52.0] - 2026-11-02
+
+**/ship on Capy runs Exploratory QA again.** Since v1.91.345.0 (#3648) the driver sent Step 9.2.1 out as a QA reader subagent, but the section says only the parent runs report-only discovery, so the reader refused on every pass ("parent-only") and the parent ran the probes afterward anyway, an extra reader call each pass (the C4-36 and C5-36 replays).
+
+### Fixed
+- **The parent runs Step 9.2.1's probes itself, as the section says.** Phase 3 does the section's method Reads and no probe; Phase 4's one program runs the smoke and plan checks after Step 8.1 collects the plan checks and before Scope Check, dedup and Fix-First, and the record's Checks heading carries the `Exploratory QA:` line. The call count is unchanged, and the section text is untouched.
+- **`gstack-review-dispatch pass` refuses a QA extra.** An extra named `qa`, or one whose prompt holds Step 9.2.1's "Only the parent runs report-only discovery.", stops the pass before any reader is created. A prompt file that cannot be read stops as an unreadable prompt, not a raw read error. The Capy skill lists Steps 7, 8 and 14.5 as extras, not Step 9.2.1.
+
+## [1.92.51.0] - 2026-11-01
+
+**PRs no longer wait on the six-shard Windows suite. A short `windows-smoke` check is the required Windows check, and the full suite runs nightly on main.** Windows has minimal support (docs/support-tiers.md). Since 2026-11-01 06:00 UTC, Windows Free Tests finished last on 71 of 73 PR heads, with a wall time of 892 s at p50 and 1,886 s at p90 over 71 green PR runs, and each run used about 59 Windows runner-minutes. The new smoke check finished in 198 s on this PR (run 41325664750). With smoke in its place, the slowest required check on a PR drops from 892 s to 562 s at p50 and from 1,877 s to 1,193 s at p90.
+
+### Changed
+- **New `windows-smoke.yml`** (check `windows-smoke`, on pull requests, pushes to main and by hand). It installs gstack with `./setup --host claude` into a separate home, starts /ship, /review, /qa-only, /investigate and /browse with `gstack-skill-start`, runs the installed browse chain against gstack's own browser, and runs 15 Windows-safe test files. Each file's reason is written next to it in the workflow. No cache: a cold `bun install` took 16 to 17 s, while restoring the cache took 33 to 42 s in a three-round A/B.
+- **`windows-free-tests.yml` runs nightly** (09:17 UTC) on main, and by hand. It no longer runs on pull requests or pushes and never blocks a merge. A red nightly gets a fix only when it shows a broken install, startup or core workflow. Other Windows-only failures close as won't fix with a link to docs/support-tiers.md.
+- **Bun cache removed** from `windows-free-tests.yml` and `windows-setup-e2e.yml`. The 18 cache entries on pull-request refs (8.05 GB) were deleted. Main's entries were left alone.
+- **`gstack-ship-queue ready --dispatch-ci`** skips a named workflow that main has but the PR branch predates, and prints a note instead of failing. GitHub reads the workflow file from the branch, so dispatching `windows-smoke.yml` on an older branch could only fail.
+
+### Gate integrity
+- `.gstack/ship-policy.json` `required_checks`: `windows-free-tests` is replaced by `windows-smoke`. The ci-hint, `--dispatch-ci` docs, train CLI help and `free-durations-record.yml` now name `windows-smoke.yml`.
+- `.gstack/pregate.json`: the `windows-free-tests.yml/windows-free-shard` remote lane is removed, since that suite no longer runs on PRs. Linux and macOS lanes are unchanged.
+- `scripts/test-health-report.ts` measures Windows from `windows-smoke.yml` PR runs.
+- No test file was deleted, skipped or re-tiered. `scripts/harness-version.json` records `scripts/test-pr-profile.ts` as a non-behavioral change, because it only lists `windows-smoke.yml` among files no paid case reads.
+
 ## [1.92.50.0] - 2026-11-01
 
 ### Fixed
