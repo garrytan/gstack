@@ -51,8 +51,10 @@ describe('the ledger covers every key and validates', () => {
     expect(validateLedger(ledger, keys)).toEqual([]);
   });
 
-  test('the initial backlog is grandfathered and the guards are safety rows', () => {
-    for (const [key, row] of Object.entries<any>(ledger.parts)) expect([key, row.grandfathered]).toEqual([key, true]);
+  test('the initial backlog is grandfathered, nothing else is, and the guards are safety rows', () => {
+    const backlog: string[] = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'inventory-grandfathered.json'), 'utf8')).keys;
+    for (const key of backlog) expect([key, ledger.parts[key]?.grandfathered]).toEqual([key, true]);
+    for (const [key, row] of Object.entries<any>(ledger.parts)) if (row.grandfathered) expect(backlog).toContain(key);
     for (const key of ['careful', 'freeze', 'guard', 'unfreeze', 'cso']) expect(ledger.parts[key].status).toBe('safety');
     for (const key of ['capy-skill', 'capy-factory']) expect(ledger.parts[key]).toMatchObject({ status: 'untested', plan: 'none' });
   });
