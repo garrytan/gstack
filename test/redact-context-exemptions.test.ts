@@ -116,7 +116,7 @@ describe("env.kv: a name-shaped literal inside a call is a file or dict key, not
       String.raw`key = json.loads(files.get("key.json", ""))`,
       String.raw`token = resp.json().get("access_token")`,
       String.raw`    session = store.load('session.cookie')`,
-      String.raw`password = os.getenv("DB_PASSWORD", "change-me-later")`,
+      String.raw`secret = vault.read("client_secret")`,
     ],
     [
       String.raw`key = "${FAKE_KEY}"`,
@@ -125,6 +125,10 @@ describe("env.kv: a name-shaped literal inside a call is a file or dict key, not
       String.raw`token = resp.json().get("access_token", "${FAKE_KEY}")`,
       String.raw`password = os.getenv("DB_PASSWORD", "hunter2.Zx9Qw8")`,
       String.raw`key = json.loads(files.get("key.json")) or "${FAKE_KEY}"`,
+      String.raw`password = os.getenv("DB_PASSWORD", "correct-horse-battery-staple")`,
+      String.raw`api_key = decrypt("prod-signing-key")`,
+      String.raw`token = decrypt("correct_horse_battery_staple")`,
+      String.raw`key = decrypt("qwhzxkvbnmplor")`,
     ],
   );
 });

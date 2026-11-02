@@ -629,13 +629,14 @@ function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
 
 /**
  * True when `text` holds a quoted, non-placeholder, high-entropy literal.
- * GST-1064: lowercase letter words joined by `_`, `.` or `-` name a file, dict
- * key or default (`"key.json"`, `"access_token"`, `"change-me-later"`); eight
- * distinct letters already reach 3.0 bits, so entropy alone cannot tell them
- * from a secret. A literal with a digit, an uppercase letter or one unbroken
- * run still counts.
+ * GST-1064: a lowercase file name (`"key.json"`) or a snake_case key of two or
+ * three words (`"access_token"`) names what the call reads; eight distinct
+ * letters already reach 3.0 bits, so entropy alone cannot tell them from a
+ * secret. A passphrase still counts: kebab or dotted words
+ * (`"correct-horse-battery-staple"`), four or more snake_case words, a digit,
+ * an uppercase letter or one unbroken run.
  */
-const NAME_SHAPED_LITERAL = /^[a-z]+(?:[_.-][a-z]+)+$/;
+const NAME_SHAPED_LITERAL = /^(?:[a-z]+(?:_[a-z]+){1,2}|[a-z]+(?:[_-][a-z]+)*\.[a-z]{2,5})$/;
 function carriesSecretLiteral(text: string): boolean {
   for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
     if (!isPlaceholderSpan(literal) && !NAME_SHAPED_LITERAL.test(literal) && shannonEntropy(literal) >= 3.0) return true;
