@@ -64,7 +64,7 @@ export const PRIOR_WHY: Record<string, string> = {
   'not-claude-code': 'ran outside Claude Code (Messages API, Codex or Capy)',
   'variant-only': 'variant against variant, no no-gstack arm',
 };
-const FIELDS = ['status', 'grandfathered', 'plan', 'prior', 'reason', 'owner', 'measure_by', 'sources', 'models', 'prompt', 'scope', 'masked', 'r48', 'seed', 'note'];
+const FIELDS = ['status', 'grandfathered', 'plan', 'prior', 'reason', 'owner', 'measure_by', 'sources', 'models', 'prompt', 'scope', 'masked', 'r48', 'seed', 'aliases', 'note'];
 
 export type LedgerCode =
   | 'LEDGER_PARSE' | 'LEDGER_KEY_MISSING' | 'LEDGER_KEY_EXTRA' | 'LEDGER_STATUS_INVALID' | 'LEDGER_FIELD_UNKNOWN'
@@ -73,7 +73,7 @@ export type LedgerCode =
   | 'LEDGER_REASON_MISSING' | 'LEDGER_OWNER_MISSING' | 'LEDGER_MEASURE_BY_MISSING' | 'LEDGER_PRIOR_INVALID'
   | 'INVENTORY_SOURCE_MISSING' | 'INVENTORY_PART_MISSING';
 export interface LedgerProblem { key: string; code: LedgerCode; message: string }
-export interface LedgerEntry { status: Status; grandfathered?: boolean; plan?: string; prior?: Array<{ ref: string; why: string[]; note?: string }>; reason?: string; owner?: string; measure_by?: string; sources?: string[]; models?: string[]; prompt?: string; scope?: string; masked?: boolean; r48?: { verdict: string; ref: string }; seed?: string; note?: string }
+export interface LedgerEntry { status: Status; grandfathered?: boolean; plan?: string; prior?: Array<{ ref: string; why: string[]; note?: string }>; reason?: string; owner?: string; measure_by?: string; sources?: string[]; models?: string[]; prompt?: string; scope?: string; masked?: boolean; r48?: { verdict: string; ref: string }; seed?: string; aliases?: string[]; note?: string }
 export interface Ledger { parts: Record<string, LedgerEntry>; unmapped?: Array<{ row: string; why: string }>; [k: string]: unknown }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -192,6 +192,7 @@ export interface Inventory {
   commit: string; date: string; tokenSource: string; keys: string[]; parts: PartRow[];
   tiers: Array<{ tier: string; skills: string[] }>; dispatches: CitedDispatch[];
   prior: Array<{ key: string; ref: string; why: string[]; note?: string }>;
+  aliases: Array<{ key: string; names: string[] }>;
   unmapped: Array<{ row: string; why: string }>; problems: LedgerProblem[];
 }
 
@@ -245,6 +246,7 @@ export function buildInventory(root: string): Inventory {
     tiers: [...tiers].sort(([a], [b]) => a.localeCompare(b)).map(([tier, skills]) => ({ tier, skills })),
     dispatches: checked.dispatches,
     prior: checked.keys.flatMap(key => (parts[key]?.prior ?? []).map(p => ({ key, ...p }))),
+    aliases: checked.keys.filter(k => parts[k]?.aliases?.length).map(k => ({ key: k, names: parts[k]!.aliases! })),
     unmapped: checked.ledger?.unmapped ?? [],
     problems: checked.problems,
   };
@@ -254,7 +256,7 @@ const n = (v: number | null) => (v === null ? 'n/a' : v.toLocaleString('en-US'))
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function renderRanking(inv: Inventory): string[] {
-  const out = ['## Parts by load per run', '', 'Load per run: a skill\'s SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part\'s files. Tier 2+ skills also read the shared preamble once per session (its own row). On demand: the skill\'s other sections/ and references/ files, read when a step asks for them. Always-on: frontmatter every session\'s skill scanner reads.', '',
+  const out = ['## Parts by load per run', '', 'Load per run: a skill\'s SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part\'s files. Tier 2+ skills also read the shared preamble once per session (its own row). On demand: the skill\'s other sections/ and references/ files, read when a step asks for them; files a shared row also counts, such as /ship\'s review sections, appear in both. Always-on: frontmatter every session\'s skill scanner reads.', '',
     '| Rank | Part | Kind | Load per run (tokens) | On demand (tokens) | Always-on (tokens) | Loads | Status | Source, plan or reason |', '|---|---|---|---|---|---|---|---|---|'];
   inv.parts.forEach((p, i) => out.push(`| ${i + 1} | ${p.key} | ${p.kind} | ${n(p.loadTokens)} | ${n(p.onDemandTokens)} | ${n(p.alwaysOnTokens)} | ${cell(p.loads)} | ${p.status} | ${cell(p.ref)} |`));
   return out;
@@ -291,13 +293,14 @@ function renderKeys(inv: Inventory): string[] {
   const skills = inv.keys.filter(k => !SHARED_KEYS.includes(k));
   return ['## Key list and aliases', '', `${inv.keys.length} keys: ${skills.length} skills (the folders \`discoverTemplates()\` finds, the root skill as \`gstack\`) and ${SHARED_KEYS.length} shared parts.`, '',
     `- Skills: ${skills.join(', ')}.`, `- Shared: ${SHARED_KEYS.join(', ')}.`,
-    '- Installed names: `gstack-<name>` is key `<name>` (`gstack-ship` is `ship`); `gstack-upgrade` keeps its name; the root skill installs as `gstack`.'];
+    '- Installed names: `gstack-<name>` is key `<name>` (`gstack-ship` is `ship`); `gstack-upgrade` keeps its name; the root skill installs as `gstack`.',
+    ...(inv.aliases.length ? [`- Other names (the ledger's \`aliases\`): ${inv.aliases.map(a => `${a.names.join(', ')} → ${a.key}`).join('; ')}.`] : [])];
 }
 
 function renderNotHere(inv: Inventory): string[] {
   return ['## Not in this inventory', '',
     '- Out of scope: openclaw/skills/* and browser-skills/* (not gstack skills an agent loads from this checkout), and connect-chrome (a symlink to open-gstack-browser, counted once).',
-    ...inv.unmapped.map(u => `- ${u.row}: ${u.why}`)];
+    ...inv.unmapped.map(u => `- Evidence-table row "${u.row}": ${u.why}.`)];
 }
 
 export function renderInventory(inv: Inventory): string {

@@ -151,13 +151,19 @@
       "status": "untested",
       "grandfathered": true,
       "plan": "none",
-      "seed": "GEVA-2, 2026-11-02: gstack (root skill): untested (never measured)"
+      "seed": "GEVA-2, 2026-11-02: gstack (root skill): untested (never measured)",
+      "aliases": [
+        "gstack (root skill)"
+      ]
     },
     "gstack-upgrade": {
       "status": "untested",
       "grandfathered": true,
       "plan": "none",
-      "seed": "GEVA-2, 2026-11-02: upgrade: untested (never measured)"
+      "seed": "GEVA-2, 2026-11-02: upgrade: untested (never measured)",
+      "aliases": [
+        "upgrade"
+      ]
     },
     "guard": {
       "status": "safety",
@@ -535,7 +541,10 @@
         "verdict": "CUT-CANDIDATE",
         "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); taken by Garry as the I1 ceremony-cut eval"
       },
-      "seed": "GEVA-2, 2026-11-02: preamble (ceremony): measurement under way (I1, ceremony-cut eval)"
+      "seed": "GEVA-2, 2026-11-02: preamble (ceremony): measurement under way (I1, ceremony-cut eval)",
+      "aliases": [
+        "preamble (ceremony)"
+      ]
     },
     "catalog": {
       "status": "untested",
@@ -552,13 +561,19 @@
           "note": "untold skill opened in 0 of 180 gstack-arm trials; Opus gstack minus none +5 [-3, +17]"
         }
       ],
-      "seed": "GEVA-2, 2026-11-02: always-on skill catalog (descriptions): measurement under way (Run D)"
+      "seed": "GEVA-2, 2026-11-02: always-on skill catalog (descriptions): measurement under way (Run D)",
+      "aliases": [
+        "always-on skill catalog (descriptions)"
+      ]
     },
     "capy-skill": {
       "status": "untested",
       "grandfathered": true,
       "plan": "none",
       "seed": "GEVA-2, 2026-11-02: capy/skill/gstack/SKILL.md (Capy context): untested (never measured)",
+      "aliases": [
+        "capy/skill/gstack/SKILL.md (Capy context)"
+      ],
       "note": "loads only in Capy sessions, which the claude_code preset fair test cannot reach yet; needs a Captain call on how to test it"
     },
     "capy-factory": {
@@ -566,6 +581,9 @@
       "grandfathered": true,
       "plan": "none",
       "seed": "GEVA-2, 2026-11-02: capy/skill/gstack/factory.md (Capy context): untested (never measured)",
+      "aliases": [
+        "capy/skill/gstack/factory.md (Capy context)"
+      ],
       "note": "loads only in Capy sessions, which the claude_code preset fair test cannot reach yet; needs a Captain call on how to test it"
     },
     "ship-review-panel": {
@@ -591,19 +609,28 @@
           "note": "arm D vs pooled arm C, no no-gstack arm"
         }
       ],
-      "seed": "GEVA-2, 2026-11-02: ship: review panel (specialist, adversarial, targeted, outside voice, red team): untested (unfair test: none arm on the SDK stub; arms from different harnesses and gstack versions; cohort mined from gstack's own catches)"
+      "seed": "GEVA-2, 2026-11-02: ship: review panel (specialist, adversarial, targeted, outside voice, red team): untested (unfair test: none arm on the SDK stub; arms from different harnesses and gstack versions; cohort mined from gstack's own catches)",
+      "aliases": [
+        "ship: review panel (specialist, adversarial, targeted, outside voice, red team)"
+      ]
     },
     "ship-docs-audit": {
       "status": "untested",
       "grandfathered": true,
       "plan": "folded into GEVA-2 registry row R56-4 (ship); proposed, not yet preregistered",
-      "seed": "GEVA-2, 2026-11-02: ship: docs audit (Step 14.5): untested (never measured)"
+      "seed": "GEVA-2, 2026-11-02: ship: docs audit (Step 14.5): untested (never measured)",
+      "aliases": [
+        "ship: docs audit (Step 14.5)"
+      ]
     },
     "autoplan-phases": {
       "status": "untested",
       "grandfathered": true,
       "plan": "folded into GEVA-2 registry row R56-3 (autoplan); proposed, not yet preregistered",
-      "seed": "GEVA-2, 2026-11-02: autoplan: CEO, design, DX and eng phases, outside voice: untested (never measured)"
+      "seed": "GEVA-2, 2026-11-02: autoplan: CEO, design, DX and eng phases, outside voice: untested (never measured)",
+      "aliases": [
+        "autoplan: CEO, design, DX and eng phases, outside voice"
+      ]
     }
   },
   "unmapped": [
