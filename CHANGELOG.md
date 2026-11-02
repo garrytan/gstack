@@ -1,5 +1,129 @@
 # Changelog
 
+## [1.92.74.0] - 2026-11-02
+
+- **`gstack-pregate clear --run-url` needs a green run.** On a lane with no run profile, a run of the lane's own workflow that failed, was cancelled or timed out now refuses `PREGATE_RECEIPT_INVALID` (`run_not_success`), and one still queued or running refuses `run_in_progress`. The fix line says to rerun the workflow and clear with the green run. The check reads the run's newest attempt, so a job or attempt link is judged by the whole run, and the lane records the attempt it judged (`…/actions/runs/<id>/attempts/<n>`) instead of the link you passed. A green run still clears. docs/pregate.md now names `windows-smoke.yml/windows-smoke` as the free tier's Windows smoke lane, beside the narrower `free-tests.yml/cso-windows-launcher` and `windows-setup-e2e.yml/windows-setup` lanes. `test/pregate-clear-runs.test.ts` failed before the fix.
+
+## [1.92.73.0] - 2026-11-02
+
+### Fixed
+
+- **A reviewer that wrote `printed: REVIEWED_TREE: …` is no longer failed.** Two readers in GBRA-218 echoed the command and then wrote the fingerprint after a `printed:` label, so /ship read no line, failed them and restarted the pass twice. The label is now read, plain, bold or inside the line's backticks, and the tree and checkout it names are still compared exactly. A wrong tree or checkout is still refused.
+- **The Capy pass program stops before it sends a reader into the wrong checkout.** Capy starts every shared reader in the thread's working directory and cannot start one anywhere else. In GBRA-218 an outside voice ignored its `cd` and reviewed that checkout, so Step 11 lost its outside coverage. Now, before a stage takes a start token or sends its first reader, the program compares that directory with the checkout /ship ships. It stops when they differ or the directory can't be read. **Run /ship in the thread's own checkout**, not in a worktree beside it. A start directory outside any checkout, such as a multi-repo workspace root, still dispatches.
+- **Step 11 takes the right start token.** Reusing the pass input's `logStart: ["review"]` for `stage: "voices"` used to run the voices with no `adversarial-review` start, which left Step 11.5 nothing to bind. Step 11 now takes `adversarial-review` by default and stops before anything runs when given any other list. The gstack Capy skill says Step 11 swaps `logStart` for `stage: "voices"`.
+
+## [1.92.72.0] - 2026-11-02
+
+**The sealed guard can now refuse a published record that puts a label next to an identifier.** gstack-evals hides which test units are decoys. Its /ship on garrytan/gstack-evals#99 published a panel where each unit's `stratum`, `tags` and `decoy_set` sat next to its `head`, `tree_sha256`, `plan_bytes` and `files`, values a model under test can compute from its own copy of the work. A model could look itself up and learn it was the decoy. No answer leaked, so `gstack-pregate sealed` said `clear` (GSTA-2, GST-620). The new rule is opt-in. A repo that sets `sealed.label_keys` gets it, and every other repo sees the same output as before, byte for byte.
+
+### Added
+- **`sealed.label_keys` and `sealed.identifier_keys` in `.gstack/pregate.json`.** With `label_keys` set, `sealed.label_join` checks every .json, .jsonl, .ndjson, .csv, .tsv and Markdown pipe table a published commit adds, modifies, renames or copies. A record that holds a label field and an identifier (a field matching an `identifier_keys` glob, by default `head`, `*_sha256`, `*_bytes`, `files` and similar names, or any 7 to 64 character hex string, as a value, in a list, or as the key of an object) is a join. The guard fingerprints each join in memory and compares it with the parent's version of the file, so unchanged rows and reformatting stay clear while a replaced, added or widened row refuses even when the row count stays the same. Findings name the file, the commit and the field names (`keys=stratum,tags,head,plan_bytes`), never the values, on stderr, in `--json` and in the pre-push hook.
+- **`sealed.label_join_unchecked`.** A file whose text never names a label key, ignoring double quotes, cannot hold a join and is skipped without parsing, so a commented `tsconfig.json` passes. A file with a `\u` escape is always parsed. A supported file over 4 MiB, one that names a label key and does not parse, one nested deeper than 64 levels, or a blob git cannot read refuses instead of passing unread. The `SEALED:` line counts these as `unchecked=<n>`. Like every sealed finding, it can be waived through the base branch's `.gstack/sealed-allow.tsv`; `allow_paths` never exempt either rule.
+- **The policy only tightens.** A field can count as both a label and an identifier, so adding identifier names to `label_keys` never hides a join. Both lists are the union of the base branch's and the pushed policy's, each resolved to its default first, so a pushed config can turn the rule on or widen it but cannot turn it off or narrow it.
+
+### Changed
+- **docs/pregate.md#sealed** documents the rule, its normalization (`Tree SHA-256` matches as `tree_sha_256`) and its known limits: joins across files, joins by reference, columnar JSON, labels in file names and prose. Its version-skew note now names the new keys. A gstack older than this release refuses them as unknown, so raise `min_gstack_version` before adopting them. The unknown-key error now lists `label_keys` and `identifier_keys` among the valid keys.
+
+### Tests
+- `test/sealed-guard.test.ts`: the GSTA-2 panel refuses through `gstack-pregate sealed`, `--json` and the pre-push hook, and warns on a private destination, with no value in any output. It failed on main. A golden captured from main 2d1b55d76 covers seven pushes (refused, clear, exempt, waived, warned, error, no policy) without `label_keys`; stdout, stderr, `--json`, the hook's stderr and every exit code match it byte for byte.
+- `test/sealed-join.test.ts`: each format, human table headers, hex values under unlisted keys, maps keyed by sha, quoted TSV, a CSV header split by quotes (`"Strat"um`), a commented tsconfig.json that stays clear, dotted key names refused in the config, identifier names added to a pushed `label_keys`, decimal strings that stay clear, replacement at the same count, delete plus add, an added identifier field, labels then identifiers a commit later, renames, merges, five unchecked cases, waivers, `allow_paths`, pushed attempts to narrow or disable the rule, and `label_keys: []` matching an absent key.
+
+## [1.92.71.0] - 2026-11-02
+
+**Four free-suite waits now end when the thing they wait for happens: the six files involved spend 18–29 s less in summed per-file runtime, with every assertion intact.** `./setup` returns from a finished child up to ~0.9 s sooner too.
+
+### Changed
+- **`setup` `_wait_with_deadline`**: polls every 0.1 s and tracks the deadline on bash's `SECONDS` clock instead of sleeping a whole second per poll. A child that exits at once no longer costs a second. The kill still lands no earlier than the deadline, the exit codes (the child's status, or 124 after the kill) are unchanged, and it runs under bash 3.2.
+
+### Tests
+- `test/setup-playwright-best-effort.test.ts`: a child that exits with 3 after 50 ms returns 3 in under 500 ms (the old loop took 1,008 ms); the deadline and kill cases are unchanged. The file drops from ~20.8 s to ~5.9 s on a CI-mirror VM.
+- `test/pregate-supervise.test.ts`: the leftover-child case waits for that child's pid to exit (bounded at 3 s) instead of a fixed 2.5 s sleep.
+- `test/gstack-detach.test.ts`: the detach and lock bodies wait on files the test writes (bounded at ~10 s, also written in `finally`) instead of `sleep 2` and `sleep 3`.
+- `test/qa-probe-gates.test.ts`: the duplicated "judge-named QA workflow gaps (C2)" block is gone (3 tests that repeated the first block).
+- `test/context-identity.test.ts`: one `restore(mono)` call serves both assertions.
+
+## [1.92.70.0] - 2026-11-02
+
+**Five free-test files stop rebuilding the same git repositories for every test: they spend 17–24 s less in summed per-file runtime, with every assertion intact.** Each test still gets its own private copy of the fixture.
+
+### Tests
+- `test/helpers/git-fixture-template.ts` (new): builds a git fixture once per test file and copies it per test with `fs.cpSync`. The adopter rewrites every path-bearing file (remote URLs, alternates, state roots), and the copy is then scanned for any remaining reference to the template, so a test can never push into or read from the shared template. `test/git-fixture-template.test.ts` pins two-copy isolation and the leak scan.
+- `test/release-cut.test.ts` (~10 s to ~6 s), `test/train-backstop.test.ts` (~4 s to ~1.6 s), `test/restamp-mentions.test.ts` (via `test/helpers/restamp-fixture.ts`), `test/pregate-user-policy.test.ts` (via `test/helpers/pregate-fixture.ts`) and `test/held-install-recovery.test.ts` (~33 s to ~22 s) use the template. Test and `expect()` counts are unchanged in every file.
+- `test/helpers/restamp-fixture.ts` turns off auto-maintenance (`maintenance.auto=false`, `gc.auto=0`) in the bare origin the ship-queue train tests push to.
+- `test/test-of-test-ratchet.test.ts`: one BASELINE row for the new helper test, which tests a test helper by design.
+
+## [1.92.69.0] - 2026-11-02
+
+**Background `--derive` runs no longer drop /office-hours sessions or fail with ENOENT when they overlap (#3437).** `gstack-question-log` starts a background `gstack-developer-profile --derive` after every append, and a multi-question AskUserQuestion logs several rows at once. Every derive wrote the same `developer-profile.json.tmp` and rewrote the whole profile without a lock. On main at 3bfe566, 30 rounds of 8 overlapping derives plus one `--log-session` saw 9 of 270 runs fail with `ENOENT` on rename, and 2 of the 30 sessions disappeared. With this change the same run has 0 failures and keeps 30 of 30 sessions.
+
+### Fixed
+- **`bin/gstack-developer-profile`**: `--derive`, `--log-session`, `--reconcile` and `--migrate` hold `developer-profile.json.lock` from before they read the profile until after they rename it, and each writes its own `mktemp` file. The owner file names the holder's process ID, and the lock is ownership-checked on release. A lock is taken over when its holder process is gone, or once it is 5 minutes old even if a process with that ID is running, since no writer takes that long and the ID may have been reused. Takeovers go one at a time under `developer-profile.json.lock.takeover`, so two waiters can't both take over. A writer that can't get the lock within 10 seconds writes nothing and exits 5. An unwritable state directory is reported right away instead of after the wait. A relative state root is anchored once, so the lock is released under the same path it was taken. Windows drive-letter roots stay as they are.
+### Removed
+- **`scripts/psychographic-signals.ts`**: `applySignal` and `newDimensionTotals`, which lost their last production caller when `--derive` moved onto `accumulateSignals` (#3435), and their three unit tests.
+
+### Not covered yet
+- `gstack-distill-apply` and /plan-tune's declared edits still write the profile without the lock.
+
+### Tests
+- `test/gstack-developer-profile.test.ts`: a directory at the old fixed temp path; a held lock blocking `--derive` and `--log-session`; takeover of an ownerless stale lock, of a dead holder's lock, and of a 5-minute-old lock whose process ID is alive; a takeover already in progress; a takeover that can't remove the lock still giving up; a relative state root; and 6 rounds of 6 derives plus a `--log-session` keeping every session. Each test failed on the code before its fix.
+
+## [1.92.68.0] - 2026-11-02
+
+**`/health` now finds its tools with gstack's detector, the same one `/verify` uses, and a test proves it still finds every check it found before.** /health Step 1 used to carry its own shell block for detecting a type checker, linter, test runner, knip, shellcheck and gbrain, a second copy of the list in `lib/checks.ts`. It now runs `gstack-checks detect --for health`. Scoring, the gbrain sub-score and history are unchanged. GST-116, PR 2 of 2.
+
+### Changed
+- **`gstack-checks detect --for health`** prints one `DIMENSION <name> <command>  (<source>)` line per tool, or `DIMENSION <name> none  (<reason>)` so Step 2 can record the category as skipped with its reason. A `## Health Stack` section in CLAUDE.md still wins row for row, test rows included. Otherwise it applies /health's own rules, including a knip or shellcheck found on PATH and gbrain when `~/.gbrain/config.json` exists. It reads files and PATH and runs nothing.
+
+### Tests
+- `test/health-detect-no-loss.test.ts` runs the old Step 1 block, frozen verbatim in `test/fixtures/health-detect-legacy.sh`, beside the new detector on 16 fixture repos and two PATH and HOME setups. Every check the old block printed must still be found. Dropping the knip or gbrain rule fails the test.
+
+## [1.92.67.0] - 2026-11-02
+
+**`./setup` no longer starts a handful of processes per skill just to read its name (#2120).** On Windows 11 on ARM64, Git Bash runs under x64 emulation, and its `fork()` can deadlock when a script starts hundreds of short-lived processes in a row. Setup did exactly that: `gstack-patch-names` and setup's skill-linking loops ran `grep | sed | tr` and `basename` for every skill. The reporter counted about 220 process starts on a full install. Thanks to @habassa5, who traced the hang to those loops.
+
+### Fixed
+- **Skill names are read with bash builtins.** A new sourced helper, `bin/gstack-skill-name.sh`, reads the `name:` line with a `read` loop. It gives the same result as the old pipeline on CRLF files, files with no final newline, and files with no `name:` line. `gstack-patch-names`, setup's Claude skill linker, its two cleanup loops and `gstack-uninstall` use it. They use parameter expansion instead of `basename`. `sed` and `mv` run only for a skill that is actually renamed.
+- **What is not fixed yet.** Setup still starts `ln`, `mkdir` and `cp` per skill, and the linkers for Cursor, OpenCode, Copilot, Factory, Agy and Kiro still run `basename` per skill. Nobody has confirmed on a Windows ARM64 machine that the hang is gone.
+
+## [1.92.66.0] - 2026-11-02
+
+**The secrets check reads Python and Dart string context from what git diffed, and a quote inside an interpolation no longer ends a string (GST-738).** env.kv's source-syntax exemption treats a `password:` line as code only when it sits outside every string. Two inputs could make the scanner place a committed string's contents outside a string. One was a working copy that no longer matched what git diffed. The other was a quote inside an f-string or Dart `${…}` expression. A scoped review pass now applies an explicit `--diff-base` to its Red Team as well.
+
+### Fixed
+- **`lib/pregate/checks/secrets.ts`:** a changed Python or Dart file's whole text comes from a full-context `git diff`, never from the working copy. A `diff.suppressBlankEmpty` setting can't shift its lines.
+- **`lib/redact-patterns.ts`:** a Python f-string's `{…}`, or t-string's, and a non-raw Dart string's `${…}` are read as code. Their nested strings count as strings, and a quote or comment inside them doesn't end the outer string. A Python format spec, such as `{n:#x}`, is text, and `\{` still opens a field. A `password:` line inside a Dart `/* */` comment is now read as text, not code. An expression left open, or nested more than 256 deep, runs to the end of the file, so the exemption fails closed.
+- **`bin/gstack-review-dispatch`:** `pass --diff-base` now sets the scoped Red Team's base too.
+
+## [1.92.65.0] - 2026-11-02
+
+- **Every /ship reviewer brief now starts with the `REVIEWED_TREE` step instead of saving it for the last paragraph** (`lib/review-brief.ts`, GST-897). Before, the brief only asked for the fingerprint line in its closing paragraph, after the whole diff and a rule that the reply ends with its `Recommendation:` line. On GST-850, two gpt-6.1-sol outside-voice replies never ran the command, so `collect` refused both (`COLLECT_WRONG_TREE reported="none"`) and their findings were lost. Other readers misread "the line <command> prints" and pasted the command instead of its output. Now the brief opens with "First step, before anything else: run `cd <checkout> && echo "REVIEWED_TREE: …"`", says the command outputs one `REVIEWED_TREE: <tree hash> <path>` line, and asks the reader to copy that output line, not the command, as the first line of its reply. The closing paragraph repeats the request with "(the output, not the command)". `collect` is unchanged and still refuses a reply without the line, and the dispatcher never stamps the tree for a reader.
+
+### Tests
+- `test/review-dispatch.test.ts`: the rendered outside-voice brief's first line is the step, running its command prints a line `collect` accepts, and both captured GST-850 replies (`test/fixtures/review-wrong-tree/`) are still refused with `COLLECT_WRONG_TREE`. On main this test fails because the brief's first line is the filesystem boundary paragraph.
+
+## [1.92.64.0] - 2026-11-02
+
+**/ship's Step 11 outside voice now defaults to the model it was tested with, and a same-family outside voice is refused.** On a lane running an Anthropic model, the pass program uses `openai/gpt-6.1-sol` at medium reasoning when no outside-voice model is given. That is the pairing no-loss rounds 3 to 6 and A3668 ran. Until now the lane picked the model (gpt-6-astra in replays 6c, 7e and 8g), and the only check was that some model was given, so a Claude outside voice beside a Claude native voice would have run as "outside" (GSTA-167 plan R2 and O2).
+
+### Changed
+- **Outside-voice default, Anthropic lanes only** (`lib/capy-review-pass.js`): with no `models['outside-voice']` and an `anthropic/` `laneModel`, the voice runs on `openai/gpt-6.1-sol` at medium. Any other lane, or no lane identity, still stops with "none was given", because an OpenAI lane's pairing is not certified.
+- **Same-family STOP**: an outside voice whose provider (the part before `/`, compared without regard to case) matches the lane model or the native voice's model stops the pass before either voice is created. The check runs again on every rerun of the same manifest and before a queued voice is started. An outside voice with no provider prefix, or with no lane model and no native model to compare against, also stops.
+- **Voices resume on the models they were dispatched with**: the pass records each Step 11 voice's model and the lane model in `voice-models.json` in the pass directory before creating it. A rerun with different inputs starts a queued voice on its recorded model and checks it against the recorded native model, so it can't pair two voices of one family.
+- **Overrides are labeled**: each outside voice prints an `OUTSIDE_VOICE:` line when it is created or started from the queue, saying whether it is the certified configuration. A different model or reasoning level still runs, marked "outside the certified configuration".
+- **Step 14.5 docs audit runs once on Sonnet 5.5** (`ship/DRIVER.md`). In replay C5 the docs audit first ran on a smaller model whose reply lacked its JSON line, then ran again on Sonnet, which wasted 1.55M tokens. To stay under the driver's 12 KB cap, one sentence that repeated Phase 4 and 5 ("A fix repeats Phases 3-4.") was removed.
+
+### Tests
+- `test/review-pass.test.ts`: six new fake-host cases: a same-family override stops; a rerun or a queued start still refuses it; a queued voice resumes on its recorded model; a missing lane identity, an unprefixed id or an unprefixed lane stops; an Anthropic lane gets the certified default with every brief byte-identical to naming that model; an override with changed reasoning runs and is labeled uncertified. The Step 11 case now passes `laneModel: undefined` to keep its "none was given" check, since an Anthropic lane gets the default.
+- `test/ship-driver.test.ts`: the audit-reader assertion names Step 14.5's Sonnet 5.5 run.
+
+## [1.92.63.0] - 2026-11-02
+
+**A slot restamp after the docs audit no longer stops `finish` with `DOCS: stale (CHANGELOG.md)` (GST-906).** When a PR lost its merge slot after Step 14.5, the new slot's restamp re-heads the CHANGELOG entry and moves VERSION, and on the lost-slot path it merges main first. `gstack-ship-release finish` read all of that as a docs change, so the only ways forward were a third docs audit, which the policy forbids, or an owner-accepted named risk. Reported by GBRA-258 on gbrain #8372.
+
+### Fixed
+- **Step 16's docs check carries a restamp.** The CHANGELOG counts as unchanged when it differs from the audited copy only by the heading move or re-heading. After a main merge, the audited copy is first merged with main's CHANGELOG by the same `mergeChangelogs` call the restamp writer makes, and that merge may only add main's sections. The version file counts as unchanged when it held a bare version at the audit and still does.
+- **Anything else still stales the audit.** That includes an entry edit, a dropped or edited main section, a dropped line the audit saw, and an audited CHANGELOG that git never held.
+
 ## [1.92.62.0] - 2026-11-02
 
 - **`gstack-pregate clear --run-url` checks the run's workflow.** On a lane with no run profile, `clear` used to record any URL as the receipt, so a `windows-smoke.yml` run could clear `windows-free-tests.yml/windows-free-shard` on a branch cut before #3806. When the base config and the GitHub origin can be read, `clear` now reads the run and refuses `PREGATE_RECEIPT_INVALID` (`workflow_mismatch`) unless its workflow file is the lane's own; a run gh cannot read (`api_error`) or a URL that is not an Actions run on this repository (`run_ref_invalid`) refuses too, and each refusal names its own fix. A run of the lane's own workflow clears as before, including a job link copied with `?pr=` or `#step`. `test_backend/*` lanes, `--bundle-lane` and non-GitHub origins are unchanged. On main the Windows obligation is `windows-smoke.yml/windows-smoke`, and a test now checks that against the repository's own workflows. The `ready` conflict hint now says to clear each lane with a run of that lane's own workflow. `test/pregate-clear-runs.test.ts` covers the mismatch, the matching control, the unreadable run, the non-run URL and the copied job links; each failed before its fix.
