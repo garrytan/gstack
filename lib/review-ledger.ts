@@ -8,8 +8,8 @@
  *   judgment  each lead-judgment change: an added or promoted finding, with its reason
  *   judge     the verdict on the parent's judged set (ok, or the dropped and downgraded ids)
  *
- * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose line's most severe one,
- * raised by the Severity line below it), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
+ * Findings reach merged.jsonl only through collect, with each voice's label as written (a prose finding's own Severity field when
+ * it has one, else its line's most severe label), except that a prose voice's `Blocks: yes` and the native voice's FIXABLE collect
  * as CRITICAL (GSTA-167 normalizer v2).
  * The parent's judged set may add or promote a finding and may fold a duplicate into one at least
  * as severe; it never drops or downgrades one. verify replays every check from the ledger alone.
@@ -67,6 +67,10 @@ const META = new RegExp(`^(?:[-*+]\\s+)?\\**\\s*(Severity|Blocks)\\**\\s*(?::|\\
 /** The severity and Blocks a prose finding's own fields state (GST-766): recorded beside the collected label, never in its place. */
 export interface Stated { severity?: string; blocks?: string }
 const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\s*(${LABELS})(?![A-Za-z0-9])`, 'gi');
+/** The first label after a finding's `Severity` field; with the field present a severity word in the body never raises the label (GST-976). */
+const SEVERITY_FIELD = new RegExp(STATED_SEVERITY.source, 'i');
+/** A label leading its line past list, quote, table, heading and emphasis marks ("[P0] …", "1. **High**: …", "### CRITICAL: …"): the reader's own label, which its Severity field never lowers. */
+const LEAD_LABEL = new RegExp(`^(?:[-*+>|]\\s*|\\d+[.)]\\s*|#{1,6}\\s*|[*_\`[(]+\\s*)*(${LABELS})(?![A-Za-z0-9])`);
 const STATED_BLOCKS = /(?<![A-Za-z0-9])Blocks\**\s*:?\s*\**\s*(yes|no)(?![A-Za-z0-9])/gi;
 function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
@@ -80,15 +84,17 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
 /**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
- * of the two labels). A `Severity` or `Blocks` field line continues the open finding, once per field: `Severity` raises its label,
- * `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying the paragraph's subject.
+ * of the two labels). A line with a `Severity` field takes that field's first label instead, whatever else it names (GST-976: "the
+ * P0 pilot" collected as P0 under `Severity: Low`). A `Severity` or `Blocks` field line continues the open finding, once per field:
+ * `Severity` sets its label, `Blocks: yes` makes it CRITICAL, `Blocks: no` never lowers it; with no finding open it is one, carrying
+ * the paragraph's subject.
  * A list item, a heading, a bold or post-blank paragraph at the margin, or a line naming a file:line after the open finding's fields
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
  * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
  */
 export function parseFindings(reader: string, output: string): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -98,7 +104,16 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongest = (t: string) => [...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
-  const push = (label: string, raw: string, fields: string[] = []): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw) }; out.push(f); return f; };
+  const critical = (t: string) => BLOCKS_YES.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
+  const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined ? undefined : named(l); };
+  const labelOf = (t: string) => {
+    const field = SEVERITY_FIELD.exec(t)?.[1];
+    if (field === undefined) return strongest(t);
+    if (critical(t)) return 'CRITICAL';
+    const lead = leadOf(t);
+    return lead ? stronger(lead, field) : field;
+  };
+  const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
     if (!t) { gap = true; continue; }
@@ -107,7 +122,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
     const indented = line !== line.trimStart();
-    const label = strongest(t);
+    const label = labelOf(t);
     const blocks = BLOCKS_YES.test(t);
     const listItem = !indented && LIST_ITEM.test(t);
     const locus = LOCUS.test(t);
@@ -117,6 +132,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
       if (current && !current.fields.has(field)) {
         current.fields.add(field);
         if (blocks) current.label = 'CRITICAL';
+        else if (field === 'severity' && SEVERITY_FIELD.test(t) && !critical(current.raw)) current.label = current.lead ? stronger(current.lead, label!) : label!;
         else if (label) current.label = stronger(current.label, label);
         current.raw += ` | ${t}`;
       } else if (blocks || label) current = push(blocks ? 'CRITICAL' : label!, head ? `${head} | ${t}` : t, [field]);
@@ -129,7 +145,7 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     if (t.startsWith('{')) {
       try {
         const o = JSON.parse(t) as Record<string, unknown>;
-        if (typeof o.severity === 'string') { current = push(o.severity, t); continue; }
+        if (typeof o.severity === 'string') { current = push(o.severity, t, [], o.severity); continue; }
       } catch { /* prose that starts with a brace */ }
     }
     const detail = listItem && /^[-*+]\s/.test(t) && !locus && !label && !section && !!current && !current.list && !current.fields.size;
@@ -138,7 +154,12 @@ export function parseFindings(reader: string, output: string): Array<{ label: st
     if (fresh) { current = null; head = t; }
     const inherited = section && listItem ? section : undefined;
     const found = label && inherited ? stronger(inherited, label) : label ?? inherited;
-    if (found) { current = push(blocks ? 'CRITICAL' : found, t); if (!indented) head = t; continue; }
+    if (found) {
+      const lead = leadOf(t);
+      current = push(blocks ? 'CRITICAL' : found, t, [], lead && inherited ? stronger(inherited, lead) : lead ?? inherited);
+      if (!indented) head = t;
+      continue;
+    }
     if (blocks && !t.startsWith('{')) {
       if (current) { current.label = 'CRITICAL'; current.raw += ` | ${t}`; continue; }
       current = push('CRITICAL', head && head !== t ? `${head} | ${t}` : t);

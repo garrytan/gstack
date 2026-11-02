@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph, workspaceStep } from '../lib/review-brief';
-import { collect, judge, parseFindings, readJsonl, type MergedLine } from '../lib/review-ledger';
+import { collect, judge, parseFindings, rank, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
@@ -305,8 +305,9 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
 
   // Value: protects=a negated severity word still collects at its label, so a reader's closing prose ("found nothing CRITICAL") is a
   //   known phantom lead judgment folds and never a dropped line (GSTA-167 S1 reverts GST-766's negation drop); fails_when=any negated
-  //   form collects nothing or a weaker label; why_new=GST-766's drop lost blockers named in exception clauses; seam=parseFindings;
-  //   no_claim=that a negated line is a real finding (judge folds phantoms)
+  //   form collects nothing or a weaker label, except under the finding's own Severity field, which decides it (GST-976);
+  //   why_new=GST-766's drop lost blockers named in exception clauses; seam=parseFindings; no_claim=that a negated line is a real
+  //   finding (judge folds phantoms)
   test('a negated severity word still collects at its label: GEVA-92 fix-check#5 and its negated forms are known phantoms', () => {
     const fixCheck = [
       'REVIEWED_TREE: bedd511efa0fa16c9277821073c68e438dc760d2 /workspace/gstack-evals',
@@ -332,7 +333,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('r', 'No CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => [f.label, f.raw])).toEqual([['LOW', '1. auth.ts:3 LOW: log line too verbose'], ['CRITICAL', 'No CRITICAL lock guards the write in Makefile:7 | Severity: CRITICAL']]);
     expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.').map(f => f.label)).toEqual(['LOW', 'CRITICAL']);
-    expect(parseFindings('outside-voice', '- a.ts:3 race. Severity: Low. Blocks: no\n  Separately, nothing CRITICAL about b.ts:9, but it leaks fds.\n  Severity: High').map(f => [f.label, f.raw])).toEqual([['Low', '- a.ts:3 race. Severity: Low. Blocks: no'], ['CRITICAL', 'Separately, nothing CRITICAL about b.ts:9, but it leaks fds. | Severity: High']]);
+    expect(parseFindings('outside-voice', '- a.ts:3 race. Severity: Low. Blocks: no\n  Separately, nothing CRITICAL about b.ts:9, but it leaks fds.\n  Severity: High').map(f => [f.label, f.raw])).toEqual([['Low', '- a.ts:3 race. Severity: Low. Blocks: no'], ['High', 'Separately, nothing CRITICAL about b.ts:9, but it leaks fds. | Severity: High']]);
     expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('r', '- A divide by zero CRITICAL bug in parse()').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
@@ -406,8 +407,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '> Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
   });
   // Value: protects=a later finding's Severity/Blocks line never lands on the finding before it, and an explicit Severity label
-  //   decides its line (#3660 pass 2 Red Team); fails_when=the later blocker's text is lost and the earlier finding takes its
-  //   CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
+  //   decides its line unless a stronger label leads that line (#3660 pass 2 Red Team, GST-976); fails_when=the later blocker's text
+  //   is lost and the earlier finding takes its CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
   test('prose after a finding\'s field, a blank-line paragraph or an indented block starts the next finding; an explicit Severity label wins', () => {
     const raws = (o: string) => parseFindings('outside-voice', o).map(f => [f.label, f.raw]);
     const two = [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2. | Blocks: yes']];
@@ -603,7 +604,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     for (const line of ['There are no CRITICAL findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
       'Neither finding is CRITICAL.', 'Nothing here is CRITICAL.', 'Neither fix is CRITICAL.', 'Nothing in this diff is CRITICAL.', 'This is not CRITICAL.'])
       expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, ['CRITICAL']]);
-    expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['Low']);
   });
 
   // Value: protects=item layouts collect as on main: an indented JSON finding keeps its JSON severity, an indented label heading sets
@@ -624,6 +625,54 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['CRITICAL', '{"severity":"low","summary":"race"} | this blocks the merge. Blocks: yes']]);
+  });
+
+  // Value: protects=a finding's own Severity and Blocks fields set its collected label, so a severity word in its body never raises it
+  //   (gstack-evals #143: the outside voice marked six findings Blocks: no, and the "P0" in #1, #2 and #4 was the plan's phase name),
+  //   while a real P0 or CRITICAL in label position, a Severity: P0 field and Blocks: yes still collect as blocking; fails_when=a body
+  //   token outranks the finding's fields, or a label-position P0/CRITICAL or Blocks: yes collects below CRITICAL rank;
+  //   why_new=GST-976: #1, #2 and #4 collected as P0, judge refused the downgrade (JUDGMENT_REJECTED), verify stayed dirty and the
+  //   receipt needed accepted_by; seam=parseFindings, collect and judge; no_claim=that a body-only label on a line with no Severity field
+  //   is a real finding (it still collects at that label, a known phantom judge may fold; GSTA-167 S1 keeps body labels with no fields
+  //   because dropping them lost blockers)
+  test('GST-976: a severity word in a finding body never outranks its Severity and Blocks fields; real P0 and CRITICAL still block', () => {
+    const blocking = (label: string) => rank(label) === 4;
+    // The #143 outside-voice reply, cut to each finding's title, its P0 sentence and its fields (gstack-evals is private).
+    const reply = [
+      'The problems below are about accounting and what the post leaves out. None of them breaks a test, production or custody.',
+      '',
+      '1. **The per-task cost leaves out model spend.** The P0 and bulk go or no-go will re-project cost from these figures, so they will come out too low. Severity: Medium. Blocks: no.',
+      '',
+      '2. **One round-2 K1 pair is not accounted for.** The post sets a precedent for P0 yield math, so that drop should be named. Severity: Low. Blocks: no.',
+      '',
+      '3. **The two probe populations are not reconciled.** The stage table probes 189 candidates. Severity: Low. Blocks: no.',
+      '',
+      "4. **The P0 impact of the shortfall is missing.** The plan's P0 (line 323) needs 6 K4 replays and 2 decoys. The post says the shortfall but not that it blocks P0. Severity: Low. Blocks: no.",
+      '',
+      '6. **Some wording is ambiguous.** Two examples:',
+      '   - "Repositories 4 (3 for build tasks)" is set against a target of "at least 5 repositories".',
+      '',
+      '   Severity: Low. Blocks: no.',
+      '',
+      "Recommendation: ship after a one-line fix because finding 1's per-task cost leaves out measured model spend.",
+    ].join('\n');
+    const d = tmp();
+    const merged = path.join(d, 'merged.jsonl');
+    const r = collect(path.join(d, 'l.jsonl'), 'outside-voice', reply, merged);
+    expect(r.lines.map(l => [l.label, l.stated])).toEqual([['Medium', { severity: 'Medium', blocks: 'no' }], ...Array(4).fill(['Low', { severity: 'Low', blocks: 'no' }])]);
+    expect(r.lines.filter(l => blocking(l.label)).map(l => l.id)).toEqual([]);
+    const judged = path.join(d, 'judged.jsonl');
+    fs.writeFileSync(judged, r.lines.map(l => JSON.stringify({ id: l.id, severity: l.stated!.severity })).join('\n') + '\n');
+    expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged))).toMatchObject({ ok: true, downgraded: [] });
+    const real: Array<[string, string]> = [['[P0] Token leak in log.ts:3', 'P0'], ['P0: token leak in log.ts:3', 'P0'], ['1. Token leak in log.ts:3\n   Severity: P0', 'P0'],
+      ['1. The P0 pilot drops the last row (q.ts:7). Severity: P0. Blocks: no', 'P0'], ['**Critical**\n- Token leak in log.ts:3', 'Critical'], ['## P0\n- Token leak in log.ts:3', 'P0'],
+      ['### CRITICAL: missing auth check in api.ts:10', 'CRITICAL'], ['1. The P0 pilot loses rows on retry (r.ts:2). Severity: Low. Blocks: yes', 'CRITICAL'],
+      ['1. The P0 pilot loses rows on retry (r.ts:2)\n   Severity: Medium\n   Blocks: yes', 'CRITICAL']];
+    for (const [output, label] of real) {
+      const got = parseFindings('outside-voice', output).map(f => f.label);
+      expect([output, got, got.map(blocking)]).toEqual([output, [label], [true]]);
+    }
+    expect(parseFindings('outside-voice', '1. The P0 pilot table drops a row (t.md:3)').map(f => f.label)).toEqual(['P0']);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
