@@ -601,13 +601,20 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
 
 - **When.** `wave plan` counts the live READY PRs (open, head equal to their
   READY receipt, CI green at that head; a READY head whose CI is red, still
-  running or absent prints a `NOT_GREEN` line and stays out of the plan). A
-  READY PR whose CI, head or diff cannot be read fails the whole plan with
-  `QUEUE_PROOF_MISSING`. Over the
+  running or absent prints a `NOT_GREEN` line and stays out of the plan; a
+  READY head that does not merge onto main with the train's merge rules prints
+  `NOT_MERGEABLE` with the conflicting files and stays out too, while a
+  conflict only in the CHANGELOG, which the train merges, does not count). A
+  READY PR whose CI, head, diff or merge onto main cannot be read fails the
+  whole plan with `QUEUE_PROOF_MISSING`. Over the
   trigger (6) it prints `WAVE_ADVISED` and suggested groups of 3 to 6: PRs
   whose changes to a common code file conflict (`git merge-tree` cannot merge
   the two heads, or the check itself fails) always share a group, so that
-  conflict is resolved once. Hub
+  conflict is resolved once. A PR that renames a file and one that edits the
+  old path are linked when the edit conflicts at the new path. A group of
+  linked PRs is never split across waves: one larger than the wave maximum
+  prints `WAVE_OVERSIZE` with no build command (land part of it as single
+  slots, then plan again). Hub
   files never link PRs: anything under `docs/`, Markdown (generated skill
   renders included; their `.tmpl` sources still link) and every `.json` or
   `.jsonl` file (ledgers and registries). Most PRs append to them, and
@@ -1228,7 +1235,12 @@ block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
 is not a `pass` claim. Text you write under the heading after that block, and
-a `## Approvals` example inside a code fence, are still checked. Data PRs (evals,
+a `## Approvals` example inside a code fence, are still checked. The
+`Review-loop exception: …` line the receipt's own exception requires is
+skipped the same way (GST-977): it quotes the owner's reason, so "outside 1 and
+2 skip detector" is not a `2 skip` claim. Only a line that matches the rendered
+line exactly is skipped, inside a code fence too, as the receipt check accepts
+a fenced copy; the same words inside a longer line are still checked. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-exclude-paths"></a>
