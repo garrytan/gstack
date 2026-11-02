@@ -15,6 +15,7 @@ import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
@@ -27,10 +28,11 @@ export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (s
       --keep-current (or --version <current>) keeps VERSION; under bump ask a session no person answers needs --answer before a bump is written
   finish --base <base> --reviewed-tree <tree> [--reviewed-base <sha>] --docs-post <post.json> [--lane <label>=<command>]... [--build <command>]...
          [--trailer <text>] [--docs-rechecked] [--no-lanes-approved] [--context-reviewed <record.json>]
-         [--docs-requested <path>... --docs-result <the audit's result JSON>]
+         [--docs-requested <path>... --docs-result <the audit's result JSON>] [--review-loop-exception <json|@file>]
       Step 15's release commit, Step 16 stages 1-4 (your builds, the reviewed-tree route, docs freshness,
       each lane's receipt run once if stale) and the pregate on the stamped tree; --reviewed-base (the merge base
-      saved with the reviewed tree) routes paths only the base moved as base=, and an adjacent base edit as context=
+      saved with the reviewed tree) routes paths only the base moved as base=, and an adjacent base edit as context=;
+      --review-loop-exception (the record write takes) routes paths the branch touched at fix_check.head and changed since as accepted=
   push --branch <branch-name> [--gate-open <n>] [--gate-open-approved]
       Step 17 after its guard block: the saved-branch check, the open-gate check, the sealed guard, the idempotency check, git push -u
 
@@ -159,8 +161,8 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
 }
 
 /** Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts). */
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context', string[]>;
-function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string }, r: Report): Routed | null {
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted', string[]>;
+function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: ReviewLoopException }, r: Report): Routed | null {
   const now = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
   if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return null; }
   const changedSet = touchedPaths(cwd, reviewed, now);
@@ -179,7 +181,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     sides = { reviewedBase: rb, reviewed, currentBase: cb, current: now };
     touched = new Set([...a, ...b]);
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], accepted: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
     by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
@@ -194,7 +196,19 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     by.context = by.context.filter(p => !packetBody.over.includes(p));
     by.tests = by.tests.filter(p => !packetBody.over.includes(p));
   }
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}`);
+  const loop = opts.loop;
+  if (loop) {
+    const head = loop.fix_check.head;
+    const since = touchedPaths(cwd, head, now);
+    const fork = git(cwd, ['merge-base', baseRef, head]).stdout.trim();
+    const scope = loop.fix_check.files ? new Set(loop.fix_check.files) : fork ? touchedPaths(cwd, fork, head) : null;
+    if (!since || !scope) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
+    by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && scope.has(p)).sort();
+    by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
+    by.docs = by.docs.filter(p => !by.accepted.includes(p));
+  }
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${loop ? ` accepted=${by.accepted.length}` : ''}`);
+  if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests].sort();
   if (scoped.length && sides) {
@@ -225,7 +239,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
  * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
  * stale the audit (GST-391).
  */
-function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, r: Report): boolean {
+function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, loopAccepted: readonly string[] | undefined, r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
   let stale: string[] | null = null;
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
@@ -277,10 +291,11 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
-  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[] };
+  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[], accepted: [] as string[] };
+  carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
-  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
+  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q) && !carried.accepted.includes(q))) {
     const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
     const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
@@ -295,8 +310,8 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     carried.requested.push(p);
   }
   if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
-  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p));
-  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length})`;
+  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p) && !carried.accepted.includes(p));
+  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length}${loopAccepted ? ` accepted=${carried.accepted.length}` : ''})`;
   const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';
   r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}${exception}`}`);
   if (left.length) { r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, a fix the audit\'s result asked for via --docs-requested <path> --docs-result <audit-id>-result.json, or a named risk); never refresh hashes'); return false; }
@@ -308,6 +323,16 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const base = flag('--base')!;
   const r = new Report();
   const list = lanes(argv) as { label: string; command: string }[];
+  let loop: ReviewLoopException | undefined;
+  const loopArg = flag('--review-loop-exception');
+  if (loopArg !== undefined) {
+    let raw: unknown;
+    try { raw = JSON.parse(loopArg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, loopArg.slice(1)), 'utf8') : loopArg); } catch (e) { return r.stop(`--review-loop-exception: ${firstLine((e as Error).message)}`); }
+    const parsed = parseReviewLoopException(raw);
+    if (!parsed.ok) return r.stop(`--review-loop-exception: ${parsed.message}`);
+    if (git(cwd, ['merge-base', '--is-ancestor', parsed.exception.fix_check.head, 'HEAD']).status !== 0) return r.stop(`--review-loop-exception: fix_check.head ${parsed.exception.fix_check.head.slice(0, 12)} is not HEAD or an ancestor of it`);
+    loop = parsed.exception;
+  }
   const policy = shipPolicy(cwd, base);
   if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD', base), flag('--trailer'), r)) return r;
   for (const cmd of all('--build')) {
@@ -317,9 +342,9 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   }
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
-  const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed') }, r);
+  const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;
@@ -343,7 +368,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
     r.add(`PREGATE: ${verdict} (rerun on the stamped tree)`);
     if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the stamped tree: fix it${/uncleared/.test(verdict) ? ', or gstack-pregate clear with the remote run URL' : ''}, then rerun finish`);
   }
-  return r.next('Step 16 stage 5: paste these results and the two-line honesty inventory, then run Step 17\'s guard block and gstack-ship-release push');
+  return r.next(`Step 16 stage 5: paste these results and the two-line honesty inventory, then run Step 17's guard block and gstack-ship-release push${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
 }
 
 export function push(argv: readonly string[], cwd: string): Report {
