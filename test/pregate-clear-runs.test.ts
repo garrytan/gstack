@@ -157,7 +157,7 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(profiled.receipt).toStartWith(`run tree=${file.tree.slice(0, 12)} tests=5 runs=200/1 profiles=${PLATFORM} `);
     const failed = clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts'], conclusion: 'failure' }], { profiles: { ...PROFILES, [PLATFORM]: PROFILES.test! } }) }, repo.work);
     expect('refused' in failed && failed.refused).toBe('PREGATE_RECEIPT_INVALID');
-    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, []) }, repo.work)).toEqual({ receipt: url, attested: false });
+    expect(clearDecision(file, PLATFORM, { runUrl: url, evidence: check(repo, [{ id: 200, profile: 'test', head, files: ['test/a.test.ts'] }]) }, repo.work)).toEqual({ receipt: url, attested: false });
     const bundled = clearDecision(file, PLATFORM, { bundleLane: 'macos', evidence: check(repo, [], { profiles: { ...PROFILES, [PLATFORM]: PROFILES.test! } }) }, repo.work);
     expect('refused' in bundled && `${bundled.refused}: ${bundled.message}`).toBe(`usage: ${PLATFORM} has a run profile on the base branch; clear it with --run <id|url>, which verifies the run`);
     expect(clearDecision(file, PLATFORM, { bundleLane: 'macos', evidence: check(repo, []) }, repo.work)).toEqual({ receipt: 'bundle-lane:macos', attested: false });

@@ -27,7 +27,7 @@ import { NON_DOWNGRADABLE, PREGATE_CONFIG_PATH, userPolicyAbsent } from './confi
 import { sha256, withFingerprint } from './context';
 import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnlyTree } from './remote-receipt';
 import { resolveBaseBranch } from '../ship-policy';
-import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
+import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
@@ -217,7 +217,10 @@ export type ClearDecision = { receipt: string; attested: boolean; substitution?:
  * tree and the substitution recorded; when any differing path is not a stamp,
  * the tree mismatch refuses as before. A `test_backend/<backend>` obligation
  * has no machine-checkable receipt, so its run URL is recorded as attested.
- * Platform lanes take a run URL or an evidence-bundle lane label.
+ * Platform lanes take a run URL or an evidence-bundle lane label. When the run
+ * evidence is readable, a run URL must name a run of this repository whose
+ * workflow file is the lane's own; a run of another workflow, an unreadable
+ * run or a URL that is not an Actions run refuses (GSTA-203).
  *
  * `--run` (and `--run-url` on a lane the base branch profiles) goes to
  * clearByRuns, which accepts only verified Actions runs; a profiled lane
@@ -252,6 +255,16 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
   if (target.workflow === 'test_backend') {
     if (!input.runUrl) return { refused: 'usage', message: `${lane} clears with --run-url <url>` };
     return { receipt: `attested:${input.runUrl}`, attested: true };
+  }
+  if (input.runUrl && input.evidence) {
+    const invalid = (why: string): ClearDecision => ({ refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${why}; ${lane} stays uncleared` });
+    const id = parseRunRef(input.runUrl, input.evidence.repo);
+    if (id === null) return invalid(`run_ref_invalid — ${JSON.stringify(input.runUrl)} is not a run id or a run URL on ${input.evidence.repo}`);
+    let run: ApiRun;
+    try { run = input.evidence.deps.run(id); }
+    catch (e: any) { return invalid(`api_error — reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`); }
+    const want = `.github/workflows/${target.workflow}`;
+    if (run.path !== want) return invalid(`workflow_mismatch — run ${id} attempt ${run.run_attempt} ran ${run.path ?? 'an unknown workflow'}, not ${want}`);
   }
   const receipt = input.runUrl ?? (input.bundleLane ? `bundle-lane:${input.bundleLane}` : undefined);
   if (!receipt) return { refused: 'usage', message: `${lane} clears with --run-url <url> or --bundle-lane <label>` };

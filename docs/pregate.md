@@ -752,7 +752,17 @@ heads=<h12> verified=<time>` (with `accepted-for=` and the substitution for a
 stamp-only predecessor). A lane with its own profile gets `run tree=… runs=…`
 the same way; for such a lane `--run-url` is verified as `--run` is, and
 `--bundle-lane` is refused. A lane with no profile keeps today's `--run-url`
-recording. When the base config or the GitHub origin cannot be read, `--run`
+recording, with one check (GSTA-203): when the base config and the GitHub
+origin can be read, `clear` reads the run once and refuses
+`PREGATE_RECEIPT_INVALID` unless it is a run of this repository whose
+workflow file is the lane's own `<workflow.yml>`. A run of another workflow
+refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
+ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
+run gh cannot read refuses with `api_error`, and a URL that is not an Actions
+run URL or id on this repository with `run_ref_invalid`. Only the workflow
+file is checked there, not the job, conclusion or tree; that is what a run
+profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
+unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
 shows the lane has no profile; then the lane is recorded as before, with a
 warning naming the cause. `gstack-ship-queue ready --dispatch-ci` still
@@ -768,7 +778,8 @@ aggregate, `os` Windows). Each accepts `pull_request` and `workflow_dispatch`
 runs and reads the `tested-tree` artifact, which both aggregates upload only
 after their strict verification passes. The main-push reuse job and
 `--from-run` read them. No lane has a profile, so every macOS and Windows lane
-still clears by `--run-url` as before. A pull request cut before these
+still clears by `--run-url`, checked only for its workflow file (a
+`windows-smoke.yml` run cannot clear `windows-free-tests.yml/windows-free-shard`). A pull request cut before these
 workflows uploaded `tested-tree` has no record a lane profile could verify, so
 lane profiles wait until open pull requests carry the producer (GST-555).
 
