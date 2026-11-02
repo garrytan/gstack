@@ -13,14 +13,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
-import { matchRisk, RISK_RULES, type RiskClass } from './review-risk';
+import { decodeCharRefs, matchRisk, RISK_RULES, SVG_PATH, svgActive, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'medium' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check' | 'targeted';
-export type Step = 'full' | 'scoped' | 'fix-check' | 'done' | 'stop';
+export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
@@ -58,7 +58,7 @@ const GATE_PATH = [
   /^lib\/review-(depth|collect|scope|targeted|risk)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
-/** Data files: JSON, CSV, TSV and raster images. YAML, TOML and SVG are never data here: deploy configs, API specs and executable SVG stay code. */
+/** Data files: JSON, CSV, TSV and raster images. YAML and TOML are never data here: deploy configs and API specs stay code. An SVG is data only as a drawing (svgDrawing). */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
 const DATA_CONFIG = [
@@ -66,10 +66,89 @@ const DATA_CONFIG = [
   /(^|\/)(package|package-lock|npm-shrinkwrap|composer|deno|jsr|tsconfig[^/]*|jsconfig[^/]*|manifest|app|vercel|netlify|firebase|renovate|turbo|nx|lerna|biome|angular|nest-cli|lint-staged|components|pyrightconfig|cdk|serverless|appsettings[^/]*)\.json$/i,
 ];
 
+/**
+ * The SVG elements a chart is drawn with, lowercased, under any namespace prefix: shapes, text, paint servers, clip paths,
+ * filters (feImage loads a document, so it is left out), CSS, and the RDF metadata plotting libraries write. No script,
+ * foreignObject, link, animation or embedded document.
+ */
+const SVG_ELEMENTS = new Set([
+  'svg', 'g', 'defs', 'symbol', 'use', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'textpath', 'title', 'desc',
+  'metadata', 'clippath', 'mask', 'pattern', 'marker', 'lineargradient', 'radialgradient', 'stop', 'style', 'image', 'filter',
+  'feblend', 'fecolormatrix', 'fecomponenttransfer', 'fecomposite', 'feconvolvematrix', 'fediffuselighting', 'fedisplacementmap', 'fedistantlight',
+  'fedropshadow', 'feflood', 'fefunca', 'fefuncb', 'fefuncg', 'fefuncr', 'fegaussianblur', 'femerge', 'femergenode', 'femorphology', 'feoffset',
+  'fepointlight', 'fespecularlighting', 'fespotlight', 'fetile', 'feturbulence',
+  'rdf', 'work', 'agent', 'type', 'date', 'format', 'creator', 'description', 'license',
+]);
+/** Markup a drawing may hold besides elements: comments, CDATA, the XML declaration, and a DOCTYPE that names no document but W3C's SVG DTD. */
+const SVG_MARKUP = /^<(?:!--|!\[CDATA\[|\?xml\s|!DOCTYPE\s+svg(?:\s+PUBLIC\s+(["'])-\/\/W3C\/\/DTD SVG [\w .]+\/\/EN\1\s+(["'])https?:\/\/www\.w3\.org\/[\w.\/-]+\.dtd\2)?\s*>)/i;
+/**
+ * What a drawing never holds: a named entity beyond the five XML ones, a backslash (a CSS escape such as @\69mport), a CSS
+ * import, a url() to another document, a CSS expression or binding.
+ */
+export const SVG_REFUSED = [/&(?!(?:amp|lt|gt|quot|apos);)/, /\\/, /@import/i, /url\((?!\s*#|['"]\s*#)/i, /expression\s*\(/i, /-moz-binding|\bbehavior\s*:/i];
+/** A drawing's CSS, a style element's text or a style attribute's value, holds declarations only: no @ rule and no function but url(#id). */
+const SVG_STYLE_OPEN = /<(?:[A-Za-z_][\w.-]*:)?style\b/gi;
+const SVG_STYLE_CLOSE = /^<\/(?:[A-Za-z_][\w.-]*:)?style\s*>/i;
+const SVG_CSS_REF = /url\(\s*(['"]?)#[\w.:-]*\1\s*\)/gi;
+const SVG_CSS_REFUSED = /[@(]/;
+/** An href or src value a drawing may hold: a same-document reference, or a raster image inline. */
+const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]*$)/i;
+
+/**
+ * Whether an SVG's whole text is a drawing (GST-911): every element in SVG_ELEMENTS, no event handler, every href or src a
+ * same-document reference or an inline raster image, CSS of declarations only, and nothing SVG_REFUSED names, read after character references are
+ * decoded. Every name= in the text is read, so a stray quote cannot hide a later attribute inside its value; an unquoted value
+ * stops at the next =, which keeps the scan linear. A style element's CSS is walked with indexOf to its closing tag, dropping
+ * comments and reading CDATA as CSS, so neither can hide a closing tag; any other markup inside it, or a style element that never
+ * closes, refuses. Anything else, an SVG that can run code included, stays code.
+ */
+export function svgDrawing(text: string): boolean {
+  const t = decodeCharRefs(text);
+  if (SVG_REFUSED.some(r => r.test(t)) || svgActive(t)) return false;
+  const cssDrawing = (css: string) => !SVG_CSS_REFUSED.test(css.replace(SVG_CSS_REF, ''));
+  for (let at = 0; ;) {
+    SVG_STYLE_OPEN.lastIndex = at;
+    const open = SVG_STYLE_OPEN.exec(t);
+    if (!open) break;
+    let i = t.indexOf('>', open.index) + 1;
+    if (!i) return false;
+    let css = '';
+    for (;;) {
+      const lt = t.indexOf('<', i);
+      if (lt === -1) return false;
+      css += t.slice(i, lt);
+      if (t.startsWith('<!--', lt)) {
+        i = t.indexOf('-->', lt + 4) + 3;
+        if (i === 2) return false;
+      } else if (t.startsWith('<![CDATA[', lt)) {
+        const end = t.indexOf(']]>', lt + 9);
+        if (end === -1) return false;
+        css += t.slice(lt + 9, end);
+        i = end + 3;
+      } else if (SVG_STYLE_CLOSE.test(t.slice(lt, lt + 256))) {
+        at = lt + 1;
+        break;
+      } else return false;
+    }
+    if (!cssDrawing(css)) return false;
+  }
+  for (let at = t.indexOf('<'); at !== -1; at = t.indexOf('<', at + 1)) {
+    if (SVG_MARKUP.test(t.slice(at, at + 512))) continue;
+    const tag = /^<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)/.exec(t.slice(at, at + 256));
+    if (!tag || !SVG_ELEMENTS.has(tag[1]!.toLowerCase())) return false;
+  }
+  for (const m of t.matchAll(/(?<![\w.:-])([A-Za-z_][\w.:-]*)\s*=\s*(?=(?:"([^"]*)"|'([^']*)'|([^\s"'<>=]+)))/g)) {
+    const local = m[1]!.slice(m[1]!.lastIndexOf(':') + 1).toLowerCase();
+    const value = m[2] ?? m[3] ?? m[4] ?? '';
+    if (local.startsWith('on') || ((local === 'href' || local === 'src') && !SVG_HREF.test(value)) || (local === 'style' && !cssDrawing(value))) return false;
+  }
+  return true;
+}
+
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
-  RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT,
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT, SVG_ELEMENTS: [...SVG_ELEMENTS],
+  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
@@ -95,6 +174,11 @@ export function classifyPath(p: string, root?: string | readonly string[]): Path
  */
 export function dataCandidate(p: string, root?: string | readonly string[]): boolean {
   return DATA_PATH.test(p) && classifyPath(p, root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
+}
+
+/** An SVG the data rule may move to docs once the collector reads its whole text as a drawing (ClassInput.drawings); never a data file another file is named through. */
+export function svgCandidate(p: string, root?: string | readonly string[]): boolean {
+  return SVG_PATH.test(p) && classifyPath(p, root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
 }
 
 /** Whether a range needs the gate scan: any path that is not docs by the path-only rule. The data rule never skips it. */
@@ -133,6 +217,8 @@ export interface ClassInput {
   consumed?: readonly string[] | 'all';
   /** Paths the diff creates (untracked files included): their added lines are the whole file. */
   created?: readonly string[];
+  /** The SVG candidates (svgCandidate) whose whole text the collector read as a drawing (svgDrawing); any other SVG stays code. */
+  drawings?: readonly string[];
   /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
@@ -141,7 +227,7 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
-const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && dataCandidate(p, i.root);
+const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
 const pathClass = (i: ClassInput, p: string): PathClass => ((i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
@@ -252,6 +338,12 @@ export interface History {
   /** Runtime lines of the fix range (RANGE_BASE..HEAD) as classifyDiff counts them, 0 when it touches none; undefined or null when the range was not read. */
   rangeRuntimeLines?: number | null;
   pass1Depth?: Depth;
+  /** The diff is gate class (planReview sets it): Step 11's voices run before any stop. */
+  gate?: boolean;
+  /** Step 11's native adversarial pass already ran (planReview sets it from PlanInput.adversarialRan). */
+  adversarialRan?: boolean;
+  /** The approval id of the owner's recorded grant of one scoped fix-check after round 2 (review_loop_exception). */
+  granted?: string;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -263,8 +355,19 @@ export interface NextStep { step: Step; reason: string }
  * changes no runtime lines; two rounds is the cap (R51: a scoped pass or a fix-check is
  * one): after round 2, below-floor fixes finish with notes, and a blocker open or fixed
  * there, or a gate-class edit there, stops for the owner, whose grant may add one scoped fix-check.
+ * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
+ * and the owner's recorded grant (`granted`) turns the stop after a round-2 full pass with a fixed finding into its
+ * one fix-check; a fix-check never earns another, so the grant cannot repeat.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
+  const n = loopStep(h, depth);
+  if (n.step !== 'stop') return n;
+  if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's voices (adversarial, outside, targeted) run before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
+  if (h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
+  return n;
+}
+
+function loopStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1 reviews the whole diff' };
   const fixed = !!(h.fixedBlocking || h.fixedBelow);
   if (h.last === 'fix-check') return h.blockingOpen || h.fixedBlocking || h.touchedGate ? { step: 'stop', reason: `the fix-check ${h.touchedGate && !h.blockingOpen && !h.fixedBlocking ? 'edited a gate-class path' : 'found a blocking finding'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` } : { step: 'done', reason: fixed ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
@@ -389,7 +492,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const c = classifyDiff(i);
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
-  const next = nextStep(i.history, depth.depth);
+  const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan }, depth.depth);
   const h = i.history;
   const raise = depth.depth === 'light' && (h.fixedBlocking || h.blockingOpen || i.criticalFound);
   const stepDepth: Depth = raise ? 'standard' : depth.depth;
@@ -449,8 +552,11 @@ export function planReview(i: PlanInput): ReviewPlan {
   } else if (next.step === 'fix-check') {
     add('fix-check', 'fix-check', 'full');
     if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
+  } else if (next.step === 'voices') {
+    add('adversarial-native', 'adversarial', 'full');
+    add('outside-voice', 'outside-voice', 'host');
   }
-  if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check'].includes(next.step)) {
+  if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check', 'voices'].includes(next.step)) {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);
   }

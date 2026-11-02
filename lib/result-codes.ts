@@ -16,6 +16,8 @@ import { BUDGET_RESULT_CODES } from './result-codes-budget';
 import { EVAL_RESULT_CODES } from './result-codes-eval';
 import { PLAN_RESULT_CODES } from './result-codes-plan';
 import { AUTOPLAN_RESULT_CODES } from './result-codes-autoplan';
+import { BROWSE_RESULT_CODES } from './result-codes-browse';
+import { CLEAN_RESULT_CODES } from './result-codes-clean';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -634,12 +636,6 @@ export const RESULT_CODES = {
     summary: 'a Capy session (GSTACK_CAPY=1) has no passing install verdict for this checkout, HEAD and workflow, so the workflow refused to start',
     fix: 'run the Capy skill installer with --for <workflow> on this machine and launch with the GSTACK_LAUNCH line it prints',
   },
-  // Fix wave 2026-10-15, PR 1a (items 7 and 11).
-  BROWSE_TAB_UNRECOVERABLE: {
-    anchor: 'browse-tab-unrecoverable',
-    summary: 'every tab was closed outside browse and a new one could not be opened, because the browser or its context is gone',
-    fix: 'run `browse restart` (`$B restart` in a gstack skill); `browse status` and `browse stop` keep working',
-  },
   BUN_VERSION_UNREADABLE: {
     anchor: 'bun-version-unreadable',
     summary: 'bun --version did not print a version gstack can compare with the incoming release\'s Bun floor, so the update was held and nothing was changed',
@@ -772,6 +768,8 @@ export const RESULT_CODES = {
   ...EVAL_RESULT_CODES,
   ...PLAN_RESULT_CODES,
   ...AUTOPLAN_RESULT_CODES,
+  ...BROWSE_RESULT_CODES,
+  ...CLEAN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

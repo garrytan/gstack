@@ -240,7 +240,7 @@ describe('write and carry refuse a receipt the queue\'s targeted verdict refuses
     const uncovered = carry(versioned);
     expect(uncovered.status).toBe(EXIT.refused);
     expect(uncovered.err).toMatch(/requires the targeted reader on money, but the receipt records no targeted pass.*\(RECEIPT_CARRY_REFUSED/);
-    expect(uncovered.err).toContain('the queue refuses it once #3859 lands');
+    expect(uncovered.err).toContain('the queue refuses it too (#3859)');
     expect(extractReceipt(fs.readFileSync(uncovered.body, 'utf8')).receipt!.head).toBe(head);
     const ok = carry(covered);
     expect(ok.status, ok.err).toBe(EXIT.ok);
