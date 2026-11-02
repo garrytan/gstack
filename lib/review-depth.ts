@@ -98,9 +98,10 @@ const SVG_HREF = /^\s*(?:#|data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+
  * Whether an SVG's whole text is a drawing (GST-911): every element in SVG_ELEMENTS, no event handler, every href or src a
  * same-document reference or an inline raster image, CSS of declarations only, and nothing SVG_REFUSED names, read after character references are
  * decoded. Every name= in the text is read, so a stray quote cannot hide a later attribute inside its value; an unquoted value
- * stops at the next =, which keeps the scan linear. A style element's CSS is walked with indexOf to its closing tag, dropping
- * comments and reading CDATA as CSS, so neither can hide a closing tag; any other markup inside it, or a style element that never
- * closes, refuses. Anything else, an SVG that can run code included, stays code.
+ * stops at the next =, which keeps the scan linear. A style element's CSS is walked with indexOf to its closing tag over the raw
+ * text, so a character reference cannot fake a closing tag or a comment, and any & in it refuses (GST-940). Comments and CDATA are
+ * read as CSS, so neither can hide a closing tag and an HTML-only comment end (<!--> or --!>) exposes nothing unread; any other
+ * markup inside it, or a style element that never closes, refuses. Anything else, an SVG that can run code included, stays code.
  */
 export function svgDrawing(text: string): boolean {
   const t = decodeCharRefs(text);
@@ -108,29 +109,27 @@ export function svgDrawing(text: string): boolean {
   const cssDrawing = (css: string) => !SVG_CSS_REFUSED.test(css.replace(SVG_CSS_REF, ''));
   for (let at = 0; ;) {
     SVG_STYLE_OPEN.lastIndex = at;
-    const open = SVG_STYLE_OPEN.exec(t);
+    const open = SVG_STYLE_OPEN.exec(text);
     if (!open) break;
-    let i = t.indexOf('>', open.index) + 1;
+    let i = text.indexOf('>', open.index) + 1;
     if (!i) return false;
     let css = '';
     for (;;) {
-      const lt = t.indexOf('<', i);
+      const lt = text.indexOf('<', i);
       if (lt === -1) return false;
-      css += t.slice(i, lt);
-      if (t.startsWith('<!--', lt)) {
-        i = t.indexOf('-->', lt + 4) + 3;
-        if (i === 2) return false;
-      } else if (t.startsWith('<![CDATA[', lt)) {
-        const end = t.indexOf(']]>', lt + 9);
+      css += text.slice(i, lt);
+      const [start, close] = text.startsWith('<!--', lt) ? [lt + 4, '-->'] : text.startsWith('<![CDATA[', lt) ? [lt + 9, ']]>'] : [-1, ''];
+      if (start !== -1) {
+        const end = text.indexOf(close, start);
         if (end === -1) return false;
-        css += t.slice(lt + 9, end);
+        css += ' ' + text.slice(start, end) + ' ';
         i = end + 3;
-      } else if (SVG_STYLE_CLOSE.test(t.slice(lt, lt + 256))) {
+      } else if (SVG_STYLE_CLOSE.test(text.slice(lt, lt + 256))) {
         at = lt + 1;
         break;
       } else return false;
     }
-    if (!cssDrawing(css)) return false;
+    if (css.includes('&') || !cssDrawing(css)) return false;
   }
   for (let at = t.indexOf('<'); at !== -1; at = t.indexOf('<', at + 1)) {
     if (SVG_MARKUP.test(t.slice(at, at + 512))) continue;
