@@ -237,6 +237,7 @@ export const PAID_WORKFLOW_FILES = [
 export const FREE_ONLY_PR_FILES = [
   'scripts/test-free-shards.ts',
   'scripts/lib/free-home-guard.ts', // Imported only by the free shard runner.
+  'scripts/lib/shard-jobs.ts', // Free runner's --ci-run --jobs sub-shards; ship-measure loads it through test-free-shards.ts, so its touchfiles list it.
   'test/helpers/auq-parallel-worker.ts',
   'test/helpers/stored-zip.ts', // Read only by the free test-health report tests.
   'scripts/free-test-durations.json',
@@ -294,6 +295,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/windows-free-tests.yml',
   '.github/workflows/windows-pregate-e2e.yml',
   '.github/workflows/windows-setup-e2e.yml',
+  '.github/workflows/windows-smoke.yml',
 ] as const;
 
 /**

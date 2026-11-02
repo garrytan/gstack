@@ -17,9 +17,10 @@ This skill follows gstack shared preamble `6872f1ec4eb9` (AskUserQuestion format
 ## Preamble (run first)
 
 ```bash
-[ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack;[ -d "$_r/bin" ]||_r=~/.gemini/antigravity-cli/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host agy from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
-GSTACK_BIN=$GSTACK_ROOT/bin
-"$GSTACK_BIN/gstack-skill-start" --skill "ship" --model "gemini"
+[ -d "${GSTACK_ROOT:-/-}/lib" ]&&[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=~/.gemini/antigravity-cli/skills/gstack
+[ -d "$GSTACK_ROOT/bin" ]||echo "gstack: no install found (tried $GSTACK_ROOT). Fix: ./setup --host agy from your gstack checkout; ./setup --status shows it.">&2
+"$GSTACK_ROOT/bin/gstack-skill-start" --skill "ship" --model "gemini"
 ```
 
 **Antigravity tool names:** `AskUserQuestion` means your `ask_question` tool (options as choices); there is no `mcp__*__AskUserQuestion` variant. The Bash tool means `run_command`, the Read tool `view_file`, the Write tool `write_to_file`, the Edit tool `replace_file_content` (`multi_replace_file_content` for several edits in one file), Grep `grep_search`, Glob `find_by_name`, and the Agent tool `invoke_subagent`. There is no Skill tool: load a skill by reading its SKILL.md with `view_file`. If a step says to call `ExitPlanMode`, tell the user the plan is ready and wait. `view_file` can return only part of a long file: when a SKILL.md or a file it tells you to read ends before its last line, read the remaining line ranges before acting on it.
@@ -210,8 +211,8 @@ not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots
 **Review policy** (docs/review-policy.md): only a finding that would fail a test,
 break production, or lose data or secrets blocks a pass; the rest is a PR-body
 note. Step 9's plan sets both reviews' depth (`--depth-floor standard|full` only
-raises it). Pass 1 reads the diff, later passes the range; the cap is two full
-passes and a fix-check. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
+raises it). Pass 1 reads the diff, later passes the range; the cap is two rounds,
+fix-checks included. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
 is the knob; the receipt's `review_loop` records the outcome.
 
 ### Ship control flow
@@ -336,7 +337,8 @@ act on every `STOP:` and `NEXT:` line.
    `CARRY: would carry` (base merge committed, same product patch-id): skip review, fix
    what it broke (CHANGELOG, size caps), run `gstack-pregate --allow-repo-commands`, then carry
    without `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and
-   ends the run. A failed check, HEAD moving after pregate, `refused` or `current` re-runs Steps 2–16.
+   ends the run. A failed check, HEAD moving after pregate, `current`, or `refused` with no
+   `NEXT: carry route` re-runs Steps 2–16.
 
 5. Display historical readiness using the dashboard below, then finish Step 1.
    Prior CLEAR reviews or dashboard skips never replace Step 9's gates.
@@ -457,7 +459,7 @@ not web services already deployed.
 
 The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge).
 
-**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**, show the conflicting choices, use AskUserQuestion for the resolution, and wait for the answer before editing or continuing; then commit and rerun the preflight.
+**Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before any edit; then commit and rerun the preflight.
 
 **Ship policy:** `POLICY:` is `gstack-ship-policy show-effective --base <base>`
 (docs/ship-policy.md); its `ship:` lines bind Steps 12-16 and history. `RUNTIME_LINES:` goes
@@ -529,8 +531,7 @@ runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun 
    - **FRESH** → use the recorded level or choose it in item 2, then check the queue and write.
    - **ALREADY_BUMPED** → keep `NEW_VERSION=currentVersion`. If `BUMP_LEVEL` is missing,
      use the first changed component from `baseVersion` to `currentVersion`
-     (major/minor/patch/micro; an absent fourth component is zero). Continue at item 3,
-     not another automatic bump.
+     (major/minor/patch/micro; an absent fourth component is zero). Continue at item 3; never bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify.
      Success follows ALREADY_BUMPED, including its queue check; failure stops.
      Repair alone never re-bumps.
@@ -549,8 +550,7 @@ runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun 
      **MAJOR**: ask for milestones or breaking changes (`ship: bump patch` never asks).
      AskUserQuestion: recommended level with rationale, smaller level, or cancel.
      Wait; cancel stops before release writes or push and preserves existing work.
-   Save lowercase `BUMP_LEVEL`. A claimed version may move the next available number
-   forward, but cannot change the chosen MICRO/PATCH/MINOR/MAJOR level.
+   Save lowercase `BUMP_LEVEL`. A claimed version may move the number forward, never the level.
 
 3. **Queue-aware pick:**
    ```bash
@@ -696,7 +696,8 @@ Classify the comparison in this order:
    Insert `5–11.5 → 12–14 → 16` before the pending Step 17, then stop this step.
    This repair excludes Step 14.5 because the rebuild can change generated docs.
    Step 16 restarts at stage 1: rebuild and compare again before stage 3 decides
-   documentation freshness. Further repairs use the same work list.
+   documentation freshness. Further repairs use the same work list. A STOP naming a scoped-review packet
+   instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.
 2. **Only authored docs or release metadata changed:** Keep Step 8's original child
    report and counts. Recheck affected plan items using their recorded verification
    and append current evidence to the invocation record. If a classification is no
@@ -719,6 +720,7 @@ audit or risk decision never qualifies.
 
 Report changed inputs, blockers and attempts used:
 
+- **A fix the audit's result named:** rerun finish with `--docs-requested <path> --docs-result <json>`.
 - **An attempt remains, with changed inputs or an available repair:** insert
   `14.5 → 15 → 16` before Step 17. Use Blocked recovery with the existing count.
   Validate the outcome before Step 15, then restart Step 16 stage 1.
@@ -756,9 +758,9 @@ every allowed edit is release metadata:
 |---|---|
 | FRESH (exit 0) | Cite the label, exit, timestamp, log and `tests_ran`. |
 | STALE/MISSING: changed content, command or age, or no proven run | Run `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once. Handle failures as described below. |
-| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: the lane proved nothing. Use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
+| ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
 | `tests_ran: unknown` | Non-blocking: keep the exit-0 verdict, cite the lane as `count unavailable`. Never record it as ZERO-RUN or as a counted pass. |
-| Only receipt storage/readback failed | Independently prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
+| Only receipt storage/readback failed | Prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
 
 No test lanes: require Step 5's explicit untested-scope approval for final content,
 or run Steps 5–15, including the no-tests decision, then return to Step 16 stage 1.
@@ -766,8 +768,8 @@ Report the gap, never FRESH; builds must pass.
 
 **New, changed or unwaived test failure:** STOP publication. Run Steps 5–15,
 starting with Step 5's triage, then return to Step 16 stage 1. This recovery also
-applies if a failure appears while reporting in stage 5. Reentry to Step 14.5
-keeps its existing audit count; it does not authorize a third attempt.
+covers a failure seen in stage 5. Reentry to Step 14.5 keeps its audit count and
+does not authorize a third attempt.
 
 ### 5. Report, then push
 
@@ -777,8 +779,7 @@ Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified
 pre-existing failures and approved scope; cite the actual approval and failing
-counts, never FRESH or all-green. A new, changed or unwaived test failure uses
-stage 4's recovery before publication.
+counts, never FRESH or all-green.
 
 Then the honesty inventory, two lines, from Step 9's latest `Gate edits:` line and
 its records:

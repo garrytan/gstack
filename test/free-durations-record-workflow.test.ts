@@ -46,7 +46,7 @@ test('Linux records on the free-suite runner image, turns red on any red file, a
 });
 
 test('Windows records through the windows-free-tests record_durations path, and propose needs both complete recordings', () => {
-  expect(recorder.jobs.windows).toEqual({ uses: './.github/workflows/windows-free-tests.yml', with: { record_durations: true } });
+  expect(recorder.jobs.windows).toEqual({ uses: './.github/workflows/windows-free-tests.yml', permissions: { contents: 'read', actions: 'read' }, with: { record_durations: true } });
   expect(recorder.jobs.propose.needs).toEqual(['linux', 'windows']);
   expect(recorder.jobs.propose.if).toBe('${{ !cancelled() }}');
   const downloads = recorder.jobs.propose.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));
@@ -82,7 +82,7 @@ test('the propose step touches only the two seeds, never the allowlist, on one b
   expect(script).not.toContain('free-test-seed-allowlist.json');
   expect(script).toContain('branch=bot/free-duration-seeds');
   expect(script).toContain('bun test test/free-seed-ratchet.test.ts');
-  for (const workflow of ['free-tests.yml', 'windows-free-tests.yml', 'quality-gate.yml']) {
+  for (const workflow of ['free-tests.yml', 'windows-smoke.yml', 'quality-gate.yml']) {
     expect(script).toContain(`gh workflow run ${workflow} --repo "$GITHUB_REPOSITORY" --ref "$branch"`);
     expect(load(workflow).on).toHaveProperty('workflow_dispatch');
   }

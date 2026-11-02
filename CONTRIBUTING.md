@@ -73,8 +73,8 @@ project where you actually felt the pain.
 
 **What CI does on a fork PR.** GitHub never gives a fork PR this repository's
 secrets, so CI runs everything that needs none: the required `free-tests` check
-(the Linux free suite, typecheck, the macOS and Windows gates), Windows Free
-Tests, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
+(the Linux free suite, typecheck, the macOS and Windows gates), Windows
+Smoke, Skill Docs Freshness, Workflow Lint, Version Gate, Quality gate, the
 make-pdf gate, and any path-triggered gates your change touches. E2E Evals
 still builds the CI image from your `Dockerfile.ci` without publishing it, and
 skips its paid eval jobs, which need provider API keys. That skip is expected
@@ -192,7 +192,7 @@ the new defaults.
 | Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY`, `UBI_OWNER` |
 | Clear pregate's test tier on a machine under 8 cores ([remote gate](docs/pregate.md#remote-gate)) | `gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands` (same command keyed or keyless) | Keyed: one billed 16-vCPU VM, about 7 minutes and $0.06 for the whole free tier, worst case $0.38; keyless: free, local parallel shards, practical for small selections only (98 files took 103 s on 4 cores) | Keyed: `UBICLOUD_API_KEY`, `UBI_OWNER`; keyless: nothing |
-| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
+| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs, nightly on main; PRs run the shorter `windows-smoke` check) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Run a native Windows qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Preview which paid cases my diff selects | `bun run eval:select` (PR profile; `--profile full` for the plain touchfile selection) | Free | — |
@@ -206,6 +206,7 @@ the new defaults.
 | Validate periodic cases plus the weekly gate census on a branch | `gh workflow run evals-periodic.yml --ref <branch> -f include_gate_census=true` | CI runners + API spend | Pushed branch, `gh` with workflow rights |
 | Run the opt-in ML, gitleaks and Swift checks | `gh workflow run platform-qualification.yml --ref <branch>` | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Render one module loadout as an eval arm ([loadouts](docs/loadouts.md)) | `bin/gstack-modules render --host claude --modules full,-section:<skill>/<id> --out-dir <dir>` (`--loadout full` for the control) | Free, about a second per host | Bun 1.4.2 |
+| See which loadout a model gets, or publish it as Capy would ([loadouts](docs/loadouts.md#how-gstack-picks-a-loadout)) | `bin/gstack-modules resolve --model <id>`; `bin/gstack-modules install --model <id> --full-root ~/.claude/skills --store <dir>` | Free, under a second | Bun 1.4.2 |
 | Look at past local eval runs | `bun run eval:list` / `eval:compare` / `eval:summary` | Free | Local eval history |
 | See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
 | Measure one red case alone against the ship bar (MEETS 9/10) | `bun run scripts/ship-measure.ts measure --case <case-id> --round baseline` ([bar](docs/TESTING_INTERNALS.md#ship-measure)) | API spend for 10 trials (12 for behavior); asks above $2/trial, stops at $25/case | Same as paid coverage |

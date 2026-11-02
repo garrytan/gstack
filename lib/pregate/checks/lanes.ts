@@ -21,6 +21,9 @@
  * and a deleted test runs its owning suite or names the files that lost their
  * last test (issue #3529). Any other removal owes what an edit owes.
  * A test that reads the file still selects that test.
+ * Under `--from-run <run>` the selected local test files a verified Free Tests
+ * run on this exact tree lists count as passed (recorded as `from_run` with the
+ * run receipt) and only the rest run; a refused run runs everything.
  * Incidents: p0-4-pipe-hidden-failure (`false | tail` read as green),
  * p0-4-windows-lane-unrun (a Windows-only change merged with its lane unrun).
  */
@@ -36,6 +39,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, supervise, type Counter, type Supervised } from '../supervise';
+import { verifyFromRun } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
 
@@ -544,9 +548,30 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   if (sel.noLane.length && mode === 'strict') {
     return withRemoved({ ...base, status: 'fail', cause: 'diff', code: 'PREGATE_NO_LANE', detail: `${sel.noLane.length} touched file(s) with no test lane: ${sel.noLane.join(' ')}`, fix: noLaneFix(ctx, sel.noLane) });
   }
-  const result = withRemoved(await runSelected(ctx, sel, base));
+  const reuse = ctx.fromRun ? fromRun(ctx, sel) : null;
+  if (reuse) ctx.progress(reuse.line);
+  const rest = reuse?.passed.length ? { ...sel, localTests: sel.localTests.filter(t => !reuse.passed.includes(t)) } : sel;
+  const ran = await runSelected(ctx, rest, base);
+  const reused = !reuse ? ran : { ...ran, lines: [reuse.line, ...(ran.lines ?? [])], ...(reuse.receipt ? { from_run: { receipt: reuse.receipt, files: reuse.passed }, detail: `${reuse.passed.length} of ${sel.localTests.length} local test file(s) passed in the --from-run run; ${ran.detail ?? ran.status}` } : {}) };
+  const result = withRemoved(reused);
   if (!sel.noLane.length) return result;
   return mode === 'no-policy' ? withStarter(ctx, sel, result) : withNoLaneWarning(ctx, sel, result);
+}
+
+/**
+ * `--from-run`: verify the run against the base branch's profiles for this machine's OS whose workflow holds a lane this
+ * machine runs (not a platform lane), on exactly this tree; the selected local test files its tree.json lists are the
+ * ones it already passed. Profiles are matched by workflow and OS, never by name, so none has to be named after a lane.
+ */
+function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: string[]; receipt?: string } {
+  const { ref, check } = ctx.fromRun!;
+  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
+  const names = 'error' in check ? [] : Object.entries(check.profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
+  const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
+  if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
+  const ran = new Set(v.evidence.files);
+  const passed = sel.localTests.filter(t => ran.has(t));
+  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run`, passed, receipt: v.receipt };
 }
 
 /**

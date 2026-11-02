@@ -44,12 +44,13 @@
 #
 # TTL and reaper: a name this script generates ends in -t<hours> (UBI_TTL_HOURS,
 # 1-999, default 3), the creator's own declaration of how long the VM may live.
-# `reap` destroys every VM in the project whose TTL expired more than ten
-# minutes ago, whichever owner made it, and this owner's own ubirun-<owner>-*
-# names with no TTL once they are UBI_LEGACY_HOURS old (default 4; another
-# owner's or an untagged TTL-less VM is never reaped); every `up` runs it first (UBI_REAP=0 skips it), so a runner
-# killed by a sleeping machine leaves nothing behind for longer than its TTL.
-# Names outside the ubirun- prefix are never reaped.
+# `reap` destroys only this owner's VMs: its ubirun-<owner>-* names whose TTL
+# expired more than ten minutes ago, and those with no TTL once they are
+# UBI_LEGACY_HOURS old (default 4). Another owner's VM, an untagged one and
+# names outside the ubirun- prefix are never reaped, expired or not; reap only
+# counts other owners' expired VMs in its log (cloud deletes stay owner-scoped,
+# GST-573). Every `up` runs it first (UBI_REAP=0 skips it), so a lane killed by
+# a sleeping machine has its leftovers destroyed by its own next `up`.
 #
 # Leftover line: `run` and `verify` end with
 #   UBICLOUD: left=<0|1|unknown> owner=<owner> vm=<name> others=<n>
@@ -740,6 +741,7 @@ run_tiers() {
 vm_rows() {
   local loc name owner created expires
   cli vm list -N -f location,name | while read -r loc name; do
+    [ -n "$name" ] || continue
     owner=. created="" expires=-
     if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,11})-([0-9]{10})- ]]; then
       owner=${BASH_REMATCH[1]} created=${BASH_REMATCH[2]}
@@ -753,23 +755,26 @@ vm_rows() {
   done
 }
 
-# reap: destroy every VM whose name carries a TTL that ended more than
-# REAP_GRACE seconds ago, whichever owner created it (the TTL is that owner's
-# own declaration), and the caller's own TTL-less ubirun-<UBI_OWNER>-* names at
-# least LEGACY_HOURS old. Another owner's TTL-less VM, an untagged one, and names
-# outside the prefix are never touched: only a TTL lets reap judge another lane's VM.
+# reap: destroy the caller's own VMs whose TTL ended more than REAP_GRACE
+# seconds ago, and its TTL-less ubirun-<UBI_OWNER>-* names at least LEGACY_HOURS
+# old. Every other VM is never touched, whatever its TTL says: a delete stays
+# with the owner that created the VM. Other owners' expired VMs are only counted.
 cmd_reap() {
-  local now rows loc name owner expires created n=0 failed=0
+  local now rows loc name owner expires created n=0 failed=0 others=0
   [[ "$LEGACY_HOURS" =~ ^[1-9][0-9]{0,3}$ ]] || die "UBI_LEGACY_HOURS must be a whole number of hours from 1 to 9999 with no leading zero (how old a TTL-less ubirun-* VM must be before reap destroys it)"
   now=$(date +%s)
   rows=$(vm_rows) || { log "reap: could not list the project's VMs; nothing destroyed"; return 1; }
   while read -r loc name owner expires created; do
     [ -n "$name" ] || continue
+    if [ "$owner" != "$OWNER" ]; then
+      [ "$expires" = - ] || [ "$now" -lt $(( expires + REAP_GRACE )) ] || others=$(( others + 1 ))
+      continue
+    fi
     if [ "$expires" != - ]; then
       [ "$now" -ge $(( expires + REAP_GRACE )) ] || continue
       log "reaping expired $loc/$name (owner $owner; its TTL ended $(( (now - expires) / 60 )) min ago)"
     else
-      [ -n "${UBI_OWNER:-}" ] && [ "$owner" = "$OWNER" ] && [ "$created" != - ] || continue
+      [ -n "${UBI_OWNER:-}" ] && [ "$created" != - ] || continue
       [ $(( now - 10#$created )) -ge $(( LEGACY_HOURS * 3600 )) ] || continue
       log "reaping TTL-less $loc/$name (owner $owner; $(( (now - 10#$created) / 3600 ))h old, legacy sweep at ${LEGACY_HOURS}h)"
     fi
@@ -777,6 +782,7 @@ cmd_reap() {
     cmd_down "$name" -l "$loc" || { failed=$(( failed + 1 )); log "failed to reap $loc/$name"; }
   done <<<"$rows"
   [ "$n" -gt 0 ] || log "reap: no expired VMs"
+  [ "$others" -eq 0 ] || log "reap: left $others expired VMs of other owners; only their owners reap them"
   [ "$failed" -eq 0 ] || { log "reap: $failed of $n expired VMs could not be destroyed"; return 1; }
 }
 
@@ -804,21 +810,39 @@ cmd_list() {
 }
 
 # usage: VMs and vCPUs per owner, from each VM's size (standard-16 = 16 vCPUs).
+# Exits 1 with no table when the VM list or any VM's size cannot be read, so a
+# partial count is never taken for the project's usage. A VM destroyed between
+# the list and its size read (404) no longer counts and is not a failure.
 cmd_usage() {
-  local tmp loc name owner i=0
+  local tmp rows loc name owner f i=0 unread=0
+  rows=$(vm_rows) || { log "usage: could not list the project's VMs"; return 1; }
   tmp=$(mktemp -d)
   while read -r loc name owner _; do
+    [ -n "$name" ] || continue
     i=$(( i + 1 ))
-    cli vm "$loc/$name" show 2>/dev/null | sed -n "s/^size: /$owner /p" >"$tmp/$i" &
+    {
+      case $(api "$tmp/$i.show" vm "$loc/$name" show) in
+        200) sed -n "s/^size: /$owner /p" "$tmp/$i.show" >"$tmp/$i" ;;
+        404) ;;
+        *) : >"$tmp/$i" ;;
+      esac
+      rm -f "$tmp/$i.show"
+    } &
     [ $(( i % 8 )) -ne 0 ] || wait
-  done < <(vm_rows)
+  done <<<"$rows"
   wait
-  cat "$tmp"/* 2>/dev/null | awk -v me="$OWNER" '
+  for f in "$tmp"/*; do [ ! -e "$f" ] || [ -s "$f" ] || unread=$(( unread + 1 )); done
+  if [ "$unread" -gt 0 ]; then
+    rm -rf "$tmp"
+    log "usage: could not read the size of $unread of $i VMs"
+    return 1
+  fi
+  find "$tmp" -type f -exec cat {} + | awk -v me="$OWNER" '
     { n = $2; sub(/^.*-/, "", n); o = $1 == "-" ? "(untagged)" : $1 == "." ? "(other)" : $1
       vms[o]++; cpu[o] += n; total += n; count++ }
     END {
       printf "%-14s %4s %6s\n", "OWNER", "VMS", "VCPUS"
-      for (o in cpu) printf "%-14s %4d %6d%s\n", o, vms[o], cpu[o], o == me ? "  (you)" : "" | "sort -k3,3nr"
+      for (o in cpu) printf "%-14s %4d %6d%s\n", o, vms[o], cpu[o], (o == me ? "  (you)" : "") | "sort -k3,3nr"
       close("sort -k3,3nr")
       printf "%-14s %4d %6d\n", "total", count, total
     }'
@@ -881,8 +905,17 @@ quota_preflight() {
   # between them: a slow first usage read must not shave the printed budget.
   remaining=$QUOTA_WAIT
   while :; do
-    used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}')
-    [[ "$used" =~ ^[0-9]+$ ]] || return 0
+    if ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
+      if [ "$remaining" -le 0 ]; then
+        log "quota preflight: could not read the project's vCPU usage; the API's own answer decides"
+        return 0
+      fi
+      log "quota: could not read the project's vCPU usage; retrying, up to ${remaining}s more"
+      step=$(( remaining < 30 ? remaining : 30 ))
+      sleep "$step"
+      remaining=$(( remaining - step ))
+      continue
+    fi
     [ $(( used + need )) -gt "$max" ] || return 0
     if [ "$remaining" -le 0 ]; then
       log "quota preflight refused $location/$name ($size): it needs $need vCPUs and the project's VMs already use $used of $max (ceiling from $source; other usage such as managed runners counts on top)"
@@ -1074,7 +1107,12 @@ cmd_down() {
 # pointer into the main repository, useless on the VM; the same snapshot
 # replaces it, on the worktree's own branch and index. Not carried: submodule
 # repositories (.git/modules) and a partial clone's promisor (the fetch pulls
-# every missing blob first); gstack has neither.
+# every missing blob first); gstack has neither. The archive is built in two
+# passes inside the snapshot directory because macOS's bsdtar stops reading
+# options at the first operand and resolves -T names after a -C, so no single
+# tar command line works on both it and GNU tar (#3680). COPYFILE_DISABLE=1
+# keeps Apple's tar from adding ._* AppleDouble entries for files with
+# extended attributes, which the VM would see as untracked files.
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
@@ -1119,15 +1157,18 @@ cmd_pack() {
     fi
     (
       cd "$src"
+      export COPYFILE_DISABLE=1
       git ls-files -z -co --exclude-standard \
         | while IFS= read -r -d '' f; do
             if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; fi
           done \
-        | tar --null -T - -c -C "$tmp" .git -zf -
+        | tar --null -T - -cf "$tmp/files.tar" \
+        && tar -rf "$tmp/files.tar" -C "$tmp" .git \
+        && gzip -c "$tmp/files.tar"
     )
     rm -rf "$tmp"; trap - EXIT
   else
-    tar -C "$src" -czf - .
+    COPYFILE_DISABLE=1 tar -C "$src" -czf - .
   fi
 }
 
@@ -1327,7 +1368,7 @@ cmd_run() {
     trap 'exit 130' INT TERM QUIT
     trap on_hup HUP
     if [[ "$name" =~ -t([0-9]+)$ ]]; then
-      log "$name carries a ${BASH_REMATCH[1]}h TTL (any later run of this script reaps it); if this process dies first: $0 down $name"
+      log "$name carries a ${BASH_REMATCH[1]}h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: $0 down $name"
     elif [[ "$name" =~ ^$PREFIX-$OWNER-[0-9]{10}- ]]; then
       log "$name has no TTL (reap destroys it once it is ${LEGACY_HOURS}h old); if this process dies before its teardown line, destroy it with: $0 down $name"
     else
@@ -1543,8 +1584,8 @@ usage: ubi-runner.sh <command> [args]
   owner                  print this caller's owner tag ($OWNER)
   records                VMs this machine created and has not confirmed gone ($VM_RECORD)
   gc HOURS               destroy this owner's VMs older than HOURS (never other owners')
-  reap                   destroy every VM whose -t<hours> TTL has ended (any owner) and this
-                         owner's TTL-less ubirun-* VMs older than UBI_LEGACY_HOURS
+  reap                   destroy this owner's VMs whose -t<hours> TTL has ended and its
+                         TTL-less ubirun-* VMs older than UBI_LEGACY_HOURS (never other owners')
   cli ARGS...            raw Ubicloud CLI passthrough (e.g. cli vm list)
 
 signals: INT and TERM tear the VM down. HUP, once a remote phase is live, detaches

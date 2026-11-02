@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { cleanup } from './helpers/restamp-fixture';
 import { coordinatorClone } from './helpers/ship-queue-fixture';
-import { publishMain, twoPrTrain } from './helpers/ship-queue-train-cases';
+import { laneStamp, markMerged, publishMain, twoPrTrain } from './helpers/ship-queue-train-cases';
 import {
   TRAIN_POLICY, dispatches, line, nonceOf, openPr, queue, readyReceipt, repoKey, trainFixture, trainJson,
   type TrainFixture,
@@ -28,8 +28,10 @@ describe('verify, freeze, repair and clear', () => {
     const v = (pr: string) => queue(fx, ['verify', '--pr', pr, '--train', nonce], {}, coord);
     const released = (prefix: string, version: string) => fx.repo.git('show', `${prefix}:CHANGELOG.md`).replace('## [Unreleased]', `## [${version}] - 2026-10-18`) + '\n';
     const main1 = publishMain(fx, t.prefixes[1].commit, '1.2.4.0', { file: 'CHANGELOG.md', text: released(t.prefixes[1].commit, '1.2.4.0') });
+    markMerged(fx, '1');
     expect(v('1').status).toBe(EXIT.ok);
-    expect(line(v('2').out, 'MERGE_CONDITION:')).toBe(`MERGE_CONDITION: sha=${h2}`);
+    const s2 = laneStamp(fx, '2', h2, { mergeMain: true });
+    expect(line(v('2').out, 'MERGE_CONDITION:')).toBe(`MERGE_CONDITION: sha=${s2}`);
     // Main's CHANGELOG plus #2's stamped entry, with one line the pin never wrote.
     const smuggled = fx.repo.git('show', `${main1}:CHANGELOG.md`).replace('# Changelog\n', '# Changelog\n\n## [1.2.5.0] - 2026-10-18\n\n- #2 change\n- added after the gate\n') + '\n';
     const broken = publishMain(fx, t.prefixes[2].commit, '1.2.5.0', { file: 'CHANGELOG.md', text: smuggled });
@@ -111,6 +113,7 @@ describe('verify, freeze, repair and clear', () => {
     const rn = nonceOf(queue(fx, ['train', 'build', '--repair', '--prs', `3@${h3}`]).out);
     expect(queue(fx, ['train', 'verdict', '--train', rn]).status).toBe(EXIT.ok);
     publishMain(fx, trainJson(fx, rn).prefixes[1].commit, '1.2.6.0');
+    markMerged(fx, '3');
     const cleared = queue(fx, ['verify', '--pr', '3', '--train', rn], {}, coord);
     expect(cleared.out).toMatch(/^FREEZE: cleared /m);
     expect(next(cleared.out)).toBe(`NEXT: gh pr view 2 --json state,headRefOid (unreadable at the freeze: #2@${h2.slice(0, 12)}); seat each that is OPEN in a train`);
@@ -125,6 +128,7 @@ describe('verify, freeze, repair and clear', () => {
     const coord = coordinatorClone(fx.repo);
     const v = (pr: string) => queue(fx, ['verify', '--pr', pr, '--train', nonce], {}, coord);
     publishMain(fx, t.prefixes[1].commit, '1.2.4.0');
+    markMerged(fx, '1');
     expect(v('1').status).toBe(EXIT.ok);
     const later = publishMain(fx, t.prefixes[2].commit, '1.2.5.0', { file: 'stray.txt', text: 'a later train\n' });
     fx.write(d => { (d.prs['2'] as any).state = 'MERGED'; });
@@ -157,6 +161,7 @@ describe('verify, freeze, repair and clear', () => {
     const coord = coordinatorClone(fx.repo);
     const v = (pr: string) => queue(fx, ['verify', '--pr', pr, '--train', nonce], {}, coord);
     publishMain(fx, t.prefixes[1].commit, '1.2.4.0');
+    markMerged(fx, '1');
     expect(v('1').status).toBe(EXIT.ok);
     const later = publishMain(fx, t.prefixes[2].commit, '1.2.5.0', { file: 'stray.txt', text: 'a later train\n' });
     const tree = fx.repo.git('rev-parse', `${later}^{tree}`);
@@ -181,6 +186,7 @@ describe('verify, freeze, repair and clear', () => {
     const v = (pr: string) => queue(fx, ['verify', '--pr', pr, '--train', nonce], {}, coord);
     const released = fx.repo.git('show', `${t.prefixes[1].commit}:CHANGELOG.md`).replace('## [Unreleased]', '## [1.2.4.0] - 2026-10-18') + '\n';
     const main1 = publishMain(fx, t.prefixes[1].commit, '1.2.4.0', { file: 'CHANGELOG.md', text: released });
+    markMerged(fx, '1');
     expect(v('1').status).toBe(EXIT.ok);
     const foreign = publishMain(fx, t.prefixes[1].commit, '1.2.4.1', { file: 'stray.txt', text: 'landed between the two slots\n' });
     const text = fx.repo.git('show', `${main1}:CHANGELOG.md`).replace('# Changelog\n', '# Changelog\n\n## [1.2.5.0] - 2026-10-18\n\n- #2 change\n- added after the gate\n') + '\n';

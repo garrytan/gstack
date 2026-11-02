@@ -77,6 +77,15 @@
  *   bun run scripts/test-free-shards.ts --attribute-home           # name real-home writers: each file alone, private HOME
  *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20
  *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json
+ *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20 --shard-jobs 2
+ *       # the plan stores a per-shard k: min(k, the shard's files that may run in parallel),
+ *       # kept only when above 1, so the exclusive TREE_MUTATING shard stays one child.
+ *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json --jobs 4
+ *       # k sub-shards side by side inside one CI job (default: the plan's per-shard k, else 1 =
+ *       # one child, today's behavior; scripts/lib/shard-jobs.ts). --jobs applies only to
+ *       # --ci-run and overrides the plan: a positive whole number up to the shard's file count,
+ *       # else FREE_JOBS_INVALID. --ci-verify requires every result to have run at the plan's k.
+ *       # GSTACK_FREE_JOBS sets the local full-suite process count and never changes --ci-run.
  *   bun run scripts/test-free-shards.ts --ci-verify plan.json --results results/
  */
 
@@ -91,6 +100,10 @@ import { resolveStateRoot } from '../lib/state-root';
 import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeGuardFactory } from './lib/free-home-guard';
 import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning, windowsCurationLine } from './lib/free-ci-health';
 import { curateWindowsSafe, type CurationResult } from './lib/windows-curation';
+import {
+  assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, plannedShardJobs, plannedShardJobsProblem, readJunitReport, rejectJobsWithoutCiRun,
+  rejectShardJobsWithoutCiPlan, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems, validateJobsForShard, type ShardTestCounts, type SubShardRecord,
+} from './lib/shard-jobs';
 export { curateWindowsSafe, detectWindowsFragility, KNOWN_WINDOWS_INCOMPATIBLE, type CurationResult } from './lib/windows-curation';
 import {
   BunTestOutputClassifier,
@@ -415,19 +428,27 @@ export interface FreeCiPlan {
   version: 1;
   revision: string;
   id: string;
-  shards: Array<{ shard: number; files: string[]; predictedMs: number }>;
+  /** `jobs` is the shard's k from --shard-jobs, present only when above 1. */
+  shards: Array<{ shard: number; files: string[]; predictedMs: number; jobs?: number }>;
 }
+
+/** Files that run in the trailing serial sub-shard under k > 1, never beside another child. */
+const runsSerialUnderJobs = (file: string) => file in TREE_MUTATING || file in SLOW_UNDER_LOAD;
 
 const planDigest = (plan: Omit<FreeCiPlan, 'id'>): string =>
   createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
 /** One immutable plan is shared by isolated CI machines; never repack per job. */
-export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string): FreeCiPlan {
+export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1): FreeCiPlan {
   const readers = files.filter(file => !(file in TREE_MUTATING));
   const exclusive = files.filter(file => file in TREE_MUTATING).sort();
   const packed = packShardsByDuration(readers, count, durations);
-  const shards = packed.shards.map((files, index) => ({ shard: index + 1, files, predictedMs: packed.predictedMs[index] }));
-  if (exclusive.length) shards.push({ shard: shards.length + 1, files: exclusive, predictedMs: exclusive.reduce((ms, file) => ms + (durations[file] ?? 0), 0) });
+  const planned = packed.shards.map((files, index) => ({ files, predictedMs: packed.predictedMs[index] }));
+  if (exclusive.length) planned.push({ files: exclusive, predictedMs: exclusive.reduce((ms, file) => ms + (durations[file] ?? 0), 0) });
+  const shards = planned.map(({ files, predictedMs }, index) => {
+    const jobs = plannedShardJobs(files, shardJobs, runsSerialUnderJobs);
+    return { shard: index + 1, files, predictedMs, ...(jobs ? { jobs } : {}) };
+  });
   const body = { version: 1 as const, revision, shards };
   return { ...body, id: planDigest(body) };
 }
@@ -438,6 +459,8 @@ export function validateFreeCiPlan(plan: FreeCiPlan, files: string[], revision: 
     || id !== planDigest({ version, revision: plan.revision, shards })) throw new Error('CI plan identity or revision mismatch');
   if (shards.some((shard, index) => shard.shard !== index + 1 || !Array.isArray(shard.files)
     || !Number.isFinite(shard.predictedMs) || shard.predictedMs < 0)) throw new Error('Invalid CI shard plan');
+  const jobsProblems = shards.map(shard => plannedShardJobsProblem(shard, runsSerialUnderJobs)).filter(Boolean);
+  if (jobsProblems.length) throw new Error(`Invalid CI shard plan: ${jobsProblems.join('; ')}`);
   const planned = shards.flatMap(shard => shard.files).sort();
   if (new Set(planned).size !== planned.length || JSON.stringify(planned) !== JSON.stringify([...files].sort())) throw new Error('CI plan must cover every free file exactly once');
 }
@@ -447,6 +470,9 @@ export interface FreeCiResult {
   revision: string;
   outcome: FreeShardOutcome;
   retry: FreeShardOutcome | null;
+  /** Present only at --jobs k > 1: k and one record per sub-shard. */
+  jobs?: number;
+  subShards?: SubShardRecord[];
 }
 
 /** Preserve the full-suite retry cap across independently running CI jobs. */
@@ -472,6 +498,9 @@ export function verifyFreeCiResults(plan: FreeCiPlan, results: FreeCiResult[]): 
       || JSON.stringify(outcome.files) !== JSON.stringify(shard.files)) throw new Error('CI result identity, shard or file coverage mismatch');
     seen.add(outcome.shard);
     if (!hasCompleteCiSummary(outcome)) throw new Error('Missing or incomplete CI execution summary');
+    const subShardProblems = subShardRecordProblems(result);
+    if (subShardProblems.length) throw new Error(`CI shard ${outcome.shard} sub-shards rejected: ${subShardProblems.join('; ')}`);
+    if ((result.jobs ?? 1) !== (shard.jobs ?? 1)) throw new Error(`CI shard ${outcome.shard} ran at --jobs ${result.jobs ?? 1}; the plan says ${shard.jobs ?? 1}`);
     if (outcome.status === 'passed') {
       if (outcome.exitCode !== 0 || outcome.failingFiles.length || outcome.unattributedFailures || result.retry) throw new Error('Inconsistent passing CI result');
     } else {
@@ -542,6 +571,10 @@ type CliOptions = {
   result: string | null;
   results: string | null;
   filesFrom: string | null;
+  /** Set only by --jobs (with --ci-run); absent means the plan's per-shard k. */
+  jobs?: number;
+  /** Set only by --shard-jobs (with --ci-plan); absent means k = 1 in every shard. */
+  shardJobs?: number;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -556,6 +589,8 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let wallTimeoutExplicit = false;
   let quick = false;
   let attributeHome = false;
+  let jobs: number | undefined;
+  let shardJobs: number | undefined;
   const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
     ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
   };
@@ -579,6 +614,8 @@ export function parseCliOptions(argv: string[]): CliOptions {
     '--result': pathFlag('--result', 'result'),
     '--results': pathFlag('--results', 'results'),
     '--files-from': pathFlag('--files-from', 'filesFrom'),
+    '--jobs': (next) => { jobs = parseJobsFlag(next()); },
+    '--shard-jobs': (next) => { shardJobs = parseJobsFlag(next(), '--shard-jobs'); },
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -602,8 +639,10 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (ciModes > 1 || (ciModes && (quick || listOnly || dryRun || recordDurations || attributeHome))) throw new Error('CI modes cannot be combined with other selection modes');
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
+  if (jobs !== undefined && !paths.ciRun) rejectJobsWithoutCiRun();
+  if (shardJobs !== undefined && !paths.ciPlan) rejectShardJobsWithoutCiPlan();
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
-  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }) };
 }
 
 const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
@@ -1075,6 +1114,10 @@ export interface FreeShardOutcome {
   unattributedFailures: number;
   /** Named failures with their excerpts, so a flaky pass records what failed the first time. */
   failures?: FreeRunFailure[];
+  /** Per-file test and expect() counts from bun's JUnit report (--ci-run only). */
+  counts?: ShardTestCounts;
+  /** Wedge suspects at a wall-timeout kill (FreeRunReport.inFlight). */
+  inFlight?: string[];
 }
 
 export interface ShardCommand {
@@ -1087,8 +1130,10 @@ export interface RunFreeShardOptions {
   wallTimeoutMs?: number;
   rootDir?: string;
   env?: NodeJS.ProcessEnv;
-  /** Override the spawned command. Tests inject fake pass/fail/slow commands. */
-  commandFor?: (files: string[]) => ShardCommand;
+  /** Override the spawned command. Tests inject fake pass/fail/slow commands; `junitPath` is set with testCounts. */
+  commandFor?: (files: string[], junitPath?: string) => ShardCommand;
+  /** Ask bun for a JUnit report in the shard sandbox and record per-file counts on the outcome (--ci-run). */
+  testCounts?: boolean;
   /** Suppress ALL child output from the console (tests). The classifier and the log file still see every byte. */
   quiet?: boolean;
   /** Forward the full child stream to the console (legacy firehose). Default: the quiet filtered console. */
@@ -1325,6 +1370,8 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
         check(operation);
         if (!Number.isSafeInteger(pid) || (pid as number) <= 1) throw new BrowserCleanupError('invalid browser child identity');
         const identity = identities.get(pid as number);
+        if (!identity && identities.get(daemon as number)?.root) throw new BrowserCleanupError(
+          `browser child ownership is unconfirmed: recorded pid ${pid} (${await inspect(operation, pid as number) ? 'alive' : 'exited'}) was never seen in daemon ${daemon}'s process tree`);
         if (!identity || identity.daemon !== daemon || identity.root) throw new BrowserCleanupError('browser child ownership is unconfirmed');
         if (await live(operation, identity) && (typeof start !== 'string' || !start
           || await nativeStart(operation, identity) !== start.replace(/\s+/g, ' '))) throw new BrowserCleanupError('browser child identity was replaced');
@@ -1633,12 +1680,14 @@ export async function runFreeShard(
   const shardLog = openShardLog(logPath, label, 0o600);
   log(`[test:free] full log: ${logPath}`);
 
-  const { command, args } = options.commandFor
-    ? options.commandFor(files)
-    : { command: process.execPath, args: buildShardArgs(files, { rootDir }) };
-
   // realpath: the browser tracker refuses a state dir whose path resolves elsewhere.
   const { stateDir, env } = createShardSandbox('gstack-free-shard-', options.env ?? process.env, { realpath: true });
+  // The JUnit reporter leaves the console stream byte-identical (Bun 1.4.2); it only adds per-file counts.
+  const junitPath = options.testCounts ? path.join(stateDir, 'junit.xml') : undefined;
+  const { command, args } = options.commandFor
+    ? options.commandFor(files, junitPath)
+    : { command: process.execPath, args: [...buildShardArgs(files, { rootDir }), ...(junitPath ? ['--reporter=junit', `--reporter-outfile=${junitPath}`] : [])] };
+  let junitXml = null as string | null;
   // CLI renders otherwise share the repo's .gstack/browse.json, where concurrent
   // shards and prior daemons replace each other's state; override inherited state.
   env.BROWSE_STATE_FILE = path.join(stateDir, '.gstack', 'browse.json');
@@ -1703,6 +1752,7 @@ export async function runFreeShard(
       shardLog.write(diagnostic + '\n');
     }
     await new Promise<void>((resolve) => shardLog.stream.end(() => resolve()));
+    if (junitPath) junitXml = readJunitReport(junitPath);
     try {
       if (!cleanupError) fs.rmSync(stateDir, { recursive: true, force: true });
     } catch {
@@ -1745,6 +1795,8 @@ export async function runFreeShard(
     shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
     ...(status === 'passed' ? {} : { failures: report.failures }),
     summary: { testsRan: report.testsRan, filesRan: report.filesRan, sawTerminalSummary: report.sawTerminalSummary },
+    ...(junitPath ? { counts: parseJunitCounts(junitXml, files, report.testsRan, rootDir) } : {}),
+    ...(status === 'timed-out' && report.inFlight.length ? { inFlight: report.inFlight } : {}),
   };
   log(shardEpilogue(outcome, totalShards));
   for (const line of buildRunEpilogue(status, report, outcome.elapsedMs, logPath)) log(line);
@@ -1799,6 +1851,7 @@ async function recordFreeTestDurations(files: string[], jobs: number, wallTimeou
     const outcome = await runFreeShard([file], index + 1, files.length, {
       wallTimeoutMs, quiet: true, homeGuard: sharedFreeHome,
     });
+    assertSoloSeedSample(file, outcome);
     durations[normalizeRelativePath(file)] = outcome.elapsedMs;
     if (outcome.status !== 'passed') failed.push(file);
   });
@@ -1923,7 +1976,7 @@ async function main(): Promise<number> {
         appendStepSummary(line);
       }
       warnUnseededFreeFiles(ciFiles, durations);
-      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision);
+      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs);
       validateFreeCiPlan(plan, ciFiles, revision);
       writeJson(options.ciPlan, plan);
       console.log(JSON.stringify({ shard: plan.shards.map(shard => shard.shard) }));
@@ -1944,14 +1997,22 @@ async function main(): Promise<number> {
     }
     const shard = plan.shards[options.shardIndex! - 1];
     if (!shard || shard.shard !== options.shardIndex) throw new Error('CI shard index is outside the plan');
-    const outcome = await runFreeShard(shard.files, shard.shard, plan.shards.length, {
+    const jobs = options.jobs ?? shard.jobs ?? 1;
+    validateJobsForShard(jobs, shard.files.length, shard.shard);
+    const durations = loadFreeTestDurations() ?? {};
+    const { result, exitCode } = await runCiShard({
+      plan, shard, revision, jobs, verbose: options.verbose, context: ciRunContext(options.ciRun!),
       wallTimeoutMs: options.wallTimeoutExplicit ? options.wallTimeoutMs
         : wallTimeoutForPackedShard(shard.predictedMs, options.wallTimeoutMs, shard.files.length),
-      verbose: options.verbose,
+    }, {
+      runShard: (files, shardNumber, totalShards, runOptions) => runFreeShard(files, shardNumber, totalShards, runOptions),
+      retry: outcomes => retryFailedFreeFiles(outcomes, plan.shards.length, options),
+      pack: (files, count) => packShardsByDuration(files, count, durations).shards,
+      isSerial: runsSerialUnderJobs,
+      terminationRequested: isTerminationRequested,
     });
-    const retried = await retryFailedFreeFiles([outcome], plan.shards.length, options);
-    writeJson(options.result!, { planId: plan.id, revision, outcome, retry: retried.retry } satisfies FreeCiResult);
-    return retried.exitCode;
+    writeJson(options.result!, result);
+    return exitCode;
   }
 
   let files = allFiles;
