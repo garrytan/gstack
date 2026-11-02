@@ -92,7 +92,7 @@ hard-code:
   "changelog": "CHANGELOG.md",
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
-  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-free-tests", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
   "min_gstack_version": "1.91.340.0"
 }
 ```
@@ -210,16 +210,18 @@ READY PR as conflicting each time main stamps; the train merges the CHANGELOG
 by section, so the lane never merges main for it. The conflict does mean GitHub
 has no merge ref for the PR, so no `pull_request` CI runs on the head and
 `ready` prints `ci: none at <head12>` with a `ci-hint:` line. The lane then
-runs `ready … --dispatch-ci free-tests.yml,windows-free-tests.yml [--timeout
+runs `ready … --dispatch-ci free-tests.yml,windows-smoke.yml [--timeout
 <s>]` (under a train policy): it dispatches each named workflow on the branch
 (`gh workflow run <wf> --ref <branch>`, skipped when a run at this head already
-concluded), waits for the runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url>
-<conclusion>`), clears every requires-remote pregate lane whose workflow is one
-of them with the run URL (`PREGATE_CLEARED: <lane> <url>`; a lane of another
-workflow stays uncleared and is named in the refusal), and then reads the head
-as usual, which passes because the dispatched check runs attach to the commit;
-the `ci-hint:` line then says those non-pull_request runs count. A red run
-clears no lane and refuses (`QUEUE_NOT_READY`); a run still going at `--timeout`
+concluded, and skipped with a note when the base has the workflow file but the
+branch predates it, since GitHub reads the file from the branch), waits for the
+runs (`CI_DISPATCH: <wf> --ref <branch> run <id> <url> <conclusion>`), clears
+every requires-remote pregate lane whose workflow is one of them with the run
+URL (`PREGATE_CLEARED: <lane> <url>`; a lane of another workflow stays
+uncleared and is named in the refusal), and then reads the head as usual,
+which passes because the dispatched check runs attach to the commit; the
+`ci-hint:` line then says those non-pull_request runs count. A red run clears
+no lane and refuses (`QUEUE_NOT_READY`); a run still going at `--timeout`
 (default 2700 s) is `QUEUE_TRAIN_PENDING`, and rerunning the command keeps
 waiting; a fork head is never dispatched here (`QUEUE_TRAIN_UNTRUSTED`). By hand the same four steps are `gh workflow
 run <wf> --ref <branch>`, wait, `gstack-pregate clear --remote <lane> --run-url
@@ -398,6 +400,28 @@ release paths (version files, CHANGELOG, fragments, `release_outputs`,
 `release_tool`. The record keeps both chains (`prefixes` and `stamped`), the
 train head and branch are S_k, and the one full gate runs on S_k, the exact
 tree the last merge publishes.
+
+**One land lock.** `train land` takes the same repository land lock as
+[`land`](#land), `refs/notes/gstack-land`, as `train <nonce> slot <i> (#<pr>)`,
+before its first read of main, so a standalone land and a train slot never
+both publish onto one main: whichever starts second refuses with
+`QUEUE_LAND_LOCKED`, naming the holder. Once a slot has merged, the train keeps
+the lock in phase `between`, which only the same train's next slot takes over,
+until its last landable slot lands; a refusal before a later slot's push (a
+failed `gh` or `git fetch` read, say) keeps it too, so no standalone land slips
+in while the train waits on a rerun. Before any slot merged, a refusal before
+the push releases it. After a push, a failure keeps the lock in its phase and a
+rerun of the same slot takes it back. A stop that freezes the queue
+leaves the lock in phase `freeze`, which `--break-lock` never breaks: only the
+repair train the freeze admits takes it over, and it is released when that
+train clears the freeze. `--break-lock` prints the holder (`LOCK_HOLDER:`),
+keeps land's staleness, mid-push and drift rules, refuses a `between` lock
+younger than 10 minutes, and refuses a live train run's lock unless
+`--break-train-lock` is also given. `train watch --land` goes through `train
+land`, so it stops with `NEXT:` on `QUEUE_LAND_LOCKED` like any refusal. A train
+`train land` refuses (one built without stamped prefixes or a gate) still merges
+through `verify --train` and `gh pr merge`, which neither take nor check this
+lock.
 
 Slots merge with `train land --train <nonce> --pr <n>`, never a slot call:
 
@@ -849,8 +873,8 @@ git fetch origin main
 git merge --no-ff --no-commit origin/main        # expect a CHANGELOG.md conflict only
 bun --no-env-file --config=/dev/null -e "import { mergeChangelogsWithNotes } from './lib/changelog-check'; import { spawnSync } from 'node:child_process'; import { writeFileSync } from 'node:fs'; const s = (n) => spawnSync('git', ['show', ':' + n + ':CHANGELOG.md'], { encoding: 'utf8', maxBuffer: 1 << 26, timeout: 30000 }).stdout; const m = mergeChangelogsWithNotes(s(2), s(3), s(1)); for (const n of m.notes) console.error('CHANGELOG: carried as a Gate integrity correction: ' + n); if (!m.text) { console.error('CHANGELOG needs a hand merge'); process.exit(1); } writeFileSync('CHANGELOG.md', m.text);"
 git add CHANGELOG.md && git commit --no-edit
-gstack-restamp --next --base main --pr 42 --expect-base <main sha> --expect-order <order> --allow-repo-commands
-git add CHANGELOG.md VERSION package.json <release outputs> && git commit -m "v<X> stamp" && git push
+gstack-restamp --next --base main --pr 42 --expect-base <main sha> --expect-order <order> --allow-repo-commands   # stages what it writes (STAGED:)
+git commit -m "v<X> stamp" && git push
 ```
 
 A conflict in any file other than CHANGELOG.md means the merge isn't the train's prefix. Stop and report it. When the helper says the CHANGELOG needs a hand merge, take main's CHANGELOG unchanged and put your own entry above it. `verify` accepts the resulting head because it contains main and its tree equals T<i> modulo stamps, with its CHANGELOG judged as main's plus lines your pin added, however the conflict was resolved; the `head:` line says "T<i> with main merged in".
@@ -863,8 +887,12 @@ introduced). A line the base added since the pin's fork point is the base's,
 whether the base merge is committed or still staged (`stage stamp_paths` says
 "N line(s) the base added since the fork point are the base's"; train 24,
 2026-10-27, moved main's `DOCS_CAPS_KEY_VERSION` in both slots before this
-rule). A file the restamp lists that the slot call did not name is not a stamp:
-leave it out and report it. The tree receipt refuses such a move after the fact
+rule). Restamp stages what it writes and prints `STAGED:`; commit what restamp
+staged. A file the slot call does not name is not a stamp: `git restore --staged
+--worktree` it and report it. A stamp file holding unstaged edits of your own refuses before
+anything is written (`RESTAMP_UNSTAGED_EDITS`), and a staging failure leaves the
+files written for the noop rerun to stage (`RESTAMP_NOT_STAGED`), so a bare
+commit after a `--no-commit` base merge can no longer drop the stamp (#3527). The tree receipt refuses such a move after the fact
 only while the moved version is older than the base's at the build, so the
 restamp, not the receipt, is what keeps the base's key in place.
 
@@ -935,7 +963,18 @@ saw, itself the prefix before modulo stamps) plus the PR's own entry under the
 same rule. One CHANGELOG rule applies before and after, so a head the pre-merge
 verify accepted confirms after its squash merge with the same CHANGELOG, and a
 stacked child whose one `[Unreleased]` became two released sections is not a
-mismatch (train 24, 2026-10-27, froze on exactly that). Anything else is
+mismatch (train 24, 2026-10-27, froze on exactly that). Before
+`MERGE_CONDITION`, the head must also carry its own stamp: its `VERSION` above
+main's, and its CHANGELOG headed with that version directly above main's top
+release, with no `[Unreleased]` section main does not have; otherwise
+`QUEUE_TRAIN_UNSTAMPED` names the rule and both versions (train 33 merged #3527
+under #3526's version without it). verify prints `STAMP_VERSION:` from the head
+itself. A post-merge confirmation needs GitHub to report the PR MERGED: an open
+PR whose stamp-only diff already matches main (a release-only PR, #3530) takes
+the pre-merge path, and any other open or unreadable PR refuses
+`QUEUE_PROOF_MISSING` without freezing, as does a verify that could not read
+the PR's current head (`--no-fetch` or a failed fetch) instead of judging the
+unstamped pin. Anything else is
 `QUEUE_TRAIN_TREE_MISMATCH` (or `QUEUE_TRAIN_MOVED`). When nothing of the train
 has merged, that is a plain refusal, and a new train is built on current main. When
 earlier slots already merged, main holds a prefix no gate covered on its own,
@@ -1627,9 +1666,12 @@ command:
 2. **Lock.** Take the repository land lock, `refs/notes/gstack-land` (its own
    ref, never the trains notes ref), by exact lease. It records the PR, holder,
    phase and journal. A held lock is `QUEUE_LAND_LOCKED` naming the holder;
-   `--break-lock` takes over a crashed holder's lock and is refused while that
-   holder entered a push or a merge less than 10 minutes ago, and for a drift
-   lock. A refusal before the push releases the lock.
+   `--break-lock` prints the holder (`LOCK_HOLDER:`), takes over a crashed
+   holder's lock and is refused while that holder entered a push or a merge
+   less than 10 minutes ago, and for a drift lock. `train land` shares this
+   lock ([one land lock](#train-land)); a train slot's lock needs
+   `--break-train-lock` as well while its train still lands, and a `freeze`
+   lock is never broken. A refusal before the push releases the lock.
 3. **Merge and stamp.** In a scratch worktree, merge the base into the pin.
    Conflicts in release fields only (the version file and `release_outputs`
    take the base's side, the CHANGELOG merges by section, a manifest or npm
