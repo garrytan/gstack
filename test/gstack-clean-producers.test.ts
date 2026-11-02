@@ -28,6 +28,7 @@ const SCRATCH: Record<string, string> = {
 /** Names or name patterns (prefix* or *suffix) gstack-clean never touches. */
 const KEPT: Record<string, string> = {
   'restamp-journal.json': 'gstack-restamp rollback journal (lib/restamp.ts)',
+  'restamp-staging.json': 'gstack-restamp files still to stage, read by its noop rerun (bin/gstack-restamp)',
   'gate-ahead*': 'gate-ahead record and worktree (lib/restamp.ts)',
   'pregate.json': 'pregate result (lib/pregate/index.ts)',
   'ship-queue': 'ship-queue state (lib/ship-queue-gate.ts)',
