@@ -129,6 +129,11 @@ describe("env.kv: a name-shaped literal inside a call is a file or dict key, not
       String.raw`api_key = decrypt("prod-signing-key")`,
       String.raw`token = decrypt("correct_horse_battery_staple")`,
       String.raw`key = decrypt("qwhzxkvbnmplor")`,
+      String.raw`SECRET_KEY = os.getenv("SECRET_KEY", "orange_monkey_pass")`,
+      String.raw`password = os.environ.get("DB_PASSWORD", "purple_walrus")`,
+      String.raw`token = resp.json().get("access_token", "orange_monkey_pass")`,
+      String.raw`key = derive_secret("tigers.horse")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "qwhzxkvbnmplor.txt")`,
     ],
   );
 });

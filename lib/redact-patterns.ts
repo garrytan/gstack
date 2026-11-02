@@ -627,19 +627,10 @@ function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
   return !carriesSecretLiteral(match.input.slice(match.index + match[0].length).split("\n", 1)[0]);
 }
 
-/**
- * True when `text` holds a quoted, non-placeholder, high-entropy literal.
- * GST-1064: a lowercase file name (`"key.json"`) or a snake_case key of two or
- * three words (`"access_token"`) names what the call reads; eight distinct
- * letters already reach 3.0 bits, so entropy alone cannot tell them from a
- * secret. A passphrase still counts: kebab or dotted words
- * (`"correct-horse-battery-staple"`), four or more snake_case words, a digit,
- * an uppercase letter or one unbroken run.
- */
-const NAME_SHAPED_LITERAL = /^(?:[a-z]+(?:_[a-z]+){1,2}|[a-z]+(?:[_-][a-z]+)*\.[a-z]{2,5})$/;
+/** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
 function carriesSecretLiteral(text: string): boolean {
   for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
-    if (!isPlaceholderSpan(literal) && !NAME_SHAPED_LITERAL.test(literal) && shannonEntropy(literal) >= 3.0) return true;
+    if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return true;
   return false;
 }
 
@@ -670,13 +661,25 @@ const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
 }
+/**
+ * GST-1064: a call's first argument that is a lowercase file name
+ * (`files.get("key.json")`) or a snake_case key of two or three words
+ * (`resp.json().get("access_token")`) names what the call reads. Eight distinct
+ * letters already reach 3.0 bits, so entropy alone cannot tell it from a
+ * secret. Only that first position is a lookup: a later argument or fallback
+ * (`os.getenv("X", "orange_monkey_pass")`, `.get("k") or "…"`) is a value and
+ * is still checked, and so is a first argument with a digit, an uppercase
+ * letter, kebab words or four or more snake_case words.
+ */
+const LOOKUP_ARGUMENT =
+  /\([ \t]*(["'])(?:[a-z]+(?:_[a-z]+){1,2}|[a-z]+(?:[_-][a-z]+)*\.(?:json|ya?ml|toml|ini|cfg|conf|env|pem|crt|cer|key|txt|csv|xml|cookie))\1/g;
 function isCallExpression(span: string, match: RegExpExecArray): boolean {
   if (!CALL_SHAPED_VALUE.test(span)) return false;
   const { start } = spanBounds(match);
   if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
   const call = match.input.slice(start + span.indexOf("(")).split("\n", 1)[0];
   if (!call.includes(")") && call.trim() !== "(") return false;
-  return !carriesSecretLiteral(call);
+  return !carriesSecretLiteral(call.replace(LOOKUP_ARGUMENT, "("));
 }
 
 /**
