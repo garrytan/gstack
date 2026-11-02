@@ -9,6 +9,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { headingVersion, parseChangelog } from './changelog-check';
+import { readHistoryFile } from './history-read';
 import type { Bump } from './version-source';
 
 export const FRAGMENT_README = 'README.md';
@@ -75,8 +76,8 @@ export function readFragments(cwd: string, treeish: string | null, dir: string, 
     return out;
   };
   const excluded = new Map((exclude ? list(exclude) : []).map(e => [e.path, e.sha]));
-  const shown = exclude && changelog ? git(cwd, ['show', `${exclude}:${changelog}`]) : null;
-  const released = shown?.ok ? parseChangelog(shown.out.replace(/\r\n/g, '\n')).sections.filter(s => !s.unreleased).map(s => s.lines) : [];
+  const shown = exclude && changelog ? readHistoryFile(cwd, exclude, changelog) : null;
+  const released = shown !== null ? parseChangelog(shown.replace(/\r\n/g, '\n')).sections.filter(s => !s.unreleased).map(s => s.lines) : [];
   const isReleased = (body: string) => {
     const want = body.split('\n');
     return released.some(lines => lines.some((_, i) => want.every((w, k) => lines[i + k] === w)));

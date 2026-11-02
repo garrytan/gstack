@@ -45,6 +45,16 @@ beforeAll(() => {
   writePlain(path.join(root, 'AppData/Local/Opera Software/Opera GX Stable/Default/Network'), '.gx.fixture', 'gx-cookie', 'local-gx-decoy');
 });
 
+// Windows Free Tests 41152107410 (shard 2): the shard's first powershell.exe took over 30 s and hit the protect call's
+// kill. That first call is a cold start: 2.9-3.3 s on 3 fresh runners where later calls take 0.24-0.38 s (GSTA-199
+// scratch run 41205291567), and the first-in-shard DPAPI case ran 13.6, 15.4 and 24.5 s in 3 of 40 lane runs (2.5-5.1 s
+// in the rest). Pay it once here, unasserted; the protect call keeps its 30 s kill.
+beforeAll(() => {
+  if (process.platform !== 'win32') return;
+  spawnSync(path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-Command', 'Add-Type -AssemblyName System.Security'], { encoding: 'utf8', timeout: 25_000, windowsHide: true });
+}, 30_000);
+
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe('actual Node importer runtime', () => {

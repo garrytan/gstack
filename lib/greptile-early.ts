@@ -97,7 +97,7 @@ function visibility(env: EarlyEnv): "public" | "private" | "unknown" {
 }
 
 function consentFile(env: EarlyEnv): string | undefined {
-  const slug = env.run(path.join(env.binDir, "gstack-slug"), ["--get", "SLUG"]);
+  const slug = env.run(path.join(env.binDir, "gstack-slug"), ["--get", "REPO_SLUG"]);
   let id = slug.status === 0 ? slug.stdout.trim() : "";
   if (!id) {
     const origin = env.run("git", ["remote", "get-url", "origin"]);

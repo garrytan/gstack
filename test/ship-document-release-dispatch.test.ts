@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runGeneration } from '../scripts/gen-skill-docs';
-import { acceptedChangedPaths, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
+import { acceptedChangedPaths, docsAttemptContracts, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
 import { fixtureDocs, repoSnapshot, changedFiles, gitAt, DOC_PATH, preserveDocsEvidence } from './helpers/docsync-fixture';
 import { parseNDJSON, type SkillTestResult } from './helpers/session-runner';
 import { observeDocsWrites, docsWriteFailures, docsCommandAllowed, docsPreambleCommands, docsCompletedRead } from './helpers/docsync-observer';
@@ -623,6 +623,28 @@ describe('two-attempt documentation audits', () => {
     const publish = calls.findIndex(call => call.tool === 'Bash' && /^bun .*fixture-publish\.ts/.test(String(call.input?.command)));
     expect(publish).toBeGreaterThan(dispatches[1]);
     for (const index of dispatches) expect(calls[index].input.run_in_background).toBe(false);
+  });
+
+  // Screen 40805543956 slice 3 (ship-docsync-completion, red on "completion fields", green on the in-run rerun): attempt 1
+  // edited the document and returned a completion without documentation_section; the parent rejected it and re-audited, and
+  // the case threw while parsing the rejected attempt with the accepted attempt's strict contract.
+  test('a rejected attempt that broke the completion contract still reports its edit; the accepted attempt stays strict', () => {
+    const { completions } = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-invalid-first-attempt-public.json'), 'utf8')) as { completions: string[] };
+    const [first, second] = completions;
+    expect(() => parseDocsCompletion(first, JSON.parse(first).audit_id)).toThrow('completion fields');
+    expect(Object.keys(JSON.parse(first))).not.toContain('documentation_section');
+    const { accepted, attempts } = docsAttemptContracts(completions);
+    expect(attempts.map(attempt => [attempt.audit_id, attempt.status, attempt.files_updated])).toEqual([['ship145-a1', 'updated', [DOC_PATH]], ['ship145-a2', 'current', []]]);
+    expect(attempts.at(-1)).toBe(accepted);
+    const evidence = { settled: true, markerSeen: true, headUnchanged: true, indexUnchanged: true, candidateUnchanged: true, readOnly: false, allowedDocs: [DOC_PATH] };
+    expect(acceptedChangedPaths([DOC_PATH], attempts)).toEqual([]);
+    expect(() => vetDocsCompletion(accepted, { ...evidence, changedPaths: acceptedChangedPaths([DOC_PATH], attempts) })).not.toThrow();
+    expect(() => vetDocsCompletion(accepted, { ...evidence, changedPaths: acceptedChangedPaths([DOC_PATH, 'README.md'], attempts) })).toThrow('unreported edits');
+    expect(() => docsAttemptContracts([second, first])).toThrow('completion fields');
+    expect(() => docsAttemptContracts([first])).toThrow('completion fields');
+    const report = JSON.parse(first);
+    for (const broken of [{ ...report, status: 'done' }, { ...report, files_updated: DOC_PATH }, { ...report, files_updated: [''] }, { ...report, audit_id: undefined }, []])
+      expect(() => docsAttemptContracts([JSON.stringify(broken), second]), JSON.stringify(broken)).toThrow('rejected attempt report');
   });
 
   test('a third dispatch exceeds the attempt budget and a lone dispatch stays the accepted one', () => {
