@@ -741,7 +741,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   fails_when=verify skips the count check on the editable review or tree_ok field, so a clean marker keeps the output MATCH or a
   //   later review voids it, or an output with no recorded file passes on its review field (fix-checks at 721539c, 56ed6e3 and 50dc73c: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
   //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
-  test('an output event edited to look refused is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
+  test('an output event edited to look refused, or a refused one edited to look accepted, is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
     const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
     const voice = (reply: string) => {
@@ -788,6 +788,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(wrong.take('Recommendation: approve\n').status).toBe(0);
     const r = wrong.verify();
     expect([r.status, r.stdout.includes('replaced_by_a_review'), r.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
+    const elsewhere = pass();
+    run(['sent', '--ledger', elsewhere.ledger, '--role', 'specialist', '--name', 'testing', '--sent', elsewhere.file]);
+    const refused = run(['collect', '--ledger', elsewhere.ledger, '--role', 'specialist', '--name', 'testing', '--output', elsewhere.w('else.out', `REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\nNO FINDINGS\n`), '--merged', elsewhere.merged]);
+    expect(refused.stdout.startsWith('COLLECT_WRONG_TREE: reader=specialist/testing')).toBe(true);
+    fs.writeFileSync(elsewhere.ledger, readJsonl<Record<string, unknown>>(elsewhere.ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, tree_ok: true, review: true, reported_tree: e.tree } : e)).join('\n') + '\n');
+    fs.writeFileSync(elsewhere.merged, '');
+    expect(run(['judge', '--ledger', elsewhere.ledger, '--merged', elsewhere.merged, '--judged', elsewhere.w('judged.jsonl', '')]).status).toBe(0);
+    const e = run(['verify', '--ledger', elsewhere.ledger]);
+    expect([e.status, /^OUTPUT specialist\/testing NOT_REVIEWED .*wrong_tree/m.test(e.stdout), e.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
   });
 });
 
