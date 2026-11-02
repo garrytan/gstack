@@ -13,7 +13,7 @@ outputs; print them verbatim. The model keeps only lead judgment, fixes, CHANGEL
 gates and the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list at the end sends you, never
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
-there, come back. Unattended, take a question's recommended option (log it); gate
+there, come back. Unattended, take a question's recommended option; gate
 dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, fill each as its phase ends: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
@@ -38,7 +38,7 @@ A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
-call resumes the poll. Lanes, pregate and `finish` run in background. Never end the turn while
+call resumes the poll. Lanes, pregate and `finish` run in background; after a restart, rerun the same command. Never end the turn while
 readers run (each wakes it). A small waiting child saves nothing. Past 100 minutes, stop. Returns:
 ≤32 KB per program; split longer reads at headings, each byte once, before first use: phase programs
 end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - its output>`; on
@@ -112,8 +112,8 @@ One re-audit at most.
 Commit in bisectable chunks; `gstack-ship-release finish --base <base> --reviewed-tree <t> --reviewed-base <b>
 --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>'`: `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH;
 STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` and each `tests_ran`. Then
-`gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:`
-(pushed or ALREADY_PUSHED). Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
+`gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `PUSH:`.
+Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
 
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 

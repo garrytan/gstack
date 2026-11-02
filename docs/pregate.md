@@ -612,8 +612,16 @@ the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
 prints the VM's name and the exact
-`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it if the
-run is killed before its teardown line. The whole script is parsed before it
+`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it.
+
+A run killed before its teardown line leaves its VM running. A machine restart
+kills a background pregate this way. Don't destroy the VM: rerun the same
+`gstack-pregate` command on the same tree. It reattaches to that VM
+(`reattaching to VM <name>`), finishes the run, and bills from the VM's
+original create. Use the `down` line only when you are giving up on the run
+or the tree has changed. A reattach whose billed minutes leave the cap no room
+refuses (`PREGATE_REMOTE_CAP_SPENT`) and prints both choices: destroy the VM,
+or rerun with a higher `--spend-cap`. The whole script is parsed before it
 runs, so editing it during a run changes nothing. `--timeout 2700` gives a
 whole-tier run room inside the 45-minute wall:
 
