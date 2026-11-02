@@ -240,7 +240,8 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
  * The blocking findings a run's ledger holds (GST-951): every collected line whose label ranks CRITICAL, raised to its judged
  * severity when the newest judge accepted a judged set that is unchanged since; lead judgment's additions count and a folded
  * duplicate does not. Every reader counts the same way, whatever it is and whether or not Step 9.4 classified its findings.
- * Each carries its locus (a JSON finding's path:line, else the first file:line its text names) so the summary can find its row.
+ * Each carries its locus (a JSON finding's path:line, else the first path:line its text names, an extensionless bin/ path
+ * included) so the summary can find its row.
  * A ledger, merged file or judged set it cannot read, or a judged set changed since judge, throws: the count is never a guess.
  */
 export interface LedgerBlocker { id: string; locus: string | null }
@@ -249,7 +250,7 @@ function lineLocus(raw: string): string | null {
     const o = JSON.parse(raw);
     if (o && typeof o.path === 'string' && Number.isInteger(o.line)) return `${o.path.replace(/^\.\//, '')}:${o.line}`;
   } catch { /* a prose finding */ }
-  return LOCUS.exec(raw)?.[0]?.replace(/^\.\//, '') ?? null;
+  return /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/.exec(raw)?.[0]?.replace(/^\.\//, '') ?? null;
 }
 export function ledgerBlockers(ledger: string): LedgerBlocker[] {
   const fail = (why: string): never => { throw new Error(`${ledger}: ${why}`); };

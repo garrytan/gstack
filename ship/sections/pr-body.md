@@ -233,10 +233,9 @@ When the owner accepted a stop after a fix-check edit, add
 and put its printed `Review-loop exception:` line in the body; never a prose line under `REVIEW_LOOP:`.
 
 The summary reads this branch's review log for the invocation's passes (its
-`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). When Step 11
-rendered the targeted reader, replace `--no-ledger` with `--ledger <its render --out>/review-ledger.jsonl`
-(a run whose passes all ran through `gstack-review-dispatch` passes `--run <run dir>`), so
-every reader's CRITICAL findings count. The `&&`
+`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). Here every
+finding reaches a row through Step 9.4; a run whose readers were collected by
+`gstack-review-dispatch` (ship/DRIVER.md) passes `--run <run dir>` instead. The `&&`
 matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `write`
 record a stale or empty loop file.
 

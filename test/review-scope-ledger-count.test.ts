@@ -56,21 +56,39 @@ const CLEAN = 'NO FINDINGS';
 const OUTSIDE_CLEAN = 'No issues found in the diff.\nRecommendation: ship because no finding reaches the floor';
 
 describe('GST-951: the receipt counts every blocker the readers found', () => {
-  // #3841 (reconstruction): the native adversarial pass's FIXABLE (CRITICAL) finding was fixed, but no row recorded it; the
-  // receipt's blocking_found=1 fixed=1 was entered by hand. Its two other findings were noted in pass 2.
-  test('#3841: an adversarial-only blocker counts', () => {
+  // #3841 (reconstruction; GSTA-203 PR 8 trail rows 9 and 14): Step 11's native adversarial FIXABLE (CRITICAL) finding was
+  // fixed in round 2, but no row recorded it (pass 2's row held no findings), so summary printed blocking_found=0 fixed=0 and
+  // the lane hand-set blocking_found=1 fixed=1. Its two other findings are the noted pair.
+  const ADVERSARIAL_3841 = [
+    '1. lib/pregate-clear.ts:140 The receipt stores the raw run URL, not the attempt it judged. FIXABLE',
+    '2. lib/pregate.ts:88 The refusal text does not name the attempt. INVESTIGATE',
+    '3. docs/pregate.md:12 The docs do not say a rerun replaces the attempt. INVESTIGATE',
+    'Recommendation: fix 1 because a later attempt would be judged by the first',
+  ].join('\n');
+  test('#3841 as /ship logs it: the queued adversarial blocker in pass 2\'s row counts as 1 found and 1 fixed', () => {
+    const repo = branchWith([
+      review(0, 1, []),
+      review(40, 2, [{ fingerprint: 'lib/pregate-clear.ts:140:security', action: 'fixed', raised_by: 'adversarial-native' },
+        note('lib/pregate.ts:88:docs', 'adversarial-native'), note('docs/pregate.md:12:docs', 'adversarial-native')]),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [['specialist/testing', CLEAN], ['red-team', CLEAN]]);
+    pass(path.join(run, 'p1-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', ADVERSARIAL_3841]]);
+    pass(path.join(run, 'p2'), [['specialist/testing', CLEAN], ['red-team', CLEAN]]);
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 2, fixed: 1 });
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 2, blocking_found: 1, noted: 2, fixed: 1, ledgers_read: 3, rounds: 2 });
+    expect(s.unrecorded).toBeUndefined();
+  });
+
+  test('#3841 as the lane logged it: an adversarial-only blocker counts, and its missing fix record shows as unrecorded', () => {
     const repo = branchWith([
       review(0, 1, []),
       review(40, 2, [note('lib/pregate.ts:88:docs', 'adversarial-native'), note('docs/pregate.md:12:docs', 'adversarial-native')]),
     ]);
     const run = path.join(repo.root, 'run');
     pass(path.join(run, 'p1'), [['specialist/testing', CLEAN], ['red-team', CLEAN]]);
-    pass(path.join(run, 'p1-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', [
-      '1. lib/pregate-clear.ts:140 The receipt stores the raw run URL, not the attempt it judged. FIXABLE',
-      '2. lib/pregate.ts:88 The refusal text does not name the attempt. INVESTIGATE',
-      '3. docs/pregate.md:12 The docs do not say a rerun replaces the attempt. INVESTIGATE',
-      'Recommendation: fix 1 because a later attempt would be judged by the first',
-    ].join('\n')]]);
+    pass(path.join(run, 'p1-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', ADVERSARIAL_3841]]);
     expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 2, fixed: 0 });
     const s = loop(summary(repo, '--run', run));
     expect(s).toMatchObject({ passes: 2, blocking_found: 1, noted: 2, fixed: 0, unrecorded: 1, ledgers_read: 2, rounds: 2 });
@@ -148,7 +166,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
       review(0, 1, [
         row('src/auth.ts:42:testing', { path: 'src/auth.ts', line: 42, severity: 'CRITICAL', kind: 'test-gap', blocking: false, action: 'noted', raised_by: 'testing' }),
         row('src/m.ts:5:state-matrix', { path: 'src/m.ts', line: 5, severity: 'INFORMATIONAL', raw_severity: 'CRITICAL', kind: 'test-gap', blocking: false, action: 'noted', raised_by: 'state-machines' }),
-        row('src/f.ts:3:logic', { action: 'fixed', raised_by: 'red-team' }),
+        row('src/f.ts:3:logic', { action: 'fixed', raised_by: 'outside-voice' }),
         row('src/n.ts:8:logic', { severity: 'CRITICAL', raised_by: 'red-team' }),
         row('src/g.ts:7:logic', { action: 'fixed', raised_by: 'core' }),
       ]),
@@ -162,6 +180,26 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     ], m => [...m.map(l => ({ id: l.id, severity: l.label })), { id: 'lead#1', severity: 'CRITICAL', reason: 'src/g.ts:7 the lead found an unchecked write' }]);
     const s = loop(summary(repo, '--run', run));
     expect(s).toMatchObject({ passes: 2, blocking_found: 3, fixed: 2, unrecorded: 1, ledgers_read: 1 });
+  });
+
+  test('round 2 cases: another reviewer at a below-floor line, an extensionless path, one finding in two ledgers, no locus', () => {
+    const repo = branchWith([
+      review(0, 1, [
+        { fingerprint: 'src/auth.ts:42:testing', path: 'src/auth.ts', line: 42, severity: 'CRITICAL', blocking: false, action: 'noted', raised_by: 'testing' },
+        { fingerprint: 'bin/gstack-review-scope:262:logic', path: 'bin/gstack-review-scope', line: 262, severity: 'CRITICAL', blocking: true, action: 'fixed', raised_by: 'red-team' },
+        { fingerprint: 'x.ts:5:logic', path: 'x.ts', line: 5, severity: 'CRITICAL', blocking: true, action: 'fixed', raised_by: 'red-team' },
+      ]),
+      fixCheck(30, []),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [
+      ['specialist/testing', '[CRITICAL] src/auth.ts:42 the denied path has no test'],
+      ['outside-voice', '1. src/auth.ts:42 an unauthenticated caller reaches the handler. Blocks: yes\nRecommendation: fix 1 because it is open'],
+      ['red-team', '[CRITICAL] bin/gstack-review-scope:262 the refusal is skipped\n[CRITICAL] x.ts:5 the guard is inverted'],
+    ]);
+    pass(path.join(run, 'fix-check'), [['fix-check', '[CRITICAL] x.ts:5 the guard is still inverted\n[CRITICAL] the retry loop never ends']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ blocking_found: 4, fixed: 2, noted: 1, unrecorded: 2, ledgers_read: 2 });
   });
 
   test('judgment decides: a folded duplicate counts once, a lead addition counts, a rejected judgment keeps the collected labels', () => {
