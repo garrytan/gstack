@@ -1,5 +1,76 @@
 # Changelog
 
+## [1.92.49.0] - 2026-11-01
+
+**The timeline Stop hook returns within its 2-second budget even when the host keeps stdin open.** The hook read its payload with a blocking read that waits for end of input, so a host that writes the Stop payload and leaves the pipe open held the hook for as long as the pipe stayed open. A local run with the pipe held for 8 seconds took 8 seconds, past the hook's 2-second budget and on the way to Claude Code's 15-second hook window (#3628, reported on Windows). Rewritten from PR #3628 by shahab (mashtii85).
+
+### Fixed
+- **`hosts/claude/hooks/timeline-stop-hook.ts`** reads stdin for at most 500 ms and stops at the first complete JSON payload, then repairs the timeline as before. The hook still exits 0 on every path.
+
+### Tests
+- `test/timeline-stop-hook-stdin.test.ts` (runs on windows-latest): a complete payload on a pipe that never closes returns within budget and still writes the repair; an open pipe with no data returns within budget. Both failed before the fix (10 s, killed).
+
+## [1.92.48.0] - 2026-11-01
+
+**On Windows, `gstack-review-scope summary` works again, and the JSONL merge driver no longer fails on non-English text or rewrites files with CRLF.** Before, the summary started the bash script `gstack-review-read` directly, which Windows cannot run, so it always refused with an empty "gstack-review-read failed:" message and /ship could not write its review-loop file (#3541). The `jsonl-append` merge driver wrote its result with Python's `print()`, so a line the console code page could not encode (Cyrillic text under cp1250, for example) made it exit 1 and git reported a conflict with no markers, and every merge on Windows turned LF files into CRLF (#3659).
+
+### Fixed
+- **`gstack-review-scope summary`** runs `gstack-review-read` through `lib/script-invocation.ts` (Git Bash on Windows). When the helper cannot start, the refusal names the launch error instead of an empty string.
+- **`gstack-jsonl-merge`** writes UTF-8 bytes with LF line endings on every platform and code page.
+
+### Tests
+- `test/review-scope-windows-launch.test.ts` runs the summary against a seeded review log through the same launcher; it runs on windows-latest.
+- `test/jsonl-merge-encoding.test.ts` merges a Cyrillic line with `PYTHONIOENCODING=cp1252` and checks the bytes are UTF-8 with no CR. It failed before the fix on Linux too.
+- `test/script-invocation-tripwire.test.ts` now also catches a bin spawned through `path.join(path.dirname(...import.meta.url...), ...)` or `import.meta.dir`, the shape that hid #3541. `bin/gstack-ship-receipt`'s `gstack-session-kind` spawn is listed as a known site until its own follow-up.
+
+## [1.92.47.0] - 2026-11-01
+
+- **`/ship` Step 5 runs its test lanes one at a time on machines with 4 or fewer cores, and `--lanes serial|parallel` picks the mode by hand** (`gstack-ship-preflight`, GST-851). Preflight used to start every `--lane` at once. On garrytan/gstack-evals#115 six lanes (a 1,451-test bun suite, tsc, a Docker tier and an arm tarball trial) started within 60 ms of each other on a 4-core, 16 GB machine, and running lanes together has taken machines down before (gstack-evals #101, #106, #107). Now, with no flag, preflight runs one lane at a time when `os.availableParallelism()` is 4 or less and all of them at once above that. `--lanes serial` or `--lanes parallel` overrides the default, and any other value, or `--lanes` with no value, is a usage error (exit 2). A new `LANES: serial|parallel (--lanes|<n> cores)` line before the `LANE` lines says which mode ran and why. Each lane still prints its own `LANE` line with its own `tests_ran` count, in the order the lanes were given. Serial runs take the sum of the lane times instead of the longest one. There is no ship-policy key for this: a new key needs key versioning and a `min_gstack_version` bump, and the core-count default already covers the 4-core case.
+
+### Tests
+- `test/ship-preflight.test.ts`: `--lanes serial` runs lanes one after another and keeps each lane's count; `--lanes parallel` keeps lane order when a later lane finishes first; an unflagged run names the core count; a bad or missing `--lanes` value is a usage error; and the core-count default is serial at 4 cores or fewer.
+
+## [1.92.46.0] - 2026-11-01
+
+**brain-sync no longer publishes a synced JSON file that doesn't parse, and the profile and doctor now say when one is broken.** When two machines edit `developer-profile.json` before syncing, git's merge can leave conflict markers in it. brain-sync committed and pushed that file, so every machine got a profile that no longer parsed, while `gstack-developer-profile --profile` and `gstack-doctor` both reported everything ok (#3763).
+
+### Fixed
+- **brain-sync holds back a synced `.json` file that doesn't parse** (`bin/gstack-brain-sync`). Before each commit it parses every staged `*.json` file (today `developer-profile.json` and `projects/*/decisions.active.json`). A file that doesn't parse is held with rule `invalid-json`, along with any file coupled to it (`decisions.jsonl` with its snapshot). It stays queued and syncs on the next run after you repair it; everything else syncs as usual. The fix line says to repair the file. It does not offer `--skip-file`, which would stop the profile syncing for good.
+- **A held file in an unfinished git merge stops the sync instead of committing half the merge.** If a held file is part of a merge that git could not finish, committing the merge without it would quietly keep only this machine's version and drop the other machine's edit. brain-sync now commits nothing and reports `blocked` until you repair the file; the merge and the queue are kept.
+- **Held-status messages name the right cause.** The skill-start attention line, `--status` and `gstack-doctor` no longer blame the secret scan for every held file; doctor reports how many held files are not valid JSON.
+- **`gstack-doctor` warns when a synced JSON file holds conflict markers**, naming the file and how to restore it from the sync repo's history.
+
+### Changed
+- **`gstack-developer-profile --profile` now exits 1 when the profile is not valid JSON.** It prints `<file> is not valid JSON: <parse error>` on stderr (noting conflict markers when it finds them) and nothing on stdout. It used to print the broken file and exit 0, so scripts that read `--profile` should check its exit status.
+
+### Tests
+- `test/brain-sync.test.ts`: a queued profile with conflict markers, a marker-free syntax error, an invalid `decisions.active.json` holding its coupled `decisions.jsonl` until repaired, two machines editing the profile (the other machine's edit stays on the remote), and an unfinished merge with a held profile. `test/gstack-developer-profile.test.ts`: `--profile` on an unparseable profile. `test/gstack-doctor.test.ts`: a conflict-marker warning, and a JSON hold not attributed to the secret scan. All fail on main.
+
+## [1.92.45.0] - 2026-11-01
+
+### /ship review scales to risk, not size
+
+- **Review depth follows risk.** Code that touches security, user data, money, secrets, auth or the merge checks gets the full review panel. Other code goes to the light tier at any size, with one batched reader plus the native adversarial pass. Docs, tests and eval write-ups get one reader. UI text and SVG files stay code for now. A larger diff never raises the depth by itself.
+- **New risk classes.** `lib/review-risk.ts` holds the money, auth and secret matchers the targeted pass already used, plus new security (trust boundaries, shell and HTML sinks, shells run through argv, recursive deletes, `eval`) and user-data (persistence paths, `DELETE FROM`, `deleteMany`, `destroy_all`) signals.
+- **At most 2 review rounds.** A fix-check counts as a round. A blocker that is still open or fixed in round 2 stops for the owner, who may grant one scoped fix-check; there is no round 3. A fix in round 2 that edits gate code also stops for the owner. Below-floor fixes in round 2 finish, with the notes listed.
+- **Receipts record tier and rounds.** `review_loop.rounds` and `review_depth.risk` are on the receipt, and the summary line prints `rounds=`. `gstack-ship-queue ready` still refuses a receipt below its head's depth.
+- Replayed on the 26-unit no-loss panel, no historical blocker was lost. Over the last 100 main commits (an estimate from replaying the depth rules), 8 go from standard to light, 12 go up to full, and no commit with a risk class goes down.
+
+## [1.92.44.0] - 2026-11-01
+
+**`literals` stops treating a same-name sibling file as the changed module (GST-820).** A test that only mentioned `test/postgres-unit-arms.txt` was counted as a consumer of `scripts/postgres-unit-arms.ts`, so any `12` in it failed `PREGATE_LITERALS` when `ARM_SHARDS` moved from 12 to 18. In gbrain #8372 that gave 17 false files. A path now names the module only when its stem is followed by the module's own extension (for a JS/TS module, any JS/TS extension), or by anything other than a letter, digit, `_`, `-` or another extension, and the full file name no longer matches with a further extension such as `.snap`. Extensionless imports, `.js` imports and the module's own path still count.
+
+### Fixed
+- **`literals` module matching.** A sibling file that shares the module's stem (`<stem>.txt`, `<stem>.json`, `<stem>-v2.ts`, `<file>.snap`, or `<stem>.ts` beside a shell script) is no longer the module.
+
+## [1.92.43.0] - 2026-11-01
+
+**New page: [docs/support-tiers.md](docs/support-tiers.md) says what gstack supports fully and what it supports minimally.** macOS and Linux, with Claude and OpenAI models, get full support: the whole free suite and the paid evals. Windows (Git Bash or MSYS) and Gemini models get minimal support: install and the core skills (`/ship`, `/review`, `/qa-only`, `/investigate`, `/browse` on gstack's own browser) work without errors, checked on Windows by the `windows-smoke` job, which replaces the six-shard suite as the required Windows check when it lands, and by hand or one cheap smoke run on Gemini. Windows-only and Gemini-only reports that don't break install, startup or a core workflow close as won't fix with a link to the page.
+
+### Documentation
+- `docs/support-tiers.md`: the two tiers, what we stop doing, the Windows CI shape today (the six-shard `windows-free-tests` suite required on every pull request) and once `windows-smoke` lands (`windows-smoke` required, the six-shard suite nightly on main and non-blocking) and what doesn't change (eval models, the cross-family review voice).
+- README's platform notes and AGENTS.md's platform support section link to it.
+
 ## [1.92.42.0] - 2026-11-01
 
 **A /ship review pass that only left notes now binds at Step 11.5.** A pass whose findings were all fixed, deferred or noted has no open defect, but a driver could still log it as `issues_found`. Step 11.5 then refused it, and the only way out was an extra rebind pass (CAPY-2, qm#2837). When the tree changes during a pass, the refusal now names the start and end trees and the cheapest repair (GST-430).
