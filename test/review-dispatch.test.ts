@@ -688,7 +688,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       ['1. The P0 pilot table drops a row\nSeverity Low', 'Low'], ['1. The P0 pilot table drops a row\n**Severity** Low', 'Low'],
       ['1. Bypass x.ts:3 is CRITICAL (Severity: Low in pass 1)', 'CRITICAL'], ['Still open: x.ts:3 is CRITICAL, Severity: Low in pass 1 understated it', 'CRITICAL'],
       ['1. lib/x.ts:42-58 CRITICAL: drops rows. Severity: Low', 'CRITICAL'], ['1. lib/x.ts:42:7 CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
-      ['1. (lib/x.ts:42, 50) CRITICAL: drops rows. Severity: Low', 'CRITICAL']];
+      ['1. (lib/x.ts:42, 50) CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
+      ['1. The P0 pilot table drops a row\nSeverity: Low: only the pilot', 'Low'], ['1. The P0 pilot table drops a row\nSeverity: Low because it is internal', 'Low'],
+      ['1. The P0 pilot table drops a row\nSeverity: Low/Medium', 'Low'], ['Severity: Low: only the P0 pilot table', 'Low'],
+      ['1. The P0 pilot drops a row. Severity: Low/P3', 'Low'], ['1. The P0 pilot drops a row. Severity: Low → it is internal', 'Low']];
     for (const [output, label] of p2) expect([output, parseFindings('outside-voice', output).map(f => f.label)]).toEqual([output, [label]]);
     const t0 = performance.now();
     for (const run of ['='.repeat(60), '-'.repeat(60), '|' + '-'.repeat(60) + '|', '🔴'.repeat(60), '. '.repeat(60), '-.'.repeat(60), '`'.repeat(60)])
