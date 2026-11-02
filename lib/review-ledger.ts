@@ -16,7 +16,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
+import { checkReviewedTree, isReviewedTreeLine, promptHash, type TreeCheck } from './review-brief';
 
 export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge' | 'program'; [k: string]: unknown }
 export const readerKey = (role: string, name?: string) => (name ? `${role}/${name}` : role);
@@ -236,6 +236,21 @@ export function recordJudgment(ledger: string, merged: MergedLine[], judged: Jud
   return res;
 }
 
+/** A recorded output's file text while it still hashes to what collect recorded. */
+function unchangedOutput(o: LedgerEvent): string | undefined {
+  try {
+    const text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined;
+    return text !== undefined && promptHash(text) === o.sha256 ? text : undefined;
+  } catch { return undefined; }
+}
+
+/** Whether a reply names the tree its render recorded (GST-482), checked on the reply itself, never on an output event's editable fields. */
+const treeHolds = (render: LedgerEvent | undefined, reply: string | undefined) => !render || !('tree' in render)
+  || (reply !== undefined && checkReviewedTree(reply, typeof render.tree === 'string' ? render.tree : null).ok);
+
+/** One file however its path is spelled: collect and judge may reach a run directory through a symlink. */
+const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { return path.resolve(f); } };
+
 /**
  * The blocking findings a run's ledger holds (GST-951): every collected line whose label ranks CRITICAL, raised to its judged
  * severity when the newest judge accepted a judged set that is unchanged since; lead judgment's additions count and a folded
@@ -284,15 +299,16 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
 }
 
 /**
- * Whether a recorded output was a review: it has findings, or its file (unchanged since collect) carries the reader's clean marker, so
- * a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own review field.
+ * Whether a recorded output was a review: its unchanged reply names its render's tree, and it has findings or carries the reader's
+ * clean marker, so a ledger written before collect recorded the field is judged by the same rule; with no readable file, collect's own
+ * review field.
  */
-function reviewed(o: LedgerEvent): boolean {
+function reviewed(o: LedgerEvent, render?: LedgerEvent): boolean {
   if (o.tree_ok === false || unavailableOutput(o)) return false;
+  const text = unchangedOutput(o);
+  if (!treeHolds(render, text)) return false;
   if (Array.isArray(o.ids) && o.ids.length) return true;
-  let text: string | undefined;
-  try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* unreadable */ }
-  return text !== undefined && promptHash(text) === o.sha256 ? hasCleanMarker(String(o.reader), text) : o.review === true;
+  return text !== undefined ? hasCleanMarker(String(o.reader), text) : o.review === true;
 }
 
 /** Every id collect recorded, in order. */
@@ -314,6 +330,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     return { at, next, reader, label: nth > 1 ? `${reader}@${nth}` : reader };
   });
   let voided = 0;
+  const differs: string[] = [];
   for (const p of episodes) {
     const r = events[p.at]!;
     const inside = events.map((e, i) => ({ e, i })).filter(({ e, i }) => i > p.at && i < p.next && e.reader === p.reader);
@@ -331,7 +348,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     voided += epVoided;
     const lastMatch = [...sent].reverse().find(({ e }) => e.sha256 === r.sha256);
     const outputs = lastMatch ? inside.filter(({ e, i }) => e.event === 'output' && i > lastMatch.i) : [];
-    const collected = outputs.some(({ e }) => reviewed(e));
+    const collected = outputs.some(({ e }) => reviewed(e, r));
     const unavailable = !collected && outputs.some(({ e }) => unavailableOutput(e));
     const status = !sent.length ? 'NOT_SENT' : mismatched ? 'MISMATCH' : collected ? 'MATCH' : unavailable ? 'UNAVAILABLE' : 'NOT_COLLECTED';
     const tampered = fileNow && fileNow !== r.sha256 ? ' file_changed_since_render' : '';
@@ -346,20 +363,38 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const lastSent = p ? events.slice(p.at + 1, i).filter(e => e.event === 'sent' && e.reader === reader).at(-1) : undefined;
     if (!p) { status = 'MISMATCH'; notes.push('brief_not_rendered'); }
     else if (!lastSent || lastSent.sha256 !== events[p.at]!.sha256) { status = 'MISMATCH'; notes.push('brief_not_sent_verbatim'); }
-    if (typeof o.file === 'string' && fs.existsSync(o.file) && promptHash(fs.readFileSync(o.file, 'utf8')) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
+    let text: string | undefined;
+    try { text = typeof o.file === 'string' ? fs.readFileSync(o.file, 'utf8') : undefined; } catch { /* missing or unreadable */ }
+    const render = p ? events[p.at]! : undefined;
+    if (text !== undefined && promptHash(text) !== o.sha256) { status = 'MISMATCH'; notes.push('output_file_changed'); }
     const ids = Array.isArray(o.ids) ? (o.ids as string[]) : [];
     let lines: MergedLine[] = [];
     try { lines = typeof o.merged === 'string' ? readJsonl<MergedLine>(o.merged).filter(l => ids.includes(l.id)) : []; } catch { notes.push('merged_unreadable'); status = 'MISMATCH'; }
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
-    if (status === 'MATCH' && !reviewed(o)) {
+    // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
+    if (text === undefined) {
+      status = 'MISMATCH';
+      notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
+      differs.push(...ids);
+    } else if (promptHash(text) === o.sha256) {
+      const parsed = parseFindings(reader, text);
+      const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
+      if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
+      else if (!unavailableOutput(o)) {
+        if (off.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
+        // A reply collect refused for its tree (GST-482) records no ids whatever it holds; the refusal is re-derived from the reply.
+        if (parsed.length !== ids.length && !(o.tree_ok === false && !ids.length && !treeHolds(render, text))) { status = 'MISMATCH'; notes.push(`merged_count_differs=${parsed.length}/${ids.length}`); }
+      }
+    }
+    if (status === 'MATCH' && !reviewed(o, render)) {
       // A non-review the same dispatch later replaced with a review (the brief re-sent verbatim, then answered) is void, counted like a voided send.
       const later = p ? events.slice(i + 1, p.next) : [];
-      const review = later.findIndex(e => e.event === 'output' && e.reader === reader && reviewed(e));
+      const review = later.findIndex(e => e.event === 'output' && e.reader === reader && reviewed(e, render));
       const replaced = review > 0 && later.slice(0, review).some(e => e.event === 'sent' && e.reader === reader && e.sha256 === events[p!.at]!.sha256);
       if (unavailableOutput(o)) { status = 'UNAVAILABLE'; notes.push(`reason=${JSON.stringify(o.unavailable)}`); }
       else if (replaced) { status = 'VOIDED'; voided++; notes.push('replaced_by_a_review'); }
-      else if (o.tree_ok === false) { status = 'NOT_REVIEWED'; notes.push(`wrong_tree reported=${JSON.stringify(o.reported_tree)} expected=${JSON.stringify(o.tree)}`); }
+      else if (o.tree_ok === false || !treeHolds(render, text)) { status = 'NOT_REVIEWED'; notes.push(`wrong_tree reported=${JSON.stringify(o.reported_tree)} expected=${JSON.stringify(o.tree)}`); }
       else { status = 'NOT_REVIEWED'; notes.push('no_finding_no_clean_marker'); }
     }
     rows.push({ kind: 'OUTPUT', reader: p?.label ?? reader, status, detail: `sha=${short(o.sha256)} findings=${ids.length}${notes.length ? ' ' + notes.join(' ') : ''}` });
@@ -373,13 +408,22 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     const judgedIds = new Set(Array.isArray(v.merged_ids) ? (v.merged_ids as string[]) : []);
     const missing = collectedIds(events.slice(0, lastJudge)).filter(id => !judgedIds.has(id));
     if (missing.length) notes.push(`merged_ids_missing=${missing.join(',')}`);
+    // The judged set must come from the merged file collect wrote, holding only rows collect recorded.
+    const outputs = events.slice(0, lastJudge).filter(e => e.event === 'output' && Array.isArray(e.ids) && e.ids.length);
+    if (outputs.some(e => typeof e.merged !== 'string' || realPath(e.merged) !== realPath(String(v.merged)))) notes.push('judge_merged_not_collected');
     let rerun: Judgment | null = null;
     try {
       const judgedText = fs.readFileSync(String(v.judged), 'utf8');
       if (promptHash(judgedText) !== v.judged_sha256) notes.push('judged_changed_since_judge');
-      rerun = judge(readJsonl<MergedLine>(String(v.merged)), readJsonl<JudgedLine>(String(v.judged)));
+      const merged = readJsonl<MergedLine>(String(v.merged));
+      const collected = new Set(collectedIds(events.slice(0, lastJudge)));
+      const extra = merged.filter(m => !collected.has(m.id)).map(m => m.id);
+      if (extra.length) notes.push(`merged_rows_not_collected=${JSON.stringify(extra)}`);
+      rerun = judge(merged, readJsonl<JudgedLine>(String(v.judged)));
     } catch { notes.push('judged_or_merged_unreadable'); }
     if (rerun && !rerun.ok) notes.push(`rerun_rejects dropped=${JSON.stringify(rerun.dropped)} downgraded=${JSON.stringify(rerun.downgraded)}`);
+    const forged = differs.filter(id => judgedIds.has(id));
+    if (forged.length) notes.push(`merged_line_differs=${JSON.stringify(forged)}`);
     const status = !v.ok ? 'REJECTED' : notes.length ? 'MISMATCH' : 'OK';
     rows.push({ kind: 'JUDGE', reader: '-', status, detail: `dropped=${JSON.stringify(v.dropped)} downgraded=${JSON.stringify(v.downgraded)} added=${v.added} promoted=${v.promoted} folded=${v.folded}${notes.length ? ' ' + notes.join(' ') : ''}` });
   } else if (events.some(e => e.event === 'output')) rows.push({ kind: 'JUDGE', reader: '-', status: 'MISSING', detail: 'outputs were collected but no judged set was checked' });
