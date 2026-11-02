@@ -189,7 +189,7 @@ function launchedProcess(browser: Browser | null | undefined): ChildProcess | nu
 
 /**
  * #2709: PID of the Chromium browser process gstack launched, read over CDP
- * (`SystemInfo.getProcessInfo`, type "browser") because Playwright 1.62's
+ * (`SystemInfo.getProcessInfo`, type "browser") because Playwright's public
  * Browser has no `process()`. Call it only for a launch gstack owns; a
  * connected browser belongs to someone else and must never be reaped. Bounded:
  * a hung or failed CDP call logs once and returns null, which means no reap.
@@ -428,7 +428,7 @@ export class BrowserManager {
   // Our own 'disconnected' listeners per browser. Detach only these: removing
   // every 'disconnected' listener also strips Playwright's internal one that
   // resolves browser.close(), so each close waited the full race timeout (and
-  // Playwright 1.62 has no Browser.process() for the SIGKILL fallback).
+  // Playwright's Browser has no process() for the SIGKILL fallback).
   private disconnectHandlers = new WeakMap<Browser, Array<() => void>>();
   private onBrowserDisconnected(browser: Browser | null | undefined, handler: () => void): void {
     if (!browser) return;

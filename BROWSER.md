@@ -1380,8 +1380,9 @@ browser's trust store and updates.
 eight eMudhra intermediate CAs by CRLSet on 2026-10-17, the day their key
 compromise was reported, and scheduled the removal of their root, emSign ECC
 Root CA - G3, from the Chrome Root Store for 2026-10-27. The root store built
-into gstack's pinned Playwright 1.62.1 (Chromium 151) still trusts that root, so
-the headless browser accepts certificates those intermediates issued. That lasts
+into gstack's pinned Playwright 1.64.1 (Chromium 156) still trusts that root, so
+the headless browser accepts certificates those intermediates issued (measured
+on 156.0.8078.4 on macOS with the check below). That lasts
 until gstack moves to the first Playwright release whose Chromium is
 158.0.8115.0 or later, the first Chrome for Testing build measured to refuse
 them. Until then, don't do signed-in work in this engine on a network you do not
