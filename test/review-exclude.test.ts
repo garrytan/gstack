@@ -264,7 +264,12 @@ describe('the receipt binds the selection the reviewers read', () => {
     const head = commit(repo, { 'testdata/expected.txt': 'expected output\n' });
     const planned = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--json']).out).review_exclude;
     expect(planned.kept_files).toEqual([{ path: 'testdata/expected.txt', reason: 'gate-tagged' }]);
-    const { exclude } = receiptReviewAtHead(repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), head);
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(repo.root, 'receipt-state');
+    let review: ReturnType<typeof receiptReviewAtHead>;
+    try { review = receiptReviewAtHead(repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), head); }
+    finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    const { exclude } = review;
     expect(exclude.state === 'active' ? exclude.record.digest : exclude.state).toBe(planned.digest);
   });
   // Value: protects=a receipt names the selection the rendered briefs read, a base merge that leaves the policy alone still
