@@ -109,6 +109,18 @@ describe('marker-first import (source=codex-import-marker)', () => {
     expect(events[0].user_choice).toContain('Fix now');
     expect(events[0].recommended).toContain('Fix now');
   });
+
+  test('carries a marker signal hint into the log (#3442)', () => {
+    const sessionPath = writeSessionFile([
+      agentMessage('D1 — Caching\n<gstack-qid:plan-ceo-review-add-caching;signal=scope-appetite> Add caching?\nA) Expand with caching (recommended)\nB) Hold scope'),
+      userMessage('A'),
+    ]);
+    expect(runImport(sessionPath).status).toBe(0);
+    const events = readImportedEvents();
+    expect(events[0].question_id).toBe('plan-ceo-review-add-caching');
+    expect(events[0].signal_key).toBe('scope-appetite');
+    expect(events[0].user_choice).toBe('expand');
+  });
 });
 
 // ----------------------------------------------------------------------

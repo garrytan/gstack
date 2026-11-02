@@ -118,6 +118,30 @@ describe('the rendered Approvals block is not prose', () => {
   });
 });
 
+describe('the Review-loop exception line (GST-977, gstack-evals #139)', () => {
+  const excepted = {
+    ...receipt,
+    review_loop: { ...receipt.review_loop, fix_checks: 1 },
+    gate: { status: 'green', run: '139', unit: { pass: 1181, skip: 70 } },
+    review_loop_exception: { accepted_by: 'Garry', date: '2026-11-01', via: 'GEVA-2', reason: 'outside 1 and 2 skip detector', fix_check: { head: 'b'.repeat(40), findings: 0 } },
+  };
+  const line = 'Review-loop exception: accepted by Garry 2026-11-01 via GEVA-2: outside 1 and 2 skip detector (fix-check at bbbbbbbbbbbb, 0 findings)';
+
+  // Value: protects=a body that carries the exception line write requires can also pass --check-prose; fails_when=the
+  //   owner's reason is read as counter claims ("2 skip" against 70); seam=lib/ship-receipt-prose.ts checkReceiptProse
+  test('the exact line the receipt\'s exception requires is not prose; the rest of the body still is', () => {
+    expect(checkReceiptProse(excepted, `${line}\n\nGate: 70 skip.\n`)).toEqual({ checked: 1, mismatches: [] });
+    expect(checkReceiptProse(excepted, `  ${line}\r\nGate: 69 skip.`).mismatches).toEqual([{ field: 'gate.unit.skip', prose: 69, receipt: 70 }]);
+  });
+
+  test('the same words anywhere else, or a line for a different exception, stay prose', () => {
+    const twoSkip = [{ field: 'gate.unit.skip', prose: 2, receipt: 70 }];
+    expect(checkReceiptProse(excepted, `Note: ${line}`).mismatches).toEqual(twoSkip);
+    expect(checkReceiptProse(excepted, line.replace('GEVA-2', 'GEVA-3')).mismatches).toEqual(twoSkip);
+    expect(checkReceiptProse({ ...excepted, review_loop_exception: undefined }, line).mismatches).toEqual(twoSkip);
+  });
+});
+
 describe('gstack-ship-receipt read --check-prose', () => {
   const run = (body: string) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'receipt-prose-'));

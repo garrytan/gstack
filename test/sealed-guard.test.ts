@@ -215,7 +215,7 @@ describe('gstack-pregate sealed (the standalone preflight before any push or PR 
     const ranged = run(['--range', 'origin/main..HEAD', '--base', 'main']);
     expect(ranged.status).toBe(1);
     expect(ranged.stderr).toMatch(/sealed\.transcript\s+runs\/c1\/transcript\.jsonl/);
-    expect(ranged.stdout).toMatch(/^SEALED: refused findings=1 commits=1 visibility=unknown \(counted public\)/m);
+    expect(ranged.stdout).toMatch(/^SEALED: refused findings=1 commits=1 skipped=0 visibility=unknown \(counted public\)/m);
     const dflt = run(['--base', 'main']);
     expect(dflt.status).toBe(1);
     sh(s.work, s.env, ['push', '-q', 'origin', 'results']);
@@ -252,7 +252,7 @@ describe('sealed.allow_paths: base-branch exceptions applied after the deny glob
     expect(hook(only).code).toBe(0);
     const pre = preflight(only);
     expect(pre.code).toBe(0);
-    expect(pre.out).toMatch(/^SEALED: clear findings=0 commits=1 visibility=unknown \(counted public\) waived=0 exempt=1 policy=/m);
+    expect(pre.out).toMatch(/^SEALED: clear findings=0 commits=1 skipped=0 visibility=unknown \(counted public\) waived=0 exempt=1 policy=/m);
     const json = JSON.parse(preflight(only, ['--json']).out);
     expect(json.exempt).toHaveLength(1);
     expect(json.exempt[0]).toMatchObject({ rule: 'sealed.path', file: 'sealed/s1/MANIFEST.json', glob: '**/sealed/*/MANIFEST.json' });
