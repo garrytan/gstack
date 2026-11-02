@@ -627,10 +627,18 @@ function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
   return !carriesSecretLiteral(match.input.slice(match.index + match[0].length).split("\n", 1)[0]);
 }
 
-/** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
+/**
+ * True when `text` holds a quoted, non-placeholder, high-entropy literal.
+ * GST-1064: lowercase letter words joined by `_`, `.` or `-` name a file, dict
+ * key or default (`"key.json"`, `"access_token"`, `"change-me-later"`); eight
+ * distinct letters already reach 3.0 bits, so entropy alone cannot tell them
+ * from a secret. A literal with a digit, an uppercase letter or one unbroken
+ * run still counts.
+ */
+const NAME_SHAPED_LITERAL = /^[a-z]+(?:[_.-][a-z]+)+$/;
 function carriesSecretLiteral(text: string): boolean {
   for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
-    if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return true;
+    if (!isPlaceholderSpan(literal) && !NAME_SHAPED_LITERAL.test(literal) && shannonEntropy(literal) >= 3.0) return true;
   return false;
 }
 

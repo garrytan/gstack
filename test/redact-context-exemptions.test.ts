@@ -106,6 +106,29 @@ describe("env.kv: a function call assigned to a credential name is code (#2899)"
   );
 });
 
+describe("env.kv: a name-shaped literal inside a call is a file or dict key, not a secret (GST-1064)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const FAKE_STRIPE_TAIL = "4eC39HqLyjWDarjtT1zdp7dc";
+  table(
+    "env.kv",
+    "MEDIUM",
+    [
+      String.raw`key = json.loads(files.get("key.json", ""))`,
+      String.raw`token = resp.json().get("access_token")`,
+      String.raw`    session = store.load('session.cookie')`,
+      String.raw`password = os.getenv("DB_PASSWORD", "change-me-later")`,
+    ],
+    [
+      String.raw`key = "${FAKE_KEY}"`,
+      String.raw`KEY=${FAKE_KEY}`,
+      String.raw`key = json.loads("sk_live_${FAKE_STRIPE_TAIL}")`,
+      String.raw`token = resp.json().get("access_token", "${FAKE_KEY}")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "hunter2.Zx9Qw8")`,
+      String.raw`key = json.loads(files.get("key.json")) or "${FAKE_KEY}"`,
+    ],
+  );
+});
+
 describe("internal.hostname: per-machine config filenames are not hosts (#2962, #2740)", () => {
   table(
     "internal.hostname",
