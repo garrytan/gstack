@@ -618,8 +618,8 @@ A run killed before its teardown line leaves its VM running. A machine restart
 kills a background pregate this way. Don't destroy the VM first: rerun the same
 `gstack-pregate` command before anything it depends on changes. The run key
 covers the tree, the planned file set, the commit `origin/HEAD` points at (a
-`git fetch` that moves it counts), `UBI_LOCATION`, the size, the environment
-and the gstack version. When the rerun prints `reattaching to VM <name>` with
+`git fetch` that moves it counts), `UBI_LOCATION`, the size, the environment,
+and the runner script and setup it uploads. When the rerun prints `reattaching to VM <name>` with
 the name from the create line, it finishes the run on that VM and bills from
 the VM's original create. When it creates a new VM instead (the key changed,
 or the restart came before the runner recorded the VM), destroy the old one
