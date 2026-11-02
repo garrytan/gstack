@@ -292,6 +292,15 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     expect(claimShadow(out)).toEqual({});
     expect(f.requests().length).toBe(1);
   });
+  test('runShadow never throws when the journal cannot be appended', async () => {
+    const f = await fake('journal-readonly', [{ mode: 'valid' }]);
+    const out = gateRun();
+    const { claim } = claimShadow(out);
+    fs.chmodSync(path.join(out, 'attempts.jsonl'), 0o444);
+    try {
+      expect(await runShadow(out, claim!, { env: { ...process.env, ...f.env } })).toMatchObject({ status: 'failed' });
+    } finally { fs.chmodSync(path.join(out, 'attempts.jsonl'), 0o644); }
+  });
   test('a record already published makes a later claim a no-op: no second call is paid', async () => {
     const { f, out } = await shadowed('noop', [{ mode: 'valid' }]);
     const before = fs.readFileSync(recordFile(out, 1));
