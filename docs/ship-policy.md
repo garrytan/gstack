@@ -246,8 +246,10 @@ result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
 head: /ship runs before every READY ([details](#ship-before-ready)). It also
 refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
-what the head needs and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-exception the receipt records does not stand ([the ship receipt](#ship-receipt)).
+what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` when a targeted class
+the head needs has no done targeted pass in the receipt, and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner exception the receipt records
+does not stand ([the ship receipt](#ship-receipt)).
 Send the block as printed.
 
 **2. Lane behind another PR: gate ahead.** Gate the tree the queue will have
@@ -683,8 +685,10 @@ slot. The queue enforces this at every step from the PR body alone:
   head being READY'd (or its `pr` is another PR); the informational
   `SHIP_RECEIPT:` line still prints. It refuses `QUEUE_RECEIPT_DEPTH_RAISED`
   (with a `REVIEW_DEPTH:` line) when the receipt records a review depth below
-  what the head needs, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-  exception it records does not stand ([the ship receipt](#ship-receipt)).
+  what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` (with a
+  `REVIEW_TARGETED:` line) when a targeted class the head needs has no done
+  targeted pass in the receipt, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an
+  owner exception it records does not stand ([the ship receipt](#ship-receipt)).
   There is no flag around it.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
@@ -803,9 +807,10 @@ its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
 `QUEUE_RECEIPT_MISSING` and `QUEUE_RECEIPT_STALE` (the PR body has no /ship
 receipt for the pin; see [/ship before READY](#ship-before-ready)),
-`QUEUE_RECEIPT_DEPTH_RAISED` and `QUEUE_RECEIPT_EXCEPTION_INVALID` (the
-receipt's review depth is below what the pin needs, or an owner exception it
-records does not stand; see [the ship receipt](#ship-receipt)),
+`QUEUE_RECEIPT_DEPTH_RAISED`, `QUEUE_RECEIPT_TARGETED_MISSING` and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` (the receipt's review depth is below what
+the pin needs, a targeted class the pin needs has no done targeted pass, or an
+owner exception it records does not stand; see [the ship receipt](#ship-receipt)),
 `QUEUE_NOT_READY` (no READY receipt at that head), `QUEUE_TRAIN_CONFLICT` (the printed
 `QUEUE_TRAIN_CONFLICT: train <id> stopped at #<pr> (conflicts: <files>) after
 merging #<a>,#<b>; nothing dispatched, no branch pushed; fix: …` line names
