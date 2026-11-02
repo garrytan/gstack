@@ -310,7 +310,7 @@ export interface ReviewLoopSummary {
   /** Blocking findings no row gives a disposition (fixed, deferred, noted, skipped or a gate answer): found, outcome unrecorded. */
   unrecorded?: number;
   /** Dispatch ledgers whose collected and judged findings were counted (gstack-review-dispatch). */
-  ledgers?: number;
+  ledgers_read?: number;
 }
 
 /** Review-log rows of one /ship invocation (skill review, via ship, at or after `since`) → the loop summary. */
@@ -365,19 +365,20 @@ function rowLocus(f: Record<string, any>): string | null {
 }
 
 /**
- * The loop summary. blocking_found counts every blocker found (GST-951): the rows' blockers, plus each CRITICAL the dispatch
- * ledgers hold (`ledgerBlockers`, one list per ledger) that no row logged as a CRITICAL at the same path:line. So a blocker
- * only a ledger holds (an adversarial or outside-voice finding, one logged before classification) counts, and unrecorded,
- * while one a row classified below the floor (blocking: false) does not. A ledger blocker with no locus, or one raised again
- * in another pass's ledger with no row, counts each time: the count may run high, never low.
+ * The loop summary. blocking_found counts every blocker found (GST-951). Each CRITICAL the dispatch ledgers hold
+ * (`ledgerBlockers`, one list per ledger) is paired with at most one row finding at the same path:line that may be it (no
+ * severity yet, CRITICAL as logged or before a mapper lowered it, or blocking). A paired finding blocks unless its newest
+ * classification put it below the floor (blocking: false), and its row's action is its disposition. An unpaired ledger
+ * CRITICAL blocks and is unrecorded. A row finding blocks by its newest classification, else as an unclassified CRITICAL.
+ * A ledger CRITICAL with no locus, or a second one at a paired line, counts on its own: the count may run high, never low.
  */
 export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly LedgerBlocker[])[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
   const loopRows = rows.filter(r => inRun(r) && (r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL));
   const passes = loopRows.filter(r => r.skill === 'review');
-  const blocking = new Map<string, boolean>();
-  const rowCriticals = new Set<string>();
+  type Seen = { locus: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean };
+  const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
   const fixed = new Set<string>();
@@ -387,19 +388,31 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
     for (const f of Array.isArray(row.findings) ? row.findings : []) {
       if (!f || typeof f !== 'object') continue;
       const id = findingIdentity(f);
-      if (rowBlocks(f)) blocking.set(id, blocking.get(id) === true || DISPOSITIONS.includes(f.action));
-      const locus = rowLocus(f);
-      if (locus && (rowBlocks(f) || rank(f.severity) === 4)) rowCriticals.add(locus);
+      const prior = seen.get(id);
+      const classified = typeof f.blocking === 'boolean';
+      seen.set(id, {
+        locus: rowLocus(f) ?? prior?.locus ?? null,
+        classified: classified || !!prior?.classified,
+        blocks: classified ? f.blocking : prior?.classified ? prior.blocks : !!prior?.blocks || rowBlocks(f),
+        candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
+        disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
+      });
       if (f.action === 'deferred') deferred.add(id);
       if (f.action === 'noted') noted.add(id);
       if (f.action === 'fixed' || f.action === 'auto-fixed') fixed.add(id);
     }
   }
-  const ledgerOnly = ledgers.flat().filter(b => !b.locus || !rowCriticals.has(b.locus)).length;
-  const unrecorded = ledgerOnly + [...blocking.values()].filter(disposed => !disposed).length;
-  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blocking.size + ledgerOnly, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
+  const paired = new Set<string>();
+  let ledgerOnly = 0;
+  for (const b of ledgers.flat()) {
+    const id = b.locus ? [...seen].find(([k, s]) => s.candidate && s.locus === b.locus && !paired.has(k))?.[0] : undefined;
+    if (id) paired.add(id); else ledgerOnly++;
+  }
+  const blockers = [...seen].filter(([k, s]) => s.blocks || (paired.has(k) && !s.classified));
+  const unrecorded = ledgerOnly + blockers.filter(([, s]) => !s.disposed).length;
+  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnly, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
   if (unrecorded) out.unrecorded = unrecorded;
-  if (ledgers.length) out.ledgers = ledgers.length;
+  if (ledgers.length) out.ledgers_read = ledgers.length;
   const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
   if (fixChecks) out.fix_checks = fixChecks;
   out.rounds = passes.length + fixChecks;
@@ -420,6 +433,6 @@ export function dispatchTotal(d: Record<string, number> | undefined): number | u
 export function reviewLoopLine(s: ReviewLoopSummary): string {
   const total = dispatchTotal(s.dispatches);
   return `REVIEW_LOOP: passes=${s.passes} blocking_found=${s.blocking_found} deferred=${s.deferred} noted=${s.noted} fixed=${s.fixed} scope=${s.scope}`
-    + (s.unrecorded ? ` unrecorded=${s.unrecorded}` : '') + (s.ledgers ? ` ledgers=${s.ledgers}` : '')
+    + (s.unrecorded ? ` unrecorded=${s.unrecorded}` : '') + (s.ledgers_read ? ` ledgers_read=${s.ledgers_read}` : '')
     + (s.fix_checks ? ` fix_checks=${s.fix_checks}` : '') + (total !== undefined ? ` dispatches=${total}` : '') + (s.est_input_tokens !== undefined ? ` est_input_tokens=${s.est_input_tokens}` : '');
 }

@@ -274,8 +274,9 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
     const text = read(verdict.judged, 'judged set');
     if (promptHash(text) !== verdict.judged_sha256) fail(`judged set ${String(verdict.judged)} changed since judge`);
     for (const j of jsonLines(text, String(verdict.judged)) as JudgedLine[]) {
-      if (j.duplicate_of) ranks.delete(j.id);
-      else ranks.set(j.id, Math.max(ranks.get(j.id) ?? 0, rank(j.severity) ?? 0));
+      if (j.duplicate_of) { ranks.delete(j.id); continue; }
+      ranks.set(j.id, Math.max(ranks.get(j.id) ?? 0, rank(j.severity) ?? 0));
+      if (!loci.has(j.id)) loci.set(j.id, lineLocus(j.reason ?? ''));
     }
   }
   return [...ranks].filter(([, r]) => r >= 4).map(([id]) => ({ id, locus: loci.get(id) ?? null }));

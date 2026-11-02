@@ -73,7 +73,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     ].join('\n')]]);
     expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 2, fixed: 0 });
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 2, blocking_found: 1, noted: 2, fixed: 0, unrecorded: 1, ledgers: 2, rounds: 2 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 1, noted: 2, fixed: 0, unrecorded: 1, ledgers_read: 2, rounds: 2 });
   });
 
   // #3838 (reconstruction): the rows reproduce its receipt (passes=2 blocking_found=0 noted=8 fixed=4 fix_checks=3). Pass 2's
@@ -94,7 +94,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     pass(path.join(run, 'p2-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', 'lib/review-depth.ts:300 CSS image-set() loads an outside image. FIXABLE\nRecommendation: fix because the drawing loads a remote URL']]);
     expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 1, noted: 8, fixed: 4, fix_checks: 3, rounds: 5 });
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 2, blocking_found: 2, deferred: 0, noted: 8, fixed: 4, fix_checks: 3, rounds: 5, unrecorded: 1, ledgers: 3 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 2, deferred: 0, noted: 8, fixed: 4, fix_checks: 3, rounds: 5, unrecorded: 1, ledgers_read: 3 });
   });
 
   // #3837 (reconstruction): pass 1's row was logged before the outside voice's seven findings were classified, so they sit in the
@@ -115,10 +115,10 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     ].join('\n')]]);
     expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 11, fixed: 0, fix_checks: 3, rounds: 5 });
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 2, blocking_found: 7, noted: 11, fixed: 0, unrecorded: 7, ledgers: 2, rounds: 5 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 7, noted: 11, fixed: 0, unrecorded: 7, ledgers_read: 2, rounds: 5 });
     const line = runBin(repo, 'gstack-review-scope', ['summary', '--since', SINCE, '--run', run]);
-    expect(line.out.trim()).toBe('REVIEW_LOOP: passes=2 blocking_found=7 deferred=0 noted=11 fixed=0 scope=frozen unrecorded=7 ledgers=2 fix_checks=3');
-    expect(parseReviewLoop(s)).toMatchObject({ blocking_found: 7, unrecorded: 7, ledgers: 2, rounds: 5 });
+    expect(line.out.trim()).toBe('REVIEW_LOOP: passes=2 blocking_found=7 deferred=0 noted=11 fixed=0 scope=frozen unrecorded=7 ledgers_read=2 fix_checks=3');
+    expect(parseReviewLoop(s)).toMatchObject({ blocking_found: 7, unrecorded: 7, ledgers_read: 2, rounds: 5 });
   });
 
   test('a blocker both sources hold counts once, and a disposed one is not unrecorded', () => {
@@ -126,7 +126,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     const run = path.join(repo.root, 'run');
     pass(path.join(run, 'p1'), [['specialist/testing', CLEAN], ['red-team', '[CRITICAL] src/a.ts:3 the guard is inverted']]);
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ blocking_found: 1, fixed: 1, ledgers: 1 });
+    expect(s).toMatchObject({ blocking_found: 1, fixed: 1, ledgers_read: 1 });
     expect(s.unrecorded).toBeUndefined();
   });
 
@@ -139,7 +139,29 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     const run = path.join(repo.root, 'run');
     pass(path.join(run, 'p1'), [['specialist/testing', '[CRITICAL] src/a.ts:3 the denied path has no test\n[CRITICAL] src/d.ts:7 the retry loop never ends']]);
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ blocking_found: 2, fixed: 1, noted: 2, unrecorded: 1, ledgers: 1 });
+    expect(s).toMatchObject({ blocking_found: 2, fixed: 1, noted: 2, unrecorded: 1, ledgers_read: 1 });
+  });
+
+  test('Step 11 review cases: a row finding pairs with one ledger CRITICAL; the newest classification and a mapped severity decide; a bare fixed row is a disposition', () => {
+    const row = (fp: string, f: object) => ({ fingerprint: fp, ...f });
+    const repo = branchWith([
+      review(0, 1, [
+        row('src/auth.ts:42:testing', { path: 'src/auth.ts', line: 42, severity: 'CRITICAL', kind: 'test-gap', blocking: false, action: 'noted', raised_by: 'testing' }),
+        row('src/m.ts:5:state-matrix', { path: 'src/m.ts', line: 5, severity: 'INFORMATIONAL', raw_severity: 'CRITICAL', kind: 'test-gap', blocking: false, action: 'noted', raised_by: 'state-machines' }),
+        row('src/f.ts:3:logic', { action: 'fixed', raised_by: 'red-team' }),
+        row('src/n.ts:8:logic', { severity: 'CRITICAL', raised_by: 'red-team' }),
+        row('src/g.ts:7:logic', { action: 'fixed', raised_by: 'core' }),
+      ]),
+      review(30, 2, [row('src/n.ts:8:logic', { severity: 'CRITICAL', blocking: false, action: 'noted', raised_by: 'red-team' })]),
+    ]);
+    const run = path.join(repo.root, 'run');
+    pass(path.join(run, 'p1'), [
+      ['specialist/testing', '[CRITICAL] src/auth.ts:42 the denied path has no test\n[CRITICAL] src/m.ts:5 untested cell'],
+      ['outside-voice', '1. src/auth.ts:42 an unauthenticated caller reaches the handler. Severity: High Blocks: yes\n2. src/f.ts:3 the guard is inverted. Blocks: yes\nRecommendation: fix 1 because it is an open handler'],
+      ['red-team', '[CRITICAL] src/n.ts:8 looked wrong, classified below the floor later'],
+    ], m => [...m.map(l => ({ id: l.id, severity: l.label })), { id: 'lead#1', severity: 'CRITICAL', reason: 'src/g.ts:7 the lead found an unchecked write' }]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 2, blocking_found: 3, fixed: 2, unrecorded: 1, ledgers_read: 1 });
   });
 
   test('judgment decides: a folded duplicate counts once, a lead addition counts, a rejected judgment keeps the collected labels', () => {
@@ -147,7 +169,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     const run = path.join(repo.root, 'run');
     pass(path.join(run, 'fold'), [['red-team', '[CRITICAL] src/a.ts:3 the guard is inverted\n[CRITICAL] src/a.ts:4 the guard is inverted again']],
       m => [{ id: m[0]!.id, severity: 'CRITICAL' }, { id: m[1]!.id, severity: 'CRITICAL', duplicate_of: m[0]!.id }, { id: 'lead#1', severity: 'CRITICAL', reason: 'src/e.ts:2 the lead found an unchecked write' }]);
-    expect(loop(summary(repo, '--run', run))).toMatchObject({ blocking_found: 2, unrecorded: 2, ledgers: 1 });
+    expect(loop(summary(repo, '--run', run))).toMatchObject({ blocking_found: 2, unrecorded: 2, ledgers_read: 1 });
     const rejected = path.join(repo.root, 'rejected');
     fs.mkdirSync(rejected);
     const ledger = path.join(rejected, 'review-ledger.jsonl');
@@ -158,7 +180,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     const judgedFile = path.join(rejected, 'judged.jsonl');
     fs.writeFileSync(judgedFile, JSON.stringify({ id: merged[0]!.id, severity: 'INFORMATIONAL' }) + '\n');
     expect(recordJudgment(ledger, merged, [{ id: merged[0]!.id, severity: 'INFORMATIONAL' }], judgedFile, mergedFile).ok).toBe(false);
-    expect(loop(summary(repo, '--ledger', ledger))).toMatchObject({ blocking_found: 1, unrecorded: 1, ledgers: 1 });
+    expect(loop(summary(repo, '--ledger', ledger))).toMatchObject({ blocking_found: 1, unrecorded: 1, ledgers_read: 1 });
   });
 
   test('summary refuses REVIEW_SCOPE_LEDGER instead of counting without a ledger it needs, and writes nothing', () => {

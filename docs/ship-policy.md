@@ -1272,7 +1272,7 @@ construction:
 rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,
 blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`,
-`est_input_tokens`, `unrecorded` and `ledgers` when the run recorded them, printed on the receipt summary
+`est_input_tokens`, `unrecorded` and `ledgers_read` when the run recorded them, printed on the receipt summary
 line as `passes=<n> blocking_found=<k> deferred=<m>`, so a scorecard can track
 passes per PR.
 
