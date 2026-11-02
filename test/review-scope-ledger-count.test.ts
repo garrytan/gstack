@@ -247,3 +247,42 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     expect(both.err).toContain('(REVIEW_SCOPE_INPUT;');
   });
 });
+
+describe('GST-986 item 5: fix-check passes and their findings count from the ledgers', () => {
+  // #3862 (reconstruction from its PR body; GST-963, pin 0ead1ce50): round 1's red-team CRITICAL sat in pass 1's row unclassified,
+  // fixed in be9480829; the first granted fix-check found a CRITICAL, fixed in 0ead1ce50; the second fix-check was clean; the
+  // targeted reader then raised 2 informational findings. Only pass 1 had a review-log row, so the receipt's tool counters read
+  // blocking_found=0 fixed=0 fix_checks=0 and the lane hand-set blocking_found=2 fixed=2 fix_checks=2 (its third, the docs
+  // re-check, ran outside the pass program). The outside voice's findings, which GStack Minder ruled below the floor, are left out.
+  // Value: protects=a fix-check that ran through gstack-review-dispatch counts as a round, and a blocker a later fix-check
+  //   followed counts as fixed, without a review-log row; fails_when=summary counts fix_checks only from rows, or reports such
+  //   blockers as unrecorded; seam=gstack-review-scope summary --run; no_claim=noted (a floor ruling lives only in rows)
+  test('#3862: two fix-check ledgers count as fix_checks=2, and the blockers they followed count as fixed', () => {
+    const repo = branchWith([review(0, 1, [{ fingerprint: 'lib/tree-receipt.ts:120:logic', raised_by: 'red-team' }])]);
+    const run = path.join(repo.root, 'run');
+    const step = (dir: string, readers: Array<[string, string]>) => { pass(path.join(run, dir), readers); Bun.sleepSync(5); };
+    step('p1', [['specialist-batched', CLEAN], ['red-team', '[CRITICAL] lib/tree-receipt.ts:120 the tree receipt floors the branch\'s own stamp row at the gated VERSION']]);
+    step('fc1', [['fix-check', '[CRITICAL] lib/ship-queue-train-stamp.ts:88 the train stamp and verify checks pass no baseRef']]);
+    step('fc2', [['fix-check', CLEAN]]);
+    step('s11', [['targeted', '- [INFORMATIONAL] lib/stamp-only.ts:14 a comment names the old bound\n- [INFORMATIONAL] lib/stamp-only.ts:30 the side argument has no default test']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 1, blocking_found: 2, fixed: 2, fix_checks: 2, rounds: 3, ledgers_read: 4 });
+    expect(s.unrecorded).toBeUndefined();
+  });
+
+  // Value: protects=a fix-check with both a row and a ledger counts once; a blocker no later fix-check followed stays unrecorded,
+  //   and one a row deferred stays deferred; fails_when=the ledger count adds to the row count, or every ledger blocker turns fixed;
+  //   seam=gstack-review-scope summary --run
+  test('a fix-check counted by row and ledger counts once; the last pass\'s blocker stays unrecorded; a deferred blocker is not fixed', () => {
+    const repo = branchWith([
+      review(0, 1, [{ fingerprint: 'lib/a.ts:5:logic', severity: 'CRITICAL', blocking: true, action: 'deferred', raised_by: 'red-team' }]),
+      fixCheck(30, []),
+    ]);
+    const run = path.join(repo.root, 'run');
+    const step = (dir: string, readers: Array<[string, string]>) => { pass(path.join(run, dir), readers); Bun.sleepSync(5); };
+    step('p1', [['red-team', '[CRITICAL] lib/a.ts:5 a deferred defect outside the diff\n[CRITICAL] lib/b.ts:9 a fixed defect']]);
+    step('fc1', [['fix-check', '[CRITICAL] lib/c.ts:3 the fix broke the caller']]);
+    const s = loop(summary(repo, '--run', run));
+    expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 1, fix_checks: 1, rounds: 2, unrecorded: 1 });
+  });
+});
