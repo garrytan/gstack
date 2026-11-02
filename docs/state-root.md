@@ -137,6 +137,78 @@ yourself, for example in the project's `.claude/settings.local.json`
 remote, or for a vendored sub-repo that should be its own project. The pin is
 applied per run and never cached.
 
+### Nested repos and umbrella folders
+
+By default, a repository inside another repository files under the **outer**
+repository's slug, even when the inner one has its own remote. To make a folder
+a project of its own, create an empty marker file in it:
+
+```bash
+touch path/to/folder/.gstack-project
+```
+
+- **A nested repo** (`~/projects/app-one/` with its own remote inside a
+  workspace repo): put the marker at the nested repo's top folder. It and every
+  folder under it file under its own remote's slug. The outer repo is unchanged.
+- **An umbrella folder** (a plain folder over `backend/` and `frontend/`
+  repos): put the marker in the umbrella. The umbrella and both repos share
+  one memory under the umbrella folder's name, so a plan made in the umbrella
+  carries into the repo where you build it. A repo under the umbrella that should
+  keep its own memory gets its own marker; the innermost marker wins.
+
+The marker's contents are ignored. It counts only when it is a regular file
+you own, in a folder whose name has a letter or digit, and either at a
+repository's top folder or in a folder that isn't inside any repository. When
+you work under your home folder, a marker in your home folder itself or above
+it is ignored; outside your home folder (a CI or cloud checkout under
+`/workspace`, say) every folder up to `/` is checked, so keep stray markers out
+of shared parents. A marker in a subfolder of a repository, a link or a
+directory is ignored, so a repository you clone can't choose another project's
+memory. An umbrella without a remote of its own files under its folder name, so
+two umbrellas with the same name (`~/clientA/work` and `~/clientB/work`) share
+one memory: rename one, or pin each with `GSTACK_PROJECT_SLUG`. Commit
+it in a nested repo you share, if you like; it changes nothing for someone who
+clones that repo on its own.
+
+Checkpoints, learnings, decisions, the timeline and design docs follow the
+marker. Records that belong to one repository never do: pregate policy and run
+scratch, approvals, `/verify` results, the per-branch review log, the `/ship`
+spend-cap pointer, the cached solo or collaborative repo mode and the Greptile
+early-push answer stay
+under the slug the repository has without a marker (`gstack-slug --get
+REPO_SLUG`), so a branch that commits a marker can't change which policy
+applies.
+
+| To | Use | Lasts |
+|---|---|---|
+| Make a folder its own project | `.gstack-project` | until you delete it |
+| Pick an exact bucket name | `GSTACK_PROJECT_SLUG` in the project's `.claude/settings.local.json` | per Claude Code project |
+| Pick a name for one shell | `export GSTACK_PROJECT_SLUG=<name>` | that shell |
+
+`GSTACK_PROJECT_SLUG` wins over a marker. Check which applies:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-slug --identity
+```
+
+`PROJECT_MARKER=` names the marker in use; each `MARKER_IGNORED=` line names
+a marker that didn't count and why. Deleting the marker restores the slug the
+folder had before.
+
+**Bringing earlier checkpoints across.** Checkpoints saved before the marker
+stay in the old bucket, and the first run after you add the marker names it.
+Preview the ones saved inside the marked folder, then copy them:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-slug --adopt-legacy --from <old slug> --under-root
+~/.claude/skills/gstack/bin/gstack-slug --adopt-legacy --from <old slug> --under-root --apply
+```
+
+Only checkpoints stamped with a folder at or below the marked one are copied,
+and they are restamped so `/context-restore` finds them. Checkpoints from
+before identity stamps, and other projects' files, stay where they are. The old
+bucket is never changed.
+
 ## Ephemeral machines
 
 A Capy cloud machine, a CI runner or a throwaway VM loses its disk when the

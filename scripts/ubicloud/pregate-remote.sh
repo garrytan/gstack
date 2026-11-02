@@ -27,10 +27,18 @@
 # teardown) times the size's price. Without a key it runs the same files
 # locally in parallel shards and reports spent=0.
 #
+# Reattach: the tree and the planned set's digest go into ubi-runner's run key
+# (--key-input), so a rerun after the local runner died (a machine stop, a
+# SIGKILL) reattaches to the VM still running this gate instead of paying for a
+# second one. Its minutes since created_at count against the cap: the wall
+# budget shrinks by them (PREGATE_REMOTE_CAP_SPENT when none is left), and
+# spent= bills from the original create.
+#
 # Exit codes: 0 pass (or a paid-only selection, tests=0); 1 test failures (or
 # a rejected file list); 2 missing input; 3 tree or plan mismatch (or the tree
 # moved during the run); 4 infrastructure failure (create, setup, SSH, stop
-# deadline); 5 the spend cap or pregate's deadline refuses the run. Every refusal line starts with a
+# deadline, another gate on this machine owning the VM to reattach to); 5 the
+# spend cap or pregate's deadline refuses the run. Every refusal line starts with a
 # PREGATE_REMOTE_* reason code (docs/pregate.md#remote-gate). Nothing is
 # uploaded or spent before the local tree check.
 set -euo pipefail
@@ -147,8 +155,6 @@ if [ -n "$outer_s" ]; then
   fi
   if [ "$outer_stop" -lt "$stop_after" ]; then stop_after=$outer_stop stop_why="$outer_from ${outer_s}s minus 120 s teardown reserve and 15 s margin"; fi
 fi
-say "$count files on one $size VM; worst case \$$(usd "$wall_min") under the cap \$$cap; the VM is told to stop after ${stop_after}s ($stop_why)"
-
 digest=$(tr -d '\r' <"$files" | grep . | LC_ALL=C sort | sha256sum | cut -d' ' -f1)
 prelude="$logs/vm-setup.sh"
 {
@@ -183,6 +189,28 @@ args=(run -s "$size" --src "$root" --setup "$prelude"
   --pull "/tmp/gstack-free-test-*:$logs"
   --pull "work/$(basename "$root")/.context/free-test-logs:$logs")
 [ -z "${GSTACK_FREE_JOBS:-}" ] || args+=(--env "GSTACK_FREE_JOBS=$GSTACK_FREE_JOBS")
+args+=(--key-input "pregate-remote tree=$tree plan=$digest")
+
+# A rerun of this gate for the same tree and planned set has the same
+# ubi-runner run key, so it reattaches to the VM a killed run left behind
+# (`ubi-runner: reattached to <vm> created_at=<epoch>`). The minutes that VM
+# has billed since created_at come off the cap's wall budget first.
+prior_vm=""
+attach=$(bash "$here/ubi-runner.sh" "${args[@]}" --probe -- "bash ~/.pregate-run.sh" 2>/dev/null \
+  | sed -n 's/^UBI_ATTACH_INFO: vm=\([^ ]*\) created_at=\([0-9]*\) key=[0-9a-f]* busy=\([01]\)$/\1 \2 \3/p' | tail -1) || attach=""
+if [ -n "$attach" ]; then
+  read -r prior_vm prior_created prior_busy <<<"$attach"
+  [ "$prior_busy" = 0 ] || stop 4 PREGATE_REMOTE_ATTACH_BUSY "another gate on this machine still runs VM $prior_vm for this tree and planned set" "wait for it; this run created nothing and spent nothing"
+  prior_min=$(( ($(date +%s) - prior_created + 59) / 60 ))
+  left_s=$(( (wall_min - 3 - prior_min) * 60 ))
+  if [ "$left_s" -le 0 ]; then
+    stop 5 PREGATE_REMOTE_CAP_SPENT "VM $prior_vm, created ${prior_min} min ago for this tree and planned set, has already used the cap's $wall_min min wall (\$$(usd "$prior_min") of \$$cap)" \
+      "nothing reattached; destroy it: bash scripts/ubicloud/ubi-runner.sh down $prior_vm" "or rerun with a higher --spend-cap to let it finish: $rerun"
+  fi
+  if [ "$left_s" -lt "$stop_after" ]; then stop_after=$left_s stop_why="the cap's $wall_min min wall minus 3 min for teardown and $prior_min min already billed since $prior_vm was created"; fi
+  say "reattaching to VM $prior_vm, created ${prior_min} min ago by an earlier run of this gate for the same tree and planned set"
+fi
+say "$count files on one $size VM; worst case \$$(usd "$wall_min") under the cap \$$cap; the VM is told to stop after ${stop_after}s ($stop_why)"
 
 # The VM run gets its own session (python3, which ubi-runner already needs, for
 # setsid on Linux and macOS): pregate's --timeout kill signals this
@@ -220,7 +248,7 @@ while :; do
   rm -f "$log.pid" "$log.timedout" "$log.left"
   t0=$(date +%s)
   vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t$(( (stop_after + 900 + 3599) / 3600 ))"
-  say "VM $vm_name; if this run is killed before its teardown line, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
+  [ -n "$prior_vm" ] || say "VM $vm_name; if this run is killed before its teardown line, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
   UBI_LEFT_FILE="$log.left" python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
     bash -c "$vm_session" pregate-remote-vm "$stop_after" "$log" "$stream" "$here/ubi-runner.sh" "${args[@]}" -n "$vm_name" &
   vmrun=$!
@@ -236,6 +264,9 @@ while :; do
   tailer=""
   t_end=$(date +%s)
   t_create=$(at 'ubi-runner: creating ')
+  # A reattached VM is billed from its original create.
+  reattached=$(sed -n 's/^[0-9]* ubi-runner: reattached to [^ ]* created_at=\([0-9][0-9]*\) .*/\1/p' "$log" | tail -1)
+  [ -z "$reattached" ] || t_create=$reattached
   if [ -n "$t_create" ] && ! grep -q 'ubi-runner: create failed' "$log"; then minutes=$(( (t_end - t_create + 59) / 60 )); billed=$(( billed + (minutes > 0 ? minutes : 1) )); fi
   if [ "$rc" -ne 0 ] && [ "$attempt" -eq 1 ] && grep -q 'vCPU quota exhausted' "$log"; then
     say "vCPU quota refused the VM; one retry in ${PREGATE_REMOTE_QUOTA_WAIT_S:-60} s"
@@ -279,7 +310,7 @@ if [ -n "$result" ] && [ "$rc" -ne 124 ]; then
   echo "PREGATE_REMOTE: tree=$vm_tree tests=$(field tests "$result") failed=$(field failed "$result") spent=$spent"
   exit $(( rc == 0 ? 0 : 1 ))
 fi
-vm=$(sed -n 's/^[0-9]* ubi-runner: creating \([^ ]*\) .*/\1/p' "$log" | tail -1)
+vm=$(sed -n -e 's/^[0-9]* ubi-runner: creating \([^ ]*\) .*/\1/p' -e 's/^[0-9]* ubi-runner: reattached to \([^ ]*\) .*/\1/p' "$log" | tail -1)
 down=$(grep -E 'ubi-runner: (destroyed|gone:|WARNING|FAILED to destroy)' "$log" | tail -1 | cut -d' ' -f2- || true)
 cause=$(grep -E 'ubi-runner: ' "$log" | grep -vE 'ubi-runner: (destroyed|gone:|destroy requested|waiting for an in-flight)' | tail -1 | cut -d' ' -f2- || true)
 [ "$rc" -ne 124 ] || cause="the VM was told to stop after ${stop_after}s ($stop_why) and torn down"

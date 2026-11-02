@@ -18,7 +18,7 @@ import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
-const SPAWN_BIN_BY_PATH = /\b(?:spawn|spawnSync|execFile|execFileSync)\(\s*(?:path\.)?join\(\s*(?:BIN_DIR|binDir|BIN|bin|binRoot|BIN_ROOT)\b/;
+const SPAWN_BIN_BY_PATH = /\b(?:spawn|spawnSync|execFile|execFileSync)\(\s*(?:path\.)?join\(\s*(?:(?:BIN_DIR|binDir|BIN|bin|binRoot|BIN_ROOT)\b|(?:path\.)?dirname\(|import\.meta\.dir\b)/;
 const SPAWN_BARE_BASH = /\b(?:spawn|spawnSync|execFile|execFileSync|execSync)\(\s*['"]bash['"]|Bun\.spawn(?:Sync)?\(\s*\[\s*['"]bash['"]|\[\s*['"]bash['"]\s*,\s*['"]-l?c['"]/;
 const COMMENT = /^\s*(?:\/\/|\*|\/\*)/;
 /** `const X = path.resolve(…, 'bin', 'gstack-…')`: a bin path held in a constant, then spawned by name (#3190's gstack-config). */
@@ -88,6 +88,8 @@ describe('#3197: shebang bins and bash go through lib/script-invocation.ts', () 
   test('the scanner catches both shapes', () => {
     expect(SPAWN_BIN_BY_PATH.test("spawnSync(path.join(BIN_DIR, 'gstack-wtree'), [], { timeout: 1 })")).toBe(true);
     expect(SPAWN_BIN_BY_PATH.test('spawnSync(join(BIN_DIR, "gstack-slug"), { timeout: 1 })')).toBe(true);
+    expect(SPAWN_BIN_BY_PATH.test("spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { timeout: 1 })")).toBe(true);
+    expect(SPAWN_BIN_BY_PATH.test("spawnSync(join(import.meta.dir, 'gstack-slug'), [], { timeout: 1 })")).toBe(true);
     expect(SPAWN_BARE_BASH.test("spawnSync('bash', ['-c', cmd], { timeout: 1 })")).toBe(true);
     expect(SPAWN_BARE_BASH.test('const argv = ["bash", "-c", command];')).toBe(true);
     expect(SPAWN_BARE_BASH.test("spawnSync(process.execPath, [script], { timeout: 1 })")).toBe(false);

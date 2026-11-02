@@ -199,7 +199,7 @@ one duration-packed `--ci-plan`, 20 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
 independent machines without ordering unrelated jobs. Two workflow-level
 constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
-(`ubicloud-standard-2`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
+(`ubicloud-standard-4`) and `FREE_SUITE_SHARDS` (`'20'`), which `free-plan`
 resolves into the shards' runner and shard count. A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`) and
 `free_shards` (1–40) for runner-sizing experiments only; its job summary says
@@ -795,7 +795,9 @@ When a judge's abort signal cancels its request, `callJudge`
 (`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
 stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
 `httpRequests` and `httpStatuses` (so SDK retries show), `connectedMs`,
-`firstEventMs` and `lastEventMs`, the open `block` type, `thinkingChars` and
+`firstEventMs` and `lastEventMs`, `bytesReceived` and `lastByteMs` (every body
+byte, pings included, so a silent socket differs from a model thinking on a live
+connection), the open `block` type, `thinkingChars` and
 `textChars`, `messageId`, `requestId` and the `reason` (at most 200
 characters). It holds counts and ids only, never content, and changes no
 request, score or verdict.
@@ -1000,7 +1002,7 @@ with `UBICLOUD: left=<0|1|unknown> owner=<o> vm=<name> others=<n>`, checked
 against the project's VM list after teardown; anything but `left=0` turns a
 passing command into exit 1. pregate-remote.sh reads that line from the file
 named by `UBI_LEFT_FILE`, never from the command's output. No owner-age sweep runs by default (the TTL reaper
-below covers every owner); set
+below covers this owner's expired VMs); set
 `UBI_GC_HOURS` to a positive number (or run `gc HOURS`; `gc 0` is a no-op) to
 sweep only this owner's VMs older than that. For other commands, use the runner
 directly: `scripts/ubicloud/ubi-runner.sh run --setup <script> -- '<command>'`,
@@ -1009,16 +1011,18 @@ or its `up` / `ssh` / `sync` / `pull` / `down` steps (`--help` lists them).
 The runner is also the `/ubicloud` skill's engine (`bin/gstack-ubi` execs it).
 A generated name ends in `-t<hours>` (`UBI_TTL_HOURS`, 1-999, default 3; pregate-remote.sh
 uses its stop deadline plus 15 minutes, rounded up: `-t1` today), the creator's own statement of how long the VM may live: `reap`
-destroys every VM in the project whose TTL ended more than ten minutes ago,
-whichever owner made it, and the caller's own `ubirun-<UBI_OWNER>-*` names
-without a TTL (older runner copies) once they are `UBI_LEGACY_HOURS` old
-(default 4). Another owner's TTL-less VM and an untagged one are never reaped,
-because only a TTL lets reap judge another lane's VM. Every `up` runs it
-first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
+destroys only the caller's own VMs: its `ubirun-<UBI_OWNER>-*` names whose TTL
+ended more than ten minutes ago, and those without a TTL (older runner copies)
+once they are `UBI_LEGACY_HOURS` old (default 4). Another owner's VM and an
+untagged one are never reaped, even after their TTL ends; reap only counts them
+in its log, because cloud deletes stay with the owner that created the VM
+(GST-573). Every `up` runs it first (`UBI_REAP=0` skips it). Names outside the `ubirun-` prefix are never reaped. The
 quota preflight adds the size's vCPUs to the project's running VMs and refuses
 before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
-state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). `run`, `verify`
+state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). When the usage read fails (`usage` exits 1 on an
+unreadable VM list or size and skips a VM that 404s), the preflight retries
+within `UBI_QUOTA_WAIT`, then logs and leaves the decision to the API. `run`, `verify`
 and `ssh NAME COMMAND` stream the remote output through a watchdog: a heartbeat
 line every `UBI_HEARTBEAT` seconds (300), and a command silent for
 `UBI_IDLE_TIMEOUT` seconds (1800) or older than `UBI_RUN_TIMEOUT` (0, unlimited)
@@ -1031,8 +1035,24 @@ repository content: its setup script and pull destinations must resolve inside
 `--src`, and a name it lists under `pass` is forwarded only when the command
 line grants it (`--pass NAME`, or all of them with `--trust-config`); `--pass`
 never forwards `UBICLOUD_*`. All of this is pinned offline in
-`test/ubicloud-runner.test.ts` against a fake API and a fake `ssh`, including
+`test/ubicloud-runner*.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
+
+`run` and `verify` start their setup, command and tier phases detached on the
+VM (output, leader pid and exit status in `~/.ubirun-<phase>.*`) and key each
+run locally before any VM exists (content tree, command, setup content, env,
+pass-value hashes, size, location, image, storage, origin/HEAD, the runner's
+own sha256). A rerun of the same command after the runner died reattaches to
+the live VM and continues from the first phase without an exit file
+(`UBI_ATTACH_BUSY` while another runner owns it, exit 125 `UBI_ATTACH_LOST`
+when the session left no status); HUP detaches (`UBI_DETACHED`, exit 129), INT
+and TERM still tear down. A `.gstack/ubicloud.json` with `tiers` records
+start/pass/fail per tier under `UBI_CHECKPOINT_DIR/<run key>/`, so a resume on
+a fresh VM reruns setup and only the tiers without a pass; `pregate-remote.sh`
+adds its tree and planned-set digest to the key, so a rerun of
+`gstack-pregate --stage tests --remote` reattaches and bills from the original
+`created_at`. The fake VM in `test/helpers/ubi-runner-fake-vm.ts` runs these phases
+for real in a directory.
 
 Under 8 cores (`gstack-doctor`'s `cores` row says so), run the full unit and
 E2E tiers on a remote gate: `gstack-config set test_backend ubicloud` records
@@ -1050,7 +1070,7 @@ machine swap, in this order:
    one side local and the other remote.
 4. Profiling very large imports (a whole-repo ingest, the full free suite under
    a profiler) is warned about before it starts: it holds the VM for hours, and
-   any other lane's `up` reaps it once its TTL (`UBI_TTL_HOURS`, default 3)
+   the same owner's next `up` or `reap` destroys it once its TTL (`UBI_TTL_HOURS`, default 3)
    plus ten minutes has passed, so set `UBI_TTL_HOURS` above the expected
    duration and name that duration in the thread before launching.
 
@@ -1408,10 +1428,13 @@ No free test may write the developer's real home. `scripts/lib/free-home-guard.t
 snapshots `~/.gstack`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/gstack`
 (live session logs excluded) and fails the run when an entry changes.
 
-- A shard that runs alone (`--shard`, CI, the exclusive host-state shard, the
-  flaky retry) owns its window, so the failure names its files.
-- Full-suite shards run concurrently on one HOME and cannot tell whose write a
-  change was. The runner guards that whole phase once and names no shard.
+- A shard that runs alone (`--shard`, a CI shard at `--jobs 1` or its trailing
+  serial sub-shard, the exclusive host-state shard, the flaky retry) owns its
+  window, so the failure names its files.
+- Full-suite shards, and the parallel sub-shards of a CI shard at `--jobs k > 1`
+  ([sub-shards](#sub-shards-inside-one-ci-job)), run concurrently on one HOME and
+  cannot tell whose write a change was. The runner guards that whole phase once
+  and names no shard.
 - `bun run scripts/test-free-shards.ts --attribute-home` names the writer: it
   runs every file alone with a private HOME (browser cache and git identity
   still come from the real home) and reports each file that wrote a watched
@@ -1430,7 +1453,13 @@ Monday "Weekly test health" workflow (`bun run test:health --enforce`) reads
 main's ledgers through `scripts/lib/ci-history.ts` and fails when a file flakes
 in more than 5% of main free-tests runs over a window of at least 20 runs; a
 window thinner than 20 runs in the last 7 days widens to the newest 20 runs, and
-fewer than 20 runs is report-only. `bun run test:health flake-summary <dir>`
+fewer than 20 runs is report-only. A main push that reused its pull request's
+run ([CI reuse](pregate.md#ci-reuse)) ran no shards, so it stays out of the
+window and its denominator, and older runs take its place. Such a run has no
+artifacts and a green `reuse` job; checking that costs one job listing per
+run with no artifacts, at most 40 per read. Past that cap, or when a listing
+fails, the run counts as before and the report says so.
+`bun run test:health flake-summary <dir>`
 prints a run's ledgers as a table. A flaky file is fixed at source; the retry
 never masks it. `bun run eval:pass-rates` lists only the local ledger
 (`flakeLedgerPath()`, overridden by `GSTACK_FLAKE_LEDGER`).
@@ -1524,10 +1553,10 @@ refresh to a maintainer.
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
   `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
-  (`ubicloud-standard-2`); both are Ubicloud standard runners. When either recording adds
+  (`ubicloud-standard-4`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
-  dispatches Free Tests, Windows Free Tests and Quality gate on it. Those
+  dispatches Free Tests, Windows Smoke and Quality gate on it. Those
   dispatched runs are the seed PR's checks, and Free Tests supplies the required
   `free-tests` check. GitHub holds the pull_request runs of a token-opened PR as
   "action required" until someone approves them. A file that fails while recording turns its
@@ -1539,8 +1568,62 @@ refresh to a maintainer.
   besides the bot's one refresh commit, later runs leave it alone. Only runs on
   `main` push the branch; a dispatch from another ref reports only.
 
+### Sub-shards inside one CI job
+
+`--ci-run <plan> --shard i --result <file> --jobs k` runs one planned CI shard as
+k sub-shards side by side on the same machine (`scripts/lib/shard-jobs.ts`). Each
+sub-shard is an ordinary free shard child: one `bun test` process, serial
+inside, with its own sandbox, process-group kill and log. Bun's worker
+`--parallel` mode is still not used (decision V3/D6 in
+`scripts/test-free-shards.ts`). The default is `k = 1`, which runs today's one
+child, so no workflow changes behavior until it passes `--jobs`.
+
+- `--jobs` applies only to `--ci-run`. It takes a positive whole number up to the
+  shard's file count (an empty shard takes 1); anything else stops with
+  `FREE_JOBS_INVALID`. `GSTACK_FREE_JOBS` sets the local full-suite process count
+  and never changes `--ci-run`. The exclusive host-state shard has one file, so
+  a workflow passes it `--jobs 1` or no `--jobs`.
+- Files are split into disjoint sub-shards packed by the duration seed. Each
+  sub-shard has an id (`<plan id prefix>:<shard>.<n>`) bound to its file list.
+  Files in `TREE_MUTATING` or `SLOW_UNDER_LOAD` run after the parallel
+  sub-shards settle, serially, in one trailing sub-shard.
+- The parallel phase uses the concurrent-phase real-home guard, the same one
+  full-suite mode uses; the serial sub-shard guards itself and names its files.
+- The CI shard keeps its k = 1 wall deadline: the parallel sub-shards get it,
+  and the serial sub-shard gets whatever is left of it, so k never extends a
+  deadline. The parent waits for every child to settle.
+- The parent merges every sub-shard result into the shard's one `outcome`
+  before the single flaky-retry pass, so the five-file retry cap stays per CI
+  shard. A missing, duplicate or incomplete sub-shard result fails the shard
+  with `FREE_SUBSHARD_REJECTED` and vetoes the retry. `--ci-verify` re-checks
+  the `jobs` and `subShards` records a `k > 1` result carries.
+- Sub-shard runs never write `scripts/free-test-durations.json`; only
+  `--record-durations` does, and only from one-file children.
+
+`FREE_SUBSHARD_TIMEOUT` means a sub-shard hit its wall at `k > 1`. The message
+names the file in flight, k, the runner and the CI run id, and prints a serial
+reproduce command. If the file passes serially, add it to `SLOW_UNDER_LOAD` in
+`scripts/lib/shard-jobs.ts` with that run id and a reason. Never raise the
+timeout. `SLOW_UNDER_LOAD` is empty today.
+
+Every `--ci-run` result, at any k, records per-file test and `expect()` counts
+in `outcome.counts` (`tests`, `pass`, `fail`, `skip`, `todo`, `expects` per
+file, plus shard totals). They come from bun's JUnit reporter, which the runner
+writes into the shard sandbox; on the pinned Bun 1.4.2 it attributes both counts
+per file inside a multi-file child and leaves the console stream unchanged.
+`complete: false` (with a `problem`) means the report was missing or did not add
+up to bun's own test count. Counts are evidence for comparing k values; they
+never decide a verdict.
+
 ### Windows free lane
 
+Windows has minimal support ([support tiers](support-tiers.md)). The required
+PR check is `windows-smoke.yml`: one `windows-latest` job runs `./setup`, starts
+the core skills, drives `/browse` on gstack's own browser, and runs the short
+test list in its last step, where each file's reason sits beside it.
+`test/windows-native-workflows.test.ts` keeps that list Windows-safe and fast.
+
+The curated suite below runs nightly on main and on dispatch, never on a PR.
 `windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),
 runs one strict serial shard per `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
@@ -1629,9 +1712,11 @@ word list: `test/fixtures/arm-benchmark/` and its four children, `browse-judge/`
 names under `paid-report-census/` and the `test/` subdirectories of
 `state-matrix-6792/`. All of these are runner-side: no candidate's working
 directory is one of them. Candidate-visible gaps are in the temporary roots
-the harnesses create: `test/helpers/arm-benchmark-harness.ts` copies each fixture
-into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory is
-named after the arm rather than after a project; `test/skill-e2e-deploy.test.ts`
+the harnesses create: `test/helpers/arm-benchmark-harness.ts` copied each fixture
+into `os.tmpdir()/arm-<fixture>-<arm>-*`, so the candidate's working directory was
+named after the arm rather than after a project (since GST-469 it is named after
+the task's project: `hike-booking-*`, `notes-api-*`, `receipts-*`);
+`test/skill-e2e-deploy.test.ts`
 runs the /benchmark case in `skill-e2e-benchmark-*`, a root that carries a listed
 word; `test/skill-e2e-test-value.test.ts` creates `skill-e2e-<id>-*` roots as the
 candidate's working directory, and two of its ids (`review-test-value`,
@@ -1676,18 +1761,66 @@ own attempts. The arm gets:
 
 **Reporting.** The no-gstack result is one row beside the variants in every
 results table and every verdict, including when it wins. A comparison that
-drops the row has not reported its result. The prereg check cannot see the
-report, so the `report:` line states where the row goes and the reviewer of
-the result holds the author to it.
+drops the row has not reported its result. `gstack-eval-plan results --check
+<prereg> <results.md>` enforces it: one table in the results file must hold a
+filled row for every Arms identity (`EVAL_REPORT_NO_GSTACK_ROW` otherwise), and
+no number is published before it passes.
 
-**Precedent and its gaps.** `test/helpers/arm-benchmark-harness.ts` already has
-a `without-skill` arm beside `with-skill`, and it is the closest existing
-control. It falls short of this rule in three ways: each arm and task runs
-once rather than as a panel; the judge (`armJudge` in
-`test/helpers/llm-judge.ts`) scores each diff on its own, without `A`/`B`
-labels; and the candidate's temporary folder is named after the arm
-(`arm-<fixture>-<arm>-*`). Existing paid cases are not retrofitted by the
-change that added this rule; an audit of them is tracked separately.
+**Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
+evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
+rule paragraph deleted), and the router failure-routing evals compare
+`GSTACK_ROUTER_ARM=current` with `before` (the base branch's router). Both
+variables also take `none` (GST-470): the same fixture, tools and user request,
+with no skill excerpt, rule text, step file or installed skill. Any other value
+throws, so a typo cannot run one arm under another's label. The `rule`,
+`removed`, `current` and `before` prompts are byte for byte what they were
+before `none` existed (`test/safety-none-arm.test.ts`,
+`test/failure-routing-arm.test.ts`). To run the three arms as a comparison, run
+the same case once per arm, each as its CI panel:
+
+```bash
+for arm in rule removed none; do
+  GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
+done
+for arm in current before none; do
+  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-contradicted-cause
+done
+```
+
+The arm variable is part of the shard-reuse environment, so one arm's result is
+never reused for another. Report the three rows side by side in one results
+table and pass `gstack-eval-plan results --check` on it.
+
+**The descriptive exception.** Under `none` every behavioral check, the plain
+`expect`s on model actions included, is recorded as an observation in
+`none-arm-observations.jsonl` in the eval directory and on stderr
+(`test/helpers/none-arm.ts`). It never fails the case and never writes
+`contract-violations.jsonl`; harness preconditions (the fixture built, the CLI
+ran, the session ended normally) still assert. This departs from "the same
+panel" above because these contracts are gstack's own rules: a plain model was
+never asked to keep them, so a failing `none` trial is the measurement, not a
+regression, and a red verdict would block the gate on behavior nobody
+specified. The router's `none` arm has no "routed to /investigate" metric,
+since no skill is installed to route to; it records plain metrics instead:
+whether the suite is green, whether an edit came before the first read, and
+how many read-only calls came before the first edit. The first paid comparison
+with these arms gets its own preregistration.
+
+**Cases without a `none` arm.** `safety-pair-agent-block` and
+`safety-ios-demo-ui-only` refuse `GSTACK_SAFETY_ARM=none` with the reason
+(`NO_NONE_ARM` in `test/helpers/safety-rules.ts`). Their task exists only in
+the skill: relaying /pair-agent's remote instruction block, and /ios-qa's demo
+mode with its device routes. A plain prompt has nothing to relay and no device
+interface to drive, so the arm would measure the prompt, not gstack.
+
+**Precedent.** `test/skill-e2e-arm-benchmark.test.ts` runs a `with-skill` and a
+`without-skill` arm (named `<model>#no-gstack` in its preregistration) as 3
+pairs per task under a spend ledger and cap. A paired judge reads both diffs as
+`A` and `B` in both orders, counts a win only when the orders agree, and
+decides only after it passes calibration; the per-diff `armJudge` stays beside
+it as the diagnostic. Candidate folders and git identity name a project, never
+the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
+`<model>#no-gstack` arm beside each model (GST-468, GST-469).
 
 ## Running evals as an agent: detach
 

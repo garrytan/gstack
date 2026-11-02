@@ -3125,9 +3125,11 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('_r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack');
     expect(content).toContain('_r=${CODEX_HOME:-~/.codex}/skills/gstack');
     // Phase 1/2: config reads moved into gstack-skill-start — the fence itself
-    // is the bin asset the preamble must resolve through $GSTACK_BIN, and the
-    // question-preference runtime call still resolves the same way.
-    expect(content).toContain('$GSTACK_BIN/gstack-skill-start');
+    // is the bin asset the preamble resolves through the same roots, as plain
+    // lines (GST-882), and the question-preference runtime call resolves
+    // through $GSTACK_BIN.
+    expect(content).toContain('[ -d "$GSTACK_ROOT/bin" ]||GSTACK_ROOT=${CODEX_HOME:-~/.codex}/skills/gstack');
+    expect(content).toContain('"$GSTACK_ROOT/bin/gstack-skill-start"');
     expect(content).toContain('$GSTACK_BIN/gstack-question-preference');
     // The upgrade-skill doc reference moved into the script's upgrade-flow
     // block, resolved $0-relative ($_ROOT_DIR) — host-neutral by construction,
@@ -3693,7 +3695,7 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('--host');
     // #2361: slate moved OUT of the install accept-list (it was accepted but
     // never dispatched — a silent exit-0 no-op) into an informational arm.
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|agy|openclaw|hermes|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|copilot|agy|gemini|openclaw|hermes|auto');
     expect(setupContent).toMatch(/^ {2}slate\)/m);
   });
 

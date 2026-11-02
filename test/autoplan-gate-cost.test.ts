@@ -188,7 +188,7 @@ describe('E16 end to end: every gate-producing command prints the cost, and the 
 
 
   test('the closing submit prints GATE_SPEND/GATE_REC_COST (text) or gate_cost (--json); the owner brief carries the Cost so far sentence and render --captain a ### Cost section above the relaying trailer', () => {
-    const out = gateRun('plain', {}, { challenge: false, json: true });
+    const out = gateRun('plain', { severity: 'Medium' }, { challenge: false, json: true });
     const brief = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'gstack-owner-brief'), 'render', '--out', out], { cwd: ROOT, env: env(), encoding: 'utf8', timeout: 30_000 });
     expect(brief.stdout).toMatch(/Cost so far: spent \d+\.\d\d, worst case \d+\.\d\d \(/);
     const captain = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'gstack-owner-brief'), 'render', '--captain', '--out', out, '--allow-incomplete'], { cwd: ROOT, env: env(), encoding: 'utf8', timeout: 30_000 });
@@ -203,7 +203,7 @@ describe('E16 end to end: every gate-producing command prints the cost, and the 
   });
 
   test('run at a pending gate prints the gate lines once: text mode carries GATE_SPEND/GATE_REC_COST, --json exactly one payload with gate_cost', () => {
-    const out = gateRun('run-gate', {}, { challenge: false });
+    const out = gateRun('run-gate', { severity: 'Medium' }, { challenge: false });
     const models = ['--native-model', 'anthropic/claude-opus-4-7', '--outside-model', 'openai/gpt-6-astra'];
     const text = autoplan(['run', '--out', out, ...models]);
     expect(text.status).toBe(0);

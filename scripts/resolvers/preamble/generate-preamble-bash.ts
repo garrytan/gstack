@@ -1,6 +1,6 @@
 import type { TemplateContext } from '../types';
 import { getHostConfig } from '../../../hosts/index';
-import { runtimeRootPrelude } from '../runtime-root';
+import { skillStartLines } from '../runtime-root';
 
 /**
  * Preamble bootstrap (token-reduction Phase 1).
@@ -41,12 +41,11 @@ function loadoutStartFlags(ctx: TemplateContext): string {
 
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
-  const runtimeRoot = hostConfig.usesEnvVars ? `${runtimeRootPrelude(ctx)}\n` : '';
+  const start = hostConfig.usesEnvVars ? skillStartLines(ctx) : null;
+  const runtimeRoot = start ? `${start.lookup}\n` : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';
   const loadoutFlags = loadoutStartFlags(ctx);
-  const startCommand = hostConfig.usesEnvVars
-    ? `"${ctx.paths.binDir}/gstack-skill-start"`
-    : `${ctx.paths.binDir}/gstack-skill-start`;
+  const startCommand = start ? start.command : `${ctx.paths.binDir}/gstack-skill-start`;
 
   const entry = ['plan-design-review', 'plan-eng-review'].includes(ctx.skillName)
     ? `## Preamble (after scope gate)
