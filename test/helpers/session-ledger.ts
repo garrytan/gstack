@@ -52,6 +52,8 @@ export interface SessionLedgerRow {
   liveness?: LivenessSummary;
   /** Whether the runner captured this session's billing (a terminal result with total_cost_usd). */
   billed?: boolean;
+  /** A session without a terminal result (an aborted Agent SDK session, a PTY session): its assistant messages' usage at lib/pricing.ts rates, from the stream or the PTY transcript; absent when unpriced. */
+  streamed_cost_usd?: number;
   /** Codex sessions: the model, its billed cost and token classes. */
   model?: string;
   cost_usd?: number;
