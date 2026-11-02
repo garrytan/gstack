@@ -763,7 +763,7 @@ refuses with `REUSE: refused reason=workflow_mismatch — run <id> attempt <n>
 ran .github/workflows/<other>.yml, not .github/workflows/<lane's>.yml`; a
 run gh cannot read refuses with `api_error`, and a URL that is not an Actions
 run URL or id on this repository with `run_ref_invalid`. A reusable-workflow
-lane (one whose file runs only through `workflow_call`) also clears from a run
+lane (one whose file another workflow calls through `workflow_call`) also clears from a run
 of a caller: a workflow in the branch's own `.github/workflows/` with a job
 that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
 pregate.json's recorded tree, as long as the lane's own job succeeded in the
@@ -778,7 +778,8 @@ says to rerun the workflow and clear with the green run. The check reads the
 run's newest attempt, so a `/job/<id>` or `/attempts/<n>` link is judged by
 the whole run, not that job or attempt, and the lane records
 `https://github.com/<repo>/actions/runs/<id>/attempts/<n>` for the attempt it
-judged rather than the link you passed. The job, tree and age are not
+judged rather than the link you passed. The job (apart from a caller run's
+`<calling job> / <lane job>` above), tree and age are not
 checked there; that is what a run profile adds. `test_backend/<backend>` lanes and `--bundle-lane` are
 unchanged. When the base config or the GitHub origin cannot be read, `--run`
 fails, and so do `--run-url` and `--bundle-lane` unless the base was read and
