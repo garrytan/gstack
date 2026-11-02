@@ -238,8 +238,6 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
   });
 });
 
-
-
 describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
   // Value: protects=a base edit next to the branch's unchanged hunk asks for a scoped review of only those hunks (finish
   //   context=N, carry RECEIPT_CARRY_SCOPED_REVIEW), and a clean scoped review lets it through; fails_when=it forces the
