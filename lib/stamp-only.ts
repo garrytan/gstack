@@ -4,7 +4,8 @@
  * lines the branch wrote itself. Split from restamp.ts (module-size ratchet).
  */
 import { spawnSync } from 'node:child_process';
-import { branchAddedLines, forkVersion, rewriteStamps, stampMentions } from './restamp';
+import { branchAddedLines, escapeRegExp, forkVersion, rewriteStamps, stampMentions } from './restamp';
+import { VERSION_SLOT } from './ship-policy';
 import { cmpVersion, parseVersion, versionWidth } from './version-source';
 
 /**
@@ -26,12 +27,17 @@ import { cmpVersion, parseVersion, versionWidth } from './version-source';
  * stage's bound for its own lines (GST-895, GST-963): finish's stampedFiles,
  * the tree receipt and the receipt carry all pass the same side. When the
  * version does not move (a slot that keeps its claimed VERSION), only such a
- * branch line may change: the stage moves nothing else then.
+ * branch line may change: the stage moves nothing else then. On such a branch
+ * line a declared placeholder (`stamp_placeholders`, GST-1026: gbrain's
+ * `since: 'TBD'`) may also become the new version, but only inside a
+ * `stamp_patterns` template, never a built-in form: the line rewritten that way
+ * must be the added line, with at least one rewrite.
  */
-export function stampOnlyLine(removed: string, added: string, oldV: string, newV: string, templates: readonly string[] = [], side?: BranchSide, at?: number): boolean {
+export function stampOnlyLine(removed: string, added: string, oldV: string, newV: string, templates: readonly string[] = [], side?: BranchSide, at?: number, placeholders: readonly string[] = []): boolean {
   if (removed === added) return false;
   if (oldV !== newV && stampOnlyWithin(removed, added, oldV, newV, templates)) return true;
-  return !!side && at !== undefined && side.at.has(at) && side.added.has(removed) && stampOnlyWithin(removed, added, side.fork, newV, templates);
+  if (!side || at === undefined || !side.at.has(at) || !side.added.has(removed)) return false;
+  return stampOnlyWithin(removed, added, side.fork, newV, templates) || placeholderOnly(removed, added, newV, templates, placeholders);
 }
 
 /**
@@ -62,6 +68,20 @@ export function branchSides(repoRoot: string, baseRef: string, head: string, fal
     sides.set(rel, side);
     return side;
   };
+}
+
+/** Each declared placeholder rewritten to `newV` inside each template (a bare edge of the slot at a word boundary): the added line, with at least one rewrite. */
+function placeholderOnly(removed: string, added: string, newV: string, templates: readonly string[], placeholders: readonly string[]): boolean {
+  let text = removed;
+  let count = 0;
+  for (const t of templates) {
+    const [pre, post] = t.split(VERSION_SLOT) as [string, string];
+    for (const p of placeholders) {
+      const re = new RegExp(`${escapeRegExp(pre)}${pre ? '' : '(?<![A-Za-z0-9_.])'}${escapeRegExp(p)}${post ? '' : '(?![A-Za-z0-9_.])'}${escapeRegExp(post)}`, 'g');
+      text = text.replace(re, () => { count++; return pre + newV + post; });
+    }
+  }
+  return count > 0 && text === added;
 }
 
 function stampOnlyWithin(removed: string, added: string, oldV: string, newV: string, templates: readonly string[]): boolean {

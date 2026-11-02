@@ -248,6 +248,25 @@ describe('carry follow-ups: git floor, named refusal, branch-touched walk, digit
     expect(stampOnlyText({ before, after: lines(key('1.2.3.0'), key('1.2.4.0')), oldVersion: '1.2.4.0', newVersion: '1.2.4.0', templates })).toBe(false);
   });
 
+  // Value: protects=the carry classifier reads a declared placeholder moved to the new version on the branch's own row
+  //   as a stamp, through the same predicate as finish and the tree receipt (GST-1026); fails_when=stampOnlyText ignores
+  //   the policy's placeholders, or accepts an undeclared one or a base row; seam=lib/ship-receipt.ts stampOnlyText
+  test('stampOnlyText reads a declared placeholder moved on the branch\'s own row as a stamp, and nothing else (GST-1026)', () => {
+    const templates = ["since: '{version}'"];
+    const row = (v: string, id: string) => `  { since: '${v}', id: '${id}' },`;
+    const text = (...rows: string[]) => ['export const ROWS = [', ...rows, '];', ''].join('\n');
+    const before = text(row('TBD', 'base'), row('TBD', 'mine'));
+    const side = { fork: '0.60.552.0', added: new Set([row('TBD', 'mine')]), at: new Set([3]) };
+    const change = (after: string, extra: Record<string, unknown> = {}) => stampOnlyText({ before, after, oldVersion: '0.60.552.0', newVersion: '0.60.553.0', templates, side, placeholders: ['TBD'], ...extra });
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')))).toBe(true);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { oldVersion: '0.60.553.0' })).toBe(true);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { placeholders: [] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { placeholders: ['WIP'] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { templates: [] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { side: undefined })).toBe(false);
+    expect(change(text(row('0.60.553.0', 'base'), row('TBD', 'mine')))).toBe(false);
+  });
+
   test('planCarry names at most CARRY_NAMED_PATHS paths', () => {
     const many = Array.from({ length: CARRY_NAMED_PATHS + 3 }, (_, i) => `src/f${i}.ts`);
     const plan = planCarry({ from: 'a'.repeat(40), head: 'b'.repeat(40), changed: many.map(p => ({ path: p, class: 'product' as const })), productPatchId: { from: 'x', head: 'y' }, testPatchId: { from: '', head: '' }, changedProduct: many, mergeCommits: 0, rangeDiff: '' });
