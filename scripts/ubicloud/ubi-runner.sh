@@ -1112,11 +1112,26 @@ cmd_down() {
 # options at the first operand and resolves -T names after a -C, so no single
 # tar command line works on both it and GNU tar (#3680). COPYFILE_DISABLE=1
 # keeps Apple's tar from adding ._* AppleDouble entries for files with
-# extended attributes, which the VM would see as untracked files.
+# extended attributes, which the VM would see as untracked files. A
+# subdirectory of a work tree ships the same file set without a .git: git's
+# local transport fetches only from a repository's root, and the whole
+# repository's .git would show the VM every file outside the subdirectory as
+# deleted (GST-935).
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
-  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -n "$(git -C "$src" rev-parse --show-prefix)" ]; then
+    (
+      cd "$src"
+      export COPYFILE_DISABLE=1
+      git ls-files -z -co --exclude-standard \
+        | while IFS= read -r -d '' f; do
+            if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; fi
+          done \
+        | tar --null -T - -cf - \
+        | gzip -c
+    )
+  elif git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     head=$(git -C "$src" rev-parse --verify -q HEAD) || die "pack: $src has no commits; the VM needs a HEAD to fingerprint"
     branch=$(git -C "$src" symbolic-ref -q --short HEAD || true)
     tmp=$(mktemp -d)

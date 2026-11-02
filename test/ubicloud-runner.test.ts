@@ -380,6 +380,24 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 60_000);
 
+  // Value: protects=sync and pack of a subdirectory of a git checkout (gstack-evals' launch.sh syncs quick/laneb/runner) ship that subdirectory's working files; fails_when=pack fetches refs from a path below the work tree's root, which git's local transport refuses, or ships the whole repository's .git so the VM sees every file outside the subdirectory as deleted; why_new=every pack test packs a work tree's root or a plain directory; seam=none
+  test('pack of a subdirectory of a checkout or a linked worktree ships its tracked, edited and untracked files without a .git', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ubi-pack-subdir-'));
+    try {
+      const sh = (cmd: string, cwd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd, timeout: 30_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }); expect(r.exitCode, `${cmd}\n${r.stderr.toString()}`).toBe(0); return r.stdout.toString(); };
+      sh('git init -q repo && cd repo && echo top > top && mkdir -p sub/nested && echo a > sub/a && echo b > sub/nested/b && echo g > sub/gone && echo "*.log" > sub/.gitignore && git add -A && git commit -qm one && git worktree add -q ../wt', d);
+      const tree = (dir: string) => sh('find . -type f | sort', dir).split('\n').filter(Boolean);
+      for (const checkout of ['repo', 'wt']) {
+        const sub = join(d, checkout, 'sub');
+        sh('echo edited > a && rm gone && echo n > new && echo x > x.log', sub);
+        const vm = join(d, `vm-${checkout}`);
+        sh(`mkdir ${JSON.stringify(vm)} && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack sub | tar -xzf - -C ${JSON.stringify(vm)}`, join(d, checkout));
+        expect(tree(vm)).toEqual(['./.gitignore', './a', './nested/b', './new']);
+        expect(readFileSync(join(vm, 'a'), 'utf8')).toBe('edited\n');
+      }
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 60_000);
+
   test('pack snapshots a plain checkout without reading its live .git: remotes resolve, a detached HEAD gets a branch, and git running beside it cannot fail the tar', () => {
     const d = mkdtempSync(join(tmpdir(), 'ubi-pack-live-'));
     try {
