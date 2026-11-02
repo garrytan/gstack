@@ -330,7 +330,8 @@ function main(): number {
       return EXIT.ok;
     }
     const mf = flag('--manifest');
-    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree, fixableRaises(mf ? readManifest(mf).plan_lines : undefined));
+    const plan = mf ? readManifest(mf) : undefined;
+    const r = collect(ledger, reader, output, merged, path.resolve(outFile!), unavailable, tree, fixableRaises(plan && path.resolve(plan.ledger) === path.resolve(ledger) ? plan.plan_lines : undefined));
     if (tree && !tree.ok) {
       if (mf) { const m = readManifest(mf); markReader(m, reader, 'failed', { output: outFile, error: `reviewed another tree: ${tree.reported}` }); writeManifest(mf, m); }
       process.stdout.write(wrongTree(reader, tree));

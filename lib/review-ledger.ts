@@ -117,7 +117,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
-  const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 ? ls[0] : undefined; };
+  const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && (fixableRaises || role !== 'adversarial-native' || rank(ls[0]!)) ? ls[0] : undefined; };
   const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string) => {
@@ -183,14 +183,14 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
 
 /**
  * Whether the native voice's FIXABLE raises a finding with its own Severity field to CRITICAL (GST-987): true on the gate class, on any
- * risk reason (security, secret, auth, money, user data), on a depth error, and whenever the plan's REVIEW_CLASS or REVIEW_DEPTH
- * reasons cannot be read.
+ * risk reason (security, secret, auth, money, user data), a depth error, a history or floor escalation, and whenever the plan's
+ * REVIEW_CLASS or REVIEW_DEPTH reasons cannot be read: only a code or docs plan whose every reason is `runtime=<n>` relaxes it.
  */
 export function fixableRaises(planLines?: readonly string[]): boolean {
   const cls = planLines?.map(l => /^REVIEW_CLASS: (\S+)/.exec(l)?.[1]).find(Boolean);
   const reasons = planLines?.map(l => /^REVIEW_DEPTH: .*?\breasons=(\S+)/.exec(l)?.[1]).find(Boolean);
   if (!cls || !reasons) return true;
-  return cls === 'gate' || reasons.split(',').some(r => /^(?:risk|error):/.test(r));
+  return !['code', 'docs'].includes(cls) || !reasons.split(',').every(r => /^runtime=\d+$/.test(r));
 }
 
 /**

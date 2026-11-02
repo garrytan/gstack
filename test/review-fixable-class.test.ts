@@ -21,7 +21,7 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(parseFindings('adversarial-native', NATIVE).map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
   });
   test('gate class, any risk reason, a depth error or an unreadable plan keeps normalizer v2', () => {
-    for (const lines of [plan('gate', 'gate-class,runtime=9'), plan('code', 'risk:money,runtime=9'), plan('code', 'risk:data,runtime=9'), plan('code', 'error:DIFF,runtime=9'), plan('code', ''), [CODE[0]!], [], undefined])
+    for (const lines of [plan('gate', 'gate-class,runtime=9'), plan('code', 'risk:money,runtime=9'), plan('code', 'risk:data,runtime=9'), plan('code', 'error:DIFF,runtime=9'), plan('code', 'runtime=9,history:fixed-blocking'), plan('code', 'runtime=9,floor:full'), plan('code', ''), plan('unknown', 'runtime=9'), [CODE[0]!], [], undefined])
       expect(fixableRaises(lines)).toBe(true);
     expect(fixableRaises(CODE)).toBe(false);
     expect(fixableRaises(plan('docs', 'runtime=0'))).toBe(false);
@@ -30,22 +30,30 @@ describe('native FIXABLE by review class (GST-987)', () => {
     expect(parseFindings('adversarial-native', '1. Race in a.ts:3. FIXABLE', false).map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no', false).map(f => f.label)).toEqual(['Medium']);
     expect(parseFindings('adversarial-native', 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: yes', false).map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', '1. Race in a.ts:3. Severity: FIXABLE', false).map(f => f.label)).toEqual(['CRITICAL']);
   });
   test('collect reads the class from --manifest and defaults to the gate class without one', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst987-'));
     const out = path.join(dir, 'native.txt');
     fs.writeFileSync(out, NATIVE + '\n');
     const manifest = path.join(dir, 'pass-manifest.json');
-    fs.writeFileSync(manifest, JSON.stringify({ version: 1, plan_lines: CODE, readers: [] }));
+    const ledger = path.join(dir, 'ledger.jsonl');
+    fs.writeFileSync(manifest, JSON.stringify({ version: 1, ledger, plan_lines: CODE, readers: [] }));
+    const foreign = path.join(dir, 'foreign.json');
+    fs.writeFileSync(foreign, JSON.stringify({ version: 1, ledger: path.join(dir, 'other.jsonl'), plan_lines: CODE, readers: [] }));
+    let n = 0;
     const labels = (extra: string[]) => {
-      const ledger = path.join(dir, `${extra.length}.jsonl`);
-      const merged = path.join(dir, `${extra.length}.merged.jsonl`);
+      fs.rmSync(ledger, { force: true });
+      const merged = path.join(dir, `${n++}.merged.jsonl`);
       const r = spawnSync(path.join(ROOT, 'bin/gstack-review-dispatch'), ['collect', '--ledger', ledger, '--role', 'adversarial-native', '--output', out, '--merged', merged, ...extra], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
       expect(r.stderr).toBe('');
       return fs.readFileSync(merged, 'utf8').trim().split('\n').map(l => JSON.parse(l).label);
     };
     expect(labels(['--manifest', manifest])).toEqual(['Medium', 'Low']);
+    expect(fs.readFileSync(ledger, 'utf8')).toContain('"fixable_raises":false');
     expect(labels([])).toEqual(['CRITICAL', 'CRITICAL']);
+    expect(fs.readFileSync(ledger, 'utf8')).not.toContain('fixable_raises');
+    expect(labels(['--manifest', foreign])).toEqual(['CRITICAL', 'CRITICAL']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
