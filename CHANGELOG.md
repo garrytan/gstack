@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.18.0] - 2026-11-03
+
+**The Windows-safe test subset is green again on current main.** `test/qa-report-dir.test.ts` expected `ENOTDIR` when `.gstack` is a file, but Windows reports `ENOENT` for the same mistake, so the test failed on every Windows run (windows-free-tests run 41607809007 at f6d6215). The test now accepts either code on Windows and still requires `ENOTDIR` everywhere else. With Windows checks now running by path, a red subset test would block any pull request that touches it.
+
 ## [1.94.17.0] - 2026-11-03
 
 - A pregate guard whose exact command already passed at this tree no longer runs again (GST-1186). When the base branch's `ship_lanes_from` maps the command, it is carried from the verified CI run through the same `gstack-evidence record-ci` path /ship lanes use (`GUARD: <id> carried runs=…`); otherwise a counted local ledger pass of that command at the same working tree stands (CI rows count only through a live `record-ci` check) (`GUARD: <id> reused …`, and the new read-only `gstack-evidence passed -- <command>`). Repos whose suites are guards, like founderstar, stop rerunning about six minutes of suites per /ship. See docs/pregate.md#guard-carry.
