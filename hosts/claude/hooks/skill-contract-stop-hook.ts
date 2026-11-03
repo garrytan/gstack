@@ -7,7 +7,9 @@
  *
  *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message)
  *     -> the most recently loaded skill that declares a contract (none: allow)
- *     -> Agent dispatches still running? allow (outputs may still arrive)
+ *     -> Agent dispatches still running? allow once per set of running agents
+ *        (outputs may still arrive); the same set still running at the next
+ *        stop is stalled, so the contract is checked
  *     -> final turn? (a STATUS line, a headless or unattended session, or no
  *        pending user question) -> checkContract (lib/skill-contract.ts)
  *     -> unmet and this run never blocked: record "blocked", then block with
@@ -104,12 +106,22 @@ async function main(): Promise<void> {
   if (!t) return trace({ event: 'no-contract-skill' });
   const result = checkContract(transcript, t.skill, t.contract);
   if (!result.load) return trace({ event: 'no-contract-skill' });
-  if (result.pendingAgents.length) return trace({ event: 'agents-running', skill: t.skill, agents: result.pendingAgents.length });
-  if (!isFinalTurn(result)) return trace({ event: 'not-final-turn', skill: t.skill });
   const file = recordPath(sessionId);
   const record = readRecord(file) ?? { version: 1 as const, session_id: sessionId, transcript_path: transcriptPath, runs: {} };
   const key = runKey(t.skill, result.load);
   const prev = record.runs[key];
+  const pending = [...result.pendingAgents].sort();
+  if (pending.length && pending.join(',') !== (prev?.deferred_agents ?? []).join(',')) {
+    record.transcript_path = transcriptPath;
+    record.runs[key] = {
+      skill: t.skill, load_line: result.load.line, outcome: prev?.outcome ?? 'deferred', missing: prev?.missing ?? [], waived: prev?.waived ?? [],
+      ...(prev?.blocked_at ? { blocked_at: prev.blocked_at } : {}), deferred_agents: pending, updated_at: new Date().toISOString(),
+    };
+    writeRecord(file, record);
+    return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
+  }
+  if (pending.length) trace({ event: 'agents-stalled', skill: t.skill, agents: pending.length });
+  if (!isFinalTurn(result)) return trace({ event: 'not-final-turn', skill: t.skill });
   const { outcome, block } = nextOutcome(prev, result);
   if (block && stopActive) return trace({ event: 'stop-hook-active', skill: t.skill });
   const missing = result.missing.join(',') || '-';

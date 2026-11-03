@@ -176,7 +176,10 @@ describe('checkContract is a pure function of the transcript', () => {
     for (const cmd of ['bun test', 'cd repo && npm test', 'FOO=1 timeout 60 pytest -x', './scripts/run-tests.sh', 'node repro.js | tail -5', 'bin/gstack-verify',
       'bundle exec rspec', 'uv run pytest', 'poetry run pytest', 'docker compose run app pytest', 'xvfb-run -a npm test', 'bash scripts/test.sh', 'mix test', 'bazel test //...'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh'])
+    for (const cmd of ['npm test', 'npm run test:unit', 'yarn jest', 'go test ./...', 'cargo test', 'make check', 'python -m pytest', 'bun repro.ts', 'npx vitest run', 'curl -s http://localhost:3000/api'])
+      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
+    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh',
+      'bun install', 'npm install lodash', 'bun add zod', 'go build ./...', 'go mod tidy', 'node --version', 'make clean', 'make', 'npm run build', 'curl --version'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
   });
 

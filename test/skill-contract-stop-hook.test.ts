@@ -135,16 +135,20 @@ describe('never blocks the wrong turn', () => {
     expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).decision).toBe('block');
   });
 
-  test('Agent readers still running when Stop fires: allowed, nothing recorded', () => {
+  test('Agent readers still running when Stop fires: allowed once and recorded deferred; the same set still running next stop is checked', () => {
     const base = [slash('review'), say('Dispatching 2 specialists: Testing, Security. Skipped: Performance (scope not detected).')];
     const background = [...base, tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
       result('a1', 'Async agent launched in the background.'), say('Waiting for the specialists to finish.')];
-    const unanswered = [...base, tool('a2', 'Agent', { description: 'Security specialist', prompt: 'review' })];
-    for (const lines of [background, unanswered]) {
-      expect(stop(transcript(lines))).toEqual({ code: 0, stdout: '', stderr: '' });
-    }
-    expect(fs.existsSync(path.join(state, 'skill-contracts'))).toBe(false);
+    const file = transcript(background);
+    expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'deferred', deferred_agents: ['a1'] });
     expect(fs.readFileSync(path.join(state, 'hooks', 'skill-contract.log'), 'utf8')).toContain('event=agents-running');
+    fs.appendFileSync(file, `${say('Still waiting on the specialists.')}\n`);
+    expect(JSON.parse(stop(file).stdout).decision).toBe('block');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'blocked' });
+    expect(fs.readFileSync(path.join(state, 'hooks', 'skill-contract.log'), 'utf8')).toContain('event=agents-stalled');
+    const unanswered = [...base, tool('a2', 'Agent', { description: 'Security specialist', prompt: 'review' })];
+    expect(stop(transcript(unanswered, 'unanswered.jsonl'), {}, { session_id: 'sess-2' })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
   test('no contract skill loaded: allowed', () => {
