@@ -58,6 +58,7 @@ import { generateShipDriverStops } from './ship-driver';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 import { generateVoiceTriggerRouting } from './voice-triggers';
 import { generateTranscriptDiscovery, generateTranscriptSources } from './transcripts';
+import { generateContractDoneMeans } from './contract-done-means';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   AUTOPLAN_PUBLICATION_HOOK: generateAutoplanPublicationHook,
@@ -197,4 +198,5 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   SECTION_INDEX,
   TRANSCRIPT_SOURCES: generateTranscriptSources,
   TRANSCRIPT_DISCOVERY: generateTranscriptDiscovery,
+  CONTRACT_DONE_MEANS: generateContractDoneMeans,
 };

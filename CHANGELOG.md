@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.94.24.0] - 2026-11-03
+
+### Fixed
+
+- **The OpenClaw and Hermes start hook no longer breaks a fresh harness.** When the harness has no config yet, gstack runs none of its commands: `openclaw config set` and `hermes plugins enable` would have created a config holding only gstack's plugin setting, with no model, provider or terminal settings. The hook reports `written` with the setup to run first (`openclaw onboard`, `hermes setup`), and the next `./setup` or `gstack-harness refresh` turns it on, changing only the plugin entry. Turning the hook off or unregistering in such a profile also leaves the config alone. If v1.92.23.0 or a later release before this fix already created a config holding only the plugin entry, move it aside, run the harness's own setup, then `gstack-harness refresh`.
+- **`OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json` keeps the start hook on.** gstack compares the path after resolving symlinks, so only a config outside the profile turns the hook off. When `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` asked for the hook and it ends up off, `gstack-harness register` and `./setup --host` now exit 4 with the reason and the fix instead of exiting 0.
+- **`gstack-harness status` reads the hook from the harness's config when the harness CLI is not on `PATH`**, as inside Hermes's or OpenClaw's own terminal tool. Hermes's `config.yaml` settles it (`active`, `disabled` or `written`); otherwise status says `unknown` instead of a wrong `written`.
+
+## [1.94.23.0] - 2026-11-03
+
+**Two `gstack-pregate` preflight false positives fixed (GST-1211).** Both stopped /ship on real work in gbrain-evals.
+
+### Fixed
+- **`strays`:** the scratch-name check matched three prefixes the docs never listed (`temp`, `debug-` and `probe`), so real files like `probe.py` and `temporal-graph-shipped.test.ts` failed preflight. It now matches only the documented names: `zz-*`, `tmp*`, `scratch*`, plus editor leftovers (`*.orig`, `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`, `.DS_Store`, `Thumbs.db`), which docs/pregate.md and docs/troubleshooting.md now list too.
+- **`literals`:** a named literal the branch only adds, such as `limit: 300` in a new object, was read as an existing `limit: 10` elsewhere in the file changing to 300, and every test that mentioned 10 was flagged. The check now compares every value under a name, so an added literal isn't a change. Editing an existing value still fails, and so do two cases the old last-value check could miss: changing one of two equal values under the same name, and deleting one site while editing another.
+
+### Tests
+- `test/pregate-selection.test.ts`: `probe.py` and `temporal-*.test.ts` pass `strays` while `zz-notes.md`, `tmp-x.ts`, `scratch.py` and `util.js.orig` still fail; a new object literal beside `limit: 10` passes `literals` while editing that value still fails; the pure `changedLiterals` case keeps an exported constant change.
+
+## [1.94.22.0] - 2026-11-03
+
+**/investigate, /review, /qa and /verify now say when to use them, and /investigate and /review declare what "done" means (GST-1088 lane B).** Untold, Opus 5.5 never opened /investigate in 252 trials (Run D, gstack-evals#140). A when-to-use description raised GPT-6.1 Sol's open rate from 9.5% to 27.0% in the same run. Claude Code's catalog shows only a description's first sentence, so each of the four now opens with a "Use when ..." sentence. The routing hook and the contract check that read the new frontmatter landed in v1.94.6.0 (lane A, off by default; see docs/skill-routing-and-contracts.md), so the "Done means" list now also names `gstack-skill-contract check` and `waive`.
+
+### Changed
+- **Descriptions**: the first sentence of each is now a when-clause, for example /investigate's "Use when a test fails, code errors or output is wrong: find the root cause, then fix it." Hosts that show the full description also get the longer list of situations. The catalog stays within its existing budget.
+- **Triggers**: /investigate, /review and /verify list the prompts people actually type, such as "test fails", "look over my diff" and "make it green". /qa keeps its three triggers because its size cap had 9 bytes of room.
+
+### Added
+- **`contract:` frontmatter** (frozen v1 schema) on /investigate (the DEBUG REPORT labels, and a test or repro run after the last edit) and /review (one Agent dispatch per selected specialist, the adversarial pass, the Pre-Landing Review report). `{{CONTRACT_DONE_MEANS}}` (`scripts/resolvers/contract-done-means.ts`) renders each block as a short "Done means" list at the top of the skill, so the list and the block can't drift.
+
+### Tests
+- `test/skill-descriptions.test.ts`: each of the four opens with a when-clause within the catalog, lead and host caps; triggers are short and don't overlap; ten sample prompts match exactly the intended skill; every template's contract block passes the v1 schema and names markers the skill text actually prints; the renderer covers each item kind; and malformed blocks fail with the file and the fix.
+
+## [1.94.21.0] - 2026-11-03
+
+- **A stacked PR's /ship receipt now carries even when the child merged main before its receipt was written (GST-1214).** After the parent squash-landed and main was merged in again, `gstack-ship-receipt carry` compared the range from the parent's head, which still held every file the child's first main merge brought in, and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` naming those files. The carry now leaves out paths whose content at the reviewed head is main's, unless HEAD changed them. A real edit to one of those files still refuses.
+
+## [1.94.20.0] - 2026-11-03
+
+### Changed
+
+- **The review pins and the harness pins are one file per pin, so PRs that repin different files no longer conflict (GST-1084).** The reviewer-brief pins that lived in one table in `test/review-packets-removed.test.ts` now live under `test/fixtures/review-pins/`: `files/<pinned path>.json` holds a file's sha and the replay that admits it, `replays/<slug>.json` holds one replay's written no-loss justification, and `brief-bodies/<name>.json` holds one brief body's sha. The harness pins in `scripts/harness-version.json` moved to `scripts/harness-pins/<path>.json`; the manifest keeps only the version and the patterns, so `HARNESS_VERSION` and its readers are unchanged. Before, two PRs that repinned adjacent entries conflicted on the shared table (at least five main-merge conflicts on 2026-11-02, two of them on #3852). Every entry is ported unchanged, including the combined GST-508 entries from #3852.
+
+### For contributors
+
+- `/ship`'s post-review route still counts a non-behavioral harness re-pin as release metadata (GST-1031): it now reads the pin files under `scripts/harness-pins/` and refuses a manifest that regains a `files` table.
+- The checks are at least as strict as before. Every pin still needs its sha and a replay whose written justification names a no-loss replay or re-score, and the brief-body check still guards the bodies. A malformed or misnamed pin file, a stray file in a pin directory, or a `files` block back in `scripts/harness-version.json` now fails too. New tests prove that a stale pin still fails, and that two branches repinning different, adjacent pins merge cleanly with a real `git merge-tree`, while two repins of one pin still conflict.
+- `bun run scripts/bump-harness-version.ts` writes and deletes pin files itself. Repin a review file by editing its `files/` pin and adding the replay file it names.
+
 ## [1.94.19.0] - 2026-11-03
 
 ### Fixed
