@@ -4692,6 +4692,26 @@ a hit there needs a plan edit: change the path, `revise`, and export again.
 Generic home-directory paths that are not recorded roots are WARN lines, not
 errors.
 
+<a id="artifact-owner-words"></a>
+### `ARTIFACT_OWNER_WORDS`
+
+**Meaning.** A public copy of an autoplan run still quotes the owner's own
+words: a gate reply an agent relayed (`owner_reply`), the words a carried gate
+reused, or a reason a human gave for deferring a phase. Nothing a person wrote
+leaves without their click. A quote is any 8 consecutive words of one of those
+replies (the whole reply when it is shorter), compared across line breaks,
+blockquote markers, quote marks and case; replies under 5 words are not
+scanned for. `gstack-artifact validate --public <dir> --private
+<run>/run.json` reports each quote with file:line, and `gstack-autoplan export
+--public` runs that check on a staging copy and writes nothing when it fails.
+The error never prints the words themselves.
+
+**Fix.** Export with `gstack-autoplan export --out <run> --public <dir>`, which
+drops those fields and replaces each quote in prose and sealed reviewer files
+with `[owner words redacted]`. Export never rewrites inline code or fenced
+blocks in plan.md, so a quote there needs a plan edit: remove it, `revise`, and
+export again.
+
 <a id="artifact-public-target-exists"></a>
 ### `ARTIFACT_PUBLIC_TARGET_EXISTS`
 
