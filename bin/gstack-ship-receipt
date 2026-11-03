@@ -747,10 +747,13 @@ function cmdCarry(rest: string[], json: boolean): number {
           // A version constant the base policy declares (carry_mechanical, GST-1210): only its digits are masked, the
           // masked sides take the same rule, and HEAD's value must be above the current base's.
           const values: Partial<Record<keyof typeof sides, number>> = {};
-          const masked = maskedSides(repoRoot, sides, p, (text, side) => { const m = maskConstant(text, constant.template); if (m) values[side] = m.value; return m?.masked ?? null; });
+          const template = Buffer.from(constant.template, 'utf8').toString('latin1');
+          const masked = maskedSides(repoRoot, sides, p, (text, side) => { const m = maskConstant(text, template); if (m) values[side] = m.value; return m?.masked ?? null; });
           const why = typeof masked === 'string' ? masked : values.current! > values.currentBase! ? null : `HEAD's value ${values.current} is not above the base's ${values.currentBase}`;
           if (why || typeof masked === 'string') { changedProduct.push(`${p} (carry_mechanical: ${why})`); continue; }
-          verdict = comparePath(repoRoot, masked, p);
+          // Masked equal on both sides: the constant was the branch's only edit to the file at both heads.
+          const { entries: e } = masked;
+          verdict = e.reviewedBase === e.reviewed && e.currentBase === e.current ? 'same' : comparePath(repoRoot, masked.sides, p);
           if (verdict === 'same') { mechanical.push(`${p} ${values.reviewed} → ${values.current}`); mechanicalPaths.push(p); continue; }
         }
         if (verdict === 'changed') changedProduct.push(p);

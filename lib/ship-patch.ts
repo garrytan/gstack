@@ -125,16 +125,18 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
 /**
  * The four sides with `rel` rewritten by `mask`, each as a tree built in a scratch index from that side's tree (the original
  * mode kept), so comparePath reads the masked text with its usual rule (carry_mechanical, GST-1210). A reason string when
- * `rel` is not a regular file at a side, git cannot build a tree, or `mask` refuses a side's text.
+ * `rel` is not a regular file at a side, git cannot build a tree, or `mask` refuses a side's text. Text passes through as latin1, so
+ * every byte round-trips (a UTF-8 decode would fold distinct invalid bytes into one); `entries` is each side's masked mode and blob.
  */
-export function maskedSides(repoRoot: string, s: PatchSides, rel: string, mask: (text: string, side: keyof PatchSides) => string | null): PatchSides | string {
+export function maskedSides(repoRoot: string, s: PatchSides, rel: string, mask: (text: string, side: keyof PatchSides) => string | null): { sides: PatchSides; entries: Record<keyof PatchSides, string> } | string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-mask-'));
   const run = (args: string[], input?: string) => {
-    const r = spawnSync('git', ['--literal-pathspecs', ...args], { cwd: repoRoot, encoding: 'utf8', input, timeout: 60_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') } });
+    const r = spawnSync('git', ['--literal-pathspecs', ...args], { cwd: repoRoot, encoding: 'latin1', input: input === undefined ? undefined : Buffer.from(input, 'latin1'), timeout: 60_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') } });
     return r.status === 0 ? r.stdout : null;
   };
   try {
     const out: Partial<PatchSides> = {};
+    const entries: Partial<Record<keyof PatchSides, string>> = {};
     for (const side of Object.keys(s) as Array<keyof PatchSides>) {
       const entry = /^(100644|100755) blob ([0-9a-f]{40,64})\t/.exec(run(['ls-tree', s[side], '--', rel]) ?? '');
       if (!entry) return `${rel} is not a regular file at ${side} ${s[side].slice(0, 12)}`;
@@ -145,8 +147,9 @@ export function maskedSides(repoRoot: string, s: PatchSides, rel: string, mask: 
       const tree = blob && run(['read-tree', s[side]]) !== null && run(['update-index', '--cacheinfo', `${entry[1]},${blob},${rel}`]) !== null ? run(['write-tree'])?.trim() : undefined;
       if (!tree) return `git could not build the masked tree of ${rel} at ${side}`;
       out[side] = tree;
+      entries[side] = `${entry[1]} ${blob}`;
     }
-    return out as PatchSides;
+    return { sides: out as PatchSides, entries: entries as Record<keyof PatchSides, string> };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

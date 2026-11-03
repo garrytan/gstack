@@ -29,10 +29,10 @@ const pregate = (repo: FixtureRepo) => runBin(repo, 'gstack-pregate', ['--base',
  * main holds 41; the branch reviews a score change that took 42; main then takes 42 itself and edits bonus (an
  * unrelated function); the branch merges main and retakes 43 with `head` (the default also regenerates the digest).
  */
-function retaken(o: { policyOnBranch?: boolean; head?: Record<string, string> } = {}): { repo: FixtureRepo; reviewed: string; body: string } {
+function retaken(o: { policyOnBranch?: boolean; reviewedGame?: string; head?: Record<string, string> } = {}): { repo: FixtureRepo; reviewed: string; body: string } {
   const repo = makeFixtureRepo({ registry: REGISTRY, pregate: { ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, 'tests/goldens/**': [] } }, baseFiles: { 'src/game.js': game(41), 'gen.js': GEN, 'tests/goldens/digest.txt': digest(41), ...(o.policyOnBranch ? {} : { '.gstack/ship-policy.json': POLICY }) } });
   repos.push(repo);
-  const reviewed = commit(repo, { 'src/game.js': game(42, { score: 'a * 3' }), 'tests/goldens/digest.txt': digest(42), ...(o.policyOnBranch ? { '.gstack/ship-policy.json': POLICY } : {}) }, 'triple the score, take 42');
+  const reviewed = commit(repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n', 'src/game.js': o.reviewedGame ?? game(42, { score: 'a * 3' }), 'tests/goldens/digest.txt': digest(42), ...(o.policyOnBranch ? { '.gstack/ship-policy.json': POLICY } : {}) }, 'triple the score, take 42');
   const body = path.join(repo.root, 'body.md');
   const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]);
   expect(w.status).toBe(EXIT.ok);
@@ -103,6 +103,28 @@ describe('carry_mechanical: a retaken version constant and proven goldens (GST-1
     expect(s.status).toBe(EXIT.refused);
     expect(headOf(stale.body)).toBe(stale.reviewed);
   }, 240_000);
+
+  // Value: protects=the common shape, where the PR's only edit to the declared file is the constant; fails_when=masked
+  // sides with no branch edit read as changed; seam=none; no_claim=-
+  test('a branch whose only edit to the declared file is the constant carries', () => {
+    const { repo, reviewed, body } = retaken({ reviewedGame: game(42), head: { 'src/game.js': game(43, { bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(43) } });
+    expect(pregate(repo).status).toBe(EXIT.ok);
+    const out = carry(repo, body);
+    expect(out.err).not.toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(out.status).toBe(EXIT.ok);
+    expect(headOf(body)).not.toBe(reviewed);
+  }, 120_000);
+
+  // Value: protects=every changed golden must be proven; fails_when=a golden outside the regen check's proven list rides
+  // the carry; seam=none; no_claim=-
+  test('a changed golden the regen check did not prove refuses', () => {
+    const { repo, reviewed, body } = retaken({ head: { 'src/game.js': game(43, { score: 'a * 3', bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(43), 'tests/goldens/extra.txt': 'unowned\n' } });
+    pregate(repo);
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('tests/goldens/extra.txt');
+    expect(headOf(body)).toBe(reviewed);
+  }, 120_000);
 
   // Value: protects=a PR cannot widen its own carry; fails_when=carry reads carry_mechanical from the PR's policy;
   // seam=none; no_claim=-
