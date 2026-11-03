@@ -633,6 +633,8 @@ One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(d
 
 **PR type.** The checklist starts by naming the kind of PR from the changed paths: docs-only, CI/infra, scripts/tooling, application or mixed, and the review's first line says which (`PR type: <type>`). Application and mixed diffs run every category as before. A CI/infra, scripts/tooling or docs-only diff always gets Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit; every other category with nothing to check is listed once, in one line, as not applicable, and never counts as passed. Repo Conventions & Platform Fit flags new files that don't match the languages and tools the repo already uses or the platforms its CI runs on, such as a `.bat` build script in a bash-and-Makefile repo.
 
+**Blocker proof.** A CRITICAL finding has to prove itself. It names its floor reason (it fails a test, breaks production, loses data or secrets, or falls in a forced-CRITICAL class) and carries a repro, a failing test, or a cited `file:line` with its consequence. When a specialist, QA, the adversarial pass or a bot forwards a CRITICAL, `/review` checks it and adds both itself. A CRITICAL nobody proves is reported as INFORMATIONAL. The floor itself is defined in [the review policy](review-policy.md#the-blocking-floor).
+
 ### Example
 
 Suppose the smart listing flow is implemented and the tests are green.
