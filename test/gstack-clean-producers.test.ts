@@ -31,6 +31,7 @@ const KEPT: Record<string, string> = {
   'restamp-staging.json': 'gstack-restamp files still to stage, read by its noop rerun (bin/gstack-restamp)',
   'gate-ahead*': 'gate-ahead record and worktree (lib/restamp.ts)',
   'pregate.json': 'pregate result (lib/pregate/index.ts)',
+  'pregate-guards.json': 'gstack-pregate --stage guards result, the pre-push housekeeping run (lib/pregate/index.ts PREGATE_GUARDS_OUT_REL)',
   'ship-queue': 'ship-queue state (lib/ship-queue-gate.ts)',
   'ship-receipt.md': '/ship handoff receipt',
   'ship-gate.json': '/ship handoff gate record',
