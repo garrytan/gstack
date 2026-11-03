@@ -210,7 +210,9 @@ content rules: data and config files (JSON, YAML, TOML, CSV and the like) and an
 scripts under `docs/`, `results/`, `benchmarks/`, `analysis/` or `notebooks/` are
 judged by their path, so a `lease_usd` value or an `os.path.join(sys.argv[1], …)` in a
 stats script names no class (HARN-1, harness-evals#231), and binary data such as
-`*.sqlite` is data wherever it sits; a docs line that can print a credential (an
+`*.sqlite` is data wherever it sits, unless the file has the exec bit or starts with
+`#!`: an executable stays code whatever its name or directory (`scripts/logs/prune`,
+a runnable `*.out`); a docs line that can print a credential (an
 `Authorization:` header, a bearer or key-shaped value, an environment key set to a value,
 a get or show command for auth config such as `mcp get`) is security (gbrain#8417); code
 that reserves, binds, leases or settles spend against a ledger, budget or cap (`bindCheck(ledger, …)`,
@@ -281,7 +283,9 @@ pairs: usage beside a token or cost word, proxy beside billing, and a client
 beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
 (GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
 `required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
-consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
+consent, escape, and sealed custody or egress: seal, sealed, custody, egress) or line (a
+redaction call, an import of a redaction or outside-voice module, a `SECRET` or `CREDENTIAL`
+constant set to a regex, since that code decides what reaches an outside model, GST-1177; `shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
 raw HTML sinks, a shell run through argv, recursive deletes), any call to an
 outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
 `requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
