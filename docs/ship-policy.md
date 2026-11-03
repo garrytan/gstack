@@ -1507,6 +1507,7 @@ receipt when the base moves:
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
+| a stacked PR whose receipt was written against the base, after its parent landed and the base was merged in, HEAD's product diff exactly the reviewed range from the parent's head | carries (reason `stack parent <sha12> landed`); base context next to the child's hunks is `RECEIPT_CARRY_SCOPED_REVIEW` |
 | a stamp on the branch's own rows in a stamp file the branch also changed as product: every changed line at a branch-added position, the file's mode unchanged, the base not touching it, the rest of the product diff unchanged | carries (reason `a stamp on the branch's own rows (<file>)`) |
 
 **Stacked PRs (#3570).** A child PR's receipt is written against its parent
@@ -1523,6 +1524,21 @@ and from then on names the base it was carried to. A parent that has not landed,
 since, or a parent that landed with changes the child never merged all leave a
 different diff and refuse with `RECEIPT_CARRY_PRODUCT_CHANGED`. An older
 receipt whose parent branch is gone refuses with `RECEIPT_CARRY_REFUSED`.
+
+**Stacked PRs reviewed against the base (GST-1199).** A child PR that targets
+the base while stacked has a receipt whose `base` is the base and whose
+reviewed range holds the parent's hunks too, and the receipt records no stack
+parent. Once the parent squash-merges and the base is merged into the child,
+the two heads' product diffs differ by exactly the parent's hunks, which now
+sit in the base. When they differ, the carry looks for the newest commit inside
+the reviewed range (the reviewed head excluded, at most 100 commits) whose
+product change the current base already holds: `git merge-tree` of that commit
+into the base changes no product path. A conflicted product path never counts,
+so a parent that never landed is never treated as one, even when the child's
+merge dropped its change. The comparison then runs from that commit: an equal
+patch-id carries with reason `stack parent <sha12> landed`, base context next
+to the child's unchanged hunks is `RECEIPT_CARRY_SCOPED_REVIEW`, and any other
+difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.
 
 Since the release that added `review_scope`. A `/ship` receipt names the head it
 reviewed, so a conflict-only merge of the base or a test-only fix used to

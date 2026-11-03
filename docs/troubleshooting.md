@@ -5984,7 +5984,10 @@ the reviewed tree but the base moved under it, so the diff a reviewer would see
 is not the reviewed one. For a stacked PR retargeted to the base after its
 parent landed, it means HEAD's product diff against the base is not the range
 reviewed against the parent branch: the parent has not fully landed, or the
-branch changed since. The reviewed verdict does not cover HEAD, so the
+branch changed since. A stacked PR whose receipt was written against the base
+carries from the newest reviewed commit the base already holds
+([ship-policy.md](ship-policy.md#receipt-carry)); it refuses here only when no
+such commit exists or the branch changed since. The reviewed verdict does not cover HEAD, so the
 receipt is not carried. The refusal names the changed product paths, or for a
 retargeted stacked PR the parent branch and the base.
 
