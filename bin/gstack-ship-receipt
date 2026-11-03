@@ -555,7 +555,14 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   const version = (ref: string) => { if (!versions.has(ref)) versions.set(ref, versionAt(ref)); return versions.get(ref)!; };
   const stamped = (p: string) => matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p);
   const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates, placeholders: rules.placeholders, side: a === from && b === to ? branch?.own(p) : undefined } : undefined);
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
+  // A stamp file the branch changed on neither side beyond a stamp against that side's base (back at the base's content
+  // after a changelog-fragment conversion, or only its version moved) holds none of the branch's product: whatever else
+  // differs between the two heads came from the base (GST-1210).
+  // The same `ls-tree` entry (mode and object id, empty when absent) is an unchanged side; a failed read never is.
+  const entryAt = (ref: string, p: string) => git(['ls-tree', ref, '--', p], repoRoot);
+  const sameEntry = (a: string, b: string, p: string) => { const x = entryAt(a, p); return x !== undefined && x === entryAt(b, p); };
+  const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => sameEntry(a, b, p) || classify(p, a, b) === 'metadata');
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
     : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => blobAt(a, p) !== blobAt(b, p) && classify(p, a, b) === 'product')));
