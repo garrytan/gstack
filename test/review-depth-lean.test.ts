@@ -232,6 +232,17 @@ describe('C7 merged reader brief and the outside voice reading its diff from dis
     expect(sliceNote(s, 100)).toMatch(/2 of 3 files.*big\.json/);
     expect(sliceDiff(sec('a.ts', 10), 100).sliced).toBe(false);
   });
+  // Value: protects=no file leaves the outside voice's slice unnamed (GSTA-258 L7 Addendum 1.2); fails_when=a git-quoted header
+  //   before the first plain one is dropped unlisted, or glued onto the file before it; seam=sliceDiff headers
+  test('a git-quoted or spaced filename is its own file in the slice and is named when left out', () => {
+    const quoted = (p: string, n: number) => `diff --git "a/${p}" "b/${p}"\n+${'x'.repeat(n)}\n`;
+    const sec = (p: string, n: number) => `diff --git a/${p} b/${p}\n+${'x'.repeat(n)}\n`;
+    const s = sliceDiff(quoted('t\\303\\251st.sql', 500) + sec('a.ts', 10) + quoted('tab\\there.ts', 10), 100);
+    expect([s.files, s.kept, s.left]).toEqual([3, 2, ['"t\\303\\251st.sql"']]);
+    expect(s.text).toContain('tab\\there.ts');
+    const spaced = sliceDiff(sec('my notes/big data.csv', 500) + sec('a.ts', 10), 100);
+    expect(spaced.left).toEqual(['my notes/big data.csv']);
+  });
   test('the outside voice gets a path and a hash, not the pasted diff', () => {
     const text = renderBrief('outside-voice', { diff_base: sha, diff_file: '/tmp/o/outside-voice.diff', diff_sha256: 'd'.repeat(64), diff_bytes: '1234' }, t);
     expect(text).toContain('/tmp/o/outside-voice.diff');
