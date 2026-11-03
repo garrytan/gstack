@@ -38,9 +38,14 @@ import { displayNamePattern, workflowCallers } from './workflows';
 export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
 export const CHECK_IDS = CHECKS.map(c => c.id);
 export const PREGATE_OUT_REL = '.gstack/tmp/pregate.json';
+/** Where `--stage guards` (the pre-push housekeeping guards) writes by default, so it never replaces the full run's file. */
+export const PREGATE_GUARDS_OUT_REL = '.gstack/tmp/pregate-guards.json';
+/** The checks `--stage guards` runs: generated-file freshness and the repo's guards, each only for the files the diff touched. */
+export const PREPUSH_CHECK_IDS = ['regen', 'guards'] as const;
 export const PREGATE_TIER2 = ['ratchets', 'lint', 'links', 'hermetic', 'patches', 'integrator'] as const;
 
-export interface RunOptions { stage: Stage | 'all'; only?: string[]; run?: string }
+/** `guards` selects PREPUSH_CHECK_IDS (preflight checks): the pre-push run, docs/pregate.md#prepush. */
+export interface RunOptions { stage: Stage | 'guards' | 'all'; only?: string[]; run?: string }
 
 /** Apply the repo's `warn` downgrades: never `secrets`. `lanes` applies its own (a touched file with no lane, after the selected tests ran), so nothing it fails is downgraded here. */
 export function applyDowngrades(ctx: PregateContext, result: CheckResult, def: CheckDef): CheckResult {
@@ -83,7 +88,7 @@ const git = (cwd: string, args: string[]): string | null => {
 };
 
 export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<PregateFile> {
-  const selected = CHECKS.filter(c => (o.stage === 'all' || c.stage === o.stage) && (!o.only || o.only.includes(c.id)));
+  const selected = o.stage === 'guards' ? CHECKS.filter(c => (PREPUSH_CHECK_IDS as readonly string[]).includes(c.id)) : CHECKS.filter(c => (o.stage === 'all' || c.stage === o.stage) && (!o.only || o.only.includes(c.id)));
   if (selected.some(c => c.id === 'lanes')) { const line = autoCarry(ctx); if (line) ctx.progress(line); }
   const checks: CheckResult[] = [];
   const clocks: Record<Stage, number> = { preflight: 0, tests: 0 };
@@ -99,7 +104,7 @@ export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<Pr
   const file: PregateFile = {
     schema_version: 1, tree: ctx.wtree, head: ctx.head, base: `${ctx.baseRef}@${ctx.baseSha.slice(0, 12)}`, generated_at: new Date().toISOString(),
     policy: ctx.configLabel, ...(ctx.configDigest ? { policy_digest: ctx.configDigest } : {}), ...(ctx.absentUserPolicy ? { policy_user_path: ctx.absentUserPolicy } : {}), registry: ctx.registryLabel, run: o.run, scratch: ctx.scratch,
-    stage1_ms: o.stage === 'tests' ? undefined : clocks.preflight, stage2_ms: o.stage === 'preflight' ? undefined : clocks.tests,
+    stage1_ms: o.stage === 'tests' ? undefined : clocks.preflight, stage2_ms: o.stage === 'preflight' || o.stage === 'guards' ? undefined : clocks.tests,
     checks: checks.map(c => { const { remote: _r, ...rest } = c; return rest; }),
     requires_remote: remote,
   };
@@ -267,7 +272,7 @@ function userPolicyChange(file: PregateFile): string | null {
 
 export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string; runs?: string[]; evidence?: RunCheck; flaky?: FlakyInput }
 /** What a run clear needs: the base branch's run profiles, the verifier's dependencies, the clock, and the remote gate's inventory. */
-export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
+export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; unchanged?: (p: RunProfile) => string | null; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
 export type ClearDecision = { receipt: string; attested: boolean; substitution?: PregateReceiptSubstitution; exception?: PregateException } | { refused: 'usage' | 'PREGATE_RECEIPT_INVALID'; message: string; fix?: string };
 
 /**
