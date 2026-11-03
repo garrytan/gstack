@@ -33,7 +33,7 @@ of its own; it only reads what the trains and the backstop already recorded.
 With nothing green in the window it fails and lists why each commit was
 skipped.
 
-**Gated** means one of two pieces of evidence. The first is the
+**Gated** means one of three pieces of evidence. The first is the
 `main-backstop` check run: the Main backstop gate workflow publishes it on
 each push to main from a job of its own, success when a green train record
 covers the tree or the backstop gated it green, neutral when main moved past
@@ -45,7 +45,12 @@ its tree: those entries are the main commits `gstack-ship-queue verify
 --train` confirmed, so a commit a green train merged is gated even when trains
 merged faster than the backstop could settle and its own backstop run ended
 neutral or never ran. The `CANDIDATE` line says which: `gated by
-main-backstop` or `gated by train <nonce>`. Train evidence relaxes nothing
+main-backstop` or `gated by train <nonce>`. The third is a GREEN release
+record (kind `release`) on the commit, written by the release gate
+([docs/ship-policy.md#release-gate](ship-policy.md#release-gate)) when the
+policy declares `release_gate`; the line then says `gated by release gate run
+<id>`. A RED release record with no GREEN one on a later commit that
+contains it refuses the cut like a freeze. Train evidence relaxes nothing
 else: a red backstop run, a failed or missing `free-tests` run, any other red
 check run or a run still going keeps the commit out, and a record in any other
 state (`red`, `superseded`, `free-green`, …) is not evidence. A commit with
@@ -240,6 +245,10 @@ overrides the key for one command. The resolution lives in one helper,
 - `bin/gstack-upgrade` and `/gstack-upgrade`: they fast-forward to the channel
   ref (`UPSTREAM_REF=origin/stable` in the skill's output) and say which channel
   they followed.
+- `capy/skill/gstack/scripts/install.sh`, the Capy skill's installer (wrapper
+  revision 4): a fresh clone or a floor upgrade follows `stable` when the channel
+  resolves to it and `stable` meets the support floor, and follows main
+  otherwise. `--revision` still pins an exact commit.
 
 Two edge cases are handled on purpose:
 

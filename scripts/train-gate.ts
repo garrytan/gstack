@@ -61,8 +61,14 @@ export type RunMode = 'screen' | 'train' | 'bisect' | 'dispatch';
 export interface RouteInput {
   nonce: string; refName: string; head: string; expectedSha: string; evalsAll: boolean; trainPolicy: boolean;
   cases: string; prefixShas: string; screenPr: string; screenMergeSha: string; screenPolicy: string;
+  /** The default branch's policy declares a release_gate block (lib/release-gate-policy.ts). */
+  releasePolicy?: boolean;
 }
-export interface Route { mode: RunMode; cases: string[]; prefixes: string[] }
+/** artifact: the prefix of a release bisect's per-prefix records (a train bisect uses the train block's record_artifact). */
+export interface Route { mode: RunMode; cases: string[]; prefixes: string[]; artifact?: string }
+/** The release gate's bisect runs on its own ref and names its own prefix records (lib/release-gate.ts RELEASE_REF_PREFIX, RELEASE_BISECT_ARTIFACT). */
+export const RELEASE_BISECT_REF = 'release-gate/';
+export const RELEASE_BISECT_ARTIFACT = 'gstack-release-record';
 
 const list = (text: string) => text.split(',').map(item => item.trim()).filter(Boolean);
 
@@ -88,7 +94,8 @@ export function routeDispatch(i: RouteInput, deps: { isAncestor(commit: string, 
     const cases = list(i.cases);
     const prefixes = list(i.prefixShas);
     if (scope?.purpose !== 'bisect') return { error: `a bisect needs a bisect nonce (got ${JSON.stringify(i.nonce)})` };
-    if (!i.refName.startsWith('train/')) return { error: `a bisect runs on train/<nonce>, not ${i.refName}` };
+    const release = i.refName.startsWith(RELEASE_BISECT_REF);
+    if (!release && !i.refName.startsWith('train/')) return { error: `a bisect runs on train/<nonce> (or the release gate's ${RELEASE_BISECT_REF}<id>), not ${i.refName}` };
     if (i.expectedSha !== i.head) return { error: `expected_sha ${i.expectedSha.slice(0, 12) || '(empty)'} is not the train head ${i.head.slice(0, 12)} checked out from ${i.refName}` };
     if (!cases.length || cases.length > MAX_BISECT_CASES || new Set(cases).size !== cases.length) return { error: `cases must name 1 to ${MAX_BISECT_CASES} distinct case ids` };
     if (!prefixes.length || prefixes.length > MAX_PREFIXES || new Set(prefixes).size !== prefixes.length) return { error: `prefix_shas must name 1 to ${MAX_PREFIXES} distinct commits` };
@@ -99,6 +106,7 @@ export function routeDispatch(i: RouteInput, deps: { isAncestor(commit: string, 
     const plan = deps.gateCases();
     const unknown = cases.filter(id => !CASE_ID.test(id) || !plan.has(id));
     if (unknown.length) return { error: `case(s) not in the full gate's plan: ${unknown.slice(0, 5).join(', ')}` };
+    if (release) return i.releasePolicy ? { mode: 'bisect', cases, prefixes, artifact: RELEASE_BISECT_ARTIFACT } : { error: "a release bisect needs a release_gate block in the default branch's .gstack/ship-policy.json" };
     return trainOnly('bisect') ?? { mode: 'bisect', cases, prefixes };
   }
   if (scope?.purpose === 'train') {
@@ -359,12 +367,12 @@ if (import.meta.main) {
   if (command === 'route') {
     const env = process.env;
     const route = routeDispatch({ nonce: env.NONCE ?? '', refName: env.GITHUB_REF_NAME ?? '', head: git(['rev-parse', 'HEAD']).out, expectedSha: env.EXPECTED_SHA ?? '',
-      evalsAll: env.EVALS_ALL === 'true', trainPolicy: env.TRAIN_POLICY === 'true', cases: env.CASES ?? '', prefixShas: env.PREFIX_SHAS ?? '',
+      evalsAll: env.EVALS_ALL === 'true', trainPolicy: env.TRAIN_POLICY === 'true', releasePolicy: env.RELEASE_POLICY === 'true', cases: env.CASES ?? '', prefixShas: env.PREFIX_SHAS ?? '',
       screenPr: env.SCREEN_PR ?? '', screenMergeSha: env.SCREEN_MERGE_SHA ?? '', screenPolicy: env.SCREEN_POLICY ?? '' },
     { isAncestor: (commit, head) => git(['merge-base', '--is-ancestor', commit, head]).ok, gateCases: () => fullGateCases(process.cwd()) });
     if ('error' in route) fail(`dispatch refused before any paid work: ${route.error}`);
     const ok = route as Route;
-    output([`mode=${ok.mode}`, `cases=${ok.cases.join(',')}`, `prefixes=${ok.prefixes.join(',')}`]);
+    output([`mode=${ok.mode}`, `cases=${ok.cases.join(',')}`, `prefixes=${ok.prefixes.join(',')}`, ...(ok.artifact ? [`record_artifact=${ok.artifact}`] : [])]);
     console.log(`- Run mode: ${ok.mode}${ok.prefixes.length ? ` (${ok.cases.length} case(s) on ${ok.prefixes.length} prefix(es))` : ''}`);
   } else if (command === 'bisect-plan') {
     const [cases, prefixes, nonce, out] = [list(flag('cases') ?? ''), list(flag('prefixes') ?? ''), flag('nonce'), flag('out')];
