@@ -528,6 +528,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       expect(h.stops).toEqual('hang' in o ? [ov[0]] : []);
       const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
       expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+      expect(v.stdout).not.toContain('MISMATCH');
       expect(v.stdout).toContain('unavailable=1');
     }
   }, 600_000);
@@ -572,6 +573,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).toContain('NEXT: judge the voices');
     const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
     expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+    expect(v.stdout).not.toContain('MISMATCH');
   }, 300_000);
 
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
