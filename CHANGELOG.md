@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.95.0.0] - 2026-11-03
+
+**A release gate can now gate main every 8 hours instead of on every push, and it feeds the stable release.** It is off until main's `.gstack/ship-policy.json` declares a `release_gate` block, so this release changes nothing on its own. With the block, `.github/workflows/release-gate.yml` runs `gstack-release-gate run` every 8 hours. When main moved since the last gate, it runs the full paid gate on main's head once, records the verdict as a `release` note in `refs/notes/gstack-trains`, and publishes the `main-backstop` check run on that commit. A red gate bisects its red cases within `bisect_spend_cap_usd` and names the first bad commit. The per-push main backstop stands down while the block is set, so main is never gated twice. `scripts/release-cut.ts` is still the only thing that moves `stable`, and its 72-hour floor and exceptions are unchanged. It now reads a green release record as proof the commit was gated, and it refuses every cut while the newest release gate is red with no green gate on a later commit. That hold is the freeze. See docs/ship-policy.md#release-gate.
+
+### Added
+- **`release_gate` policy key** (`lib/release-gate-policy.ts`, which needs `min_gstack_version` at this release): `cadence_hours` (8 to 168), `gate_workflow`, `branch`, `stable_ref`, `check_name`, `on_red: hold-release` and `bisect_spend_cap_usd`, every field required.
+- **`bin/gstack-release-gate`** (`lib/release-gate.ts`): `run [--dry-run] [--sha] [--ignore-cadence]`, `status` and `bisect`. `--policy <file>` reads the block from a file, for a dry run or a proof before adoption. Exit 0 means gated, skipped, inert or a dry run; 1 means held, failed or a refused policy; 2 is a usage error.
+- **`.github/workflows/release-gate.yml`**: an 8-hour schedule and a manual dispatch. The check run comes from a separate job that holds `checks: write` and runs no repository code.
+- **Capy skill installer follows the update channel** (`capy/skill/gstack/scripts/install.sh`, wrapper revision 4). With `GSTACK_UPDATE_CHANNEL=stable` or a stable `update_channel`, a fresh clone or a floor upgrade goes to `stable` when it meets the support floor, and to main otherwise. `--revision` still wins.
+
+### Changed
+- **`evals-main-backstop.yml`** stands down (no gate, no freeze, no check run) when main's policy declares `release_gate`.
+- **`evals.yml`** routes a release gate bisect (`release-gate/<id>` refs) only under a `release_gate` block at the base revision, and that bisect publishes its prefix records as `gstack-release-record`.
+
+### Tests
+- `test/release-gate.test.ts` drives run, bisect and status against a fake `gh` and a scratch remote. `test/release-gate-workflow.test.ts` runs the workflows' policy steps on scratch repositories and pins the cron to the cadence floor. `test/release-cut.test.ts` proves a red release record refuses the cut and a green one on a later commit releases it. `test/train-gate.test.ts` covers the bisect route, and `test/capy-skill-wrapper.test.ts` covers the stable channel and its fallback to main.
+
+## [1.94.39.0] - 2026-11-03
+
+**A base merge next to a reviewed hunk no longer forces a second full review because of the base's own lines.** On founderstar#515, a base merge put 62 lines of another PR, already merged at base, next to the PR's 76 reviewed and unchanged lines in `tests/ui_shots.gd`. The scoped-review section went past its 200-line limit, so `gstack-ship-release finish` took the behavior route, which a review-loop exception can't accept, and asked for Steps 5 to 11.5 again. #3923 hit the same limit when only one trailing context line changed (GST-1226).
+
+### Fixed
+- **The scoped-review packet counts only the branch's own lines toward its 200-line section limit.** The base's +/- lines, already merged at base, are still shown to the reader but no longer count, in finish and in the receipt carry. A base change over 2,000 lines in one file counts in full again, and a section the branch's own lines push past the limit still takes the full loop. Context-only drift is not carried silently: it still gets the scoped read.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: 210 lines another PR merged at base next to the branch's 76 reviewed lines, and a changed trailing context line beside a 221-line base rewrite, both reach the scoped read (both took the behavior route on main). Negative controls: a section the branch's own 230 lines push past the limit, and a 2,100-line base insertion beside the hunk, still take the behavior route.
+
+## [1.94.38.0] - 2026-11-03
+
+- **A /ship receipt now survives a changelog-fragment conversion (GST-1210).** When a PR moved to a `changelog.d` fragment after review, `VERSION`, `package.json` and `CHANGELOG.md` went back to main's content, and if main had also changed `package.json` beyond its version, `gstack-ship-receipt carry` read that as the branch's change and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` (HARN-1, harness-evals#206). A stamp file the branch changes by no more than a stamp against each head's base now carries as release metadata. A non-stamp `package.json` change, a logic edit, or a stamp file whose entry can't be read still refuses.
+
+## [1.94.37.0] - 2026-11-03
+
+- **Pull requests reuse a green Free Tests run they can't control** (`scripts/ci-tree-reuse.ts find --pull-request`, docs/pregate.md#ci-reuse-pr). A pull request run skips the suite when a push or dispatch run on main, or a dispatch run on its own branch, already passed on the merge commit's exact tree, and the pull request leaves the workflow, the reuse script and `lib/run-evidence.ts` unchanged. A pull request run is never a source, so a pull request never certifies itself.
+
+## [1.94.36.0] - 2026-11-03
+
+Fixes to the contract checker (GST-1242). An `agent_dispatch` item with a `marker:` used to count as met once the marker line was printed and any Agent call followed it, even an unrelated one. A contract that gives `agent_dispatch` a `marker` is now rejected as invalid until the checker can bind a marker to the dispatch it names, and the item is met only by an Agent dispatch that matches its `match`. No shipped contract used a marker there. The Stop hook's block message and `gstack-skill-contract check` now name the waive command by the full path of the installed `gstack-skill-contract`, because a standard install does not put the bare name on PATH and the old hint failed with exit 127. /review's calibration note now points at the preamble's Operational Self-Improvement rule, which carries the logging command, instead of a section a skill diet may remove.
+
+## [1.94.35.0] - 2026-11-03
+
+**/investigate's and /review's "Done means" list now runs the contract checker through gstack's own bin path (GST-1088 lane B follow-up).** The list told the agent to run a bare `gstack-skill-contract check`, but a standard install doesn't put gstack's bin folder on PATH, so an agent that ran it, most importantly to record a waiver, got "command not found". It now names the same host-resolved path every other gstack command uses, for example `~/.claude/skills/gstack/bin/gstack-skill-contract check` on Claude Code.
+
+### Fixed
+- **Done-means check and waive commands**: `scripts/resolvers/contract-done-means.ts` renders `check` and `waive` through each host's bin directory instead of the bare command name. The rest of the wording is unchanged.
+
+### Tests
+- `test/skill-descriptions.test.ts`: on every host, /investigate and /review render the checker through that host's bin path and never as a bare command, and the checked-in /review SKILL.md shows the Claude path. /review's skeleton and size pins rise by the measured 56 bytes (24 chars per non-Claude host render).
+
 ## [1.94.34.0] - 2026-11-03
 
 ### Fixed
