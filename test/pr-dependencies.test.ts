@@ -186,8 +186,8 @@ describe('safe classification (A1-2)', () => {
 describe('derived dependencies of this checkout', () => {
   test('a bin script a skill template invokes selects that skill\'s cases', () => {
     const consumers = real.e2e.get('bin/gstack-next-version') ?? new Set();
-    expect(consumers.has('review-sql-injection')).toBe(true);
-    expect(real.trace('review-sql-injection', 'bin/gstack-next-version')?.[0]).toBe('review/SKILL.md.tmpl');
+    expect(consumers.has('ship-docsync-missing-marker')).toBe(true);
+    expect(real.trace('ship-docsync-missing-marker', 'bin/gstack-next-version')?.[0]).toBe('ship/SKILL.md.tmpl');
   });
 
   test('a compiled design source reaches exactly the cases whose closure names the design binary', () => {
@@ -301,7 +301,7 @@ describe('deleted files (paths absent from the head tree)', () => {
     expect(result.mode).toBe('dependents');
     expect(result.e2e).toContain('review-sql-injection');
     expect(result.derivedFiles[0]?.file).toBe('bin/gstack-next-version');
-    expect(real.referencers('bin/gstack-next-version')).toContain('review/SKILL.md.tmpl');
+    expect(real.referencers('bin/gstack-next-version')).toContain('ship/SKILL.md.tmpl');
   });
 
   test('a deleted file a full-gate input still references, or a deleted full-gate entry, restores the full gate', () => {

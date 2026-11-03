@@ -32,6 +32,8 @@ Verify evidence first, then score every finding (1-10) and apply its display rul
    Force its confidence to 4-5: use 4 for appendix-only reporting, or 5 only when
    the finding belongs in the main report with the medium-confidence caveat below.
    Never invent speculative confidence 7+.
+4. **A CRITICAL finding also needs Step 4's Blocker proof:** its floor reason and a
+   repro, a failing test or a cited line with its consequence. Without both, emit it as INFORMATIONAL.
 
 | Score | Meaning | Display rule |
 |-------|---------|-------------|
@@ -43,10 +45,10 @@ Verify evidence first, then score every finding (1-10) and apply its display rul
 
 **Finding format:**
 
-\`[CRITICAL|INFORMATIONAL] (confidence: N/10) file:line — description\`
+\`[CRITICAL|INFORMATIONAL] (confidence: N/10) file:line — description\`, and a CRITICAL line ends \`Floor: <reason>. Proof: <...>\`
 
 Example:
-\`[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation\`
+\`[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation. Floor: loses data or secrets. Proof: user.rb:42 puts params[:q] into where() -> any visitor reads every row\`
 
 **Calibration learning:** If the user confirms a reported finding scored < 7 is
 real, log the corrected pattern as a learning.`;

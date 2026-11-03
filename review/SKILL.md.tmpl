@@ -126,28 +126,6 @@ Keep the review-record terms separate:
 | `review_binding` | The logger's proof tying a finished review to its captured candidate, not a finding identifier. |
 | `snapshot_covered_paths` | Supporting advice files the logger proved byte-identical to that candidate. Used by the prior-Skip checker, never supplied by the reviewer. |
 
-## Step 3.4: Workspace-aware queue status (advisory)
-
-Check the claimed VERSION's queue slot. This landing-order advice never blocks review.
-
-```bash
-BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-BASE_BRANCH="<base>"
-BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-QUEUE_JSON=$(bun --no-env-file --config=/dev/null run ~/.claude/skills/gstack/bin/gstack-next-version \
-  --base "$BASE_BRANCH" \
-  --bump patch \
-  --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
-CLAIMED_COUNT=$(echo "$QUEUE_JSON" | jq -r '.claimed | length // 0')
-OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
-```
-
-- `OFFLINE=true`: skip this section.
-- Otherwise, include ONE line in the review output: `Version claimed: v<BRANCH_VERSION>. Queue: <CLAIMED_COUNT> PR(s) ahead. <VERDICT>` where VERDICT is `Slot free` (`BRANCH_VERSION >= NEXT_SLOT`) or `⚠ queue moved — rerun /ship to reconcile v<BRANCH_VERSION> → v<NEXT_SLOT>`.
-
-Compare versions numerically per dotted component; missing ones count as zero.
-
 ---
 
 ## Step 3.5: Diff scans
@@ -177,10 +155,7 @@ Advisory findings only; skip if unavailable.
 
 ## Step 3.6: Gather review context
 
-Run Prior Learnings, then Web research readiness, before Step 4; use both in
-the core review.
-
-{{LEARNINGS_SEARCH}}
+Run Web research readiness before Step 4 and use it in the core review.
 
 {{ASIDE_RESEARCH}}
 
@@ -192,6 +167,13 @@ Apply both checklist passes in order: CRITICAL, then INFORMATIONAL. Respect its 
 CRITICAL is the blocking floor (docs/review-policy.md): a finding that would fail a
 test, break production, or lose data or secrets. Everything else is INFORMATIONAL and
 never earns another pass. `NO FINDINGS` is a complete result from any reviewer.
+
+**Blocker proof.** Every CRITICAL finding, yours or forwarded (specialist, QA,
+adversarial or bot), gets a floor reason (`fails a test`, `breaks production`,
+`loses data or secrets` or a forced-CRITICAL class below) and proof: a repro with
+its output, a failing test, or a cited `file:line` with its consequence. Verify a
+forwarded one and append both yourself: `Floor: <reason>. Proof: <repro | test |
+file:line -> consequence>`. At Step 5 an unproven CRITICAL is INFORMATIONAL, whatever its `Blocks:` line.
 
 {{SIDEWAYS_SWEEP}}
 
@@ -255,6 +237,12 @@ Read root `.md` files. When changed code affects a documented feature or workflo
 but its doc was not updated, flag an INFORMATIONAL finding naming the file and
 affected behavior. Propose `/document-release` for the parent's decision, never a
 critical finding or another writer during collection. Skip silently if no docs exist.
+
+**Dispatch markers (these override the section).** Step 4.5 prints one line starting
+`Dispatching N specialists:`, small diffs too: `Dispatching 0 specialists: (small diff)`
+or `Dispatching 1 specialists: State Machines (small diff)`, never the section's
+`Small diff` line. Step 4.8 prints `Dispatching adversarial pass: native` right before
+its native Agent call.
 
 ---
 
@@ -490,10 +478,6 @@ Emit one final report merging all reviewers:
    - `Gate edits: partial (K of M eligible read)` followed by the findings counts for the hunks that were read
    - `Gate edits: UNAVAILABLE — <GATE_ERROR line or helper exit>` (missing coverage, never `none detected`)
    List each kept finding's `gate`, path and `reason` under it.
-
-{{LEARNINGS_LOG}}
-
-If the review exits early (e.g. no diff against the base), do **not** write this entry.
 
 ## Important Rules
 

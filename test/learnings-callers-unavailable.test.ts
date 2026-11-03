@@ -11,14 +11,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runGeneration } from '../scripts/gen-skill-docs';
+import { loadCutLedger } from '../scripts/cut-ledger';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-learnings-callers-'));
 const out = path.join(tmp, 'render');
 const BUN_MISSING = 'gstack-learnings-search: bun not found on PATH, so learnings could not be read. Fix: install Bun (https://bun.sh), then re-run ./setup.';
 
-const CALLERS: Array<{ name: string; file: (host: string) => string; hosts: string[] }> = [
-  { name: 'Prior Learnings (review)', file: h => (h === 'claude' ? 'review/SKILL.md' : '.agents/skills/gstack-review/SKILL.md'), hosts: ['claude', 'codex'] },
-  { name: 'investigate prior learnings', file: h => (h === 'claude' ? 'investigate/SKILL.md' : '.agents/skills/gstack-investigate/SKILL.md'), hosts: ['claude', 'codex'] },
+/** modules/cuts.json ids; a caller whose `cut` is listed must render no search fence at all. */
+const CUT = new Set(loadCutLedger().cuts.map(c => c.id));
+
+const CALLERS: Array<{ name: string; file: (host: string) => string; hosts: string[]; cut?: string }> = [
+  { name: 'Prior Learnings (review)', file: h => (h === 'claude' ? 'review/SKILL.md' : '.agents/skills/gstack-review/SKILL.md'), hosts: ['claude', 'codex'], cut: 'part:review/learnings-search' },
+  { name: 'investigate prior learnings', file: h => (h === 'claude' ? 'investigate/SKILL.md' : '.agents/skills/gstack-investigate/SKILL.md'), hosts: ['claude', 'codex'], cut: 'part:investigate/learnings-search' },
   { name: 'qa fix-loop search', file: h => (h === 'claude' ? 'qa/SKILL.md' : '.agents/skills/gstack-qa/SKILL.md'), hosts: ['claude', 'codex'] },
   { name: 'ship adversarial search', file: h => (h === 'claude' ? 'ship/sections/adversarial.md' : '.agents/skills/gstack-ship/sections/adversarial.md'), hosts: ['claude', 'codex'] },
   { name: 'review army specialist search', file: () => 'review/sections/review-army.md', hosts: ['claude'] },
@@ -50,6 +54,10 @@ describe('B5: learnings callers report a failed search', () => {
     for (const host of caller.hosts) {
       test(`${host}: ${caller.name}`, () => {
         const fences = searchFences(caller.file(host));
+        if (caller.cut && CUT.has(caller.cut)) {
+          expect(fences).toEqual([]);
+          return;
+        }
         expect(fences.length).toBeGreaterThan(0);
         for (const fence of fences) {
           const missing = run(fence, host, `echo "${BUN_MISSING}" >&2\necho "second line" >&2\nexit 127`);
