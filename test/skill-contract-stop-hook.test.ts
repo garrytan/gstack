@@ -7,12 +7,18 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { STATE_ERROR_DOC, stateErrorLine } from '../lib/skill-contract';
 import {
   CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, hookEnv, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
 } from './helpers/skill-contract-fixture';
 
 const PINNED = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd();
 const STATE_ERROR = /^gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR .+: .+; stop allowed, miss not recorded \(see docs\/skill-routing-and-contracts\.md#state-error\)\n$/;
+
+test('the state error line keeps its doc anchor (d9)', () => {
+  expect(STATE_ERROR_DOC).toBe('docs/skill-routing-and-contracts.md#state-error');
+  expect(`${stateErrorLine('/x/y.json', 'corrupt record (not JSON)')}\n`).toMatch(STATE_ERROR);
+});
 
 let state = '', skills = '', work = '';
 beforeEach(() => {
