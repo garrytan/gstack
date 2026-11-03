@@ -149,3 +149,51 @@ describe('cut ledger against every host render', () => {
     expect(REVIEW_ONLY.filter(s => !renders['claude/review'].includes(s))).toEqual([]);
   });
 });
+
+/** Every file under dir (relative path to bytes), skipping the targeted skills' own trees. */
+function readOtherSkills(dir: string): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (const rel of fs.readdirSync(dir, { recursive: true, withFileTypes: false }) as string[]) {
+    const file = path.join(dir, rel);
+    if (fs.statSync(file).isFile()) out.set(rel, fs.readFileSync(file));
+  }
+  return out;
+}
+
+const targetedPath = new RegExp(`(^|/)(gstack-)?(${TARGETED.join('|')})/`);
+
+describe('the ledger reaches only /investigate and /review', () => {
+  test('every other skill renders byte-identical on every host with modules/cuts.json and with an empty ledger', () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cut-scope-'));
+    try {
+      const copy = path.join(work, 'checkout');
+      const listed = Bun.spawnSync(['git', 'ls-files', '-z'], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
+      if (listed.exitCode !== 0) throw new Error(`git ls-files failed: ${listed.stderr.toString()}`);
+      for (const rel of listed.stdout.toString().split('\0').filter(Boolean)) {
+        const source = path.join(ROOT, rel);
+        if (!fs.existsSync(source) || !fs.lstatSync(source).isFile()) continue;
+        fs.mkdirSync(path.dirname(path.join(copy, rel)), { recursive: true });
+        fs.copyFileSync(source, path.join(copy, rel));
+      }
+      fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'));
+      fs.writeFileSync(path.join(copy, CUT_LEDGER_FILE), JSON.stringify({ ...ledger, cuts: [], pins: {} }, null, 2) + '\n');
+
+      const out = path.join(work, 'out');
+      const [withCuts, empty] = [ROOT, copy].map(cwd => {
+        const render = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--out-dir', out],
+          { cwd, stdout: 'pipe', stderr: 'pipe', timeout: 180_000 });
+        if (render.exitCode !== 0) throw new Error(`gen-skill-docs in ${cwd} failed (exit ${render.exitCode}):\n${render.stderr.toString()}`);
+        const tree = readOtherSkills(out);
+        fs.rmSync(out, { recursive: true, force: true });
+        return tree;
+      });
+
+      expect(withCuts.get('review/SKILL.md')?.equals(empty.get('review/SKILL.md')!), 'the empty ledger must change /review, or this test proves nothing').toBe(false);
+      const differs = [...new Set([...withCuts.keys(), ...empty.keys()])].filter(rel => !targetedPath.test(rel)).sort()
+        .filter(rel => !withCuts.get(rel)?.equals(empty.get(rel) ?? Buffer.alloc(0)) || !empty.has(rel));
+      expect(differs, `${CUT_LEDGER_FILE} changed files outside /investigate and /review`).toEqual([]);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  }, 600_000);
+});
