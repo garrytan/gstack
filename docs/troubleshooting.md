@@ -2720,6 +2720,14 @@ exact tokens it finds in these positions:
 - a 12-digit value right after `tree`, `gated_tree`, `head` or `predecessor`
   with `=` or a space (`tree=704992822996`, `tree 704992822996`);
 - an 11-digit id inside an `/actions/runs/<id>` URL or as that link's text;
+- any id inside an `actions/runs/<id>` path, with or without a host or a
+  leading `/` (`see actions/runs/41629861820`), and every id of a
+  `runs=<id>/<attempt>` list a CI carry or run clear prints
+  (`runs=41629861819/1,41629861820/2`; `run=` too). The scanner itself
+  exempts both (`isCiRunIdentifier`), and only that shape counts: each id
+  needs its `/<attempt>` of one to three digits, so `runs=4155550123`,
+  `runs=+14155550123/1` and a phone number elsewhere on the line still
+  report (GST-1227);
 - an 11-digit id right after a run word on the same line, with an optional
   `:`, `#` or `=` between: `run`, `runs`, `screen`, `screens`, `gate`,
   `gates`, `backstop`, `bisect`, `rerun`, `dispatched`, `dispatch`,
@@ -2763,20 +2771,27 @@ same-titled section (title compared case-insensitively), the
 rewrite replaces only the receipt, sections the file does not rewrite stay in
 place, and new sections are appended after them. The text above the first
 `## ` heading belongs to the file when the file is a full post: a
-receipt block above its first `## ` section, as /ship composes it. Then the current body's text there (the opening lines, and
-any lines between the receipt and the first heading, or the whole body when it
-has no `## ` heading) is replaced by the file's own text above its first
-heading, or dropped when the file has none. A partial post (`## ` sections
+receipt block above its first `## ` section, as /ship composes it. Then any
+lines between the current receipt and the first heading are replaced by the
+file's own text under its receipt, or dropped when the file has none. The
+opening text above the first receipt or heading (a paragraph, a bot's badge
+such as `<!-- capy-badge:start -->…<!-- capy-badge:end -->`, or the whole
+body when it has no `## ` heading) is kept byte for byte, and a new receipt
+lands right under it; only opening lines the file brings of its own replace
+it (GST-1227). A marker block (`<!-- <name>:start -->` through
+`<!-- <name>:end -->`) after the first receipt or heading is a piece of its
+own, so a badge at the end of the body stays there when the section above it
+is rewritten, and new sections are added above it. A partial post (`## ` sections
 with no receipt above them, such as a lane posting `## Screenshots`) and a
 file with no `## ` section (a receipt-only or text-only post) leave that text alone, so a human
-intro or a `Review-loop exception:` line under the receipt survives; only
-opening lines the file brings of its own replace the PR's opening lines. One stderr line names what was replaced, kept, added
+intro or a `Review-loop exception:` line under the receipt survives. One stderr line names what was replaced, kept, added
 and dropped, a dropped piece with its first line, or with that line withheld
 when the redaction scan flags it (`gstack-post: pr-body merged
-by section: replaced What changed; kept ship receipt, Why, Approvals; added
-Tests; dropped leading text ("Draft from gh pr create")`). A body file holding
-only its first section therefore no longer wipes the rest of the PR, and an
-old intro no longer sits above a fresh /ship body.
+by section: replaced ship receipt, What changed; kept leading text, Why;
+added Tests; dropped trailing text ("Old note under the receipt")`). A body
+file holding only its first section therefore no longer wipes the rest of the
+PR, and a stale note no longer sits under a fresh receipt. To retire an old
+intro, post the whole body with `--replace` or bring new opening lines.
 The redaction scan runs on the merged bytes, so a MEDIUM or HIGH finding can
 come from a kept section; the `RULE:` line's `LINE:` is in the merged text.
 When the current body cannot be read (`gh pr view --json body` fails) nothing
