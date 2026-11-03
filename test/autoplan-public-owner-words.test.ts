@@ -277,4 +277,23 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Context: ${MARK}, per the relay.`);
     expect(allText(pub)).not.toContain('Jane Doe');
   });
+
+  test('markup and reference links around a short quote do not hide it from export or validate', () => {
+    const { out, dir } = ownerBundle({ wa: 'Jane Doe vetoed it', ceo: { native: 'Context: Jane Doe<br>vetoed it, and [Jane Doe][1] vetoed it.\n\n[1]: https://x.test' }, eng: {} });
+    const pub = path.join(dir, 'public');
+    expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
+    const bound = fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8');
+    expect(bound).not.toContain('Jane');
+    expect(bound).toContain(`Context: ${MARK}, and ${MARK}.`);
+    expect(artifact(['validate', '--public', pub, '--private', path.join(out, 'run.json')]).status).toBe(0);
+  });
+
+  test('new words a reply adds to an echoed plan line are redacted when quoted alone', () => {
+    const PLAN_LINE = 'Persist the attempt count on the job row so a restarted worker resumes the schedule.';
+    const { out, dir } = ownerBundle({ wb: `${PLAN_LINE.slice(0, -1)}, and page Jane Doe on call.`, ceo: { native: 'Ops note: and page Jane Doe on call.' }, eng: {} });
+    const pub = path.join(dir, 'public');
+    expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
+    expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Ops note: ${MARK}.`);
+    expect(fs.readFileSync(path.join(pub, 'plan.md'))).toEqual(fs.readFileSync(path.join(out, 'plan.md')));
+  });
 });

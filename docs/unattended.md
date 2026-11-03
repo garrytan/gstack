@@ -316,11 +316,19 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
   both sides, so a one-word reason never rewrites a longer one that starts
   with it.
 - **Redacted quotes.** Every exported file, sealed reviewer results
-  (`*.bound.md`) included, is scanned for quotes. HTML entities are decoded,
-  zero-width characters dropped, a hyphen-newline wrap joined, Markdown link
-  targets skipped and contractions split ("don't" reads "do not"); a word is a
-  run of letters and digits, and everything else (spaces, line breaks, dashes,
-  slashes, quote marks, `>` markers, JSON or attribute glue) separates words.
+  (`*.bound.md`) included, is scanned for quotes. Before matching, the text is
+  normalized: JSON string escapes (`\n`, `\u2019`) and HTML entities are
+  decoded, format characters are dropped by Unicode category (`\p{Cf}`, such as
+  zero-width spaces, soft hyphens and direction marks, plus variation selectors
+  and the combining grapheme joiner), an HTML tag name reads as a space, and a
+  hyphen-newline wrap is joined. The text is read twice: as rendered (HTML
+  comments, footnote markers, reference definitions and link targets and titles
+  dropped, link text kept) and as written (all of those kept as words), so a
+  quote is found whether markup splits it or hides it. Contractions split
+  ("don't" reads "do not", "can't" and "cannot" read "can not", "it's" "it is",
+  "I'd" "I would"). A word is a run of letters and digits, and everything else
+  (spaces, line breaks, dashes, slashes, quote marks, `>` markers, JSON or
+  attribute glue) separates words.
   Words compare case-insensitively. A reply of 3 or more words is a quote
   wherever it appears whole; from 8 words, any 8 consecutive words of it are a
   quote too. Replies of 1 or 2 words ("yes", "do it") are not scanned for:
@@ -330,7 +338,10 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
 - **Echoes stay.** Words the owner repeated from text recorded before the reply,
   which he didn't write (the plan at an earlier gate, that gate's items, the
   reviewer results bound before it), are not his words: they stay, and only the
-  new words around them are redacted. Prose with no quote keeps its bytes. One
+  new words around them are redacted. Every run of 3 or more words a reply adds
+  between echoes is matched on its own too (and by any 8 of its words from 8),
+  so the new words are redacted even where they are quoted without the echo.
+  Prose with no quote keeps its bytes. One
   `OWNER_WORDS: <file> dropped=<n> redacted=<m>` line names each changed file.
 - **Refusal.** Export never rewrites code in plan.md, so a quote or rendering
   inside a code span or fence there stops the export with

@@ -4701,9 +4701,10 @@ the journal), the words a carried gate reused, or a reason a human gave for
 deferring a phase, in prose or in one of gstack's renderings of that reason.
 Nothing a person wrote leaves without their click. A reply of 3 or more words
 is a quote wherever it appears whole, and from 8 words any 8 consecutive words
-are one, compared across punctuation, line breaks, entities, Markdown and case;
-replies of 1 or 2 words are not scanned for, and words the owner echoed from
-earlier text he didn't write are not his. See
+are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and
+Markdown markup, invisible format characters, contractions and case; replies
+of 1 or 2 words are not scanned for, and words the owner echoed from earlier
+text he didn't write are not his (the words a reply adds to an echo still are). See
 [the public copy](unattended.md#the-public-copy). `gstack-artifact validate --public <dir> --private
 <run>/run.json` reports each quote with file:line, and `gstack-autoplan export
 --public` runs that check on a staging copy and writes nothing when it fails.

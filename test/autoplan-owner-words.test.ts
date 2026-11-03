@@ -51,6 +51,52 @@ describe('the quote rule', () => {
     for (const word of ['take', 'flag', 'want', 'bang', 'roll']) expect(r.text).not.toContain(word);
   });
 
+  test.each([
+    ['an HTML tag', 'Jane Doe<br>vetoed it'],
+    ['bold tags', '<b>Jane Doe</b> vetoed it'],
+    ['an HTML comment', 'Jane <!-- aside --> Doe vetoed it'],
+    ['a reference link', '[Jane Doe][1] vetoed it\n\n[1]: https://x.test "the source"'],
+    ['a footnote marker', 'Jane Doe[^1] vetoed it'],
+    ['a link title', '[Jane Doe](https://x.test "the source") vetoed it'],
+    ['a literal JSON newline escape', '{"q": "Jane\\nDoe vetoed it"}'],
+    ['a zero-width space entity', 'Jane Do&#8203;e vetoed it'],
+    ['a soft hyphen entity', 'Jane Do&#173;e vetoed it'],
+    ['a named zero-width entity', 'Jane Do&ZeroWidthSpace;e vetoed it'],
+    ['a left-to-right mark', 'Jane Do\u200ee vetoed it'],
+    ['a right-to-left mark', 'Jane Do\u200fe vetoed it'],
+    ['a directional isolate', 'Jane \u2066Doe\u2069 vetoed it'],
+    ['a combining grapheme joiner', 'Jane Do\u034fe vetoed it'],
+    ['a variation selector', 'Jane Doe\ufe0f vetoed it'],
+  ])('%s does not hide a short quote', (_, text) => {
+    const r = redactOwnerWords(text, ownerIndex([{ text: 'Jane Doe vetoed it' }]));
+    expect(r.redacted).toBeGreaterThanOrEqual(1);
+    for (const word of ['Jane', 'vetoed']) expect(r.text).not.toContain(word);
+  });
+
+  test('the redaction covers the original characters, markup inside the quote included', () => {
+    expect(redactOwnerWords('X: <b>Jane Doe</b> vetoed it.', ownerIndex([{ text: 'Jane Doe vetoed it' }])).text).toBe(`X: <b>${MARK}.`);
+    expect(redactOwnerWords('{"q": "I don\\u2019t want it now"}', ownerIndex([{ text: "I don't want it now" }])).text).toBe(`{"q": "${MARK}"}`);
+  });
+
+  test.each([
+    ['I cannot accept it', "I can't accept it"],
+    ['I cannot accept it', 'I can not accept it'],
+    ['It is too risky now', "It's too risky now"],
+    ['I would ship it today', "I'd ship it today"],
+    ['We will not ship it', "We won't ship it"],
+    ['They are not ready yet', "They aren't ready yet"],
+    ['They are not ready yet', "They're not ready yet"],
+  ])('the reply %p matches %p', (reply, text) => {
+    expect(redactOwnerWords(text, ownerIndex([{ text: reply }])).redacted).toBe(1);
+  });
+
+  test('new words a reply adds to echoed text are a quote on their own, whatever the whole reply\'s length', () => {
+    const line = 'Persist the attempt count on the job row so a restarted worker resumes the schedule.';
+    const o = ownerIndex([{ text: `${line.slice(0, -1)}, and page Jane Doe on call.`, prior: [line] }]);
+    expect(redactOwnerWords('Note: and page Jane Doe on call.', o).text).toBe(`Note: ${MARK}.`);
+    expect(redactOwnerWords(line, o).redacted).toBe(0);
+  });
+
   test('a quote extends over the neighboring words of the same reply, so none is left on either side', () => {
     const reply = 'Honestly I do not want a big bang rollout on the retry path';
     expect(quoted('Well honestly, I don\u2019t want a big bang rollout on the retry path!', reply)).toEqual(['honestly, I don\u2019t want a big bang rollout on the retry path']);
