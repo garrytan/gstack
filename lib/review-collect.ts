@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { resolveBase, type ResolvedBase } from './gate-diff/git';
 import { GENERATED_PATH, parseRegistry } from './regen';
 import { RESULT_CODES } from './result-codes';
-import { classifyPath, dataCandidate, svgCandidate, svgDrawing, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
+import { BINARY_DATA_PATH, classifyPath, dataCandidate, svgCandidate, svgDrawing, type ClassInput, type DepthError, type PathLines, type RegistryInfo } from './review-depth';
 
 export interface Collected extends ClassInput {
   perPath: PathLines[];
@@ -32,6 +32,7 @@ export interface Collected extends ClassInput {
   untracked: string[];
   consumed: string[] | 'all';
   drawings: string[];
+  executables: string[];
   /** collectLive only: the ref resolveBase read for the base name (GST-1036), null when nothing resolved. */
   base?: ResolvedBase | null;
 }
@@ -232,9 +233,44 @@ function drawingsAmong(perPath: readonly PathLines[], classRoot: string | readon
   }).sort();
 }
 
-function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked' | 'consumed'> & { drawings?: string[] }): Collected {
+/**
+ * The changed paths the data rules could move to docs (a data or run-log name) that are executables: the exec bit, or text
+ * that starts with "#!" (GSTA-258 L7). `isExec` answers for one path and fails closed (true) when it cannot read it.
+ */
+function executablesAmong(perPath: readonly PathLines[], classRoot: string | readonly string[], isExec: (e: PathLines) => boolean): string[] {
+  return perPath.filter(e => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot)).filter(isExec).map(e => e.path).sort();
+}
+
+/** The executables among the changed paths at `headSha`: tree mode 100755, or a text blob that starts with "#!"; an unreadable tree or blob counts as executable. */
+function executablesAt(root: string, headSha: string, perPath: readonly PathLines[], classRoot: readonly string[]): string[] {
+  const tree = git(root, ['ls-tree', '-r', '-z', headSha]);
+  const entries = new Map(tree.out.split('\0').flatMap(rec => { const m = /^(\d+) blob ([0-9a-f]+)\t(.*)$/s.exec(rec); return m ? [[m[3]!, { mode: m[1]!, sha: m[2]! }] as const] : []; }));
+  const firstBytes = new Map<string, string>();
+  const text = perPath.flatMap(e => { const t = entries.get(e.path); return !e.binary && t && t.mode !== '100755' ? [t.sha] : []; });
+  if (text.length) {
+    const r = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: text.join('\n') + '\n', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    const out = r.status === 0 && !r.error ? r.stdout : null;
+    for (let at = 0; out && at < out.length;) {
+      const nl = out.indexOf(10, at);
+      const m = nl < 0 ? null : /^([0-9a-f]+) blob (\d+)$/.exec(out.subarray(at, nl).toString('latin1'));
+      if (!m) break;
+      firstBytes.set(m[1]!, out.subarray(nl + 1, nl + 3).toString('latin1'));
+      at = nl + 1 + Number(m[2]) + 1;
+    }
+  }
+  return executablesAmong(perPath, classRoot, e => {
+    const t = entries.get(e.path);
+    if (!tree.ok || !t) return true;
+    if (t.mode === '100755') return true;
+    if (e.binary) return false;
+    const head = firstBytes.get(t.sha);
+    return head === undefined || head === '#!';
+  });
+}
+
+function result(diff: ReturnType<typeof readDiff>, extra: Pick<Collected, 'root' | 'registry' | 'errors' | 'mergeBase' | 'untracked' | 'consumed'> & { drawings?: string[]; executables?: string[] }): Collected {
   const paths = diff.perPath.map(e => e.path).sort();
-  return { ...diff, drawings: [], ...extra, paths, gateTagged: null, diffLines: diff.perPath.reduce((n, e) => n + e.lines, 0) };
+  return { ...diff, drawings: [], executables: [], ...extra, paths, gateTagged: null, diffLines: diff.perPath.reduce((n, e) => n + e.lines, 0) };
 }
 
 /** The range `baseSha`...`headSha` from git objects alone; the registry is the base commit's, never the head's. */
@@ -255,7 +291,7 @@ export function collectCommit(root: string, baseSha: string, headSha: string): C
     const blob = spawnSync('git', ['cat-file', 'blob', `${headSha}:${p}`], { cwd: root, timeout: 60_000, maxBuffer: DRAWING_READ_CAP + 1 });
     return blob.status === 0 && !blob.error ? blob.stdout : null;
   });
-  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed, drawings });
+  return result(diff, { root: skillDirs, registry, errors, mergeBase, untracked: [], consumed, drawings, executables: executablesAt(root, headSha, diff.perPath, skillDirs) });
 }
 
 /**
@@ -291,5 +327,16 @@ export function collectLive(root: string, base: string): Collected {
   const drawings = drawingsAmong(diff.perPath, root, p => {
     try { return fs.statSync(path.join(root, p)).size <= DRAWING_READ_CAP ? fs.readFileSync(path.join(root, p)) : null; } catch { return null; }
   });
-  return { ...result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings }), base: resolved };
+  const executables = executablesAmong(diff.perPath, root, e => {
+    try {
+      const f = path.join(root, e.path);
+      if (fs.statSync(f).mode & 0o111) return true;
+      if (e.binary) return false;
+      const fd = fs.openSync(f, 'r');
+      const buf = Buffer.alloc(2);
+      try { fs.readSync(fd, buf, 0, 2, 0); } finally { fs.closeSync(fd); }
+      return buf.toString('latin1') === '#!';
+    } catch { return true; }
+  });
+  return { ...result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings, executables }), base: resolved };
 }

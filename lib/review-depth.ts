@@ -237,6 +237,8 @@ export interface ClassInput {
   created?: readonly string[];
   /** The SVG candidates (svgCandidate) whose whole text the collector read as a drawing (svgDrawing); any other SVG stays code. */
   drawings?: readonly string[];
+  /** Data- or log-named paths the collector found executable (exec bit or a "#!" first line): they stay code whatever their name or directory. */
+  executables?: readonly string[];
   /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
@@ -252,8 +254,8 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
-const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
-const binaryData = (i: ClassInput, p: string) => BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
+const unconsumedData = (i: ClassInput, p: string) => !i.executables?.includes(p) && Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
+const binaryData = (i: ClassInput, p: string) => !i.executables?.includes(p) && BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
 const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */

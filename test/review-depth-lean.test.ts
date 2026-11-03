@@ -28,6 +28,16 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     expect([c.class, c.risk]).toEqual(['docs', []]);
     expect(classifyDiff({ paths: ['src/logs/rotate.ts'], gateTagged: 0 }).class).toBe('code');
   });
+  // Value: protects=a directory name or a data extension never downgrades an executable (GSTA-258 L7 Addendum 1 and 7);
+  //   fails_when=scripts/logs/prune or an executable .out classes as docs; seam=collector executables -> classifyDiff
+  test('an executable (exec bit or shebang) under logs/ or named .out stays code; plain logs stay docs', () => {
+    const exe = ['scripts/logs/prune', 'tools/build/runner.out'];
+    const c = classifyDiff({ paths: [...exe, 'logs/run.txt'], gateTagged: 0, executables: exe });
+    expect(c.class).toBe('code');
+    expect(c.reasons).toEqual(expect.arrayContaining(['code: scripts/logs/prune']));
+    for (const p of exe) expect(classifyDiff({ paths: [p], gateTagged: 0, executables: [p] }).class).toBe('code');
+    expect(classifyDiff({ paths: ['logs/run.txt', 'docs/r/logs/ready'], gateTagged: 0, executables: [] }).class).toBe('docs');
+  });
   test('a sqlite file is data even when a script names it', () => {
     const c = classifyDiff({ paths: [sqlite, 'scripts/load.py'], gateTagged: 0, perPath: [{ path: sqlite, lines: 0, binary: true }, { path: 'scripts/load.py', lines: 4, binary: false }], consumed: [sqlite] });
     expect([c.class, c.errors.map(e => e.code), c.runtimeLines]).toEqual(['code', [], 4]);

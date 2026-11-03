@@ -100,6 +100,27 @@ describe('collectCommit: git objects only', () => {
   });
 });
 
+describe('GSTA-258 L7 Addendum 1 and 7: executables among data-named paths', () => {
+  // Value: protects=an exec bit or a shebang keeps a logs/ or .out path code in both collectors; fails_when=scripts/logs/prune
+  //   or an executable .out reaches classifyDiff as data (docs, light); seam=collectCommit/collectLive -> depthOfCommitInput
+  test('the exec bit or a shebang lists the path as executable; a plain log does not', () => {
+    const r = repo({});
+    r.write({ 'scripts/logs/prune': '#!/bin/sh\nrm -rf "$1"\n', 'bin/tool.out': 'ELF-ish\n', 'logs/run.txt': 'ok\n', 'docs/r/logs/ready': 'yes\n' });
+    fs.chmodSync(path.join(r.dir, 'bin/tool.out'), 0o755);
+    const head = r.commit({});
+    const c = collectCommit(r.dir, r.baseSha, head);
+    expect(c.executables).toEqual(['bin/tool.out', 'scripts/logs/prune']);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('code');
+    r.write({ 'docs/r/logs/later': '#!/usr/bin/env bash\necho\n' });
+    expect(collectLive(r.dir, 'main').executables).toEqual(['bin/tool.out', 'docs/r/logs/later', 'scripts/logs/prune']);
+    const plain = repo({});
+    const ph = plain.commit({ 'logs/run.txt': 'ok\n', 'docs/r/logs/ready': 'yes\n', 'docs/r/agent.out': 'done\n' });
+    const pc = collectCommit(plain.dir, plain.baseSha, ph);
+    expect(pc.executables).toEqual([]);
+    expect(depthOfCommitInput({ ...pc, gateTagged: 0 }).class).toBe('docs');
+  });
+});
+
 describe('collectLive: the working tree', () => {
   test('tracked uncommitted edits and untracked files count per path; scratch under .gstack/tmp/ does not', () => {
     const r = repo({ 'src/a.ts': lines(1) });
