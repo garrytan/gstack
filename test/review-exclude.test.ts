@@ -407,21 +407,23 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude).toMatchObject({ excluded: 2, content: { binary: 2 } });
   }, 120_000);
 
-  // Value: protects=a branch's .gitattributes cannot hide a credential line inside a matched file by making git call it
+  // Value: protects=a branch's .gitattributes cannot get a matched file with a credential line excluded by making git call it
   //   binary, at the plan (live tree) and at the receipt (head blobs); fails_when=the secret-line rule reads only the
   //   collector's added lines, which git leaves empty for an attribute-binary file, so the file is excluded; why_new=GST-972
-  //   item 5 (#3852 round 3, outside-voice#2); seam=bin/gstack-review-plan and reviewExclude in head mode; no_claim=pregate's gitleaks scan
-  test('a branch .gitattributes marking receipts binary cannot hide a credential line: the keep rule reads the text', () => {
+  //   item 5 (#3852 round 3, outside-voice#2); seam=bin/gstack-review-plan and reviewExclude in head mode; no_claim=pregate's gitleaks scan, what readers' own diffs show (they still follow the attributes)
+  test('a branch .gitattributes marking receipts binary cannot get a credential-line file excluded: the keep rule reads the text', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(repo);
-    commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': '{"cmd": "curl -H $OPENAI_API_KEY"}\n', 'receipts/a.json': '{"ok": true}\n' });
+    const secret = '{"cmd": "curl -H $OPENAI_API_KEY"}\n';
+    commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': secret, 'receipts/a.b/c.json': secret, 'receipts/a.json': '{"ok": true}\n', 'receipts/a/t.json': '{"ok": true}\n' });
     const p = JSON.parse(plan(repo, ['--json']).out);
-    expect(p.review_exclude.kept_files).toEqual([{ path: 'receipts/s.json', reason: 'secret-line' }]);
-    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { data: 1 } });
+    const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' }, { path: 'receipts/s.json', reason: 'secret-line' }];
+    expect(p.review_exclude.kept_files).toEqual(kept);
+    expect(p.review_exclude).toMatchObject({ excluded: 2, content: { data: 2 } });
     const head = repo.git('rev-parse', 'HEAD');
     const baseSha = repo.git('rev-parse', 'origin/main');
     const c = collectCommit(repo.work, baseSha, head);
     const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
-    expect(x.state === 'active' && x.kept).toEqual([{ path: 'receipts/s.json', reason: 'secret-line' }]);
+    expect(x.state === 'active' && x.kept).toEqual(kept);
     expect(x.state === 'active' && x.record.digest).toBe(p.review_exclude.digest);
   }, 120_000);
 

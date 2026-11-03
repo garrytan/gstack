@@ -158,16 +158,27 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
 /**
  * The added lines of matched files git calls binary only because of their attributes (the bytes hold no NUL): the
  * collector's added lines are empty for them, so the secret-line rule reads `git diff --text` instead, which no
- * .gitattributes, textconv or external diff driver changes. A git failure puts the path in `unread`.
+ * .gitattributes, textconv or external diff driver changes. One git diff per KEEP_ARG_MAX_BYTES of literal pathspecs;
+ * git prints one section per path in byte order, so a chunk whose sections do not line up with its sorted paths, or a
+ * git failure, puts every path of that chunk in `unread`.
  */
 function attributeBinaryLines(i: ExcludeInput, paths: readonly string[], unread: Set<string>): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
-  for (const p of paths) {
-    const r = git(i.root, ['diff', '--text', '--no-textconv', '--no-ext-diff', '--no-renames', '-U0', ...range, '--', literal(p)]);
-    if (!r.ok) { unread.add(p); continue; }
-    let hunk = false;
-    out[p] = r.out.split('\n').filter(l => (hunk ||= l.startsWith('@@')) && l.startsWith('+')).map(l => l.slice(1));
+  const chunks: string[][] = [];
+  let bytes = Infinity;
+  for (const p of [...paths].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
+    const n = argBytes([p]);
+    if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
+    chunks[chunks.length - 1]!.push(p);
+    bytes += n;
+  }
+  for (const chunk of chunks) {
+    const r = git(i.root, ['diff', '--text', '--no-textconv', '--no-ext-diff', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', '-U0', ...range, '--', ...chunk.map(literal)]);
+    const sections = r.ok ? r.out.split(/^(?=diff --git )/m).filter(s => s.startsWith('diff --git ')) : [];
+    const aligned = sections.length === chunk.length && chunk.every((p, k) => /["\\\x00-\x1f\x7f]/.test(p) || sections[k]!.startsWith(`diff --git a/${p} b/${p}\n`));
+    if (!aligned) { for (const p of chunk) unread.add(p); continue; }
+    chunk.forEach((p, k) => { let hunk = false; out[p] = sections[k]!.split('\n').filter(l => (hunk ||= l.startsWith('@@')) && l.startsWith('+')).map(l => l.slice(1)); });
   }
   return out;
 }
