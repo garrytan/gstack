@@ -23,6 +23,11 @@
  *      copy-paste): fix the bloat instead.
  *   3. After a token-reduction phase lands: re-run the capture so ceilings
  *      ratchet down and the win is locked against regression.
+ *
+ * Hand pin: capy/skill/gstack went from 5315 to 5425 (measured 5409, rounded up
+ * to the next 25, no headroom) for the host-adaptation line saying
+ * tools.capy.read returns a cut-down view, so a read-then-write truncates
+ * (2026-11-03). Raise a hand pin only by what the change needs.
  */
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
