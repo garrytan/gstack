@@ -385,7 +385,7 @@ and matching is token-bounded: `costume` never reads as cost.
 
 | Class | Signal |
 |---|---|
-| money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
+| money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd` whose name says cap, limit, max, budget, ceiling, allowance, spend, price, fee, bill or payment, or that a `<` or `>` compares (reading or reporting `cost_usd` is not money, GST-962); any `spend_cap` spelling; or a call to a paid provider `lib/pricing.ts` prices. A data file no code reads (the same consumer scan the depth uses) never counts as money by its name or its rows (GST-961); every other class still reads it |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
 | auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH`, and `SCOPE_AUTH` fails safe: any name token containing auth sets it (`auth.ts`, `/auth/`, `oauth`, `useAuth.ts`, `nextauthmiddleware.ts`) except the authorship words `author`, `authors`, `authored`, `authoring`, `authorship`, `authority`, `authorities`, `coauthor` and `coauthors` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |

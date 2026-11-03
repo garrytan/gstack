@@ -245,7 +245,7 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
-const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
+export const unconsumedData = (i: Pick<ClassInput, 'consumed' | 'drawings' | 'root'>, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
 const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
