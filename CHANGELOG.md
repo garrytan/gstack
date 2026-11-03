@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.94.15.0] - 2026-11-03
+
+- **A stacked PR keeps its /ship receipt after its parent squash-merges, even when the receipt was written against main (GST-1199).** `gstack-ship-receipt carry` used to refuse with `RECEIPT_CARRY_PRODUCT_CHANGED` once the parent's hunks moved into main, forcing a full re-review of unchanged code. The carry now finds the newest reviewed commit that main already holds (`git merge-tree` into main changes no product path) and compares from there: an unchanged child carries as `stack parent <sha12> landed`, base edits next to the child's hunks go to `RECEIPT_CARRY_SCOPED_REVIEW`, and any other change still refuses. A parent that never landed never counts, even if the child's merge dropped its change.
+
+## [1.94.14.0] - 2026-11-03
+
+**`review_exclude_paths` keeps code it used to exclude, and the docs say exactly what the receipt check stops (GST-972).** Three ways to get code or a credential out of review under a base pattern are closed, each with a failing-first test in `test/review-exclude.test.ts`, and the receipt docs no longer over-claim.
+
+### Fixed
+- **Native binaries are code.** A `.node`, `.so`, `.dylib` or `.dll` file under a base pattern was excluded as binary content, and so was a compiled executable with a data extension. A binary file that starts with ELF, Mach-O (universal binaries included), PE, WebAssembly or `#!` magic is now kept as `code` whatever its extension. Binary here is git's own verdict on the bytes, read with no attributes from the tree as well as with the branch's, so a branch's `.gitattributes` (`*.png diff -binary`) cannot make an ELF read as text and skip the check (#3910).
+- **A NUL byte no longer makes code excludable.** A binary file was content unless its extension was on a short source list, so `.gradle`, `.sql`, `.tf`, `.groovy`, a `.p12` key store or an extensionless private key with a NUL byte was excluded. A binary file is now content only under a known content extension (images, fonts, media, documents, compressed archives, `.bin`, `.dat` and data blobs); every other binary file is kept as `code`.
+- **A branch's `.gitattributes` cannot get a file with a credential line excluded.** Marking `receipts/**` binary left the collector's added lines empty, so the secret-line keep rule saw nothing and the file was excluded. For a file git calls binary only because of its attributes, the rule now reads `git diff --text --no-textconv --no-ext-diff`, so the file stays in review and the plan lists it as `REVIEW_EXCLUDE_KEPT: secret-line`. Readers' own diffs still follow the branch's attributes and show that file as `Binary files differ`; reading such files as text in every reader's diff is a separate follow-up.
+- **`gstack-ship-receipt write --review-exclude` docs are exact.** The help, `docs/troubleshooting.md`, `docs/ship-policy.md` and the queue's refusal line said a receipt write alone cannot clear `field=review_exclude`. Write checks the digest against the base policy and does not read the review ledger, so a write given the refusal's `expected=` digest passes without a review. A mismatch proves only that the `--review-exclude` argument (or the digest the receipt recorded from it) differs from the head's selection, not what the readers read. The text now says that, and that the review rerun is the fix.
+
+## [1.94.13.0] - 2026-11-03
+
+- **A bare `--base main` reads origin/main in every review and ship bin (GST-1036).** `gstack-review-plan` now prints `REVIEW_BASE: <ref> <sha>` and names a lagging local base on stderr. `gstack-banned-terms`, `gstack-prose-lint --base`, `gstack-docs-candidate`, `gstack-design-detect.ts scan --changed` and `gstack-pr-shots --base` no longer merge against a stale local main and report lines the branch only inherited. They all use the one resolver gstack-gate-diff already used.
+- **`gstack-diff-scope` stops treating authorship files as auth (GST-1065).** `author-spec.md`, `AUTHORS`, `authority.ts` and `coauthors.ts` no longer raise a docs diff to gate class. Every other name with auth in it still does, including `auth.ts`, `/auth/`, `oauth`, `nextauthmiddleware.ts` and camelCase names like `useAuth.ts`.
+
+## [1.94.12.0] - 2026-11-03
+
+### Fixed
+
+- **Six markup tricks no longer pass a remote-loading or scripted SVG off as a chart (GST-940).** `&#60;/style>` or `&#60;!--` inside a `<style>` element, a comment that only an HTML parser ends early, a `>` inside a quoted attribute on the `<style>` tag, or a Unicode space before the `>` of `</style>` let CSS that loads a remote image read as a plain drawing, and a non-ASCII namespace prefix such as `<gé:script>` hid a script. Any of these could get the SVG a light review. The style walker now reads the `<style>` tag as quoted pairs with ASCII whitespace and its text as written, refuses any `&` in it, and reads its comments as CSS; a non-ASCII character in an element or attribute name keeps the SVG code. Over 62,805 unique SVG files, no other verdict changed.
+
+## [1.94.11.0] - 2026-11-03
+
+**A granted fix-check's clean read now counts at Step 16.** On gstack-evals#168 the owner granted one scoped fix-check, the reader read `9b0c56c..7ea1907` and found nothing, and `gstack-ship-release finish` still stopped with `STOP: behavior, tests or build inputs changed since review (tests/panel-kit-v3-1.test.ts)`, sending the test file the fix-check had read back through Steps 5 to 11.5. The review-loop exception could not help, because it is the owner accepting unreviewed edits and it never accepts a gate-edited test. The fix-check row also read `UNVERIFIED`, because it was logged without its `completed` and `converged` fields (GST-1130, GEVA-218).
+
+### Fixed
+- **`gstack-ship-release finish`** reads the newest `review-fix-check` row. When the row is a completed clean read on committed content, its `range_base` is a branch commit holding the reviewed tree, and the owner's recorded `review_loop_grant` names a stop head inside that range, every code or test path inside that range that is unchanged since routes as `fix_checked=` on the `ROUTE:` line, with a `FIX_CHECK: reviewed <paths>` line. That includes a gate-edited test. Authored docs still get the plan-item recheck, and a path edited after the fix-check still stops. A row that does not qualify prints `FIX_CHECK: not counted (<reason>)` and changes nothing.
+- **`gstack-review-log`** refuses a `review-fix-check` row that does not carry `completed` and `converged` as true or false, and keeps the start token for the retry. The refusal names the missing fields, so the row is fixed when it is written instead of reading `UNVERIFIED` at Step 11.5.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: a fixture shaped like gstack-evals#168 (a round-2 pass, then a fix commit that edits the source and a gate-edited test) stops on main and passes finish once a clean fix-check row with its range base is logged through the real `gstack-review-log`. Negative controls: an edit after the fix-check still stops, and an ungranted row, a grant for another stop head, an incomplete row, a row with no range base, a range base that does not hold the reviewed tree, or a row logged on uncommitted content is not counted.
+- `test/review-log-findings.test.ts`: a `review-fix-check` row missing either field, or with a non-boolean value, is refused and keeps its start token; the complete row binds as verified.
+
+## [1.94.10.0] - 2026-11-03
+
+**Windows checks now run by path.** Windows Setup E2E, the 10-to-25-minute install test, no longer starts its Windows jobs on a pull request whose only install change is `package.json`'s version line, which the merge-train stamp puts on every pull request before it merges. Of the 61 pull requests in its last 100 runs (as of 2026-11-03), 37 changed no install file besides `package.json`. Its path list also gains `bun.lock` and the `bin/` scripts that the test or `./setup` runs. A new `Windows Scoped Tests` workflow runs the Windows-safe test files a pull request changed, on one Windows job, when the pull request touches path, file-name or process code, such as a hook script or a new `spawnSync` call. On the last 120 commits to main (through 923fc0a) it would have run on 50, with a median of one test file. It catches both Windows breaks the plan names: /freeze's path check (#3758) and a test that started Bun with `--config=/dev/null` (#3829). A red run blocks its pull request like any failed check, so this release also fixes #3829's test, which has failed every nightly Windows run since it landed. `windows-smoke` still runs on every pull request, and the full Windows suite still runs nightly.
+
+### CI
+- `.github/workflows/windows-setup-e2e.yml`: a Linux `windows-scope` job runs first and skips both Windows jobs when the only install change is `package.json`'s `"version"` line. Paths add `bun.lock`, `bin/gstack-config`, `bin/gstack-patch-names` and the scripts `./setup` sources or runs.
+- `.github/workflows/windows-scoped-tests.yml` (new): a Linux scope job reads the diff's file names and changed code lines, picks the changed files in the curated Windows-safe subset, and a `windows-latest` job runs them. The `windows-scoped-tests` check passes when nothing is in scope, so a skipped run still reports success. A `workflow_dispatch` with a `files` input reruns chosen Windows-safe files on a branch.
+
+### Tests
+- `test/review-risk-linear.test.ts`: the rules-hash case starts Bun with `bunIsolationArgs()` (`--config=NUL` on native Windows) instead of `--config=/dev/null`, which native Windows Bun cannot open (nightly Windows Free Tests run 41420490350, EINVAL).
+- `scripts/test-pr-profile.ts`: the new workflow is listed as free-lane only beside the other Windows workflows (test/free-fixtures.test.ts requires every workflow to be classified).
+- `test/windows-path-scope-workflow.test.ts`: runs both scope steps in a two-commit git repository. The filter catches #3758's and #3829's changed files and passes over a docs-and-stamp change and a pure-logic change. The Setup E2E scope skips a version-only `package.json` bump and runs on a dependency change. `windows-smoke` stays unfiltered, and no job that can skip is a required check.
+
+## [1.94.9.0] - 2026-11-03
+
+**A pull request can clear its remote gate obligation from a run with named flaky failures, once the owner grants it (GST-1096).** A timing flake in a test file the pull request never touched used to keep the pregate red with no way through but another paid run. `gstack-pregate clear --remote <lane> --run <id|url> --flaky-exception "<file>::<case>" --pr <n> --grant <approval id>` now accepts such a run when every failure is named from the run's own shard results and logs, at most three cases, each file outside the pull request's diff and its import closure, none paid and none a security scan test, and a gstack-approvals row in the owner's words binds the repository, PR, head, tree, lane, run attempt and cases. It covers the pregate only, and a red required CI check still needs its own green run.
+
+### Added
+- **`--flaky-exception`, `--pr` and `--grant` on `gstack-pregate clear`** (`lib/pregate/flaky-exception.ts`). Every job of the run attempt is reconciled (only test-shard jobs and their aggregate may fail), every planned shard needs a complete result, and each failed shard's log must name no failure its result leaves out. Without `--grant` the clear checks everything and prints the exact `gstack-approvals add` command, whose scope is a digest of everything the grant binds, so a grant can never be moved to another head or case list.
+- **`pass-with-exception`.** pregate.json records `exceptions`; `gstack-pregate verify` re-checks the binding offline and prints `PREGATE: pass-with-exception (<cases>; grant <id>)`; `gstack-ship-queue ready` accepts it and prints a `FLAKY_EXCEPTION:` line; the ship receipt records `flaky_exception`.
+- **docs/pregate.md#flaky-exception**, including why `base_red` is not used: it proves a failure by reproducing it on the base, and a timing flake passes there.
+
+### Tests
+- `test/pregate-flaky-exception.test.ts`: a red run with one named flake clears once the bound grant exists, and verify, ready and the receipt report it; refusals for an unnamed or extra failure, a case that did not fail, more than three cases, an unattributed failure, a failed non-shard job, a missing result or log, a timed-out shard, a log failure the result omits, a file in the diff or its import closure, a paid or security test, another head, another PR head, a newer run, a run from another repository or fork, a stale or unfinished run, a moved attempt (also after the inventory runs), and a grant with another scope, outcome or speaker; ready still refuses red CI, and refuses an exception granted for another PR or head. The printed grant command quotes case names for the shell. These tests failed before the change.
+
 ## [1.94.8.0] - 2026-11-03
 
 **`gstack-approvals render` no longer puts the owner's exact words, autoplan run ids or plan hashes into PR bodies on public repositories (GST-1160).** On a public repo, /ship pasted the full `## Approvals` table into the PR description. That table carries the owner's verbatim quote, the run id and the plan sha256, and GitHub keeps every earlier version of a description in its edit history, which no API can delete.

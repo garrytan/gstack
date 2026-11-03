@@ -38,6 +38,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { baseContainsHead } from '../lib/default-base';
+import { baseArg } from '../lib/gate-diff/git';
 import { resultLine } from '../lib/result-codes';
 import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
@@ -138,7 +139,7 @@ function main(argv: string[]): void {
     if (out === top || out.startsWith(top + path.sep)) throw new Error('--out must be outside the repository');
     const mode = one(args, '--mode');
     if (mode !== 'edit' && mode !== 'read-only') throw new Error('--mode must be edit or read-only');
-    const base = git(['rev-parse', '--verify', one(args, '--base') + '^{commit}']).trim();
+    const base = git(['rev-parse', '--verify', baseArg('gstack-docs-candidate', one(args, '--base'), process.cwd()) + '^{commit}']).trim();
     const self = baseContainsHead(top, base);
     if (self) throw new Error(resultLine('snapshot', 'BASE_CONTAINS_HEAD', self));
     const exceptionFile = flag(args, '--exception')[0];
