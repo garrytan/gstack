@@ -153,6 +153,22 @@ export function laneMapping(from: Record<string, ShipLaneMapping>, command: stri
 export const mappingCoverage = (m: ShipLaneMapping, cwd: string): { inventory?: () => string[] | { error: string }; jobs?: string[]; perFile?: boolean } =>
   m.jobs ? { jobs: m.jobs } : { inventory: () => runInventory(m.inventory!, cwd), perFile: !!m.per_file };
 
+/**
+ * What `gstack-evidence record-ci` reported, read from its own last record line onward (the per_file remainder's output comes
+ * first, so a test printing look-alike lines cannot change the reading): the carried runs, count, unit and remainder, any
+ * not-owed reason, or the last CARRY_NONE reason.
+ */
+export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; none?: string } {
+  const lines = stderr.split('\n');
+  const at = lines.findLastIndex(x => x.startsWith('gstack-evidence: recorded label=') && x.includes(' log=- source=ci runs='));
+  const none = lines.findLast(x => x.startsWith('CARRY_NONE: '))?.slice('CARRY_NONE: '.length);
+  if (at < 0) return none ? { none } : {};
+  const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(lines[at]!);
+  const here = / skipped_here=(\d+) tests_ran_here=(\S+)$/.exec(lines[at]!);
+  const notOwed = lines.slice(at + 1).find(x => x.startsWith('gstack-evidence: not owed: '))?.slice('gstack-evidence: not owed: '.length);
+  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}` } : {}) };
+}
+
 /** The per_file runner command for `files`: `{files}` replaced by the paths, each single-quoted for bash. */
 export const perFileCommand = (template: string, files: string[]): string =>
   template.replaceAll('{files}', files.map(f => `'${f.replace(/'/g, `'\\''`)}'`).join(' '));

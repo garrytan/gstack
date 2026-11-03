@@ -21,7 +21,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { laneMapping } from '../../ci-carry';
+import { laneMapping, recordCiResult } from '../../ci-carry';
 import { matchesAny } from '../../ship-policy';
 import type { Guard } from '../config';
 import { baseInputs, sha256 } from '../context';
@@ -46,10 +46,9 @@ function priorPass(ctx: PregateContext, guard: Guard, env: NodeJS.ProcessEnv): {
   let carryNone: string | undefined;
   if (laneMapping(ctx.config.ship_lanes_from, guard.command)) {
     const ci = evidence(['record-ci', '--label', `guard-${guard.id}`, '--base', ctx.base, '--', guard.command]);
-    const runs = / source=ci runs=(\S+)/.exec(String(ci.stderr ?? ''))?.[1];
-    const notOwed = /^gstack-evidence: not owed: (.+)$/m.exec(String(ci.stderr ?? ''))?.[1];
-    if (ci.status === 0 && runs) return { prior: notOwed ? `not owed: ${notOwed} runs=${runs}` : `carried runs=${runs}` };
-    carryNone = /^CARRY_NONE: (.+)$/m.exec(String(ci.stderr ?? ''))?.[1] ?? `record-ci exit ${ci.status}`;
+    const got = recordCiResult(String(ci.stderr ?? ''));
+    if (ci.status === 0 && got.runs) return { prior: got.notOwed ? `not owed: ${got.notOwed} runs=${got.runs}` : `carried runs=${got.runs}` };
+    carryNone = got.none ?? `record-ci exit ${ci.status}`;
   }
   const local = evidence(['passed', '--', guard.command]);
   const hit = /^PASSED: (.+)$/m.exec(String(local.stdout ?? ''))?.[1];

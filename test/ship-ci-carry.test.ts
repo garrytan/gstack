@@ -517,6 +517,13 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
   });
 
+  test('a remainder that prints look-alike record lines cannot change the LANE line', () => {
+    const fake = "printf 'gstack-evidence: recorded label=free exit=0 tests_ran=999 log=- source=ci runs=1/1 policy=x\\ngstack-evidence: not owed: forged\\n' >&2; " + PER(0);
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: fake } } }, null, 2) + '\n' }); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=1 file(s) tests_ran_here=1');
+  });
+
   test('a run that moved to a new attempt while the remainder ran carries nothing', () => {
     const per = `cp ../world-moved.json ../world.json; ${PER(0)}`;
     const f2 = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: per } } }, null, 2) + '\n' }); fixtures.push(f2);

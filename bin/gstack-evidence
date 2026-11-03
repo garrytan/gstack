@@ -705,12 +705,13 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   if (v.remainder?.length) {
     const hereLabel = `${label}.skipped`;
     console.error(`gstack-evidence record-ci: ${v.remainder.length} inventory file(s) skipped every test in CI; running them here (label=${hereLabel})`);
-    const exit = await cmdRun(["--label", hereLabel, "--", perFileCommand(m.per_file!, v.remainder)]);
+    const hereCommand = perFileCommand(m.per_file!, v.remainder);
+    const exit = await cmdRun(["--label", hereLabel, "--", hereCommand]);
     if (exit !== 0) return none("skipped_failed", `the per_file run of ${v.remainder.length} skipped file(s) exited ${exit} (label=${hereLabel})`);
     if (wtree() !== tree) return none("tree_changed", `the working tree changed while the per_file run of label=${hereLabel} ran`);
     let rows: EvidenceRecord[] = [];
     try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
-    here = { label: hereLabel, files: v.remainder, tests_ran: rows.findLast((r) => r.label === hereLabel && r.source === undefined)?.tests_ran ?? "unknown" };
+    here = { label: hereLabel, files: v.remainder, tests_ran: rows.findLast((r) => r.label === hereLabel && r.source === undefined && r.cmd_sha256 === sha256(hereCommand) && r.wtree === tree)?.tests_ran ?? "unknown" };
     if (typeof here.tests_ran !== "number" || here.tests_ran <= 0) return none("skipped_zero_run", `the per_file run of ${v.remainder.length} skipped file(s) ran ${here.tests_ran} tests here (label=${hereLabel}); a lane passes on its runner count, never exit 0 alone`);
     for (const e of v.runs) {
       const changed = runChanged(check.deps, e.run_id, e.run_attempt);

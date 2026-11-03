@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
-import { laneMapping, type ShipLaneMapping } from './ci-carry';
+import { laneMapping, recordCiResult, type ShipLaneMapping } from './ci-carry';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
@@ -190,11 +190,9 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
  */
 export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
   const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
-  const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(rec.stderr);
-  const notOwed = /^gstack-evidence: not owed: (.+)$/m.exec(rec.stderr)?.[1];
-  const here = / skipped_here=(\d+) tests_ran_here=(\S+)$/m.exec(rec.stderr);
-  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[2] ? `${got[1]} (files)` : got[1]!, log: '-', carried: got[3]!, ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}` } : {}) };
-  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: /^CARRY_NONE: (.+)$/m.exec(rec.stderr)?.[1] ?? `record_failed: ${firstLine(rec.stderr)}` };
+  const got = recordCiResult(rec.stderr);
+  if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}) };
+  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}` };
 }
 
 /**
