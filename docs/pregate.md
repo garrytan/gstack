@@ -1021,9 +1021,9 @@ obligations still clear with `gstack-pregate clear --remote <lane> --run-url
 
 <a id="dispatch-carry"></a>**A dispatched run can hide a red merge commit.** A
 `workflow_dispatch` run reports its checks on the head commit under the same
-job names as the `pull_request` run, and GitHub counts the newest check of a
-name. So a green dispatch run of HEAD's own tree can satisfy a required check
-whose `pull_request` run failed on the merge commit, and without strict branch
+job names as the `pull_request` run. So a green dispatch run of HEAD's own tree
+can stand in for a required check whose `pull_request` run failed on the merge
+commit, and without strict branch
 protection ("Require branches to be up to date before merging") the pull
 request can merge with that failure hidden (GBEV-3). Turn on strict protection
 for the base branch, or give dispatch runs distinct job names (for example a

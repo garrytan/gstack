@@ -506,6 +506,11 @@ describe('gstack-evidence tests_ran — zero-run green is a third state, never m
     expect(records().pop().tests_ran).toBe(3336);
     run(['run', '--label', 'tests', '--', log('again.out', shard(2, 9, 0) + shard(2, 3336, 18))]);
     expect(records().pop().tests_ran).toBe(3336);
+    run(['run', '--label', 'tests', '--', log('rerun.out', shard(1, 2759, 20) + shard(2, 3336, 18) + shard(1, 4, 0))]);
+    expect(records().pop().tests_ran).toBe(4);
+    const big = (i: number) => `bun test v1\n--shard=${i}/2: running 20/40 test files\n` + Array.from({ length: 2000 }, (_, k) => `(pass) case ${k} padded test name for size [0.01ms]`).join('\n') + '\n\n 2000 pass\n 0 fail\nRan 2000 tests across 20 files. [10.00ms]\n';
+    run(['run', '--label', 'tests', '--', log('big.out', big(1) + big(2))]);
+    expect(records().pop().tests_ran).toBe(4000);
   });
 
   test('an unrecognised runner is unknown: non-blocking, labelled in the detail', () => {
