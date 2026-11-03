@@ -933,6 +933,17 @@ run. On a small machine a selection the run covers records no remote gate
 obligation. It prints `CI_CARRY: accepted <receipt>` or `CI_CARRY: none
 (<reason>)` on stderr; `--no-ci-carry` skips the lookup.
 
+When files are left over, the remote gate obligation still clears from the
+same run when the base declares `remote_gate_runs` naming that run's profile:
+the run must pass every `clear --run` check, with the carried files counted
+as selected files. So a remainder of only files the gate's `skipped` command
+names (gstack's paid evals, which the gate itself reports as
+`PREGATE_REMOTE_PAID_ONLY` with `tests=0`) clears with `skipped=<n>` in the
+receipt instead of becoming an obligation nothing can clear. The line is
+`CI_CARRY: cleared pregate.json/remote_gate <receipt>`, or `CI_CARRY:
+pregate.json/remote_gate stays uncleared (<reason>)` when a check refuses, for
+example a gate inventory file missing from the run's `tree.json`.
+
 **/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
 `.gstack/pregate.json` maps its exact command (the evidence ledger binds the
 command's sha256; a label alone never carries) to the profiles whose runs carry

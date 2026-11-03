@@ -103,7 +103,28 @@ export async function runPregate(ctx: PregateContext, o: RunOptions): Promise<Pr
     requires_remote: remote,
   };
   file.verdict = verdictOf(file);
+  const gateLine = carryGate(ctx, file);
+  if (gateLine) ctx.progress(gateLine);
   return file;
+}
+
+/**
+ * After a verified run carried part of the tests stage, that run clears the remote gate obligation under `clear --run`'s
+ * own checks (remote_gate_runs profiles, inventory coverage, skipped files). The obligation is checked as the carried
+ * files plus the rest: without that, a remainder of only gate-skipped files (gstack's paid evals) is refused paid_only,
+ * and the gate itself reports tests=0 for it, so nothing could ever clear it.
+ */
+function carryGate(ctx: PregateContext, file: PregateFile): string | null {
+  const gate = file.requires_remote?.find(r => r.lane === REMOTE_GATE_LANE && !r.receipt);
+  const carried = file.checks.find(c => c.id === 'lanes')?.from_run?.files;
+  if (!gate || !carried?.length || !ctx.fromRun || !('inventory' in ctx.fromRun.check)) return null;
+  const check = ctx.fromRun.check as RunCheck;
+  if (!check.gateRuns) return null;
+  const view: PregateFile = { ...file, requires_remote: file.requires_remote!.map(r => (r === gate ? { ...r, tests: [...new Set([...carried, ...r.tests])] } : r)) };
+  const d = clearByRuns(view, REMOTE_GATE_LANE, [ctx.fromRun.ref], check, ctx.repoRoot);
+  if (!('receipt' in d)) return `CI_CARRY: ${REMOTE_GATE_LANE} stays uncleared (${d.message})`;
+  clearObligation(file, REMOTE_GATE_LANE, d.receipt, 'ci-carry', d.substitution);
+  return `CI_CARRY: cleared ${REMOTE_GATE_LANE} ${d.receipt}`;
 }
 
 /** `pass`, `warn`, `requires-remote`, `incomplete` or `fail`: the worst status across checks, with uncleared obligations counted. */
