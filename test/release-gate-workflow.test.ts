@@ -26,7 +26,10 @@ const scratch: string[] = [];
 afterAll(() => { for (const d of scratch) fs.rmSync(d, { recursive: true, force: true }); });
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' };
 
-/** Run a policy step's script in a scratch repo whose one commit holds this policy; returns its GITHUB_OUTPUT lines as an object. */
+/**
+ * Run a policy step's script in a scratch repo whose one commit holds this policy; returns its GITHUB_OUTPUT lines as an object.
+ * Git Bash's argument conversion is off, as on the Linux runners these steps run on: it rewrites `origin/main:.gstack/…` into a path list.
+ */
 function runStep(step: Step, policy: unknown): Record<string, string> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-gate-wf-'));
   scratch.push(dir);
@@ -44,7 +47,7 @@ function runStep(step: Step, policy: unknown): Record<string, string> {
   const out = path.join(dir, 'out');
   const r = spawnSync('bash', ['-e', '-c', step.run!], {
     cwd: dir, encoding: 'utf8', timeout: 30_000,
-    env: { ...process.env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: path.join(dir, 'summary'), GITHUB_SHA: sha, BASE_SHA: '', DEFAULT_BRANCH: 'main' },
+    env: { ...process.env, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*', GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: path.join(dir, 'summary'), GITHUB_SHA: sha, BASE_SHA: '', DEFAULT_BRANCH: 'main' },
   });
   expect(r.status, r.stderr).toBe(0);
   const lines = (fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '').split('\n').filter(Boolean);
