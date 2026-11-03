@@ -18,6 +18,8 @@ import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { cmpVersion, parseVersion } from './version-source';
+import { placeholderErrors, templateErrors } from './ship-policy-stamps';
+export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
 export const SHIP_POLICY_SCHEMA = 'https://github.com/garrytan/gstack/docs/ship-policy.md#schema-v1';
@@ -280,11 +282,6 @@ const MAX_PATTERN = 256;
 const MAX_REGEX = 512;
 const MAX_COMMAND = 512;
 const SHA_RE = /^[0-9a-f]{7,64}$/;
-const MAX_TEMPLATES = 16;
-const MAX_TEMPLATE = 128;
-const MAX_PLACEHOLDERS = 16;
-const MAX_PLACEHOLDER = 32;
-export const VERSION_SLOT = '{version}';
 
 function hasDotDot(p: string): boolean {
   return p.split(/[\\/]+/).some(seg => seg === '..');
@@ -348,29 +345,6 @@ function excludeErrors(value: unknown, out: PolicyError[]): void {
   value.forEach((p, i) => {
     const why = typeof p !== 'string' ? 'must be a string' : containedRelative(p) ?? (/^[:!]/.test(p) ? 'must not start with : or ! (no pathspec magic or negation)' : /[\x00-\x1f\x7f]/.test(p) ? 'contains a control character' : p.replace(/\/+$/, '') === '' || p === '.' ? 'must not name the whole repository' : null);
     if (why) out.push({ code: 'POLICY_INVALID', path: `review_exclude_paths[${i}]`, message: `${JSON.stringify(p)} ${why}` });
-  });
-}
-
-function templateErrors(value: unknown, out: PolicyError[]): void {
-  if (!Array.isArray(value)) { out.push({ code: 'POLICY_INVALID', path: 'stamp_patterns', message: 'must be an array of literal templates' }); return; }
-  if (value.length > MAX_TEMPLATES) out.push({ code: 'POLICY_CONTAINMENT', path: 'stamp_patterns', message: `more than ${MAX_TEMPLATES} templates` });
-  value.forEach((t, i) => {
-    const at = `stamp_patterns[${i}]`;
-    if (typeof t !== 'string') { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be a string' }); return; }
-    if (t.split(VERSION_SLOT).length !== 2) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(t)} must contain exactly one ${VERSION_SLOT}` });
-    else if (t.length > MAX_TEMPLATE || /[\0\r\n]/.test(t)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one line of at most ${MAX_TEMPLATE} characters` });
-  });
-}
-
-function placeholderErrors(value: unknown, out: PolicyError[]): void {
-  if (!Array.isArray(value)) { out.push({ code: 'POLICY_INVALID', path: 'stamp_placeholders', message: 'must be an array of literal placeholders' }); return; }
-  if (value.length > MAX_PLACEHOLDERS) out.push({ code: 'POLICY_CONTAINMENT', path: 'stamp_placeholders', message: `more than ${MAX_PLACEHOLDERS} placeholders` });
-  value.forEach((p, i) => {
-    const at = `stamp_placeholders[${i}]`;
-    if (typeof p !== 'string') { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be a string' }); return; }
-    if (!p.trim() || p.length > MAX_PLACEHOLDER || /[\0\r\n]/.test(p)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one non-empty line of at most ${MAX_PLACEHOLDER} characters` });
-    else if (p.includes(VERSION_SLOT)) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(p)} must not contain ${VERSION_SLOT}` });
-    else if (parseVersion(p)) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(p)} is a version, not a placeholder` });
   });
 }
 
