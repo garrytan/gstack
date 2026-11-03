@@ -430,6 +430,9 @@ export async function launchWithXProtectHeal<T>(
         throw retryErr;
       }
     }
+    // The guidance reinstalls Playwright's bundle, which cannot repair a
+    // GSTACK_CHROMIUM_PATH bundle, so a custom path keeps the original error.
+    if (opts.usesCustomExecutable) throw err;
     const message = err instanceof Error ? err.message : String(err);
     if (isXProtectKillSignature(message, deps.platform ?? process.platform)) {
       throw new Error(buildXProtectGuidance(message), { cause: err });

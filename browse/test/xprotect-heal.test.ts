@@ -371,6 +371,18 @@ describe('launchWithXProtectHeal', () => {
     expect(thrown!.message).toContain('bunx playwright install chromium');
   });
 
+  it('never tells a custom executable to reinstall the Playwright bundle', async () => {
+    const counters = { installs: 0, quarantines: 0 };
+    const original = new Error(SIGKILL_BROWSER_CLOSED);
+    const thrown = await launchWithXProtectHeal(
+      async () => { throw original; },
+      { usesCustomExecutable: true },
+      makeDeps(counters),
+    ).catch((err) => err);
+    expect(thrown).toBe(original);
+    expect(counters.installs).toBe(0);
+  });
+
   it('passes unclassified failures through untouched', async () => {
     const counters = { installs: 0, quarantines: 0 };
     let thrown: Error | null = null;
