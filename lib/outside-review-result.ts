@@ -202,8 +202,8 @@ function plainReview(text: string): string {
  * an opener closes only when a later marker of its kind is at least as long.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
-/** A verdict label before an inline span: `Verdict: \`ready\`` keeps its value. */
-const VERDICT_BEFORE = /^[\t ]*(?:>[\t ]*)*(?:#{1,6}[\t ]+|[-+*][\t ]+)?(?:\*\*|__)?(?:(?:overall|final)[\t ]+)?verdict(?:\*\*|__)?[\t ]*(?::|\u2014|\u2013|-)?[\t ]*(?:\*\*|__)?[\t ]*$/i;
+/** A verdict line keeps every inline span: `Verdict: \`ready\` (tests \`not run\`)` is read whole. */
+const VERDICT_LINE = /^[\t ]*(?:>[\t ]*)*(?:#{1,6}[\t ]+|[-+*][\t ]+)?(?:\*\*|__)?(?:(?:overall|final)[\t ]+)?verdict\b/i;
 function withoutCode(text: string, readUnclosed = false): string {
   const lines = text.split(/\r?\n/);
   const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
@@ -227,7 +227,7 @@ function withoutCode(text: string, readUnclosed = false): string {
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
       inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at))
-        || VERDICT_BEFORE.test(line.slice(0, at)) ? inner : ' ');
+        || VERDICT_LINE.test(line) ? inner : ' ');
   }).join('\n');
 }
 
@@ -269,9 +269,9 @@ function lastVerdict(plain: string): string | undefined {
   return undefined;
 }
 /** A verdict that approves the change. */
-const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|clean|good to (?:go|merge|ship))\b/i;
+const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|clean|good to (?:go|merge|ship))\b(?![-?/])/i;
 /** A verdict that says the reviewer could not check, run or see something is never a ready one (#3925). */
-const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to|did not|didn['\u2019]t)\s+(?:be\s+)?(?:verif|run|test|check|open|read|review)|\bunverifi|\bnot (?:been )?(?:verified|run|tested|checked|reviewed)\b|\b(?:excluded|blocked|skipped)\b/i;
+const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to|did not|didn['\u2019]t)\s+(?:be\s+)?(?:verif|run|test|check|open|read|review|execut)|\bunverifi|\bnot (?:yet|until)\b|\bnot (?:been )?(?:verified|run|tested|checked|reviewed|executed)\b|\b(?:excluded|blocked|skipped)\b/i;
 /** A numbered item at the start of a line; in a reply with a `Verdict:` line it is a finding (#3925). */
 const NUMBERED_ITEM = /^(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
 

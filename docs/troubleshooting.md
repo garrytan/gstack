@@ -184,9 +184,10 @@ the readiness dashboard and the PR body, and never count it as a pass.
   heading with the value on the next line. A last verdict that is not an
   approval (`ready`, `LGTM`, `approve`, `ship it`, `pass`, `clean`, `good to
   go`), such as `Can't verify`, `blocked`, `revise` or an empty one, or an
-  approval that says something was excluded, blocked, skipped, not run or
-  could not be verified, is [`unverified`](#outside-review-unverified-verdict),
-  never `clean`.
+  approval that says something was excluded, blocked, skipped, not run, not
+  executed or could not be verified (or "not yet", or a question such as
+  `Ready? No`), is [`unverified`](#outside-review-unverified-verdict), never
+  `clean`. Inline code inside a verdict line is read as text.
 - **Numbered findings.** In a reply with a verdict line, every numbered item
   at the start of a line (`1. x`, `1. **Nonblocking — x**`) is a finding,
   unless the reply concludes that it found nothing. When one has no readable

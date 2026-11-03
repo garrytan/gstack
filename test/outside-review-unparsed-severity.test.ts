@@ -226,6 +226,8 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
         'Verdict: ready, but I could not verify the migration', 'Verdict: ready (unverified)',
         "> Verdict: Can't verify (suites blocked)", "## Verdict\nCan't verify (one changed file excluded)", "Overall verdict: can't verify",
         "Verdict \u2014 can't verify", 'Verdict: ready, though one changed file was excluded', 'Verdict: ready (tests not run, sandbox blocked)',
+        'Verdict: `ready` (tests `not run`)', 'Verdict: Ready? Not until the migration is fixed.', 'Verdict: clean-up required before merge',
+        'Verdict: ready, but I did not execute the suites', 'Verdict: ready (tests not executed)',
       ])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'unverified', reason: 'unverified_verdict', unlabeled: 0 });
   });
