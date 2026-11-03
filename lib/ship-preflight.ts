@@ -72,6 +72,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
       return false;
     }
+    if (line === 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)' && /^RECHECK: eligible /m.test(carry.stderr ?? '')) {
+      r.next(`carry route (Step 1.4, J1): the product changed since the receipt within the scoped re-check cap: gstack-ship-receipt carry --pr ${n} --base ${base} writes the re-check packet; one reader reads it; gstack-pregate --allow-repo-commands, then carry again with --recheck <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
+      return false;
+    }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
       r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: fix what the base merge broke (CHANGELOG, size caps), commit and push; then gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet for that head; one fix-check reviewer reads it; gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;

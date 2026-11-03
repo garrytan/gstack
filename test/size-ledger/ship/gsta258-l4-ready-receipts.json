@@ -1,0 +1,4 @@
+{
+  "bytes": 401,
+  "why": "GSTA-258 L4: review fixes carry ledger_id and a Review-Finding trailer, late defers log at Step 11 (GST-1168), the result line names head= (GST-1179); then -11 bytes (#3926): trim the ship skeleton's GSTACK_RESULT paragraph by 11 bytes after the rule 19 merge of main 1ccab0d8 summed #3929's push-guards line and J1's head=<sha>; skeleton back to 61,418 under the fixed 61,420 cap"
+}

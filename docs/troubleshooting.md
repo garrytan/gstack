@@ -6062,6 +6062,30 @@ none of carry's other checks would refuse; carry without `--dry-run` writes it.
 In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
 
+<a id="receipt-carry-recheck"></a>
+### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1)
+
+**Meaning.** The product diff changed since the receipt's head, so the receipt
+can't carry as it is. When the history is linear, the base is the one the
+receipt was reviewed against, and `git range-diff` of the reviewed range
+against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
+`lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
+range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
+range-diff can clear it instead of a full second /ship. A rebased branch
+(`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
+`review_depth`, more than 20 changed product paths, a binary path, base
+context moved next to reviewed hunks, an empty or unreadable range-diff and a
+packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
+
+**Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
+`--dry-run` writes none). When it comes back clean, write
+`{"from":"<reviewed head>","head":"<HEAD>","range_diff_sha256":"<from the RECHECK line>","reader":"<model>","verdict":"clean"}`
+and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
+reason records the reader and the range-diff size. Carry still refuses when
+HEAD needs a deeper review depth or a different risk class than the receipt
+recorded; that, or a blocking finding, means /ship on the new head. In /ship
+Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
+
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
 
