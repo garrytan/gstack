@@ -242,7 +242,7 @@ export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
 export const BASE_RED_KEY_VERSION = '1.91.374.0';
 /** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
-export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.95.0.0';
+export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.11.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
