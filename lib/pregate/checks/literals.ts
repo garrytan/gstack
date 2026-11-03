@@ -57,10 +57,10 @@ export function constantsIn(text: string): Map<string, string> {
   return out;
 }
 
-/** Named numeric call sites (`timeout: 5000`) keyed by name; the last value per name wins, which is enough to spot a change. */
-export function callLiteralsIn(text: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const m of text.matchAll(CALL_PATTERN)) out.set(m[1]!, m[2]!);
+/** Named numeric call sites (`timeout: 5000`) keyed by name, every value in source order. */
+export function callLiteralsIn(text: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const m of text.matchAll(CALL_PATTERN)) out.set(m[1]!, [...(out.get(m[1]!) ?? []), m[2]!]);
   return out;
 }
 
@@ -69,7 +69,14 @@ export function changedLiterals(file: string, oldText: string, newText: string):
   const oldC = constantsIn(oldText); const newC = constantsIn(newText);
   for (const [name, old] of oldC) { const now = newC.get(name); if (now !== undefined && now !== old) out.push({ name, old, new: now, file }); }
   const oldCall = callLiteralsIn(oldText); const newCall = callLiteralsIn(newText);
-  for (const [name, old] of oldCall) { const now = newCall.get(name); if (now !== undefined && now !== old && !oldC.has(name)) out.push({ name, old, new: now, file }); }
+  for (const [name, olds] of oldCall) {
+    if (oldC.has(name)) continue;
+    const added = [...(newCall.get(name) ?? [])];
+    const removed = olds.filter(v => { const i = added.indexOf(v); if (i >= 0) added.splice(i, 1); return i < 0; });
+    if (!added.length) continue;
+    const seen = new Set<string>();
+    removed.forEach((old, i) => { if (!seen.has(old)) { seen.add(old); out.push({ name, old, new: added[Math.min(i, added.length - 1)]!, file }); } });
+  }
   return out;
 }
 

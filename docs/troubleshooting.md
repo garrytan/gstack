@@ -1705,10 +1705,12 @@ session holds a workflow lease on this installation: pid <p> (<age>m
 <checkout>/bin/gstack-upgrade once the lease is 120 minutes old, or
 GSTACK_UPGRADE_FORCE=1 <checkout>/bin/gstack-upgrade when no other session uses
 this checkout (UPGRADE_BUSY))` and leaves the
-checkout where the run started. Each `gstack-skill-start` renews the lease.
+checkout where the run started. Each `gstack-skill-start` renews the lease
+and opens a run that its `gstack-skill-end` closes; a lease whose runs are all
+closed is idle and never counts (GST-1205).
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
-every lease with its age and `alive|dead|stale`; a holder is named as
+every lease with its age and `alive|idle|dead|stale`; a holder is named as
 `pid <p> (<age>m <command>)`), then re-run `bin/gstack-upgrade`. For the
 session's own run, or a shared-harness lease, re-run once the lease is 120
 minutes old. When you know no other session uses the checkout, `GSTACK_UPGRADE_FORCE=1 bin/gstack-upgrade`
@@ -3733,6 +3735,23 @@ the entry is reported as unverified, not `REGEN_STALE`.
 **Fix.** Run the printed install command (`bun install`, or the one matching the
 repository's lockfile), then rerun `gstack-regen check` or the pre-gate.
 
+<a id="pregate-gstack-too-old"></a>
+### `PREGATE_GSTACK_TOO_OLD`
+
+**Meaning.** `.gstack/pregate.json` uses a key this gstack does not know, and
+the same tree's `.gstack/ship-policy.json` sets `min_gstack_version` above this
+gstack. The key belongs to a newer gstack (one a later release adds), so the
+line reads `needs gstack >= <version>; upgrade`. The policy still refuses,
+exactly as `PREGATE_CONFIG_INVALID` would. Only a gstack that has this check
+prints it; one released before it (1.94.0.0 included) reports the same key as
+`PREGATE_CONFIG_INVALID`.
+
+**Fix.** Upgrade gstack on this machine to at least the version named
+(`bin/gstack-upgrade`, or the session install with `--for <skill>`), then
+rerun. A repo adopting a new key raises `min_gstack_version` first, so an older
+gstack that has this check prints this instead of a generic invalid-config
+error.
+
 <a id="pregate-config-invalid"></a>
 ### `PREGATE_CONFIG_INVALID`
 
@@ -3770,7 +3789,9 @@ anchored pattern and a reason ([docs/pregate.md](pregate.md#allowlist));
 ### `PREGATE_STRAYS`
 
 **Meaning.** A file was added at the repository root, in a new top-level
-directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`).
+directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`) or an editor
+leftover name (`*.orig`, `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`,
+`.DS_Store`, `Thumbs.db`).
 
 **Fix.** Delete or move it. An intentional root file goes in `strays.allow`.
 
@@ -6451,7 +6472,7 @@ There is no ledger for that harness or id under `$GSTACK_STATE_ROOT/harness`. `g
 <a id="harness-hook-unsupported"></a>
 ### `gstack-harness: <harness> has no start hook` / `the start hook goes into the <harness> profile <dir>, and this registration uses another skills folder` (HARNESS_HOOK_UNSUPPORTED)
 
-The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` set OpenClaw reads a config outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, such a registration just gets no hook, and its receipt says so.
+The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` naming another config OpenClaw reads settings outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json` (compared after resolving symlinks) is not refused. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), unset `OPENCLAW_CONFIG_PATH` or point it at the profile's own `openclaw.json`, or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, the registration gets no hook, and `gstack-harness register` and `./setup --host` exit 4 with the reason (`HARNESS_HOOK_INACTIVE`, `start hook is off`); refreshes only print it.
 
 <a id="harness-hook-choice-invalid"></a>
 ### `gstack-harness: GSTACK_HARNESS_START_HOOK="<value>" is not on or off` (HARNESS_HOOK_CHOICE_INVALID)
@@ -6466,7 +6487,9 @@ Each harness profile has one start hook, owned by the gstack registration that w
 <a id="harness-hook-inactive"></a>
 ### `gstack-harness: <harness> start hook is written: <why>. Turn it on: <command>` (HARNESS_HOOK_INACTIVE, exit 4)
 
-The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
+The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the harness has no config yet (`no OpenClaw config at <path> yet` or `no Hermes config at <path> yet`: run `openclaw onboard` or `hermes setup` first, then `gstack-harness refresh`; gstack runs no harness command until then, because the CLI would create a config holding only gstack's plugin setting), the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
+
+The same code with `start hook is off: <why>` means you asked for the hook through `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` but this registration cannot take it (a custom `--skills-dir`, `OPENCLAW_CONFIG_PATH` naming another config, or an unsafe plugin folder); the message names the fix.
 
 <a id="harness-qm-credentials"></a>
 ### `gstack-harness: no QM admin credential in the environment` / `... needs --yes` (HARNESS_QM_CREDENTIALS)
