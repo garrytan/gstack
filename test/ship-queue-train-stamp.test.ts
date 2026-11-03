@@ -151,4 +151,24 @@ describe('stamped train prefixes', () => {
     expect(out.stamped.map(s => s.version)).toEqual(['1.2.4.0']);
     expect(show(r, out.stamped[0]!.commit + ':docs/f.md')).toBe('// since: 1.2.4.0');
   }, 60_000);
+
+  // Value: protects=a slot whose own claim is above the version the train gives it still moves its built-in-form row,
+  //   because the claim is read from the pin's own commits through the train merge (GST-1245 red team); fails_when=the
+  //   recorded versions walk only the merge's first parent (the predecessor), so the row stays at the stale claim and
+  //   the train's own receipt passes it; seam=lib/restamp.ts recordedVersions via stampChain and stampMismatch
+  test('a pin claiming 1.2.6.0 above its slot\'s 1.2.5.0 moves its own since: 1.2.6.0 row (GST-1245)', () => {
+    const r = makeFixtureRepo({ policy: POLICY, prefix: 'train-stamp-' }); repos.push(r);
+    pin(r, 'g', 'origin/main', '- g change\n');
+    r.git('checkout', '-q', '--detach', 'origin/main');
+    fs.writeFileSync(path.join(r.work, 'VERSION'), '1.2.4.0\n');
+    r.git('commit', '-qam', 'main releases 1.2.4.0'); r.git('push', '-q', 'origin', 'HEAD:refs/heads/main'); r.git('fetch', '-q', 'origin');
+    r.git('checkout', '-q', 'g');
+    fs.writeFileSync(path.join(r.work, 'VERSION'), '1.2.6.0\n');
+    fs.writeFileSync(path.join(r.work, 'docs', 'g.md'), '// since: 1.2.6.0\nQM v9.9.9.0 stays\n');
+    r.git('add', '-A'); r.git('commit', '-q', '-m', 'g: claims 1.2.6.0, row at its claim, a foreign version beside it');
+    const out = stampChain(chain(r, [['1', r.git('rev-parse', 'HEAD')]]));
+    if ('code' in out) throw new Error(`${out.code}: ${out.message}`);
+    expect(out.stamped.map(s => s.version)).toEqual(['1.2.5.0']);
+    expect(show(r, out.stamped[0]!.commit + ':docs/g.md')).toBe('// since: 1.2.5.0\nQM v9.9.9.0 stays');
+  }, 60_000);
 });

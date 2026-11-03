@@ -584,6 +584,25 @@ describe('land: one pass, base, lock and history', () => {
     expect(land(fx, ['--pr', '14']).out).toContain('MERGED: #14');
   }, 90_000);
 
+  // Value: protects=a stamp land built but never pushed still resumes and pushes that commit: the branch never moved,
+  //   so nothing is discarded (GST-1245 review); fails_when=the reset check fires on any journal whose head is the pin;
+  //   why_new=the reset cases above all pushed a stamp first; seam=lib/ship-queue-land.ts land; no_claim=none beyond protects
+  test('a stamp built but never pushed resumes at stamped and pushes that commit, discarding nothing (GST-1245)', () => {
+    const fx = setup();
+    const pin = openPr(fx, '15');
+    expect(land(fx, ['--pr', '15']).status).toBe(EXIT.ok);
+    const first = remote(fx, 'pr-15');
+    const file = path.join(fx.repo.work, '.gstack', 'tmp', 'ship-queue', 'land', '15.json');
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), phase: 'stamped', last_pushed_head: null }));
+    fx.repo.git('push', '-q', '-f', 'origin', pin + ':refs/heads/pr-15');
+    const again = land(fx, ['--pr', '15']);
+    expect(again.err).toBe('');
+    expect(again.out).toContain('(resuming at stamped)');
+    expect(again.out).not.toContain('JOURNAL:');
+    expect(again.out).toContain(`PUSHED: ${first}`);
+    expect(remote(fx, 'pr-15')).toBe(first);
+  }, 90_000);
+
   // Value: protects=a lost local journal resumes from the stamp commit's pin; fails_when=the stamp commit is treated as the pin and the receipt refuses; why_new=resume cases keep the journal; seam=none; no_claim=none beyond protects
   test('with the local journal gone, a head that is land\'s stamp commit resumes from its pin', () => {
     const fx = setup();

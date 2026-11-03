@@ -381,12 +381,12 @@ export function forkVersion(repoRoot: string, baseRef: string, fallback: string,
 }
 
 /**
- * The versions the branch itself recorded (GST-1245): its version source at its fork point and at each of its own
- * first-parent commits (`baseRef..head`), a merge of the base included. Only these are its stamps in a built-in form.
+ * The versions the branch itself recorded (GST-1245): its version source at its fork point and at each commit in
+ * `baseRef..head`, every parent walked, so a train or land merge (`-p <base> -p <pin>`) still reads the pin's own claims.
  */
 export function recordedVersions(repoRoot: string, baseRef: string, fallback: string, head = 'HEAD'): Set<string> {
   const out = new Set([forkVersion(repoRoot, baseRef, fallback, head)]);
-  for (const c of git(repoRoot, ['rev-list', '--first-parent', `${baseRef}..${head}`]).out.split('\n').filter(Boolean)) {
+  for (const c of git(repoRoot, ['rev-list', `${baseRef}..${head}`]).out.split('\n').filter(Boolean)) {
     const v = versionAtRef(repoRoot, c);
     if ('version' in v) out.add(v.version);
   }

@@ -1829,8 +1829,8 @@ checks green, Version Gate included.
 lane's stamp round trip. Nobody stamps by hand; the tool makes and pushes the
 stamp commit. Steps, each journaled in
 `.gstack/tmp/ship-queue/land/<n>.json` and resumable by rerunning the same
-command. A journal whose stamp commit the branch no longer holds because the
-branch was reset to the reviewed pin is discarded and the pin is restamped
+command. A journal that pushed a stamp whose branch was then reset to the reviewed
+pin is discarded and the pin is restamped
 (`JOURNAL: #<n>'s head is the reviewed pin …; discarding the journal and
 restamping`, GST-1245), so a reset stamp needs no hand cleanup:
 
