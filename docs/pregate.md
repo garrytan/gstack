@@ -956,9 +956,11 @@ it and the command that lists its test files:
 ```
 
 A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
-and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci`:
-`source: "ci"`, its runs and profiles, the run's finish time as `ts`, bound to
-the clean tree), never a fictitious local run. `gstack-evidence check` grades it
+and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
+--label <label> --base <base> -- <command>`, which finds and verifies the run
+itself, so no caller hands it run ids or a test count: `source: "ci"`, its runs
+and profiles, the run's finish time as `ts`, bound to the clean tree), never a
+fictitious local run. `gstack-evidence check` grades it
 like any row and names `source=ci runs=…`, so `finish`'s FRESH check and the
 24-hour age limit apply to the CI run's own time. A mapped lane that cannot
 carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
@@ -972,7 +974,8 @@ only; across machines, CI is the trust boundary.
 **Finish, push and accept.** `gstack-ship-release finish` commits the release
 metadata, so the stamped tree has no CI run yet. A mapped lane that is not
 already FRESH is deferred (`EVIDENCE: DEFERRED`), and the pregate runs only its
-preflight stage on the stamped tree. `gstack-ship-release push --early` (the
+preflight stage on the stamped tree, written to its own file so the full
+`.gstack/tmp/pregate.json` stays in place until `accept` replaces it. `gstack-ship-release push --early` (the
 Phase 2 push that lets CI run beside the review) runs the secrets scan and the
 sealed guard before it pushes. After the final push,
 `gstack-ship-release accept --base <base> --lane …` waits (bounded by `--wait`)

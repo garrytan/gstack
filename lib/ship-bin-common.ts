@@ -9,16 +9,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { findCarry } from './ci-carry';
 import { fragmentSlug } from './changelog-fragments';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
-import { buildRunCheck } from './pregate/run-check';
-import { runInventory } from './run-evidence';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
 import { matchesAny } from './ship-policy';
 import { extractVersion } from './version-source';
-import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation, wtreeFingerprint } from './script-invocation';
+import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
 export interface Run { status: number | null; stdout: string; stderr: string }
 const done = (r: { status: number | null; stdout?: string | Buffer | null; stderr?: string | Buffer | null; error?: Error }): Run =>
@@ -186,23 +183,14 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
 }
 
 /**
- * A mapped lane carried from CI at HEAD's clean tree (lib/ci-carry.ts), recorded as a CI-sourced ledger row; or why it was
- * not (`carryNone`), so the caller runs it.
+ * A mapped lane carried from CI at HEAD's clean tree: gstack-evidence record-ci finds and verifies the run (lib/ci-carry.ts)
+ * and records the CI-sourced ledger row; or why it was not (`carryNone`), so the caller runs it.
  */
-export function carryLane(cwd: string, base: string, l: { label: string; command: string }, m: { profiles: string[]; inventory: string }): LaneResult {
-  const none = (why: string): LaneResult => ({ label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: why });
-  const check = buildRunCheck(cwd, null, true, base);
-  if ('error' in check) return none(`profiles_unavailable: ${check.error}`);
-  const head = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
-  const tree = git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim();
-  const wtree = () => { const fp = wtreeFingerprint({ cwd }); return 'tree' in fp ? fp.tree : null; };
-  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, inventory: () => runInventory(m.inventory, cwd) });
-  if (!v.ok) return none(`${v.reason}: ${v.detail}`);
-  const runs = v.runs.map(e => `${e.run_id}/${e.run_attempt}`).join(',');
-  const finished = v.runs.map(e => e.finished_at).sort()[0]!;
-  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--runs', runs, '--profiles', m.profiles.join(','), '--tree', tree, '--tests', String(v.tests), '--finished', finished, '--', l.command], 60_000);
-  if (rec.status !== 0) return none(`record_failed: ${firstLine(rec.stderr)}`);
-  return { label: l.label, exit: 0, testsRan: String(v.tests), log: '-', carried: runs };
+export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
+  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
+  const got = / tests_ran=(\d+) log=- source=ci runs=(\S+)/.exec(rec.stderr);
+  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[1]!, log: '-', carried: got[2]! };
+  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: /^CARRY_NONE: (.+)$/m.exec(rec.stderr)?.[1] ?? `record_failed: ${firstLine(rec.stderr)}` };
 }
 
 /**
@@ -219,7 +207,7 @@ export async function runLanes(cwd: string, list: { label: string; command: stri
       const i = next++;
       const l = list[i]!;
       const m = mapped.get(l.label);
-      const carry = m ? carryLane(cwd, opts.base!, l, m) : null;
+      const carry = m ? carryLane(cwd, opts.base!, l) : null;
       if (carry?.carried) { out[i] = carry; continue; }
       const r = await binAsync(cwd, 'gstack-evidence', ['run', ...(opts.reuse === false ? [] : ['--reuse']), '--label', l.label, '--', l.command]);
       const rec = /gstack-evidence: recorded label=\S+ exit=(\S+) tests_ran=(\S+) log=(\S+)/.exec(r.stderr);

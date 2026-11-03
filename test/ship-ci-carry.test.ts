@@ -85,6 +85,25 @@ describe('Step 5 lanes: CI carry and the tree cache', () => {
     expect(other).not.toContain('CI_CARRY');
     expect(lane(other, 'free')).not.toContain('carried');
   });
+
+  // Value: protects=a CI-sourced ledger row exists only for a run gstack-evidence record-ci found and verified itself (/ship pass 1 red-team#1);
+  //   fails_when=caller-supplied run ids, test counts or a tree make a FRESH carried row, or an unmapped command or a missing run records one; seam=fake gh
+  test('record-ci verifies the run itself: forged facts, an unmapped command or no run at HEAD record nothing', () => {
+    const f = fx();
+    const ev = (args: string[]) => f.run(path.join(BIN, 'gstack-evidence'), args);
+    const forged = ev(['record-ci', '--label', 'free', '--runs', '1/1', '--profiles', 'anything', '--tree', f.git('rev-parse', 'HEAD^{tree}').stdout.trim(), '--tests', '999', '--finished', at(1), '--', FREE]);
+    expect(forged.status).toBe(2);
+    world(f, { run: { head_sha: '0'.repeat(40) } });
+    const noRun = ev(['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([noRun.status, noRun.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: no_run: /m)]);
+    world(f);
+    const unmapped = ev(['record-ci', '--label', 'free', '--base', 'main', '--', 'bun run test']);
+    expect([unmapped.status, unmapped.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: not_mapped: /m)]);
+    expect(ev(['check', '--label', 'free', '--expect-cmd', FREE]).stdout).not.toContain('EVIDENCE: FRESH');
+    expect(JSON.parse(ev(['carried', '--json']).stdout)).toEqual([]);
+    const ok = ev(['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([ok.status, ok.stderr]).toEqual([0, expect.stringContaining('tests_ran=12 log=- source=ci runs=7/1')]);
+  });
 });
 
 describe('finish, push --early and accept (A1)', () => {
@@ -105,9 +124,12 @@ describe('finish, push --early and accept (A1)', () => {
     const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
     expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro']).status).toBe(0);
     const post = snapshot(f);
+    const pregateFile = path.join(f.work, '.gstack/tmp/pregate.json');
+    const before = fs.existsSync(pregateFile) ? fs.readFileSync(pregateFile, 'utf8') : null;
     const fin = f.run(RELEASE, finishArgs(f, reviewed, post));
     expect(fin.stdout).toMatch(/^EVIDENCE: DEFERRED label=free \(/m);
     expect(lineOf(fin.stdout, 'PREGATE')).toMatch(/^PREGATE: preflight (pass|warn) on the stamped tree/);
+    expect(fs.existsSync(pregateFile) ? fs.readFileSync(pregateFile, 'utf8') : null).toBe(before);
     expect(fin.stdout).toContain('gstack-ship-release accept --base main --lane');
     expect(fin.status).toBe(0);
     expect(runs(f, 'free-runs')).toBe(0);

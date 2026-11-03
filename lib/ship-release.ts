@@ -367,7 +367,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
     let e = check(l);
     if (!/EVIDENCE: FRESH/.test(e)) {
       const m = mapped.get(l.label);
-      const res = m ? carryLane(cwd, base, l, m) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
+      const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
       if (m && !res.carried) {
         r.add(`EVIDENCE: DEFERRED label=${l.label} (${short([res.carryNone ?? 'not carried'], 1).slice(0, 160)}): CI at the pushed head carries it in accept`);
         deferred.push(l.label);
@@ -384,7 +384,8 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   }
   const laneArgs = list.map(l => `--lane '${l.label}=${l.command.replace(/'/g, `'\\''`)}'`).join(' ');
   if (deferred.length) {
-    const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--stage', 'preflight'], 3_600_000);
+    const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-finish-preflight.json']).stdout.trim() || '.git/gstack/pregate-finish-preflight.json');
+    const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--stage', 'preflight', '--out', out], 3_600_000);
     const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
     r.add(`PREGATE: preflight ${verdict} on the stamped tree (the tests stage runs in accept, carried from CI)`);
     if (!/^(pass|warn)/.test(verdict)) return r.stop(`pregate preflight ${verdict} on the stamped tree: fix it, then rerun finish`);
@@ -433,7 +434,7 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
   }
   for (const l of list) {
     const m = mapped.get(l.label);
-    const res = m ? carryLane(cwd, base, l, m) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
+    const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
     if (m && !res.carried) { r.add(carryNoneLine(res)!); return r.stop(`lane ${l.label} was not carried from the green run (${short([res.carryNone ?? ''], 1).slice(0, 120)}): fix the cause, or run it here with gstack-ship-preflight --tests-only`); }
     const ran = laneLine(res);
     r.add(ran.line);
