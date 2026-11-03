@@ -249,4 +249,56 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(creates(f)).toBe(1);
     expect(run(f, ['down', name]).exitCode).toBe(0);
   }, 90_000);
+
+  test('a counted rerun refuses a bundle that does not open, and reattaches once the bundle is good again', async () => {
+    const f = make();
+    const repo = gitSrc(f);
+    const rec = join(f.root, 'rec');
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 4; echo end\n');
+    const a = f.spawn(['run', '--src', repo, '--', 'make test'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    process.kill(a.pid, 'SIGKILL');
+    await a.exited;
+    const name = vmDirs(f)[0]!;
+    const bundle = join(rec, 'thrd1', name + '.bundle');
+    const good = readFileSync(bundle);
+    writeFileSync(bundle, 'not a bundle\n');
+    const corrupt = run(f, ['run', '--counted', '--src', repo, '--', 'make test'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
+    expect(out(corrupt)).toContain('UBI_RECOVERY_REQUIRED: a counted run would reattach to ' + name);
+    expect(corrupt.exitCode).not.toBe(0);
+    expect(creates(f)).toBe(1);
+    writeFileSync(bundle, good);
+    const ok = run(f, ['run', '--counted', '--src', repo, '--', 'make test'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
+    expect(out(ok)).toContain('reattached to ' + name);
+    expect(ok.exitCode).toBe(0);
+    expect(creates(f)).toBe(1);
+  }, 90_000);
+
+  test('the runner never forwards its own variables: --pass and --trust-config both refuse them', () => {
+    const f = make();
+    const dir = gitSrc(f, { command: 'make verify', pass: ['RECOVERY_SECRET'] });
+    const env = { UBI_RECOVERY_KEY: 'recovery-key-value', UBI_SINK: 'https-put:https://b.example/o?X-Amz-Signature=sekritsig321', UBI_REAP: '0' };
+    const trusted = run(f, ['verify', '--src', dir, '--trust-config'], env);
+    expect(trusted.exitCode).toBe(1);
+    expect(out(trusted)).toContain('--pass RECOVERY_SECRET');
+    for (const name of ['RECOVERY_SECRET', 'RECOVERY_DIR', 'OWNER', 'SINK_INTERVAL', 'UBI_RECOVERY_KEY', 'UBI_SINK']) {
+      const r = run(f, ['run', '--pass', name, '--src', dir, '--', 'true'], env);
+      expect(r.exitCode).toBe(1);
+      expect(out(r)).toContain('--pass ' + name);
+    }
+    expect(creates(f)).toBe(0);
+    expect(existsSync(join(f.root, 'ubirun-env'))).toBe(false);
+  });
+
+  test('an option value spelled --sink does not carry the presigned URL into the run record', async () => {
+    const f = make();
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 3\n');
+    const a = f.spawn(['run', '--key-input', '--sink', '--sink', 'https-put:https://b.example/o?X-Amz-Signature=sekritsig789', '--src', gitSrc(f), '--', 'make', 'test'], { UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    const name = vmDirs(f)[0]!;
+    const record = readFileSync(join(f.state, name, 'run'), 'utf8');
+    expect(record).not.toContain('sekritsig789');
+    expect(record).toContain('--key-input --sink --src');
+    expect(await a.exited).toBe(0);
+  }, 90_000);
 });
