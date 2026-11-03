@@ -254,6 +254,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'no new base head passed the paused cases before gstack-base-red wait’s timeout',
     fix: 'run gstack-base-red wait --pause <file> again (the pause stays valid until it expires), or check who owns the base red',
   },
+  BASE_CONTAINS_HEAD: {
+    anchor: 'base-contains-head',
+    summary: 'the base is the head or already contains it while the branch has commits its real base lacks, so a base-relative step would compare the branch with itself and report no changes',
+    fix: 'compare against the branch’s real base (the PR’s base branch, usually main): pass it as the base, or run git remote set-head origin <base> when origin/HEAD names the checked-out branch',
+  },
   QUEUE_RECEIPT_DEPTH_RAISED: {
     anchor: 'queue-receipt-depth-raised',
     summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',
@@ -263,6 +268,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'queue-receipt-exception-invalid',
     summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
     fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
+  },
+  QUEUE_RECEIPT_TARGETED_MISSING: {
+    anchor: 'queue-receipt-targeted-missing',
+    summary: 'the head touches money, gate, auth or secret code that needs the targeted reader, and the PR body’s /ship receipt records no done targeted pass covering every required class (none recorded, failed, not run, or other classes)',
+    fix: 'run /ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
   },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
@@ -359,6 +369,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'review-scope-range',
     summary: 'gstack-review-scope could not read the diff it scopes findings against: the base or the range base does not resolve, or the range base is not an ancestor of HEAD',
     fix: 'fetch origin/<base>, check --range-base against the saved pass heads, and start a full pass (--pass 1) when history was rewritten',
+  },
+  REVIEW_SCOPE_LEDGER: {
+    anchor: 'review-scope-ledger',
+    summary: 'gstack-review-scope summary could not count the dispatch ledgers: none was named (no --run, --ledger or --no-ledger), --run holds no review-ledger.jsonl, or a ledger, its merged file or its judged set is unreadable or changed since judge',
+    fix: 'pass --run <run dir> (the directory the review passes wrote) or each --ledger <f>; --no-ledger only when no reader ran through gstack-review-dispatch; restore or re-collect a ledger file that moved',
   },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
@@ -467,5 +482,21 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'pregate-head-policy-loosens',
     summary: 'under --policy-from head, the branch’s .gstack/pregate.json removes, shrinks or loosens something the trusted policy declares; a head policy may only add test lanes',
     fix: 'keep every key of the trusted policy as it is and only add dependencies globs with tests (or tests on an existing glob); land any other change, a [] declaration included, in its own PR on the base branch first',
+  },
+  // The reviewer diff ceiling and the base policy's review_exclude_paths (lib/review-exclude.ts, GST-508).
+  REVIEW_DIFF_TOO_LARGE: {
+    anchor: 'review-diff-too-large',
+    summary: 'one reviewer\'s diff is over the 2,000,000-byte review ceiling, so /ship stopped before writing a manifest or a brief instead of handing a reader more than it can read',
+    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or narrow a pattern the kept-file bound skipped; or split the PR',
+  },
+  REVIEW_DIFF_UNREADABLE: {
+    anchor: 'review-diff-unreadable',
+    summary: 'git could not read a reviewer\'s diff (reason=timeout after timeout_ms, or reason=git-exit with git\'s exit code), so /ship stopped; the full stderr, with remote URLs redacted, is in the log= file',
+    fix: 'timeout: rerun once unchanged, then split the PR or exclude its largest data folders on the base; git exit 128: git fetch origin <base>, then rerun once; anything else: stop and ask a person',
+  },
+  REVIEW_EXCLUDE_REFERENCE: {
+    anchor: 'review-exclude-reference',
+    summary: 'informational: a kept code file names an excluded folder (a directory reference, not a full file path), so its files stay excluded and readers see that code without the files it reads',
+    fix: 'nothing to do for the review; if that code\'s correctness depends on the excluded files, narrow review_exclude_paths on the base so they stay in the diff',
   },
 } as const satisfies Record<string, ResultCode>;

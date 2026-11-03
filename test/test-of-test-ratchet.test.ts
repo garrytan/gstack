@@ -104,6 +104,7 @@ const BASELINE = [
   'test/extension-pty-inject-invariant.test.ts',
   'test/gbrain-source-worktree-advance.test.ts',
   'test/gbrain-sync-voyage-code-3-integration.test.ts',
+  'test/git-fixture-template.test.ts', // GSTA-151: pins the copy isolation and leak scan of test/helpers/git-fixture-template.ts, which the templated git fixtures in release-cut, train-backstop, restamp-mentions, pregate-user-policy and held-install-recovery rely on
   'test/gstack-gbrain-source-wireup.test.ts',
   'test/gstack-home-module-scope.test.ts',
   'test/gstack-upgrade-migration-v1_17_0_0.test.ts',
@@ -208,6 +209,7 @@ const BASELINE = [
   'test/review-enum-lifecycle.test.ts',
   'test/review-n-plus-one-contract.test.ts',
   'test/review-quality-provenance.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/sdk-system-prompt-tripwire.test.ts', // the Agent SDK prompt tripwire: its subject is the eval harness (test/helpers/sdk-system-prompt.ts, agent-sdk-runner.ts) and every SDK caller under test/
   'test/session-runner-browse-errors.test.ts', // slices test/skill-e2e-review.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/session-runner-stream-lifecycle.test.ts',
   'test/session-runner-timeout.test.ts',

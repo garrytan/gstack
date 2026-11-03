@@ -222,11 +222,11 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
-    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block, so each runs on a small model at low effort; their findings go to the PR body');
+    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block, so each runs at low effort on a small model, Step 14.5 once on Sonnet 5.5; findings go to the PR body');
     expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
     const capy = read('capy/skill/gstack/SKILL.md');
     expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
-    expect(capy).toContain('`anthropic/claude-haiku-5-5` also fits');
+    expect(capy).toContain('(14.5 once)');
   });
 
   // Value: protects=Step 9.2.1's report-only probes run in the parent's own Phase 4 program, as the section says, with its Reads in Phase 3, and
@@ -258,6 +258,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
       '(4) `sent` (`BRIEF_MISMATCH` voids it), then one subagent per reader on its rendered file', 'final output and status, via `collect`', '`JUDGMENT: ok` before any fix',
       '`gstack-review-dispatch verify` (`VERIFY: clean`)']) expect(f).toContain(s);
     expect(f.indexOf('gstack-review-dispatch verify')).toBeLessThan(f.indexOf('`gstack-review-read`'));
+  });
+});
+
+describe('review bots (#3122)', () => {
+  test('only Step 6.5 waits on Greptile detection; Step 10 routes to the bot triage section for any configured bot', () => {
+    expect(doc).toContain('Step 6.5 runs only if `gstack-greptile-early detect` finds');
+    expect(doc).not.toContain('Steps 6.5 and 10 run only if');
+    expect(doc).toContain('- Step 10 with a PR: `sections/greptile.md#step-10-address-review-bot-comments-if-pr-exists`');
   });
 });
 

@@ -58,6 +58,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `gate_command` | command or `null` | `null` | The repo's full pre-merge gate. `gstack-ship-queue gate-ahead` and `ready` print it for the caller to run (in the background or in CI); gstack never executes it. Needs `min_gstack_version`. |
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
+| `review_exclude_paths` | git glob pathspecs | `[]` | Content files (data, docs, binary, `.log`) `/ship`'s reviewers leave out; read from the base only, with code, gate, config, executable and named-by-code files kept. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
@@ -112,10 +113,16 @@ refuses the file by name (`POLICY_GSTACK_TOO_OLD`).
 `.gstack/ship-policy.example.json` shows every key set the way a serial-merge
 repo with a release script, docs mentions and a mirror would set them.
 
-### Queue-side procedure for gstack
+<a id="queue-side-procedure-for-gstack"></a>
+### Queue-side procedure under `stamp-at-merge` without fragments
 
-Who does what under `stamp-at-merge`, for the PR author and for the thread
-running the merge queue:
+gstack itself no longer follows these steps. Since #3654 (v1.91.342.0) its
+policy sets [`changelog_fragments`](#changelog-fragments), so a gstack PR adds
+a fragment and never a version, and trains merge through
+[`train land`](#train-land). The steps
+below are for a repo on `stamp-at-merge` whose policy has no
+`changelog_fragments`. Who does what there, for the PR author and for the
+thread running the merge queue:
 
 1. **Open.** The branch carries a tentative stamp of the base's version plus
    PATCH (`gstack-version-bump write --version <base+patch> --regen-digest`)
@@ -246,8 +253,10 @@ result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
 head: /ship runs before every READY ([details](#ship-before-ready)). It also
 refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
-what the head needs and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-exception the receipt records does not stand ([the ship receipt](#ship-receipt)).
+what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` when a targeted class
+the head needs has no done targeted pass in the receipt, and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner exception the receipt records
+does not stand ([the ship receipt](#ship-receipt)).
 Send the block as printed.
 
 **2. Lane behind another PR: gate ahead.** Gate the tree the queue will have
@@ -598,13 +607,20 @@ gstack-ship-queue wave settle --wave <nonce> [--dry-run]        # after the wave
 
 - **When.** `wave plan` counts the live READY PRs (open, head equal to their
   READY receipt, CI green at that head; a READY head whose CI is red, still
-  running or absent prints a `NOT_GREEN` line and stays out of the plan). A
-  READY PR whose CI, head or diff cannot be read fails the whole plan with
-  `QUEUE_PROOF_MISSING`. Over the
+  running or absent prints a `NOT_GREEN` line and stays out of the plan; a
+  READY head that does not merge onto main with the train's merge rules prints
+  `NOT_MERGEABLE` with the conflicting files and stays out too, while a
+  conflict only in the CHANGELOG, which the train merges, does not count). A
+  READY PR whose CI, head, diff or merge onto main cannot be read fails the
+  whole plan with `QUEUE_PROOF_MISSING`. Over the
   trigger (6) it prints `WAVE_ADVISED` and suggested groups of 3 to 6: PRs
   whose changes to a common code file conflict (`git merge-tree` cannot merge
   the two heads, or the check itself fails) always share a group, so that
-  conflict is resolved once. Hub
+  conflict is resolved once. A PR that renames a file and one that edits the
+  old path are linked when the edit conflicts at the new path. A group of
+  linked PRs is never split across waves: one larger than the wave maximum
+  prints `WAVE_OVERSIZE` with no build command (land part of it as single
+  slots, then plan again). Hub
   files never link PRs: anything under `docs/`, Markdown (generated skill
   renders included; their `.tmpl` sources still link) and every `.json` or
   `.jsonl` file (ledgers and registries). Most PRs append to them, and
@@ -683,8 +699,10 @@ slot. The queue enforces this at every step from the PR body alone:
   head being READY'd (or its `pr` is another PR); the informational
   `SHIP_RECEIPT:` line still prints. It refuses `QUEUE_RECEIPT_DEPTH_RAISED`
   (with a `REVIEW_DEPTH:` line) when the receipt records a review depth below
-  what the head needs, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an owner
-  exception it records does not stand ([the ship receipt](#ship-receipt)).
+  what the head needs, `QUEUE_RECEIPT_TARGETED_MISSING` (with a
+  `REVIEW_TARGETED:` line) when a targeted class the head needs has no done
+  targeted pass in the receipt, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an
+  owner exception it records does not stand ([the ship receipt](#ship-receipt)).
   There is no flag around it.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
@@ -803,9 +821,10 @@ its record. Refusals, all before any spend: `QUEUE_TRAIN_UNTRUSTED` (a fork
 head), `QUEUE_TRAIN_MOVED` (a head moved from its pin),
 `QUEUE_RECEIPT_MISSING` and `QUEUE_RECEIPT_STALE` (the PR body has no /ship
 receipt for the pin; see [/ship before READY](#ship-before-ready)),
-`QUEUE_RECEIPT_DEPTH_RAISED` and `QUEUE_RECEIPT_EXCEPTION_INVALID` (the
-receipt's review depth is below what the pin needs, or an owner exception it
-records does not stand; see [the ship receipt](#ship-receipt)),
+`QUEUE_RECEIPT_DEPTH_RAISED`, `QUEUE_RECEIPT_TARGETED_MISSING` and
+`QUEUE_RECEIPT_EXCEPTION_INVALID` (the receipt's review depth is below what
+the pin needs, a targeted class the pin needs has no done targeted pass, or an
+owner exception it records does not stand; see [the ship receipt](#ship-receipt)),
 `QUEUE_NOT_READY` (no READY receipt at that head), `QUEUE_TRAIN_CONFLICT` (the printed
 `QUEUE_TRAIN_CONFLICT: train <id> stopped at #<pr> (conflicts: <files>) after
 merging #<a>,#<b>; nothing dispatched, no branch pushed; fix: …` line names
@@ -1221,9 +1240,139 @@ both values; prose that quotes no counter is not a claim. The `## Approvals`
 block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
-is not a `pass` claim. Text you write under the heading after that block, and
-a `## Approvals` example inside a code fence, are still checked. Data PRs (evals,
+is not a `pass` claim. Text you write under the heading after that block is
+still checked. The `Review-loop exception: …` line (GST-977) and the
+`Documentation exception: …` line (GST-983) the receipt's own exceptions
+require are skipped the same way: they quote the owner's reason, so "outside 1
+and 2 skip detector" is not a `2 skip` claim. Only a line that matches the
+rendered line exactly is skipped; the same words inside a longer line are still
+checked. A closed code fence is skipped too (GST-984): pasted test output
+("113 pass, 0 fail") and quoted code are evidence, not this PR's counters, so
+put a count you mean as a claim outside the fence. A line like ```` ```npm test``` ran ````
+opens no fence, and a fence that never closes stays prose, along with the rest
+of the body. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
+
+<a id="review-exclude-paths"></a>
+## `review_exclude_paths`: what reviewers leave out
+
+Since the release that added it (`REVIEW_EXCLUDE_KEY_VERSION` in
+`lib/ship-policy.ts`). A results PR can carry thousands of receipt files that
+no reviewer needs to read. `review_exclude_paths` lists git glob pathspecs
+whose content files `/ship`'s reviewers leave out:
+
+```json
+{ "review_exclude_paths": ["receipts/**"], "min_gstack_version": "<the release that introduced review_exclude_paths>" }
+```
+
+**Read from the base only.** `gstack-review-plan` reads the policy committed on
+the base commit it already resolved (`origin/<base>`, or `<base>`), never
+the branch's copy, so a branch cannot exclude its own files. A branch that adds
+the key gets `REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies
+after it lands on <base>)` and a normal review. A base policy that does not
+validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
+(`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
+
+**Git's glob dialect.** Each pattern is a `:(top,glob)` pathspec: root-anchored
+and case-sensitive. The matched set comes from git itself (`git diff --raw -z`),
+so the plan, the receipt and what readers see are one set. Untracked files are never part of it: no reader's `git diff` shows them, and the receipt reads the committed head.
+
+| Pattern | gitignore would match | `review_exclude_paths` matches |
+|---|---|---|
+| `receipts/**` | everything under `receipts/` at any depth | everything under the top-level `receipts/` |
+| `receipts/*` | files directly in `receipts/` | files directly in `receipts/` only (`*` never crosses `/`) |
+| `data/` | any `data/` directory at any depth | nothing: write `data/**` (and `**/data/**` for any depth) |
+
+A pattern that matches no changed file is listed as `unmatched=` on the plan line.
+
+**What is excluded, and what is kept.** A matched file is excluded only when it
+is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
+`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
+`config/` or in a skill directory; only `policy-dir`, `gate-path`, `executable`, `link`, `gate-tagged`, or a source or script extension (`code`) keep it.
+Everything else stays in every reader's diff with one reason code:
+
+| Reason | Kept because |
+|---|---|
+| `policy-dir` | it is under `.gstack/` or `.github/` |
+| `gate-path` | it is a gate path (lib/review-depth.ts) |
+| `executable` | its old or new mode is executable |
+| `link` | its old or new mode is a symlink or a submodule commit |
+| `agent-prose` | it is a skill, section, resolver, template or rule file |
+| `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
+| `gate-tagged` | the gate scan tagged one of its hunks |
+| `code` | it is code or a test, not content; a binary file with a source or script extension (`.js`, `.py`, `.sh`, `.wasm`) counts as code |
+| `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
+| `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
+| `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read |
+| `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
+
+Only a full path counts as a name. A basename such as `result.json` would keep
+every receipt in the tree, and a directory reference such as `receipts/` (the
+harness that writes the receipts names it) keeps nothing: the plan prints an
+informational `REVIEW_EXCLUDE_REFERENCE:` line naming the code that reads the
+folder. A data file never keeps another file: a results manifest such as
+`docs/receipts-manifest.json` lists every receipt by full path, and it is
+content, not a program that reads them. The name scan is one uncapped `git grep -F -f` over the candidates'
+paths, not the collector's capped consumer scan.
+
+**What readers run.** Every reader's `DIFF_CMD:` gains one
+`':(top,exclude,glob)<pattern>'` item per applied pattern, and the fixture
+command the security specialist, the Red Team and the native adversarial pass
+read through gets the same items. A git exclude beats any positive pathspec, so
+kept files under an applied pattern come back through a second command,
+`DIFF_KEEP: <reader> git diff <diff-base> -- ':(top,literal)<path>' …`, which every
+brief names. That command is bounded by its argument bytes (24,000 across all
+patterns, under Windows' command-line limit): a pattern whose kept files would
+pass the bound is not applied, and the plan line says so as
+`skipped=<pattern>:kept=<n>:bytes=<b>`. Every brief also gets one line:
+`Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
+on this branch matching <patterns>. They are not in your diff; do not report on
+their absence.`
+
+**Depth, numbers and the targeted pass.** Excluded paths count as docs for the
+review depth everywhere it is computed (`gstack-review-plan`, the receipt
+writer, carry and the queue), and their lines never trigger the numeric-claim
+scan or the targeted money, gate, auth and secret classes. Defects inside a
+correctly excluded data file are coverage the owner gives up by policy.
+
+**The plan line.** `REVIEW_EXCLUDE: patterns=<applied>/<declared> excluded=<files>
+bytes=<b> kept=<k> content=<kind>:<n>,… source=<ref>@<sha12> digest=<sha256>`
+(`content=` counts the excluded files by kind: `binary`, `data`, `docs`, `log`), then up to 20
+`REVIEW_EXCLUDE_KEPT: <reason> <path>` lines (`--json` lists every one). A
+repository with no key anywhere prints none of these lines, and its plan, briefs
+and diff commands are byte for byte what they were.
+
+**The receipt, carry and the queue.** Each rendered brief records the digest it
+names in the review ledger, and `gstack-review-dispatch verify` prints
+`REVIEW_EXCLUDE_RECORD: digest=<d>` when every reader's newest brief names the
+same one (a mixed set makes it `VERIFY: dirty`). `gstack-ship-receipt write
+--review-exclude <d>`, with that digest, records `review_exclude` (source, patterns, counts, the gate-tagged kept
+paths and three hashes). The `digest` hashes the declared patterns and the
+excluded and kept lists; `source` is provenance only. Write, carry and the queue
+each recompute the digest at the current base and compare it, so a base merge
+or a moved base that leaves the patterns and the lists unchanged still carries
+and binds. A different digest means the reviewers read another selection:
+write refuses with `RECEIPT_INVALID field=review_exclude`, carry with
+`RECEIPT_CARRY_REFUSED review_exclude changed`, and the queue with
+`RECEIPT_INVALID field=review_exclude expected=<digest> recorded=<digest>`. The
+fix is to rerun the review, never a receipt write alone.
+
+**Adopting it.** (1) Open a PR on the base that adds the patterns and
+`min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any
+policy change. (2) Once it merges, bring the base into the results branch (a
+crew needs its coordinator's word for that merge) and rerun `/ship`; the plan
+prints `REVIEW_EXCLUDE:`. (3) Check the kept list: a file you expected to be
+excluded names its reason.
+
+<a id="review-diff-ceiling"></a>
+**The review ceiling.** Independently of the key, `gstack-review-dispatch` reads
+each reviewer's diff once before it writes a manifest or a brief (`pass`, `stage`
+and `render`). A diff over 2,000,000 bytes (about 500K tokens) stops with
+[`REVIEW_DIFF_TOO_LARGE`](troubleshooting.md#review-diff-too-large), exit 3, and a
+fix chosen by where the policy stands; a `git diff` that fails or runs past
+120 seconds stops with
+[`REVIEW_DIFF_UNREADABLE`](troubleshooting.md#review-diff-unreadable), exit 1.
+There is no override flag: the recovery is a policy PR on the base, or a split.
 
 <a id="review-scope"></a>
 ## `review_scope`: how the review loop converges
@@ -1268,11 +1417,11 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
-`gstack-review-scope summary --since <REVIEW_SINCE>` reads the branch's review-log
-rows for this invocation and writes the counters the ship receipt carries
+`gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
+rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,
-blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`
-and `est_input_tokens` when the run recorded them, printed on the receipt summary
+blocking_found, deferred, noted, fixed, scope }`, plus `fix_checks`, `dispatches`,
+`est_input_tokens`, `unrecorded` and `ledgers_read` when the run recorded them, printed on the receipt summary
 line as `passes=<n> blocking_found=<k> deferred=<m>`, so a scorecard can track
 passes per PR.
 
@@ -1286,8 +1435,9 @@ instead of `defer`. `review_scope: all` is the opt-back to the earlier loop:
 every finding is `scope: fix` on every pass, reviewers read the whole diff each
 time, and only the three-cycle fix cap stops the loop. `show-effective` prints the choice as a `ship: review_scope …`
 line, and the codes a refusal ends with are
-[`REVIEW_SCOPE_INPUT`](troubleshooting.md#review-scope-input) and
-[`REVIEW_SCOPE_RANGE`](troubleshooting.md#review-scope-range).
+[`REVIEW_SCOPE_INPUT`](troubleshooting.md#review-scope-input),
+[`REVIEW_SCOPE_RANGE`](troubleshooting.md#review-scope-range) and
+[`REVIEW_SCOPE_LEDGER`](troubleshooting.md#review-scope-ledger).
 
 <a id="base-red"></a>
 ## `base_red`: pausing /ship on a red base
@@ -1523,7 +1673,7 @@ Stages, each journaled in `.gstack/tmp/restamp-journal.json`:
 1. **version**: `gstack-version-bump write --version <X>` in the staging worktree (VERSION, the manifest, npm lockfiles); skipped when `restamp_command` owns the version. The manifest gets the npm-valid three-part form, except when the policy lists it in `stamp_paths` or `stamp_files` and its copy at the base holds four parts (gbrain's convention): then it keeps the full version (`--manifest-form full`) and the stage detail says so.
 2. **release_tool**: the policy command, under the contract below.
 3. **changelog**: the PR's `[Unreleased]` or old-version section moves to the top under `<X>`, above its predecessor's entry. A duplicate heading the PR introduces (`CHANGELOG_DUPLICATE_HEADING`: the headings are counted against the base's CHANGELOG at `origin/<base>` and at the fork point, so a version the base already heads twice passes as long as the PR adds no further copy) and a top entry that is not `<X>` (`CHANGELOG_TOP_MISMATCH`) are errors; the section being re-headed itself may exist only once.
-4. **stamp_paths**: exact `(was X)`, `since: X` and `vX` rewrites, plus every `stamp_patterns` template, within `stamp_paths` and `stamp_files`. A quote around X in the first two forms is part of the form and is kept as written: `since: 'X'`, `since: "X"`, `(was 'X')` and `(was "X")` move like the bare ones (the shape of a quoted source row such as gbrain's `{ since: '0.60.468.0', … }`), an opened quote must close right after X (`since: '1.2.3-beta'` and `since: '1.2.3"` are not the form, in the writer and in the tree receipt alike), and `vX` already accepts a quote before the `v`. Which X moves is decided by provenance. The branch's own tentative stamp (its VERSION when it moved past base) and `--was <X>`, when given, are each rewritten on every line of every stamp file. Beyond that, only lines the branch itself added are read, by their position in the file (`git diff --unified=0` from the fork point), so a base line with the same text, or a CRLF checkout whose diff is LF-normalized, is told apart: a stamp-form mention there of a version newer than the version at the branch's fork point is a tentative stamp and moves (this is what finds a quoted row after a lost slot and a merge of the base, since the base's release is newer than the fork point), and when the branch has no stamp of its own because its VERSION equals the base's and its fork point is the base itself (a branch rebased onto the base after it reached X, or one never stamped) a mention of the base version on a line it added is its stale stamp and moves too, while the same version on a line the base already carries is the base's release and stays. The stage detail names both counts per file (`VERSION equals base X, so X moved only on lines this branch added and stayed on the base's own lines (<file>: N moved, M kept)`), so the stamp commit shows which lines moved and why. A line the base added since the fork point is the base's even when that diff shows it (a merge of the base on the branch, committed or still staged, brings every line the base added since the fork into the diff from the fork point, main's own release keys included): it is left out, the detail says `N line(s) the base added since the fork point are the base's, not this branch's, and stay (<file>: N)`, and a base diff git cannot run refuses the stage (`POLICY_SOURCE_UNAVAILABLE`, `cannot diff <since>..<base> for the stamp_paths stage`) rather than reading as an empty set that would move the base's lines again. The rule reads line ownership, not meaning: a branch-added line inside `stamp_paths` that means the base's own release in a stamp form (`Requires vX or later` written on a branch forked at X) moves with it, which the `--dry-run` diff and the per-file counts show before anything is written; write such a reference outside a stamp form, or keep that file out of `stamp_paths`. `--was X` is the opposite tool: it rewrites X everywhere, the base's own lines included, and re-heads the CHANGELOG section `## [X]`. Only the repo's own version width counts, so a 3-digit dependency pin in a 4-digit repo is never a candidate.
+4. **stamp_paths**: exact `(was X)`, `since: X` and `vX` rewrites, plus every `stamp_patterns` template, within `stamp_paths` and `stamp_files`. A quote around X in the first two forms is part of the form and is kept as written: `since: 'X'`, `since: "X"`, `(was 'X')` and `(was "X")` move like the bare ones (the shape of a quoted source row such as gbrain's `{ since: '0.60.468.0', … }`), an opened quote must close right after X (`since: '1.2.3-beta'` and `since: '1.2.3"` are not the form, in the writer and in the tree receipt alike), and `vX` already accepts a quote before the `v`. Which X moves is decided by provenance. The branch's own tentative stamp (its VERSION when it moved past base) and `--was <X>`, when given, are each rewritten on every line of every stamp file. Beyond that, only lines the branch itself added are read, by their position in the file (`git diff --unified=0` from the fork point), so a base line with the same text, or a CRLF checkout whose diff is LF-normalized, is told apart: a stamp-form mention there of a version newer than the version at the branch's fork point is a tentative stamp and moves (this is what finds a quoted row after a lost slot and a merge of the base, since the base's release is newer than the fork point), and so does one of the fork-point version itself (a row the branch wrote at the version it forked from instead of a next version is its own stale stamp; a branch-added mention older than the fork point stays), and when the branch has no stamp of its own because its VERSION equals the base's and its fork point is the base itself (a branch rebased onto the base after it reached X, or one never stamped) a mention of the base version on a line it added is its stale stamp and moves too, while the same version on a line the base already carries is the base's release and stays. The stage detail names both counts per file (`VERSION equals base X, so X moved only on lines this branch added and stayed on the base's own lines (<file>: N moved, M kept)`), so the stamp commit shows which lines moved and why. A line the base added since the fork point is the base's even when that diff shows it (a merge of the base on the branch, committed or still staged, brings every line the base added since the fork into the diff from the fork point, main's own release keys included): it is left out, the detail says `N line(s) the base added since the fork point are the base's, not this branch's, and stay (<file>: N)`, and a base diff git cannot run refuses the stage (`POLICY_SOURCE_UNAVAILABLE`, `cannot diff <since>..<base> for the stamp_paths stage`) rather than reading as an empty set that would move the base's lines again. The rule reads line ownership, not meaning: a branch-added line inside `stamp_paths` that means the base's own release in a stamp form (`Requires vX or later` written on a branch forked at X) moves with it, which the `--dry-run` diff and the per-file counts show before anything is written; write such a reference outside a stamp form, or keep that file out of `stamp_paths`. `--was X` is the opposite tool: it rewrites X everywhere, the base's own lines included, and re-heads the CHANGELOG section `## [X]`. Only the repo's own version width counts, so a 3-digit dependency pin in a 4-digit repo is never a candidate. The checks that accept a stamp commit read the same bound as the writer (`stampOnlyLine` with the branch's side in `lib/stamp-only.ts`): the tree receipt behind `stamp`, `verify` and the gate-ahead replay, the merge train's stamp and verify checks (each reading the slot's predecessor, the gated commit's first parent, as the base), and finish's route each take a moved version on a line the branch added at or above the fork-point version, and on any other line at or above the gated head's VERSION. A base line whose text duplicates a line the branch added gets the branch's bound too, because the checks match branch lines by text, not position (GST-979). The /ship receipt carry can still refuse the move (`RECEIPT_CARRY_PRODUCT_CHANGED`), and when the branch keeps its VERSION claim, carry and finish still route the move as behavior (GST-980).
 5. **mirror**: tier 2; declared and validated, reported as not run.
 6. **apply**: every changed file is written to the branch only after all stages validated, each against the fingerprinted preimage; a file edited meanwhile is `RESTAMP_CONFLICT` and the applied writes roll back (rollback refuses to overwrite a file whose bytes differ from the recorded postimage).
 

@@ -3,7 +3,9 @@
 Set CYCLES to 0 on first entry only, with PASS set to 1,
 `REVIEW_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` saved and the `ship: review_scope`
 policy line (Step 3) kept. Every entry saves `PASS_HEAD=$(git rev-parse HEAD)`; from pass 2 on,
-`RANGE_BASE` is the previous pass's PASS_HEAD. Keep existing approvals; changed
+`RANGE_BASE` is the previous pass's PASS_HEAD. Every entry also runs
+`mkdir -p .gstack/tmp && rm -f .gstack/tmp/targeted.json && _EX=$(git rev-parse --git-path info/exclude) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || printf '\n/.gstack/tmp/\n' >> "$_EX"; }`
+(a pass without the targeted reader leaves no record, and the record never reads as an uncommitted edit). Keep existing approvals; changed
 finding scope needs a new decision. Order: checklist/design, specialists (9.1),
 Red Team (9.2), QA (9.2.1), dedup (9.3), scope, fixes and logging (9.4).
 Gated/unsupported specialists skip only their dispatch, never QA or Step 11.
@@ -229,8 +231,9 @@ Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan -
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
-`--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
-its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4.
+`--depth-floor <d>` when given, `--grant <approval id>` once the owner's grant of one scoped fix-check is
+in `gstack-approvals` naming `review_loop_grant` and the stop head), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
+its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4. `voices` 4: Step 11 runs before the stop.
 `scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 

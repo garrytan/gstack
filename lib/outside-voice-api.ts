@@ -11,10 +11,12 @@
 import { sha256Hex, writeReceipt } from './egress-receipt';
 import { modelFamily, type ModelFamily } from './outside-voice-runner';
 
-export interface ApiCallRequest { model: string; prompt: string; timeoutMs: number; env?: Record<string, string | undefined>; signal?: AbortSignal; maxTokens?: number }
+/** Who sends and on whose consent: replaces the outside-voice receipt for a caller with its own sink (lib/autoplan-shadow.ts). */
+export interface ApiReceipt { sink: string; consent: string; payloadClass?: string }
+export interface ApiCallRequest { model: string; prompt: string; timeoutMs: number; env?: Record<string, string | undefined>; signal?: AbortSignal; maxTokens?: number; receipt?: ApiReceipt }
 export interface ApiUsage { input_tokens?: number; output_tokens?: number }
-/** `truncated`: the provider stopped at the output token limit (Anthropic `max_tokens`, OpenAI `length`), so the text is cut off. */
-export interface ApiCallResult { text: string; model: string; usage: ApiUsage; provider: 'openai' | 'anthropic'; status: number; truncated: boolean }
+/** `truncated`: the provider stopped at the output token limit (Anthropic `max_tokens`, OpenAI `length`), so the text is cut off; `stop_reason`: the provider's stop or finish reason when it sent one. */
+export interface ApiCallResult { text: string; model: string; usage: ApiUsage; provider: 'openai' | 'anthropic'; status: number; truncated: boolean; stop_reason?: string }
 
 /** Anthropic requires max_tokens; a full review needs more than 8192. `run` sends this to OpenAI too, where reasoning tokens count toward it. */
 export const DEFAULT_MAX_TOKENS = 16_384;
@@ -29,11 +31,13 @@ export function apiKeyFor(family: ModelFamily, env: Record<string, string | unde
   return undefined;
 }
 
-function receipted(url: string, body: string, provider: string): void {
+function receipted(url: string, body: string, provider: string, req: ApiCallRequest): void {
+  const receipt = req.receipt;
   try {
     writeReceipt({
-      sink: 'outside-voice-api', host: new URL(url).host, payloadClass: 'review-prompt', bytes: Buffer.byteLength(body), sha256: sha256Hex(body),
-      consent: `user ran gstack-outside-voice --runner api (${provider.toUpperCase()}_API_KEY configured)`,
+      env: req.env,
+      sink: receipt?.sink ?? 'outside-voice-api', host: new URL(url).host, payloadClass: receipt?.payloadClass ?? 'review-prompt', bytes: Buffer.byteLength(body), sha256: sha256Hex(body),
+      consent: receipt?.consent ?? `user ran gstack-outside-voice --runner api (${provider.toUpperCase()}_API_KEY configured)`,
     });
   } catch (err) {
     process.stderr.write(`[outside-voice] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`);
@@ -41,7 +45,7 @@ function receipted(url: string, body: string, provider: string): void {
 }
 
 async function post(url: string, headers: Record<string, string>, body: string, req: ApiCallRequest, provider: string): Promise<{ status: number; json: any }> {
-  receipted(url, body, provider);
+  receipted(url, body, provider, req);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`timeout after ${req.timeoutMs} ms`)), req.timeoutMs);
   req.signal?.addEventListener('abort', () => controller.abort(req.signal!.reason), { once: true });
@@ -67,7 +71,8 @@ export async function callModel(req: ApiCallRequest): Promise<ApiCallResult> {
     const { status, json } = await post(`${base}/v1/messages`, { 'x-api-key': auth.key, 'anthropic-version': '2023-06-01' }, body, req, 'anthropic');
     if (status < 200 || status >= 300) throw new Error(`anthropic ${status}: ${json?.error?.message ?? json?.raw ?? JSON.stringify(json)}`);
     const text = Array.isArray(json?.content) ? json.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
-    return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.input_tokens, output_tokens: json?.usage?.output_tokens }, provider: 'anthropic', status, truncated: json?.stop_reason === 'max_tokens' };
+    const stop = typeof json?.stop_reason === 'string' ? json.stop_reason : undefined;
+    return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.input_tokens, output_tokens: json?.usage?.output_tokens }, provider: 'anthropic', status, truncated: stop === 'max_tokens', ...(stop ? { stop_reason: stop } : {}) };
   }
   const base = (env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
   const body = JSON.stringify({ model, messages: [{ role: 'user', content: req.prompt }], ...(req.maxTokens ? { max_completion_tokens: req.maxTokens } : {}) });
@@ -75,5 +80,6 @@ export async function callModel(req: ApiCallRequest): Promise<ApiCallResult> {
   if (status < 200 || status >= 300) throw new Error(`openai ${status}: ${json?.error?.message ?? json?.raw ?? JSON.stringify(json)}`);
   const content = json?.choices?.[0]?.message?.content;
   const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text ?? '').join('\n') : '';
-  return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.prompt_tokens, output_tokens: json?.usage?.completion_tokens }, provider: 'openai', status, truncated: json?.choices?.[0]?.finish_reason === 'length' };
+  const finish = json?.choices?.[0]?.finish_reason;
+  return { text, model: typeof json?.model === 'string' ? json.model : model, usage: { input_tokens: json?.usage?.prompt_tokens, output_tokens: json?.usage?.completion_tokens }, provider: 'openai', status, truncated: finish === 'length', ...(typeof finish === 'string' ? { stop_reason: finish } : {}) };
 }

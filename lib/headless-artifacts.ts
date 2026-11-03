@@ -41,6 +41,8 @@ export interface DecisionRow {
   recommended_basis?: string; changes?: string; origin?: string; carried_from?: string; chosen_text?: string;
   /** An agent-relayed answer: the owner's verbatim words, and whether they parsed under the gate grammar. */
   owner_reply?: string; owner_reply_parsed?: boolean; recommended_by?: string;
+  /** How the owner's own words answered (lib/gate-list.ts replyShape): their mode, whether they named this item, the rec_hash answered against, and who typed the reply. */
+  owner_mode?: 'rec' | 'rec_except' | 'tokens' | 'as_is' | 'unparsed'; owner_named?: boolean; rec_hash?: string; answered_role?: 'human' | 'agent';
   /** An agent's own words (`--words-by agent:<id>`): never the owner's, so never carried or imported as the owner's. */
   answer_words?: string; answer_words_parsed?: boolean; words_by?: string;
   /** A whole-gate carry (lib/autoplan-carry.ts): the earlier p1 decision whose owner words this answer reuses, its gate_rev, why, who relayed them, items taken under "do it", and the delta check attempt. */
@@ -106,7 +108,7 @@ export interface ShipReceipt {
   // Related open PRs by other authors (Lane D): `supersedes` / `credit` only on the owner's confirmation.
   issues?: { fixes: number[]; refs: number[]; flakes: Array<{ issue: number; run: string }>; related?: Array<{ pr: number; repo?: string; author: string; closes: number[]; supersedes?: boolean; credit?: boolean }> };
   /** Harness lane E: the review loop's counters (gstack-review-scope summary) and the carry record when the receipt followed a head whose product diff was unchanged (gstack-ship-receipt carry). */
-  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; rounds?: number; dispatches?: Record<string, number>; est_input_tokens?: number };
+  review_loop?: { passes: number; blocking_found: number; deferred: number; noted?: number; fixed?: number; scope?: string; fix_checks?: number; rounds?: number; dispatches?: Record<string, number>; est_input_tokens?: number; unrecorded?: number; ledgers_read?: number };
   carry?: { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' };
   /** The reviewed head's tree and its product patch-id against the base (gstack-ship-receipt write; carry rebinds both): what a carry across rewritten history compares. */
   head_tree?: string; product_patch_id?: string;
@@ -119,6 +121,8 @@ export interface ShipReceipt {
   review_targeted?: { classes: string[]; rules: string; brief_sha: string; product_patch_id: string; status: 'done' | 'failed' | 'not-run'; findings: number; raised_by: string };
   /** Step 5 failures gstack-base-red proved are the base's own (lib/base-red.ts): a conditional receipt the queue refuses until /ship --resume rewrites it without this block. */
   base_red?: { cases: string[]; files: string[]; base: string; lane: string; expires_at: string };
+  /** The base policy's review_exclude_paths at the reviewed head (lib/review-exclude.ts); absent when the base declares none. Carry and the queue compare `digest`. */
+  review_exclude?: { source: string; patterns: string[]; applied: string[]; excluded: number; excluded_bytes: number; kept: number; gate_tagged: string[]; patterns_sha256: string; list_sha256: string; digest: string };
 }
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];
@@ -179,6 +183,7 @@ export const ARTIFACT_SCHEMAS = {
       kind: { enum: ['auto', 'approval', 'user_challenge'] }, status: { enum: ['pending', 'approved', 'overridden', 'rejected', 'auto_kept'] },
       default_if_unanswered: nullableStr, gate_rev: { type: 'integer', minimum: 1 }, phase: str, chosen: nullableStr,
       answered_at: str, reply: str, source: str, cost: str,
+      owner_mode: { enum: ['rec', 'rec_except', 'tokens', 'as_is', 'unparsed'] }, owner_named: { type: 'boolean' }, rec_hash: str, answered_role: { enum: ['human', 'agent'] },
       recommended_basis: str, changes: str, origin: str, carried_from: str, chosen_text: str,
       carried_gate_from: str, carried_gate_rev: { type: 'integer', minimum: 1 }, carry_reason: str, carried_answered_by: str, carried_under: str, carry_check: str,
     },
@@ -238,12 +243,13 @@ export const ARTIFACT_SCHEMAS = {
       thread: str, tree: { enum: ['same-modulo-stamps', 'changed', 'not-compared'] }, gate_reuse: str, policy: str, queue_mode: str, preregistration: str, history: str,
       pregate: { ...str, description: 'pass|warn|requires-remote cleared … @<tree> from pregate.json, current for this head' }, requires_remote: strList,
       approval: { type: 'object', description: 'approval classes: { source, status: checked|unavailable, classes: [{ class, scope, effects, citation: verified|unverified, approved_by, date, via, binding, evidence }], report_only }' },
-      review_loop: { type: 'object', required: ['passes', 'blocking_found', 'deferred'], properties: { passes: { type: 'integer', minimum: 0 }, blocking_found: { type: 'integer', minimum: 0 }, deferred: { type: 'integer', minimum: 0 }, noted: { type: 'integer', minimum: 0 }, fixed: { type: 'integer', minimum: 0 }, scope: str, fix_checks: { type: 'integer', minimum: 0 }, rounds: { type: 'integer', minimum: 0 }, dispatches: { type: 'object', description: 'reviewer dispatches by role' }, est_input_tokens: { type: 'integer', minimum: 0 } } },
+      review_loop: { type: 'object', required: ['passes', 'blocking_found', 'deferred'], properties: { passes: { type: 'integer', minimum: 0 }, blocking_found: { type: 'integer', minimum: 0 }, deferred: { type: 'integer', minimum: 0 }, noted: { type: 'integer', minimum: 0 }, fixed: { type: 'integer', minimum: 0 }, scope: str, fix_checks: { type: 'integer', minimum: 0 }, rounds: { type: 'integer', minimum: 0 }, dispatches: { type: 'object', description: 'reviewer dispatches by role' }, est_input_tokens: { type: 'integer', minimum: 0 }, unrecorded: { type: 'integer', minimum: 0 }, ledgers_read: { type: 'integer', minimum: 0 } } },
       carry: { type: 'object', required: ['from', 'reason', 'product_patch_id'], properties: { from: str, reason: str, product_patch_id: str, changed_paths: strList, merge_commits: { type: 'integer', minimum: 0 }, range_diff: str, covers: strList, reruns: strList, trees: strList, ancestry: { enum: ['linear', 'rewritten'] } } },
       head_tree: str, product_patch_id: str, gstack_version: str,
       base_red: { type: 'object', required: ['cases', 'files', 'base', 'lane', 'expires_at'], properties: { cases: strList, files: strList, base: str, lane: str, expires_at: str } },
       review_depth: { type: 'object', required: ['depth', 'class', 'runtime_lines', 'rules', 'base', 'gate_scan'], properties: { depth: { enum: ['light', 'standard', 'full'] }, class: { enum: ['docs', 'tests', 'code', 'gate'] }, runtime_lines: { type: 'integer', minimum: 0 }, rules: str, base: str, registry: nullableStr, gate_scan: { type: 'object', required: ['tagged', 'head'], properties: { tagged: { type: ['integer', 'null'], minimum: 0 }, head: str } }, reasons: strList, risk: { type: 'array', items: { enum: ['money', 'auth', 'secret', 'security', 'data'] } } } },
       review_targeted: { type: 'object', required: ['classes', 'rules', 'brief_sha', 'product_patch_id', 'status', 'findings', 'raised_by'], properties: { classes: { type: 'array', items: { enum: ['money', 'gate', 'auth', 'secret'] } }, rules: str, brief_sha: str, product_patch_id: str, status: { enum: ['done', 'failed', 'not-run'] }, findings: { type: 'integer', minimum: 0 }, raised_by: str } },
+      review_exclude: { type: 'object', required: ['source', 'patterns', 'applied', 'excluded', 'excluded_bytes', 'kept', 'gate_tagged', 'patterns_sha256', 'list_sha256', 'digest'], properties: { source: str, patterns: strList, applied: strList, excluded: { type: 'integer', minimum: 0 }, excluded_bytes: { type: 'integer', minimum: 0 }, kept: { type: 'integer', minimum: 0 }, gate_tagged: strList, patterns_sha256: str, list_sha256: str, digest: str } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason', 'fix_check'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } } } },
       issues: { type: 'object', properties: { fixes: { type: 'array', items: { type: 'integer' } }, refs: { type: 'array', items: { type: 'integer' } }, flakes: { type: 'array', items: { type: 'object', required: ['issue', 'run'], properties: { issue: { type: 'integer' }, run: str } } }, related: { type: 'array', items: { type: 'object', required: ['pr', 'author', 'closes'], properties: { pr: { type: 'integer' }, repo: str, author: str, closes: { type: 'array', items: { type: 'integer' } }, supersedes: { type: 'boolean' }, credit: { type: 'boolean' } } } } } },
     },

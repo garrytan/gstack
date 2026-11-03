@@ -77,11 +77,15 @@
  *   bun run scripts/test-free-shards.ts --attribute-home           # name real-home writers: each file alone, private HOME
  *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20
  *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json
+ *   bun run scripts/test-free-shards.ts --ci-plan plan.json --shards 20 --shard-jobs 2
+ *       # the plan stores a per-shard k: min(k, the shard's files that may run in parallel),
+ *       # kept only when above 1, so the exclusive TREE_MUTATING shard stays one child.
  *   bun run scripts/test-free-shards.ts --ci-run plan.json --shard 1 --result result.json --jobs 4
- *       # k sub-shards side by side inside one CI job (default 1 = one child, today's behavior;
- *       # scripts/lib/shard-jobs.ts). --jobs applies only to --ci-run: a positive whole number up
- *       # to the shard's file count, else FREE_JOBS_INVALID. GSTACK_FREE_JOBS sets the local
- *       # full-suite process count and never changes --ci-run; --jobs is its only knob.
+ *       # k sub-shards side by side inside one CI job (default: the plan's per-shard k, else 1 =
+ *       # one child, today's behavior; scripts/lib/shard-jobs.ts). --jobs applies only to
+ *       # --ci-run and overrides the plan: a positive whole number up to the shard's file count,
+ *       # else FREE_JOBS_INVALID. --ci-verify requires every result to have run at the plan's k.
+ *       # GSTACK_FREE_JOBS sets the local full-suite process count and never changes --ci-run.
  *   bun run scripts/test-free-shards.ts --ci-verify plan.json --results results/
  */
 
@@ -97,8 +101,8 @@ import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeG
 import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning, windowsCurationLine } from './lib/free-ci-health';
 import { curateWindowsSafe, type CurationResult } from './lib/windows-curation';
 import {
-  assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, readJunitReport, rejectJobsWithoutCiRun, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems,
-  validateJobsForShard, type ShardTestCounts, type SubShardRecord,
+  assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, plannedShardJobs, plannedShardJobsProblem, readJunitReport, rejectJobsWithoutCiRun,
+  rejectShardJobsWithoutCiPlan, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems, validateJobsForShard, type ShardTestCounts, type SubShardRecord,
 } from './lib/shard-jobs';
 export { curateWindowsSafe, detectWindowsFragility, KNOWN_WINDOWS_INCOMPATIBLE, type CurationResult } from './lib/windows-curation';
 import {
@@ -196,6 +200,24 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
   // packed wall may therefore be LOOSER than the count heuristic, never
   // tighter — it keeps the per-file floor the runner has always guaranteed.
   return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
+}
+/** The flaky-retry pass re-runs at most this many failing files, once, serially, in the same CI step. */
+export const FLAKY_RETRY_CAP = 5;
+/** No free-suite GitHub job gets a longer timeout; a plan whose shard would need more fails instead. */
+export const MAX_CI_JOB_TIMEOUT_MINUTES = 90;
+/**
+ * The GitHub job timeout for one planned CI shard (#3850): the wall --ci-run
+ * gives the shard, plus the flaky-retry pass's wall, plus the job's measured
+ * setup and teardown. GitHub must never kill the job before the runner can
+ * name a hung file and retry it; that kill uploads no result.
+ */
+export function ciShardJobTimeoutMinutes(shard: { shard: number; files: string[]; predictedMs: number }, setupSeconds: number): number {
+  const runnerMs = wallTimeoutForPackedShard(shard.predictedMs, DEFAULT_WALL_TIMEOUT_MS, shard.files.length) + wallTimeoutForShard(FLAKY_RETRY_CAP);
+  const minutes = Math.ceil((runnerMs / 1000 + setupSeconds) / 60);
+  if (minutes > MAX_CI_JOB_TIMEOUT_MINUTES) {
+    throw new Error(`FREE_JOB_TIMEOUT_OVER_CAP: CI shard ${shard.shard} needs a ${minutes}-minute job (runner wall plus retry plus ${setupSeconds} s setup), over the ${MAX_CI_JOB_TIMEOUT_MINUTES}-minute cap; plan more shards or a higher --shard-jobs instead of a longer job`);
+  }
+  return minutes;
 }
 /**
  * Full-suite parallelism: use all available CPUs, with a floor of one and a
@@ -424,21 +446,39 @@ export interface FreeCiPlan {
   version: 1;
   revision: string;
   id: string;
-  shards: Array<{ shard: number; files: string[]; predictedMs: number }>;
+  /** `jobs` is the shard's k from --shard-jobs, present only when above 1. */
+  shards: Array<{ shard: number; files: string[]; predictedMs: number; jobs?: number }>;
 }
+
+/** Files that run in the trailing serial sub-shard under k > 1, never beside another child. */
+const runsSerialUnderJobs = (file: string) => file in TREE_MUTATING || file in SLOW_UNDER_LOAD;
 
 const planDigest = (plan: Omit<FreeCiPlan, 'id'>): string =>
   createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
 /** One immutable plan is shared by isolated CI machines; never repack per job. */
-export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string): FreeCiPlan {
+export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1): FreeCiPlan {
   const readers = files.filter(file => !(file in TREE_MUTATING));
   const exclusive = files.filter(file => file in TREE_MUTATING).sort();
   const packed = packShardsByDuration(readers, count, durations);
-  const shards = packed.shards.map((files, index) => ({ shard: index + 1, files, predictedMs: packed.predictedMs[index] }));
-  if (exclusive.length) shards.push({ shard: shards.length + 1, files: exclusive, predictedMs: exclusive.reduce((ms, file) => ms + (durations[file] ?? 0), 0) });
+  const planned = packed.shards.map((files, index) => ({ files, predictedMs: packed.predictedMs[index] }));
+  if (exclusive.length) planned.push({ files: exclusive, predictedMs: exclusive.reduce((ms, file) => ms + (durations[file] ?? 0), 0) });
+  const shards = planned.map(({ files, predictedMs }, index) => {
+    const jobs = plannedShardJobs(files, shardJobs, runsSerialUnderJobs);
+    return { shard: index + 1, files, predictedMs, ...(jobs ? { jobs } : {}) };
+  });
   const body = { version: 1 as const, revision, shards };
   return { ...body, id: planDigest(body) };
+}
+
+/**
+ * --ci-plan's stdout, the GitHub matrix. With --job-setup-seconds each entry
+ * carries the shard's job timeout (ciShardJobTimeoutMinutes); without it, the
+ * bare shard list the Windows lane reads.
+ */
+export function ciPlanMatrix(plan: FreeCiPlan, setupSeconds?: number): { shard: number[] } | { include: Array<{ shard: number; timeout_minutes: number }> } {
+  if (setupSeconds === undefined) return { shard: plan.shards.map(shard => shard.shard) };
+  return { include: plan.shards.map(shard => ({ shard: shard.shard, timeout_minutes: ciShardJobTimeoutMinutes(shard, setupSeconds) })) };
 }
 
 export function validateFreeCiPlan(plan: FreeCiPlan, files: string[], revision: string): void {
@@ -447,6 +487,8 @@ export function validateFreeCiPlan(plan: FreeCiPlan, files: string[], revision: 
     || id !== planDigest({ version, revision: plan.revision, shards })) throw new Error('CI plan identity or revision mismatch');
   if (shards.some((shard, index) => shard.shard !== index + 1 || !Array.isArray(shard.files)
     || !Number.isFinite(shard.predictedMs) || shard.predictedMs < 0)) throw new Error('Invalid CI shard plan');
+  const jobsProblems = shards.map(shard => plannedShardJobsProblem(shard, runsSerialUnderJobs)).filter(Boolean);
+  if (jobsProblems.length) throw new Error(`Invalid CI shard plan: ${jobsProblems.join('; ')}`);
   const planned = shards.flatMap(shard => shard.files).sort();
   if (new Set(planned).size !== planned.length || JSON.stringify(planned) !== JSON.stringify([...files].sort())) throw new Error('CI plan must cover every free file exactly once');
 }
@@ -486,6 +528,7 @@ export function verifyFreeCiResults(plan: FreeCiPlan, results: FreeCiResult[]): 
     if (!hasCompleteCiSummary(outcome)) throw new Error('Missing or incomplete CI execution summary');
     const subShardProblems = subShardRecordProblems(result);
     if (subShardProblems.length) throw new Error(`CI shard ${outcome.shard} sub-shards rejected: ${subShardProblems.join('; ')}`);
+    if ((result.jobs ?? 1) !== (shard.jobs ?? 1)) throw new Error(`CI shard ${outcome.shard} ran at --jobs ${result.jobs ?? 1}; the plan says ${shard.jobs ?? 1}`);
     if (outcome.status === 'passed') {
       if (outcome.exitCode !== 0 || outcome.failingFiles.length || outcome.unattributedFailures || result.retry) throw new Error('Inconsistent passing CI result');
     } else {
@@ -556,8 +599,12 @@ type CliOptions = {
   result: string | null;
   results: string | null;
   filesFrom: string | null;
-  /** Set only by --jobs (with --ci-run); absent means k = 1. */
+  /** Set only by --jobs (with --ci-run); absent means the plan's per-shard k. */
   jobs?: number;
+  /** Set only by --shard-jobs (with --ci-plan); absent means k = 1 in every shard. */
+  shardJobs?: number;
+  /** Set only by --job-setup-seconds (with --ci-plan): the matrix then carries each shard's job timeout. */
+  jobSetupSeconds?: number;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -573,6 +620,8 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let quick = false;
   let attributeHome = false;
   let jobs: number | undefined;
+  let shardJobs: number | undefined;
+  let jobSetupSeconds: number | undefined;
   const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
     ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
   };
@@ -597,6 +646,12 @@ export function parseCliOptions(argv: string[]): CliOptions {
     '--results': pathFlag('--results', 'results'),
     '--files-from': pathFlag('--files-from', 'filesFrom'),
     '--jobs': (next) => { jobs = parseJobsFlag(next()); },
+    '--shard-jobs': (next) => { shardJobs = parseJobsFlag(next(), '--shard-jobs'); },
+    '--job-setup-seconds': (next) => {
+      const value = next() ?? '';
+      jobSetupSeconds = /^\d+$/.test(value) ? Number(value) : NaN;
+      if (!(jobSetupSeconds > 0 && jobSetupSeconds <= 3600)) throw new Error('--job-setup-seconds needs a whole number of seconds from 1 to 3600');
+    },
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -621,8 +676,10 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
   if (jobs !== undefined && !paths.ciRun) rejectJobsWithoutCiRun();
+  if (shardJobs !== undefined && !paths.ciPlan) rejectShardJobsWithoutCiPlan();
+  if (jobSetupSeconds !== undefined && !paths.ciPlan) throw new Error('--job-setup-seconds applies only to --ci-plan');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
-  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }) };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }), ...(jobSetupSeconds === undefined ? {} : { jobSetupSeconds }) };
 }
 
 const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
@@ -1350,6 +1407,8 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
         check(operation);
         if (!Number.isSafeInteger(pid) || (pid as number) <= 1) throw new BrowserCleanupError('invalid browser child identity');
         const identity = identities.get(pid as number);
+        if (!identity && identities.get(daemon as number)?.root) throw new BrowserCleanupError(
+          `browser child ownership is unconfirmed: recorded pid ${pid} (${await inspect(operation, pid as number) ? 'alive' : 'exited'}) was never seen in daemon ${daemon}'s process tree`);
         if (!identity || identity.daemon !== daemon || identity.root) throw new BrowserCleanupError('browser child ownership is unconfirmed');
         if (await live(operation, identity) && (typeof start !== 'string' || !start
           || await nativeStart(operation, identity) !== start.replace(/\s+/g, ' '))) throw new BrowserCleanupError('browser child identity was replaced');
@@ -1869,7 +1928,6 @@ async function retryFailedFreeFiles(
   // Exists for syscall-supervised sandboxes (see fullSuiteJobs) where a run
   // lands 0-1 spurious browser-timing failures under an otherwise-green
   // suite. Capped so a genuinely broken tree never masquerades as flaky.
-  const RETRY_CAP = 5;
   if (
     worst !== 0
     && process.env.GSTACK_FREE_RETRY_FLAKY === '1'
@@ -1884,7 +1942,7 @@ async function retryFailedFreeFiles(
     // mask the unattributable evidence as a FLAKY-PASS.
     const allAttributed = outcomes.every((o) => hasScopedFailureAttribution(o) && (o.status === 'passed'
       || (o.failingFiles.length > 0 && o.unattributedFailures === 0)));
-    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= RETRY_CAP) {
+    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= FLAKY_RETRY_CAP) {
       console.log(`[test:free] flaky-retry: re-running ${flakyFiles.length} failing file(s) once, serially: ${flakyFiles.join(', ')}`);
       const retryOutcome = await runFreeShard(flakyFiles, totalShards + 1, totalShards + 1, {
         wallTimeoutMs: shardTimeout(flakyFiles.length),
@@ -1920,7 +1978,7 @@ async function retryFailedFreeFiles(
         console.error('[test:free] flaky-retry FAILED — the failures reproduce serially; not flaky.');
       }
     } else {
-      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${RETRY_CAP}` : 'failures not fully attributed'}.`);
+      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${FLAKY_RETRY_CAP}` : 'failures not fully attributed'}.`);
     }
   }
   return { exitCode: worst, retry };
@@ -1954,10 +2012,16 @@ async function main(): Promise<number> {
         appendStepSummary(line);
       }
       warnUnseededFreeFiles(ciFiles, durations);
-      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision);
+      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs);
       validateFreeCiPlan(plan, ciFiles, revision);
+      const matrix = ciPlanMatrix(plan, options.jobSetupSeconds);
+      if ('include' in matrix) {
+        const line = `job timeout per shard (runner wall + flaky retry + ${options.jobSetupSeconds} s setup): ${matrix.include.map(entry => `${entry.shard}=${entry.timeout_minutes}m`).join(' ')}`;
+        console.error(`[test:free] ${line}`);
+        appendStepSummary(line);
+      }
       writeJson(options.ciPlan, plan);
-      console.log(JSON.stringify({ shard: plan.shards.map(shard => shard.shard) }));
+      console.log(JSON.stringify(matrix));
       return 0;
     }
     const plan = JSON.parse(fs.readFileSync((options.ciRun ?? options.ciVerify)!, 'utf8')) as FreeCiPlan;
@@ -1975,7 +2039,7 @@ async function main(): Promise<number> {
     }
     const shard = plan.shards[options.shardIndex! - 1];
     if (!shard || shard.shard !== options.shardIndex) throw new Error('CI shard index is outside the plan');
-    const jobs = options.jobs ?? 1;
+    const jobs = options.jobs ?? shard.jobs ?? 1;
     validateJobsForShard(jobs, shard.files.length, shard.shard);
     const durations = loadFreeTestDurations() ?? {};
     const { result, exitCode } = await runCiShard({
@@ -1986,7 +2050,7 @@ async function main(): Promise<number> {
       runShard: (files, shardNumber, totalShards, runOptions) => runFreeShard(files, shardNumber, totalShards, runOptions),
       retry: outcomes => retryFailedFreeFiles(outcomes, plan.shards.length, options),
       pack: (files, count) => packShardsByDuration(files, count, durations).shards,
-      isSerial: file => file in TREE_MUTATING || file in SLOW_UNDER_LOAD,
+      isSerial: runsSerialUnderJobs,
       terminationRequested: isTerminationRequested,
     });
     writeJson(options.result!, result);
