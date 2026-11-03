@@ -243,7 +243,7 @@ describe('carry after a stack parent squash-merges, receipt written against main
 
 describe('carry after a stack parent lands, the child having merged main before its receipt (GST-1214)', () => {
   /** main <- parent (lib/util.js) <- feature (lib/retry.js), which merges main (wiki/) once before its receipt is written against main. */
-  function mergedStack(repo: FixtureRepo): { parent: string; reviewed: string; body: string } {
+  function mergedStack(repo: FixtureRepo, mainFiles: Record<string, string | null> = { 'wiki/a.md': '# a\n', 'wiki/b.md': '# b\n' }): { parent: string; reviewed: string; body: string } {
     repo.git('checkout', '-q', '-b', 'parent');
     const parent = commit(repo, { 'lib/util.js': SUB }, 'parent: sub');
     repo.git('push', '-q', 'origin', 'parent');
@@ -251,7 +251,7 @@ describe('carry after a stack parent lands, the child having merged main before 
     repo.git('reset', '-q', '--hard', parent);
     commit(repo, { 'lib/retry.js': RETRY4 }, 'child: four retries');
     repo.git('checkout', '-q', 'main');
-    commit(repo, { 'wiki/a.md': '# a\n', 'wiki/b.md': '# b\n' }, 'main: wiki');
+    commit(repo, mainFiles, 'main: wiki');
     repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
     repo.git('merge', '-q', '--no-edit', 'origin/main');
@@ -288,6 +288,20 @@ describe('carry after a stack parent lands, the child having merged main before 
     expect(out.status).toBe(EXIT.refused);
     expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
     expect(out.err).toContain('wiki/a.md');
+    expect(receiptIn(body).head).toBe(reviewed);
+  }, 90_000);
+
+  // Value: protects=fail closed when the earlier base merge turned a file into a directory: leaving out the old file must not
+  // hide an edit beneath it (a pathspec names a path and everything under it); fails_when=the exclusion covers a changed
+  // descendant; seam=none; no_claim=-
+  test('a base merge that replaced a file with a directory never hides an edit beneath it', () => {
+    const repo = makeFixtureRepo({ baseFiles: { services: 'old\n' } }); repos.push(repo);
+    const { reviewed, body } = mergedStack(repo, { services: null, 'services/worker.js': 'exports.allowed = false;\n' });
+    landOnMain(repo, { 'lib/util.js': SUB });
+    commit(repo, { 'services/worker.js': 'exports.allowed = true;\n' }, 'child: allow');
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
     expect(receiptIn(body).head).toBe(reviewed);
   }, 90_000);
 });
