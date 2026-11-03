@@ -1,0 +1,4 @@
+{
+  "bytes": 412,
+  "why": "GSTA-258 L4: review fixes carry ledger_id and a Review-Finding trailer, late defers log at Step 11 (GST-1168), the result line names head= (GST-1179)"
+}
