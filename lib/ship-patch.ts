@@ -131,7 +131,7 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
 export function maskedSides(repoRoot: string, s: PatchSides, rel: string, mask: (text: string, side: keyof PatchSides) => string | null): { sides: PatchSides; entries: Record<keyof PatchSides, string> } | string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-mask-'));
   const run = (args: string[], input?: string) => {
-    const r = spawnSync('git', ['--literal-pathspecs', ...args], { cwd: repoRoot, encoding: 'latin1', input: input === undefined ? undefined : Buffer.from(input, 'latin1'), timeout: 60_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') } });
+    const r = spawnSync('git', ['--literal-pathspecs', ...args], { cwd: repoRoot, encoding: 'latin1', input: input === undefined ? undefined : Buffer.from(input, 'latin1'), timeout: 120_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') } });
     return r.status === 0 ? r.stdout : null;
   };
   try {
