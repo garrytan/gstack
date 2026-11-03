@@ -133,7 +133,7 @@ describe('treeRecord: the tested-tree producer', () => {
   //   skipped file is not listed, a partly skipped one is, or a run without complete counts claims a list
   test('skipped_files lists only files whose every test skipped; a partly skipped file stays covered; incomplete counts leave it out', () => {
     const n = (tests: number, pass: number, skip: number) => ({ tests, pass, fail: 0, skip, todo: 0, expects: pass });
-    const counted = [
+    const counted: Array<{ outcome: { summary: { testsRan: number }; counts: { complete: boolean; files: Record<string, ReturnType<typeof n>> } } }> = [
       { outcome: { summary: { testsRan: 7 }, counts: { complete: true, files: { 'test/a.test.ts': n(3, 0, 3), 'test/b.test.ts': n(4, 2, 2) } } } },
       { outcome: { summary: { testsRan: 5 }, counts: { complete: true, files: { 'test/c.test.ts': n(5, 5, 0) } } } },
     ];
