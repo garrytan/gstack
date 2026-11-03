@@ -66,6 +66,13 @@ surface. Keep it small and predictable:
 Scope instructions in the drive root (`AGENTS.md`, `CREW.md`) apply to every thread in
 the crew, so a rule written there needs no relaying.
 
+On Capy, `tools.capy.read` returns a view of a file, not the whole file: roughly the first
+38,000 characters, with each line cut at 2,000. A program that reads a file, changes it
+and writes it back with `tools.capy.write` therefore saves a truncated copy, and drive
+files are no exception. Edit long files with `tools.capy.edit`, or read and write the
+whole file in bash or Python and check the line count afterward. `tools.drive.history`
+restores a recent version of a drive file.
+
 ## CREW.md: the lanes' contract
 
 gstack holds how the work is done; a crew's `CREW.md` holds only what is specific to that
@@ -145,7 +152,10 @@ thread asks its Captain, who asks that project's Captain to create and own the t
 the results come back the same way. For the receiving Captain, that ask is work: it
 creates the thread in its own crew, briefs it and returns the result. Only when the other
 project has no Captain does the crew thread create the thread itself, and then it records
-the new thread's code on the work's issue so the thread can still be found.
+the new thread's code on the work's issue so the thread can still be found. A thread the
+crew thread already created in another project goes the same way: it reports the code to
+its Captain, who asks that project's Captain to adopt the thread, and the code goes on
+the work's issue.
 
 Why: a crew thread once created a thread in another project directly. That thread ran
 outside every crew, so no Captain briefed it, tracked it or could archive it.

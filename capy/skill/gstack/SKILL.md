@@ -81,7 +81,6 @@ In a repository with a sealed configuration (a `sealed` key in its `.gstack/preg
 - Use Capy's user-visible messaging and question tools for output and decisions. Plain assistant text is not a delivered message in Capy. Use Capy's task and pull-request workflows rather than unavailable Claude or Codex host tools.
 - Capy has no native gstack host target. Claude hooks do not become enforced Capy hooks; safety skills are advisory here, and `/autoplan` prints `autoplan guard: not enforced by this host` once to say so. Report missing capabilities instead of silently claiming equivalent enforcement.
 - Selecting GPT-6 Astra or Claude in Capy does not install or authenticate the Codex or Claude Code CLI. For cross-model reviews, a subagent on another model family is a full outside voice; record the model that reviewed. Do not report a missing Codex CLI as degraded coverage when another runner reviewed.
-- `tools.capy.read` returns a view, not the whole file: about the first 38,000 characters, each line cut at 2,000. A read, change and `tools.capy.write` program therefore saves a truncated file, Drive files included. Edit long files with `tools.capy.edit`, or read and write the whole file in bash or Python and check the line count afterward; `tools.drive.history` restores a recent version.
 - Preserve the user's requested scope, decisions, and consent. Do not enable telemetry or remote artifact sharing on their behalf. Installing gstack does not authorize merging, deploying, destructive operations, or bypassing approvals.
 
 ## Maintenance
