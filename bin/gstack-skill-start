@@ -234,9 +234,10 @@ _TEL_PROMPTED=$([ -f "$_GH/.telemetry-prompted" ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 # PID+epoch alone is guessable; a random suffix makes the block-binding token
 # unforgeable by content reflected into the same tool result. Falls back to
-# the plain form when urandom is unavailable.
+# this process's pid when urandom is unavailable, so two same-second starts
+# never share a SESSION_ID (it also keys their lease runs, GST-1205).
 _SID_RAND=$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
-_SESSION_ID="$PARENT_PID-$_TEL_START${_SID_RAND:+-$_SID_RAND}"
+_SESSION_ID="$PARENT_PID-$_TEL_START-${_SID_RAND:-$$}"
 # The install-scoped twin (bin/gstack-lease): what bin/gstack-upgrade reads
 # before moving a checkout other sessions share. This run holds it until
 # gstack-skill-end releases its SESSION_ID (GST-1205). Fail-open, but a lease
