@@ -79,6 +79,28 @@ describe('gstack-ship-preflight', () => {
     }
   });
 
+  // Value: protects=a remote whose HEAD names no branch (detached, or a server that sends no symref) falls back to the default-base ladder, not the local origin/HEAD;
+  //   fails_when=the fallback reads the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature branch a
+  //   Capy checkout's origin/HEAD names is refused as the base branch; why_new=pass-1 review of the ls-remote stop; seam=a git wrapper whose ls-remote prints
+  //   only a sha; no_claim=a repository whose default is neither main nor master
+  test('with no symbolic remote HEAD, the default branch still stops and a feature branch named by a local origin/HEAD goes on', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "0000000000000000000000000000000000000000\tHEAD"; exit 0; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    expect(onDefault.status).toBe(3);
+    expect(onDefault.stdout).toContain('STOP: on the base branch (main)');
+    expect(onDefault.stdout).not.toContain('MERGE:');
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(onFeature.stdout).not.toContain('STOP: on the base branch');
+    expect(onFeature.status).toBe(0);
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {

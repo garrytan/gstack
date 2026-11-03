@@ -8,6 +8,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { defaultBaseBranch } from './default-base';
 import { classifyDiff } from './review-depth';
 import { audit } from './ship-audit';
 import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
@@ -39,7 +40,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (fetch.status !== 0) { r.stop(`git fetch origin ${base} failed: ${firstLine(fetch.stderr)}; restore access first`); return false; }
   const remoteHead = git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000);
   if (remoteHead.status !== 0) { r.stop(`git ls-remote origin HEAD failed: ${firstLine(remoteHead.stderr)}; restore access first`); return false; }
-  const head = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remoteHead.stdout)?.[1] ?? git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '');
+  const head = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remoteHead.stdout)?.[1] ?? defaultBaseBranch(cwd).branch;
   if (branch === head) { r.stop(`on the base branch (${branch}): ship from a feature branch`); return false; }
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
