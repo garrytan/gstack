@@ -163,15 +163,17 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
 
   const flags = (state.scope_flags ?? (state.scope.cli_flags ? parseScopeTokens(state.scope.cli_flags, 'run.json') : { ui: state.scope.source === 'flags' ? state.scope.ui : undefined, developerTool: state.scope.developer_tool, agentPrimary: state.scope.agent_primary })) as ScopeFlags;
   const detected = detectScope(path.join(staging, FILES.active), o.cwd, flags, file);
-  const order = PHASES.filter(p => state.phase_order.includes(p) || phaseOrder(detected).includes(p));
+  // A lean run keeps its one phase: scope the revision adds becomes a lens, never another reviewer.
+  const order = state.lean ? state.phase_order : PHASES.filter(p => state.phase_order.includes(p) || phaseOrder(detected).includes(p));
   const added = order.filter(p => !state.phase_order.includes(p));
   const opened = state.phase_order.filter(p => state.phases[p]?.snapshot);
   const changed = opened.filter(p => state.phases[p]!.snapshot !== newHash);
   const touched = state.phase_order.filter(p => changed.includes(p) || (p === 'eng' && opened.includes('eng') && changed.length > 0));
   // Below-High decisions only, every touched phase closed, nothing newly in scope (no added phase, docs-only still holds): the edit is theirs, so no re-review.
   const severities = incorporates.map(id => [id, decisionSeverity(state, id)] as const);
-  const quiet = severities.length > 0 && severities.every(([, sev]) => BELOW_HIGH.includes(sev)) && touched.length > 0 && !added.length
-    && touched.every(p => state.phases[p]?.closed_at) && !(state.scope.docs_only && !detected.docs_only);
+  // A lean run has one gate revision (R65): the owner's accepted changes apply without re-review whatever their severity.
+  const quiet = severities.length > 0 && (!!state.lean || severities.every(([, sev]) => BELOW_HIGH.includes(sev))) && touched.length > 0 && !added.length
+    && touched.every(p => state.phases[p]?.closed_at) && (!!state.lean || !(state.scope.docs_only && !detected.docs_only));
   // A phase that used its last round is not reopened: the delta becomes an owner gate item, so the cap neither loops nor hides it.
   const capped = quiet ? [] : touched.filter(p => atCap(state, p));
   const reopen = quiet ? [] : touched.filter(p => !capped.includes(p));
@@ -198,7 +200,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   delete state.plan_reality;
   const settled = [...settleAmendments(state, incorporates, 'incorporated', at, { old_plan_sha256: oldHash, new_plan_sha256: newHash }), ...settleAmendments(state, withdraw, 'withdrawn', at, { by: 'owner' }),
     ...settleAmendments(state, settle, 'settled', at, { plan_sha256: evidence?.plan_sha256 }).map(r => ({ ...r, changes: evidence!.changes[r.decision as string] })),
-    ...(quiet ? [{ event: 'applied_without_rereview', k, decisions: incorporates, severities: Object.fromEntries(severities), phases: touched, old_plan_sha256: oldHash, new_plan_sha256: newHash }] : [])];
+    ...(quiet ? [{ event: 'applied_without_rereview', ...(state.lean ? { lean: true } : {}), k, decisions: incorporates, severities: Object.fromEntries(severities), phases: touched, old_plan_sha256: oldHash, new_plan_sha256: newHash }] : [])];
   if (amending) state.status = pendingAmendments(state).length ? 'amend_pending' : state.phase_order.some(p => !state.phases[p]?.closed_at) ? 'running' : pendingDeltas(state).length ? 'gate_pending' : 'complete';
   // A quiet revise that ends at gate_pending still has an earlier capped delta waiting: the owner gets a new gate for it.
   const regate = (capped.length > 0 || quiet) && state.status === 'gate_pending';
@@ -206,7 +208,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify({ state, renames, committed, settled }, null, 2) + '\n');
   publish(state, staging, renames, committed, settled);
   const lines = [`REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,
-    ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (below High; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
+    ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (${state.lean ? 'lean run: one gate revision' : 'below High'}; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
   for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; the gate asks the owner about the unreviewed delta (+${delta.added} -${delta.removed} lines)`);
   if (regate) {
     lines.push(...approveOrRegate(state, at));

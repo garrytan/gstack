@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.93.37.0] - 2026-11-03
+
+**Eval planning prices Claude Haiku 5.5, GPT-6 Luna and Gemini 4 Argon, and the Codex docs name the current OpenAI tiers (#3640, #2943).** Before, `gstack-eval-plan arms --arms claude-haiku-5-5` stopped with EVAL_PRICE_MISSING because `lib/pricing.ts` had no row for it. docs/hosts.md and the /codex example still named gpt-5.6-sol as the current Sol model.
+
+### Added
+- **Price rows** for `claude-haiku-5-5` ($0.10 / $0.50, cached $0.01, standard tier up to 100,000 tokens), `gpt-6-luna` ($0.10 / $0.50, cached $0.01) and `gemini-4-argon` ($4.00 / $20.00, cached $0.20). Each row cites its provider page. Argon uses the rates that start on 2026-12-01, so estimates never come in low after that date. A repository's model-policy document that names one of these models now gets it as an eval arm.
+
+### Changed
+- **docs/hosts.md and /codex** name `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6-luna` as the current tiers. They also say the bounded-scope overlay still applies only to `gpt-5.6-sol` until it has its own eval.
+
+Thanks to @exGeni (#3640) and @DanCanadian (#2943) for the reports. The TypeSafe Jev rows from #3640 are not included, because a $0 output price breaks the price table's rule that every row has an output price.
+
+## [1.93.36.0] - 2026-11-03
+
+- **/autoplan R65 defaults: no review for bug fixes, one lean review for features.** `gstack-autoplan next --kind fix` prints `AUTOPLAN: not needed (bug fix; R65)` and `status=skipped run=-` and writes nothing; the PR still needs the bug's proof. `--kind feature`, now the default for an unattended Capy run, runs the eng phase alone with one native reviewer whose brief merges the CEO and Eng lenses (Design and DX only when scope detects them), reads the draft code (a diff against `--base`, hashed into the snapshot, or an honest `DRAFT: none`), always asks "Any outside terms, licences or rights involved?", and has no outside voice, one round, one gate revision and no carry check. The reviewer's result must name the draft hash on its `DRAFT:` line. A failed git command reads `DRAFT: none (draft capture failed: …)`, untracked files named like secrets stay out of the draft, the `DRAFT:` line names the checkout it diffed, and a draft over 100,000 bytes is still inlined, cut there and marked. `run` stays the full run unless `--kind feature` asks for the lean one, `run --kind fix` skips like `next`, and `--kind fix --json` prints one skipped object. `--full` brings back every phase and voice; off Capy and in interactive sessions nothing changes. The gate cost line and the owner brief say a lean `rec` reopens nothing.
+
+## [1.93.35.0] - 2026-11-03
+
+**pregate no longer kills a quiet test suite that is busy working.**
+
+### Fixed
+- **`lib/pregate/supervise.ts`**: the stall timeout now needs both no log output and an idle process group. Each second, supervise reads the group's CPU time (`/proc` on Linux, `ps -S` on macOS and BSDs). If it grew by at least a tenth of the wall time, the group counts as alive. Before, a parallel `check.sh` that printed nothing for 9 minutes while working ended `PREGATE_STALLED` at the 300 s default (Founderstar FOUN-63). A hang that waits on nothing still stalls. A hang that keeps using CPU now runs to `--timeout`, and either way the check is incomplete, never a pass. Windows reads no CPU time and keeps log growth alone. The `PREGATE_STALLED` detail, the guard line and the docs say what was measured. Both new tests fail on main. There a silent CPU-bound command ends `stalled` and a busy lane test ends `PREGATE_STALLED`.
+
+## [1.93.34.0] - 2026-11-03
+
+**The docsync fault-callback replays and the runShadow deadline test stop failing on loaded remote pregate VMs.**
+
+### Fixed
+- **Docsync fault-callback replays** (`test/helpers/docsync-fault-callbacks.ts` and its three wrappers): each replay in the generated child now has a 30 s limit instead of bun's 5 s default, and each wrapper's limit is that per-replay limit times its replay count plus one. A replay spawns 30 to 40 real actor, hook and git processes. That takes about 1.3 s on CI and up to 4.9 s on an idle 4-core machine, and it ran past 5 s on GSTA-234's remote pregate for #3892. With 8 busy loops on 4 cores, main fails all 12 legacy-control replays at 5 s, and this branch passes all 12 (172 s for the whole wrapper). `test/docsync-report-interface.test.ts` gets the same limits, because its child cases ran 5.5 s and 11.4 s on #3869's remote pregate.
+- **`test/autoplan-shadow.test.ts` "one deadline covers the call and its retry"**: the first call now has 1 s of room inside the deadline instead of 300 ms. The time limit allows 2.4 s past the deadline before it would match an unshared retry, up from 0.9 s; the remote failure ran 1.06 s past. The test still requires the retry to be cut (p1 malformed) and the call to end before an unshared retry could finish.
+
 ## [1.93.33.0] - 2026-11-03
 
 - On a checkout whose `origin/HEAD` points at the checked-out branch itself (a PR-branch clone), every base-relative step resolved the base to HEAD and reported zero changes, so review depth, `ready`, pregate and the docs audit passed on an empty diff (GST-774). Base resolution now skips a remote HEAD that names the checked-out branch, its upstream or HEAD's own commit (so a local branch under another name and a detached checkout of the PR branch are caught too), then uses the PR's base ref when `gh` finds one, then the remote's live default branch from `git ls-remote --symref`, then `main` or `master`. A repository whose default branch is `develop` or `trunk` keeps it. When the resolved base equals HEAD or contains it while the branch has commits its real base lacks, `gstack-diff-scope`, `gstack-gate-diff`, `gstack-review-plan`, `gstack-pregate`, `gstack-docs-candidate`, `/ship` policy base resolution and the receipt's depth binding refuse with `BASE_CONTAINS_HEAD` instead of reporting no changes. A pull request's head is refused whenever the base contains it; on the base branch itself, on a fresh branch with only uncommitted work, and on a detached HEAD given an explicit base, the step runs as before. `gstack-ship-queue land` resuming a merge-only PR that GitHub already merged with a true merge commit still lands, its depth check included. See docs/troubleshooting.md#base-contains-head.
