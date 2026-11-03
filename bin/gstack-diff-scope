@@ -128,16 +128,21 @@ _session_data() {
   return "$r"
 }
 
-# An auth path names auth as a word or path segment (GST-1065), split the way
-# lib/review-risk.ts tokens() splits it: camelCase, then every non-alphanumeric
-# run. auth, authn, authz, oauth, oauth2 and authenticat*/authoriz* match;
-# author-spec.md, AUTHORS and authority.ts do not.
+# An auth path holds a token, split the way lib/review-risk.ts tokens() splits
+# paths (camelCase, then every non-alphanumeric run), that starts or ends with
+# auth (GST-1065): auth.ts, /auth/, authn, authz, auth0, authguard, oauth,
+# basicauth, nextauth, oauth2 and authorize match; a token starting with author
+# (author-spec.md, AUTHORS, authority.ts) does not unless it is authoriz*.
 _auth_path() {
   local s="$1" t r=1
   while [[ "$s" =~ ^(.*[a-z0-9])([A-Z].*)$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
   shopt -s nocasematch
   for t in ${s//[^a-zA-Z0-9]/ }; do
-    case "$t" in auth|authn|authz|oauth|oauth2|authenticat*|authoriz*) r=0; break ;; esac
+    case "$t" in
+      authoriz*|oauth2) r=0; break ;;
+      author*) ;;
+      auth*|*auth) r=0; break ;;
+    esac
   done
   shopt -u nocasematch
   return "$r"

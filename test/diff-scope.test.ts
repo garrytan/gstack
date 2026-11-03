@@ -233,9 +233,11 @@ describe('gstack-diff-scope', () => {
   }
 
   // Value: protects=real auth paths still raise SCOPE_AUTH after the word-boundary fix (negative controls for GST-1065);
-  //   fails_when=the boundary drops a segment, a separator, a camelCase name or an authn/authz/oauth spelling; why_new=GST-1065; seam=bin/gstack-diff-scope
+  //   fails_when=the boundary drops a segment, a separator, a camelCase name, an authn/authz/oauth spelling or a glued token (auth0, basicauth, nextauth);
+  //   why_new=GST-1065 and its review (the first word-only matcher dropped glued tokens the old glob caught); seam=bin/gstack-diff-scope
   for (const file of ['src/auth.ts', 'app/auth/login.rb', 'lib/oauth.ts', 'src/oauth2/token.ts', 'lib/authn/check.go', 'src/authz.py', 'src/authService.ts',
-    'src/useAuth.ts', 'lib/OAuthClient.ts', 'lib/authentication.rb', 'lib/authorization_policy.rb', 'src/Authorize.tsx', 'config/AUTH_KEYS.md', 'pkg/auth-middleware.go']) {
+    'src/useAuth.ts', 'lib/OAuthClient.ts', 'lib/authentication.rb', 'lib/authorization_policy.rb', 'src/Authorize.tsx', 'config/AUTH_KEYS.md', 'pkg/auth-middleware.go',
+    'lib/auth0.ts', 'src/basicauth.go', 'src/authguard.ts', 'lib/reauth.ts', 'pages/api/nextauth.ts', 'src/authtoken.ts', 'lib/preauth.rb', 'src/HTTPAuth.ts']) {
     test(`${file} is an auth path`, () => {
       expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('true');
     });
