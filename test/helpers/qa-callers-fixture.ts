@@ -285,6 +285,25 @@ export function unloadedHelperCommand(tool: Pick<CallerTool, 'input' | 'output' 
   return `bun ${path.join(runtime, 'bin', script[2]!)}${command.slice(script[0].length - 1)}`;
 }
 
+/**
+ * A call to the installed QA evidence helper that its own argument parser
+ * refused with the usage error (exit 2, before reading or writing anything)
+ * ran no probe. Run 41628885072 slice 11 put --public after --hypothesis,
+ * got the usage error, and reran the declared form in the next call.
+ */
+export function helperUsageRefusal(tool: Pick<CallerTool, 'input' | 'output' | 'failed'>, runtime: string): boolean {
+  const command = String(tool.input.command).trim();
+  if (!tool.failed || !command.startsWith(`bun ${path.join(runtime, 'bin/gstack-qa-evidence')} `)
+    || /[\n\r;&|<>`$\\(){}]/.test(command.replace(/'[^'\n\r]*'/g, "''"))) return false;
+  const shown = /^Exit code 2\n\nQA_EVIDENCE (\{.*\})$/.exec(tool.output.trim());
+  if (!shown) return false;
+  try {
+    const value = JSON.parse(shown[1]!);
+    return Object.keys(value).join() === 'producer,version,action,message' && value.producer === 'gstack-qa-evidence'
+      && value.version === 1 && value.action === 'error' && /^Usage: report-dir /.test(value.message);
+  } catch { return false; }
+}
+
 const REVIEW_RECORD_STATUSES: Record<QaCaller, string[]> = { review: ['clean', 'issues_found'], ship: ['clean', 'issues_found', 'unavailable'] };
 
 export function validateCallerEvidence(input: {
@@ -338,7 +357,8 @@ export function validateCallerEvidence(input: {
     }
     const corrected = tool.name === 'Bash' && deadline ? unloadedHelperCommand(tool, deadline.runtime) : undefined;
     if (tool.name === 'Bash' && !qaCallerCommandAllowed(String(tool.input.command), input.workflowCommands, deadline)
-      && !(corrected && qaCallerCommandAllowed(corrected, input.workflowCommands, deadline))) {
+      && !(corrected && qaCallerCommandAllowed(corrected, input.workflowCommands, deadline))
+      && !(deadline && helperUsageRefusal(tool, deadline.runtime))) {
       errors.push('command outside declared caller observation interface');
     }
     const record = tool.name === 'Bash' ? String(tool.input.command).match(/gstack-review-log '(.*)'(?: --finish \S+)?$/s)?.[1] : undefined;

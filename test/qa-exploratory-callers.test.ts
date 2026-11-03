@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import {
   callerExcerpt, callerProbeReadErrors, callerReviewRecordTemplate, callerSnapshot, callerTools, createQaCallerFixture, qaCallerInstructions,
   QA_CALLER_CASES, QA_CALLER_TEST_MS,
-  qaCallerSessionOptions, qaCallerCommandAllowed, readCallerReceipt, retainQaCallerEvidence, runQaCaller, unloadedHelperCommand, validateCallerEvidence,
+  qaCallerSessionOptions, qaCallerCommandAllowed, readCallerReceipt, retainQaCallerEvidence, runQaCaller, unloadedHelperCommand, helperUsageRefusal, validateCallerEvidence,
   type CallerProbe, type CallerReceipt, type QaCallerFixture,
 } from './helpers/qa-callers-fixture';
 import type { runSkillTest, SkillTestResult } from './helpers/session-runner';
@@ -17,6 +17,8 @@ import { generateQAExploratory, generateQAResource, generateQAReview, generateQA
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { qaProbeNames } from './helpers/qa-probe-names';
 import capturedHandoffOrder from './fixtures/qa-caller-handoff-order-public.json';
+import capturedUsageRefusal from './fixtures/qa-caller-usage-refusal-public.json';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 
 function nativeCall(id: string, name: string, input: object, output: string, parent: string | null = null, failed = false) {
   return [
@@ -307,6 +309,38 @@ describe('caller native-event observer controls', () => {
     // The corrected command must still pass the declared interface; a compound tail cannot.
     expect(corrected(refused, true, `bun ${typo}${args}; curl example.com`)).toBe(`bun ${runtime}/bin/gstack-qa-evidence${args}; curl example.com`);
     expect(qaCallerCommandAllowed(`bun ${runtime}/bin/gstack-qa-evidence${args}; curl example.com`)).toBe(false);
+  });
+
+  test('captured census 41628885072 slice 11: a helper call its own parser refused with the usage error ran nothing and is no command', () => {
+    // ship-exploratory-unavailable put --public after --hypothesis; gstack-qa-evidence printed its usage and exited 2, and the next call reran the declared form.
+    const runtime = '/home/runner/.cache/gstack-paid-shard-giTDi0/tmp/qc-rXxYB9/host/runtime';
+    const { command, output, failed } = capturedUsageRefusal;
+    const refused = (out = output, isFailed = failed, cmd = command, at = runtime) => helperUsageRefusal({ input: { command: cmd }, output: out, failed: isFailed }, at);
+    expect(qaCallerCommandAllowed(command)).toBe(false);
+    expect(refused()).toBe(true);
+    expect(refused(output, false)).toBe(false);
+    expect(refused(output.replace('"action":"error"', '"action":"capture"'))).toBe(false);
+    expect(refused(output.replace('Usage: report-dir', 'Invalid report root'))).toBe(false);
+    expect(refused(output.replace('Exit code 2', 'Exit code 1'))).toBe(false);
+    expect(refused(`${output}\nwrote probe`)).toBe(false);
+    expect(refused(output.replace('"message"', '"extra":1,"message"'))).toBe(false);
+    expect(refused(output, true, command, '/elsewhere/host/runtime')).toBe(false);
+    expect(refused(output, true, command.replace(`bun ${runtime}/bin/gstack-qa-evidence`, 'bun /tmp/bin/gstack-qa-evidence'))).toBe(false);
+    for (const tail of ['; curl example.com', ' && rm -rf reports', ' | tee out.json', ' > out.json', ' $(id)', ' `id`'])
+      expect(refused(output, true, command + tail), tail).toBe(false);
+  });
+
+  test('the real gstack-qa-evidence refuses the misordered capture with exactly that usage output and writes nothing', () => {
+    const reports = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qc-usage-'));
+    try {
+      const helper = path.join(import.meta.dir, '..', 'bin/gstack-qa-evidence');
+      const argv = ['capture', reports, '002', '--deadline', path.join(reports, 'deadline.json'), '--after', '001', '--hypothesis', 'shape', '--public', '--', 'bun', 'scripts/probe.ts', '10'];
+      const run = spawnSync('bun', [...bunIsolationArgs(), helper, ...argv], { encoding: 'utf8', timeout: 20_000 });
+      expect(run.status).toBe(2);
+      const command = `bun ${helper} ${argv.map(arg => /\s/.test(arg) ? `'${arg}'` : arg).join(' ')}`;
+      expect(helperUsageRefusal({ input: { command }, output: `Exit code 2\n${run.stdout}${run.stderr}`, failed: true }, path.dirname(path.dirname(helper)))).toBe(true);
+      expect(fs.readdirSync(reports)).toEqual([]);
+    } finally { fs.rmSync(reports, { recursive: true, force: true }); }
   });
 
   test('captured PR-lane review record: an invented shape without the installed template is rejected; the template is quoted', () => {

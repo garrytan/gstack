@@ -225,7 +225,9 @@ matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `w
 record a stale or empty loop file.
 
 Add `--receipt .gstack/tmp/tree-receipt.json` only when Step 16 wrote it (gate-ahead).
-New PR/MR: omit `--pr`, then rerun with the number after creation and repost the body.
+New PR/MR: omit `--pr`. After the create block below exits 0, keep both files: rerun this
+write with `--pr <new number>` on the same `$PR_BODY_FILE`, then post it with the existing-PR
+`pr-body` command; exit 0's cleanup waits for that repost.
 Its `SHIP_RECEIPT:` line opens the completion message. The posted receipt is what
 `gstack-ship-queue ready`, `train build` and `verify --train` require (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`, no flag around them), so /ship runs before every READY and after any
@@ -273,7 +275,8 @@ TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<tit
 With open gate findings the same command carries `--draft` before `--title-file`.
 
 Branch on the exit code of either block:
-- **0** posted. Remove `$PR_BODY_FILE` and the title file.
+- **0** posted. After a create, first rerun the receipt write with the new number and repost
+  (above). Then remove `$PR_BODY_FILE` and the title file.
 - **1** HIGH finding: BLOCKED — do not publish. Rotate and redact at the source, then
   compose fresh files.
 - **2** MEDIUM findings, printed as `RULE:` lines with a `TOKEN:`. AskUserQuestion per

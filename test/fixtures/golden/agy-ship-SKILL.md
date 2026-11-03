@@ -518,7 +518,8 @@ Item 3 needs `BUMP_LEVEL`: reuse this invocation's saved level. Else FRESH
 chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 
 **One call:** `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-ship-release version --base <base> [--bump <BUMP_LEVEL>] --why '<WHY>'`
-runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun flag
+runs items 1 and 3–5 (reference only; a second `write` bumps twice); each
+decision left to you, item 2's level too, is a `STOP:` naming its rerun flag
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
 `VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
@@ -584,7 +585,7 @@ runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun 
    for Step 13. Exit 2 wrote nothing: show stderr, stop.
    Exit 3 is a half-write: reclassify and `repair` DRIFT_STALE_PKG.
 
-   `--regen-digest` runs `scripts/gen-agents-digest.ts` only when it and a committed `agents-digest/gstack-AGENTS.md` exist; if `agentsDigest` is
+   `--regen-digest` refreshes a committed `agents-digest/gstack-AGENTS.md`; if `agentsDigest` is
    false, run `bun --no-env-file --config=/dev/null scripts/gen-agents-digest.ts` and stage the digest with the bump. Before
    push, verify the committed digest matches generation for the selected VERSION.
 
@@ -765,8 +766,8 @@ does not authorize a third attempt.
 
 ### 5. Report, then push
 
-Commit only approved, verified release changes left uncommitted after Step 15,
-including generated outputs; use its grouping rules; never create an empty commit.
+`finish` made the release commit. Commit only approved, verified outputs stage 1's
+builds regenerated, grouped as in Step 15; else no commit.
 Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified

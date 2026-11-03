@@ -174,6 +174,37 @@ test.skipIf(process.platform === 'win32')('captured run 40828580338: a line that
   } finally { fixture.clean(); }
 });
 
+test.skipIf(process.platform === 'win32')('captured run 41468228156: a cat -A read of the whole document inside a loop of reads counts as its read', () => {
+  const fixture = fixtureDocs('risky');
+  try {
+    const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-spawned-cat-show-ends-public.json'), 'utf8')) as
+      { calls: SkillTestResult['toolCalls'] };
+    const fill = (value: unknown): any => typeof value === 'string' ? value.replaceAll('{home}', fixture.home)
+      : Array.isArray(value) ? value.map(fill) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fill(v)])) : value;
+    const [loop, edit] = fill(captured.calls) as SkillTestResult['toolCalls'];
+    const doc = path.join(fixture.repo, DOC_PATH);
+    const source = Buffer.from(fixture.before.contents[DOC_PATH], 'base64').toString('utf8');
+    const options = { source, beforeFirstEdit: true };
+    const read = (command: string, output: string) => docsCompletedRead(calls({ tool: 'Bash', input: { command }, output }, edit), doc, fixture, options);
+    const shown = source.trim().split('\n').map(line => `${line}$`).join('\n');
+    expect(loop.input.command).toContain(`cat -A $f`);
+    expect(loop.output).toContain(shown);
+    expect(docsToolFailures(calls(loop, edit), fixture)).toEqual([]);
+    expect(docsCompletedRead(calls(loop, edit), doc, fixture, options)).toBe(true);
+    expect(docsCompletedRead(calls(edit, loop), doc, fixture, options)).toBe(false);
+    expect(read(`cat -A ${DOC_PATH}`, shown)).toBe(true);
+    expect(read(`cat -E ${DOC_PATH}`, shown)).toBe(true);
+    expect(read(`cat -A ${DOC_PATH}`, shown.split('\n').slice(0, -1).join('\n'))).toBe(false);
+    expect(read(`cat -A ${DOC_PATH}`, shown.replace('$', ''))).toBe(false);
+    expect(read(`cat -A ${DOC_PATH}`, shown.replace('format', 'formot'))).toBe(false);
+    expect(read(`cat -A README.md`, shown)).toBe(false);
+    expect(read(`cat -A ${DOC_PATH} | head -3`, shown)).toBe(false);
+    expect(read(`cat -s ${DOC_PATH}`, shown)).toBe(false);
+    expect(read(`cat -n ${DOC_PATH}`, shown)).toBe(false);
+    expect(read(`cat -A ${DOC_PATH}`, `Exit code 1\n${shown}`)).toBe(false);
+  } finally { fixture.clean(); }
+});
+
 test.skipIf(process.platform === 'win32')('replay of Linux run 37237194905 late-result: only the write to a mistyped shard root is outside authority', () => {
   const fixture = fixtureDocs('current');
   try {

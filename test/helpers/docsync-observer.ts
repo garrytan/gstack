@@ -528,10 +528,19 @@ export function docsCompletedRead(result: SkillTestResult, file: string, fixture
       && (readOnlyCommandAllowed(command, docsReadOnlyScope(fixture)) || docsComposedReadAllowed(command, fixture));
     const parts = !literal && !grammar ? [] : (expanded ?? command).split(/\s*(?:;|&&|\|\|)\s*/);
     const operands = (part: string) => part.match(/'[^']*'|"[^"]*"|[^\s'"]+/g)?.slice(1).map(arg => /^['"]/.test(arg) ? arg.slice(1, -1) : arg) ?? [];
-    const catArgs = parts.filter(part => /^cat\s/.test(part) && !part.includes('|')).flatMap(operands);
-    const cat = call.tool === 'Bash' && catArgs.some(arg => resolve(arg) === target);
+    const catParts = parts.filter(part => /^cat\s/.test(part) && !part.includes('|'));
+    const cat = call.tool === 'Bash' && catParts.flatMap(operands).some(arg => resolve(arg) === target);
+    // cat's -A/-e/-t/-E/-T/-v display the same bytes with $ line ends and ^I tabs (gate 41468228156: the child
+    // read the document as `cat -A` inside a loop of reads); other flags and non-ASCII under -v are never credited.
+    const shown = cat ? catParts.filter(part => operands(part).some(arg => resolve(arg) === target)).flatMap(part => {
+      const flags = operands(part).filter(arg => arg.startsWith('-')).map(arg => arg.slice(1)).join('');
+      if (!/^[AETvet]+$/.test(flags)) return [];
+      const show = new Set([...flags].flatMap(flag => ({ A: ['v', 'E', 'T'], e: ['v', 'E'], t: ['v', 'T'] } as Record<string, string[]>)[flag] ?? [flag]));
+      if (show.has('v') && /[^\t\n\x20-\x7e]/.test(source)) return [];
+      return [source.split('\n').map(line => (show.has('T') ? line.replaceAll('\t', '^I') : line) + (show.has('E') ? '$' : '')).join('\n')];
+    }) : [];
     if ((read || cat) && !/^(?:<tool_use_error>|Error(?: reading file|:)|Exit code [1-9]\d*\b)/i.test(call.output.trimStart()) &&
-        call.output.replace(/^\s*\d+(?:→|\t)/gm, '').includes(source)) return true;
+        [source, ...shown].some(text => call.output.replace(/^\s*\d+(?:→|\t)/gm, '').includes(text))) return true;
     // A line's exit status is its last command's: when the line's first command cats the file unpiped and the output
     // opens with its full bytes, a later command's failure does not undo that read (screen 40828580338: zsh read the
     // separator `echo ======` as an = command lookup and abandoned the rest of the line after phase.md printed in full).

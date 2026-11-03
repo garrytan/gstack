@@ -1,0 +1,22 @@
+{
+  "source": "E2E Evals run 41468228156 (PR #3870, tested be38ff07) paid-slice-13-a1 docsync-spawned, native calls 8-9",
+  "calls": [
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "for f in SECURITY.md options.ts AGENTS.md CHANGELOG.md README.md TODOS.md VERSION app.ts handbook/reference/commands/widget.md.tmpl package.json; do echo \"=== $f\"; cat -A $f; done; find handbook -type f; ls -la"
+      },
+      "output": "=== SECURITY.md\n# Security Model$\n$\nAll command output is guaranteed to contain no sensitive data.$\n=== options.ts\nexport const pretty = true;$\nexport const outputIncludesSensitiveData = true;$\n=== AGENTS.md\n# Documentation$\n$\nAuthored docs live under handbook/. Edit .md.tmpl sources, not generated pages.$\n=== CHANGELOG.md\n# Changelog$\n$\n## 0.1.0.0$\n$\n- Original entry: KEEP THIS EXACTLY.$\n=== README.md\n# Widget CLI$\n$\nCommand reference: [widget](handbook/reference/commands/widget.md.tmpl).$\n$\nThe default output format is JSON.$\n=== TODOS.md\n# TODOs$\n$\n- Confirm launch readiness.$\n=== VERSION\n0.1.0.0$\n=== app.ts\nexport const format = \"json\";$\n=== handbook/reference/commands/widget.md.tmpl\n# Widget reference$\n$\nDefault format: text.$\n$\nUser-maintained note: KEEP THIS EXACTLY.$\n=== package.json\n{\"name\":\"widget-fixture\",\"version\":\"0.1.0\"}$\nhandbook/reference/commands/widget.md.tmpl\ntotal 60\ndrwxr-xr-x 5 runner runner 4096 Nov  2 15:14 .\ndrwx------ 7 runner runner 4096 Nov  2 15:14 ..\ndrwxr-xr-x 7 runner runner 4096 Nov  2 15:14 .git\ndrwxr-xr-x 2 runner runner 4096 Nov  2 15:14 .qa-state\n-rw-r--r-- 1 runner runner   97 Nov  2 15:14 AGENTS.md\n-rw-r--r-- 1 runner runner   62 Nov  2 15:14 CHANGELOG.md\n-rw-r--r-- 1 runner runner  123 Nov  2 15:14 README.md\n-rw-r--r-- 1 runner runner   81 Nov  2 15:14 SECURITY.md\n-rw-r--r-- 1 runner runner   37 Nov  2 15:14 TODOS.md\n-rw-r--r-- 1 runner runner    8 Nov  2 15:14 VERSION\n-rw-r--r-- 1 runner runner   30 Nov  2 15:14 app.ts\ndrwxr-xr-x 3 runner runner 4096 Nov  2 15:14 handbook\n-rw-r--r-- 1 runner runner   77 Nov  2 15:14 options.ts\n-rw-r--r-- 1 runner runner   44 Nov  2 15:14 package.json\n-rw-r--r-- 1 runner runner   43 Nov  2 15:14 personal-note.txt"
+    },
+    {
+      "tool": "Edit",
+      "input": {
+        "replace_all": false,
+        "file_path": "{home}/repo/handbook/reference/commands/widget.md.tmpl",
+        "old_string": "Default format: text.",
+        "new_string": "Default format: json."
+      },
+      "output": "The file {home}/repo/handbook/reference/commands/widget.md.tmpl has been updated successfully."
+    }
+  ]
+}
