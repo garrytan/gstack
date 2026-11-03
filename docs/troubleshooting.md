@@ -2091,8 +2091,8 @@ browse chain 'goto https://example.com | text'
 <a id="browse-chromium-path-failed"></a>
 ### `Chromium at GSTACK_CHROMIUM_PATH=<path> failed to launch: ...`
 
-**Meaning.** Headless browse and make-pdf now use `GSTACK_CHROMIUM_PATH`
-(NixOS, macOS 13). That binary could not start.
+**Meaning.** Headless browse, headed browse, `browse handoff` and make-pdf use
+`GSTACK_CHROMIUM_PATH` (NixOS, macOS 13). That binary could not start.
 
 **Fix.** Point `GSTACK_CHROMIUM_PATH` at a working Chromium, or
 `unset GSTACK_CHROMIUM_PATH` to use gstack's bundled one.
