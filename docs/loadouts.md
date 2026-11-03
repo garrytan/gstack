@@ -18,7 +18,7 @@ One model has its own loadout: Claude Opus 5.5 gets `lite` ([below](#lite-on-cla
 ## Commands
 
 ```bash
-bin/gstack-modules list [--json] [--pinned]   # every module id, kind, source, pin, source bytes and sha256
+bin/gstack-modules list [--json] [--pinned]   # every module id, kind, source, pin or cut status, source bytes and sha256
 bin/gstack-modules validate                   # check modules/loadouts.json against the catalog
 bin/gstack-modules render --host claude --loadout full --out-dir ~/arms/control
 bin/gstack-modules render --host claude \

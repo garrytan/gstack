@@ -6483,7 +6483,7 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 <a id="loadouts-invalid"></a>
 ### `LOADOUTS_INVALID: modules/loadouts.json …`
 
-**Meaning.** `modules/loadouts.json` is unreadable, or names a module, base loadout, rung or default that does not exist, excludes a pinned module, or maps one model id to two rungs. **Fix.** Correct the named entries, then run `bin/gstack-modules validate` until it prints `LOADOUTS: ok`; `git checkout -- modules/loadouts.json` restores the committed file.
+**Meaning.** `modules/loadouts.json` is unreadable, or names a module, base loadout, rung or default that does not exist, names a cut module (a `part:<skill>/<name>` id from `modules/cuts.json`), excludes a pinned module, or maps one model id to two rungs. **Fix.** Correct the named entries, then run `bin/gstack-modules validate` until it prints `LOADOUTS: ok`; `git checkout -- modules/loadouts.json` restores the committed file.
 
 <a id="loadout-unknown"></a>
 ### `LOADOUT_UNKNOWN: "<name>" is not a loadout (valid: …)`
@@ -6508,7 +6508,7 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 <a id="module-spec-invalid"></a>
 ### `MODULE_SPEC_INVALID: …`
 
-**Meaning.** A `--modules` token is not `-<module id>` or `+<module id>`, both `--loadout` and `--modules` were given, `gen:skill-docs` got a selection with exclusions but no `--out-dir`, or a render flag is missing or malformed. **Fix.** Write the spec as `<loadout>,-<id>,+<id>` (for example `full,-section:office-hours/second-opinion`) and pass the flags `bin/gstack-modules --help` lists.
+**Meaning.** A `--modules` token is not `-<module id>` or `+<module id>`, a token names a cut (a `part:<skill>/<name>` id, removed in every loadout by `modules/cuts.json`; drop it from the spec), both `--loadout` and `--modules` were given, `gen:skill-docs` got a selection with exclusions but no `--out-dir`, or a render flag is missing or malformed. **Fix.** Write the spec as `<loadout>,-<id>,+<id>` (for example `full,-section:office-hours/second-opinion`) and pass the flags `bin/gstack-modules --help` lists.
 
 <a id="module-unknown"></a>
 ### `MODULE_UNKNOWN: "<id>" is not a module`
