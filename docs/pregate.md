@@ -765,10 +765,12 @@ once:
   such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
   tests stage's `runner`). That run is recorded under `<label>.skipped`, the
   `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
-  is written only after it passes with a test count above zero and every carried
-  run still stands (`run_changed` otherwise). A failure there is
-  `skipped_failed` and a run of zero tests is `skipped_zero_run`; either way the
-  whole lane runs here. An entry with no `per_file` refuses as
+  is written only after four checks pass. In order, they are the remainder's
+  exit (`skipped_failed`), its test count above zero (`skipped_zero_run`), every
+  carried run again (`run_changed`), and the working tree once more
+  (`tree_changed`, for an edit made during those checks). An edit made while the
+  remainder itself runs leaves its ledger row without a tree, so it shows as
+  `skipped_zero_run`. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
   skipped file ran tests and stays covered. gstack's own Free Tests writer does
   not emit the list yet: it starts in the same follow-up pull request that
@@ -1014,11 +1016,26 @@ a branch that does not contain the base tip it tested another tree and
 `CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
 on the branch
 (`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
-and wait again. The preflight stage (generated-file freshness, secrets, strays
+and wait again. When the pull_request run tested that merge commit, the
+refusal names the command for the run's branch (`fix: gh workflow run
+free-tests.yml --ref <branch>, then gstack-ci-carry wait`). The preflight stage (generated-file freshness, secrets, strays
 and the other mechanical checks) and the sealed guard are unchanged and always
 run here. The macOS and Windows lane
 obligations still clear with `gstack-pregate clear --remote <lane> --run-url
 <url>` from their CI runs.
+
+<a id="dispatch-carry"></a>**A dispatched run can hide a red merge commit.** A
+`workflow_dispatch` run reports its checks on the head commit under the same
+job names as the `pull_request` run. So a green dispatch run of HEAD's own tree
+can stand in for a required check whose `pull_request` run failed on the merge
+commit, and without strict branch
+protection ("Require branches to be up to date before merging") the pull
+request can merge with that failure hidden (GBEV-3). Turn on strict protection
+for the base branch, or give dispatch runs distinct job names (for example a
+job `name:` that includes `github.event_name`), so a dispatch run never stands
+in for the required `pull_request` check. gstack's own merge trains test the
+merged tree before they merge, so gstack is covered; a repo that merges
+without a train is not.
 
 **/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
 `.gstack/pregate.json` maps its exact command (the evidence ledger binds the

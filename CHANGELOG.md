@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.94.26.0] - 2026-11-03
+
+- A lane whose command runs several `bun test --shard=i/N` processes now records the sum of the shards' counts, not the last shard's (GBEV-3, gbrain-evals#317: 3336 recorded against 6,095 run across 2 shards). The sum needs shards 1/N to N/N, in order, at the end of the log; any other set records the last summary as before, so a command that runs a suite twice, or reruns one shard, still reports its last run. The shard lines and count lines that scroll out of the 64 KiB output tail are kept for this, so a long shard run still sums (a real 2-shard, 2000-test bun run recorded 1000 before and 2000 after).
+- docs/pregate.md#dispatch-carry warns that a `workflow_dispatch` run reports under the same job names on the head commit, so without strict branch protection a green dispatch run can hide a red merge-commit check. It recommends strict protection or distinct job names for dispatch runs, and notes that gstack's own merge trains test the merged tree.
+- When a pull_request run tested a merge whose base moved after the run, `CI_CARRY: none (… tree_mismatch …)` now says so and prints the one-command fix: `gh workflow run <workflow> --ref <branch>, then gstack-ci-carry wait` (TRUT-7).
+- docs/pregate.md#skipped-files names the order of record-ci's checks after a skipped-file remainder, including the final `tree_changed` recheck.
+
+### Tests
+- `test/ship-ci-carry.test.ts`: a pull_request run whose merge commit has another tree prints the base-moved reason and `gh workflow run free.yml --ref feat, then gstack-ci-carry wait`. It fails without the change.
+- `test/evidence.test.ts`: two `--shard=i/2` processes in one log record 6095, two shards with more than 64 KiB of per-test lines record 4000, and an incomplete, repeated or rerun shard set records the last summary. The sum cases fail without the change (3336 and 2000).
+
 ## [1.94.25.0] - 2026-11-03
 
 - A lane label with a space or a colon, such as `pnpm lint` or `db:test`, no longer goes MISSING right after it carries (TRUT-7, truther#1170). `gstack-evidence` writes a label to the ledger with unsafe characters turned into `_`, but `check`, which `gstack-ship-release finish` and `accept` call, looked it up under the raw label, so /ship stopped with "not FRESH at the pushed head". `run`, `record-ci` and `check` now share one label spelling.
