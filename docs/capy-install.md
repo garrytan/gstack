@@ -241,7 +241,12 @@ keeps the lease. `bin/gstack-lease list` shows `alive|dead|stale`, and
    clone too, through `GSTACK_CAPY_CLONED`).
 2. Preflight: `git`, `curl`, `node`, `jq`, then Bun. The project's pins
    (`--project <path>`, default the git toplevel of the current directory) are
-   read with the doctor's own parser (`bin/gstack-runtime-pins.ts`: engines,
+   read (a `--project` inside a repository resolves to that repository's git
+   toplevel, so `--project <repo>/<subdir>` means `<repo>`; outside a repository
+   it resolves to the directory's real path, and a value that is not a
+   directory, such as a repo slug, exits 2 with a usage error before anything
+   runs; the pins, the doctor and the install verdict all use the resolved
+   directory) with the doctor's own parser (`bin/gstack-runtime-pins.ts`: engines,
    packageManager, `.tool-versions`, `.bun-version` and CI `bun-version:` lanes
    for this platform). CI exact pins for this platform are alternatives: a
    repository may test several Bun versions (gstack's own CI pins 1.4.2 and
@@ -467,6 +472,14 @@ make <dir> writable, or set GSTACK_STATE_ROOT to a writable directory
 (LAUNCH_FILE_UNWRITABLE)`, and a failing run prints no `GSTACK_LAUNCH_FILE` line
 and removes the file an earlier passing run left beside the verdict it rewrites
 (a profile check that keeps a fuller ok verdict leaves that verdict's file).
+With `--model <id>`, `GSTACK_MODEL=<id>` in its environment, or else an
+`agent_model` in the session's `GSTACK_PREFERENCES_FILE` outside an eval run (GST-982, with a
+`LOADOUT_ASSUMED:` note), an ok run other than `--for review-voice` also prints `LOADOUT: …`
+and `SKILL_ROOT: <dir>` just before `GSTACK_LAUNCH`. For a loadout other than
+`full`, `GSTACK_LAUNCH_FILE` then names `<verdict file without .json>.loadout-<name>-<digest>.env`,
+a copy of the verdict's launch file that adds `GSTACK_LOADOUT_SKILL_ROOT`; the
+verdict and its own launch file do not change, and any failure prints
+`LOADOUT_FALLBACK` and serves `full` ([loadouts](loadouts.md#capy)).
 `. <that file>` at the start of a shell applies them without ever printing them,
 which is the only way to hand them to a child agent: pass the path, never the
 values. None of the assignments is a secret, but during GSTA-96's unattended

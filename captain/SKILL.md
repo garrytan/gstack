@@ -59,9 +59,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -422,10 +422,13 @@ Lesson into a rule in the rules file, a line in the standing-rules file
 (`captain/templates/AGENTS.md`), or a filed tool fix. The controller's own log is
 append-only and timestamped (`captain/templates/NOTES.md`); the digest is derived from it.
 
-Serial slots cost tens of minutes each, so small fixes in one area travel together: when
-a lane's diff is small and open PRs touch the same area, fold them into one wave PR with
-every contributor credited (`Contributed by @handle`, `Co-authored-by`, `Supersedes
-#<pr>`), and never merge a contributor's PR directly from its fork.
+Serial slots cost tens of minutes each, so PRs in one area travel together. When more
+than `WAVE_TRIGGER` (6) PRs are READY, run `gstack-ship-queue wave plan` for area groups
+of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY on the wave
+PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
+its owner, and `wave settle` closes the rest after the merge (docs/ship-policy.md#wave-prs).
+Credit every contributor (`Contributed by @handle`, `Co-authored-by`), and never merge a
+contributor's PR directly from its fork.
 
 ## Where the protocols differ, ship both
 

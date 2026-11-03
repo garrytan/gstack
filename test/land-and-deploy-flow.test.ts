@@ -1,9 +1,10 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { expectMentions } from './helpers/prompt-structure';
+import { warmFirstExec } from './helpers/warm-first-exec';
 
 const root = join(import.meta.dir, '..');
 const source = (name: string) => readFileSync(join(root, 'land-and-deploy', name), 'utf8');
@@ -65,6 +66,9 @@ describe('land-and-deploy decision ordering', () => {
 });
 
 describe('land-and-deploy native readback dispatcher', () => {
+  // Windows Free Tests 40592848146, 41195098239, 41196095371 (first dispatch) and 41175329114 (first five) hit the 5 s
+  // kill, then calls settled at 0.3-0.5 s; serial retries took 0.3 s. The first jq launch is a runner cost.
+  beforeAll(() => warmFirstExec('bash', ['-c', "printf '{}' | jq -e . >/dev/null"]), 30_000);
   const shell = source('sections/merge-and-deploy.md.tmpl').match(/```bash\n(READBACK=[\s\S]*?)\n```/)?.[1];
   const head = 'a'.repeat(40);
   const pr = (extra = {}) => ({

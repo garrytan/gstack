@@ -79,8 +79,7 @@ export function draftConfig(repoRoot: string): InitDraft {
     const runner = detectRunner({ repoRoot, config: DEFAULT_CONFIG }, list);
     return runner ? `${lang} tests detected at run time: ${runner}` : `no runner detected for ${list.length} ${lang} test file(s); set runner (with {files})`;
   });
-  const mixed = [...groups.keys()].filter(l => l !== 'dart' && l !== 'rust').length > 1 ? '; a selection mixing these languages needs runner set' : '';
-  const runnerNote = notes.length ? notes.join('; ') + mixed : 'no test files found';
+  const runnerNote = notes.length ? notes.join('; ') : 'no test files found';
 
   const selectionTodo = discoverLanes(repoRoot).filter(l => l.runsTests && l.matrixExpression && l.testFiles.length === 0).map(l => l.id);
   const config = { $schema: PREGATE_CONFIG_SCHEMA, runner: null, dependencies, empty_lanes: [], selection: {}, warn: [], strays: { allow: [] } };

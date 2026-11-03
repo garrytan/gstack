@@ -14,10 +14,11 @@
  *   gstack-ship-queue gate-ahead --list --pr <n>
  *   gstack-ship-queue verify --pr <n> --screen                  (train policy: the head's screen verdict from its run)
  *   gstack-ship-queue verify --post-merge <sha> [--timeout <s>] (after a merge: main's push workflows at that commit until they settle)
- *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock]   (the merge step; lib/ship-queue-land.ts)
+ *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock [--break-train-lock]]   (the merge step; lib/ship-queue-land.ts)
  *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
  *   gstack-ship-queue land --census
  *   gstack-ship-queue train build|status|verdict|bisect|rebuild|watch|prune ...   (merge trains; train --help)
+ *   gstack-ship-queue wave plan|build|status|settle ...   (wave PRs: 3-6 same-area PRs in one train slot; wave --help)
  *
  * Every subcommand takes --base <branch> (default origin/HEAD, else main) and
  * ends with GSTACK_RESULT: skill=ship-queue status=complete|refused run=<path>.
@@ -56,7 +57,7 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   verify --pr <n> --screen                 (train policy) the PR head's screen verdict read from its run (SCREEN_VERDICT)
   verify --post-merge <sha> [--timeout <s>] wait for every check run at a merged commit to settle: POST_MERGE: green|red|pending
                                            and one CHECK: line per workflow; resumable, default timeout 2700 s
-  land --pr <n> [--dry-run] [--no-wait] [--timeout <min>] [--break-lock] [--allow-repo-commands]
+  land --pr <n> [--dry-run] [--no-wait] [--timeout <min>] [--break-lock [--break-train-lock]] [--allow-repo-commands]
                                            the merge step: lock, merge the base, stamp (fragments folded), push the stamp commit,
                                            wait for its checks, squash with --match-head-commit, confirm the base tree; resumable
   land --pr <n> --repair                   after QUEUE_LAND_DRIFT: open the PR that gives the merge outside land its own
@@ -65,6 +66,8 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   train build|status|verdict|bisect|rebuild|watch|prune ...
                                            merge trains, when the base policy declares a train block (train --help;
                                            docs/ship-policy.md#run-a-merge-train); ready then takes --screen|--no-screen
+  wave plan|build|status|settle ...        wave PRs under a train policy: 3-6 same-area PRs in one slot and one version
+                                           (wave --help; docs/ship-policy.md#wave-prs)
 
 --base <branch>: base branch (default: origin/HEAD, else main). Nothing here pushes, except land (the stamp commit and the
 refs/notes/gstack-land lock), ready under changelog_fragments (its READY receipt note) and merge trains.
@@ -162,13 +165,14 @@ async function main(argv: string[]): Promise<number> {
     if (!args[0] || args[0].startsWith('-')) { process.stdout.write(train.TRAIN_HELP + '\n'); return args.includes('--help') || args.includes('-h') ? EXIT.ok : EXIT.usage; }
     return train.trainMain(ctx, args);
   }
+  if (cmd === 'wave') return (await import('../lib/ship-queue-wave')).waveMain(ctx, args);
   if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../lib/ship-queue-train-cli')).postMergeMain(ctx, args);
   if (cmd === 'land') {
     const l = await import('../lib/ship-queue-land');
     if (args.includes('--census')) return finish('land', l.census(ctx));
     if (!pr || !/^\d+$/.test(pr)) return usage('land needs --pr <number> (or --census)');
     const timeout = flag(args, '--timeout');
-    return finish('land', l.land(ctx, { pr, repair: args.includes('--repair'), dryRun: args.includes('--dry-run'), noWait: args.includes('--no-wait'), breakLock: args.includes('--break-lock'), allowRepoCommands: args.includes('--allow-repo-commands'), waitTimeoutMin: timeout && /^\d+$/.test(timeout) ? Number(timeout) : undefined }));
+    return finish('land', l.land(ctx, { pr, repair: args.includes('--repair'), dryRun: args.includes('--dry-run'), noWait: args.includes('--no-wait'), breakLock: args.includes('--break-lock'), breakTrainLock: args.includes('--break-train-lock'), allowRepoCommands: args.includes('--allow-repo-commands'), waitTimeoutMin: timeout && /^\d+$/.test(timeout) ? Number(timeout) : undefined }));
   }
   if (!pr || !/^\d+$/.test(pr)) return usage(`${cmd} needs --pr <number>`);
   const gateExit = flag(args, '--gate-exit');

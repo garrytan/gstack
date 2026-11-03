@@ -6,8 +6,8 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
-import { basename, dirname, isAbsolute, join, resolve } from "path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { resolveStateRoot } from "./state-root";
 import { legacyRemoteSlug, remoteSlug } from "./remote-identity";
 
@@ -123,6 +123,10 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
  * test/bin-context-windows-slug.test.ts against test/gstack-slug-cwd-walk-up.test.ts
  * and test/gstack-slug-parity.test.ts):
  *   0. $GSTACK_PROJECT_SLUG env override — wins over everything, never cached.
+ *   0m. A counted .gstack-project marker (see projectMarkerRoot): the marked
+ *      folder's own remote slug, else its basename, cached in its own entry so
+ *      removing the marker leaves the repo's entry as it was. Scope
+ *      "repository" ignores every marker.
  *   1. Walk UP to the OUTERMOST project root (see outermostProjectRoot). Without
  *      the walk, a nested/vendored repo derived its slug from the INNERMOST
  *      `git remote get-url origin`, splitting the store the bash side keeps whole.
@@ -214,6 +218,170 @@ export function slugCacheReadOrder(stateRoot: string, cwd: string): string[] {
 export const SLUG_CACHE_VERSION_PREFIX = "v2:";
 
 /**
+ * Project marker (#2649, #1923), twin of bin/gstack-slug's step 0m: the innermost
+ * counted `.gstack-project` on the cwd chain makes its folder the project root.
+ * A marker counts when it is a regular file (not a link or a directory) owned by
+ * this user, below $HOME when the cwd is under $HOME, and its folder is a git
+ * toplevel or not inside any git work tree. Stat-only: never spawns git.
+ */
+export const PROJECT_MARKER_FILE = ".gstack-project";
+
+function homeForms(): string[] {
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (!home) return [];
+  let phys = home;
+  try {
+    phys = realpathSync(home);
+  } catch {
+    // keep the logical form only
+  }
+  return [...new Set([home, phys])].filter((h) => h !== "/");
+}
+
+function isUnder(child: string, dir: string): boolean {
+  return child.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
+
+function isHomeOrAbove(dir: string, homes: string[]): boolean {
+  return dirname(dir) === dir || homes.some((h) => h === dir || isUnder(h, dir));
+}
+
+/** Why the marker in `dir` does not count, or "" when it counts. */
+export function markerIgnoredReason(dir: string, underHome: boolean, homes: string[] = homeForms()): string {
+  const marker = join(dir, PROJECT_MARKER_FILE);
+  let st;
+  try {
+    st = lstatSync(marker);
+  } catch {
+    return "not a regular file";
+  }
+  if (st.isSymbolicLink()) return "a symbolic link";
+  if (st.isDirectory()) return `a directory, not a file: rmdir '${marker}' && touch '${marker}'`;
+  if (!st.isFile()) return "not a regular file";
+  if (process.platform !== "win32" && typeof process.geteuid === "function" && st.uid !== process.geteuid()) {
+    return "owned by another user";
+  }
+  if (["", ".", ".."].includes(sanitizeSlug(basename(dir)))) {
+    return "its folder name has no letter or digit gstack can use in a project name; rename the folder or set GSTACK_PROJECT_SLUG";
+  }
+  if (underHome && isHomeOrAbove(dir, homes)) return "at or above $HOME";
+  if (existsSync(join(dir, ".git"))) return "";
+  let d = dirname(dir);
+  for (let depth = 0; depth < 64; depth++) {
+    if (underHome && isHomeOrAbove(d, homes)) break;
+    if (existsSync(join(d, ".git"))) {
+      return `inside the git work tree at ${d}; a marker counts only at a repository's top folder`;
+    }
+    const parent = dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return "";
+}
+
+/** The innermost counted marker's folder (physical) on the cwd chain, plus every marker ignored on the way. */
+export function findProjectMarker(cwd: string): { root: string; ignored: string[] } {
+  const homes = homeForms();
+  const underHome = homes.some((h) => isUnder(cwd, h));
+  const ignored: string[] = [];
+  let dir = cwd;
+  for (let depth = 0; dir && depth < 64; depth++) {
+    const marker = join(dir, PROJECT_MARKER_FILE);
+    let present = false;
+    try {
+      lstatSync(marker);
+      present = true;
+    } catch {
+      // no marker here
+    }
+    if (present) {
+      const why = markerIgnoredReason(dir, underHome, homes);
+      if (!why) {
+        try {
+          return { root: realpathSync(dir), ignored };
+        } catch {
+          ignored.push(`${marker} (unreadable folder)`);
+        }
+      } else {
+        ignored.push(`${marker} (${why})`);
+      }
+    }
+    if (underHome && isHomeOrAbove(dir, homes)) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return { root: "", ignored };
+}
+
+function markerCacheFile(stateRoot: string, root: string): string {
+  return join(stateRoot, "slug-cache", "marker", toMsysPath(root).replace(/%/g, "%25").replace(/_/g, "%5f").replace(/\//g, "_"));
+}
+
+/**
+ * The marked folder that sets this cwd's identity, or "". A linked worktree
+ * outside the marked folder follows its main checkout: on a miss the walk
+ * repeats from there, as bin/gstack-slug does.
+ */
+export function projectMarkerRoot(cwd: string): string {
+  let root = findProjectMarker(cwd).root;
+  if (!root) {
+    const common = gitCommonDir(cwd);
+    const main = common && basename(common) === ".git" ? dirname(common) : "";
+    root = main && main !== cwd && !isUnder(cwd, main) ? findProjectMarker(main).root : "";
+  }
+  if (root && isFile(join(root, ".git"))) {
+    const common = gitCommonDir(root);
+    if (common && basename(common) === ".git") return dirname(common);
+  }
+  return root;
+}
+
+function writeCacheEntry(file: string, content: string): void {
+  try {
+    let current: string | undefined;
+    try {
+      current = readFileSync(file, "utf-8");
+    } catch {
+      // no entry yet
+    }
+    if (current === content) return;
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.tmp.${process.pid}`;
+    writeFileSync(tmp, content, "utf-8");
+    renameSync(tmp, file);
+  } catch {
+    // best-effort cache; a miss only costs a re-derive on the next call
+  }
+}
+
+/** The marked folder's slug: its own canonical remote, else its basename; cached in its own entry. */
+function markerSlug(stateRoot: string, cwd: string, root: string): string {
+  const file = markerCacheFile(stateRoot, root);
+  let slug = "";
+  try {
+    const raw = readFileSync(file, "utf-8");
+    if (raw.startsWith(SLUG_CACHE_VERSION_PREFIX)) slug = sanitizeSlug(raw.slice(SLUG_CACHE_VERSION_PREFIX.length).trim());
+  } catch {
+    // miss
+  }
+  if (slug === "." || slug === "..") slug = "";
+  if (!slug) {
+    if (existsSync(join(root, ".git"))) {
+      const r = spawnSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf-8" });
+      const url = r.status === 0 ? (r.stdout || "").trim() : "";
+      const candidate = url ? remoteSlug(url) : "";
+      if (candidate && candidate !== "." && candidate !== ".." && !candidate.includes("/")) slug = candidate;
+    }
+    if (!slug) slug = sanitizeSlug(basename(root));
+    if (!slug || slug === "." || slug === "..") return "";
+    writeCacheEntry(file, `${SLUG_CACHE_VERSION_PREFIX}${slug}`);
+  }
+  return slug;
+}
+
+
+/**
  * The slug a versioned cache entry records for `cwd`, or undefined when there is
  * no entry, the entry predates the versioned format, or its value is unusable
  * (empty, "." or ".." after sanitizing). Never spawns git: hot-path readers
@@ -221,7 +389,8 @@ export const SLUG_CACHE_VERSION_PREFIX = "v2:";
  * preamble runs, having already written the entry.
  */
 export function readVersionedSlugCache(stateRoot: string, cwd: string): string | undefined {
-  const file = slugCacheReadOrder(stateRoot, cwd).find((f) => existsSync(f));
+  const marker = projectMarkerRoot(cwd);
+  const file = marker ? markerCacheFile(stateRoot, marker) : slugCacheReadOrder(stateRoot, cwd).find((f) => existsSync(f));
   if (!file) return undefined;
   let raw: string;
   try {
@@ -234,7 +403,11 @@ export function readVersionedSlugCache(stateRoot: string, cwd: string): string |
   return slug && slug !== "." && slug !== ".." ? slug : undefined;
 }
 
-export function slugFromEnvironment(gstackHome?: string, cwd: string = process.cwd()): string {
+export function slugFromEnvironment(
+  gstackHome?: string,
+  cwd: string = process.cwd(),
+  opts: { scope?: "memory" | "repository" } = {},
+): string {
   const home = gstackHome || resolveStateRoot();
   const cacheDir = join(home, "slug-cache");
   const readOrder = slugCacheReadOrder(home, cwd);
@@ -245,6 +418,16 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
   //    (caching it would rebind THIS cwd's slug for every later env-less run).
   const envSlug = sanitizeSlug((process.env.GSTACK_PROJECT_SLUG || "").trim());
   if (envSlug && envSlug !== "." && envSlug !== "..") return envSlug;
+
+  // 0m. project marker (#2649) — its own cache entry; the repo's entry below is never touched.
+  //     Scope "repository" (pregate policy and scratch, approvals, /verify) ignores
+  //     every marker, so a branch that commits one can't move those records
+  //     (twin of gstack-slug --get REPO_SLUG).
+  const markerRoot = opts.scope === "repository" ? "" : projectMarkerRoot(cwd);
+  if (markerRoot) {
+    const slug = markerSlug(home, cwd, markerRoot);
+    if (slug) return slug;
+  }
 
   // 1. outermost project root along the cwd ancestor chain (may be "").
   const projectRoot = outermostProjectRoot(cwd);

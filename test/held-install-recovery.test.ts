@@ -8,11 +8,12 @@
  * already-unmerged), all in prefix mode; the PowerShell forms run under
  * powershell.exe in .github/workflows/windows-setup-e2e.yml.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { gitFixtureTemplate } from './helpers/git-fixture-template';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DOC = fs.readFileSync(path.join(ROOT, 'docs', 'troubleshooting.md'), 'utf8');
@@ -37,8 +38,33 @@ const CONFLICT_LINE = 'THROTTLE_SECONDS=3600  # 1 hour';
  * bin/gstack-ff-update (an install that predates it), with VERSION 1.91.101.0.
  */
 function makeFixture(source = ROOT) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-held-')));
+  if (source !== ROOT) {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-held-')));
+    bases.push(base);
+    const { src, ...fx } = buildFixture(base, source);
+    expect(src).toContain(CONFLICT_LINE);
+    return { base, ...fx };
+  }
+  const { root: base, meta: { src, ...fx } } = rootTemplate.copy();
   bases.push(base);
+  expect(src).toContain(CONFLICT_LINE);
+  return { base, origin: path.join(base, 'origin.git'), ...fx };
+}
+
+/** makeFixture's origin.git for this checkout, built once per file; the per-test source checkouts build their own. */
+const rootTemplate = gitFixtureTemplate({
+  prefix: 'gstack-held-',
+  realpath: true,
+  build: (base) => {
+    const { origin, ...meta } = buildFixture(base, ROOT);
+    fs.rmSync(path.join(base, 'work'), { recursive: true, force: true });
+    return meta;
+  },
+  rebind: () => {},
+});
+afterAll(() => rootTemplate.dispose());
+
+function buildFixture(base: string, source: string) {
   const origin = path.join(base, 'origin.git');
   const work = path.join(base, 'work');
   execFileSync('git', ['clone', '-q', '--shared', source, work], { timeout: 60_000 });
@@ -53,7 +79,6 @@ function makeFixture(source = ROOT) {
   const held = git(work, 'rev-parse', 'HEAD');
   fs.copyFileSync(path.join(ROOT, 'bin', 'gstack-ff-update'), path.join(work, 'bin', 'gstack-ff-update'));
   const src = fs.readFileSync(path.join(work, EDITED), 'utf8');
-  expect(src).toContain(CONFLICT_LINE);
   fs.writeFileSync(path.join(work, EDITED), src.replace(CONFLICT_LINE, 'THROTTLE_SECONDS=3600  # 1 hour (upstream)'));
   fs.writeFileSync(path.join(work, 'VERSION'), '1.91.102.0\n');
   git(work, 'add', '-A');
@@ -61,7 +86,7 @@ function makeFixture(source = ROOT) {
   const fixed = git(work, 'rev-parse', 'HEAD');
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 60_000 });
   git(work, 'push', '-q', origin, 'HEAD:refs/heads/main');
-  return { base, origin, held, fixed };
+  return { origin, held, fixed, src };
 }
 type Fx = ReturnType<typeof makeFixture>;
 

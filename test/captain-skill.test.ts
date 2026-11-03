@@ -15,7 +15,7 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const skill = read('captain/SKILL.md');
 const tmpl = read('captain/SKILL.md.tmpl');
 const flat = skill.replace(/\s+/g, ' ');
-const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md'];
+const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md', 'merge-train-peer.md'];
 
 describe('/captain skill', () => {
   test('frontmatter names the skill and its /crew alias trigger', () => {
