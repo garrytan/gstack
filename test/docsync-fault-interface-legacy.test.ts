@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { docsFaultCallbackScript } from './helpers/docsync-fault-callbacks';
+import { callbackBudgetMs, docsFaultCallbackScript } from './helpers/docsync-fault-callbacks';
 
 const CALLBACK_SPLITS = [
   ['legacy controls', '^ship-docsync-failure rejects ', 12],
@@ -21,7 +21,7 @@ for (const [split, pattern, count] of CALLBACK_SPLITS) test(`registered fault ca
       env: { ...process.env, EVALS: '', EVALS_TIER: '', EVALS_ALL: '', EVALS_RUN_ID: 'free-docsync-faults',
         HOME: home, USERPROFILE: home,
         GSTACK_EVAL_DIR: path.join(dir, 'evidence'), GSTACK_HOME: path.join(dir, 'state') },
-      stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
+      stdout: 'pipe', stderr: 'pipe', timeout: callbackBudgetMs(count),
     });
     const output = result.stdout.toString() + result.stderr.toString();
     expect(result.exitCode, output).toBe(0);
@@ -29,4 +29,4 @@ for (const [split, pattern, count] of CALLBACK_SPLITS) test(`registered fault ca
     expect(output).toContain(`${36 - count} filtered out`);
     expect(output).toContain('0 fail');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}, 120_000);
+}, callbackBudgetMs(count) + 10_000);

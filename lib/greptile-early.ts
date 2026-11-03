@@ -24,6 +24,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveStateRoot, readConfigKey, type StateRootEnv } from "./state-root";
+import { botLists, botOwning } from "./pr-wait";
 import { remoteSlug } from "./remote-identity";
 
 export interface EarlyEnv {
@@ -78,14 +79,14 @@ function readOr(file: string): string {
   try { return fs.readFileSync(file, "utf8"); } catch { return ""; }
 }
 
-/** A Greptile comment on any PR of this repo in the last 90 days (conversation or review comments). */
+/** A comment by Greptile's bot account (gstack-pr-wait's login rule, Bot accounts only) on any PR of this repo in the last 90 days. */
 function recentComment(env: EarlyEnv): boolean {
   const since = new Date(env.now() - COMMENT_WINDOW_DAYS * 86_400_000).toISOString();
   for (const kind of ["issues", "pulls"]) {
     const r = env.run("gh", ["api", `repos/{owner}/{repo}/${kind}/comments?sort=created&direction=desc&per_page=100&since=${since}`,
-      "--jq", "[.[] | {login: .user.login, created: .created_at}]"]);
-    const rows = r.status === 0 ? json<Array<{ login: string; created: string }>>(r.stdout) : undefined;
-    if (rows?.some(c => isGreptile(c.login) && c.created >= since)) return true;
+      "--jq", "[.[] | {login: .user.login, type: .user.type, created: .created_at}]"]);
+    const rows = r.status === 0 ? json<Array<{ login: string; type?: string; created: string }>>(r.stdout) : undefined;
+    if (rows?.some(c => c.type === "Bot" && botOwning(c.login, ["greptile"]) && c.created >= since)) return true;
   }
   return false;
 }
@@ -129,6 +130,8 @@ function detect(env: EarlyEnv): number {
     env.out(`Greptile early review is off for you. Turn it back on: ${config(env)} set ship_greptile_early true\n`);
     return 0;
   }
+  const lists = botLists(env.vars);
+  if (![...lists.gating, ...lists.advisory].includes("greptile")) return off("greptile is not in pr_wait_gating_bots or pr_wait_advisory_bots");
   const root = gitRoot(env);
   if (!root) return off("not in a git repository");
   if (env.run("gh", ["auth", "status"]).status !== 0) return off("gh is missing or not logged in");

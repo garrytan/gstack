@@ -3,7 +3,9 @@
  * gstack-evidence — verification-evidence ledger: the mechanical arm of /ship's
  * IRON LAW ("no completion claims without fresh verification evidence").
  *
- *   gstack-evidence run --label <L> -- <cmd...>
+ *   gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>
+ *   gstack-evidence record-ci --label <L> --base <base> -- <cmd>
+ *   gstack-evidence carried [--json]
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
  *                         [--max-age <hours>] [--allow-paths <csv>]
  *   gstack-evidence bundle --out <file> [--label <L>]... [--require <csv>] [--selection L=<text>]...
@@ -51,6 +53,21 @@
  * normalization — the same convention as bin/gstack-verify-gate (which hashes
  * for TRUST; this ledger hashes for FRESHNESS).
  *
+ * `run --reuse` (GSTA-258, what gstack-ship-preflight and finish pass): before
+ * running, the newest row for this label, command hash and working-tree
+ * fingerprint decides. It is reused only when it passed with a counted run
+ * (tests_ran > 0) under the same execution identity (bun and node versions,
+ * OS, architecture and runner image; lockfiles and pins are tree content) within --max-age
+ * hours (default 24); a newer failure on that tree vetoes an older pass. The
+ * reuse appends a copy that keeps the original timestamp, so check's max age
+ * still measures the real run.
+ *
+ * `record-ci` writes the explicit CI-sourced row for a lane CI carried: it
+ * finds and verifies the run itself (lib/ci-carry.ts) for a command the base's
+ * ship_lanes_from maps, then records source "ci", the runs and profiles, the
+ * run's finish time as ts, bound to HEAD's clean tree; `carried` lists those
+ * rows at the current tree for the ship receipt.
+ *
  * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
  * A synced record citing an unsynced log would grade FRESH on a machine where
  * the log doesn't exist.
@@ -73,6 +90,10 @@ import { resultLine } from "../lib/result-codes";
 import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/ship-policy";
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
+import { findCarry } from "../lib/ci-carry";
+import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
+import { buildRunCheck } from "../lib/pregate/run-check";
+import { runInventory } from "../lib/run-evidence";
 
 const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
@@ -93,6 +114,16 @@ interface EvidenceRecord {
   wtree_changed?: string[];
   log_path?: string;
   redacted?: boolean;
+  /** sha256 of the runtime the run had (identityDigest). */
+  identity?: string;
+  /** The original ts of the row a `run --reuse` copied. */
+  reused_from?: string;
+  /** "ci" for a lane CI carried (record-ci); absent for a local run. */
+  source?: "ci";
+  runs?: string[];
+  profiles?: string[];
+  /** The base policy that mapped a carried lane (record-ci), as `origin/<base>@<sha>:.gstack/pregate.json`. */
+  policy?: string;
   /** The runner's own test count (executed for bun/jest/vitest/pytest/rspec; ran with skips included for gstack's shard runner and the remote gate), 0 for ZERO-RUN, or "unknown" when no supported summary was seen. */
   tests_ran?: number | "unknown";
 }
@@ -369,7 +400,15 @@ async function cmdRun(argv: string[]): Promise<number> {
   const sep = argv.indexOf("--");
   if (li >= 0 && li + 1 < argv.length && (sep < 0 || li < sep)) label = argv[li + 1];
   if (sep < 0 || sep + 1 >= argv.length) {
-    console.error("usage: gstack-evidence run --label <L> -- <cmd...>");
+    console.error("usage: gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>");
+    return 2;
+  }
+  const opts = argv.slice(0, sep);
+  const reuse = opts.includes("--reuse") && !opts.includes("--no-reuse");
+  const maxAgeAt = opts.indexOf("--max-age");
+  const reuseMaxAge = maxAgeAt >= 0 ? Number(opts[maxAgeAt + 1]) : 24;
+  if (!Number.isFinite(reuseMaxAge) || reuseMaxAge <= 0) {
+    console.error(`gstack-evidence: --max-age must be a positive number of hours, got: ${JSON.stringify(opts[maxAgeAt + 1])}`);
     return 2;
   }
   const cmdArgv = argv.slice(sep + 1);
@@ -388,6 +427,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   } catch (e: any) {
     warn(`ledger setup failed (${e?.message ?? e}) — result will not be recorded`);
   }
+  if (reuse && paths && reused(paths.file, label, cmdSha, reuseMaxAge)) return 0;
   const log = paths ? openLog(paths.logsDir, label, cmdSha) : undefined;
 
   // Fingerprint the content BEFORE the child runs: a working-tree edit made
@@ -525,6 +565,7 @@ function record(
       const wtreeAfter = currentWtree();
       if (wtreeBefore && wtreeAfter && wtreeBefore === wtreeAfter) {
         rec.wtree = wtreeAfter;
+        rec.identity = identityDigest();
       } else if (wtreeBefore || wtreeAfter) {
         const changed = wtreeBefore && wtreeAfter ? (git(["diff", "--name-only", wtreeBefore, wtreeAfter]) ?? "").split("\n").map((s) => s.trim()).filter(Boolean) : [];
         if (changed.length) rec.wtree_changed = changed.slice(0, 5);
@@ -543,6 +584,118 @@ function record(
   } catch (e: any) {
     warn(`ledger append failed (${e?.message ?? e}) — the command result stands`);
   }
+}
+
+/**
+ * sha256 of the runtime a lane ran under: the bun and node on PATH, OS, architecture and runner image. The lockfiles and
+ * pins the execution identity also names (lib/evidence-bundle.ts) are working-tree content, so the fingerprint binds them.
+ */
+function identityDigest(): string {
+  const version = (b: string) => {
+    const r = spawnSync(b, ["--version"], { encoding: "utf-8", timeout: 15000 });
+    return r.status === 0 ? (r.stdout || "").trim().replace(/^v/, "") || null : null;
+  };
+  return sha256(JSON.stringify({ bun: version("bun"), node: version("node"), os: process.platform, arch: process.arch, image: process.env.GSTACK_RUNNER_IMAGE || null }));
+}
+
+/**
+ * `run --reuse`: the newest local row for this label, command and working tree decides. A counted pass under the same
+ * identity within the max age is copied (original ts kept) and printed as a run would be; anything else runs the command.
+ */
+function reused(file: string, label: string, cmdSha: string, maxAgeHours: number): boolean {
+  const wtree = currentWtree();
+  if (!wtree) return false;
+  let records: EvidenceRecord[] = [];
+  try {
+    records = readJsonl<EvidenceRecord>(file);
+  } catch {
+    return false;
+  }
+  const newest = records.findLast((r) => r.label === label && r.cmd_sha256 === cmdSha && r.wtree === wtree && r.source === undefined);
+  if (!newest || newest.exit !== 0 || typeof newest.tests_ran !== "number" || newest.tests_ran <= 0) return false;
+  const age = Date.now() - Date.parse(newest.ts);
+  if (!(age >= 0 && age <= maxAgeHours * 3600_000)) return false;
+  if (newest.identity !== identityDigest()) return false;
+  try {
+    appendJsonl(file, { ...newest, reused_from: newest.reused_from ?? newest.ts }, { mode: 0o600 });
+  } catch (e: any) {
+    warn(`ledger append failed (${e?.message ?? e}) — running the command instead`);
+    return false;
+  }
+  console.error(`gstack-evidence: reused label=${label} tree=${wtree.slice(0, 12)} from=${newest.ts}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${newest.tests_ran} log=${newest.log_path ?? "-"}`);
+  return true;
+}
+
+/**
+ * `record-ci`: carry a lane from CI. Its command must be a key of the base branch's ship_lanes_from; the run is found and
+ * verified here (lib/ci-carry.ts) at HEAD's clean tree, so no caller supplies run ids, a test count or a tree. Never runs the lane.
+ */
+function cmdRecordCi(argv: string[]): number {
+  const sep = argv.indexOf("--");
+  const opts = sep < 0 ? argv : argv.slice(0, sep);
+  const get = (name: string) => { const i = opts.indexOf(name); return i >= 0 ? opts[i + 1] : undefined; };
+  const label = get("--label")?.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const base = get("--base");
+  const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
+  if (!label || !base || !command || opts.length !== 4) {
+    console.error("usage: gstack-evidence record-ci --label <L> --base <base> -- <command>");
+    return 2;
+  }
+  const none = (reason: string, detail: string) => {
+    console.error(`CARRY_NONE: ${reason}: ${detail}`);
+    console.error(`gstack-evidence record-ci: label=${label} not carried; nothing recorded`);
+    return 1;
+  };
+  const cwd = process.cwd();
+  const loaded = loadConfigFromBase(cwd, base);
+  if (isConfigUnavailable(loaded)) return none("config_unavailable", loaded.detail);
+  if (loaded.errors.length) return none("config_invalid", loaded.errors.map((x) => `${x.path}: ${x.message}`).join("; "));
+  const from = loaded.config.ship_lanes_from;
+  if (!Object.prototype.hasOwnProperty.call(from, command)) return none("not_mapped", `the command is not a key of origin/${base}'s ship_lanes_from`);
+  const m = from[command]!;
+  const check = buildRunCheck(cwd, null, true, base);
+  if ("error" in check) return none("profiles_unavailable", check.error);
+  const head = git(["rev-parse", "HEAD"]);
+  const tree = git(["rev-parse", "HEAD^{tree}"]);
+  if (!head || !tree) return none("no_head", "HEAD is unreadable");
+  const wtree = () => { const fp = wtreeFingerprint({ cwd, timeoutMs: 30000 }); return "tree" in fp ? fp.tree : null; };
+  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, inventory: () => runInventory(m.inventory, cwd) });
+  if (!v.ok) return none(v.reason, v.detail);
+  let paths: ReturnType<typeof ledgerPath>;
+  try {
+    paths = ledgerPath();
+    mkdirpSync(paths.dir);
+  } catch (e: any) {
+    console.error(`gstack-evidence record-ci: ledger setup failed (${e?.message ?? e}); nothing recorded`);
+    return 1;
+  }
+  const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
+  const rec: EvidenceRecord = {
+    ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label,
+  };
+  appendJsonl(paths.file, rec, { mode: 0o600 });
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}`);
+  return 0;
+}
+
+/** `carried`: each label's newest row when it is a CI-sourced row at the current working tree, as the receipt's ci_carried entries. */
+function cmdCarried(argv: string[]): number {
+  let records: EvidenceRecord[] = [];
+  try {
+    records = readJsonl<EvidenceRecord>(ledgerPath().file);
+  } catch {
+    records = [];
+  }
+  const wtree = currentWtree();
+  const latest = new Map<string, EvidenceRecord>();
+  for (const r of records) latest.set(r.label, r);
+  const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs))
+    .flatMap((r) => r.runs!.map((ref) => { const [run, attempt] = ref.split("/").map(Number); return { lane: r.label, run, attempt, tree: r.wtree! }; }));
+  if (argv.includes("--json")) console.log(JSON.stringify(carried));
+  else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}`);
+  return 0;
 }
 
 function cmdCheck(argv: string[]): number {
@@ -605,7 +758,8 @@ function cmdCheck(argv: string[]): number {
     }
     const testsRan = typeof latest.tests_ran === "number" ? latest.tests_ran : "unknown";
     const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
-    const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
+    const ci = latest.source === "ci" && Array.isArray(latest.runs) ? ` source=ci runs=${latest.runs.filter((s) => /^\d+\/\d+$/.test(s)).join(",")}` : "";
+    const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}${ci}`;
     let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
     let reason = "";
     if (latest.exit !== 0) {
@@ -756,6 +910,10 @@ const [, , sub, ...rest] = process.argv;
 try {
   if (sub === "run") {
     process.exit(await cmdRun(rest));
+  } else if (sub === "record-ci") {
+    process.exit(cmdRecordCi(rest));
+  } else if (sub === "carried") {
+    process.exit(cmdCarried(rest));
   } else if (sub === "check") {
     process.exit(cmdCheck(rest));
   } else if (sub === "bundle") {
@@ -765,7 +923,7 @@ try {
   } else if (sub === "verify") {
     process.exit(cmdVerify(rest));
   } else {
-    console.error("usage: gstack-evidence run|check|bundle|ancestor|verify ...");
+    console.error("usage: gstack-evidence run|record-ci|carried|check|bundle|ancestor|verify ...");
     process.exit(2);
   }
 } catch (e: any) {

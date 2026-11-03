@@ -29,6 +29,29 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).toContain('REVIEW_PLAN: class=docs pass=1 next=full dispatches=0 numbers=no');
     expect(r.stdout).toContain('SKIP: outside-voice (docs class, no numeric claims)');
   });
+  // Value: protects=a stale local main does not stand in for the base: a docs-only branch that merged a newer origin/main
+  //   plans as docs, not as the gate change origin/main already has (GST-462: #3597 was labeled gate code at full depth
+  //   until --base origin/main); fails_when=gstack-gate-diff or gstack-diff-scope diff against the local branch;
+  //   seam=a tracking ref moved with update-ref, as a fetch would; no_claim=nothing about a local main ahead of origin/main.
+  test('a stale local main yields to origin/main: a docs-only branch that merged the newer origin/main plans as docs', () => {
+    const r = repo({ 'docs/howto.md': '# How to\nStep one.\n' });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    const testFile = (skip: boolean) => `import { test, expect } from 'bun:test';\ntest${skip ? '.skip' : ''}('adds', () => {\n  expect(1 + 1).toBe(2);\n});\n`;
+    git('checkout', '-q', 'main');
+    fs.mkdirSync(path.join(r.dir, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(r.dir, 'test', 'add.test.ts'), testFile(false));
+    git('add', '.'); git('commit', '-qm', 'tests');
+    git('checkout', '-q', 'feat'); git('merge', '-q', '--no-edit', 'main'); git('checkout', '-q', 'main');
+    fs.writeFileSync(path.join(r.dir, 'test', 'add.test.ts'), testFile(true));
+    git('commit', '-qam', 'upstream skip');
+    git('remote', 'add', 'origin', 'https://example.invalid/x.git');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    git('checkout', '-q', 'feat'); git('merge', '-q', '--no-edit', 'origin/main');
+    const plan = spawnSync(BIN, ['--base', 'main'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } });
+    expect(plan.status).toBe(0);
+    expect(plan.stdout).toContain('REVIEW_PLAN: class=docs pass=1 next=full dispatches=0 numbers=no');
+  });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');

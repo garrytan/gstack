@@ -225,10 +225,27 @@ describe('carry follow-ups: git floor, named refusal, branch-touched walk, digit
     const mine = "export const MINE_KEY_VERSION = '1.2.3.0';";
     const before = `${mine}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n`;
     const moved = (text: string) => ({ before, after: text, oldVersion: '1.2.4.0', newVersion: '1.2.5.0', templates });
-    const side = { fork: '1.2.3.0', added: new Set([mine]) };
+    const side = { fork: '1.2.3.0', added: new Set([mine]), at: new Set([1]) };
     expect(stampOnlyText({ ...moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))), side })).toBe(true);
     expect(stampOnlyText(moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))))).toBe(false);
     expect(stampOnlyText({ ...moved(before.replace("BASE_KEY_VERSION = '1.2.3.0'", "BASE_KEY_VERSION = '1.2.5.0'")), side })).toBe(false);
+  });
+
+  // Value: protects=the carry reads the branch's own line by position and, with a kept VERSION claim, accepts only the
+  //   branch's own row moved from the fork version (GST-979, GST-980); fails_when=stampOnlyText refuses every change at
+  //   equal versions or takes a duplicated base line as the branch's; seam=lib/ship-receipt.ts stampOnlyText
+  test('stampOnlyText reads the branch line by position, and with a kept VERSION moves only the branch\'s own row (GST-979, GST-980)', () => {
+    const templates = ["_KEY_VERSION = '{version}'"];
+    const key = (v: string) => `export const MINE_KEY_VERSION = '${v}';`;
+    const before = `${key('1.2.3.0')}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n${key('1.2.3.0')}\n`;
+    const side = { fork: '1.2.3.0', added: new Set([key('1.2.3.0')]), at: new Set([3]) };
+    const lines = (a: string, c: string) => `${a}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n${c}\n`;
+    const change = (after: string, oldVersion: string, newVersion: string) => stampOnlyText({ before, after, oldVersion, newVersion, templates, side });
+    expect(change(lines(key('1.2.3.0'), key('1.2.5.0')), '1.2.4.0', '1.2.5.0')).toBe(true);
+    expect(change(lines(key('1.2.5.0'), key('1.2.3.0')), '1.2.4.0', '1.2.5.0')).toBe(false);
+    expect(change(lines(key('1.2.3.0'), key('1.2.4.0')), '1.2.4.0', '1.2.4.0')).toBe(true);
+    expect(change(lines(key('1.2.4.0'), key('1.2.3.0')), '1.2.4.0', '1.2.4.0')).toBe(false);
+    expect(stampOnlyText({ before, after: lines(key('1.2.3.0'), key('1.2.4.0')), oldVersion: '1.2.4.0', newVersion: '1.2.4.0', templates })).toBe(false);
   });
 
   test('planCarry names at most CARRY_NAMED_PATHS paths', () => {
