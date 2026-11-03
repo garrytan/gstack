@@ -24,6 +24,9 @@ inputs: the same three fixtures and tickets (TASKS in test/helpers/arm-benchmark
 prompt: the ticket only, with no SKILL.md, routing line, invocation line, preamble or hooks
 panel: the same E2E kind (rule), 3 trials per task, the same per-diff and paired judges on the same pairs
 report: results.md, one table with its row beside claude-opus-5-5#build-discipline; passes gstack-eval-plan results --check
+masking: the benchmark starts only where the run agent sees no Capy drive: a CI runner, or an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain first
+install: no gstack at ~/.local/share/gstack or ~/.claude/skills on the machine that runs the no-gstack cells, checked before the first cell
+audit: each no-gstack transcript is scanned for reads of a SKILL.md or a skills/gstack path; a cell that read one is contaminated and gets zero credit
 
 ## Decoys
 - bugfix-decoys plants over-build invitations (a plugin architecture and TypeScript migration in README.md, an obviously fake credential); taking them should raise over_engineering in either arm.

@@ -3789,7 +3789,9 @@ anchored pattern and a reason ([docs/pregate.md](pregate.md#allowlist));
 ### `PREGATE_STRAYS`
 
 **Meaning.** A file was added at the repository root, in a new top-level
-directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`).
+directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`) or an editor
+leftover name (`*.orig`, `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`,
+`.DS_Store`, `Thumbs.db`).
 
 **Fix.** Delete or move it. An intentional root file goes in `strays.allow`.
 
@@ -4163,15 +4165,17 @@ refuses to start without a passing check.
 
 **Meaning.** The preregistration says `stack: loaded` (some arm loads gstack or
 another skill stack) and its `## No-gstack arm` section is missing, lacks one
-of `arms:`, `inputs:`, `prompt:`, `panel:` or `report:`, lists an arm that
+of `arms:`, `inputs:`, `prompt:`, `panel:`, `report:`, `masking:`, `install:`
+or `audit:` (or says `none` for one of the last three), lists an arm that
 is not a `<model>#no-gstack` Arms line, or leaves a model in the comparison
 without its own no-gstack arm. Arms match on whole identities, so
 `claude-opus-5#no-gstack` does not cover `claude-opus-5-5`.
 
 **Fix.** Add one `<model>#no-gstack` line per model under `## Arms`, list them
-on the `arms:` line, and fill the other four keys: the same inputs, a plain
-prompt with no skill text, the same panel and judge, and where the result row
-goes beside the variants. When no arm loads a skill stack, write
+on the `arms:` line, and fill the other keys: the same inputs, a plain
+prompt with no skill text, the same panel and judge, where the result row
+goes beside the variants, how the run agent is masked from the Capy drives,
+the check that no gstack is installed, and the per-arm drive-read audit. When no arm loads a skill stack, write
 `stack: none` with a `why:` line instead. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
@@ -6470,7 +6474,7 @@ There is no ledger for that harness or id under `$GSTACK_STATE_ROOT/harness`. `g
 <a id="harness-hook-unsupported"></a>
 ### `gstack-harness: <harness> has no start hook` / `the start hook goes into the <harness> profile <dir>, and this registration uses another skills folder` (HARNESS_HOOK_UNSUPPORTED)
 
-The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` set OpenClaw reads a config outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, such a registration just gets no hook, and its receipt says so.
+The [start hook](hosts.md#start-hook) exists for OpenClaw and Hermes only, and it goes into the harness profile's own plugin folder, the one the harness scans. A registration with `--skills-dir` somewhere else has no profile gstack can trust, and with `OPENCLAW_CONFIG_PATH` naming another config OpenClaw reads settings outside the profile, where gstack's settings change would not land, so `--start-hook` is refused and nothing is written. `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json` (compared after resolving symlinks) is not refused. Register without `--skills-dir` (set `OPENCLAW_STATE_DIR` or `HERMES_HOME` to pick the profile), unset `OPENCLAW_CONFIG_PATH` or point it at the profile's own `openclaw.json`, or drop `--start-hook`. When the choice comes from `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` instead of the flag, the registration gets no hook, and `gstack-harness register` and `./setup --host` exit 4 with the reason (`HARNESS_HOOK_INACTIVE`, `start hook is off`); refreshes only print it.
 
 <a id="harness-hook-choice-invalid"></a>
 ### `gstack-harness: GSTACK_HARNESS_START_HOOK="<value>" is not on or off` (HARNESS_HOOK_CHOICE_INVALID)
@@ -6485,7 +6489,9 @@ Each harness profile has one start hook, owned by the gstack registration that w
 <a id="harness-hook-inactive"></a>
 ### `gstack-harness: <harness> start hook is written: <why>. Turn it on: <command>` (HARNESS_HOOK_INACTIVE, exit 4)
 
-The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
+The skills are registered and the start hook's files are in place, but the hook is not active in the harness. gstack turns the hook on through the harness's own CLI and then reads it back, so this means the harness has no config yet (`no OpenClaw config at <path> yet` or `no Hermes config at <path> yet`: run `openclaw onboard` or `hermes setup` first, then `gstack-harness refresh`; gstack runs no harness command until then, because the CLI would create a config holding only gstack's plugin setting), the CLI was not on `PATH`, one of its commands failed or timed out (the message quotes its last output), or the harness's settings block the plugin: OpenClaw's `plugins.allow` set without `gstack-start`, `gstack-start` in `plugins.deny`, or `hooks.allowPromptInjection: false`. gstack never edits your allow or deny lists. Run the printed command, then `gstack-harness status`; `--start-hook` again retries the whole step. `./setup --host` exits 4 for the same reason. Refreshes and upgrades retry on their own without failing, and stop once you disable the plugin in the harness.
+
+The same code with `start hook is off: <why>` means you asked for the hook through `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` but this registration cannot take it (a custom `--skills-dir`, `OPENCLAW_CONFIG_PATH` naming another config, or an unsafe plugin folder); the message names the fix.
 
 <a id="harness-qm-credentials"></a>
 ### `gstack-harness: no QM admin credential in the environment` / `... needs --yes` (HARNESS_QM_CREDENTIALS)
