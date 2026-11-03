@@ -105,14 +105,6 @@ Write (free-form only after confirmation; its words go in that file too, with `-
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
 
-## Repo Ownership — See Something, Say Something
-
-`REPO_MODE` controls how to handle issues outside your branch:
-- **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
-
-Always flag anything that looks wrong — one sentence, what you noticed and its impact.
-
 ## Search Before Building
 
 Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
@@ -300,28 +292,6 @@ Keep the review-record terms separate:
 | `review_binding` | The logger's proof tying a finished review to its captured candidate, not a finding identifier. |
 | `snapshot_covered_paths` | Supporting advice files the logger proved byte-identical to that candidate. Used by the prior-Skip checker, never supplied by the reviewer. |
 
-## Step 3.4: Workspace-aware queue status (advisory)
-
-Check the claimed VERSION's queue slot. This landing-order advice never blocks review.
-
-```bash
-BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-BASE_BRANCH="<base>"
-BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-QUEUE_JSON=$(bun --no-env-file --config=/dev/null run ~/.claude/skills/gstack/bin/gstack-next-version \
-  --base "$BASE_BRANCH" \
-  --bump patch \
-  --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
-CLAIMED_COUNT=$(echo "$QUEUE_JSON" | jq -r '.claimed | length // 0')
-OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
-```
-
-- `OFFLINE=true`: skip this section.
-- Otherwise, include ONE line in the review output: `Version claimed: v<BRANCH_VERSION>. Queue: <CLAIMED_COUNT> PR(s) ahead. <VERDICT>` where VERDICT is `Slot free` (`BRANCH_VERSION >= NEXT_SLOT`) or `⚠ queue moved — rerun /ship to reconcile v<BRANCH_VERSION> → v<NEXT_SLOT>`.
-
-Compare versions numerically per dotted component; missing ones count as zero.
-
 ---
 
 ## Step 3.5: Diff scans
@@ -379,47 +349,7 @@ Advisory findings only; skip if unavailable.
 
 ## Step 3.6: Gather review context
 
-Run Prior Learnings, then Web research readiness, before Step 4; use both in
-the core review.
-
-## Prior Learnings
-
-Search for relevant learnings from previous sessions:
-
-```bash
-_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
-echo "CROSS_PROJECT: $_CROSS_PROJ"
-if [ "$_CROSS_PROJ" = "true" ]; then
-  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
-else
-  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1
-fi
-[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
-```
-
-If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
-
-> gstack can search learnings from your other projects on this machine to find
-> patterns that might apply here. This stays local (no data leaves your machine).
-> Recommended for solo developers. Skip if you work on multiple client codebases
-> where cross-contamination would be a concern.
-
-Options:
-- A) Enable cross-project learnings (recommended)
-- B) Keep learnings project-scoped only
-
-If A: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings false`
-
-Then re-run the search with the appropriate flag.
-
-If learnings are found, incorporate them into your analysis. When a review finding
-matches a past learning, display:
-
-**"Prior learning applied: [key] (confidence N/10, from [date])"**
-
-This makes the compounding visible. The user should see that gstack is getting
-smarter on their codebase over time.
+Run Web research readiness before Step 4 and use it in the core review.
 
 ## Web research runs in Aside
 
@@ -487,6 +417,13 @@ Apply both checklist passes in order: CRITICAL, then INFORMATIONAL. Respect its 
 CRITICAL is the blocking floor (docs/review-policy.md): a finding that would fail a
 test, break production, or lose data or secrets. Everything else is INFORMATIONAL and
 never earns another pass. `NO FINDINGS` is a complete result from any reviewer.
+
+**Blocker proof.** Every CRITICAL finding, yours or forwarded (specialist, QA,
+adversarial or bot), gets a floor reason (`fails a test`, `breaks production`,
+`loses data or secrets` or a forced-CRITICAL class below) and proof: a repro with
+its output, a failing test, or a cited `file:line` with its consequence. Verify a
+forwarded one and append both yourself: `Floor: <reason>. Proof: <repro | test |
+file:line -> consequence>`. At Step 5 an unproven CRITICAL is INFORMATIONAL, whatever its `Blocks:` line.
 
 **Sideways sweep (every finding; reads code OUTSIDE the diff).** Grep the finding's pattern at every other ingress, command and call site, Read each match and rate severity on the worst sibling; a new enum value, status, tier or type constant is traced through every consumer the same way (checklist: Sideways sweep). Data loss, a trust-boundary bypass or uncapped spend is forced CRITICAL: no lane, specialist, dedup or saved decision downgrades it. Keep findings anchored to changed code.
 
@@ -579,6 +516,8 @@ Verify evidence first, then score every finding (1-10) and apply its display rul
    Force its confidence to 4-5: use 4 for appendix-only reporting, or 5 only when
    the finding belongs in the main report with the medium-confidence caveat below.
    Never invent speculative confidence 7+.
+4. **A CRITICAL finding also needs Step 4's Blocker proof:** its floor reason and a
+   repro, a failing test or a cited line with its consequence. Without both, emit it as INFORMATIONAL.
 
 | Score | Meaning | Display rule |
 |-------|---------|-------------|
@@ -590,10 +529,10 @@ Verify evidence first, then score every finding (1-10) and apply its display rul
 
 **Finding format:**
 
-`[CRITICAL|INFORMATIONAL] (confidence: N/10) file:line — description`
+`[CRITICAL|INFORMATIONAL] (confidence: N/10) file:line — description`, and a CRITICAL line ends `Floor: <reason>. Proof: <...>`
 
 Example:
-`[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation`
+`[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation. Floor: loses data or secrets. Proof: user.rb:42 puts params[:q] into where() -> any visitor reads every row`
 
 **Calibration learning:** If the user confirms a reported finding scored < 7 is
 real, log it per Operational Self-Improvement.
@@ -609,6 +548,12 @@ Read root `.md` files. When changed code affects a documented feature or workflo
 but its doc was not updated, flag an INFORMATIONAL finding naming the file and
 affected behavior. Propose `/document-release` for the parent's decision, never a
 critical finding or another writer during collection. Skip silently if no docs exist.
+
+**Dispatch markers (these override the section).** Step 4.5 prints one line starting
+`Dispatching N specialists:`, small diffs too: `Dispatching 0 specialists: (small diff)`
+or `Dispatching 1 specialists: State Machines (small diff)`, never the section's
+`Small diff` line. Step 4.8 prints `Dispatching adversarial pass: native` right before
+its native Agent call.
 
 ---
 
@@ -946,33 +891,6 @@ Emit one final report merging all reviewers:
    - `Gate edits: partial (K of M eligible read)` followed by the findings counts for the hunks that were read
    - `Gate edits: UNAVAILABLE — <GATE_ERROR line or helper exit>` (missing coverage, never `none detected`)
    List each kept finding's `gate`, path and `reason` under it.
-
-## Capture Learnings
-
-If you discovered a non-obvious pattern, pitfall, or architectural insight during
-this session, log it for future sessions:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
-```
-
-**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
-(user stated), `architecture` (structural decision), `tool` (library/framework insight),
-`operational` (project environment/CLI/workflow knowledge).
-
-**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
-`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
-
-**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
-An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
-
-**files:** Include the specific file paths this learning references. This enables
-staleness detection: if those files are later deleted, the learning can be flagged.
-
-**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
-already knows. A good test: would this insight save time in a future session? If yes, log it.
-
-If the review exits early (e.g. no diff against the base), do **not** write this entry.
 
 ## Important Rules
 

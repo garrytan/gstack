@@ -3,6 +3,7 @@ import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { loadCutLedger } from '../scripts/cut-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -137,8 +138,14 @@ describe('gstack-learnings-log', () => {
   // Caller contract: investigate/SKILL.md.tmpl must emit type:"investigation"
   // verbatim. Guards against the template drifting to an invalid type and
   // silently breaking the log path. See codex review finding for #1423.
+  // While modules/cuts.json cuts part:investigate/investigation-log (GST-1088), the template
+  // must carry no learnings log at all; restoring the cut restores the contract.
   test('investigate template emits type:"investigation" verbatim (caller contract)', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'investigate/SKILL.md.tmpl'), 'utf-8');
+    if (loadCutLedger().cuts.some(c => c.id === 'part:investigate/investigation-log')) {
+      expect(tmpl).not.toContain('gstack-learnings-log');
+      return;
+    }
     // The invocation line must include "type":"investigation" exactly.
     expect(tmpl).toContain('"type":"investigation"');
   });

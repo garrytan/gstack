@@ -10,9 +10,15 @@ import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { runCapturedCommand } from './helpers/sync-command-capture';
 import { between, expectAbsent, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
+import { loadCutLedger } from '../scripts/cut-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+/** GST-1088: R56 cuts (modules/cuts.json) remove learnings blocks from /investigate and /review; their absence is test/cut-ledger.test.ts's job. */
+const CUT_IDS = new Set(loadCutLedger().cuts.map(c => c.id));
+const notCut = (skill: string, part: string) => !CUT_IDS.has(`part:${skill}/${part}`);
+const SEARCH_SAMPLE = notCut('review', 'learnings-search') ? 'review' : 'office-hours';
+const LOG_SAMPLE = notCut('review', 'capture-learnings') ? 'review' : 'retro';
 
 // Carved-skill aware (v2 plan T9): ship is now a skeleton SKILL.md + sections/*.md.
 // Read the union so assertions about content that MOVED into a section still pass.
@@ -375,8 +381,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
-    // Check a skill that has LEARNINGS_LOG (e.g., review)
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, LOG_SAMPLE, 'SKILL.md'), 'utf-8');
     expect(content).toContain('operational');
   });
 
@@ -3456,7 +3461,7 @@ describe('Factory generation (--host factory)', () => {
   });
 
   test('Factory preamble uses .factory paths', () => {
-    const content = fs.readFileSync(path.join(FACTORY_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(FACTORY_DIR, `gstack-${SEARCH_SAMPLE}`, 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
     expect(content).toContain('_r=$(git rev-parse --show-toplevel 2>/dev/null)/.factory/skills/gstack');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
@@ -4302,7 +4307,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
 // ─── Learnings + Confidence Resolver Tests ─────────────────────
 
 describe('LEARNINGS_SEARCH resolver', () => {
-  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
+  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'].filter(s => notCut(s, 'learnings-search'));
 
   for (const skill of SEARCH_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings search`, () => {
@@ -4313,13 +4318,13 @@ describe('LEARNINGS_SEARCH resolver', () => {
   }
 
   test('learnings search includes cross-project config check', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, SEARCH_SAMPLE, 'SKILL.md'), 'utf-8');
     expect(content).toContain('cross_project_learnings');
     expect(content).toContain('--cross-project');
   });
 
   test('learnings search includes AskUserQuestion for first-time cross-project opt-in', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, SEARCH_SAMPLE, 'SKILL.md'), 'utf-8');
     expect(content).toContain('Enable cross-project learnings');
     expect(content).toContain('project-scoped only');
   });
@@ -4349,13 +4354,13 @@ describe('LEARNINGS_SEARCH resolver', () => {
   });
 
   test('learnings search mentions prior learning applied display format', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, SEARCH_SAMPLE, 'SKILL.md'), 'utf-8');
     expect(content).toContain('Prior learning applied');
   });
 });
 
 describe('LEARNINGS_LOG resolver', () => {
-  const LOG_SKILLS = ['review', 'retro', 'investigate'];
+  const LOG_SKILLS = ['review', 'retro', 'investigate'].filter(s => notCut(s, 'capture-learnings'));
 
   for (const skill of LOG_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings log`, () => {
@@ -4366,21 +4371,21 @@ describe('LEARNINGS_LOG resolver', () => {
   }
 
   test('learnings log documents all type values', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, LOG_SAMPLE, 'SKILL.md'), 'utf-8');
     for (const type of ['pattern', 'pitfall', 'preference', 'architecture', 'tool']) {
       expect(content).toContain(type);
     }
   });
 
   test('learnings log documents all source values', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, LOG_SAMPLE, 'SKILL.md'), 'utf-8');
     for (const source of ['observed', 'user-stated', 'inferred', 'cross-model']) {
       expect(content).toContain(source);
     }
   });
 
   test('learnings log includes files field for staleness detection', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, LOG_SAMPLE, 'SKILL.md'), 'utf-8');
     expect(content).toContain('"files"');
     expect(content).toContain('staleness detection');
   });

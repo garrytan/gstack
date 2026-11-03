@@ -6,8 +6,10 @@
  * (`section:<skill>/<id>`, from <skill>/sections/manifest.json), one model
  * overlay (`overlay:<name>`, from model-overlays/) or one preamble piece
  * (`preamble:<id>`, from PREAMBLE_PIECES). The catalog is derived from those
- * sources; modules/loadouts.json is the only hand-written file and holds the
- * rungs, the model-id to rung table, the pinned ids and the loadouts.
+ * sources; modules/loadouts.json holds the rungs, the model-id to rung table,
+ * the pinned ids and the loadouts. modules/cuts.json adds one `part:<skill>/<name>`
+ * entry per R56 cut: status cut, removed from that skill in every loadout, so
+ * no loadout or spec may name it.
  *
  * Every error is a ModuleError with a stable code, a fix line and a
  * docs/troubleshooting.md anchor. Nothing here ever falls back to `full` on
@@ -19,6 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { discoverTemplates } from './discover-skills';
 import { PREAMBLE_MODULE_IDS } from './resolvers/preamble';
+import { CUT_LEDGER_FILE, loadCutLedger } from './cut-ledger';
 import type { ModuleFilter } from './resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -30,13 +33,15 @@ export const FULL = 'full';
 export const IMPLICIT_PINS = ['skill:gstack', 'skill:gstack-upgrade', 'preamble:bash'];
 const NAME_RE = /^[a-z0-9-]+$/;
 
-export type ModuleKind = 'skill' | 'section' | 'overlay' | 'preamble';
+export type ModuleKind = 'skill' | 'section' | 'overlay' | 'preamble' | 'part';
 export interface ModuleEntry {
   id: string;
   kind: ModuleKind;
   /** Repository-relative source file. */
   source: string;
   pinned: boolean;
+  /** A `part` entry from modules/cuts.json. */
+  status?: 'cut';
 }
 
 export interface LoadoutDef {
@@ -89,6 +94,7 @@ export function loadLoadouts(root = ROOT): LoadoutsManifest {
 export function moduleCatalog(manifest: LoadoutsManifest, root = ROOT): ModuleEntry[] {
   const pinned = new Set([...manifest.pinned, ...IMPLICIT_PINS]);
   const entries: Omit<ModuleEntry, 'pinned'>[] = [];
+  const cuts = loadCutLedger(root).cuts;
   for (const { tmpl } of discoverTemplates(root)) {
     const dir = path.dirname(tmpl);
     entries.push({ id: `skill:${dir === '.' ? 'gstack' : dir}`, kind: 'skill', source: tmpl });
@@ -101,6 +107,7 @@ export function moduleCatalog(manifest: LoadoutsManifest, root = ROOT): ModuleEn
     entries.push({ id: `overlay:${file.slice(0, -3)}`, kind: 'overlay', source: `model-overlays/${file}` });
   }
   for (const id of PREAMBLE_MODULE_IDS) entries.push({ id, kind: 'preamble', source: 'scripts/resolvers/preamble.ts' });
+  for (const cut of cuts) entries.push({ id: cut.id, kind: 'part', source: cut.source, status: 'cut' });
   return entries.map(e => ({ ...e, pinned: pinned.has(e.id) }));
 }
 
@@ -134,6 +141,7 @@ export function rungFor(manifest: LoadoutsManifest, raw: string): Rung {
 export function validateLoadouts(manifest: LoadoutsManifest, catalog: ModuleEntry[], corpus: string[] = []): string[] {
   const problems: string[] = [];
   const ids = new Set(catalog.map(e => e.id));
+  const cut = new Set(catalog.filter(e => e.status === 'cut').map(e => e.id));
   const pinned = new Set([...(manifest.pinned ?? []), ...IMPLICIT_PINS]);
   if (manifest.version !== 1) problems.push(`version must be 1 (got ${clamp(String(manifest.version))})`);
   for (const rung of RUNGS) if (!Array.isArray(manifest.rungs?.[rung])) problems.push(`rungs.${rung} must be a list of model-id patterns`);
@@ -149,6 +157,7 @@ export function validateLoadouts(manifest: LoadoutsManifest, catalog: ModuleEntr
     if (def.base !== undefined && !has(def.base)) problems.push(`loadouts.${name}.base names no loadout (${clamp(def.base)})`);
     for (const id of [...(def.exclude ?? []), ...(Array.isArray(def.include) ? def.include : [])]) {
       if (!ids.has(id)) problems.push(`loadouts.${name} names ${clamp(id)}, which is not a module`);
+      else if (cut.has(id)) problems.push(`loadouts.${name} names ${id}, which is cut in every loadout (${CUT_LEDGER_FILE})`);
     }
     for (const id of def.exclude ?? []) {
       if (pinned.has(id)) problems.push(`loadouts.${name} excludes pinned ${id}`);
@@ -230,6 +239,7 @@ export function selectModules(input: { loadout?: string; modules?: string }, roo
     }
     const entry = ids.get(id);
     if (!entry) throw new ModuleError('MODULE_UNKNOWN', `${clamp(id)} is not a module`, 'gstack-modules list');
+    if (entry.status === 'cut') throw new ModuleError('MODULE_SPEC_INVALID', `${id} is cut in every loadout (${CUT_LEDGER_FILE})`, `drop ${edit} from the spec; restoring a cut is a ${CUT_LEDGER_FILE} change`);
     if (op === '-' && entry.pinned) {
       throw new ModuleError('MODULE_PINNED', `${id} is pinned and can never be excluded`, `drop -${id} from the spec (pinned ids: gstack-modules list --pinned)`);
     }

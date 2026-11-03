@@ -7,7 +7,8 @@
  * the pre-hoist oracle. {{PREAMBLE}} resolves through ./preamble-hoist.ts,
  * which renders tier 1 inline and splits tier 2+ into a per-skill pointer plus
  * the shared sections/preamble.md the skill Reads on load. Keep composition
- * declarative — no inline logic beyond tier gating.
+ * declarative — no inline logic beyond tier gating and the skill's cuts in
+ * modules/cuts.json (scripts/cut-ledger.ts).
  *
  * Each skill runs independently via `claude -p` (or the host's equivalent).
  * The preamble provides: update checks, session
@@ -23,6 +24,7 @@
 import type { TemplateContext } from './types';
 import { generateModelOverlay } from './model-overlay';
 import { generateQuestionTuning } from './question-tuning';
+import { preambleCuts } from '../cut-ledger';
 
 // Core bootstrap
 import { generatePreambleBash } from './preamble/generate-preamble-bash';
@@ -126,13 +128,14 @@ export function preambleSections(ctx: TemplateContext): string[] {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
   }
   const filter = ctx.modules;
+  const cut = preambleCuts(ctx.skillName);
   const pieceTier = (piece: PreamblePiece): number => {
     if (!filter || piece.id === null || filter.pinned.has(`preamble:${piece.id}`)) return tier;
     return Math.min(tier, filter.preambleTierMax ?? tier);
   };
   return PREAMBLE_PIECES
     .filter(piece => (piece.when?.(ctx) ?? true)
-      && !(piece.id && filter?.excluded.has(`preamble:${piece.id}`))
+      && !(piece.id && (filter?.excluded.has(`preamble:${piece.id}`) || cut.has(piece.id)))
       && pieceTier(piece) >= piece.minTier)
     .map(piece => piece.render(ctx, pieceTier(piece)))
     .filter(s => s && s.trim().length > 0);

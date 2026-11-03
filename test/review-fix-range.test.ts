@@ -222,11 +222,13 @@ describe('ship Step 9 instructions', () => {
 
 describe('review Step 3 and Step 5.8 instructions', () => {
   const skill = fs.readFileSync(path.join(ROOT, 'review/SKILL.md'), 'utf8');
-  const step3 = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.4:'));
+  const step3 = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.5:'));
   const step58 = skill.slice(skill.indexOf('## Step 5.8: Persist Eng Review result'), skill.indexOf('### Report the final review'));
   const flat3 = step3.replace(/\s+/g, ' '), flat58 = step58.replace(/\s+/g, ' ');
 
   test('the first pass starts full and only the pass after an edited pass narrows its DIFF_BASE, never Step 4.8 or other base uses', () => {
+    expect(skill.indexOf('## Step 3.5:')).toBeGreaterThan(skill.indexOf('## Step 3: Get the diff'));
+    expect(skill.indexOf('## Step 3: Get the diff')).toBeGreaterThanOrEqual(0);
     const block = step3.slice(step3.indexOf('```bash'), step3.indexOf('```', step3.indexOf('```bash') + 7));
     expect(block).toContain('gstack-review-log --start review\ngit diff "$DIFF_BASE"');
     expect(block).not.toContain('--fix-range');
