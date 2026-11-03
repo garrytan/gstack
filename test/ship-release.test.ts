@@ -390,7 +390,7 @@ describe('push: the pre-push housekeeping guards (GST-1138)', () => {
     expect(pushedHead(f)).toBe('');
   });
 
-  test('a base that exists on origin but is not fetched, a mistyped --base and an unreadable policy stop the push; only a remote with no base branch skips', () => {
+  test('a base that exists on origin but is not fetched, a mistyped --base, a dangling origin/HEAD and an unreadable policy stop the push', () => {
     const f = fx({ '.gstack/pregate.json': policy('exit 4') });
     ready(f);
     f.git('update-ref', '-d', 'refs/remotes/origin/main');
@@ -402,6 +402,10 @@ describe('push: the pre-push housekeeping guards (GST-1138)', () => {
     const typo = f.run(RELEASE, ['push', '--branch', 'feat', '--base', 'mian']);
     expect(typo.status).toBe(3);
     expect(lineOf(typo.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/retired-default');
+    const dangling = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(dangling.status).toBe(3);
+    expect(lineOf(dangling.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
     expect(pushedHead(f)).toBe('');
     const broken = fx({ '.gstack/pregate.json': '{not json\n' });
     ready(broken);

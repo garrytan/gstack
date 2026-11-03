@@ -1107,8 +1107,8 @@ HEAD's exact tree is reused instead of rerun: either push's own record or
 place one. The guards must have checked the tree being pushed, so uncommitted
 or untracked files that change what they saw stop the push until you commit or
 stash them. A refused run (an unreadable policy, a base that is on origin but
-not fetched, a mistyped `--base`) stops the push too; only a remote with no base
-branch at all skips the guards, as `GUARDS: not run`. Outside /ship, run the
+not fetched, a mistyped `--base`) stops the push too; only a remote that has no branch except the one
+being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
 command above yourself before `git push`.
 
 gstack declares its own list in `.gstack/pregate.json`: `typecheck`,

@@ -474,7 +474,7 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
  * final, so a stale golden, a size ratchet or a type error fails here instead of a CI round. A pass recorded at HEAD's
  * exact tree by this step or by finish's preflight (both under .git, which no commit can carry) is reused, never rerun.
  */
-function prepushGuards(cwd: string, base: string | undefined): { line: string; stop?: string } {
+function prepushGuards(cwd: string, branch: string, base: string | undefined): { line: string; stop?: string } {
   const gitPath = (name: string) => path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/${name}`]).stdout.trim() || `.git/gstack/${name}`);
   const tree = git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim();
   const out = gitPath('pregate-guards.json');
@@ -488,16 +488,16 @@ function prepushGuards(cwd: string, base: string | undefined): { line: string; s
   const pg = bin(cwd, 'gstack-pregate', ['--stage', 'guards', '--allow-repo-commands', '--json', '--out', out, ...(base ? ['--base', base] : [])], 3_600_000);
   let res: { status?: string; verdict?: string; tree?: string; code?: string; detail?: string; fix?: string; checks?: { id: string; status: string; detail?: string; fix?: string }[] } = {};
   try { res = JSON.parse(pg.stdout.trim().split('\n').pop() ?? ''); } catch { /* unreadable: stops below */ }
-  const missing = res.status === 'refused' && res.code === 'POLICY_SOURCE_UNAVAILABLE' && !base ? /origin\/(\S+) is not a resolvable commit/.exec(res.detail ?? '')?.[1] : undefined;
-  const onOrigin = missing ? git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${missing}`], 120_000) : null;
-  if (onOrigin && onOrigin.status !== 0) return { line: 'GUARDS: not run (origin unreachable)', stop: `cannot verify the remote branch (${firstLine(onOrigin.stderr)}): restore access before pushing` };
-  if (onOrigin?.status === 0 && !onOrigin.stdout.trim()) return { line: `GUARDS: not run (origin has no ${missing} branch to read guards from)` };
+  const heads = res.status === 'refused' && res.code === 'POLICY_SOURCE_UNAVAILABLE' ? git(cwd, ['ls-remote', '--heads', 'origin'], 120_000) : null;
+  if (heads && heads.status !== 0) return { line: 'GUARDS: not run (origin unreachable)', stop: `cannot verify the remote branch (${firstLine(heads.stderr)}): restore access before pushing` };
+  if (heads && heads.stdout.split('\n').every(l => !l.trim() || l.trim().endsWith(`\trefs/heads/${branch}`))) return { line: `GUARDS: not run (origin has no branch but ${branch}, so no base to read guards from)` };
   if (res.status === 'refused') return { line: `GUARDS: refused ${res.code}`, stop: `the pre-push guards could not run (${res.detail}; fix: ${res.fix}): repair it, then rerun push` };
-  if (res.tree && res.tree !== tree) return { line: `GUARDS: not certified (they checked the working tree ${res.tree.slice(0, 12)}, not HEAD's tree ${tree.slice(0, 12)})`, stop: 'the working tree differs from HEAD (uncommitted or untracked files): commit or stash them, then rerun push' };
+  const bad = (res.checks ?? []).filter(c => c.status !== 'pass' && c.status !== 'warn').map(c => `${c.id}: ${c.fix ?? c.detail ?? c.status}`).join('; ');
+  if (res.tree && res.tree !== tree) return { line: `GUARDS: not certified (they checked the working tree ${res.tree.slice(0, 12)}, not HEAD's tree ${tree.slice(0, 12)})`, stop: `the working tree differs from HEAD (uncommitted or untracked files): commit or stash them, then rerun push${bad ? `; the guards also reported ${bad}` : ''}` };
+  if (git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim() !== tree) return { line: 'GUARDS: not certified (HEAD moved while the guards ran)', stop: 'HEAD changed while the guards ran: rerun push' };
   const verdict = res.verdict ?? `unreadable (exit ${pg.status}: ${firstLine(pg.stderr)})`;
   const line = `GUARDS: ${verdict}${res.checks ? ` (${res.checks.map(c => `${c.id} ${c.detail ?? c.status}`).join('; ')})` : ''}`;
   if (pg.status === 0 && /^(pass|warn)/.test(verdict)) return { line };
-  const bad = (res.checks ?? []).filter(c => c.status !== 'pass' && c.status !== 'warn').map(c => `${c.id}: ${c.fix ?? c.detail ?? c.status}`).join('; ');
   return { line, stop: `the pre-push guards did not pass (${bad || firstLine(pg.stderr || pg.stdout)}): fix it, commit, then rerun push` };
 }
 
@@ -530,7 +530,7 @@ export function push(argv: readonly string[], cwd: string): Report {
     r.add(`SECRETS: ${verdict} (early push)`);
     if (scan.status !== 0 || !/^(pass|warn)/.test(verdict)) return r.stop(`the secrets scan did not pass before the early push (${firstLine(scan.stderr) || verdict}): remove the finding from the commits, then rerun push --early`);
   }
-  const guards = prepushGuards(cwd, flag('--base'));
+  const guards = prepushGuards(cwd, branch, flag('--base'));
   r.add(guards.line);
   if (guards.stop) return r.stop(guards.stop);
   const local = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
