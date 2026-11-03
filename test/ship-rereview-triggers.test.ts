@@ -885,6 +885,17 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     expect([late.status, late.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
   });
 
+  // Value: protects=the docs audit carries a path only on the tree finish checks, so a --build that rewrites an audited doc after
+  //   the commit check is still stale (#3970 outside voice); fails_when=the carry compares HEAD and prints DOCS: fresh;
+  //   seam=finish's docsFresh; no_claim=push's own working-tree guard
+  test('a build that rewrites an audited doc after the commit check keeps the docs audit stale', () => {
+    const f = fx({ 'README.md': '# Fx\n' }, { 'README.md': '# Fx, from the branch\n' });
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--docs-rechecked', '--build', "printf '# Generated replacement never audited\\n' > README.md"]);
+    expect([r.status, lineOf(r.stdout, 'DOCS')]).toEqual([3, 'DOCS: stale (README.md)']);
+  });
+
   test('a fix-check logged on uncommitted content is not counted', () => {
     const { f, passHead, reviewed, post } = afterFixCheck();
     f.write({ 'src/x.ts': 'export const x = 9;\n' });

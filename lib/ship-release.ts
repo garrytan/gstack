@@ -336,6 +336,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   const nul = (out: string) => out.split('\0').filter(Boolean);
   const auditBase = git(cwd, ['merge-base', baseRef, record.head]).stdout.trim();
   const nowBase = git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim();
+  const nowTree = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
   const atAudit = auditBase ? touchedPaths(cwd, auditBase, record.head) : new Set<string>();
   const nowDiff = nowBase ? git(cwd, ['diff', '-z', '--name-only', '--no-renames', nowBase]) : null;
   if (!atAudit || (nowDiff && nowDiff.status !== 0)) { r.stop(`git could not list the paths the branch touched against ${baseRef}; documentation freshness is unknown (stage 3)`); return false; }
@@ -359,7 +360,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
   const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
-    || (!!auditBase && !!nowBase && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: 'HEAD' }, p) === 'same'))), requested: [] as string[], accepted: [] as string[] };
+    || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[] };
   carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
