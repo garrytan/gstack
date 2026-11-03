@@ -194,9 +194,9 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect(SWITCH_DEFAULT.skill_routing).toBe('off');
   });
 
-  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 40 and this pin)', () => {
-    expect(original.split('\n')[39]).toBe("  skill_contracts: 'off',");
-    expect(SWITCH_DEFAULT.skill_contracts).toBe('off');
+  test('pin: skill_contracts defaults to on today (a flip PR changes lib/skill-route.ts line 40 and this pin)', () => {
+    expect(original.split('\n')[39]).toBe("  skill_contracts: 'on',");
+    expect(SWITCH_DEFAULT.skill_contracts).toBe('on');
   });
 
   test('every reader agrees with SWITCH_DEFAULT: gstack-config, setup, the routing hook and the Stop hook', () => {
