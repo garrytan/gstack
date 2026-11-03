@@ -42,7 +42,10 @@ no host profile, so a workflow started there is refused (`INSTALL: fail verdict
 — … (review-voice certifies only the read-only helpers); fix: run
 GSTACK_CAPY_ROOT=<root> bash <root>/capy/skill/gstack/scripts/install.sh --for
 <skill> …`). A review-voice check never replaces an ok verdict that a fuller
-install wrote for the same HEAD and project. The reverse is an in-place
+install wrote for the same HEAD and project. Nor does one run from another
+project shadow the session's own verdict: when the verdict for the current
+project is a review-voice one, admission reads the session's launched
+`GSTACK_INSTALL_VERDICT` instead (GST-1161). The reverse is an in-place
 upgrade: a reviewer later asked to run a workflow runs the same installer
 `--for <skill>`, which reuses the checkout (`upgrading the review-voice
 install in place to --for <skill> (same checkout ...; no second clone)`),

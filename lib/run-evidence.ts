@@ -52,6 +52,13 @@ export interface ApiRun {
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
 export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown }
 
+/** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
+export interface RunArtifactDeps {
+  /** Every file of the run's one unexpired artifact `name`, path → text; throws when it is missing, ambiguous or too large. */
+  artifactFiles(id: number, name: string): Record<string, string>;
+  pull(n: number): { head_sha: string; state: string; head_repo: string | null };
+}
+
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
 export interface RunDeps {
   run(id: number): ApiRun;
@@ -74,6 +81,8 @@ const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+/** Shard logs are the whole test stream, so a red run's reader allows more than a tree.json. */
+const MAX_LOG_ARTIFACT_BYTES = 64 * 1024 * 1024;
 
 /** A numeric run id, or a run URL on this repository (`…/actions/runs/<id>[/attempts/<n>][/job/<j>]`). */
 export function parseRunRef(ref: string, repo: string): number | null {
@@ -295,6 +304,40 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
       }
       const tree = (r.stdout ?? '').trim();
       return r.status === 0 && /^[0-9a-f]{40,64}$/.test(tree) ? tree : null;
+    },
+  };
+}
+
+/** The gh-backed artifact and pull request reads for `repo` (lib/pregate/flaky-exception.ts): one unexpired artifact by name, every regular file in it under a byte cap. */
+export function ghArtifactDeps(repo: string): RunArtifactDeps {
+  const all = <T>(p: string, key: string): T[] => gh(['api', '--paginate', p, '--jq', `.${key}[]`]).split('\n').filter(Boolean).map(l => JSON.parse(l) as T);
+  return {
+    artifactFiles: (id, name) => {
+      const listed = all<{ name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
+      if (listed.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
+      if (!(listed[0]!.size_in_bytes <= MAX_LOG_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${listed[0]!.size_in_bytes} bytes, over ${MAX_LOG_ARTIFACT_BYTES}`);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-run-evidence-'));
+      try {
+        gh(['run', 'download', String(id), '--repo', repo, '--name', name, '--dir', dir], 300_000);
+        const out: Record<string, string> = {};
+        let bytes = 0;
+        const walk = (rel: string) => {
+          for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+            const child = rel ? `${rel}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) { walk(child); continue; }
+            if (!entry.isFile()) continue;
+            bytes += fs.statSync(path.join(dir, child)).size;
+            if (bytes > MAX_LOG_ARTIFACT_BYTES) throw new Error(`artifact ${name} unpacks to more than ${MAX_LOG_ARTIFACT_BYTES} bytes`);
+            out[child] = fs.readFileSync(path.join(dir, child), 'utf8');
+          }
+        };
+        walk('');
+        return out;
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    },
+    pull: n => {
+      const p = JSON.parse(gh(['api', `repos/${repo}/pulls/${n}`])) as { state: string; head: { sha: string; repo: { full_name: string } | null } };
+      return { head_sha: p.head.sha, state: p.state, head_repo: p.head.repo?.full_name ?? null };
     },
   };
 }
