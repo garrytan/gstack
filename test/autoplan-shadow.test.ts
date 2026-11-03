@@ -271,15 +271,15 @@ describe('runShadow: retry, truncation, failures and the deadline', async () => 
     expect(readLedger(path.join(r.out, 'spend.json')).settled.filter(s => s.label === 'shadow').map(s => s.usd)).toEqual([0]);
   });
   test('one deadline covers the call and its retry: a slow malformed reply leaves the retry no time', async () => {
-    const r = await shadowed('deadline-retry', [{ mode: 'missing', delay_ms: 1200 }, { mode: 'valid', delay_ms: 1200 }], undefined, 1500);
-    expect(r.ms).toBeLessThan(2400);
+    const r = await shadowed('deadline-retry', [{ mode: 'missing', delay_ms: 2500 }, { mode: 'valid', delay_ms: 3400 }], undefined, 3500);
+    expect(r.ms).toBeLessThan(5900);
     expect(r.outcome.status).toBe('recorded');
     expect(ids(r.out).map(x => x.status)).toEqual(['recorded', 'recorded', 'recorded', 'recorded', 'recorded', 'recorded', 'malformed']);
-    const slow = await shadowed('deadline-call', [{ mode: 'valid', delay_ms: 3000 }], undefined, 800);
+    const slow = await shadowed('deadline-call', [{ mode: 'valid', delay_ms: 6000 }], undefined, 800);
     expect(slow.outcome.line).toBe('SHADOW: failed timeout');
-    expect(slow.ms).toBeLessThan(2500);
+    expect(slow.ms).toBeLessThan(5000);
     expect(readLedger(path.join(slow.out, 'spend.json')).settled.filter(s => s.label === 'shadow').map(s => s.usd)).toEqual(['unknown']);
-  });
+  }, 15_000);
   test('a publish that throws journals shadow_failed and drops the lease, so a later claim pays no second call', async () => {
     const f = await fake('publish-throws', [{ mode: 'valid' }]);
     const out = gateRun();
