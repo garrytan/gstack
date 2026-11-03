@@ -109,13 +109,13 @@ The hook checks the most recently loaded skill that declares a contract, and onl
 - the session is headless or unattended (`gstack-session-kind`), or
 - the turn does not end on a question to the user (a last paragraph ending in "?", an AskUserQuestion call, or `NEEDS_CONTEXT`).
 
-So an interactive session that pauses to ask a question is never blocked. When Claude Code says a Stop hook already continued this turn (`stop_hook_active`), the hook never blocks: after its own block it records the result (`met_after_block` or `miss`). It also allows the stop once while Agent dispatches are still running (no result yet, or launched in the background with no completion notice naming that agent), because their outputs may still arrive, and records the run as `deferred`. If the same agents are still running at the next stop, they count as stalled and the contract is checked. Because Claude Code can fire Stop before the turn's last message reaches the transcript file, the hook reads the payload's `last_assistant_message` as the turn's final text.
+So an interactive session that pauses to ask a question is never blocked. When Claude Code says a Stop hook already continued this turn (`stop_hook_active`), the hook never blocks: after its own block it records the result (`met_after_block` or `miss`). On a final turn it also allows the stop while Agent dispatches are still running (no result yet, or launched in the background with no completion notice naming that agent), because their outputs may still arrive, and records the run as `deferred`. Once the same agents have been running for 10 minutes since the stop that first saw them, they count as stalled and the contract is checked at the next stop. Because Claude Code can fire Stop before the turn's last message reaches the transcript file, the hook reads the payload's `last_assistant_message` as the turn's final text.
 
 It blocks at most once per skill run. If the model stops again with the contract still unmet, the stop is allowed and the run is recorded as a miss.
 
 ### Records
 
-Each Claude Code session has one record, `$GSTACK_STATE_ROOT/skill-contracts/<session id>.json`, written atomically (mode 0600) before any block. Each skill run in it has an outcome: `met`, `met_waived`, `blocked`, `met_after_block`, `miss` or `deferred` (stopped while its agents were still running, not yet checked). The hook's decisions also go to `$GSTACK_STATE_ROOT/hooks/skill-contract.log`.
+Each Claude Code session has one record, `$GSTACK_STATE_ROOT/skill-contracts/<session id>.json`, written atomically (mode 0600) before any block. Each skill run in it has an outcome: `met`, `met_waived`, `blocked`, `met_after_block`, `miss` or `deferred` (stopped while its agents were still running, not yet checked; `report` re-checks it against its transcript). The hook's decisions also go to `$GSTACK_STATE_ROOT/hooks/skill-contract.log`.
 
 ## Commands
 

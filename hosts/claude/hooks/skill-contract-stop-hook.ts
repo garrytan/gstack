@@ -7,11 +7,12 @@
  *
  *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message)
  *     -> the most recently loaded skill that declares a contract (none: allow)
- *     -> Agent dispatches still running? allow once per set of running agents
- *        (outputs may still arrive); the same set still running at the next
- *        stop is stalled, so the contract is checked
  *     -> final turn? (a STATUS line, a headless or unattended session, or no
- *        pending user question) -> checkContract (lib/skill-contract.ts)
+ *        pending user question; otherwise allow)
+ *     -> Agent dispatches still running? allow (outputs may still arrive),
+ *        until the same set has been running AGENT_STALL_MS since the stop
+ *        that first saw it; then it is stalled and the contract is checked
+ *     -> checkContract (lib/skill-contract.ts)
  *     -> unmet and this run never blocked: record "blocked", then block with
  *        blockMessage(); unmet again later: record "miss" and allow
  *     -> stop_hook_active (a Stop hook already blocked this turn): record the
@@ -30,7 +31,7 @@
 import { runBin } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  StateError, UnknownShape, blockMessage, bumpCanary, checkContract, lookupContract, nextOutcome, parseTranscript,
+  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, lookupContract, nextOutcome, parseTranscript,
   readRecord, readTranscriptFile, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, withFinalMessage, writeRecord,
   type CheckResult, type Contract, type Transcript,
 } from '../../../lib/skill-contract';
@@ -110,18 +111,24 @@ async function main(): Promise<void> {
   const record = readRecord(file) ?? { version: 1 as const, session_id: sessionId, transcript_path: transcriptPath, runs: {} };
   const key = runKey(t.skill, result.load);
   const prev = record.runs[key];
-  const pending = [...result.pendingAgents].sort();
-  if (pending.length && pending.join(',') !== (prev?.deferred_agents ?? []).join(',')) {
-    record.transcript_path = transcriptPath;
-    record.runs[key] = {
-      skill: t.skill, load_line: result.load.line, outcome: prev?.outcome ?? 'deferred', missing: prev?.missing ?? [], waived: prev?.waived ?? [],
-      ...(prev?.blocked_at ? { blocked_at: prev.blocked_at } : {}), deferred_agents: pending, updated_at: new Date().toISOString(),
-    };
-    writeRecord(file, record);
-    return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
-  }
-  if (pending.length) trace({ event: 'agents-stalled', skill: t.skill, agents: pending.length });
   if (!isFinalTurn(result)) return trace({ event: 'not-final-turn', skill: t.skill });
+  const pending = [...result.pendingAgents].sort();
+  if (pending.length) {
+    const sameSet = pending.join(',') === (prev?.deferred_agents ?? []).join(',') && !!prev?.deferred_at;
+    if (!sameSet) {
+      const now = new Date().toISOString();
+      record.transcript_path = transcriptPath;
+      record.runs[key] = {
+        skill: t.skill, load_line: result.load.line, outcome: prev?.outcome ?? 'deferred', missing: prev?.missing ?? [], waived: prev?.waived ?? [],
+        ...(prev?.blocked_at ? { blocked_at: prev.blocked_at } : {}), deferred_agents: pending, deferred_at: now, updated_at: now,
+      };
+      writeRecord(file, record);
+    }
+    if (!sameSet || !(Date.now() - Date.parse(prev!.deferred_at!) >= AGENT_STALL_MS)) {
+      return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
+    }
+    trace({ event: 'agents-stalled', skill: t.skill, agents: pending.length });
+  }
   const { outcome, block } = nextOutcome(prev, result);
   if (block && stopActive) return trace({ event: 'stop-hook-active', skill: t.skill });
   const missing = result.missing.join(',') || '-';
