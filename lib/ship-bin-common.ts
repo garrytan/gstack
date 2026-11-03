@@ -113,7 +113,8 @@ export function releasePaths(policy: Record<string, any> | null, cwd: string, re
  * added since the merge base with origin/<base>, and not added by the base since): after a lost slot and a merge of the
  * base its stale stamp is older than `ref`'s VERSION, so it must be at or newer than the fork point's version instead,
  * the bound gstack-restamp's stamp_paths stage uses (GST-895; the fork version itself since GST-963). A branch line is
- * named by its position, and with a kept VERSION only such a line may move (GST-979, GST-980).
+ * named by its position, and with a kept VERSION only such a line may move (GST-979, GST-980); on it a declared
+ * `stamp_placeholders` value may also become the new version inside a `stamp_patterns` template (GST-1026).
  */
 export function stampedFiles(policy: Record<string, any> | null, cwd: string, ref: string, base: string): string[] {
   const globs = Array.isArray(policy?.stamp_files) ? policy.stamp_files.filter((s: unknown): s is string => typeof s === 'string') : [];
@@ -123,11 +124,13 @@ export function stampedFiles(policy: Record<string, any> | null, cwd: string, re
   let after = '';
   try { after = extractVersion(fs.readFileSync(path.join(cwd, before.rel), 'utf8'), before.rel); } catch { return []; }
   if (!after) return [];
-  const templates = Array.isArray(policy?.stamp_patterns) ? policy.stamp_patterns.filter((s: unknown): s is string => typeof s === 'string') : [];
+  const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
+  const templates = strings(policy?.stamp_patterns);
+  const placeholders = strings(policy?.stamp_placeholders);
   const diff = git(cwd, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', ref]);
   if (diff.status !== 0) return [];
   const side = branchSides(cwd, `origin/${base}`, 'HEAD', before.version, ref);
-  const stamp = (rel: string, removed: string, added: string, at: number): boolean => stampOnlyLine(removed, added, before.version, after, templates, side(rel), at);
+  const stamp = (rel: string, removed: string, added: string, at: number): boolean => stampOnlyLine(removed, added, before.version, after, templates, side(rel), at, placeholders);
   return parseUnifiedDiff(diff.stdout).filter(f => f.status === 'M' && !f.binary && !f.modeChanged && matchesAny(globs, f.path) && f.hunks.length > 0 &&
     f.hunks.every(h => h.removed.length === h.added.length && h.removed.every((line, i) => stamp(f.path, line, h.added[i]!, h.removedAt[i]!)))).map(f => f.path);
 }

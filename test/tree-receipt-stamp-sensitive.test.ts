@@ -121,6 +121,36 @@ describe('tree receipt: stamps, stamp-sensitive gates and negative fixtures', ()
     expect(stampOnlyLine("mine since: '1.2.3.0'", "mine since: '1.2.4.0'", '1.2.4.0', '1.2.4.0', tpl, mine, 5)).toBe(true);
   });
 
+  // Value: protects=a declared placeholder on the branch's own row moves to the new version as a stamp, only inside a
+  //   stamp_patterns template (gbrain's `since: 'TBD'` row, GST-1026); fails_when=stampOnlyLine reads the move as a hand
+  //   edit, or accepts an undeclared placeholder, a base row, a duplicated base line, a built-in form or a line no
+  //   template matches; seam=lib/stamp-only.ts stampOnlyLine placeholders
+  test('a declared placeholder on a branch row moves to the new version inside a stamp_patterns template, and nowhere else (GST-1026)', () => {
+    const tpl = ["since: '{version}'"];
+    const row = "  { since: 'TBD', id: 'mine' },";
+    const moved = "  { since: '0.60.553.0', id: 'mine' },";
+    const side = (r: string, at = 10) => ({ fork: '0.60.552.0', added: new Set([r]), at: new Set([at]) });
+    const line = (r: string, a: string, opts: { templates?: string[]; at?: number; placeholders?: string[]; oldV?: string } = {}) =>
+      stampOnlyLine(r, a, opts.oldV ?? '0.60.552.0', '0.60.553.0', opts.templates ?? tpl, side(r), opts.at ?? 10, opts.placeholders ?? ['TBD']);
+    expect(line(row, moved)).toBe(true);
+    expect(line(row, moved, { oldV: '0.60.553.0' })).toBe(true);
+    expect(line(row, moved, { placeholders: [] })).toBe(false);
+    expect(line(row, moved, { placeholders: ['WIP'] })).toBe(false);
+    expect(line("  { since: 'WIP', id: 'mine' },", moved)).toBe(false);
+    expect(line(row, moved, { at: 2 })).toBe(false);
+    expect(stampOnlyLine(row, moved, '0.60.552.0', '0.60.553.0', tpl, undefined, undefined, ['TBD'])).toBe(false);
+    expect(stampOnlyLine(row, moved, '0.60.552.0', '0.60.553.0', tpl, side("  { since: 'TBD', id: 'other' },"), 10, ['TBD'])).toBe(false);
+    expect(line(row, moved, { templates: [] })).toBe(false);
+    expect(line("  { release: 'TBD', id: 'mine' },", "  { release: '0.60.553.0', id: 'mine' },")).toBe(false);
+    expect(line('  { since: TBD, id: mine },', '  { since: 0.60.553.0, id: mine },')).toBe(false);
+    expect(line(row, "  { since: '0.60.553.0', id: 'yours' },")).toBe(false);
+    expect(line(row, "  { since: '0.60.554.0', id: 'mine' },")).toBe(false);
+    const both = "  { since: 'TBD', note: 'Added in v0.60.552.0' },";
+    expect(line(both, "  { since: '0.60.553.0', note: 'Added in v0.60.553.0' },")).toBe(true);
+    expect(line(both, "  { since: '0.60.553.0', note: 'Added in v0.60.551.0' },")).toBe(false);
+    expect(line('  // TBD: tidy', '  // 0.60.553.0: tidy', { templates: ['{version}'] })).toBe(false);
+  });
+
   test('negative fixture: a dependency pin equal to the old version is `changed`, not a stamp, even inside stamp_paths', () => {
     const repo = fixture();
     const g = gated(repo);
