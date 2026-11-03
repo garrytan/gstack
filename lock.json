@@ -2,7 +2,7 @@
   "pr": "3897",
   "holder": "cox.local:18828",
   "started_at": "2026-11-03T01:59:55.232Z",
-  "phase": "pushing",
+  "phase": "waiting",
   "journal": ".gstack/tmp/ship-queue/land/3897.json",
-  "phase_at": "2026-11-03T02:00:02.581Z"
+  "phase_at": "2026-11-03T02:00:06.777Z"
 }
