@@ -17,7 +17,9 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
-gave `--depth-floor <d>` (it only raises); a repeat uses the plan run that picked it.
+gave `--depth-floor <d>` (it only raises); add `--declare-risk <classes>` when the diff touches a risk
+class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
+receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
 reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,

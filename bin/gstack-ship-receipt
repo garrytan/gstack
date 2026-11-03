@@ -50,6 +50,7 @@ import {
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, platformReceiptDepth, receiptExclude, receiptReviewAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
@@ -99,6 +100,8 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
   name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
   RECEIPT_INVALID field=review_exclude and nothing is written (rerun the review; write alone cannot clear it); recorded as review_exclude. Carry and the queue compare that digest.
+  --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises
+  its depth; review_depth.declared and .detected record both lists (GST-1129). An unknown class is RECEIPT_INVALID.
   --platform-review <id> (NEXT: platform's PLATFORM_REVIEW: id): records review_depth platform with capy-ai[bot]'s review <id> at HEAD;
   refused (RECEIPT_INVALID) unless the base policy has review.platform on, HEAD needs light review of a docs or tests diff with
   no numeric, results or prereg claims, and that review is on the PR at HEAD. review_depth.mode records lean, panel or platform.
@@ -224,7 +227,9 @@ function cmdWrite(rest: string[], json: boolean): number {
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
-  const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
+  const declared = (flag(rest, '--declare-risk') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (rest.includes('--declare-risk') && (!declared.length || declared.some(c => !(RISK_CLASSES as readonly string[]).includes(c)))) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `--declare-risk ${flag(rest, '--declare-risk') ?? ''}: each class is one of ${RISK_CLASSES.join(', ')}; nothing written`) + '\n'); return EXIT.fail; }
+  const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head, declared as RiskClass[]);
   let reviewDepth = review.depth;
   const platformId = flag(rest, '--platform-review');
   if (platformId !== undefined) {

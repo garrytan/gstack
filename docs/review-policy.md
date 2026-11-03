@@ -205,8 +205,12 @@ judged by their path, so a `lease_usd` value or an `os.path.join(sys.argv[1], â€
 stats script names no class (HARN-1, harness-evals#231), and binary data such as
 `*.sqlite` is data wherever it sits; a docs line that can print a credential (an
 `Authorization:` header, a bearer or key-shaped value, an environment key set to a value,
-a get or show command for auth config such as `mcp get`) is security (gbrain#8417). The
-outside voice reads its diff from a file the brief names with its sha256; past
+a get or show command for auth config such as `mcp get`) is security (gbrain#8417); code
+that reserves, binds, leases or settles spend against a ledger, budget or cap (`bindCheck(ledger, â€¦)`,
+`reserveSpend`, `bindCap`) is money (GST-1129, gstack-evals#170). When the matchers miss a class the
+lane knows the diff has, `gstack-review-plan --declare-risk <classes>` adds it: a declaration joins the
+detected classes, only raises the depth, and prints `RISK_DECLARED: classes=<declared> detected=<found>`.
+The outside voice reads its diff from a file the brief names with its sha256; past
 2,000,000 bytes it reads a path-scoped slice whose brief lists the files left out.
 `--fix-checks <n>` tells the lean loop how many fix-checks ran, so the owner's grant
 adds one fix-check after the first and never a second.
@@ -501,7 +505,8 @@ loop prints the old line.
 
 Beside the counters, `write` records `review_depth` (the depth, runtime lines,
 rules hash, base and registry commits, the gate scan bound to the head, the risk classes and
-`mode`: lean, panel or platform) and the queue refuses a receipt below the depth its head needs
+`mode`: lean, panel or platform; with `--declare-risk`, `declared` and `detected` beside `risk`, so a
+class the lane added shows apart from what the matchers found) and the queue refuses a receipt below the depth its head needs
 ([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). After `NEXT: platform`,
 `write --platform-review <id>` records `review_depth: platform` with `platform_review`
 (capy-ai[bot]'s review id, reviewer and head); write and the queue accept it only under

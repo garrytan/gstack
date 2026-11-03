@@ -26,6 +26,7 @@ import { reviewExclude, type Exclusion } from './review-exclude';
 import { isUnavailable } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
 import { depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
+import type { RiskClass } from './review-risk';
 import { platformReviewAt } from './review-platform';
 import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
@@ -93,8 +94,11 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
   return receiptReviewAtHead(repoRoot, base, binDir, head).depth;
 }
 
-/** receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508). */
-export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string): { depth: ReceiptDepth; exclude: Exclusion } {
+/**
+ * receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508).
+ * `declared` (write --declare-risk, GST-1129) joins the detected risk classes and only raises; the record then keeps both lists.
+ */
+export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string, declared: readonly RiskClass[] = []): { depth: ReceiptDepth; exclude: Exclusion } {
   const branch = base.replace(/^origin\//, '');
   const baseSha = baseCommit(repoRoot, `origin/${branch}`);
   const baseRev = baseSha.ok ? baseSha.out : branch;
@@ -113,8 +117,8 @@ export function receiptReviewAtHead(repoRoot: string, base: string, binDir: stri
     paths = declares && tagged !== null ? taggedPaths(g?.stdout ?? '') : null;
   }
   const exclude = exclusionAt(repoRoot, ref, sha, head, c, paths, 'gstack-ship-receipt');
-  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
-  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review) }, exclude };
+  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), declared, ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
+  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review), ...(d.declared.length ? { declared: d.declared, detected: d.detected } : {}) }, exclude };
 }
 
 /**

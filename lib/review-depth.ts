@@ -233,8 +233,11 @@ export interface ClassInput {
   excluded?: ReadonlySet<string>;
   /** The base policy's review.risk_paths: a code path they match is risk class `policy`; data and binary files under them never are. */
   riskPaths?: readonly string[];
+  /** Risk classes the lane declares for the diff (GST-1129, --declare-risk): they join the detected ones and can only raise the depth. */
+  declared?: readonly RiskClass[];
 }
-export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null; risk: RiskClass[] }
+/** risk is detected plus declared; `detected` is what the matchers found, `declared` what the lane added. */
+export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null; risk: RiskClass[]; detected: RiskClass[]; declared: RiskClass[] }
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
@@ -274,16 +277,20 @@ export function classifyDiff(i: ClassInput): ClassResult {
   const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
   const docSecret = i.paths.find(p => pathClass(i, p) === 'docs' && DOC_PATH.test(p) && (i.added?.[p] ?? []).some(l => DOC_SECRET_LINE.some(r => r.test(l))));
   if (docSecret && !riskHits.has('security')) riskHits.set('security', `docs that can print a credential: ${docSecret}`);
-  const risk = [...riskHits.keys()].sort((a, b) => RISK_CLASSES.indexOf(a) - RISK_CLASSES.indexOf(b));
+  const byRank = (a: RiskClass, b: RiskClass) => RISK_CLASSES.indexOf(a) - RISK_CLASSES.indexOf(b);
+  const detected = [...riskHits.keys()].sort(byRank);
+  const declared = [...new Set(i.declared ?? [])].sort(byRank);
+  for (const d of declared) if (!riskHits.has(d)) riskHits.set(d, `declared: ${d}`);
+  const risk = [...riskHits.keys()].sort(byRank);
   reasons.push(...[...riskHits.values()].map(r => `risk: ${r}`));
-  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk };
+  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk, detected, declared };
   let runtimeLines = 0;
   for (const e of i.perPath) {
     if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path)) continue;
     if (e.binary) errors.push({ code: 'binary_code_path', detail: 'git reports a binary change, so its lines cannot be counted', input: e.path, repair: "register it as an output of an entry with a command in the base branch's .gstack/generated.json, or accept the full review" });
     else runtimeLines += e.lines;
   }
-  return { class: cls, reasons, errors, runtimeLines, risk };
+  return { class: cls, reasons, errors, runtimeLines, risk, detected, declared };
 }
 
 /** Risk, not size (R51): any classifier error, gate class or risk class is full; everything else is light. A floor only raises; a fixed blocker or a CRITICAL raises light to standard for the next step (planReview). */
@@ -292,14 +299,14 @@ export function depthFor(o: { cls: DiffClass; runtimeLines: number; errors: read
   return o.floor && DEPTH_RANK[o.floor] > DEPTH_RANK[d] ? o.floor : d;
 }
 
-export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string; risk: RiskClass[] }
+export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string; risk: RiskClass[]; detected: RiskClass[]; declared: RiskClass[] }
 
 function decideDepth(c: ClassResult, runtimeLines: number, floor?: Depth): DepthResult {
   const unfloored = depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk });
   const reasons = [...c.errors.map(e => `error:${e.code}`), ...(c.class === 'gate' ? ['gate-class'] : []), ...c.risk.map(r => `risk:${r}`), `runtime=${runtimeLines}`];
   if (floor && DEPTH_RANK[floor] > DEPTH_RANK[unfloored]) reasons.push(`floor:${floor}`);
   const codes = [...new Set(c.errors.flatMap(e => (e.result ? [e.result] : [])))];
-  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES, risk: c.risk };
+  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES, risk: c.risk, detected: c.detected, declared: c.declared };
 }
 
 /** The depth of a collected range (lib/review-collect.ts) plus a recorded gate-scan result: what the queue recomputes at a head. */

@@ -6,6 +6,8 @@
 - **The platform depth.** Under `review.platform on`, a docs or tests diff with no numeric, results or prereg claims, whose PR carries capy-ai[bot]'s review at the exact head, plans `NEXT: platform` with a planned `SKIP:` for every reader. Step 11.5 accepts it, and `gstack-ship-receipt write --platform-review <id>` records `review_depth: platform` with that review's id and head. It never applies to runtime code, and never where platform review is off.
 - **New risk classes**: `eval` (scorer, judge and grader paths) and `policy` (`review.risk_paths`). A docs line that can print a credential (an `Authorization:` header, a bearer value, a key-shaped literal, `mcp get`) is security risk (gbrain#8417).
 - **The receipt records `review_depth.mode`** (lean, panel or platform).
+- **Declared risk classes** (GST-1129). `gstack-review-plan --declare-risk <classes>` and `gstack-ship-receipt write --declare-risk <classes>` add classes the matchers missed. A declaration only raises the depth, the plan prints `RISK_DECLARED:`, and the receipt keeps `review_depth.declared` beside `review_depth.detected`.
+- **Code that reserves, binds, leases or settles spend is money** (GST-1129): `bindCheck(ledger, …)`, `reserveSpend` or `bindCap` in a code file now plans full depth. gstack-evals#170 got its full review only because an unrelated `UBICLOUD_API_KEY` line was in the diff.
 
 ### Changed
 - **Non-risk code gets one native adversarial reader** at the lane's reasoning, carrying the code checklists and the Red Team checklist, in place of the batched specialist plus the native pass. One fix-check follows a fixed blocker; below-floor fixes ship as notes. `review.panel all` restores the old plan and loop everywhere.

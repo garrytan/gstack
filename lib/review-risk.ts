@@ -22,6 +22,15 @@ export const MONEY_PATH_TOKENS = ['cost', 'costs', 'spend', 'spending', 'budget'
 export const MONEY_PAIRS: readonly (readonly [string, readonly string[]])[] = [
   ['usage', ['token', 'tokens', 'cost', 'costs', 'spend', 'billing', 'price', 'pricing', 'budget']], ['proxy', ['billing', 'bill']], ['client', ['cost', 'costs', 'charge', 'charges', 'billing', 'price', 'pricing', 'spend']],
 ];
+/**
+ * Spend a run reserves, binds, leases or settles against a ledger, a budget or a cap (GST-1129: gstack-evals#170 bound paid spend
+ * with `bindCheck(ledger, …)`): a verb beside a spend word on one changed code line. Prose lines (PROSE_PATH) never count: skill
+ * text says "binds" and "ledger" in passing (#3698 and #3798 would have read as money).
+ */
+const SPEND_BIND = ['reserve', 'reserves', 'reserved', 'reservation', 'reservations', 'bind', 'binds', 'lease', 'leases', 'leased', 'settle', 'settles', 'settled'];
+const SPEND_OF = ['ledger', 'ledgers', 'spend', 'budget', 'budgets', 'usd', 'cost', 'costs', 'credits', 'billing', 'cap', 'caps'];
+export const SPEND_PAIRS: readonly (readonly [string, readonly string[]])[] = [...SPEND_BIND.map(w => [w, SPEND_OF] as const), ['cap', ['spend', 'usd', 'budget', 'ledger']]];
+export const PROSE_PATH = /\.(md|mdx|markdown|txt|rst|adoc|tmpl)$/i;
 /** Identifiers ending in _usd, Usd or cap_usd, any spend_cap spelling, and paid-provider call sites (the providers lib/pricing.ts prices). */
 export const MONEY_LINE = [
   /\b[A-Za-z0-9_]*_usd\b/i, /\b[a-z][A-Za-z0-9]*Usd\b/, /\bspend[_-]?cap\b/i,
@@ -96,13 +105,14 @@ export const DOC_SECRET_LINE = [
 ];
 
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
-const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || MONEY_PAIRS.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const pairs = (t: readonly string[], list: typeof MONEY_PAIRS) => list.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || pairs(t, MONEY_PAIRS);
 
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
-  MONEY_LINE_TOKENS, MONEY_PAIRS,
-  patterns: Object.entries({ DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS,
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -127,6 +137,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (STATS_SCRIPT.test(p)) continue;
     const t = tokens(p);
     const config = CONFIG_DATA_PATH.test(p);
+    const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
     if (namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
@@ -137,7 +148,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
       if (config) continue;
-      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
+      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }
