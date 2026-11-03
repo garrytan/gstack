@@ -189,9 +189,9 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect(config()).toBe('');
   }
 
-  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 39 and this pin)', () => {
-    expect(original.split('\n')[38]).toBe("  skill_routing: 'off',");
-    expect(SWITCH_DEFAULT.skill_routing).toBe('off');
+  test('pin: skill_routing defaults to on today (a flip PR changes lib/skill-route.ts line 39 and this pin)', () => {
+    expect(original.split('\n')[38]).toBe("  skill_routing: 'on',");
+    expect(SWITCH_DEFAULT.skill_routing).toBe('on');
   });
 
   test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 40 and this pin)', () => {
