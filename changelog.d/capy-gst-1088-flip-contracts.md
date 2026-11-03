@@ -1,0 +1,1 @@
+The skill contract check is now on by default (GST-1088): when a skill with a contract block ends without its required outputs, the Stop hook blocks once and names what is missing. Turn it off with `gstack-config set skill_contracts off` or `./setup --no-skill-contracts`.
