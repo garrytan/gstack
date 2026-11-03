@@ -57,6 +57,28 @@ describe('gstack-ship-preflight', () => {
     expect(r.status).toBe(0);
   });
 
+  // Value: protects=a failed lookup of the remote's HEAD stops with "restore access first" instead of guessing the default branch from a local origin/HEAD;
+  //   fails_when=a failed ls-remote falls back to the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature
+  //   branch a Capy checkout's origin/HEAD names is refused as the base branch; why_new=GST-511 follow-up from #3718; seam=a git wrapper on PATH that fails
+  //   ls-remote only; no_claim=which access failure it was
+  test('a failed remote HEAD lookup stops before merging, even when the fetch works', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "ls-remote: unreachable" >&2; exit 128; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    for (const r of [onDefault, onFeature]) {
+      expect(r.status).toBe(3);
+      expect(r.stdout).toContain('STOP: git ls-remote origin HEAD failed: ls-remote: unreachable; restore access first');
+      expect(r.stdout).not.toContain('MERGE:');
+    }
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {

@@ -22,7 +22,8 @@ dropped), so a command with quotes or `$` never passes through a shell string;
 
 1. `--plan-file <file>`: an operator-given file, read from disk.
 2. Otherwise `price_file` in `.gstack/pregate.json` as committed on
-   `origin/<base>` (`--base`, default origin/HEAD's branch): a repo-relative
+   `origin/<base>` (`--base`, default origin/HEAD's branch unless that is the
+   checked-out branch, then the PR's base, `main` or `master`): a repo-relative
    path whose bytes are read from the **HEAD commit** (`git show HEAD:<path>`),
    never from the working tree.
 
