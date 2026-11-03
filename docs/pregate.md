@@ -1365,13 +1365,18 @@ gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
 `doc-caps` and `conflict-markers`. Generated SKILL.md freshness is the `regen`
 check's job. `conflict-markers` runs `scripts/check-conflict-markers.ts` on a
 change to code, templates or config, and reads every line the branch adds
-against its merge base with `origin/main`. A line starting with `<<<<<<<` or
-`>>>>>>>` (then a space or the line end), or a line that is exactly `=======`,
-stops the push, even inside a template literal the parser accepts. In Markdown
-it skips fenced code blocks and counts `=======` only between an unfenced
-`<<<<<<<` and its close, so a code block that shows a conflict and a heading
-underline both pass. A fixture that shows markers on purpose carries a line
-with `gstack-conflict-markers: fixture`. Other
+against its merge base with `origin/main`, both in the committed HEAD (what the
+push publishes) and in the working tree's tracked files. A line starting with
+`<<<<<<<` or `>>>>>>>` (then a space or the line end), or a line that is exactly
+`=======`, stops the push, even inside a template literal the parser accepts.
+In Markdown (`.md`, `.mdx`, `.markdown`, `.md.tmpl`) it skips fences whose info
+string is empty, `text`, `txt`, `plaintext`, `diff` or `console`, the fences a
+doc uses to show git output, and counts `=======` only between a `<<<<<<<` and
+its close, so such a code block and a heading underline both pass; a conflict
+inside a `bash` or `ts` fence is still refused. A fixture that shows markers on
+purpose puts a line that is only `gstack-conflict-markers: fixture` (a comment
+leader such as `#` or `//` is fine) in its first five lines; the phrase
+anywhere else exempts nothing. Other
 repos add their own `guards` the same way; the key needs no newer gstack than
 the one that already reads `guards`.
 
