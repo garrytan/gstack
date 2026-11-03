@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyDiff } from './review-depth';
 import { audit } from './ship-audit';
-import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
+import { bin, carryNoneLine, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -23,8 +23,10 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
-RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane,
-then NEXT: lines. STOP: names what the agent must
+RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane
+(a lane the base maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact clean tree:
+LANE: <label> carried run=<id>/<attempt> tests_ran=<n>, else CI_CARRY: none (<reason>) and it runs; any other lane that
+passed at this tree, command and runtime is reused: reused=<original time>), then NEXT: lines. STOP: names what the agent must
 decide or repair; nothing after it ran. Exit codes: 0 ok · 2 usage · 3 STOP`;
 
 const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|package\.json)$/;
@@ -151,8 +153,9 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
   }
   if (/uncleared/.test(verdict)) r.next('pregate requires-remote: gstack-pregate clear, or --remote --spend-cap <usd> under a user cap, before Step 18');
   r.add(run.line);
-  const results = (await runLanes(cwd, list, run.concurrency)).map(laneLine);
-  for (const l of results) r.add(l.line);
+  const ran = await runLanes(cwd, list, run.concurrency, { base });
+  const results = ran.map(laneLine);
+  for (const [i, l] of results.entries()) { const none = carryNoneLine(ran[i]!); if (none) r.add(none); r.add(l.line); }
   const bad = results.filter(l => !l.ok);
   if (bad.length) { r.stop(`${bad.length} lane(s) failed or ran zero tests: Step 5 triage (read each log; a free-suite shard failure reruns its file list per measure.md); in-branch failures stop the ship`); return; }
   r.next('Step 6: select eval suites for prompt-related changes with the project\'s selector, then Step 7');
