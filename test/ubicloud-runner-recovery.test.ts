@@ -290,6 +290,18 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(existsSync(join(f.root, 'ubirun-env'))).toBe(false);
   });
 
+  test('--pass forwards the value the caller exported, never a runner variable of the same name', () => {
+    const f = make();
+    const sinkDir = join(f.root, 'sink');
+    const repo = gitSrc(f);
+    for (const name of ['opt', 'src', 'sink']) {
+      const r = run(f, ['run', '--pass', name, '--src', repo, '--', 'test "$' + name + '" = caller-' + name], { ...fileSink(f, sinkDir), [name]: 'caller-' + name });
+      expect(out(r)).not.toContain('not in this shell');
+      expect(r.exitCode).toBe(0);
+    }
+    expect(f.ssh()).not.toContain(sinkDir);
+  }, 120_000);
+
   test('an option value spelled --sink does not carry the presigned URL into the run record', async () => {
     const f = make();
     writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 3\n');
