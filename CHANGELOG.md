@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.94.20.0] - 2026-11-03
+
+### Changed
+
+- **The review pins and the harness pins are one file per pin, so PRs that repin different files no longer conflict (GST-1084).** The reviewer-brief pins that lived in one table in `test/review-packets-removed.test.ts` now live under `test/fixtures/review-pins/`: `files/<pinned path>.json` holds a file's sha and the replay that admits it, `replays/<slug>.json` holds one replay's written no-loss justification, and `brief-bodies/<name>.json` holds one brief body's sha. The harness pins in `scripts/harness-version.json` moved to `scripts/harness-pins/<path>.json`; the manifest keeps only the version and the patterns, so `HARNESS_VERSION` and its readers are unchanged. Before, two PRs that repinned adjacent entries conflicted on the shared table (at least five main-merge conflicts on 2026-11-02, two of them on #3852). Every entry is ported unchanged, including the combined GST-508 entries from #3852.
+
+### For contributors
+
+- `/ship`'s post-review route still counts a non-behavioral harness re-pin as release metadata (GST-1031): it now reads the pin files under `scripts/harness-pins/` and refuses a manifest that regains a `files` table.
+- The checks are at least as strict as before. Every pin still needs its sha and a replay whose written justification names a no-loss replay or re-score, and the brief-body check still guards the bodies. A malformed or misnamed pin file, a stray file in a pin directory, or a `files` block back in `scripts/harness-version.json` now fails too. New tests prove that a stale pin still fails, and that two branches repinning different, adjacent pins merge cleanly with a real `git merge-tree`, while two repins of one pin still conflict.
+- `bun run scripts/bump-harness-version.ts` writes and deletes pin files itself. Repin a review file by editing its `files/` pin and adding the replay file it names.
+
 ## [1.94.19.0] - 2026-11-03
 
 ### Fixed
