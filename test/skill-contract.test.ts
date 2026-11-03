@@ -161,6 +161,8 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(early([...J1_TRANSCRIPT.slice(0, -1), say(blockedReport)], 'investigate')).toMatchObject({ met: true, statusLine: 'BLOCKED' });
     expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'investigate').missing).toEqual(['repro-after-fix']);
     expect(early([slash('review'), say('I would print STATUS: BLOCKED if the base were missing, but it is here. Done.')], 'review').met).toBe(false);
+    expect(early([slash('review'), say('Nothing to review under docs/; checking lib/ next.'), say('Done.')], 'review').met).toBe(false);
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say('There is nothing to review in the docs folder. Fixed it.')], 'investigate').met).toBe(false);
   });
 
   test('a Read of a SKILL.md counts as a load only under a skills/ directory, not in a gstack checkout', () => {

@@ -91,7 +91,7 @@ export const DEFAULT_MATCHERS = {
   specialistSelection: 'Dispatching N specialists:',
   /** selected_specialists_dispatched: a line that means no specialist was selected. */
   specialistsSkipped: 'specialists skipped',
-  /** Any contract: a line that means the skill ended the whole run early, so its contract counts as met. A final STATUS: BLOCKED does too. */
+  /** Any contract: a line of the turn's final message, starting with this, means the skill ended the run early (met). A final STATUS: BLOCKED does too. */
   earlyExit: 'Nothing to review',
 } as const;
 
@@ -436,9 +436,9 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const final = turn[turn.length - 1];
   const finalText = [...turn].reverse().find(e => e.kind === 'text') as { text: string } | undefined;
   const statusLine = finalText ? STATUS_RE.exec(finalText.text)?.[1] ?? null : null;
-  const exitMarker = markerPattern(DEFAULT_MATCHERS.earlyExit);
-  const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED'
-    : run.some(e => e.kind === 'text' && exitMarker.test(e.text)) ? DEFAULT_MATCHERS.earlyExit : null;
+  const exitMarker = new RegExp(`^[ \\t>*_-]*${markerPattern(DEFAULT_MATCHERS.earlyExit).source}`, 'im');
+  const endedEarly = !!finalText && run.includes(finalText as TranscriptEvent) && exitMarker.test(finalText.text);
+  const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
   const items: ItemResult[] = load ? contract.items.map(item => {
     if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
     const r = checkItem(item, run);

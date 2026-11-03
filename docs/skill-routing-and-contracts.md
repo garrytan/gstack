@@ -77,7 +77,7 @@ Every item has an `id` (lowercase letters, digits, `.`, `_`, `-`) and a `kind`, 
 | `selected_specialists_dispatched` | optional `marker`, `empty_marker` | The selection line was printed in an assistant message or a Bash result (never a fetched page or file), its names are plain (letters, digits, spaces, `_`, `.`, `-`, at most 40 characters), and each specialist it names has an Agent dispatch that mentions it. The marker is literal text in which a whole-word N stands for a number; the default is `Dispatching N specialists:`. N = 0 (`Dispatching 0 specialists: (small diff)`) or a "specialists skipped" line means zero specialists were selected, which passes. Text in parentheses is not a name (`Dispatching 1 specialists: State Machines (small diff)` selects State Machines) |
 | `agent_dispatch` | `match` (regular expression, case-insensitive), optional `marker` | The `marker` line (literal text, like /review's `Dispatching adversarial pass: native`) was printed and an Agent dispatch follows it; otherwise, as the fallback, an Agent dispatch's description or prompt matches `match` |
 
-A run the skill ended early counts as met: a final `STATUS: BLOCKED` (for /investigate, `Status: BLOCKED` in its DEBUG REPORT) or a "Nothing to review" line from /review.
+A run the skill ended early counts as met: a final `STATUS: BLOCKED` (for /investigate, `Status: BLOCKED` in its DEBUG REPORT) or a final message with a line that starts "Nothing to review" (/review's early exit).
 
 The checker's default marker strings live in one table, `DEFAULT_MATCHERS` in `lib/skill-contract.ts`; a skill's own `marker`, `empty_marker` or `match` overrides them.
 
