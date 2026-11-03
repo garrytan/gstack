@@ -3789,7 +3789,9 @@ anchored pattern and a reason ([docs/pregate.md](pregate.md#allowlist));
 ### `PREGATE_STRAYS`
 
 **Meaning.** A file was added at the repository root, in a new top-level
-directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`).
+directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`) or an editor
+leftover name (`*.orig`, `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`,
+`.DS_Store`, `Thumbs.db`).
 
 **Fix.** Delete or move it. An intentional root file goes in `strays.allow`.
 

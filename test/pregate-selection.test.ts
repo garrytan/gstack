@@ -201,6 +201,16 @@ describe('literals (pure)', () => {
       { name: 'MAX', old: '3', new: '4', file: 'f.ts' }, { name: 'timeout', old: '5000', new: '9000', file: 'f.ts' },
     ]);
   });
+
+  test('GST-1211: a key inside a newly added object literal is not a changed literal; an edited call-site value and an exported constant still are', () => {
+    const before = 'export const MAX = 3;\nconst page = { limit: 10 };\n';
+    expect(changedLiterals('f.ts', before, `${before}const query = { selection: { order: 'asc', limit: 300 } };\n`)).toEqual([]);
+    expect(changedLiterals('f.ts', before, 'export const MAX = 3;\nconst page = { limit: 20 };\n')).toEqual([{ name: 'limit', old: '10', new: '20', file: 'f.ts' }]);
+    expect(changedLiterals('f.ts', before, 'export const MAX = 4;\nconst page = { limit: 10 };\nconst query = { limit: 300 };\n')).toEqual([{ name: 'MAX', old: '3', new: '4', file: 'f.ts' }]);
+    expect(changedLiterals('f.ts', 'const retired = { limit: 10 };\nconst page = { limit: 20 };\n', 'const page = { limit: 30 };\n')).toEqual([
+      { name: 'limit', old: '10', new: '30', file: 'f.ts' }, { name: 'limit', old: '20', new: '30', file: 'f.ts' },
+    ]);
+  });
   // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
   //   module, so a test that only names it is not a consumer, while an extensionless import, a JS/TS import extension, the module's own
   //   file name and a path ending at the stem (then a quote, space, bracket, sentence end or `.d.ts`) still are, and neither `<file>.snap` nor a JS twin of a
@@ -519,6 +529,21 @@ describe('gstack-pregate (bin)', () => {
     expect(w.out).toMatch(/^preflight {2}strays {4}warn .*downgraded to warn by origin\/main@/m);
   });
 
+  test('GST-1211: probe.py and temporal-*.test.ts are not scratch names; zz-*, tmp*, scratch* and editor leftovers still are', () => {
+    const repo = fixture({ pregate: { ...BASE_PREGATE, warn: [] } });
+    commit(repo, { 'docs/comparison-systems/ext-temporal-graph/shipped-0.31/probe.py': 'print(1)\n', 'test/eval/temporal-graph-shipped.test.ts': 'export {};\n' });
+    const ok = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toMatch(/^preflight {2}strays {4}pass /m);
+    commit(repo, { 'docs/zz-notes.md': '# n\n', 'lib/tmp-x.ts': 'export {};\n', 'test/scratch.py': 'pass\n', 'lib/util.js.orig': 'x\n' });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toMatch(/^preflight {2}strays {4}fail .*4 stray file\(s\)/m);
+    for (const f of ['docs/zz-notes.md', 'lib/tmp-x.ts', 'test/scratch.py', 'lib/util.js.orig']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
+    expect(r.out).not.toContain('probe.py: scratch name');
+    expect(r.out).not.toContain('temporal-graph-shipped.test.ts: scratch name');
+  });
+
   test('p0-4-heavy-old-constant: a nightly-only test still asserting the old literal fails literals with file:line', () => {
     const repo = fixture();
     commit(repo, { 'lib/retry.js': "exports.MAX_RETRIES = 3;\nexports.TIMEOUT_MS = 9000;\nexports.retry = (fn) => fn();\n" });
@@ -530,6 +555,18 @@ describe('gstack-pregate (bin)', () => {
     // Updating the consumer clears it.
     commit(repo, { 'test/nightly/retry-heavy.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\ntest('heavy', () => assert.strictEqual(require('../../lib/retry.js').TIMEOUT_MS, 9000));\n" });
     expect(pregate(repo, ['--stage', 'preflight', '--only', 'literals']).status).toBe(EXIT.ok);
+  });
+
+  test('GST-1211: a new object literal beside an existing `limit: 10` passes literals; editing that existing value still fails', () => {
+    const repo = fixture({ baseFiles: { 'lib/query.js': 'exports.page = () => ({ limit: 10 });\n', 'test/query.test.js': "const test = require('node:test');\nconst assert = require('node:assert');\nconst { page } = require('../lib/query.js');\ntest('pages by ten', () => assert.strictEqual(page().limit, 10));\n" } });
+    commit(repo, { 'lib/query.js': "exports.page = () => ({ limit: 10 });\nexports.selection = { order: 'asc', limit: 300 };\n" });
+    const ok = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).not.toContain('test/query.test.js');
+    commit(repo, { 'lib/query.js': "exports.page = () => ({ limit: 20 });\nexports.selection = { order: 'asc', limit: 300 };\n" });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'literals']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toContain('literals: test/query.test.js:4: limit still 10 (now 20 in lib/query.js)');
   });
 
   // Value: protects=a real stale one-character constant still fails literals end to end after the #3492 narrowing, and an incidental
