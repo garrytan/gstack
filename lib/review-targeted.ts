@@ -26,6 +26,9 @@ import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_LINE_
 export const TARGETED_CLASSES = ['money', 'gate', 'auth', 'secret'] as const;
 export type TargetedClass = (typeof TARGETED_CLASSES)[number];
 
+/** Whether one added or deleted line reads a credential (SECRET_LINE): lib/review-exclude.ts keeps a matched file that has one. */
+export const secretLine = (line: string) => SECRET_LINE.some(r => r.test(line));
+
 /** A hash of the patterns that decide the classes, not of this file's bytes: a comment edit keeps it, a pattern edit changes it. */
 export const TARGETED_RULES = createHash('sha256').update(JSON.stringify({
   TARGETED_CLASSES, MONEY_PATH_TOKENS, MONEY_LINE_TOKENS, MONEY_PAIRS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME,
@@ -80,6 +83,12 @@ export function targetedPatchId(root: string, mergeBase: string): string {
   const diff = git(['diff', '--no-color', '--no-ext-diff', mergeBase, 'HEAD']);
   if (diff.status !== 0 || !diff.stdout.trim()) return 'none';
   return git(['patch-id', '--verbatim'], diff.stdout).stdout?.trim().split(/\s+/)[0] || 'none';
+}
+
+/** What a targeted render records: the patch the reader reads and the commit it sits on, which receipt write binds to its product patch. */
+export function targetedRead(root: string, mergeBase: string): { patch_id: string; head: string | null } {
+  const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
+  return { patch_id: targetedPatchId(root, mergeBase), head: head || null };
 }
 
 /** A class list as printed and recorded: comma-joined, or `none`. */
