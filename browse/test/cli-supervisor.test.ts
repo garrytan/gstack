@@ -124,7 +124,7 @@ describe('runHeadedSupervisor (behavior)', () => {
     expect(h.calls.startEnv).toHaveLength(1);
     expect(h.calls.startEnv[0]).toEqual({
       BROWSE_HEADED: '1', BROWSE_PORT: '34567', BROWSE_PARENT_PID: '0',
-      BROWSE_PROXY_URL: 'socks5://127.0.0.1:9050', BROWSE_CONFIG_HASH: 'abc123',
+      BROWSE_PROXY_URL: 'socks5://127.0.0.1:9050', BROWSE_PROXY_USER: '', BROWSE_PROXY_PASS: '', BROWSE_CONFIG_HASH: 'abc123',
     });
     expect(h.calls.startEnv[0]).toBe(h.deps.env);
     expect(h.calls.agents).toEqual([5000]);
