@@ -24,7 +24,7 @@ function fixture(copy: boolean) {
   const shims = path.join(temp, 'shims');
   // Real setup, generator, resolver and migration code; only dependency
   // installation and binary compilation are stubbed to keep this test free.
-  for (const dir of ['scripts', 'hosts', 'lib', 'model-overlays', 'browse/src', 'design/src', 'openclaw/templates', 'qa']) {
+  for (const dir of ['scripts', 'hosts', 'lib', 'model-overlays', 'modules', 'browse/src', 'design/src', 'openclaw/templates', 'qa']) {
     fs.cpSync(path.join(ROOT, dir), path.join(root, dir), { recursive: true });
   }
   fs.copyFileSync(path.join(ROOT, 'setup'), path.join(root, 'setup'));

@@ -67,7 +67,7 @@ export async function modulesMain(args: string[]): Promise<CliResult> {
         return { ...e, source_bytes: bytes.length, source_sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
       });
       if (rest.includes('--json')) return { code: 0, stdout: JSON.stringify({ loadouts: Object.keys(manifest.loadouts), modules: rows }, null, 2) + '\n', stderr: '' };
-      const lines = rows.map(r => `${r.id.padEnd(48)} ${r.kind.padEnd(8)} ${r.pinned ? 'pinned' : '      '} ${r.source}`);
+      const lines = rows.map(r => `${r.id.padEnd(48)} ${r.kind.padEnd(8)} ${r.pinned ? 'pinned' : r.status === 'cut' ? 'cut   ' : '      '} ${r.source}`);
       return { code: 0, stdout: [`loadouts: ${Object.keys(manifest.loadouts).join(', ')}`, ...lines].join('\n') + '\n', stderr: '' };
     }
     if (command === 'validate') {

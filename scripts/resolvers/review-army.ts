@@ -63,7 +63,7 @@ Select specialists from the scope signals above.
 1. **Testing** — read \`${ctx.paths.skillRoot}/review/specialists/testing.md\`
 2. **Maintainability** — read \`${ctx.paths.skillRoot}/review/specialists/maintainability.md\`
 
-**If DIFF_LINES < 50:** Skip all specialists except State Machines (item 9 decides it). Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step ${stepMerge} with the ${isShip ? 'core/design-lite' : 'core'} findings and an empty or State Machines-only specialist list, then the parent's Exploratory QA step and ${nextStep}. Small diffs skip fan-out, never the parent-owned smoke probes or core shared-code checks.
+**If DIFF_LINES < 50:** Skip all specialists except State Machines (item 9 decides it). ${isShip ? 'Print: "Small diff ($DIFF_LINES lines) — specialists skipped."' : 'Print the selection line: `Dispatching 0 specialists: (small diff)`, or `Dispatching 1 specialists: State Machines (small diff)` when item 9 keeps it.'} Continue to Step ${stepMerge} with the ${isShip ? 'core/design-lite' : 'core'} findings and an empty or State Machines-only specialist list, then the parent's Exploratory QA step and ${nextStep}. Small diffs skip fan-out, never the parent-owned smoke probes or core shared-code checks.
 
 **Conditional (dispatch when its scope signal is true):**
 3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read \`${ctx.paths.skillRoot}/review/specialists/security.md\`

@@ -127,7 +127,7 @@ reads, not when it saves its result. Include non-ignored untracked source in eac
 reviewer's context or read instructions (\`git ls-files --others --exclude-standard\`).
 Those files are part of the recorded content too.
 
-Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}); findings must arrive before review concludes. ${BACKGROUND_RECOVERY} Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
+${isShip ? '' : 'Print exactly `Dispatching adversarial pass: native` before the Agent call. '}Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}); findings must arrive before review concludes. ${BACKGROUND_RECOVERY} Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
 
 Subagent prompt:
 "${DEFENSIVE_REVIEW_FRAMING}

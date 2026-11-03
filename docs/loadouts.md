@@ -9,6 +9,7 @@ One model has its own loadout: Claude Opus 5.5 gets `lite` ([below](#lite-on-cla
 | Term | Meaning |
 |---|---|
 | Module | One of four kinds. `skill:<dir>` is a whole skill. `section:<skill>/<id>` is one entry of `<skill>/sections/manifest.json`. `overlay:<name>` is one `model-overlays/<name>.md`; excluding a base overlay also removes the base's text from every overlay that inherits it; the inheriting overlay's own text stays. `preamble:<id>` is one piece of the shared preamble (`PREAMBLE_PIECES` in `scripts/resolvers/preamble.ts`). |
+| Cut | A `part:<skill>/<name>` entry from `modules/cuts.json`, the R56 cut ledger: a piece removed from one skill in every loadout, `full` included, and on every host. `gstack-modules list` shows it with status `cut`; no loadout or `--modules` spec may name it. See [Cuts](#cuts). |
 | Pinned | A module no loadout can remove where `full` renders it: the start command, plan-mode rules, the question format, completion status, the Claims Need Evidence rule, the unattended profile, /ship's review army and adversarial pass, the router and `/gstack-upgrade`. A skill's `preamble-tier` still applies, so a tier-1 skill has no question-format section in any loadout. |
 | Rung | How much scaffolding a model gets: `frontier`, `strong`, `mid`, `light`, or `unknown`. Model ids are matched after lowercasing and stripping a `provider/` prefix (`anthropic/claude-haiku-5-5` is `mid`). Rungs are separate from the frontier/smart tiers in `lib/model-catalog.ts`, which choose which model runs a role. |
 | Loadout | `{ base, exclude, include, preamble_tier_max, note }`. `full` (include `*`) is always present. An unknown model gets `default.unknown`, which is `full`. |
@@ -80,6 +81,10 @@ When `GSTACK_MODEL` is set to a different model, it adds `LOADOUT_MISMATCH`. A p
 ### Claude Code
 
 `./setup --loadout lite` saves `claude_loadout` and renders the Claude skills into the untracked render dir (`<state root>/render/claude`) through setup's own render, the same path a pinned overlay or `plan_mode_preamble=off` takes, so later upgrades and `gstack-config gbrain-refresh` keep it. `./setup --loadout full` returns to the committed files. A plain `./setup` never selects lite.
+
+## Cuts
+
+A loadout removes modules for some models. A cut removes a piece from one skill for every model. `modules/cuts.json` lists each cut with the skill, the file it came from, the text that marks it in a generated SKILL.md, why it was cut and its evidence. It also pins each targeted skill's always-loaded bytes, which are its Claude `SKILL.md` with the frontmatter included. A cut with `preamble_piece` drops that preamble piece for its skill alone. Every other cut was deleted from the skill's template. `test/cut-ledger.test.ts` fails when a cut's text reappears in the skill or its sections on any host, when a pin moves, or when a cut names a skill other than /investigate and /review. Its message names the file, the ledger entry and the fix. Restoring a cut or raising a pin needs a measurement and Garry's approval through GStack Minder. Lowering a pin needs no approval. GST-1088 cut /investigate's and /review's learnings search and capture, /investigate's investigation log, and /review's repo-ownership preamble and queue-status step. The cut PR stays open until the GST-1089 no-loss replay passes.
 
 ## Changing a loadout
 

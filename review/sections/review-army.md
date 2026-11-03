@@ -44,7 +44,7 @@ Select specialists from the scope signals above.
 1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
 2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
 
-**If DIFF_LINES < 50:** Skip all specialists except State Machines (item 9 decides it). Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 4.6 with the core findings and an empty or State Machines-only specialist list, then the parent's Exploratory QA step and Step 4.8 (adversarial review), then Step 5. Small diffs skip fan-out, never the parent-owned smoke probes or core shared-code checks.
+**If DIFF_LINES < 50:** Skip all specialists except State Machines (item 9 decides it). Print the selection line: `Dispatching 0 specialists: (small diff)`, or `Dispatching 1 specialists: State Machines (small diff)` when item 9 keeps it. Continue to Step 4.6 with the core findings and an empty or State Machines-only specialist list, then the parent's Exploratory QA step and Step 4.8 (adversarial review), then Step 5. Small diffs skip fan-out, never the parent-owned smoke probes or core shared-code checks.
 
 **Conditional (dispatch when its scope signal is true):**
 3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`

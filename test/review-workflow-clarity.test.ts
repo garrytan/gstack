@@ -109,7 +109,7 @@ test('review emits scope check after the plan audit and before the checklist', (
 test('review composes confidence-tagged findings into one final report with explicit incomplete coverage', () => {
   const flat = skill.replace(/\s+/g, ' ');
   expect(flat).toContain('CRITICAL/INFORMATIONAL');
-  const report = flat.slice(flat.indexOf('### Report the final review'), flat.indexOf('{{LEARNINGS_LOG}}'));
+  const report = flat.slice(flat.indexOf('### Report the final review'), flat.indexOf('## Important Rules'));
   expect(report).toMatch(/one final report/i);
   expect(report).toMatch(/unresolved non-advisory defects/i);
   expect(report).toMatch(/[Ss]tate INCOMPLETE if `COMPLETED` is false/);
@@ -167,7 +167,7 @@ test('caller QA runs charter and setup after resource loading and has a severity
 test('review prepares context and deduplicates before classifying findings', () => {
   const positions = [
     '## Step 3.5: Diff scans', '## Step 3.6: Gather review context',
-    '{{LEARNINGS_SEARCH}}', '{{ASIDE_RESEARCH}}', '## Step 4: Critical pass',
+    '{{ASIDE_RESEARCH}}', '## Step 4: Critical pass',
     '## Step 5: Fix-First Review', '{{CROSS_REVIEW_DEDUP}}',
     '**Keep decisions through fix cycles:**', '### Step 5a: Classify each finding',
   ].map(marker => skill.indexOf(marker));
@@ -237,7 +237,7 @@ test('review section index follows the actual pre-fix execution order', () => {
 });
 
 test('review finalization ownership: initialize invocation state and capture the core token before reading', () => {
-  const start = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.4:'));
+  const start = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.5:'));
   expect(start).toContain('CYCLES=0');
   expect(skill.match(/CYCLES=0/g)).toHaveLength(1);
   expect(start).toContain('gstack-review-log --start review\ngit diff "$DIFF_BASE"');
@@ -350,7 +350,7 @@ test('review scope notes remain provisional until the plan section emits the onl
 // order, neither pins where the check is emitted; seam=none; no_claim=the judged clarity of the sentences.
 test('the final Scope Check is emitted once, in Step 3 after the full diff read, and every owner names that point', () => {
   const ctx: TemplateContext = { skillName: 'review', tmplPath: 'review/SKILL.md.tmpl', host: 'claude', paths: HOST_PATHS.claude };
-  const step3 = between(skill, '## Step 3: Get the diff', '## Step 3.4:');
+  const step3 = between(skill, '## Step 3: Get the diff', '## Step 3.5:');
   expectOrdered(step3, ['git diff "$DIFF_BASE"', "5. First pass only: emit Step 1.5's final Scope Check; `Diff read` records this read."], 'step3');
   expect(skill.split("emit Step 1.5's final Scope Check")).toHaveLength(2);
   const audit = generatePlanCompletionAuditReview(ctx);
@@ -398,7 +398,7 @@ test('review confidence uses its severity labels without an undefined P0 excepti
 });
 
 test('review names the lifecycle and record owners before using their persistence rules', () => {
-  const start = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.4:')).replace(/\s+/g, ' ');
+  const start = skill.slice(skill.indexOf('## Step 3: Get the diff'), skill.indexOf('## Step 3.5:')).replace(/\s+/g, ' ');
   expect(start).toContain('REVIEW_START / PASS_START |');
   expect(start).toContain('`review_binding` |');
   expect(start).toContain('`snapshot_covered_paths` |');
@@ -673,7 +673,7 @@ test('review persists gate identity fields, counts open findings and reports one
     ['`open`', 'count', '`issues_found`'],
     ['logger', 'stamps', '`actor`'],
   ], 'review record');
-  const report = compact(between(skill, '### Report the final review', '{{LEARNINGS_LOG}}'));
+  const report = compact(between(skill, '### Report the final review', '## Important Rules'));
   expectOrdered(report, ['`Gate edits: none detected (', '`Gate edits: N listed, M read, K findings —', '`Gate edits: partial (', '`Gate edits: UNAVAILABLE —'], 'final report');
   expectMentions(report, [['unavailable', 'never', 'none detected']], 'final report');
 });

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "note": "R56 cut ledger (GST-1088 lane C). Carried here because garrytan/gstack#3837 (docs/inventory/evidence.json) was still open at build start; when it merges, its inventory points at these ids with status cut. A cut applies in every loadout, full included, and on every host, but only to its own skill: modules/loadouts.json excludes nothing for it. loadouts.json's rule that every rung loads full until a measurement shows a smaller loadout matches still holds: this candidate PR is that measurement, and it merges only after GST-1089 passes. Ratchet: test/cut-ledger.test.ts.",
+  "approver": "Garry, through GStack Minder (R56); lowering a pin needs no approval",
+  "cuts": [
+    {
+      "id": "part:investigate/learnings-search",
+      "skill": "investigate",
+      "status": "cut",
+      "source": "investigate/SKILL.md.tmpl",
+      "match": "## Prior Learnings",
+      "why": "A learnings search, a cross-project AskUserQuestion branch and about 2 KB before the work starts; nothing measured shows it changes the root cause found.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:investigate/capture-learnings",
+      "skill": "investigate",
+      "status": "cut",
+      "source": "investigate/SKILL.md.tmpl",
+      "match": "## Capture Learnings",
+      "why": "End-of-run learnings logging the user did not ask for; the shared preamble's Operational Self-Improvement rule still logs a real discovery.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:investigate/investigation-log",
+      "skill": "investigate",
+      "status": "cut",
+      "source": "investigate/SKILL.md.tmpl",
+      "match": "gstack-learnings-log",
+      "why": "The Report step's second, investigation-typed learnings log; it duplicated Capture Learnings.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:review/repo-ownership",
+      "skill": "review",
+      "status": "cut",
+      "source": "scripts/resolvers/preamble/generate-repo-mode-section.ts",
+      "match": "## Repo Ownership",
+      "preamble_piece": "repo-mode",
+      "why": "Tells the model to chase issues outside the branch; /review's scope is the diff (REVIEW_SCOPE in-diff).",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:review/queue-status",
+      "skill": "review",
+      "status": "cut",
+      "source": "review/SKILL.md.tmpl",
+      "match": "gstack-next-version",
+      "why": "Step 3.4's advisory VERSION queue line is /ship's job (its own queue step stays); it never changed a review finding.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:review/learnings-search",
+      "skill": "review",
+      "status": "cut",
+      "source": "review/SKILL.md.tmpl",
+      "match": "## Prior Learnings",
+      "why": "A learnings search, a cross-project AskUserQuestion branch and about 2 KB before the critical pass; nothing measured shows it changes what /review finds.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    },
+    {
+      "id": "part:review/capture-learnings",
+      "skill": "review",
+      "status": "cut",
+      "source": "review/SKILL.md.tmpl",
+      "match": "## Capture Learnings",
+      "why": "End-of-run learnings logging; the shared preamble's Operational Self-Improvement rule still logs a real discovery.",
+      "evidence": "GST-1088 plan-v3 d20 + r2-d9 (Garry, 2026-11-03: \"do it\"); kept out only if the GST-1089 no-loss replay (GEVA-214) passes"
+    }
+  ],
+  "pins": {
+    "investigate": 16839,
+    "review": 55146
+  }
+}
