@@ -343,3 +343,39 @@ describe('GSTA-167 part 4a: the post-review route stays path-only', () => {
     expect(r.stdout).toContain('STOP: behavior, tests or build inputs changed since review (wiki/post/data.json)');
   });
 });
+
+describe('push: the pre-push housekeeping guards (GST-1138)', () => {
+  // Value: protects=push runs gstack-pregate --stage guards before every push and stops on a failing guard with its fix, pushing nothing;
+  //   a pass recorded at HEAD's exact tree is reused instead of rerun; fails_when=a housekeeping red reaches CI, a failed guard still pushes,
+  //   or a guard reruns on a tree it already passed; why_new=gbrain 64 of 93 red heads were housekeeping (FOUN-64), #3908's context-budget red;
+  //   seam=gstack-pregate --stage guards; no_claim=CI's own verdict
+  const policy = (command: string) => JSON.stringify({ guards: [{ id: 'housekeeping', when: ['src/**'], command, fix: 'regenerate the golden' }] }) + '\n';
+  const ready = (f: ShipFx) => { fs.mkdirSync(f.state, { recursive: true }); fs.writeFileSync(path.join(f.state, '.redact-prepush-prompted'), ''); };
+  const pushedHead = (f: ShipFx) => f.git('ls-remote', '--heads', 'origin', 'refs/heads/feat').stdout.trim();
+
+  test('a failing guard stops the push with its fix and nothing is pushed', () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo golden is stale; exit 4') });
+    ready(f);
+    const r = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'GUARDS')).toMatch(/^GUARDS: fail .*housekeeping/);
+    expect(r.stdout).toContain('STOP: the pre-push guards did not pass');
+    expect(r.stdout).toContain('regenerate the golden');
+    expect(pushedHead(f)).toBe('');
+  });
+
+  test('a passing guard pushes; the next push at the same tree reuses the pass instead of rerunning it', () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo ran >> ../guard-runs') });
+    ready(f);
+    const first = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(first.status, first.stdout + first.stderr).toBe(0);
+    expect(lineOf(first.stdout, 'GUARDS')).toMatch(/^GUARDS: pass .*1 guard\(s\) passed: housekeeping/);
+    expect(lineOf(first.stdout, 'PUSH')).toMatch(/^PUSH: pushed /);
+    const again = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(lineOf(again.stdout, 'GUARDS')).toMatch(/^GUARDS: pass \(reused from pregate-guards\.json at tree [0-9a-f]{12}: /);
+    expect(fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8')).toBe('ran\n');
+    f.write({ 'src/c.ts': 'export const c = 3;\n' }); f.commit('more');
+    expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'GUARDS')).not.toContain('reused');
+    expect(fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8')).toBe('ran\nran\n');
+  });
+});
