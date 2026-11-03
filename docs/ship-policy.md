@@ -113,10 +113,16 @@ refuses the file by name (`POLICY_GSTACK_TOO_OLD`).
 `.gstack/ship-policy.example.json` shows every key set the way a serial-merge
 repo with a release script, docs mentions and a mirror would set them.
 
-### Queue-side procedure for gstack
+<a id="queue-side-procedure-for-gstack"></a>
+### Queue-side procedure under `stamp-at-merge` without fragments
 
-Who does what under `stamp-at-merge`, for the PR author and for the thread
-running the merge queue:
+gstack itself no longer follows these steps. Since #3654 (v1.91.342.0) its
+policy sets [`changelog_fragments`](#changelog-fragments), so a gstack PR adds
+a fragment and never a version, and trains merge through
+[`train land`](#train-land). The steps
+below are for a repo on `stamp-at-merge` whose policy has no
+`changelog_fragments`. Who does what there, for the PR author and for the
+thread running the merge queue:
 
 1. **Open.** The branch carries a tentative stamp of the base's version plus
    PATCH (`gstack-version-bump write --version <base+patch> --regen-digest`)
@@ -1234,13 +1240,17 @@ both values; prose that quotes no counter is not a claim. The `## Approvals`
 block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
-is not a `pass` claim. Text you write under the heading after that block, and
-a `## Approvals` example inside a code fence, are still checked. The
-`Review-loop exception: …` line the receipt's own exception requires is
-skipped the same way (GST-977): it quotes the owner's reason, so "outside 1 and
-2 skip detector" is not a `2 skip` claim. Only a line that matches the rendered
-line exactly is skipped, inside a code fence too, as the receipt check accepts
-a fenced copy; the same words inside a longer line are still checked. Data PRs (evals,
+is not a `pass` claim. Text you write under the heading after that block is
+still checked. The `Review-loop exception: …` line (GST-977) and the
+`Documentation exception: …` line (GST-983) the receipt's own exceptions
+require are skipped the same way: they quote the owner's reason, so "outside 1
+and 2 skip detector" is not a `2 skip` claim. Only a line that matches the
+rendered line exactly is skipped; the same words inside a longer line are still
+checked. A closed code fence is skipped too (GST-984): pasted test output
+("113 pass, 0 fail") and quoted code are evidence, not this PR's counters, so
+put a count you mean as a claim outside the fence. A line like ```` ```npm test``` ran ````
+opens no fence, and a fence that never closes stays prose, along with the rest
+of the body. Data PRs (evals,
 measurements, sweeps) run it before READY so the body's numbers are the run's.
 
 <a id="review-exclude-paths"></a>
