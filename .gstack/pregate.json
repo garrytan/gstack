@@ -4,6 +4,7 @@
   "remote_gate": "bash scripts/ubicloud/pregate-remote.sh",
   "dependencies": {
     ".github/workflows/**": ["test/pregate-selection.test.ts", "test/free-tests-workflow-wiring.test.ts"],
+    "patches/**": ["browse/test/playwright-core-patch.test.ts"],
     "scripts/gen-ship-goldens.ts": ["test/host-config.test.ts"],
     "bun.lock": [],
     ".gitignore": [],
