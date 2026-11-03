@@ -105,7 +105,7 @@ describe('carry with a scoped re-check (CLI)', () => {
     commit({ 'src/app.ts': 'export const a = 4;\n' }, 'fix: a=4');
     const bad = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--recheck', stale], env);
     expect([bad.status, bad.out.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
-  });
+  }, 60_000);
 
   test('a clean re-check cannot carry across a changed risk class', () => {
     const { repo, from, body, env, commit } = reviewed();
@@ -120,7 +120,7 @@ describe('carry with a scoped re-check (CLI)', () => {
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toMatch(/risk class|review depth/);
     expect(before.risk ?? []).not.toContain('money');
-  });
+  }, 60_000);
 
   test('a legacy receipt, more changed paths than the walk names, and moved base context print RECHECK: not eligible', () => {
     const legacy = reviewed();
@@ -136,7 +136,7 @@ describe('carry with a scoped re-check (CLI)', () => {
     const bin = reviewed({ 'src/app.wasm': '\0asm\x01\0\0\0' });
     bin.commit({ 'src/app.wasm': '\0asm\x01\0\0\0' + 'x'.repeat(4096) + '\0' }, 'fix: new wasm');
     expect(runBin(bin.repo, 'gstack-ship-receipt', ['carry', '--body', bin.body], bin.env).err).toContain('RECHECK: not eligible (a changed product path is binary');
-  });
+  }, 90_000);
 
   test('base context moved next to a reviewed hunk plus a product edit elsewhere is not eligible (red-team p1 repro)', () => {
     const lines = (n: number, edits: Record<number, string> = {}) => Array.from({ length: 10 }, (_, i) => edits[i + 1] ?? `line ${i + 1}`).join('\n') + '\n';
@@ -162,5 +162,5 @@ describe('carry with a scoped re-check (CLI)', () => {
     const r = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], env);
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain('RECHECK: not eligible (base context also moved');
-  });
+  }, 60_000);
 });

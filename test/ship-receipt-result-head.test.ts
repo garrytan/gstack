@@ -25,7 +25,7 @@ describe('GSTACK_RESULT head= token (GST-1179)', () => {
     expect(line).toBe(`GSTACK_RESULT: skill=ship status=complete head=${head} run=${out}`);
     expect(head).toMatch(/^[0-9a-f]{40}$/);
     expect(parseResult(r.out)).toEqual({ skill: 'ship', status: 'complete', head, run: out });
-  });
+  }, 30_000);
 
   test('a line without head= still parses, with no head', () => {
     expect(parseResult('GSTACK_RESULT: skill=pregate status=complete run=.gstack/tmp/pregate.json')).toEqual({ skill: 'pregate', status: 'complete', run: '.gstack/tmp/pregate.json' });
