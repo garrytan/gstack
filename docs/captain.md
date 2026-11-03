@@ -136,8 +136,7 @@ alone is not an ask.
 A lane that builds something plans first. Its first act after the session-start install
 check, before any product code, is a `/autoplan` run on its brief, sized to the work. The
 phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
-scope has them, and a fix the exemptions below don't cover gets a short run (`--no-ui --no-dx --max-rounds 1`, with
-`--estimate-usd` set so a small `--spend-cap` still seats its attempts), not no run. On Capy the
+scope has them. A bug fix gets no plan review and a feature gets the lean run (both below). On Capy the
 unattended loop is `autoplan/DRIVER.md` in the gstack checkout. New functionality a lane
 takes on part-way, scope its brief did not name, gets its own plan and its own ask before
 the lane builds it. In the rules file this is rule 24 of the

@@ -86,7 +86,7 @@ describe('/captain skill', () => {
       const text = read(rel).replace(/\s+/g, ' ');
       expect(text, rel).toMatch(/S1 emergenc(?:y|ies) \(a? ?broken install or upgrade, a? ?red main, a security bug\)/);
       expect(text, rel).toMatch(/already[- ]diagnosed,? (?:and )?audited problem list|problem list that was already diagnosed and audited/);
-      expect(text, rel).toContain('gstack-autoplan next --kind fix');
+      expect(text, rel).toContain('--kind fix');
       expect(text, rel).toContain('--kind feature');
       expect(text, rel).not.toContain('one-round, eng-only plan');
     }
