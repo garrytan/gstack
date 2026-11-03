@@ -8,8 +8,10 @@
 # shares them.
 #
 # Usage:
-#   gstack-lease touch [--root <checkout>] [--pid <p> | --from <pid>]
-#       write <git dir>/gstack-leases/<pid> holding the pid's start identity;
+#   gstack-lease touch [--root <checkout>] [--pid <p> | --from <pid>] [--run <id>]
+#       write <git dir>/gstack-leases/<pid> holding the pid's start identity
+#       and the open run <id> (gstack-skill-start's SESSION_ID); a lease with
+#       no open run (written without --run, or by an older gstack) never idles;
 #       pid defaults to the harness pid behind this call
 #       (bin/gstack-harness-pid.sh, the same derivation the session marker
 #       uses), or behind --from (a caller whose own parent is short-lived
@@ -24,8 +26,11 @@
 #       --count-shared-harness (bin/gstack-upgrade only) still prints an
 #       ancestor that is a shared harness (capy-server: every session on the
 #       machine runs under it) while its lease is under 120 minutes old
+#   gstack-lease release --pid <p> --run <id> [--root <checkout>]
+#       close run <id> on <pid>'s lease (gstack-skill-end); once every run it
+#       recorded is closed the lease is idle and live skips it (GST-1205)
 #   gstack-lease list [--root <checkout>]
-#       print `<pid> <age>m alive|dead|stale` for every lease
+#       print `<pid> <age>m alive|idle|dead|stale` for every lease
 # A pid alone is not a holder: pids are reused after a reboot or a machine
 # wake. A lease records its process's start identity (Linux: boot id and
 # /proc start time; elsewhere `ps -o lstart`), and a lease whose pid now
@@ -47,12 +52,13 @@ BIN="$(cd "$(dirname "$0")" && pwd -P)"
 }
 
 VERB="${1:-}"; [ $# -gt 0 ] && shift
-ROOT="" PID="" EXCLUDE="" FROM="" SHARED=0
+ROOT="" PID="" EXCLUDE="" FROM="" SHARED=0 RUN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="${2:-}"; shift ;;
     --pid) PID="${2:-}"; shift ;;
     --from) FROM="${2:-}"; shift ;;
+    --run) RUN="${2:-}"; shift ;;
     --exclude-ancestry-of) EXCLUDE="${2:-}"; shift ;;
     --count-shared-harness) SHARED=1 ;;
     *) echo "gstack-lease: unknown argument '$1'" >&2; exit 2 ;;
@@ -60,8 +66,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$VERB" in
-  touch|live|list) ;;
-  -h|--help|'') sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  touch|live|list|release) ;;
+  -h|--help|'') sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-lease: unknown verb '$VERB'" >&2; exit 2 ;;
 esac
 [ -n "$ROOT" ] || ROOT=$(gstack_source_root "$BIN")
@@ -264,7 +270,13 @@ case "$VERB" in
       exit 3
     }
     _tmp="$DIR/.$PID.$$"
-    identity "$PID" > "$_tmp" && mv -f "$_tmp" "$DIR/$PID" || { rm -f "$_tmp"; unlock; exit 2; }
+    _id=$(identity "$PID") _runs=""
+    [ "$(head -1 "$DIR/$PID" 2>/dev/null)" = "$_id" ] && _runs=$(sed -n '2,$p' "$DIR/$PID" 2>/dev/null | grep '^run ' | grep -vxF "run ${RUN:--}")
+    {
+      printf '%s\n' "$_id"
+      [ -n "$_runs" ] && printf '%s\n' "$_runs"
+      [ -z "$RUN" ] || printf 'run %s\n' "$RUN"
+    } > "$_tmp" && mv -f "$_tmp" "$DIR/$PID" || { rm -f "$_tmp"; unlock; exit 2; }
     find "$DIR" -maxdepth 1 -mmin +120 -type f ! -name '.lock*' -exec rm -f {} + 2>/dev/null
     for _c in "$DIR"/.lock*.claim.*; do
       [ -f "$_c" ] || continue
@@ -274,12 +286,29 @@ case "$VERB" in
     rm -rf "$DIR"/.lock*.gone.* 2>/dev/null
     unlock
     exit 0 ;;
+  release)
+    case "$PID" in ''|*[!0-9]*) echo "gstack-lease: release needs --pid <number> and --run <id>" >&2; exit 2 ;; esac
+    [ -n "$RUN" ] && [ "$RUN" != - ] || { echo "gstack-lease: release needs --pid <number> and --run <id>" >&2; exit 2; }
+    [ -f "$DIR/$PID" ] || exit 0
+    lock || exit 3
+    f="$DIR/$PID" _tmp="$DIR/.$PID.$$"
+    if grep -qxF "run $RUN" "$f" 2>/dev/null; then
+      {
+        head -1 "$f"
+        sed -n '2,$p' "$f" | grep -vxF "run $RUN"
+        sed -n '2,$p' "$f" | grep -vxF "run $RUN" | grep -q '^run ' || echo idle
+      } > "$_tmp" && touch -r "$f" "$_tmp" && mv -f "$_tmp" "$f" || { rm -f "$_tmp"; unlock; exit 2; }
+    fi
+    unlock
+    exit 0 ;;
   list)
     for f in "$DIR"/*; do
       [ -f "$f" ] || continue
       p=${f##*/}
       _age=$(age_min "$f")
-      echo "$p ${_age}m $(state "$p" "$(head -1 "$f" 2>/dev/null)" "$_age")"
+      _st=$(state "$p" "$(head -1 "$f" 2>/dev/null)" "$_age")
+      [ "$_st" = alive ] && grep -qx idle "$f" 2>/dev/null && _st=idle
+      echo "$p ${_age}m $_st"
     done
     exit 0 ;;
 esac
@@ -296,6 +325,7 @@ done
 FOUND=1
 for f in "$DIR"/*; do
   [ -f "$f" ] || continue
+  grep -qx idle "$f" 2>/dev/null && continue
   p=${f##*/}
   _age=$(age_min "$f")
   case "$ANCESTRY" in *" $p "*) [ "$SHARED" -eq 1 ] && [ "$_age" -lt 120 ] && gstack_shared_harness "$p" || continue ;; esac
