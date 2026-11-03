@@ -6550,7 +6550,7 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 <a id="ubi-recovery-required"></a>
 ### `UBI_RECOVERY_REQUIRED`
 
-**Meaning.** A counted run (`--counted` or `UBI_COUNTED=1`) or `recover` needs a recovery directory, and neither `UBI_RECOVERY_DIR` nor `GSTACK_CAPY_RECOVERY_DIR` (nor `recover --dir`) names one. Nothing was created. **Fix.** Set `UBI_RECOVERY_DIR` to a directory another controller can read (on Capy, a drive folder), then rerun.
+**Meaning.** A counted run (`--counted` or `UBI_COUNTED=1`) or `recover` needs a recovery directory, and neither `UBI_RECOVERY_DIR` nor `GSTACK_CAPY_RECOVERY_DIR` (nor `recover --dir`) names one. Nothing was created. A counted rerun also refuses with this code when it would reattach to a live VM that has no bundle under the recovery directory. **Fix.** Set `UBI_RECOVERY_DIR` to a directory another controller can read (on Capy, a drive folder), then rerun. For a VM with no bundle, destroy it with the printed `down` command, then rerun.
 
 <a id="ubi-recovery-unavailable"></a>
 ### `UBI_RECOVERY_UNAVAILABLE`
@@ -6585,7 +6585,7 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 <a id="sink-flush-failed"></a>
 ### `SINK_FLUSH_FAILED: vm=<name> seq=<n> last_push=<epoch|never> [sink_skipped=size|tar_failed]`
 
-**Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun.
+**Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun. For a tiered `verify`, rerun with `--no-resume`: a plain rerun reuses the tiers that already passed under the same key, creates no VM and pushes nothing, so the sink would still hold the incomplete snapshot.
 
 ## Per-repo cleanup (gstack-clean)
 
