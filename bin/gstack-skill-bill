@@ -11,7 +11,8 @@ Names the skill's kind: gstack-checkout (edit SKILL.md.tmpl, then bun run gen:sk
 gstack-install (never edit; gstack-upgrade overwrites it) or user. BASELINE is the newest commit
 with a "Skill-Diet: <name>" trailer; DUE means the authored file grew over 10% since then.
 In a gstack checkout, EVAL TASKS names test/fixtures/skill-evals/<name>/tasks.json (or none) and
-EVAL_TASKS_INVALID flags a file that breaks docs/designs/SKILL_EVAL_CONTRACT.md's task format.
+EVAL_TASKS_INVALID flags a file that breaks docs/designs/SKILL_EVAL_CONTRACT.md's task format, and
+EVIDENCE prints the skill's row in docs/inventory/evidence.json: its status and source, plan or reason.
 A name must match exactly; pass a path when it names more than one skill.
 Exit 0 on a report, 2 on SKILL_NOT_FOUND, SKILL_AMBIGUOUS or SKILL_MD_MISSING (each with a fix line).`;
 

@@ -34,3 +34,5 @@ export function placeholderErrors(value: unknown, out: PolicyError[]): void {
     else if (parseVersion(p)) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(p)} is a version, not a placeholder` });
   });
 }
+
+export const CARRY_MECHANICAL_KEY_VERSION = '1.95.0.0';

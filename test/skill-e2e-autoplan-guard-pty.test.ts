@@ -3,7 +3,8 @@
  *
  * On the pinned Claude Code, in an interactive PTY session with default
  * settings, a project skill carrying /autoplan's own hook block enters Phase 1,
- * dispatches the CEO reviewer, reads a prepared close packet, publishes the Phase 1 report in a message
+ * dispatches the CEO reviewer (each dispatch is a declared token the driver's relay replaces with the exact
+ * dispatch, so the actor never retypes it), reads a prepared close packet, publishes the Phase 1 report in a message
  * whose only tool call is `true autoplan-published ceo`, enters Phase 2 in a
  * later message and dispatches the Phase 2 reviewer. The reviewer dispatch sends run_in_background, which the
  * 2.1.29x default fork-subagent schema strips. Claude Code 2.1.29x can write a tool call to the journal only
@@ -18,9 +19,10 @@
  * must still raise no permission card.
  */
 import { expect } from 'bun:test';
+import * as path from 'node:path';
 import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 import { launchClaudePty, selectPtyNumberedOption } from './helpers/claude-pty-runner';
-import { closePacketReadAfterNotice, prepareGuardSession, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
+import { closePacketReadAfterNotice, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
@@ -28,7 +30,9 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
   testIfSelected('autoplan-guard-pty', async () => {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('autoplan-guard-pty requires ANTHROPIC_API_KEY; refusing to skip');
     const s = prepareGuardSession(process.env.ANTHROPIC_API_KEY);
-    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: s.env, timeoutMs: 540_000, observeScreen: true });
+    const relay = startDispatchRelay(path.join(s.project, '.gstack', 'tmp', 'autoplan'));
+    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url },
+      timeoutMs: 540_000, observeScreen: true }).catch(error => { relay.stop(); throw error; });
     const started = performance.now();
     const prompts: string[] = [];
     let phase1Ms: number | null = null;
@@ -54,10 +58,10 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       }
       await Bun.sleep(3_000);
       const log = s.readLog(), evidence = s.noticeEvidence();
-      const summary = { prompts: prompts.length, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
+      const summary = { prompts: prompts.length, substituted: relay.substituted, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
         decisions: log.map(e => ({ decision: e.decision, code: e.code, path: e.path, version: e.claude_code_version })) };
       console.log(`[autoplan-guard-pty] ${JSON.stringify(summary)}`);
-      if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 8');
+      if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 7');
       if (log.length !== 4 || log.some(e => e.decision === 'deny') || prompts.length)
         console.log(`[autoplan-guard-pty] journal:\n${s.journalSummary().join('\n')}\n[autoplan-guard-pty] screen:\n${session.visibleText().slice(-2_000)}\n[autoplan-guard-pty] last non-blank screen:\n${session.lastScreen?.() ?? ''}`);
       if (log.some(e => e.code === 'dispatch_prompt')) console.log(`[autoplan-guard-pty] dispatch prompt deltas:\n${s.dispatchPromptDeltas().join('\n')}`);
@@ -74,6 +78,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       expect(prompts).toEqual([]);
     } finally {
       await session.close();
+      relay.stop();
       s.cleanup();
     }
   }, 600_000);
