@@ -53,7 +53,7 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
     const off = repo({}, { 'docs/howto.md': 'x\n' });
     const dOff = receiptReviewAtHead(off.dir, 'main', BIN, off.head).depth;
     expect(withGh(off.head, () => platformReceiptDepth(off.dir, 'main', dOff, off.head, '99'))).toMatchObject({ ok: false, message: expect.stringContaining('review.platform on') });
-    for (const files of [{ 'src/b.ts': 'export const b = 2;\n' }, { 'docs/results/summary.md': 'Ran it.\n' }]) {
+    for (const files of [{ 'src/b.ts': 'export const b = 2;\n' }, { 'docs/results/summary.md': 'Ran it.\n' }] as Record<string, string>[]) {
       const { dir, head } = repo({ review: { platform: 'on' } }, files);
       const d = receiptReviewAtHead(dir, 'main', BIN, head).depth;
       expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99')).ok).toBe(false);
