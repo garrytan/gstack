@@ -390,6 +390,26 @@ describe('push: the pre-push housekeeping guards (GST-1138)', () => {
     expect(pushedHead(f)).toBe('');
   });
 
+  test('a base that exists on origin but is not fetched, a mistyped --base and an unreadable policy stop the push; only a remote with no base branch skips', () => {
+    const f = fx({ '.gstack/pregate.json': policy('exit 4') });
+    ready(f);
+    f.git('update-ref', '-d', 'refs/remotes/origin/main');
+    const unfetched = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(unfetched.status).toBe(3);
+    expect(lineOf(unfetched.stdout, 'GUARDS')).toMatch(/^GUARDS: refused POLICY_SOURCE_UNAVAILABLE/);
+    expect(unfetched.stdout).toContain('STOP: the pre-push guards could not run');
+    f.git('fetch', '-q', 'origin', 'main:refs/remotes/origin/main');
+    const typo = f.run(RELEASE, ['push', '--branch', 'feat', '--base', 'mian']);
+    expect(typo.status).toBe(3);
+    expect(lineOf(typo.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+    expect(pushedHead(f)).toBe('');
+    const broken = fx({ '.gstack/pregate.json': '{not json\n' });
+    ready(broken);
+    const refused = broken.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(refused.status).toBe(3);
+    expect(lineOf(refused.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+  });
+
   test("finish's preflight record is reused only at HEAD's tree with passing regen and guards rows", () => {
     const f = fx({ '.gstack/pregate.json': policy('echo ran >> ../guard-runs') });
     ready(f);

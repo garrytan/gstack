@@ -1104,7 +1104,12 @@ prints `GUARDS: <verdict> (<detail>)`. A failing or unfinished guard stops the
 push with the guard's fix, and nothing is pushed. A pass already recorded at
 HEAD's exact tree is reused instead of rerun: either push's own record or
 `finish`'s preflight record. Both live under `.git`, where no commit can
-place one. Outside /ship, run the command above yourself before `git push`.
+place one. The guards must have checked the tree being pushed, so uncommitted
+or untracked files that change what they saw stop the push until you commit or
+stash them. A refused run (an unreadable policy, a base that is on origin but
+not fetched, a mistyped `--base`) stops the push too; only a remote with no base
+branch at all skips the guards, as `GUARDS: not run`. Outside /ship, run the
+command above yourself before `git push`.
 
 gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
 `skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens` and
