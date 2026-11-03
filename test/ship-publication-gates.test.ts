@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { killGroup } from '../lib/pregate/supervise';
 import { expectMentions } from './helpers/prompt-structure';
 
 const template = readFileSync(new URL('../ship/sections/pr-body.md.tmpl', import.meta.url), 'utf8');
@@ -35,10 +36,22 @@ const editBlock = fenceAfter('**Existing open PR/MR**');
 const createBlock = fenceAfter('**No open PR/MR:**');
 
 /**
+ * One deadline per case, under the runner's 30s per-test timeout. On Windows Free
+ * Tests the first posting case in the file took 2.4-25.2s (40 runs) and four times
+ * hit bun's timeout, which killed only the bash child: its descendants kept the root
+ * as their working directory, so cleanup failed with EBUSY and hid the timeout. A
+ * block still running at the deadline is killed with its whole tree, and the error
+ * names the stage and what the earlier stages took.
+ */
+const CASE_DEADLINE_MS = 27_000;
+
+/**
  * A repo whose origin is GitHub, a stub gh that records argv and stdin, and
  * the real gstack-post and gstack-prose-lint at the installed path the blocks call.
  */
-function publicationRepo(root: string) {
+function publicationRepo(root: string, deadlineMs = CASE_DEADLINE_MS) {
+  const started = performance.now();
+  const deadline = started + deadlineMs;
   const log = join(root, 'log');
   const stubs = join(root, 'stubs');
   const bin = join(root, '.claude/skills/gstack/bin');
@@ -61,10 +74,25 @@ for a in "$@"; do case "$a" in --title=*) printf '%s\\n' "\${a#--title=}" > "${l
 [ "$1 $2" = "pr create" ] && echo "https://github.com/o/r/pull/9"
 exit 0
 `, { mode: 0o755 });
-  const run = (script: string) => Bun.spawnSync(['bash', '-c', script], {
-    cwd: root, env: { ...process.env, ...gitEnv, HOME: root, PATH: `${stubs}:${process.env.PATH}`, DOCS_SECTION_FILE: join(root, 'section.md'), TMPDIR: root },
-    stdout: 'pipe', stderr: 'pipe', timeout: 30_000,
-  });
+  const stages = [`setup ${Math.round(performance.now() - started)}ms`];
+  const run = async (stage: string, script: string) => {
+    const stageStart = performance.now();
+    const child = Bun.spawn(['bash', '-c', script], {
+      cwd: root, env: { ...process.env, ...gitEnv, HOME: root, PATH: `${stubs}:${process.env.PATH}`, DOCS_SECTION_FILE: join(root, 'section.md'), TMPDIR: root },
+      stdout: 'pipe', stderr: 'pipe', detached: process.platform !== 'win32',
+    });
+    const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const finished = Promise.all([child.exited, output]);
+    const expired = await Promise.race([finished.then(() => false), Bun.sleep(Math.max(0, deadline - performance.now())).then(() => true)]);
+    if (expired) {
+      killGroup(child.pid, 'SIGKILL');
+      await child.exited;
+      throw new Error(`${stage} still running at the ${deadlineMs}ms case deadline after ${Math.round(performance.now() - stageStart)}ms; process tree killed; earlier stages: ${stages.join(', ')}`);
+    }
+    stages.push(`${stage} ${Math.round(performance.now() - stageStart)}ms`);
+    const [stdout, stderr] = await output;
+    return { exitCode: child.exitCode, stdout, stderr };
+  };
   const calls = () => readdirSync(log).filter(f => f.endsWith('.args')).sort().map(f => ({
     args: readFileSync(join(log, f), 'utf8').split('\0').slice(0, -1),
     stdin: readFileSync(join(log, f.replace('.args', '.stdin')), 'utf8'),
@@ -73,16 +101,16 @@ exit 0
 }
 
 /** Compose the body with the real compose block and write the Step 18 title file. */
-function composed(root: string, opts: { title?: string; top?: string } = {}) {
+async function composed(root: string, opts: { title?: string; top?: string } = {}) {
   const repo = publicationRepo(root);
   writeFileSync(join(root, 'section.md'), '**Status:** current — no edits.');
-  const compose = repo.run(writeDrafts(root, opts.top)(composeBlock));
+  const compose = await repo.run('compose', writeDrafts(root, opts.top)(composeBlock));
   expect(compose.exitCode, compose.stderr.toString()).toBe(0);
   const bodyFile = /^PR_BODY_FILE: (\S+)$/m.exec(compose.stdout.toString())![1]!;
   writeFileSync(join(root, '.gstack/tmp/pr-title.abc123'), (opts.title ?? 'v1.2.3.4 fix: publication checks') + '\n');
   const fill = (block: string) => `PR_BODY_FILE=${JSON.stringify(bodyFile)}\n` +
     block.replace('<title-file-name>', 'pr-title.abc123').replaceAll('<pr-number>', '9').replace('<base>', 'main');
-  return { ...repo, bodyFile, publish: (block: string) => repo.run(fill(block)) };
+  return { ...repo, bodyFile, publish: (block: string) => repo.run('publish', fill(block)) };
 }
 
 // The posting cases drive a POSIX stub gh that gstack-post spawns; Windows CreateProcess cannot
@@ -90,15 +118,15 @@ function composed(root: string, opts: { title?: string; top?: string } = {}) {
 // test/gstack-post.test.ts.
 const postsThroughStubGh = (failure: string) => process.platform === 'win32' && failure === 'none';
 for (const failure of ['none', 'body', 'title'] as const) {
-  test.skipIf(postsThroughStubGh(failure))(`publication posts only scanned bytes through gstack-post: ${failure}`, () => {
+  test.skipIf(postsThroughStubGh(failure))(`publication posts only scanned bytes through gstack-post: ${failure}`, async () => {
     const root = mkdtempSync(join(tmpdir(), 'ship-post-'));
     try {
       const secret = 'AKIA' + '1234567890ABCDEF';
-      const c = composed(root, {
+      const c = await composed(root, {
         top: failure === 'body' ? `## Summary\nkey ${secret}\n\n## Documentation` : undefined,
         title: failure === 'title' ? `v1.2.3.4 fix: ${secret}` : undefined,
       });
-      const result = c.publish(createBlock);
+      const result = await c.publish(createBlock);
       if (failure === 'none') {
         expect(result.exitCode, result.stderr.toString()).toBe(0);
         expect(result.stdout.toString()).toContain('https://github.com/o/r/pull/9');
@@ -114,18 +142,56 @@ for (const failure of ['none', 'body', 'title'] as const) {
   });
 }
 
-test.skipIf(process.platform === 'win32')('MEDIUM findings publish nothing until the block reruns with the printed token', () => {
+/** True when the pid is gone within a second of the kill. */
+async function exitsSoon(pid: number) {
+  for (let i = 0; i < 50; i++) {
+    try { process.kill(pid, 0); await Bun.sleep(20); } catch { return true; }
+  }
+  return false;
+}
+
+test('a block still running at the case deadline is killed with its whole tree before cleanup', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ship-post-deadline-'));
+  try {
+    const pidFile = join(root, 'holder.pid');
+    const repo = publicationRepo(root, 1_500);
+    await expect(repo.run('publish', `sh -c 'echo $$ > "${pidFile}"; exec sleep 30'\necho unreachable`))
+      .rejects.toThrow(/^publish still running at the 1500ms case deadline after \d+ms; process tree killed; earlier stages: setup \d+ms$/);
+    if (process.platform !== 'win32') expect(await exitsSoon(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+    expect(existsSync(root)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A block that exits while a background child still holds its output is still running: the deadline covers
+// the pipes too, not only bash's exit. POSIX only: on Windows the exited bash leaves no tree for taskkill /T.
+test.skipIf(process.platform === 'win32')('a block whose background child holds its output past the deadline is killed too', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ship-post-pipe-'));
+  try {
+    const pidFile = join(root, 'holder.pid');
+    const repo = publicationRepo(root, 1_500);
+    await expect(repo.run('publish', `sleep 30 &\necho $! > "${pidFile}"`))
+      .rejects.toThrow(/^publish still running at the 1500ms case deadline after \d+ms; process tree killed; earlier stages: setup \d+ms$/);
+    expect(await exitsSoon(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === 'win32')('MEDIUM findings publish nothing until the block reruns with the printed token', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ship-post-medium-'));
   try {
-    const c = composed(root, { top: '## Summary\nThanks jane.roe@acme-corp.io\n\n## Documentation' });
-    const first = c.publish(editBlock);
+    const c = await composed(root, { top: '## Summary\nThanks jane.roe@acme-corp.io\n\n## Documentation' });
+    const first = await c.publish(editBlock);
     expect(first.exitCode).toBe(2);
     expect(first.stdout.toString()).toContain('RULE: pii.email LINE: 2 PART: body');
     expect(c.calls()).toEqual([]);
     const token = /^TOKEN: (\S+)$/m.exec(first.stdout.toString())![1]!;
     const flagged = 'pr-body <pr-number> --body-file "${PR_BODY_FILE:?restore the composed body path}"';
     expect(editBlock).toContain(flagged);
-    const then = c.publish(editBlock.replace(flagged, `${flagged} --confirm ${token}`));
+    const then = await c.publish(editBlock.replace(flagged, `${flagged} --confirm ${token}`));
     expect(then.exitCode, then.stderr.toString()).toBe(0);
     const calls = c.calls();
     expect(calls.map(call => call.args)).toEqual([

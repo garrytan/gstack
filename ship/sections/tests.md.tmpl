@@ -9,8 +9,9 @@
 **Run it:** `~/.claude/skills/gstack/bin/gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...`
 (or the Step 1 call with lanes). It runs the free pre-gate first, before any lane, eval or
 remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, strays, literals;
-stage 2 the selected lanes under pipefail), then every lane in parallel inside the evidence
-ledger, and prints `PREGATE:` and one `LANE: <label> <state> exit= tests_ran= log=` line each.
+stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger (one at
+a time on 4 or fewer cores unless `--lanes serial|parallel`), and prints `PREGATE:`, `LANES:` and
+one `LANE: <label> <state> exit= tests_ran= log=` line each.
 `fail` or `incomplete` blocks: fix, rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
 after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.

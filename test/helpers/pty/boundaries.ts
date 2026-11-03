@@ -68,7 +68,7 @@ export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
   return answered.length > 0 && answered.every(q => {
     if (!q.options.some(option => option.label === call.answers?.[q.question])) return false;
     const actions = q.options.map(option => option.label.trim().replace(/^[A-Z][.)]\s+/i, ''));
-    const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1]?.toLowerCase();
+    const id = /<gstack-qid:\s*([a-z0-9-]+)(?:;signal=[a-z0-9-]+)?\s*>/i.exec(q.question)?.[1]?.toLowerCase();
     const body = q.question.replace(/<gstack-qid:[^>]*>/gi, '').trim()
       .replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
     // A finding about one component or a TODO remains substantive even if
@@ -592,7 +592,7 @@ export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
     if (!call.answers?.[q.question]) return false;
     // These are review section identities, including the registry's
     // arch-finding/test-gap IDs. Scope and onboarding IDs cannot qualify.
-    const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1] ?? '';
+    const id = /<gstack-qid:\s*([a-z0-9-]+)(?:;signal=[a-z0-9-]+)?\s*>/i.exec(q.question)?.[1] ?? '';
     if (/^plan-eng-(?:review-)?(?:arch(?:itecture)?|quality|test|perf(?:ormance)?)-(?:focus|mode|setup|routing|learnings|prerequisite|onboarding|next-steps?)(?:-|$)/i.test(id)) return false;
     const title = `${q.header} ${q.question.split('\n')[0]}`.replace(/<gstack-qid:[^>]*>/gi, '');
     return /^plan-eng-(?:review-)?(?:arch(?:itecture)?|quality|test|perf(?:ormance)?)-/i.test(id) &&

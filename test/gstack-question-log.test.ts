@@ -294,3 +294,32 @@ describe('gstack-question-log — shared injection patterns (#1934 dedup)', () =
     expect(source).not.toContain('const INJECTION_PATTERNS');
   });
 });
+
+describe('gstack-question-log — signal hints (#3442)', () => {
+  const base = { skill: 'plan-ceo-review', question_summary: 'caching?', session_id: 's1' };
+
+  test('a valid hint is kept and a key-word label maps to the option key', () => {
+    const r = run(JSON.stringify({ ...base, question_id: 'plan-ceo-review-add-caching', signal_key: 'Scope-Appetite', user_choice: 'B) Expand it (recommended)', source: 'hook' }));
+    expect(r.status).toBe(0);
+    const row = JSON.parse(readLog().at(-1)!);
+    expect(row.signal_key).toBe('scope-appetite');
+    expect(row.user_choice).toBe('expand');
+    expect(row.choice_label).toBe('B) Expand it (recommended)');
+  });
+
+  test('an unknown hint is dropped with a stable code and the row is still logged', () => {
+    const r = run(JSON.stringify({ ...base, question_id: 'plan-ceo-review-add-caching', signal_key: 'made-up', user_choice: 'expand' }));
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('QLOG_SIGNAL_KEY_DROPPED');
+    const row = JSON.parse(readLog().at(-1)!);
+    expect(row.signal_key).toBeUndefined();
+    expect(row.user_choice).toBe('expand');
+  });
+
+  test('a hint on a registered id is dropped', () => {
+    const r = run(JSON.stringify({ ...base, skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', signal_key: 'scope-appetite', user_choice: 'fix-now' }));
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('a registered id keeps its own signal');
+    expect(JSON.parse(readLog().at(-1)!).signal_key).toBeUndefined();
+  });
+});

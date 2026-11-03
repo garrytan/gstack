@@ -125,6 +125,19 @@ describe('paid/free dependency boundary', () => {
     expect(ethos.selection.e2e!.length).toBeLessThan(10);
   });
 
+  // Value: protects=a root guide that only README, docs and free tests read keeps a screen narrow, and a root doc a paid prompt quotes still selects beside it; fails_when=a guide-only PR restores every gate case as a "real unknown dependency" (GST-1027: screens 41246728073 and 41321112436 ran the full suite for it);
+  //   why_new=the README regex in knownNonBehaviorFile names only five root docs; seam=FREE_ONLY_PR_FILES in scripts/test-pr-profile.ts; no_claim=the train gate's full census
+  test('USING_GBRAIN_WITH_GSTACK.md selects no paid case; ETHOS.md beside it keeps its selection (GST-1027)', () => {
+    const guide = 'USING_GBRAIN_WITH_GSTACK.md';
+    expect(fs.existsSync(path.join(ROOT, guide))).toBe(true);
+    const alone = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [guide] });
+    expect([alone.coverage?.mode, alone.coverage?.unknownFiles, alone.selection]).toEqual(['pr', [], { e2e: [], judges: [] }]);
+    const ethos = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['ETHOS.md'] });
+    expect(ethos.selection.e2e!.length).toBeGreaterThan(0);
+    const both = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [guide, 'ETHOS.md'] });
+    expect([both.coverage?.mode, both.selection]).toEqual(['pr', ethos.selection]);
+  });
+
   test('only audited free-only dependencies avoid unknown-dependency fallback', () => {
     for (const file of [...FREE_ONLY_PR_FILES, 'scripts\\test-free-shards.ts']) {
       const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file] });

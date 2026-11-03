@@ -14,7 +14,8 @@
  *   fix-check           fix_list, hunks, tests, callers (scripts/resolvers/fix-check.ts)
  *   targeted            classes, brief (review/specialists/targeted.md's text), checklist (its path), diff_base, stack, test_fw, learnings
  */
-import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
@@ -82,12 +83,21 @@ const SPECIALIST_DIFF = 'run\n`DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <e
 
 const PLACEHOLDERS = ['<diff-base>', '<exclude>', '<base>', '{checklist path}', '{STACK}', '{TEST_FW}', '{merged findings summary}', '{red-team checklist path}', '{learnings'];
 
-/** Render one reader's brief. Throws BriefError on a missing slot, a section that no longer carries an anchor or placeholder, or a placeholder left unfilled. */
+/**
+ * Render one reader's brief. Throws BriefError on a missing slot, a section that no longer carries an anchor or placeholder, or a placeholder left unfilled.
+ * Findings and learnings are reviewer text that may quote a slot name such as origin/<base> (GST-797): they render as a token, so the
+ * placeholder check and the slot fills never see them, and go in last, trimmed as renderRole trims them. The token carries a
+ * per-render nonce, so no other slot's text (a diff, a hunk) can name it.
+ */
 export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): string {
-  const text = renderRole(role, slots, t);
+  const nonce = randomUUID();
+  const keys = ['findings', 'learnings'].filter(k => slots[k]?.trim());
+  const held: Slots = { ...slots };
+  for (const k of keys) held[k] = `\u0000${nonce}:${k}\u0000`;
+  const text = renderRole(role, held, t);
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
-  return text;
+  return keys.reduce((out, k) => out.split(held[k]!).join(slots[k]!.trim()), text);
 }
 
 function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
@@ -132,6 +142,71 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
     case 'fix-check':
       return renderFixCheckPrompt({ fixList: need(slots, 'fix_list'), touchedHunks: need(slots, 'hunks'), testResults: need(slots, 'tests'), callers: slots.callers ?? '' });
   }
+}
+
+const quoted = (dir: string) => `'${dir.replace(/'/g, `'\\''`)}'`;
+const treeCommand = (dir: string) => `cd ${quoted(dir)} && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
+
+/**
+ * The opening step every dispatched brief carries (GST-897): the fingerprint command and what to copy from it. A reader that
+ * follows a findings-only output format can skip a request that only closes a long brief (gpt-6.1-sol did on GST-850), and
+ * "the line <command> prints" was read as the command itself, so the step comes first and names the output line.
+ */
+export function workspaceStep(dir: string): string {
+  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.`;
+}
+
+/**
+ * The closing paragraph every dispatched brief carries (GST-482): a reader on a shared machine starts in that machine's working
+ * directory, and every command runs in a fresh shell, so the brief names the checkout under review and asks again for the
+ * fingerprint workspaceStep opens with. The section's render sits between the two, byte for byte what renderBrief returns.
+ */
+export function workspaceParagraph(dir: string): string {
+  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+}
+export const withWorkspace = (text: string, dir: string) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir)}`;
+/** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
+export function checkoutRoot(): string {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });
+  return realDir(r.status === 0 ? r.stdout.trim() : process.cwd());
+}
+
+/**
+ * One REVIEWED_TREE line as "<tree> <toplevel>", or null. A list marker, heading mark or `printed:` label (GST-776, also after the echoed `cd … && echo …` command on the same line) may lead it, and a whole-line `**…**` or
+ * backtick wrapper, a bold label and backticks around the sha or the whole path are removed; the path's own characters are kept.
+ */
+function parseTreeLine(line: string): string | null {
+  const label = /^(?:\*\*[Pp]rinted:\*\*|[Pp]rinted:)\s+/;
+  let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '');
+  const echoed = /\s(?:\*\*[Pp]rinted:\*\*|[Pp]rinted:)\s+(?=\S)/.exec(t);
+  if (echoed && t.startsWith('cd ')) t = t.slice(echoed.index + 1);
+  t = t.replace(label, '');
+  for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
+  t = t.replace(label, '');
+  const m = /^(?:\*\*REVIEWED_TREE:\*\*|REVIEWED_TREE:)\s+`?([0-9a-f]{40,64})`?\s+(.+)$/.exec(t);
+  if (!m) return null;
+  const p = m[2]!.length > 2 && m[2]!.startsWith('`') && m[2]!.endsWith('`') ? m[2]!.slice(1, -1) : m[2]!;
+  return `${m[1]} ${realDir(p)}`;
+}
+export const isReviewedTreeLine = (line: string) => parseTreeLine(line) !== null;
+const realDir = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** The checkout a reply says it reviewed: its first REVIEWED_TREE line (a later one may be quoted inside a finding); null with none. */
+const reportedTree = (output: string): string | null => output.replace(/\r\n/g, '\n').split('\n').map(parseTreeLine).find(t => t !== null) ?? null;
+/** The fingerprint a reply must report, read from the checkout itself when its brief is rendered: "<HEAD^{tree}> <toplevel>". */
+export function checkoutTree(dir: string): string | null {
+  const git = (a: string[]) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', timeout: 30_000 });
+  const tree = git(['rev-parse', 'HEAD^{tree}']), top = git(['rev-parse', '--show-toplevel']);
+  return tree.status === 0 && top.status === 0 ? `${tree.stdout.trim()} ${realDir(top.stdout.trim())}` : null;
+}
+/** moved: the reply reviewed the named checkout, but at another tree than the one its brief was rendered on. */
+export type TreeCheck = { ok: boolean; moved: boolean; expected: string; reported: string };
+/** Whether a reply's REVIEWED_TREE line is the fingerprint recorded when its brief was rendered (GST-482). */
+export function checkReviewedTree(output: string, expected: string | null): TreeCheck {
+  const reported = reportedTree(output);
+  const ok = expected !== null && reported === expected;
+  const top = (t: string) => t.slice(t.indexOf(' ') + 1);
+  return { ok, moved: !ok && !!reported && expected !== null && top(reported) === top(expected),
+    expected: expected ?? 'none (the checkout was unreadable at render)', reported: reported ?? 'none' };
 }
 
 /** The file a rendered brief is written to under the run's briefs directory. */

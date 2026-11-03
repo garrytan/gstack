@@ -4,7 +4,7 @@
 #
 # Emits, in order: reviews JSONL with computed review_freshness, ---CONFIG--- (skip_eng_review),
 # ---HEAD--- (short sha), ---WTREE--- (current working-tree fingerprint from
-# bin/gstack-wtree, or "unknown"), ---TREE--- (HEAD tree, informational) and
+# bin/gstack-wtree --review, or "unknown"), ---TREE--- (HEAD tree, informational) and
 # ---DIRTY--- (tracked-file dirty flag). Consumers grade diff-scoped review
 # rows using review_freshness; legacy or uncaptured diff evidence cannot fall
 # back to HEAD equality. Plan rows are unchanged.
@@ -15,10 +15,11 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
 esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+SLUG=$("$SCRIPT_DIR/gstack-slug" --get REPO_SLUG 2>/dev/null || true)
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
 GSTACK_HOME="$_gstack_sr_root"
-WTREE=$("$SCRIPT_DIR/gstack-wtree" 2>/dev/null || echo "unknown")
+WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
   GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
