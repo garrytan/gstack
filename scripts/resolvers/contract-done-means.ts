@@ -114,7 +114,7 @@ function plainWords(item: ContractItem): string {
 }
 
 /** Whether bin/gstack-skill-contract ships. The PR that adds it flips this, regenerates and re-pins; test/skill-descriptions.test.ts fails while the two disagree. */
-export const CONTRACT_CHECKER_SHIPPED = false;
+export const CONTRACT_CHECKER_SHIPPED = true;
 
 /** The list; checker adds the check and waive commands, which only a tree that ships the checker may mention. */
 export function renderDoneMeans(contract: SkillContract, checker = CONTRACT_CHECKER_SHIPPED): string {
