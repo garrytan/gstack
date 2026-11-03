@@ -423,7 +423,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const rowKey = (r: Record<string, any>) => JSON.stringify([r.skill, r.pass ?? null, r.commit_full ?? r.commit ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => (f && typeof f === 'object' ? (typeof f.ledger_id === 'string' ? f.ledger_id : findingIdentity(f)) : '')).sort()]);
   const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? rowKey(r) : `#${i}`, r] as const)).values()];
   const passes = loopRows.filter(r => r.skill === 'review');
-  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string };
+  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string; fingerprint?: string };
   const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
@@ -447,6 +447,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
         candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
         disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
         ...(ledgerId ?? prior?.ledgerId ? { ledgerId: ledgerId ?? prior?.ledgerId } : {}),
+        ...(prior?.fingerprint ?? findingIdentity(f) ? { fingerprint: prior?.fingerprint ?? findingIdentity(f) } : {}),
       });
       if (f.action === 'deferred') deferred.add(id);
       if (f.action === 'noted') noted.add(id);
@@ -479,7 +480,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
   for (const t of trailers) {
-    const hit = [...seen].find(([k, s]) => k === t.finding || s.ledgerId === t.finding);
+    const hit = [...seen].find(([k, s]) => k === t.finding || s.ledgerId === t.finding || s.fingerprint === t.finding);
     if (hit) { hit[1].disposed = true; fixed.add(hit[0]); continue; }
     const only = ledgerOnlyKeys.find(l => l.key === t.finding || l.id === t.finding);
     if (only) { only.fixed = true; continue; }

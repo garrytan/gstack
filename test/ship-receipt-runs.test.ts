@@ -20,6 +20,15 @@ describe('receipt runs block', () => {
     expect(body.match(/## Summary/g)!.length).toBe(1);
   });
 
+  test('a fence inside a recorded reason never closes the runs block (adversarial p-voices #1)', () => {
+    const withReason = (head: string) => orderReceipt({ ...receipt(head, { fix_checks: 1 }), review_loop_exception: { accepted_by: 'Garry', date: '2026-11-03', via: 'x', reason: 'the \x60\x60\x60retry\x60\x60\x60 block is fine', fix_check: { head, findings: 0 } } });
+    let body = placeReceiptFirst('## Summary\nprose\n', withReason('b'.repeat(40)));
+    body = placeReceiptFirst(body, withReason('c'.repeat(40)));
+    body = placeReceiptFirst(body, withReason('d'.repeat(40)));
+    expect(receiptRuns(body).map(r => r.head[0])).toEqual(['b', 'c']);
+    expect(body.endsWith('## Summary\nprose\n')).toBe(true);
+  });
+
   test('rewriting the same receipt adds no run, and the block keeps the newest RECEIPT_RUNS_KEPT', () => {
     const same = receipt('d'.repeat(40));
     expect(receiptRuns(placeReceiptFirst(placeReceiptFirst('', same), same))).toEqual([]);

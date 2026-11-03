@@ -8,19 +8,23 @@
  * Qualifies: RECEIPT_CARRY_PRODUCT_CHANGED on linear history (the receipt's head is an ancestor of HEAD) against the same base.
  * Does not qualify: RECEIPT_CARRY_TREE_MISMATCH (rewritten history: the reviewed commits are gone, so there is no range to
  * diff), a retargeted stack (the reviewed range was against another base), a legacy receipt with no review_depth, more
- * changed product paths than the carry walk names, a path it cannot name, base context moved next to reviewed hunks,
- * an unreadable or empty range-diff, a range-diff over RECHECK_RANGE_DIFF_CAP lines, and every RECEIPT_CARRY_REFUSED / RECEIPT_CARRY_PREGATE_STALE (those need their inputs
+ * changed product paths than the carry walk names, a path it cannot name, a binary path, base context moved next to reviewed hunks,
+ * an unreadable or empty range-diff, a packet over RECHECK_RANGE_DIFF_CAP lines or RECHECK_PACKET_BYTES bytes, and every RECEIPT_CARRY_REFUSED / RECEIPT_CARRY_PREGATE_STALE (those need their inputs
  * repaired, not a review).
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 
 export const RECHECK_RANGE_DIFF_CAP = 400;
+/** The packet's byte cap: 400 lines of unbounded width (a minified bundle) would not bound the one reader's input. */
+export const RECHECK_PACKET_BYTES = 64 * 1024;
 /** rangeDiff: \`git range-diff\` of the two ranges followed by the diff of the changed product paths between the heads (a range-diff names added commits without their content). */
 export type RecheckInput = {
   code: string; ancestor: boolean; retarget: boolean; rangeDiff: string | null; unnamedPaths?: boolean;
   /** The receipt records no review_depth (a legacy receipt), so carry cannot compare HEAD's risk class with the reviewed one. */
   legacy?: boolean;
+  /** A changed product path is binary, so the packet would show only "Binary files … differ" for it. */
+  binary?: boolean;
   /** The changed-path walk stopped at CARRY_NAMED_PATHS, so later changed product paths would be missing from the packet. */
   walkCut?: boolean;
   /** Paths whose only difference is base context next to reviewed hunks: they need RECEIPT_CARRY_SCOPED_REVIEW's packet, not this one. */
@@ -38,12 +42,15 @@ export function planRecheck(i: RecheckInput): RecheckPlan {
   if (i.legacy) return { ok: false, reason: 'the receipt records no review_depth, so a changed risk class could not be caught' };
   if (i.walkCut) return { ok: false, reason: 'more changed product paths than the walk names, so the packet would miss some' };
   if (i.unnamedPaths) return { ok: false, reason: 'a changed product path could not be named, so the packet would miss it' };
+  if (i.binary) return { ok: false, reason: 'a changed product path is binary, so the packet cannot show its contents' };
   if (i.contextPaths) return { ok: false, reason: 'base context also moved next to reviewed hunks, which needs the scoped review of those hunks' };
   if (i.rangeDiff === null) return { ok: false, reason: 'git range-diff failed or timed out' };
   const text = i.rangeDiff.trim();
   if (!text) return { ok: false, reason: 'git range-diff is empty, so it shows nothing for a reader to check' };
   const lines = text.split('\n').length;
   if (lines > RECHECK_RANGE_DIFF_CAP) return { ok: false, reason: `git range-diff is ${lines} lines, over the scoped re-check cap of ${RECHECK_RANGE_DIFF_CAP}` };
+  const bytes = Buffer.byteLength(text);
+  if (bytes > RECHECK_PACKET_BYTES) return { ok: false, reason: `the packet is ${bytes} bytes, over the scoped re-check cap of ${RECHECK_PACKET_BYTES}` };
   return { ok: true, lines, sha256: sha(text) };
 }
 

@@ -99,7 +99,7 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
  */
 export const RUNS_FENCE = 'gstack-receipt-runs';
 export const RECEIPT_RUNS_KEPT = 30;
-const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n?```\n?/;
+const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
 export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string };
 export function receiptRuns(body: string): ReceiptRun[] {
   const m = RUNS_RE.exec(body);

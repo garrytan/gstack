@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
-import { planRecheck, readRecheck, RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
+import { planRecheck, readRecheck, RECHECK_PACKET_BYTES, RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -33,6 +33,8 @@ describe('planRecheck: which refusals qualify', () => {
     ['walk cut at the named-path limit', { ...OK, walkCut: true }, 'more changed product paths'],
     ['unnamed product path', { ...OK, unnamedPaths: true }, 'could not be named'],
     ['base context moved', { ...OK, contextPaths: 1 }, 'base context'],
+    ['binary product path', { ...OK, binary: true }, 'binary'],
+    ['wide packet over the byte cap', { ...OK, rangeDiff: 'x'.repeat(RECHECK_PACKET_BYTES + 1) }, 'bytes'],
     ['range-diff failed', { ...OK, rangeDiff: null }, 'failed or timed out'],
     ['empty range-diff', { ...OK, rangeDiff: '\n' }, 'empty'],
     ['over the cap', { ...OK, rangeDiff: Array.from({ length: RECHECK_RANGE_DIFF_CAP + 1 }, (_, i) => `l${i}`).join('\n') }, 'over the scoped re-check cap'],
@@ -130,6 +132,10 @@ describe('carry with a scoped re-check (CLI)', () => {
     const wide = reviewed(many);
     wide.commit(Object.fromEntries(Object.keys(many).map(f => [f, 'export const changed = 2;\n'])), 'fix: all');
     expect(runBin(wide.repo, 'gstack-ship-receipt', ['carry', '--body', wide.body], wide.env).err).toContain('RECHECK: not eligible (more changed product paths');
+
+    const bin = reviewed({ 'src/app.wasm': '\0asm\x01\0\0\0' });
+    bin.commit({ 'src/app.wasm': '\0asm\x01\0\0\0' + 'x'.repeat(4096) + '\0' }, 'fix: new wasm');
+    expect(runBin(bin.repo, 'gstack-ship-receipt', ['carry', '--body', bin.body], bin.env).err).toContain('RECHECK: not eligible (a changed product path is binary');
   });
 
   test('base context moved next to a reviewed hunk plus a product edit elsewhere is not eligible (red-team p1 repro)', () => {

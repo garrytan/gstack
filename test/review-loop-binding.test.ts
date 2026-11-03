@@ -68,6 +68,12 @@ describe('review loop counts bind by finding id (GST-1168)', () => {
     expect(s.unbound).toEqual(['pass 1 (ledger p1): no review-log row, so its fixes and dispositions cannot be counted']);
   });
 
+  test('a fingerprint trailer binds a finding that also carries a ledger_id (outside voice #2)', () => {
+    const rows = [row('review', 1, [{ fingerprint: 'src/auth.ts:10:correctness', severity: 'CRITICAL', blocking: true, raised_by: 'red-team', ledger_id: 'p1/red-team#1' }])];
+    const s = summarizeReviewLoop(rows, SINCE, [[blocker('p1', 'red-team#1', 'src/auth.ts:10')]], [pass(0, ['p1/red-team#1'])], parseFixTrailers('abc', ['src/auth.ts:10:correctness reader=red-team']));
+    expect({ fixed: s.fixed, unrecorded: s.unrecorded, unbound: s.unbound }).toEqual({ fixed: 1, unrecorded: undefined, unbound: undefined });
+  });
+
   test('rows without ledger_id keep pairing by path:line, as before', () => {
     const rows = [row('review', 1, [{ fingerprint: 'src/a.ts:10:correctness', severity: 'CRITICAL', action: 'fixed', blocking: true, raised_by: 'specialist' }])];
     const s = summarizeReviewLoop(rows, SINCE, [[blocker('p1', 'specialist/security#1', 'src/a.ts:10')]]);
