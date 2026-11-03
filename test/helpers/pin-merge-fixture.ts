@@ -21,15 +21,21 @@ export function mergePinEdits(seed: (root: string) => void, a: (root: string) =>
     if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed (${result.status}): ${result.stderr}`);
     return result.stdout;
   };
-  must('init', '-q', '-b', 'base');
   const commit = (edit: (root: string) => void, message: string) => { edit(root); must('add', '-A'); must('commit', '-q', '--no-verify', '-m', message); };
-  commit(seed, 'seed');
-  for (const [branch, edit] of [['a', a], ['b', b]] as const) {
-    must('checkout', '-q', '-b', branch, 'base');
-    commit(edit, branch);
+  let merged: ReturnType<typeof git>;
+  try {
+    must('init', '-q', '-b', 'base');
+    commit(seed, 'seed');
+    for (const [branch, edit] of [['a', a], ['b', b]] as const) {
+      must('checkout', '-q', '-b', branch, 'base');
+      commit(edit, branch);
+    }
+    merged = git('merge-tree', '--write-tree', 'a', 'b');
+    if (merged.status !== 0 && merged.status !== 1) throw new Error(`git merge-tree failed (${merged.status}): ${merged.stderr}`);
+  } catch (e) {
+    fs.rmSync(root, { recursive: true, force: true });
+    throw e;
   }
-  const merged = git('merge-tree', '--write-tree', 'a', 'b');
-  if (merged.status !== 0 && merged.status !== 1) throw new Error(`git merge-tree failed (${merged.status}): ${merged.stderr}`);
   const tree = merged.stdout.split('\n')[0]!;
   return { root, clean: merged.status === 0, output: merged.stdout, read: rel => must('show', `${tree}:${rel}`) };
 }

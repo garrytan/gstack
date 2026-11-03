@@ -41,7 +41,11 @@ function readPins(root: string): Record<string, ManifestEntry> {
   for (const rel of (fs.readdirSync(dir, { recursive: true }) as string[]).map(f => f.split(path.sep).join('/')).sort()) {
     if (fs.statSync(path.join(dir, rel)).isDirectory()) continue;
     if (!rel.endsWith('.json')) throw new Error(`${PINS_DIR}/${rel}: every harness pin is <pinned path>.json`);
-    files[rel.slice(0, -'.json'.length)] = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
+    try {
+      files[rel.slice(0, -'.json'.length)] = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
+    } catch (e) {
+      throw new Error(`${PINS_DIR}/${rel}: ${(e as Error).message}`);
+    }
   }
   return files;
 }
@@ -101,9 +105,8 @@ export function decide(manifest: HarnessManifest, files: TreeEntry[], decision: 
     : manifest.files[entry.file]!])) };
 }
 
-/** Write the manifest head and one pin file per harness file, rewriting only pins whose bytes change and deleting dropped ones. */
+/** Write one pin file per harness file (rewriting only pins whose bytes change, deleting dropped ones), then the manifest head, so a failed pin write never moves the version. */
 export function writeManifest(root: string, manifest: HarnessManifest): void {
-  fs.writeFileSync(path.join(root, MANIFEST), `${JSON.stringify({ version: manifest.version, patterns: manifest.patterns }, null, 2)}\n`);
   for (const file of Object.keys(readPins(root))) if (!manifest.files[file]) fs.rmSync(pinPath(root, file));
   for (const [file, entry] of Object.entries(manifest.files)) {
     const target = pinPath(root, file), text = `${JSON.stringify(entry)}\n`;
@@ -111,6 +114,7 @@ export function writeManifest(root: string, manifest: HarnessManifest): void {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, text);
   }
+  fs.writeFileSync(path.join(root, MANIFEST), `${JSON.stringify({ version: manifest.version, patterns: manifest.patterns }, null, 2)}\n`);
 }
 
 if (import.meta.main) {

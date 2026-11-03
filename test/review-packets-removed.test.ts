@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { sectionTexts } from '../lib/review-brief';
-import { mergePinEdits } from './helpers/pin-merge-fixture';
+import { mergePinEdits, type PinMerge } from './helpers/pin-merge-fixture';
 
 const ROOT = path.join(import.meta.dir, '..');
 const REMOVED = [
@@ -69,7 +69,11 @@ function readPinDir(dir: string): Record<string, unknown> {
   for (const rel of (fs.readdirSync(dir, { recursive: true }) as string[]).map(f => f.split(path.sep).join('/')).sort()) {
     if (fs.statSync(path.join(dir, rel)).isDirectory()) continue;
     if (!rel.endsWith('.json')) throw new Error(`${dir}/${rel}: every pin file is <name>.json`);
-    out[rel.slice(0, -'.json'.length)] = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
+    try {
+      out[rel.slice(0, -'.json'.length)] = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
+    } catch (e) {
+      throw new Error(`${dir}/${rel}: ${(e as Error).message}`);
+    }
   }
   return out;
 }
@@ -97,6 +101,24 @@ function readPins(pins: string) {
 }
 type Pins = ReturnType<typeof readPins>;
 
+/** Every source a reviewer brief, checklist or depth rule comes from: deleting one of these pins fails, never drops the check. */
+const MUST_PIN = [
+  'lib/review-depth.ts',
+  'lib/review-risk.ts',
+  'review/checklist.md',
+  'review/design-checklist.md',
+  'review/gate-integrity.md',
+  'review/sections/adversarial.md',
+  'review/sections/review-army.md',
+  'scripts/resolvers/fix-check.ts',
+  'ship/sections/adversarial.md',
+  'ship/sections/review-army.md',
+];
+
+/** MUST_PIN entries and specialist checklists under root with no pin. */
+const unpinned = (pins: Pins, root: string) => [...MUST_PIN, ...fs.readdirSync(path.join(root, 'review/specialists')).filter(f => f.endsWith('.md')).map(f => `review/specialists/${f}`)]
+  .filter(f => !Object.hasOwn(pins.files, f));
+
 /** Pinned files whose LF-normalized bytes under root no longer hash to their pin. */
 const stalePins = (pins: Pins, root: string) => Object.entries(pins.files).filter(([file, pin]) => {
   const text = fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
@@ -105,7 +127,7 @@ const stalePins = (pins: Pins, root: string) => Object.entries(pins.files).filte
 
 /** Pins naming no replay in the store, and replays whose justification names no no-loss replay or re-score. */
 const unadmitted = (pins: Pins) => [
-  ...Object.entries(pins.files).filter(([, pin]) => !(pin.replay in pins.replays)).map(([file, pin]) => `${file} names unknown replay ${pin.replay}`),
+  ...Object.entries(pins.files).filter(([, pin]) => !Object.hasOwn(pins.replays, pin.replay)).map(([file, pin]) => `${file} names unknown replay ${pin.replay}`),
   ...Object.entries(pins.replays).filter(([, what]) => !/no-loss|re-score/.test(what)).map(([replay]) => `replay ${replay} is not a no-loss replay or re-score`),
 ];
 
@@ -140,7 +162,11 @@ describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => 
 
   test('the pins cover every specialist checklist', () => {
     const specialists = fs.readdirSync(path.join(ROOT, 'review/specialists')).filter(f => f.endsWith('.md')).map(f => `review/specialists/${f}`);
-    expect(specialists.filter(f => !(f in PINNED.files))).toEqual([]);
+    expect(specialists.filter(f => !Object.hasOwn(PINNED.files, f))).toEqual([]);
+  });
+
+  test('every source a reviewer brief, checklist or depth rule comes from has a pin (GST-1084)', () => {
+    expect(unpinned(PINNED, ROOT)).toEqual([]);
   });
 
   // Value: protects=the one-file-per-pin layout keeps every check the in-file table had; fails_when=a stale sha, an unknown or
@@ -160,13 +186,23 @@ describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => 
 
       const pin = (file: string, value: unknown) => fs.writeFileSync(path.join(pins, 'files', `${file}.json`), `${JSON.stringify(value)}\n`);
       pin('review/design-checklist.md', { sha: PINNED.files['review/design-checklist.md']!.sha, replay: 'GST-0000' });
+      pin('lib/review-risk.ts', { sha: PINNED.files['lib/review-risk.ts']!.sha, replay: 'toString' });
       fs.writeFileSync(path.join(pins, 'replays', 'GST-0001.json'), `${JSON.stringify({ replay: 'GST-0001', justification: 'reviewed by hand' })}\n`);
-      expect(unadmitted(readPins(pins))).toEqual(['review/design-checklist.md names unknown replay GST-0000', 'replay GST-0001 is not a no-loss replay or re-score']);
+      expect(unadmitted(readPins(pins))).toEqual(['lib/review-risk.ts names unknown replay toString', 'review/design-checklist.md names unknown replay GST-0000',
+        'replay GST-0001 is not a no-loss replay or re-score']);
+
+      expect(unpinned(readPins(pins), ROOT)).toEqual([]);
+      fs.rmSync(path.join(pins, 'files', 'lib/review-risk.ts.json'));
+      fs.rmSync(path.join(pins, 'files', 'review/specialists/testing.md.json'));
+      expect(unpinned(readPins(pins), ROOT)).toEqual(['lib/review-risk.ts', 'review/specialists/testing.md']);
 
       pin('review/gate-integrity.md', { ...PINNED.files['review/gate-integrity.md'], note: 'extra' });
       fs.writeFileSync(path.join(pins, 'replays', 'GST-0002.json'), `${JSON.stringify({ replay: 'GST-0003', justification: 'a no-loss replay' })}\n`);
       expect(readPins(pins).malformed).toEqual(['replays/GST-0002.json (replay GST-0003 belongs in replays/GST-0003.json)',
         'files/review/gate-integrity.md.json (expected exactly sha, replay)']);
+      fs.writeFileSync(path.join(pins, 'files', 'review/gate-integrity.md.json'), '<<<<<<< a\n{}\n');
+      expect(() => readPins(pins)).toThrow('files/review/gate-integrity.md.json: ');
+      fs.rmSync(path.join(pins, 'files', 'review/gate-integrity.md.json'));
       fs.writeFileSync(path.join(pins, 'brief-bodies', 'specialist.txt'), 'stray\n');
       expect(() => readPins(pins)).toThrow('every pin file is <name>.json');
     } finally {
@@ -184,9 +220,12 @@ describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => 
     };
     const seed = (root: string) => fs.cpSync(PINS, root, { recursive: true });
     const army = 'ship/sections/review-army.md', adversarial = 'ship/sections/adversarial.md';
-    const clean = mergePinEdits(seed, repin(army, 'a'.repeat(64), 'GST-9001+GST-967'), repin(adversarial, 'b'.repeat(64), 'GST-9002'));
-    const conflict = mergePinEdits(seed, repin(army, 'a'.repeat(64), 'GST-9001'), repin(army, 'c'.repeat(64), 'GST-9003'));
+    const merges: PinMerge[] = [];
     try {
+      const clean = mergePinEdits(seed, repin(army, 'a'.repeat(64), 'GST-9001+GST-967'), repin(adversarial, 'b'.repeat(64), 'GST-9002'));
+      merges.push(clean);
+      const conflict = mergePinEdits(seed, repin(army, 'a'.repeat(64), 'GST-9001'), repin(army, 'c'.repeat(64), 'GST-9003'));
+      merges.push(conflict);
       expect(clean.output).not.toContain('CONFLICT');
       expect(clean.clean).toBe(true);
       expect(JSON.parse(clean.read(`files/${army}.json`))).toEqual({ sha: 'a'.repeat(64), replay: 'GST-9001+GST-967' });
@@ -196,7 +235,7 @@ describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => 
       expect(conflict.clean).toBe(false);
       expect(conflict.output).toContain(`CONFLICT (content): Merge conflict in files/${army}.json`);
     } finally {
-      for (const merge of [clean, conflict]) fs.rmSync(merge.root, { recursive: true, force: true });
+      for (const merge of merges) fs.rmSync(merge.root, { recursive: true, force: true });
     }
   });
 });

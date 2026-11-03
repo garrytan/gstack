@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { LIVE_REGISTRY, type Registry } from '../scripts/eval-flake-rank';
 import { matchGlob } from './helpers/test-selection';
-import { mergePinEdits } from './helpers/pin-merge-fixture';
+import { mergePinEdits, type PinMerge } from './helpers/pin-merge-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -75,6 +75,9 @@ describe('HARNESS_VERSION guard', () => {
       fs.writeFileSync(path.join(dir, PINS_DIR, 'z.ts.txt'), 'stray\n');
       expect(() => readManifest(dir)).toThrow('every harness pin is <pinned path>.json');
       fs.rmSync(path.join(dir, PINS_DIR, 'z.ts.txt'));
+      fs.writeFileSync(path.join(dir, PINS_DIR, 'z.ts.json'), '<<<<<<< ours\n');
+      expect(() => readManifest(dir)).toThrow(`${PINS_DIR}/z.ts.json: `);
+      fs.writeFileSync(path.join(dir, PINS_DIR, 'z.ts.json'), '{"blob":"z","since":1}\n');
       fs.writeFileSync(path.join(dir, MANIFEST), JSON.stringify({ version: 3, patterns: [], files: {} }));
       expect(() => readManifest(dir)).toThrow('holds only version and patterns');
     } finally {
@@ -113,9 +116,12 @@ describe('HARNESS_VERSION guard', () => {
       writeManifest(root, decide(manifest, files, 'non-behavioral', reason));
     };
     const floor = 'test/helpers/pty/runners/floor.ts', observation = 'test/helpers/pty/runners/observation.ts';
-    const clean = mergePinEdits(copyManifest, record(floor, 'a'.repeat(40), 'floor runner logging only'), record(observation, 'b'.repeat(40), 'observation runner comment only'));
-    const conflict = mergePinEdits(copyManifest, record(floor, 'a'.repeat(40), 'floor runner logging only'), record(floor, 'c'.repeat(40), 'floor runner rename only'));
+    const merges: PinMerge[] = [];
     try {
+      const clean = mergePinEdits(copyManifest, record(floor, 'a'.repeat(40), 'floor runner logging only'), record(observation, 'b'.repeat(40), 'observation runner comment only'));
+      merges.push(clean);
+      const conflict = mergePinEdits(copyManifest, record(floor, 'a'.repeat(40), 'floor runner logging only'), record(floor, 'c'.repeat(40), 'floor runner rename only'));
+      merges.push(conflict);
       expect(clean.output).not.toContain('CONFLICT');
       expect(clean.clean).toBe(true);
       expect(JSON.parse(clean.read(`${PINS_DIR}/${floor}.json`))).toEqual({ blob: 'a'.repeat(40), since: live.version, nonBehavioral: 'floor runner logging only' });
@@ -124,7 +130,7 @@ describe('HARNESS_VERSION guard', () => {
       expect(conflict.clean).toBe(false);
       expect(conflict.output).toContain(`CONFLICT (content): Merge conflict in ${PINS_DIR}/${floor}.json`);
     } finally {
-      for (const merge of [clean, conflict]) fs.rmSync(merge.root, { recursive: true, force: true });
+      for (const merge of merges) fs.rmSync(merge.root, { recursive: true, force: true });
     }
   });
 });
