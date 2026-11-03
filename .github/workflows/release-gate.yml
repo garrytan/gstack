@@ -108,7 +108,8 @@ jobs:
         run: |
           case "$ACTION" in
             gated) conclusion=success ;;
-            held|failed) conclusion=failure ;;
+            held) conclusion=failure ;;
+            failed) conclusion=neutral ;;
             *) echo "::error::unknown release gate action '$ACTION'"; exit 1 ;;
           esac
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::'$SHA' is not a commit SHA"; exit 1; }

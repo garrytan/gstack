@@ -51,7 +51,7 @@ function fixture() {
   return { root, origin, seed, work, base, c, commit };
 }
 
-interface Outcome { conclusion: string; artifacts: Record<string, Record<string, string>> }
+interface Outcome { conclusion: string; artifacts: Record<string, Record<string, string>>; status?: string }
 /** A fake gh: each dispatch becomes a completed run whose outcome the test decides; run list, run view and artifact download read it back. */
 function fakeGh(onDispatch: (inputs: Record<string, string>, ref: string) => Outcome) {
   const runs: Run[] = [];
@@ -65,7 +65,7 @@ function fakeGh(onDispatch: (inputs: Record<string, string>, ref: string) => Out
       dispatches.push({ ref, inputs });
       const id = 1000 + runs.length;
       const o = onDispatch(inputs, ref);
-      runs.push({ id, status: 'completed', conclusion: o.conclusion, head_sha: inputs.expected_sha!, display_title: 'E2E Evals [eval-bg ' + inputs.nonce + ']', html_url: 'https://github.com/o/r/actions/runs/' + id, run_attempt: 1 });
+      runs.push({ id, status: o.status ?? 'completed', conclusion: o.conclusion, head_sha: inputs.expected_sha!, display_title: 'E2E Evals [eval-bg ' + inputs.nonce + ']', html_url: 'https://github.com/o/r/actions/runs/' + id, run_attempt: 1 });
       artifacts.set(id, o.artifacts);
       return ok('');
     }
@@ -172,6 +172,35 @@ describe('release gate: run', () => {
     expect(third.lines[0]).toContain('incomplete ' + MAX_RELEASE_ATTEMPTS + ' times');
     expect(fake.dispatches).toHaveLength(MAX_RELEASE_ATTEMPTS);
     expect(activeHold(records(f), () => true)).toBeNull();
+  });
+
+  // Value: protects=a gate run still going at the budget stays PENDING with its run, and the next run finishes that verdict on the old commit before
+  // gating main's new head, so a red verdict still records RED and holds release-cut after main moved; the new head is gated on the run after;
+  // fails_when=main moving orphans a PENDING record and its red verdict never becomes a hold; why_new=review finding (red-team, l1-p1); seam=fake gh;
+  // no_claim=a real six-hour run
+  test('an unfinished gate is finished on its own commit after main moves, then the new head is gated', () => {
+    const f = fixture();
+    let dispatched = 0;
+    const fake = fakeGh(() => (dispatched++ === 0 ? { conclusion: 'failure', status: 'in_progress', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) } : green()));
+    const gate = { ...GATE, bisect_spend_cap_usd: 0 };
+    const first = runGate({ ...envFor(f, fake.gh), deadline: 0 }, { gate, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(first.action).toBe('failed');
+    expect(records(f)[0]).toMatchObject({ sha: f.c[4], verdict: 'PENDING', run: { id: 1000 } });
+    const next = f.commit('c6');
+    fake.runs[0]!.status = 'completed';
+    const dry = runGate(envFor(f, fake.gh), { gate, label: 'test', dryRun: true, ignoreCadence: true });
+    expect(dry.lines[0]).toContain('would finish the open gate on ' + f.c[4]!.slice(0, 12));
+    const second = runGate(envFor(f, fake.gh), { gate, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(second.action, second.lines.join('\n')).toBe('held');
+    expect(second.sha).toBe(f.c[4]);
+    expect(second.lines[0]).toContain('finishing the open gate on ' + f.c[4]!.slice(0, 12));
+    expect(fake.dispatches).toHaveLength(1);
+    expect(activeHold(records(f), () => true)?.sha).toBe(f.c[4]);
+    const third = runGate(envFor(f, fake.gh), { gate, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(third.action, third.lines.join('\n')).toBe('gated');
+    expect(third.sha).toBe(next);
+    expect(fake.dispatches).toHaveLength(2);
+    expect(fake.dispatches[1]!.inputs.expected_sha).toBe(next);
   });
 });
 

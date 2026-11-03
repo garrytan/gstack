@@ -82,8 +82,9 @@ describe('release-gate.yml', () => {
   });
 
   // Value: protects=the gated commit's check run (what release-cut reads) comes from a job with checks: write and no checkout or action, only for a
-  // gate that ran (success for gated, failure for held or failed), on a validated sha and check name; fails_when=repository code runs with checks:
-  // write, a skipped or inert run publishes a check, or a red gate publishes success; why_new=new workflow; seam=none; no_claim=GitHub's check API
+  // gate that ran (success for gated, failure for held, neutral for failed so a later green on the same sha stays releasable), on a validated sha
+  // and check name; fails_when=repository code runs with checks: write, a skipped or inert run publishes a check, a red gate publishes success, or
+  // an unfinished gate leaves a failure release-cut reads as red; why_new=new workflow; seam=none; no_claim=GitHub's check API
   test('the check run is published from a code-free job, success only for gated', () => {
     const job = release.jobs['release-check']!;
     expect(job.needs).toBe('release-gate');
@@ -92,7 +93,8 @@ describe('release-gate.yml', () => {
     expect(job.steps.filter(s => s.uses)).toEqual([]);
     const run = job.steps[0]!.run!;
     expect(run).toContain('gated) conclusion=success ;;');
-    expect(run).toContain('held|failed) conclusion=failure ;;');
+    expect(run).toContain('held) conclusion=failure ;;');
+    expect(run).toContain('failed) conclusion=neutral ;;');
     expect(run).toContain('[[ "$SHA" =~ ^[0-9a-f]{40}$ ]]');
     expect(run).toContain('-f name="$CHECK" -f head_sha="$SHA"');
     expect(run).not.toContain('bun');

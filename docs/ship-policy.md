@@ -1149,22 +1149,27 @@ on a manual dispatch from main. Without the block it stops after a git-and-jq
 policy read, so no paid work starts and nothing is written. With the block it runs
 `gstack-release-gate run`, which:
 
-1. skips when main has not moved since `stable` or since the last gate, or
+1. first finishes an open gate on an older commit (a run that outlived its
+   budget, or a red gate's unfinished bisect), so main moving never orphans a
+   verdict; only then does it look at main's head;
+2. skips when main has not moved since `stable` or since the last gate, or
    when the last gate is younger than `cadence_hours` (`--ignore-cadence`
    overrides only the age);
-2. writes a `release` record (`gstack-trains:release:<repo>:<sha>`) to
+3. writes a `release` record (`gstack-trains:release:<repo>:<sha>`) to
    `refs/notes/gstack-trains` before it dispatches, so a lost run resumes;
-3. dispatches the full gate on that sha and reads its verdict and flake
+4. dispatches the full gate on that sha and reads its verdict and flake
    records. A case that failed once and passed its one rule-16 rerun is green
    and is listed as flaky;
-4. records GREEN, RED or INCOMPLETE. An INCOMPLETE gate is re-dispatched once
+5. records GREEN, RED or INCOMPLETE. An INCOMPLETE gate is re-dispatched once
    by the next run, then left for a person;
-5. on RED, bisects the red cases over main's first-parent commits since the
+6. on RED, bisects the red cases over main's first-parent commits since the
    last green gate (at most 4 rounds, within the spend cap) and records the
    first bad commit;
-6. publishes `check_name` on the gated commit from a separate job that holds
+7. publishes `check_name` on the gated commit from a separate job that holds
    `checks: write` and runs no repository code: success for a green gate,
-   failure for a red or failed one.
+   failure for a red one, and neutral when the gate has no verdict yet (still
+   running at the budget, or incomplete), so a later green on the same commit
+   is not undercut by an earlier failure.
 
 **What release-cut reads.** A GREEN release record on a commit counts as
 gated, the same as a successful `main-backstop` check run. A RED record

@@ -230,8 +230,12 @@ export function runGate(env: GateEnv, o: RunOptions): GateOut {
   const gate = o.gate;
   const c = context(env, gate);
   if ('error' in c) { lines.push(`RELEASE: cannot read refs/notes/gstack-trains (${c.error}); nothing dispatched`); return out('failed', null); }
-  const sha = o.sha ?? env.git(['ls-remote', env.remote, `refs/heads/${gate.branch}`]).out.split(/\s/)[0] ?? '';
-  if (!SHA.test(sha)) { lines.push(`RELEASE: cannot resolve ${gate.branch} on ${env.remote} (${JSON.stringify(sha)})`); return out('failed', null); }
+  const head = o.sha ?? env.git(['ls-remote', env.remote, `refs/heads/${gate.branch}`]).out.split(/\s/)[0] ?? '';
+  if (!SHA.test(head)) { lines.push(`RELEASE: cannot resolve ${gate.branch} on ${env.remote} (${JSON.stringify(head)})`); return out('failed', null); }
+  const open = o.sha ? null : c.records.find(r => r.sha !== head && ((r.verdict === 'PENDING' && r.run) || (r.verdict === 'RED' && r.bisect?.state === 'running')));
+  if (open && o.dryRun) { lines.push(`RELEASE: dry run: would finish the open gate on ${short(open.sha)} (${open.verdict}, run ${open.run?.id ?? '-'}) before gating ${gate.branch}@${short(head)}; nothing written`); return out('dry-run', open.sha); }
+  if (open) lines.push(`RELEASE: finishing the open gate on ${short(open.sha)} (${open.verdict}, run ${open.run?.id ?? '-'}) before gating ${gate.branch}@${short(head)}`);
+  const sha = open?.sha ?? head;
   ensureHistory(env, gate, sha);
   const prior = c.records.find(r => r.sha === sha) ?? null;
   const skip = (why: string) => { lines.push(`RELEASE: skip sha=${sha} (${why})`); return out('skipped', sha); };
