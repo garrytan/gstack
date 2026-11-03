@@ -21,7 +21,9 @@
 # is not a gstack checkout, HEAD is detached or not on the remote default
 # branch (a pin), any tracked byte is dirty, a local commit diverged, the
 # incoming release's Bun floor holds, or another updater holds the setup
-# lock; never stashes, never resets. An unreachable remote is
+# lock; never stashes, never resets. Before any fetch it also refuses when
+# bin/gstack-ff-update --preflight does: an enclosing project tracks the
+# install's files, or VERSION was put back behind HEAD (#1022). An unreachable remote is
 # UPGRADE_FETCH_FAILED (exit 3). While another live session holds a workflow
 # lease on this installation (bin/gstack-lease live) it refuses with
 # UPGRADE_BUSY (exit 3); GSTACK_UPGRADE_FORCE=1 overrides. Prints
@@ -50,7 +52,7 @@ case "${1:-}" in
   --check) CHECK=1 ;;
   --ff-only-no-reinstall) REINSTALL=0 ;;
   '') ;;
-  -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-upgrade: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
@@ -71,6 +73,8 @@ bounded() { if command -v timeout >/dev/null 2>&1; then timeout "${GSTACK_UPGRAD
 TOPLEVEL=$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)
 [ -f "$ROOT/VERSION" ] && [ -f "$ROOT/setup" ] && [ -n "$TOPLEVEL" ] && gstack_path_same "$TOPLEVEL" "$ROOT" \
   || refuse "$ROOT is not a gstack checkout" "run gstack-upgrade from a git checkout of https://github.com/garrytan/gstack"
+PF=$(bash "$ROOT/bin/gstack-ff-update" --preflight "$ROOT" 2>/dev/null)
+[ $? -eq 6 ] && { echo "gstack-upgrade: $PF (UPGRADE_REFUSED)" >&2; exit 3; }
 export GIT_TERMINAL_PROMPT=0
 HOST=$(git -C "$ROOT" remote get-url origin 2>/dev/null); HOST="${HOST#*://}"; HOST="${HOST#*@}"; HOST="${HOST%%[/:]*}"
 R="user ran gstack-upgrade"

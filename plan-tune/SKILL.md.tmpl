@@ -12,9 +12,6 @@ description: |
   Use when asked to "tune questions", "stop asking me that", "too many questions",
   "show my profile", "what questions have I been asked", "show my vibe",
   "developer profile", or "turn off question tuning". (gstack)
-
-  Proactively suggest when the user says the same gstack question has come up before,
-  or when they explicitly override a recommendation for the Nth time.
 triggers:
   - tune questions
   - stop asking me that
@@ -275,6 +272,8 @@ Parse the JSON. Present in **plain English**, not raw floats:
   the inferred column next to declared:
   "**scope_appetite:** declared 0.8 (boil the ocean) ↔ observed 0.72 (close)"
   Use words for the gap: 0.0-0.1 "close", 0.1-0.3 "drift", 0.3+ "mismatch".
+  When `inferred.contributing_events[dim]` is below 3, show "not enough
+  observed answers yet" for that dimension instead of an observed value or gap word.
 
   This display gate is intentionally lower than the E1 **promotion gate**
   (90+ days stable across 3+ skills, per `docs/designs/PLAN_TUNING_V0.md`).
@@ -424,6 +423,9 @@ Parse the JSON. For each dimension where both declared and inferred exist:
 - `gap > 0.3` → "mismatch — your behavior disagrees with your self-description.
   Consider updating your declared value, or reflect on whether your behavior
   is actually what you want."
+
+For each dimension in `low_evidence` (fewer than 3 observed answers moved it),
+say "not enough observed answers yet" instead of a gap.
 
 Never auto-update declared based on the gap. In v1 the gap is reporting only —
 the user decides whether declared is wrong or behavior is wrong.

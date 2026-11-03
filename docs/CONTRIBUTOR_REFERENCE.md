@@ -50,7 +50,7 @@ send off the machine MUST write a hash-chained receipt to
 polarity is per-class: fail-closed for sensitive sinks (brain-sync, memory-ingest,
 gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision, and the
 Memorable bridge's per-prompt memorable-recall hand-off), fail-open
-+ stderr warning for user-facing ones (design OpenAI calls, update-check,
++ stderr warning for user-facing ones (design OpenAI and Gemini calls, update-check,
 dashboards, git-class ops). The new-sink scanner in
 `test/egress-receipt-wiring.test.ts` fails CI on an unreceipted `curl` /
 `git push` / `fetch` to a non-loopback host unless the file carries a reasoned

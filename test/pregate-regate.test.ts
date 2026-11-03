@@ -6,11 +6,12 @@
  * the base branch and every other open PR, and a lookup that cannot finish is
  * `unknown`, which withholds `REGATE: not-needed`.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { BASE_POLICY, cleanup, makeFixtureRepo, makePr, recordAndBundle, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { gitFixtureTemplate, rebindFile, rebindGitDir, type GitFixtureTemplate } from './helpers/git-fixture-template';
+import { BASE_POLICY, cleanup, fixtureRepoAt, makePr, recordAndBundle, restamp, runBin, seedFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -39,10 +40,14 @@ console.error("gh shim: unsupported "+a.join(" ")); process.exit(1)' "${file}" "
 }
 const ghCalls = (repo: FixtureRepo) => fs.readFileSync(path.join(repo.root, 'gh-regate', 'calls.log'), 'utf8');
 
+type Lanes = Array<{ label: string; command: string }>;
+const TESTS_LANE: Lanes = [{ label: 'tests', command: 'true' }];
+const DIGEST_LANES: Lanes = [...TESTS_LANE, { label: 'digest', command: 'cat generated/digest.md' }];
+
 /** pr-a adds migration v240, is stamped 1.2.4.0 and gated (lanes recorded and bundled); then restamped to 1.2.5.0. */
-function gatedThenRestamped(lanes: Array<{ label: string; command: string }> = [{ label: 'tests', command: 'true' }]) {
-  const repo = makeFixtureRepo({ prefix: 'pregate-regate-', policy: POLICY });
-  repos.push(repo);
+function buildGated(root: string, lanes: Lanes) {
+  seedFixtureRepo(root, { policy: POLICY });
+  const repo = fixtureRepoAt(root);
   makePr(repo, 'pr-a', { expects: '1.2.4.0' });
   fs.mkdirSync(path.join(repo.work, 'migrations'), { recursive: true });
   fs.writeFileSync(path.join(repo.work, 'migrations', 'v240-add-index.sql'), 'create index a;\n');
@@ -54,7 +59,39 @@ function gatedThenRestamped(lanes: Array<{ label: string; command: string }> = [
   const head = repo.git('rev-parse', 'HEAD');
   expect(restamp(repo, ['--version', '1.2.5.0']).status).toBe(EXIT.ok);
   repo.git('commit', '-qam', 'stamp 1.2.5.0');
-  return { repo, head, bundle, current: repo.git('rev-parse', 'HEAD') };
+  return { head, current: repo.git('rev-parse', 'HEAD') };
+}
+
+// Each fixture costs four gstack bin runs (two restamps, an evidence run and a bundle); build each lane set once
+// and give every test its own copy instead of rebuilding it per test.
+const templates = new Map<Lanes, GitFixtureTemplate<ReturnType<typeof buildGated>>>();
+beforeAll(() => {
+  for (const lanes of [TESTS_LANE, DIGEST_LANES]) {
+    const template = gitFixtureTemplate({
+      prefix: 'pregate-regate-',
+      build: root => buildGated(root, lanes),
+      rebind: (copy, tpl) => {
+        rebindGitDir(path.join(copy, 'work', '.git'), tpl, copy);
+        rebindFile(path.join(copy, 'bundle.json'), tpl, copy);
+        const projects = path.join(copy, 'home', 'projects');
+        for (const slug of fs.existsSync(projects) ? fs.readdirSync(projects) : []) {
+          const dir = path.join(projects, slug.split(path.basename(tpl)).join(path.basename(copy)));
+          if (dir !== path.join(projects, slug)) fs.renameSync(path.join(projects, slug), dir);
+          for (const file of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) if (file.isFile()) rebindFile(path.join(file.parentPath, file.name), tpl, copy);
+        }
+        fs.rmSync(path.join(copy, 'home', '.capy'), { recursive: true, force: true });
+      },
+    });
+    template.copy().root && templates.set(lanes, template);
+  }
+}, 60_000);
+afterAll(() => { for (const t of templates.values()) t.dispose(); });
+
+function gatedThenRestamped(lanes: Lanes = TESTS_LANE) {
+  const { root, meta: { head, current } } = templates.get(lanes)!.copy();
+  const repo = fixtureRepoAt(root);
+  repos.push(repo);
+  return { repo, head, bundle: path.join(repo.root, 'bundle.json'), current };
 }
 const regate = (repo: FixtureRepo, args: string[], env: Record<string, string>) => runBin(repo, 'gstack-pregate', ['regate', '--base', 'main', ...args], env);
 
@@ -97,7 +134,7 @@ describe('gstack-pregate regate: evidence, stamps and lane verdicts', () => {
   });
 
   test('a stamp-sensitive lane reruns, so a regate is needed; a code edit is not stamp-only and names the file and line', () => {
-    const { repo, head, bundle } = gatedThenRestamped([{ label: 'tests', command: 'true' }, { label: 'digest', command: 'cat generated/digest.md' }]);
+    const { repo, head, bundle } = gatedThenRestamped(DIGEST_LANES);
     const env = ghShim(repo, { list: [] });
     const r = regate(repo, ['--against', head, '--bundle', bundle], env);
     expect(r.status).toBe(EXIT.fail);

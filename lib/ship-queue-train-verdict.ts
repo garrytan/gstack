@@ -26,6 +26,7 @@ import {
   dispatchAttempt, effect, findTrain, gateDispatch, nextFor, outFailed, outOk, outPending, outRefused, prsArgs, save, trainEnv,
   type TrainEnv, type TrainOut,
 } from './ship-queue-train';
+import { genericVerdict } from './ship-queue-train-gate';
 
 /** EVAL_POLICY.infraRedispatch (test/helpers/periodic-exclude-data.ts): one re-dispatch of an INFRA/INCOMPLETE-only census. */
 export const INFRA_REDISPATCH = 1;
@@ -110,6 +111,7 @@ export function trainVerdict(ctx: QueueContext, o: { train: string }): TrainOut 
   const t = findTrain(env, o.train);
   if (!t) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `no train record ${o.train} here or in refs/notes/gstack-trains` }, [], `${Q} train status`, 'none');
   const run = trainFile(t.nonce);
+  if (t.gated) return env.train.gates ? genericVerdict(env, t) : outRefused({ code: 'QUEUE_TRAIN_OFF', message: `train ${t.nonce} has gated prefixes, but the base policy's train block no longer declares gates` }, [], 'none', run);
   const a = gateAttempts(t).at(-1);
   if (!a) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `train ${t.nonce} has no gate dispatch yet` }, [], nextFor(t), run);
   if (a.state === 'dispatching' || a.state === 'unknown') return unknownDispatch(t, a);
@@ -248,6 +250,7 @@ export async function trainBisect(ctx: QueueContext, o: { train: string; spendCa
   const t = findTrain(env, o.train);
   if (!t) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `no train record ${o.train} here or in refs/notes/gstack-trains` }, [], `${Q} train status`, 'none');
   const run = trainFile(t.nonce);
+  if (t.gated) return outRefused({ code: 'QUEUE_TRAIN_REBUILD_REFUSED', message: `train ${t.nonce} gated every prefix; its verdict already names the culprit, so there is nothing to bisect` }, [], nextFor(t), run);
   const red = gateAttempts(t).at(-1);
   if (!red || red.outcome !== 'RED') return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `bisect needs a red verdict; the train's last gate is ${red?.outcome ?? 'missing'}` }, [], nextFor(t), run);
   if (red.purpose === 'rebuild') return outRefused({ code: 'QUEUE_PROOF_MISSING', message: 'a rebuild\'s second red is not bisected again' }, [], nextFor(t), run);
@@ -315,6 +318,7 @@ export async function trainRebuild(ctx: QueueContext, o: { train: string; infra:
   const t = findTrain(env, o.train);
   if (!t) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `no train record ${o.train} here or in refs/notes/gstack-trains` }, [], `${Q} train status`, 'none');
   const run = trainFile(t.nonce);
+  if (t.gated) return outRefused({ code: 'QUEUE_TRAIN_REBUILD_REFUSED', message: `train ${t.nonce} gated every prefix; a generic train gets no unchanged rebuild (repair the red cases or change the order)` }, [], nextFor(t), run);
   const gates = gateAttempts(t);
   const last = gates.at(-1);
   const repair = `route ${last?.red_cases.join(',') || 'the red cases'} to a repair lane (GStack Minder); the train is rebuilt only once the repair merges: ${Q} train build ${prsArgs(t.slots, t.explicit_order)}`;

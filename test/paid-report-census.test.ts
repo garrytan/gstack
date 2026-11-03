@@ -123,6 +123,29 @@ describe('a case shard\'s result records are its one case\'s cost (2026-10-26 tr
     expect(collector(r.dir).verdict.costUsd).toBe(0.75);
   });
 
+  test('a record-less trial\'s streamed session cost reaches the trial and the verdict total once (GSTA-150 outside voice: $0.65 known, headline $0.00)', () => {
+    const ledger = (dir: string, slug: string, costs: number[]) => fs.writeFileSync(path.join(shard(dir, slug), 'session-ledger.jsonl'),
+      costs.map(cost => JSON.stringify({ key: 'k', runner: 'agent-sdk', started_at: 't', elapsed_ms: 1, end: 'aborted', billed: false, streamed_cost_usd: cost })).join('\n') + '\n');
+    const r = report('periodic', dir => {
+      ledger(dir, 'skill-e2e-qa-workflow--qa-fix-loop', [0.4, 0.25]);
+      results(dir, 'skill-e2e-benchmark-providers', [{ name: 'benchmark-providers-live', suite: 's', tier: 'e2e', passed: true, duration_ms: 1, cost_usd: 0.1 }]);
+      ledger(dir, 'skill-e2e-benchmark-providers', [0.5]);
+    });
+    expect(r.history.find(record => record.case === 'qa-fix-loop')).toMatchObject({ outcome: 'passed', cost_usd: 0.65 });
+    expect(r.history.find(record => record.case === 'benchmark-providers-live')).toMatchObject({ cost_usd: 0.6 });
+    expect(collector(r.dir).verdict.costUsd).toBe(1.25);
+    expect(r.out).toContain('cost $1.25 known + 5 of 7 trial(s) cost unknown');
+  });
+
+  test('a billed session\'s cost is already in its collector total, so the verdict never adds it again (Codex host, unbound label record)', () => {
+    const r = report('periodic', dir => {
+      results(dir, 'skill-e2e-cso', [{ name: '/cso full audit', suite: 'cso', tier: 'e2e', passed: true, duration_ms: 1, cost_usd: 0.5 }]);
+      fs.writeFileSync(path.join(shard(dir, 'skill-e2e-cso'), 'session-ledger.jsonl'),
+        JSON.stringify({ key: 'k', runner: 'codex', started_at: 't', elapsed_ms: 1, end: 'completed', billed: true, cost_usd: 0.5 }) + '\n');
+    });
+    expect(collector(r.dir).verdict.costUsd).toBe(0.5);
+  });
+
   // Value: protects=a failed case shard's trial reads its failure class, exit reason, error and cost from the display-labelled record the shard
   // wrote, not a generic 'assertion' with the JUnit message (the same attribution the cost fix made; train-gate's INFRA/VERDICT class follows failure_class);
   // fails_when=failedRecord is looked up through the old name/case_id-only filter again so the record's class and error are dropped;

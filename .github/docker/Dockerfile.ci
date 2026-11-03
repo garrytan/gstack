@@ -60,6 +60,21 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL \
     && rm -rf /var/lib/apt/lists/* \
     && git --no-lazy-fetch --version
 
+# Partial clone: the eval jobs check out with `filter: blob:none` and read
+# older files through on-demand blob fetches (.github/scripts/history-read.sh).
+# Prove this Git makes a blobless clone and fetches a missing blob, so the image
+# fails here instead of in a slice's history read.
+RUN set -e; d=$(mktemp -d); \
+    git init -q -b main "$d/src"; echo one > "$d/src/f"; git -C "$d/src" add f; \
+    git -C "$d/src" -c user.name=ci -c user.email=ci@localhost commit -qm one; \
+    echo two > "$d/src/f"; git -C "$d/src" -c user.name=ci -c user.email=ci@localhost commit -qam two; \
+    git -C "$d/src" config uploadpack.allowFilter true; \
+    git clone -q --filter=blob:none --no-local "file://$d/src" "$d/clone"; \
+    test "$(git -C "$d/clone" config remote.origin.promisor)" = true; \
+    if GIT_NO_LAZY_FETCH=1 git -C "$d/clone" cat-file -e HEAD~1:f 2>/dev/null; then echo "blob present: not a partial clone" >&2; exit 1; fi; \
+    test "$(git -C "$d/clone" show HEAD~1:f)" = one; \
+    rm -rf "$d"; echo "partial clone: ok ($(git --version))"
+
 RUN python3 -m venv /tmp/gstack-ci-venv \
     && /tmp/gstack-ci-venv/bin/python -m pip --version \
     && rm -rf /tmp/gstack-ci-venv
@@ -177,6 +192,21 @@ RUN for i in 1 2 3; do \
     done \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
+
+# ffmpeg (with ffprobe): /design-motion's checks and exports shell out to it
+# (lib/motion-encode.ts), and the marathon design-motion-showcase case runs
+# that flow end to end. The image had none, so every trial stopped at
+# FFMPEG_MISSING (#3687). The build fails if the packaged ffmpeg ever lacks a
+# filter or encoder the checks and exports use.
+RUN for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends ffmpeg && break || \
+      (echo "ffmpeg install retry $i/3"; sleep 10); \
+    done \
+    && rm -rf /var/lib/apt/lists/* \
+    && command -v ffprobe \
+    && filters="$(ffmpeg -hide_banner -filters)" && encoders="$(ffmpeg -hide_banner -encoders)" \
+    && for f in psnr gblur palettegen paletteuse signalstats tile; do echo "$filters" | grep -qw "$f" || { echo "ERROR: ffmpeg lacks the $f filter" >&2; exit 1; }; done \
+    && for e in libx264 gif; do echo "$encoders" | grep -qw "$e" || { echo "ERROR: ffmpeg lacks the $e encoder" >&2; exit 1; }; done
 
 # Pre-install dependencies (cached layer — only rebuilds when package.json or
 # bun.lock changes). Copy BOTH so install is deterministic and matches local
