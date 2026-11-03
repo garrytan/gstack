@@ -1,0 +1,1 @@
+The skill routing hook is now on by default (GST-1088): a prompt that fits an installed gstack skill gets a one-line hint naming it. Turn it off with `gstack-config set skill_routing off` or `./setup --no-skill-routing`.
