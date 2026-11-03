@@ -134,6 +134,20 @@ describe('finish, push --early and accept (A1)', () => {
     for (const label of ['pnpm lint', 'db:test']) expect(f.run(path.join(BIN, 'gstack-evidence'), ['check', '--label', label]).stdout).toMatch(/^EVIDENCE: FRESH /m);
   });
 
+  test('a carried row that no longer grades FRESH leaves no ci_carried entry (TRUT-7: pnpm lint)', () => {
+    const f = fx();
+    world(f);
+    expect(f.run(RELEASE, ['push', '--branch', 'feat', '--early', '--base', 'main'], unattended).status).toBe(0);
+    expect(f.run(RELEASE, ['accept', '--base', 'main', '--lane', `pnpm lint=${FREE}`, '--wait', '0']).status).toBe(0);
+    const carried = () => JSON.parse(f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main', '--json']).stdout);
+    expect(carried()).toEqual([expect.objectContaining({ lane: 'pnpm_lint', run: 7, attempt: 1 })]);
+    const [ledger] = findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl');
+    const rows = fs.readFileSync(ledger!, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    fs.writeFileSync(ledger!, rows.map(r => JSON.stringify(r.source === 'ci' ? { ...r, ts: at(30 * 60) } : r)).join('\n') + '\n');
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['check', '--label', 'pnpm lint', '--max-age', '24']).stdout).toMatch(/^EVIDENCE: STALE .* reason=older than 24h/m);
+    expect(carried()).toEqual([]);
+  });
+
   test('finish defers the mapped lane; accept carries it from the green run at the pushed head', () => {
     const f = fx();
     world(f);
