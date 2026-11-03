@@ -37,7 +37,9 @@
  * the tail is the stdout tail then the stderr tail, so a line's position says
  * nothing about when it was printed across streams, and bun's own counts (on
  * stderr) would otherwise outrank a 10k-test run whichever of the two ran
- * first. Any summary when it did not speak follows the last-summary-wins rule;
+ * first. Any summary when it did not speak follows the last-summary-wins rule,
+ * except that a complete set of `bun test --shard=i/N` processes ending the log
+ * is summed (GBEV-3);
  * anything else is "unknown".
  * Three states, never merged:
  * a count, 0 (ZERO-RUN, graded like STALE by `check`) and unknown (non-blocking).
@@ -169,7 +171,10 @@ const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) 
 
 /**
  * Bun: the last "Ran N tests across M files" block; executed = its " N pass" +
- * " N fail" lines. Bun always prints that counts block (" 0 pass" / " 0 fail"
+ * " N fail" lines. When that block ends a `bun test --shard=i/N` process (bun's
+ * "--shard=i/N: running" line since the previous block), the blocks of the N
+ * distinct shards that end the log are summed (a sharded runner prints every
+ * shard, GBEV-3); an incomplete or repeated shard set counts the last block alone. Bun always prints that counts block (" 0 pass" / " 0 fail"
  * even for an all-skip or empty run), so a terminal line with no " N pass"
  * above it is a line gstack's quiet shard runner forwarded (it forwards the
  * terminal line without the " N pass" line), not a bun summary:
@@ -186,7 +191,9 @@ async function bunTestsRan(lines: string[]): Promise<{ at: number; ran: number }
   } catch {
     warn("shard-engine classifier not importable; using the built-in bun summary parser");
   }
-  for (let i = lines.length - 1; i >= 0; i--) {
+  const blocks: { at: number; ran: number; shard?: string }[] = [];
+  let since = 0;
+  for (let i = 0; i < lines.length; i++) {
     if (!isTerminal(lines[i])) continue;
     let pass: number | null = null;
     let fail = 0;
@@ -197,13 +204,17 @@ async function bunTestsRan(lines: string[]): Promise<{ at: number; ran: number }
       if (p) pass = Number(p[1]);
       if (f) fail = Number(f[1]);
     }
-    if (pass === null) {
-      if (/^Ran 0 tests? across/.test(lines[i])) return { at: i, ran: 0 };
-      continue;
-    }
-    return { at: i, ran: pass + fail };
+    const shard = lines.slice(since, i).map((l) => /^--shard=(\d+\/\d+): running /.exec(l)?.[1]).findLast(Boolean);
+    since = i + 1;
+    if (pass !== null) blocks.push({ at: i, ran: pass + fail, shard });
+    else if (/^Ran 0 tests? across/.test(lines[i])) blocks.push({ at: i, ran: 0 });
   }
-  return null;
+  const last = blocks.at(-1);
+  if (!last) return null;
+  const total = Number(last.shard?.split("/")[1] ?? 1);
+  const set = blocks.slice(-total);
+  const complete = total > 1 && set.length === total && new Set(set.map((b) => b.shard)).size === total && set.every((b) => b.shard?.endsWith(`/${total}`));
+  return { at: last.at, ran: complete ? set.reduce((n, b) => n + b.ran, 0) : last.ran };
 }
 
 /**
