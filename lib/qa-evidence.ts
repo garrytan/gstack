@@ -388,7 +388,7 @@ function materialize(root: string, source: string) {
     next: `Include every reportLinks entry in the Markdown report, and report the overall status as ${verdict.status}${verdict.open.length ? ` (open: ${verdict.open.join('; ')})` : ''}; this verdict is final. Next, write the Markdown report beside evidence.json.` };
 }
 
-/** A fresh report root for /review and /ship QA under the repository's git-excluded .gstack/tmp, so probes never change the reviewed tree. */
+/** A fresh report root for caller QA (/review and /ship) under the repository's git-excluded .gstack/tmp, so probes never change the reviewed tree. */
 function reportDir(): Record<string, any> {
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 5000 });
   if (top.status !== 0 || !top.stdout.trim()) throw new QaEvidenceError('report-dir needs a git work tree');
@@ -418,7 +418,7 @@ function reportDir(): Record<string, any> {
   }
 }
 
-const QA_EVIDENCE_USAGE = 'report-dir (prints a fresh git-excluded report root for /ship QA) | capture ROOT ID [--public] --deadline FILE|--timeout-ms MS [--after PREVIOUS_CAPTURE --hypothesis TEXT] -- COMMAND ARGS (--after publishes checkpoint ID linking PREVIOUS_CAPTURE to this probe; required after the first complete capture unless a checkpoint was published) | checkpoint ROOT ID CAPTURE OBSERVATION_COMMAND HYPOTHESIS NEXT_COMMAND | checkpoint ROOT ID INTENT_FILE | materialize ROOT ANNOTATIONS (annotations: {evidence: [{capture, command, contract, expected, classification: pass|superseded|product-defect|fail|setup-blocked|blocked|inconclusive}], limits: [..]}; revision, runtime, cwd and learning are filled in)';
+const QA_EVIDENCE_USAGE = 'report-dir (prints a fresh git-excluded report root for /review and /ship QA) | capture ROOT ID [--public] --deadline FILE|--timeout-ms MS [--after PREVIOUS_CAPTURE --hypothesis TEXT] -- COMMAND ARGS (--after publishes checkpoint ID linking PREVIOUS_CAPTURE to this probe; required after the first complete capture unless a checkpoint was published) | checkpoint ROOT ID CAPTURE OBSERVATION_COMMAND HYPOTHESIS NEXT_COMMAND | checkpoint ROOT ID INTENT_FILE | materialize ROOT ANNOTATIONS (annotations: {evidence: [{capture, command, contract, expected, classification: pass|superseded|product-defect|fail|setup-blocked|blocked|inconclusive}], limits: [..]}; revision, runtime, cwd and learning are filled in)';
 
 export async function qaEvidenceMain(args: string[]): Promise<number> {
   return withQaReceiptOutput(false, 'qa-evidence-receipt', value => value.event === 'observation'

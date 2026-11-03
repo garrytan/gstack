@@ -66,7 +66,7 @@ full contents. If either required Read is missing, complete it now before Charte
 
 ## 1. Charter and preflight
 
-Reuse resolved REPORT_DIR; otherwise own a fresh \`.gstack/qa-reports\` subdirectory.
+${reportOnly ? 'Reuse resolved REPORT_DIR; otherwise own a fresh \`.gstack/qa-reports\` subdirectory.' : 'Reuse resolved REPORT_DIR; otherwise use the \`reportDir\` \`EVIDENCE_TOOL report-dir\` prints.'}
 Write a **charter** per behavior: contract, risk, entrypoint, isolation, exit condition, source, commands and inputs. Save charters as Markdown in the report.
 
 ${reportOnly ? '' : `For /review and /ship, no plan/server is required.
@@ -244,7 +244,7 @@ export function generateQAReview(ctx: TemplateContext): string {
 
 Only the parent runs report-only discovery.
 Never overwrite another run's reports. Batch only independent Reads.
-${ship ? `Without a caller REPORT_DIR, set it to the \`reportDir\` that \`${quoteSafePath(ctx.paths.binDir)}/gstack-qa-evidence report-dir\` prints: git-excluded, so QA never changes the reviewed tree.\n` : ''}
+
 ${ship ? `**1. Load methods before any QA or explicit-verification probe.**
 
 ${generateQAReviewPreflight(ctx)}` : `**1. Set the charter and isolation.**

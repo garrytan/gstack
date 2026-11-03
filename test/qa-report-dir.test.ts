@@ -95,9 +95,10 @@ test('report-dir refuses outside a git work tree instead of guessing a location'
   expect(fs.readdirSync(outside)).toEqual([]);
 });
 
-test('/ship Step 9.2.1 resolves REPORT_DIR through report-dir, not the product tree', () => {
-  const ctx: TemplateContext = { host: 'claude', skillName: 'ship', tmplPath: '', paths: HOST_PATHS.claude };
-  expect(RESOLVERS.QA_REVIEW(ctx)).toContain('set it to the `reportDir` that `$HOME/.claude/skills/gstack/bin/gstack-qa-evidence report-dir` prints: git-excluded');
-  const rendered = fs.readFileSync(path.resolve(import.meta.dir, '../ship/sections/review-army.md'), 'utf8');
-  expect(rendered).toContain('gstack-qa-evidence report-dir` prints: git-excluded');
+test('caller QA without a resolved REPORT_DIR (/review, /ship) falls back to report-dir, not the product tree', () => {
+  const line = 'Reuse resolved REPORT_DIR; otherwise use the `reportDir` `EVIDENCE_TOOL report-dir` prints.';
+  const ctx: TemplateContext = { host: 'claude', skillName: 'qa', tmplPath: '', paths: HOST_PATHS.claude };
+  expect(RESOLVERS.QA_EXPLORATORY(ctx)).toContain(line);
+  expect(fs.readFileSync(path.resolve(import.meta.dir, '../qa/sections/exploratory.md'), 'utf8')).toContain(line);
+  expect(fs.readFileSync(path.resolve(import.meta.dir, '../qa/SKILL.md.tmpl'), 'utf8')).toContain('Use the directory as `REPORT_DIR`');
 });
