@@ -35,9 +35,9 @@ import { cmpVersion, parseVersion, versionWidth } from './version-source';
  * or one whose remaining stamp-form moves pass the fork-version bound.
  * Within either bound a built-in form (`vX`, `since: X`, `(was X)`) moves a
  * version above `newV` only when the writer would: `oldV` on any line, one the
- * branch recorded (`side.recorded`) on its own lines. A third party's
- * `QM v0.1.15` rewritten on a line the branch added is product (GST-1245); a
- * `stamp_patterns` slot keeps the bound alone (#3512).
+ * branch recorded (`side.recorded`) on its own lines. Any other version moves
+ * only inside a `stamp_patterns` slot (#3512), so a third party's `QM v0.1.15`
+ * rewritten on a line the branch added, even beside such a slot, is product (GST-1245).
  */
 export function stampOnlyLine(removed: string, added: string, oldV: string, newV: string, templates: readonly string[] = [], side?: BranchSide, at?: number, placeholders: readonly string[] = []): boolean {
   if (removed === added) return false;
@@ -99,13 +99,15 @@ function fillPlaceholders(removed: string, newV: string, templates: readonly str
 function stampOnlyWithin(removed: string, added: string, oldV: string, newV: string, templates: readonly string[], recorded: ReadonlySet<string>): boolean {
   const floor = parseVersion(oldV);
   const width = versionWidth(oldV);
-  const after = stampMentions(added, templates);
-  const slotted = stampMentions(removed, templates, false);
-  const moved = [...stampMentions(removed, templates)].filter(v => v !== newV && !after.has(v));
-  if (!moved.length || !floor) return false;
   const ceiling = parseVersion(newV);
-  if (moved.some(v => { const p = parseVersion(v); return !p || versionWidth(v) !== width || cmpVersion(p, floor) < 0 || !(recorded.has(v) || slotted.has(v) || (ceiling && cmpVersion(p, ceiling) <= 0)); })) return false;
+  const free = (v: string) => { const p = parseVersion(v); return recorded.has(v) || (!!p && !!ceiling && cmpVersion(p, ceiling) <= 0); };
+  const after = stampMentions(added, templates);
+  const afterSlots = stampMentions(added, templates, false);
+  const slotted = stampMentions(removed, templates, false);
+  const moved = [...stampMentions(removed, templates)].filter(v => v !== newV && (free(v) ? !after.has(v) : slotted.has(v) && !afterSlots.has(v)));
+  if (!moved.length || !floor) return false;
+  if (moved.some(v => { const p = parseVersion(v); return !p || versionWidth(v) !== width || cmpVersion(p, floor) < 0; })) return false;
   let text = removed;
-  for (const v of moved) text = rewriteStamps(text, v, newV, templates).text;
+  for (const v of moved) text = rewriteStamps(text, v, newV, templates, free(v)).text;
   return text === added;
 }

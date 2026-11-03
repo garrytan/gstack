@@ -95,6 +95,26 @@ describe('a foreign version on a PR-added stamp_files line (GST-1245)', () => {
     expect(corrupt.out).toContain('changed README.md (stamp_files: "QM v0.1.15 grades every run." -> "QM v0.0.115 grades every run.")');
   });
 
+  // Value: protects=a declared stamp_patterns slot moves only inside its own match, so the same foreign version in a
+  //   built-in form beside it (same line or another PR line) survives, and the receipt agrees (GST-1245 outside voice);
+  //   fails_when=a template match marks the version tentative and every form of it moves; why_new=no case mixed a slot
+  //   and a foreign built-in mention of one version; seam=lib/restamp.ts slotOnly + lib/stamp-only.ts free; no_claim=none
+  test('a template slot at an unrecorded version moves alone; the same version as "QM v0.1.15" beside it stays', () => {
+    const repo = makeFixtureRepo({ prefix: 'restamp-foreign-slot-', policy: { ...POLICY, stamp_patterns: ["_KEY_VERSION = '{version}'"] }, version: '0.0.114' });
+    repos.push(repo);
+    fs.writeFileSync(path.join(repo.work, 'README.md'), BASE_README);
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'readme'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-slot');
+    addReadme(repo, ["export const T_KEY_VERSION = '0.1.15'; // QM v0.1.15", QM[0]!]);
+    repo.git('commit', '-qam', 'a key at a guessed version and a QM line');
+    const gated = repo.git('rev-parse', 'HEAD');
+    expect(restamp(repo, ['--next']).status).toBe(EXIT.ok);
+    expect(readFile(repo, 'README.md')).toBe(BASE_README + ["export const T_KEY_VERSION = '0.0.115'; // QM v0.1.15", QM[0]!].join('\n') + '\n');
+    repo.git('commit', '-qam', 'stamp');
+    const receipt = runBin(repo, 'gstack-tree-receipt', ['--gated', gated, '--base', 'main']);
+    expect(receipt.out, receipt.err).toContain('TREE: same-modulo-stamps');
+  });
+
   // Value: protects=the pure seams agree: a built-in form moves only a recorded version, a declared template slot keeps
   //   the fork bound (#3512's next-minor key); fails_when=either seam reads an unrecorded built-in mention as a stamp,
   //   or the template slot stops moving; why_new=the seams took no recorded set; seam=tentativeMentions, stampOnlyLine;
@@ -109,5 +129,9 @@ describe('a foreign version on a PR-added stamp_files line (GST-1245)', () => {
     expect(stampOnlyLine('harness v0.0.117', 'harness v0.0.116', '0.0.114', '0.0.116', [], { ...side, added: new Set(['harness v0.0.117']), recorded: new Set(['0.0.114', '0.0.117']) }, 4)).toBe(true);
     expect(stampOnlyLine('harness v0.0.117', 'harness v0.0.116', '0.0.114', '0.0.116', [], { ...side, added: new Set(['harness v0.0.117']) }, 4)).toBe(false);
     expect(stampOnlyLine('since: 0.0.115', 'since: 0.0.116', '0.0.114', '0.0.116', [], { ...side, added: new Set(['since: 0.0.115']) }, 4)).toBe(true);
+    const key = "export const T_KEY_VERSION = '0.1.15'; // QM v0.1.15";
+    const tpl = ["_KEY_VERSION = '{version}'"];
+    expect(stampOnlyLine(key, "export const T_KEY_VERSION = '0.0.115'; // QM v0.1.15", '0.0.114', '0.0.115', tpl, { ...side, added: new Set([key]) }, 4)).toBe(true);
+    expect(stampOnlyLine(key, "export const T_KEY_VERSION = '0.0.115'; // QM v0.0.115", '0.0.114', '0.0.115', tpl, { ...side, added: new Set([key]) }, 4)).toBe(false);
   });
 });

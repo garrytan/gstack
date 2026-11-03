@@ -338,9 +338,8 @@ function templateMention(template: string): RegExp {
  * allocated one. A released version is never newer than the fork point of a
  * branch written against it, and the repo's own version width must match, so
  * a 3-digit dependency pin in a 4-digit repo is never a candidate. With
- * `recorded` (recordedVersions), a built-in form newer than the allocated
- * version counts only when the branch recorded it: no queue handed the branch
- * `QM v0.1.15` (GST-1245). A `stamp_patterns` slot keeps the fork bound (#3512).
+ * `recorded`, a built-in form above the allocated version counts only when the
+ * branch recorded it (GST-1245); a `stamp_patterns` slot keeps the fork bound.
  */
 export function tentativeMentions(added: Map<string, Set<string>>, forkVersion: string, newVersion: string, templates: readonly string[] = [], recorded?: ReadonlySet<string>): string[] {
   const fork = parseVersion(forkVersion);
@@ -402,7 +401,7 @@ export function recordedVersions(repoRoot: string, baseRef: string, fallback: st
  * X (`since: '1.2.3-beta'` and `since: '1.2.3"` are not the form); `vX`
  * already accepts a quote before the `v`.
  */
-export function rewriteStamps(text: string, oldVersion: string, newVersion: string, templates: readonly string[] = []): { text: string; count: number } {
+export function rewriteStamps(text: string, oldVersion: string, newVersion: string, templates: readonly string[] = [], builtIn = true): { text: string; count: number } {
   const v = escapeRegExp(oldVersion);
   const patterns: Array<[RegExp, (...m: string[]) => string]> = [
     [new RegExp(`\\(was (['"]?)${v}\\1\\)`, 'g'), (_, q) => `(was ${q}${newVersion}${q})`],
@@ -412,7 +411,7 @@ export function rewriteStamps(text: string, oldVersion: string, newVersion: stri
   ];
   let count = 0;
   let out = text;
-  for (const [re, rep] of patterns) {
+  for (const [re, rep] of builtIn ? patterns : patterns.slice(3)) {
     count += (out.match(re) ?? []).length;
     out = out.replace(re, rep);
   }
@@ -523,8 +522,8 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
  * `--was`) is rewritten on every line of every stamp file; a tentative one
  * (a mention newer than the fork version, or of the fork version itself: a
  * row written at the version the branch forked from instead of a next one,
- * GST-963) only on lines the branch added; in a built-in form above the new
- * version, only one the branch recorded (GST-1245): a third party's `vX` stays.
+ * GST-963) only on lines the branch added; above the new version an unrecorded
+ * one moves only inside a `stamp_patterns` slot (GST-1245): a third party's `vX` stays.
  * With no explicit version the branch's VERSION equals the base's: either it
  * never stamped, or it stamped X and the base reached X on its own (a PR that
  * lost its slot and merged the base). Then a stamp-form mention of the base
@@ -548,6 +547,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
   const equalBase = !o.was && !plan.branchStamp && plan.baseVersion !== plan.newVersion ? plan.baseVersion : null;
   if (equalBase) tentative.add(equalBase);
   if (plan.forkVersion !== plan.newVersion && !explicit.has(plan.forkVersion)) tentative.add(plan.forkVersion);
+  const slotOnly = new Set([...tentative].filter(v => !plan.recorded.has(v) && cmpVersion(parseVersion(v)!, parseVersion(plan.newVersion)!) > 0));
   const moved = new Map<string, number>();
   const baseSide: string[] = [];
   let touched = 0;
@@ -560,8 +560,8 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
     let count = 0;
     let ownBase = 0;
     let keptBase = 0;
-    const rewrite = (text: string, old: string): string => {
-      const r = rewriteStamps(text, old, plan.newVersion, templates);
+    const rewrite = (text: string, old: string, builtIn = true): string => {
+      const r = rewriteStamps(text, old, plan.newVersion, templates, builtIn);
       count += r.count;
       if (r.count) moved.set(old, (moved.get(old) ?? 0) + r.count);
       return r.text;
@@ -574,7 +574,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
       }
       let text = line;
       for (const old of explicit) text = rewrite(text, old);
-      if (mine) for (const old of tentative) text = rewrite(text, old);
+      if (mine) for (const old of tentative) text = rewrite(text, old, !slotOnly.has(old));
       return text;
     }).join('\n');
     if (ownBase || keptBase) baseSide.push(`${rel}: ${ownBase} moved, ${keptBase} kept`);
