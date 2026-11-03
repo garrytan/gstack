@@ -143,6 +143,16 @@ describe('public repositories get no identifying approval text (GST-1160)', () =
     expect(r.err).toContain('public');
   });
 
+  test('a private repository gh picks by default does not unlock the table for a public origin', () => {
+    const cwd = repo(); const state = tmp('appr-state-'); const d = tmp('appr-gh-');
+    spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/public-widgets.git'], { cwd, timeout: 30_000 });
+    fs.writeFileSync(path.join(d, 'gh'), '#!/bin/sh\ncase " $* " in *" acme/public-widgets "*) echo PUBLIC ;; *) echo PRIVATE ;; esac\n', { mode: 0o755 });
+    expect(bin(QUOTE, { cwd, env: { GSTACK_STATE_ROOT: state } }).status).toBe(0);
+    const r = bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, GH_REPO: 'acme/private-upstream', PATH: `${d}:${process.env.PATH}` } });
+    expect(leaks(r.out)).toEqual([]);
+    expect(r.err).toContain('APPROVALS_RENDER: redacted (repository visibility public');
+  });
+
   test('the redacted record id is stable for the same rows and changes when a row is added', () => {
     const cwd = repo(); const state = tmp('appr-state-');
     const id = () => /record (r-[0-9a-f]{12})/.exec(bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PUBLIC') } }).out)![1];
