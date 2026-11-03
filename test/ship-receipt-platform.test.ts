@@ -41,7 +41,7 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
   test('a docs diff under review.platform on with capy-ai[bot]\'s review at HEAD records platform, and the queue accepts it at that head only', () => {
     const { dir, head } = repo({ review: { platform: 'on' } }, { 'docs/howto.md': 'Run the installer.\n' });
     const d = receiptReviewAtHead(dir, 'main', BIN, head).depth;
-    expect([d.depth, d.mode]).toEqual(['light', 'lean']);
+    expect([d.depth, d.mode]).toEqual(['light', 'panel']);
     const p = withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'));
     expect(p.ok && [p.depth.depth, p.depth.mode, p.depth.platform_review]).toEqual(['platform', 'platform', { id: '99', head, reviewer: 'capy-ai[bot]' }]);
     const r = { gstack_version: '1.94.0.0', review_depth: (p as any).depth } as ShipReceipt;

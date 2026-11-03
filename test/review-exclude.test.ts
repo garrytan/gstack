@@ -12,14 +12,13 @@ import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreada
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
 import { bindShippedReceipt, receiptReviewAtHead } from '../lib/ship-receipt-depth';
-import { REVIEW_EXCLUDE_KEY_VERSION, REVIEW_POLICY_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
+import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
 import { loadPolicyAt } from '../lib/ship-policy-at';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
-// review.panel all keeps today's panel, whose every brief these cases read; R65's one-reader default is pinned in review-depth-lean.test.ts.
-const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, review: { panel: 'all' }, min_gstack_version: REVIEW_POLICY_KEY_VERSION }) + '\n';
+const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
 const GZ = Buffer.from([0x1f, 0x8b, 0, 1, 2, 3, 0, 0]);
 const EXCLUDED = ['receipts/a/result.json', 'receipts/a/trial.gz', 'receipts/config/blob.bin', 'receipts/c/result.json', 'receipts/e/result.json', 'receipts/notes.md'];
 const KEPT = ['receipts/b/result.json', 'receipts/d/fixture.json', 'receipts/run.sh'];

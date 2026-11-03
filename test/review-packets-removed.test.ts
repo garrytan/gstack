@@ -73,11 +73,12 @@ const NO_LOSS_REPLAYS = {
   'GST-967': "GST-967 dispatch-superset no-loss check (test/review-depth.test.ts, 'GST-967 dispatch-superset no-loss check'): over 1,440 planReview cases the branch plans exactly what main planned at 1022f4f except the 71 gate-class stops before Step 11, which add only Step 11's adversarial, outside and targeted voices, so no reviewer main dispatches is dropped or re-efforted; the brief bodies lib/review-brief.ts cuts from the ship sections hash to main's; only the lead's repeat-decision and Step 11 instructions changed; reviewer text is unchanged",
   'GST-508+GST-464+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: ship/sections/review-army.md and adversarial.md are main's GST-967 bytes plus exactly the GST-508+GST-464 lines (the merged file minus main equals the wave minus fc292e22f, line for line), so GST-967's dispatch-superset no-loss check and GST-508's no-loss replay both hold; merged-head checks in GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md",
   'GST-508+R51+GST-911+GST-967': "wave review-53cfb5bfe011 merge of main 68410828f into #3852: lib/review-depth.ts is main's GST-967 bytes plus exactly the GST-508+R51+GST-911 lines (the merged file minus main equals the wave minus fc292e22f, line for line); GST-967's dispatch-superset no-loss check (test/review-depth.test.ts) passes on the merged file, and the GST-508+R51+GST-911 checks are rerun at the merged head (GStack Minder drive handoffs/GSTA-202/merge-6841-checks.md)",
+  'GSTA-258-C': "GSTA-258 build C planner no-loss check: review.panel defaults to all, so the default plan is today's panel; over the last 200 first-parent main commits to 6f1dfd5b7c, planReview and collectCommit from origin/main and from this branch give the same depth, class, risk classes, next step and dispatches on 196, and the other 4 only raise: 4eff47c5cf goes light to full (eval class, main's own full panel adds the red team), e25997515c gains money at full gate, and 83ae96e086 and 7f815411f3 lose a money class from JSON lines (HARN-1) but keep full depth and the same reviewers (GStack Minder drive handoffs/GSTA-258/C-planner-noloss/); the one-reader shape ships opt-in (review.panel risk) because its own no-loss replay was FIX-METHOD (handoffs/GSTA-258/C-noloss-results.md); every brief body lib/review-brief.ts cuts from the ship sections still hashes to its pin, so only lead instructions outside the cut spans changed",
 } as const;
 type Replay = keyof typeof NO_LOSS_REPLAYS;
 const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
-    'ship/sections/review-army.md': { sha: 'de3e0d35f2af56492c42fd287b6868fbe19bce96b86321e74a4947ba909b74eb', replay: 'GST-508+GST-464+GST-967' },
-    'ship/sections/adversarial.md': { sha: '0142d6bc3f2a5bceb9f8b2adef1d3a206e5836c99a0667fe995568da2e80a5a6', replay: 'GST-508+GST-464+GST-967' },
+    'ship/sections/review-army.md': { sha: '25c09be7ea5c0e438ee059af2064f5bf038f6b69e3b5378f6c47be669f7ecd17', replay: 'GSTA-258-C' },
+    'ship/sections/adversarial.md': { sha: 'c623d65c4c53054108ac0166773c89233d76a25b0d35eb72d1c546f7bec4bdc9', replay: 'GSTA-258-C' },
     'review/sections/review-army.md': { sha: '78329b64640260cd8831ca81a9189f3f8dcade9c406431631d3f2cd798cd3967', replay: '#3638' },
     'review/sections/adversarial.md': { sha: 'e6962fa25b78f362654f2954f79683e524d2ebd452d1494f8a2b099888e8e255', replay: 'G1' },
     'review/checklist.md': { sha: 'a32963ef38d9d3613c58c805e8517cd2e593c63769b30dd7d40e2592fa48fc78', replay: 'GSTA-224 H1' },
@@ -94,8 +95,8 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: 'd76a9afcfadfe0a95b15428c04e6f7a88c6b0fa75591201c45f023fec2bb90db', replay: 'GST-508+R51+GST-911+GST-967' },
-    'lib/review-risk.ts': { sha: '126eff0f1de6982e03dc24d8017c67e6807c91dfa518b18d2db3aa910aac911f', replay: 'GST-508+R51+GST-911' },
+    'lib/review-depth.ts': { sha: '7d5e18436404ed8d620bfe6a7d042dff9251956a790d978407445ec7444a70ee', replay: 'GSTA-258-C' },
+    'lib/review-risk.ts': { sha: '2c5b96b921b8be5b977b734b3787361ed80e7d3f779ff6c4a20948f85e4d4474', replay: 'GSTA-258-C' },
 };
 
 /**

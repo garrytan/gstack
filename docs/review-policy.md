@@ -182,10 +182,12 @@ A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 ### Who reads (R65, the base policy's `review` key)
 
 The depth says how much review a diff needs; the base branch's `.gstack/ship-policy.json`
-`review` key says who does it (`review.panel`, default `risk`). `gstack-review-plan`
+`review` key says who does it (`review.panel`, default `all`: today's panel on every class). `gstack-review-plan`
 prints `REVIEW_MODE: <lean|panel|platform> panel=<p> reader_model=<m> platform=<on|off>`
 and, under `review.platform on`, `PLATFORM_REVIEW: <id> reviewer=capy-ai[bot] head=<sha>`
 or `PLATFORM_REVIEW: none (<reason>)`.
+
+Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 
 | Diff | Pass 1 | After fixes (never more than 2 rounds) |
 |---|---|---|
@@ -194,7 +196,9 @@ or `PLATFORM_REVIEW: none (<reason>)`.
 | Docs and tests | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
 | Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
 
-`review.panel all` keeps today's panel and loop on every class; `review.panel off` gives
+`review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
+opt-in because its one-reader shape has not passed its no-loss replay: build C's replay
+scored it FIX-METHOD (its readers saw the diff without the repository). `review.panel off` gives
 risk class one merged reader too (`DISPATCH: adversarial-native merged`: the native
 adversarial brief, the gate-class checklists, the Red Team checklist and the targeted
 brief, whose ledger record is the receipt's `review_targeted`). The risk classes come

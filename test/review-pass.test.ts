@@ -10,7 +10,6 @@ import * as path from 'node:path';
 import { promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
-import { REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -132,9 +131,6 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv } {
   const dir = tmp('rp-repo-');
   const env = { ...process.env, PATH: BIN + path.delimiter + process.env.PATH, GSTACK_STATE_ROOT: path.join(dir, '.state'), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
   const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); };
-  // The pass program cases pin today's panel (review.panel all keeps it on every class); R65's default one-reader table is
-  // pinned in test/review-depth-lean.test.ts.
-  fs.mkdirSync(path.join(dir, '.gstack')); fs.writeFileSync(path.join(dir, '.gstack', 'ship-policy.json'), JSON.stringify({ review: { panel: 'all' }, min_gstack_version: REVIEW_POLICY_KEY_VERSION }) + '\n');
   sh("git init -q -b main && echo '{}' > package.json && mkdir src && echo 'export const a = 1;' > src/a.ts && echo .state > .gitignore && git add -A && git commit -qm base && git checkout -qb feat");
   sh('for i in $(seq 1 80); do echo "export const v$i = $i;" >> src/a.ts; done && git commit -qam feat');
   return { dir, env };

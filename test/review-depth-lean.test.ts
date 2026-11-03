@@ -86,7 +86,7 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
     expect(roles(p)).toEqual(['adversarial-native:single:full:lane']);
     expect(roles(planReview(base({ shape: lean({ readerModel: 'cross-family' }) })))).toEqual(['adversarial-native:single:full:cross-family']);
   });
-  test('default (panel risk, FOUN-64 item 1): a risk-class diff gets the printed full-depth panel; a fixed blocker re-runs the printed plan as round 2 (FOUN-32 §5)', () => {
+  test('panel risk (opt-in, FOUN-64 item 1): a risk-class diff gets the printed full-depth panel; a fixed blocker re-runs the printed plan as round 2 (FOUN-32 §5)', () => {
     const today = roles(planReview(base({ paths: ['lib/billing.ts'], targeted: { classes: ['money'] }, shape: undefined })));
     const p = planReview(base({ paths: ['lib/billing.ts'], targeted: { classes: ['money'] } }));
     expect([p.depth, p.mode, roles(p)]).toEqual(['full', 'panel', today]);
@@ -139,6 +139,13 @@ describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the
     const ev = { id: '1', head: HEAD, reviewer: 'capy-ai[bot]' };
     expect(planReview(base({ paths: ['lib/billing.ts'], shape: on(ev) })).mode).toBe('panel');
     expect(planReview(base({ paths: ['src/app.ts', 'docs/r.md'], numbers: scanNumbers({ 'docs/r.md': ['p50 4.7 h'] }), shape: on(ev) })).mode).toBe('lean');
+  });
+  test('under the default panel all, platform on still takes the platform depth at HEAD; everything else keeps today\'s panel', () => {
+    const ev = { id: '1', head: HEAD, reviewer: 'capy-ai[bot]' };
+    const all = (review: ReviewShape['platformReview']) => lean({ panel: 'all', platform: 'on', platformReview: review });
+    expect(planReview(base({ ...docs, shape: all(ev) })).mode).toBe('platform');
+    expect(planReview(base({ ...docs, shape: all(null) })).mode).toBe('panel');
+    expect(planReview(base({ shape: all(ev) })).mode).toBe('panel');
   });
   test('the platform skip is pass 1 only: a later step plans as lean', () => {
     const p = planReview(base({ shape: on({ id: '1', head: HEAD, reviewer: 'capy-ai[bot]' }), history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
@@ -193,7 +200,7 @@ describe('C7 merged reader brief and the outside voice reading its diff from dis
 
 describe('ship policy: the base-read review key', () => {
   const codes = (raw: object) => validatePolicy(raw).map(e => `${e.code}:${e.path}`);
-  test('defaults: panel risk, the lane\'s native reader, platform off, no extra risk paths', () => expect(DEFAULT_POLICY.review).toEqual({ panel: 'risk', reader_model: 'lane', platform: 'off', risk_paths: [] }));
+  test('defaults: panel all (today\'s panel; risk is opt-in until its no-loss replay passes), the lane\'s native reader, platform off, no extra risk paths', () => expect(DEFAULT_POLICY.review).toEqual({ panel: 'all', reader_model: 'lane', platform: 'off', risk_paths: [] }));
   test('valid values pass with min_gstack_version; bad ones name the field', () => {
     const v = REVIEW_POLICY_KEY_VERSION;
     expect(codes({ review: { platform: 'on', reader_model: 'anthropic/claude-opus-5-5', panel: 'risk', risk_paths: ['src/balance/**'] }, min_gstack_version: v })).toEqual([]);

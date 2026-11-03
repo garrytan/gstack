@@ -22,8 +22,6 @@ function fixture() {
   fs.writeFileSync(path.join(root, 'gitconfig'), '[commit]\n\tgpgsign = false\n');
   const sh = (cwd: string, c: string) => { const r = spawnSync('bash', ['-c', c], { cwd, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(`${c}: ${r.stderr}`); return r.stdout.trim(); };
   sh(root, 'git init -q --bare -b main origin.git && git clone -q origin.git work && git clone -q origin.git other 2>/dev/null || true');
-  // The briefs this case reads are today's panel (review.panel all); R65's one native reader renders at Step 11.
-  fs.mkdirSync(path.join(work, '.gstack')); fs.writeFileSync(path.join(work, '.gstack', 'ship-policy.json'), JSON.stringify({ review: { panel: 'all' }, min_gstack_version: '1.94.0.0' }) + '\n');
   sh(work, "echo '{}' > package.json && mkdir src && echo 'export const a = 1;' > src/a.ts && git add -A && git commit -qm base && git push -q origin main");
   sh(root, 'rm -rf other && git clone -q origin.git other');
   sh(path.join(root, 'other'), 'mkdir -p up && for i in $(seq 1 12); do echo "export const u$i = $i;" > up/u$i.ts; done && git add -A && git commit -qm upstream && git push -q origin main');

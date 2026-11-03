@@ -75,10 +75,11 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             the detected classes and only raise the depth; RISK_DECLARED: prints both (GST-1129)
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
-Mode (R65, the base policy's review key): lean (default) runs one reader: risk class gets the merged reader on review.risk_model
+Mode (R65, the base policy's review key): review.panel all (default) keeps today's panel on every class. review.panel risk
+(opt-in; its one-reader shape has not passed a no-loss replay) runs lean off risk class, and review.panel off everywhere: lean runs one reader: risk class gets the merged reader on review.risk_model
 (the native adversarial brief plus the checklists, the Red Team and the targeted brief), non-risk code the single reader at the
 lane's reasoning (cross-family when it publishes numbers), docs and tests the core read; one fix-check after fixes, never more
-than 2 rounds. review.panel risk|all keeps today's panel there. review.platform on: a light diff with no numeric claims whose PR
+than 2 rounds. review.platform on (any panel): a light diff with no numeric claims whose PR
 carries capy-ai[bot]'s review at HEAD plans NEXT: platform and a planned SKIP for every reader.
 Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data, review.risk_paths) or any DEPTH_ERROR;
 standard only by --depth-floor or a raise; otherwise light. TARGETED: the money,

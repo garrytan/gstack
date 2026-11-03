@@ -6,7 +6,7 @@
  * paths to R51's risk classes.
  */
 export interface ReviewPolicy { panel: 'off' | 'risk' | 'all'; reader_model: string; platform: 'off' | 'on'; risk_paths: string[] }
-export const REVIEW_POLICY_DEFAULT: ReviewPolicy = { panel: 'risk', reader_model: 'lane', platform: 'off', risk_paths: [] };
+export const REVIEW_POLICY_DEFAULT: ReviewPolicy = { panel: 'all', reader_model: 'lane', platform: 'off', risk_paths: [] };
 const MODEL = /^[A-Za-z0-9][\w./:-]{0,127}$/;
 
 /** The key with every omitted field at its default (a policy file may set any subset). */

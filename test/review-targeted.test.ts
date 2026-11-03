@@ -189,8 +189,8 @@ function planRepo(f: Fixture) {
  */
 const FULL_PANEL = ['specialist', 'red-team', 'adversarial-native', 'outside-voice'];
 const R51: Record<string, { depth: string; panel: boolean; dropped?: string[] }> = {
-  'none-light': { depth: 'light', panel: false, dropped: ['specialist'] }, 'none-standard': { depth: 'light', panel: false, dropped: ['specialist', 'outside-voice'] }, 'none-docs': { depth: 'light', panel: false },
-  'none-tests': { depth: 'light', panel: false }, 'none-costume': { depth: 'light', panel: false, dropped: ['specialist'] }, 'none-gate-path': { depth: 'full', panel: true },
+  'none-light': { depth: 'light', panel: false }, 'none-standard': { depth: 'light', panel: false, dropped: ['outside-voice'] }, 'none-docs': { depth: 'light', panel: false },
+  'none-tests': { depth: 'light', panel: false }, 'none-costume': { depth: 'light', panel: false }, 'none-gate-path': { depth: 'full', panel: true },
   'secret-light': { depth: 'full', panel: true }, 'secret-path': { depth: 'full', panel: true }, 'secret-removed': { depth: 'full', panel: true }, 'gate-tagged': { depth: 'full', panel: true },
   'money-light': { depth: 'full', panel: true }, 'money-path': { depth: 'full', panel: true }, 'money-removed': { depth: 'full', panel: true }, 'money-standard': { depth: 'full', panel: true },
   'auth-path': { depth: 'full', panel: true }, 'money-fix-check': { depth: 'full', panel: false }, 'money-pass2': { depth: 'full', panel: false }, 'gate-repeat': { depth: 'full', panel: false },
@@ -204,8 +204,7 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
   //   with no class; seam=bin/gstack-review-plan end to end; no_claim=that the reader finds the defect (the paid replay's question)
   //   R51 changes the table: risk and gate fixtures plan full (every role main dispatched, plus the full panel), and the one
   //   non-risky standard fixture drops only the outside voice; fails_when=a risk fixture loses a role main dispatched or misses
-  //   the full panel, or a non-risky fixture loses a role the R51 table does not list. R65 (GSTA-258 build C): a non-risky code
-  //   fixture runs one native adversarial reader carrying the checklists and the Red Team, so its batched specialist drops too
+  //   the full panel, or a non-risky fixture loses a role the R51 table does not list
   test('the dispatch-superset no-loss check: risk and gate fixtures keep every role main dispatched plus the full panel; non-risky ones drop only what R51 lists', () => {
     expect(Object.keys(MAIN).sort()).toEqual(Object.keys(FIXTURES).sort());
     expect(Object.keys(R51).sort()).toEqual(Object.keys(FIXTURES).sort());

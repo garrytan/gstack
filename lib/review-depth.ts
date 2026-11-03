@@ -549,7 +549,8 @@ export function planReview(i: PlanInput): ReviewPlan {
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
   const sh = i.shape;
-  const panel = !sh || sh.panel === 'all' || (sh.panel === 'risk' && riskClass(c, depth));
+  const platformNow = !!sh && sh.platform === 'on' && sh.platformReview?.head === sh.head && i.history.fullPasses === 0 && !riskClass(c, depth) && platformFits(i.paths, depth.runtimeLines, i.numbers);
+  const panel = !platformNow && (!sh || sh.panel === 'all' || (sh.panel === 'risk' && riskClass(c, depth)));
   const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan, lean: !panel }, depth.depth);
   if (!panel) return leanPlan(i, c, depth, next);
   const h = i.history;
