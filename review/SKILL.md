@@ -392,12 +392,12 @@ CRITICAL is the blocking floor (docs/review-policy.md): a finding that would fai
 test, break production, or lose data or secrets. Everything else is INFORMATIONAL and
 never earns another pass. `NO FINDINGS` is a complete result from any reviewer.
 
-**Blocker proof.** Every CRITICAL finding, from any reviewer (core, specialist, QA,
-adversarial or bot), names its floor reason (`fails a test`, `breaks production` or
-`loses data or secrets`) and carries proof: a repro with its output, a failing test,
-or a cited `file:line` with the consequence it causes. Append both to the finding line:
-`Floor: <reason>. Proof: <repro | test | file:line -> consequence>`. At Step 5 a
-finding without them is INFORMATIONAL, whatever its confidence or `Blocks:` line.
+**Blocker proof.** Every CRITICAL finding, yours or forwarded (specialist, QA,
+adversarial or bot), gets a floor reason (`fails a test`, `breaks production`,
+`loses data or secrets` or a forced-CRITICAL class below) and proof: a repro with
+its output, a failing test, or a cited `file:line` with its consequence. Verify a
+forwarded one and append both yourself: `Floor: <reason>. Proof: <repro | test |
+file:line -> consequence>`. At Step 5 an unproven CRITICAL is INFORMATIONAL, whatever its `Blocks:` line.
 
 **Sideways sweep (every finding; reads code OUTSIDE the diff).** Grep the finding's pattern at every other ingress, command and call site, Read each match and rate severity on the worst sibling; a new enum value, status, tier or type constant is traced through every consumer the same way (checklist: Sideways sweep). Data loss, a trust-boundary bypass or uncapped spend is forced CRITICAL: no lane, specialist, dedup or saved decision downgrades it. Keep findings anchored to changed code.
 
@@ -523,13 +523,13 @@ but its doc was not updated, flag an INFORMATIONAL finding naming the file and
 affected behavior. Propose `/document-release` for the parent's decision, never a
 critical finding or another writer during collection. Skip silently if no docs exist.
 
----
-
-**Dispatch markers.** Step 4.5 always prints one selection line starting
-`Dispatching N specialists:`. On a small diff that line is `Dispatching 0 specialists: (small diff)`,
-or `Dispatching 1 specialists: State Machines (small diff)`, in place of the section's
+**Dispatch markers (these override the section).** Step 4.5 prints one line starting
+`Dispatching N specialists:`, small diffs too: `Dispatching 0 specialists: (small diff)`
+or `Dispatching 1 specialists: State Machines (small diff)`, never the section's
 `Small diff` line. Step 4.8 prints `Dispatching adversarial pass: native` right before
 its native Agent call.
+
+---
 
 > **STOP.** Before dispatching the Review Army specialists and merging their findings after the critical pass (Step 4.5), Read `~/.claude/skills/gstack/review/sections/review-army.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.

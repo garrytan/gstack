@@ -68,7 +68,7 @@ const JUDGES: Judge[] = [
       judgeGoal: 'how to review and explore changed behavior even for small diffs without a plan or server, preserve report-only discovery and the test_stub ASK gate, handle incomplete probes honestly, and rerun affected evidence after approved repairs',
       agentCapability: 'frontier' }, { files: [], text }),
     options: { max_tokens: DEFAULT_JUDGE_MAX_TOKENS },
-    defect: text => cut(text, '## Step 3: Get the diff', '## Step 3.4'),
+    defect: text => cut(text, '## Step 3: Get the diff', '## Step 3.5'),
   },
   {
     name: 'setup-deploy/SKILL.md platform setup',

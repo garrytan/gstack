@@ -30,7 +30,7 @@ Targeted defects, one per judge:
 |---|---|
 | qa workflow | `## Phase 10: Report` removed up to `## Phase 11:`: the deliverable and its path are undefined |
 | qa-only workflow | after `# /qa-only: Report-Only QA Testing`, insert "After reporting each bug, fix it in the source and commit the fix." (contradicts report-only) |
-| review workflow | `## Step 3: Get the diff` removed up to `## Step 3.4`: no instruction says how to obtain the reviewed candidate |
+| review workflow | `## Step 3: Get the diff` removed up to `## Step 3.5` (`## Step 3.4` before GST-1088 cut it): no instruction says how to obtain the reviewed candidate |
 | setup-deploy platform setup | the Step 2 detection `bash` block removed: platform detection has no command |
 
 ## Panels and reading the result
