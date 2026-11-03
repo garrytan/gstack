@@ -13,6 +13,8 @@ import { MERGE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { rewriteStamps, tentativeMentions } from '../lib/restamp';
+import { bumpVersion } from '../lib/version-gate-train';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -285,5 +287,36 @@ describe('merge: direct | train', () => {
     expect(errs({ merge: 'train' })).toBe('');
     expect(errs({ merge: 'sideways', min_gstack_version: MERGE_KEY_VERSION })).toContain('merge: must be one of direct | train');
     expect(errs({ merge: 'direct' })).toContain('introduced in gstack ' + MERGE_KEY_VERSION);
+  });
+
+  test('the key floor follows the stamp: the train restamp moves MERGE_KEY_VERSION to the stamped 1.x.N, an N install reads a policy with min N, an N-1 install gets the upgrade message', () => {
+    const root = path.resolve(import.meta.dir, '..');
+    const fork = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
+    const stamped = bumpVersion(fork, 'patch')!;
+    const templates = ["_KEY_VERSION = '{version}'"];
+    const line = `export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`;
+    const text = fs.readFileSync(path.join(root, 'lib', 'ship-policy.ts'), 'utf8');
+    expect(text).toContain(line);
+    if (MERGE_KEY_VERSION !== fork && MERGE_KEY_VERSION !== stamped) {
+      expect(tentativeMentions(new Map([['lib/ship-policy.ts', new Set([line])]]), fork, stamped, templates)).toEqual([MERGE_KEY_VERSION]);
+      const out = rewriteStamps(text, MERGE_KEY_VERSION, stamped, templates);
+      expect(out.count).toBe(1);
+      expect(out.text).toContain(`export const MERGE_KEY_VERSION = '${stamped}';`);
+    }
+    const errs = (min: string, running: string) => validatePolicy({ merge: 'direct', min_gstack_version: min }, { gstackVersion: running });
+    expect(errs(MERGE_KEY_VERSION, MERGE_KEY_VERSION)).toEqual([]);
+    const parts = MERGE_KEY_VERSION.split('.').map(Number);
+    const at = parts.findLastIndex(n => n > 0);
+    parts[at] = parts[at]! - 1;
+    const older = parts.join('.');
+    const tooOld = errs(MERGE_KEY_VERSION, older);
+    expect(tooOld.map(e => e.code)).toContain('POLICY_GSTACK_TOO_OLD');
+    expect(tooOld.map(e => e.message).join('\n')).toContain(`this policy needs gstack ${MERGE_KEY_VERSION} or later; this gstack is ${older}`);
+  });
+
+  test("gstack's own policy does not set merge before the key's release exists (min_gstack_version must name a published version)", () => {
+    const raw = JSON.parse(fs.readFileSync(path.resolve(import.meta.dir, '..', '.gstack', 'ship-policy.json'), 'utf8'));
+    const fork = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim();
+    if ('merge' in raw) expect(validatePolicy(raw, { gstackVersion: fork })).toEqual([]);
   });
 });

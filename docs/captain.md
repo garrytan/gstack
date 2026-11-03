@@ -271,7 +271,7 @@ the same product diff; any other rebase is a full /ship
 ([ship-policy.md](ship-policy.md#receipt-carry)). A controller never asks a lane to
 rebase a reviewed branch.
 
-## Direct land (`merge: direct`, gstack's default)
+## Direct land (`merge: direct`)
 
 When the base policy sets `"merge": "direct"`, there are no trains, slot calls or stamp
 commits. Each PR merges at its own green head, and versions are set at release
