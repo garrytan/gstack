@@ -163,6 +163,9 @@ class OutputTail {
   }
 }
 
+/** The one spelling a lane label has in the ledger: run and record-ci write it, check reads it (`pnpm lint` is `pnpm_lint`, TRUT-7). */
+const ledgerLabel = (raw: string): string => raw.replace(/[^a-zA-Z0-9._-]/g, "_");
+
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const strip = (l: string) => l.replace(ANSI, "").replace(/\r$/, "");
 const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) ${word}\\b`).exec(text)?.[1] ?? 0);
@@ -428,7 +431,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   const commandString = cmdArgv.length === 1 ? cmdArgv[0] : cmdArgv.join(" ");
   const shell = cmdArgv.length === 1 ? bashCommandInvocation(cmdArgv[0]) : null;
   const cmdSha = sha256(commandString);
-  label = label.replace(/[^a-zA-Z0-9._-]/g, "_");
+  label = ledgerLabel(label);
 
   // Bookkeeping context — every piece is optional; failures only warn.
   let paths: ReturnType<typeof ledgerPath> | undefined;
@@ -675,7 +678,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const sep = argv.indexOf("--");
   const opts = sep < 0 ? argv : argv.slice(0, sep);
   const get = (name: string) => { const i = opts.indexOf(name); return i >= 0 ? opts[i + 1] : undefined; };
-  const label = get("--label")?.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const raw = get("--label");
+  const label = raw === undefined ? undefined : ledgerLabel(raw);
   const base = get("--base");
   const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
   if (!label || !base || !command || opts.length !== 4) {
@@ -771,7 +775,7 @@ function cmdCheck(argv: string[]): number {
   let allowPaths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--label") wanted.push({ label: argv[++i] ?? "" });
+    if (a === "--label") wanted.push({ label: ledgerLabel(argv[++i] ?? "") });
     else if (a === "--expect-cmd") {
       if (wanted.length === 0) {
         console.error("gstack-evidence: --expect-cmd requires a preceding --label");
