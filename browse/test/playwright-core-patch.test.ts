@@ -73,3 +73,18 @@ describe('playwright-core TcpPortRandomizationWin backport (microsoft/playwright
     expect(bundle).toContain('"--disable-features=" + disabledFeatures.join(",")');
   });
 });
+
+// #3907: CVE-2026-106378 (macOS GPU-process sandbox escape, crbug.com/507596239) is fixed by Chromium
+// commit 0c2f3e54b265 (main@{#1695786}), first tagged in 155.0.8059.12. Playwright 1.62.1 shipped
+// 151.0.7922.34, which lacks it. A Playwright pin whose bundled Chromium is older reopens the escape.
+describe('bundled Chromium carries the CVE-2026-106378 fix (#3907)', () => {
+  test('playwright-core pins Chromium 155.0.8059.12 or later', () => {
+    const browsers = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'node_modules', 'playwright-core', 'browsers.json'), 'utf-8',
+    )) as { browsers: Array<{ name: string; browserVersion: string }> };
+    const version = browsers.browsers.find((b) => b.name === 'chromium')!.browserVersion.split('.').map(Number);
+    const floor = [155, 0, 8059, 12];
+    const cmp = version.map((part, i) => part - floor[i]).find((d) => d !== 0) ?? 0;
+    expect(cmp).toBeGreaterThanOrEqual(0);
+  });
+});
