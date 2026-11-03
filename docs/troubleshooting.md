@@ -6027,10 +6027,11 @@ When the only refused path is a version constant the branch retook after a
 base merge (a rules or save number with goldens regenerated from it), declare
 it under `carry_mechanical` in the base branch's `.gstack/ship-policy.json`
 ([ship-policy.md](ship-policy.md#receipt-carry)) and pass a current
-`--pregate` whose regen check proved the goldens. A refusal reason starting
-with `carry_mechanical:` names the rule that failed: the file does not hold
-exactly one line matching the template, HEAD's value is not above the base's,
-the regen check did not pass, or a golden is unproven.
+`--pregate` whose regen check proved the goldens. A refusal reason marked
+`carry_mechanical:` names the rule that failed: the file does not hold
+exactly one line matching the template, the reviewed head did not take the
+constant, HEAD's value is not above the base's, the regen check did not pass,
+or a golden is unproven.
 
 <a id="receipt-carry-scoped-review"></a>
 ### `RECEIPT_CARRY_SCOPED_REVIEW`
