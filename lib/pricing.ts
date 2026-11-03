@@ -51,6 +51,9 @@ export const PRICING: Record<string, ModelPricing> = {
   // https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-12)
   'claude-sonnet-5-5':  { input_per_mtok: 2.00,  output_per_mtok: 10.00, cached_input_per_mtok: 0.10, as_of: '2026-10' },
   'claude-sonnet-4-6':  { input_per_mtok: 3.00,  output_per_mtok: 15.00, as_of: '2026-04' },
+  // https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-31; standard tier, prompts up to
+  // 100,000 tokens; the $0.50 / $2.50 / $0.05 rate above that is excluded like the other long-context surcharges)
+  'claude-haiku-5-5':   { input_per_mtok: 0.10,  output_per_mtok: 0.50,  cached_input_per_mtok: 0.01, as_of: '2026-10' },
   'claude-haiku-4-5':   { input_per_mtok: 1.00,  output_per_mtok: 5.00,  as_of: '2026-04' },
 
   // OpenAI (GPT + o-series)
@@ -58,6 +61,8 @@ export const PRICING: Record<string, ModelPricing> = {
   'gpt-6-astra':        { input_per_mtok: 10.00, output_per_mtok: 50.00, cached_input_per_mtok: 1.00, as_of: '2026-09' },
   // https://developers.openai.com/api/docs/models/gpt-6.1-sol (standard tier, up to 272K input)
   'gpt-6.1-sol':        { input_per_mtok: 2.00,  output_per_mtok: 10.00, cached_input_per_mtok: 0.10, as_of: '2026-10' },
+  // https://developers.openai.com/api/docs/models/gpt-6-luna (fetched 2026-10-31; standard tier, up to 272K input)
+  'gpt-6-luna':         { input_per_mtok: 0.10,  output_per_mtok: 0.50,  cached_input_per_mtok: 0.01, as_of: '2026-10' },
   'gpt-5.4':            { input_per_mtok: 2.50,  output_per_mtok: 10.00, as_of: '2026-04' },
   // https://developers.openai.com/api/docs/models/gpt-4o (fetched 2026-10-13; gbrain's LongMemEval judge, the official scorer's model;
   // the alias only: the gpt-4o-2024-05-13 snapshot has its own price)
@@ -67,6 +72,9 @@ export const PRICING: Record<string, ModelPricing> = {
   'o4-mini':            { input_per_mtok: 1.10,  output_per_mtok: 4.40,  as_of: '2026-04' },
 
   // Google
+  // https://ai.google.dev/gemini-api/docs/pricing (fetched 2026-10-31; the rates starting 2026-12-01, so estimates
+  // never under-price; through 2026-11-30 the page lists $2.00 / $10.00 / $0.10 cached; thinking tokens bill as output)
+  'gemini-4-argon':     { input_per_mtok: 4.00,  output_per_mtok: 20.00, cached_input_per_mtok: 0.20, as_of: '2026-10' },
   // https://ai.google.dev/gemini-api/docs/pricing (fetched 2026-10-12; standard tier through 2026-12-31,
   // the page lists $1.50 / $7.50 / $0.15 cached starting 2027-01-01)
   'gemini-3.8-flash':   { input_per_mtok: 0.75,  output_per_mtok: 3.75,  cached_input_per_mtok: 0.075, as_of: '2026-10' },
