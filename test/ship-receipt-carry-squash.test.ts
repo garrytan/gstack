@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
+import { extractReceipt, landedStackParent, renderReceiptBlock } from '../lib/ship-receipt';
 import { bindShippedReceipt } from '../lib/ship-receipt-depth';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -226,4 +226,17 @@ describe('carry after a stack parent squash-merges, receipt written against main
     expect(out.err).toContain('lib/config.js');
     expect(receiptIn(body).head).toBe(child);
   }, 90_000);
+
+  // Value: protects=the receipt never names a stack parent that does not exist; fails_when=a test-first commit with no
+  // product change counts as landed (any base holds it), so the reason claims a parent and the test range shrinks; seam=none;
+  // no_claim=-
+  test('a test-only commit in a branch that was never stacked is no landed parent', () => {
+    const repo = makeFixtureRepo({ baseFiles: { 'lib/config.js': CONFIG } }); repos.push(repo);
+    const fork = repo.git('rev-parse', 'HEAD');
+    commit(repo, { 'test/config.test.js': "const test = require('node:test');\ntest('d', () => {});\n" }, 'test first');
+    const reviewed = commit(repo, { 'lib/config.js': configWith({ 'd = 4': 'd = 40' }) }, 'fix d');
+    repo.git('checkout', '-q', 'main');
+    const mainTip = commit(repo, { 'docs/README.md': '# main moves on\n' }, 'main moves on');
+    expect(landedStackParent(repo.work, { rangeBase: fork, reviewed, currentBase: mainTip }, ['.', ':(exclude,glob)test/**'])).toBeNull();
+  }, 60_000);
 });

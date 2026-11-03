@@ -281,7 +281,8 @@ export const STACK_PARENT_WALK = 100;
 /**
  * The newest commit inside the reviewed range (rangeBase..reviewed, the reviewed head itself excluded) whose product
  * change the current base already holds: merging it into currentBase changes no product path. That is a stack parent
- * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). Null when no
+ * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
+ * product change of its own (a test-first commit) is no parent, since any base trivially holds it. Null when no
  * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
  */
 export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[]): string | null {
@@ -289,6 +290,7 @@ export function landedStackParent(repoRoot: string, s: { rangeBase: string; revi
   const commits = run(['rev-list', '--topo-order', `--max-count=${STACK_PARENT_WALK + 1}`, `${s.rangeBase}..${s.reviewed}`]);
   if (commits.status !== 0) return null;
   for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
+    if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
     const merged = run(['merge-tree', '--write-tree', '--no-messages', s.currentBase, commit]);
     const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
     if (tree && run(['diff', '--quiet', s.currentBase, tree, '--', ...product]).status === 0) return commit;
