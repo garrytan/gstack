@@ -427,7 +427,9 @@ describe('a branch-added row left at the fork version after the base moved (GST-
     const { repo, body } = carryAfterStamp('restamp-carry-mode-', [row('1.2.3.0', 'base_row')], row('1.2.3.0', 'mine'),
       [row('1.2.3.0', 'base_row'), '', row('1.2.5.0', 'mine')]);
     fs.chmodSync(path.join(repo.work, NOTICE), 0o755);
-    repo.git('commit', '-qam', 'stamp 1.2.5.0, and make the file executable');
+    repo.git('add', '-A');
+    repo.git('update-index', '--chmod=+x', '--', NOTICE);
+    repo.git('commit', '-qm', 'stamp 1.2.5.0, and make the file executable');
     expect(repo.git('ls-tree', 'HEAD', '--', NOTICE)).toStartWith('100755 ');
     const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
     expect(carried.status, carried.out).toBe(EXIT.refused);
