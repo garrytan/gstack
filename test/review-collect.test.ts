@@ -119,6 +119,17 @@ describe('GSTA-258 L7 Addendum 1 and 7: executables among data-named paths', () 
     expect(pc.executables).toEqual([]);
     expect(depthOfCommitInput({ ...pc, gateTagged: 0 }).class).toBe('docs');
   });
+  // Value: protects=a deleted log is absent, not unreadable, and an unrelated large blob never forces the fail-closed default;
+  //   fails_when=removing logs/run classes as gate, or a big text file in the diff makes r.log executable; seam=executablesAt
+  test('a deleted log is not executable, and only candidates are read (two bytes each)', () => {
+    const r = repo({ 'logs/run': 'ok\n', 'r.log': 'ok\n', 'big.txt': 'a'.repeat(1024 * 1024) });
+    const del = r.commit({ 'logs/run': null, 'r.log': 'ok2\n', 'big.txt': 'b' + 'a'.repeat(1024 * 1024) });
+    const c = collectCommit(r.dir, r.baseSha, del);
+    expect(c.executables).toEqual([]);
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 }).class).toBe('docs');
+    r.write({ 'r.log': null });
+    expect(collectLive(r.dir, 'main').executables).toEqual([]);
+  });
 });
 
 describe('collectLive: the working tree', () => {

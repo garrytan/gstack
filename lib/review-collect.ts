@@ -241,30 +241,22 @@ function executablesAmong(perPath: readonly PathLines[], classRoot: string | rea
   return perPath.filter(e => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot)).filter(isExec).map(e => e.path).sort();
 }
 
-/** The executables among the changed paths at `headSha`: tree mode 100755, or a text blob that starts with "#!"; an unreadable tree or blob counts as executable. */
+/**
+ * The executables among the changed paths at `headSha`: tree mode 100755, or a text blob whose first two bytes are "#!" (only
+ * those bytes are read). A path the head tree lacks is a deletion, never an executable; an unreadable tree or blob counts as one.
+ */
 function executablesAt(root: string, headSha: string, perPath: readonly PathLines[], classRoot: readonly string[]): string[] {
   const tree = git(root, ['ls-tree', '-r', '-z', headSha]);
   const entries = new Map(tree.out.split('\0').flatMap(rec => { const m = /^(\d+) blob ([0-9a-f]+)\t(.*)$/s.exec(rec); return m ? [[m[3]!, { mode: m[1]!, sha: m[2]! }] as const] : []; }));
-  const firstBytes = new Map<string, string>();
-  const text = perPath.flatMap(e => { const t = entries.get(e.path); return !e.binary && t && t.mode !== '100755' ? [t.sha] : []; });
-  if (text.length) {
-    const r = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: text.join('\n') + '\n', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
-    const out = r.status === 0 && !r.error ? r.stdout : null;
-    for (let at = 0; out && at < out.length;) {
-      const nl = out.indexOf(10, at);
-      const m = nl < 0 ? null : /^([0-9a-f]+) blob (\d+)$/.exec(out.subarray(at, nl).toString('latin1'));
-      if (!m) break;
-      firstBytes.set(m[1]!, out.subarray(nl + 1, nl + 3).toString('latin1'));
-      at = nl + 1 + Number(m[2]) + 1;
-    }
-  }
   return executablesAmong(perPath, classRoot, e => {
+    if (!tree.ok) return true;
     const t = entries.get(e.path);
-    if (!tree.ok || !t) return true;
+    if (!t) return false;
     if (t.mode === '100755') return true;
     if (e.binary) return false;
-    const head = firstBytes.get(t.sha);
-    return head === undefined || head === '#!';
+    const r = spawnSync('git', ['cat-file', 'blob', t.sha], { cwd: root, timeout: 30_000, maxBuffer: 2 });
+    const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
+    return !read || (r.stdout ?? Buffer.alloc(0)).subarray(0, 2).toString('latin1') === '#!';
   });
 }
 
@@ -336,7 +328,7 @@ export function collectLive(root: string, base: string): Collected {
       const buf = Buffer.alloc(2);
       try { fs.readSync(fd, buf, 0, 2, 0); } finally { fs.closeSync(fd); }
       return buf.toString('latin1') === '#!';
-    } catch { return true; }
+    } catch (err) { return (err as NodeJS.ErrnoException).code !== 'ENOENT'; }
   });
   return { ...result(diff, { root, registry, errors, mergeBase, untracked, consumed, drawings, executables }), base: resolved };
 }

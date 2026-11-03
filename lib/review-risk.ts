@@ -68,7 +68,8 @@ export const SECURITY_LINE = [
   /(?<![.\w])eval\s*\(/, /(?:^|[;&|])\s*eval\s+["'$]/, /\bnew\s+Function\s*\(/,
   /\b(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/, /\bBun\.spawn(?:Sync)?\s*\(\s*\[\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/,
   /\brmSync\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s+-(?=[a-z]*r)(?=[a-z]*f)[a-z]*[rf]\b/,
-  /\bredact[A-Za-z]{0,40}\s{0,20}\(/, /(?:\bfrom\s{1,20}|\b(?:require|import)\s{0,20}\(\s{0,20})['"][^'"]{0,300}(?:redact|outside-voice)[^'"]{0,300}['"]/, /\b[A-Z0-9_]{0,60}(?:SECRET|CREDENTIAL)[A-Z0-9_]{0,60}\s{0,20}=\s{0,20}\//,
+  /\bredact\w{0,40}\s{0,20}\(/, /(?:\b(?:from|import)\s{1,20}|\b(?:require|import)\s{0,20}\(\s{0,20})['"][^'"]{0,300}(?:redact|outside-voice)[^'"]{0,300}['"]/, /\b(?:from|import)\s{1,20}[\w.]{0,200}(?:redact|outside_voice)/,
+  /\b[A-Z0-9_]{0,60}(?:SECRET|CREDENTIAL)[A-Z0-9_]{0,60}\s{0,20}=\s{0,20}(?:\[\s{0,20})?(?:\/|new\s{1,20}RegExp\b)/,
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */

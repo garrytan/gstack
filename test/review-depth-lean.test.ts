@@ -48,7 +48,9 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     expect(sec('lib/autoplan-lean.ts', ['  const redacted = (patch: string) => redactFindingSpans(patch) ?? "";'])).toBe(true);
     expect(sec('lib/autoplan-lean.ts', ['const SECRET_NAME = /(^|\\/)(\\.env[^/]*)$/i;'])).toBe(true);
     expect(sec('lib/review-x.ts', ["import { runOutsideVoice } from './outside-voice-runner';"])).toBe(true);
+    for (const l of ['out = redact_secrets(text)', 'from gstack.redact import scrub', "import './outside-voice';", 'SECRET_PATTERNS = [/sk-[a-z]+/]', 'const CREDENTIAL_RE = new RegExp(src);']) expect(sec('lib/x.ts', [l])).toBe(true);
     expect(sec('lib/autoplan-lean.ts', ['const INLINE_DRAFT_BYTES = 64_000;'])).toBe(false);
+    expect(sec('lib/x.ts', ['const SECRET_COUNT = total / 2;', "import { readFile } from 'node:fs';"])).toBe(false);
     expect(sec('lib/seasonal.ts')).toBe(false);
     expect(classifyDiff({ paths: ['scripts/sealed/seal.ts'], gateTagged: 0 }).risk).toContain('security');
   });
