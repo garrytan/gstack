@@ -223,6 +223,24 @@ describe('gstack-diff-scope', () => {
     expect(scope.SCOPE_AUTH).toBe('true');
   });
 
+  // Value: protects=auth matches as a word or path segment, so docs about authors stay out of the gate class;
+  //   fails_when=the auth match is a bare substring again (author-spec.md, AUTHORS, authority.ts raise SCOPE_AUTH);
+  //   why_new=GST-1065 (author-spec.md raised a docs bundle to gate class with four full readers); seam=bin/gstack-diff-scope
+  for (const file of ['docs/author-spec.md', 'AUTHORS', 'lib/authority.ts', 'docs/authored-by.md', 'src/coauthors.ts', 'AUTHORS.md']) {
+    test(`${file} is not an auth path`, () => {
+      expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('false');
+    });
+  }
+
+  // Value: protects=real auth paths still raise SCOPE_AUTH after the word-boundary fix (negative controls for GST-1065);
+  //   fails_when=the boundary drops a segment, a separator, a camelCase name or an authn/authz/oauth spelling; why_new=GST-1065; seam=bin/gstack-diff-scope
+  for (const file of ['src/auth.ts', 'app/auth/login.rb', 'lib/oauth.ts', 'src/oauth2/token.ts', 'lib/authn/check.go', 'src/authz.py', 'src/authService.ts',
+    'src/useAuth.ts', 'lib/OAuthClient.ts', 'lib/authentication.rb', 'lib/authorization_policy.rb', 'src/Authorize.tsx', 'config/AUTH_KEYS.md', 'pkg/auth-middleware.go']) {
+    test(`${file} is an auth path`, () => {
+      expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('true');
+    });
+  }
+
   test('detects config via bun.lock (Bun v1.2+ text lockfile)', () => {
     const dir = createRepo(['bun.lock']);
     const scope = runScope(dir);
