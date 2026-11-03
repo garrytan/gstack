@@ -73,8 +73,9 @@ export function changedLiterals(file: string, oldText: string, newText: string):
     if (oldC.has(name)) continue;
     const added = [...(newCall.get(name) ?? [])];
     const removed = olds.filter(v => { const i = added.indexOf(v); if (i >= 0) added.splice(i, 1); return i < 0; });
+    if (!added.length) continue;
     const seen = new Set<string>();
-    removed.forEach((old, i) => { if (i < added.length && !seen.has(old)) { seen.add(old); out.push({ name, old, new: added[i]!, file }); } });
+    removed.forEach((old, i) => { if (!seen.has(old)) { seen.add(old); out.push({ name, old, new: added[Math.min(i, added.length - 1)]!, file }); } });
   }
   return out;
 }

@@ -207,6 +207,9 @@ describe('literals (pure)', () => {
     expect(changedLiterals('f.ts', before, `${before}const query = { selection: { order: 'asc', limit: 300 } };\n`)).toEqual([]);
     expect(changedLiterals('f.ts', before, 'export const MAX = 3;\nconst page = { limit: 20 };\n')).toEqual([{ name: 'limit', old: '10', new: '20', file: 'f.ts' }]);
     expect(changedLiterals('f.ts', before, 'export const MAX = 4;\nconst page = { limit: 10 };\nconst query = { limit: 300 };\n')).toEqual([{ name: 'MAX', old: '3', new: '4', file: 'f.ts' }]);
+    expect(changedLiterals('f.ts', 'const retired = { limit: 10 };\nconst page = { limit: 20 };\n', 'const page = { limit: 30 };\n')).toEqual([
+      { name: 'limit', old: '10', new: '30', file: 'f.ts' }, { name: 'limit', old: '20', new: '30', file: 'f.ts' },
+    ]);
   });
   // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
   //   module, so a test that only names it is not a consumer, while an extensionless import, a JS/TS import extension, the module's own
