@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.94.41.0] - 2026-11-03
+
+**/ship's receipt counts its review findings by id, keeps every run, and a small change after review gets one reader instead of a second /ship (GSTA-258 L4; GST-1136, GST-1168, GST-1179).** The receipt's `REVIEW_LOOP` counts were wrong in a repeatable way: gbrain-evals#310's receipt said 3 blockers found and 2 fixed when 2 were found, 1 fixed and 1 deferred; gstack-evals#174 counted 16 blocking with 8 unrecorded against 9 found and 9 fixed; #3906 and #3911 showed `fixed=0` after real fixes. The summary paired findings by path:line only, so a native finding with no path:line, a row logged after its fix moved the line, or a late defer re-logged under another fingerprint all broke the count, and rows it couldn't place were dropped without a word.
+
+### Changed
+- **`gstack-review-scope summary` binds by finding id.** A row finding carries `ledger_id` (`<pass dir>/<merged.jsonl id>`), each fix commit names what it fixed in a `Review-Finding: <id> reader=<role>` trailer, rows that record their head dedupe by kind, pass, head and finding ids, and a late defer counts once. Rows and findings without an id keep the path:line pairing.
+- **What can't bind is named, never a silent zero.** A row with no start token or readable time, a `pN` ledger with no review row, a `ledger_id` no ledger holds and a trailer naming nothing each print `REVIEW_SCOPE_UNBOUND: <what>: <why>`, and the line and receipt carry `unbound=N`.
+- **The native reader's own verdict line no longer collects as a blocker.** "There are three low-severity findings, all FIXABLE, and none blocks." (#3901) collected as CRITICAL beside the findings it summarized; it now collects at FIXABLE. A line that says something blocks, names a file:line or leads with FIXABLE still collects as CRITICAL. A finding's `Severity: Low. Blocks: no` after a closing quote (`… its base." Severity: Low`) now counts as its own field: on ggstack#71 that one quote made one of four identical findings CRITICAL.
+- **`gstack-ship-receipt carry` offers a scoped re-check (J1).** On `RECEIPT_CARRY_PRODUCT_CHANGED` with linear history against the reviewed base and a range-diff (plus the diff of the changed product paths) of at most 400 lines, carry prints `RECHECK: eligible … packet=<file>`. One reader on the packet and `carry --recheck <record.json>` rebind the receipt, unless HEAD needs a deeper review depth or another risk class. Rebased branches, retargeted stacks, receipts with no recorded review depth, more than 20 changed product paths, binary paths, moved base context and packets over 400 lines or 64 KB still need /ship.
+- **Every /ship run's receipt is kept.** When `write` or `carry` replaces a different receipt, the old one's identifiers and counters move to an append-only `gstack-receipt-runs` block in the PR body (newest 30).
+- **`gstack-ship-queue ready` prints the whole READY.** It adds the receipt's `REVIEW_LOOP:` line, a `TRIAL_MERGES:` line for the lane to fill and an `Attention:` stub that opens with `reviewed by <model>` on risk-class PRs and `self-audited` on every other PR. docs/unattended.md now asks for the cross-family trail read only on risk-class PRs.
+- **The `GSTACK_RESULT:` line names the full head** (`status=complete head=<sha> run=<dir>`), so a leftover line from an earlier ship can't pass for a new head (GST-1179). `parseResult` reads the optional token.
+- **The receipt schema has `no_stop`**, one `{class, reason, evidence}` record per routine stop a run went on past (`write --no-stop`), for the five no-stop defaults that come next.
+
+### Tests
+- `test/review-loop-binding.test.ts`: the GBEV-3, GEVA-223, #3906, #3892/#3903/#3911 and #3911 duplicate-row cases. On main the GBEV-3 case reproduces its receipt exactly (3 found, 2 fixed) and GEVA-223's pattern (18 found, 9 unrecorded).
+- `test/review-ledger-verdict-line.test.ts`: the captured #3901 output and ggstack#71's findings, with negative controls.
+- `test/ship-recheck.test.ts`: every refusal that does and doesn't qualify, the record binding, and the carry end to end.
+- `test/ship-receipt-runs.test.ts`, `test/ship-receipt-result-head.test.ts`: the runs block, the READY tail, `no_stop` validation and the `head=` token.
+
+## [1.94.40.0] - 2026-11-03
+
+- **The macOS named regressions no longer fail when a test that spawns many processes runs past Bun's 5 s default on a slow runner (GST-1280).** The `macos-named-regressions` job in Free Tests now runs `bun test --timeout=30000`, the same per-test limit the Linux free suite and the pregate runner already use. On #3917's stamp commit (run 41719016775) the codex probe-model test, which runs nine probe scripts one after another, was killed at 5,022 ms in both attempts; in three green macOS runs (41720189541, 41716637247, 41720760241) it took 941 ms, 2,079 ms and 3,428 ms, and 505 to 580 ms on Linux. Train 107's first build (run 41712557655) lost two CSO Git fixture tests the same way. Tests that set their own timeout keep it, and the job's 20-minute limit is unchanged.
+
+## [1.94.39.0] - 2026-11-03
+
+**A base merge next to a reviewed hunk no longer forces a second full review because of the base's own lines.** On founderstar#515, a base merge put 62 lines of another PR, already merged at base, next to the PR's 76 reviewed and unchanged lines in `tests/ui_shots.gd`. The scoped-review section went past its 200-line limit, so `gstack-ship-release finish` took the behavior route, which a review-loop exception can't accept, and asked for Steps 5 to 11.5 again. #3923 hit the same limit when only one trailing context line changed (GST-1226).
+
+### Fixed
+- **The scoped-review packet counts only the branch's own lines toward its 200-line section limit.** The base's +/- lines, already merged at base, are still shown to the reader but no longer count, in finish and in the receipt carry. A base change over 2,000 lines in one file counts in full again, and a section the branch's own lines push past the limit still takes the full loop. Context-only drift is not carried silently: it still gets the scoped read.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: 210 lines another PR merged at base next to the branch's 76 reviewed lines, and a changed trailing context line beside a 221-line base rewrite, both reach the scoped read (both took the behavior route on main). Negative controls: a section the branch's own 230 lines push past the limit, and a 2,100-line base insertion beside the hunk, still take the behavior route.
+
+## [1.94.38.0] - 2026-11-03
+
+- **A /ship receipt now survives a changelog-fragment conversion (GST-1210).** When a PR moved to a `changelog.d` fragment after review, `VERSION`, `package.json` and `CHANGELOG.md` went back to main's content, and if main had also changed `package.json` beyond its version, `gstack-ship-receipt carry` read that as the branch's change and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` (HARN-1, harness-evals#206). A stamp file the branch changes by no more than a stamp against each head's base now carries as release metadata. A non-stamp `package.json` change, a logic edit, or a stamp file whose entry can't be read still refuses.
+
+## [1.94.37.0] - 2026-11-03
+
+- **Pull requests reuse a green Free Tests run they can't control** (`scripts/ci-tree-reuse.ts find --pull-request`, docs/pregate.md#ci-reuse-pr). A pull request run skips the suite when a push or dispatch run on main, or a dispatch run on its own branch, already passed on the merge commit's exact tree, and the pull request leaves the workflow, the reuse script and `lib/run-evidence.ts` unchanged. A pull request run is never a source, so a pull request never certifies itself.
+
+## [1.94.36.0] - 2026-11-03
+
+Fixes to the contract checker (GST-1242). An `agent_dispatch` item with a `marker:` used to count as met once the marker line was printed and any Agent call followed it, even an unrelated one. A contract that gives `agent_dispatch` a `marker` is now rejected as invalid until the checker can bind a marker to the dispatch it names, and the item is met only by an Agent dispatch that matches its `match`. No shipped contract used a marker there. The Stop hook's block message and `gstack-skill-contract check` now name the waive command by the full path of the installed `gstack-skill-contract`, because a standard install does not put the bare name on PATH and the old hint failed with exit 127. /review's calibration note now points at the preamble's Operational Self-Improvement rule, which carries the logging command, instead of a section a skill diet may remove.
+
+## [1.94.35.0] - 2026-11-03
+
+**/investigate's and /review's "Done means" list now runs the contract checker through gstack's own bin path (GST-1088 lane B follow-up).** The list told the agent to run a bare `gstack-skill-contract check`, but a standard install doesn't put gstack's bin folder on PATH, so an agent that ran it, most importantly to record a waiver, got "command not found". It now names the same host-resolved path every other gstack command uses, for example `~/.claude/skills/gstack/bin/gstack-skill-contract check` on Claude Code.
+
+### Fixed
+- **Done-means check and waive commands**: `scripts/resolvers/contract-done-means.ts` renders `check` and `waive` through each host's bin directory instead of the bare command name. The rest of the wording is unchanged.
+
+### Tests
+- `test/skill-descriptions.test.ts`: on every host, /investigate and /review render the checker through that host's bin path and never as a bare command, and the checked-in /review SKILL.md shows the Claude path. /review's skeleton and size pins rise by the measured 56 bytes (24 chars per non-Claude host render).
+
 ## [1.94.34.0] - 2026-11-03
 
 ### Fixed

@@ -6021,7 +6021,9 @@ output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
 landed on the base, a stamp on the branch's own rows in a stamp file it also
 changed as product (every changed line at a branch-added position, the mode
-unchanged, the base not touching the file), or base context next to unchanged
+unchanged, the base not touching the file), a stamp file the branch changes by
+no more than a stamp against each head's base (a changelog-fragment conversion
+that puts `package.json` back at the base's content), or base context next to unchanged
 hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
@@ -6036,7 +6038,12 @@ hunk). The merge may have spliced the two, as in a JSON entry where the branch
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
-`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code.
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section over 200
+lines takes the full loop instead, but only the branch's own lines count toward
+that limit: the base's +/- lines, already merged at base, are shown and not
+counted (GST-1226), so a large base edit next to the branch's hunk still gets
+the scoped read. A base change over 2,000 lines in one file counts in full
+again and takes the full loop.
 
 **Fix.** Dispatch one fix-check reviewer
 ([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
