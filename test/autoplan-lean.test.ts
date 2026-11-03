@@ -388,6 +388,56 @@ describe('draft capture edges', () => {
     expect(diff).toContain('+export const attempts = new Map');
   });
 
+  const FAKE_KEY = ['sk', 'ant', 'api03', 'C'.repeat(93) + 'AA'].join('-');
+
+  test('the whole .env family and other secret files are left out before they are read (GST-1164, #3914)', () => {
+    const cwd = repo('envrc', true);
+    const files = ['.envrc', '.env-production', '.env_local', 'config/credentials-prod.json', '.ssh/id_ed25519_sk', '_netrc', '.git-credentials', '.pgpass'];
+    for (const f of files) {
+      fs.mkdirSync(path.dirname(path.join(cwd, f)), { recursive: true });
+      fs.writeFileSync(path.join(cwd, f), `export ANTHROPIC_API_KEY=${FAKE_KEY}\n`);
+    }
+    const { ps, prompt } = lean('envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      for (const f of files) expect(text).toContain(`# draft: untracked ${f} left out (its name looks like a secret)`);
+    }
+    expect(diff).toContain('+export const attempts = new Map');
+  });
+
+  test('a secret file committed or edited on the branch is left out of the tracked diff too', () => {
+    const cwd = repo('tracked-envrc', true);
+    fs.writeFileSync(path.join(cwd, '.envrc'), `export ANTHROPIC_API_KEY=${FAKE_KEY}\n`);
+    git(cwd, 'add', '.envrc');
+    git(cwd, 'commit', '-q', '-m', 'direnv');
+    fs.appendFileSync(path.join(cwd, '.envrc'), 'export MORE=1\n');
+    const { ps, prompt } = lean('tracked-envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      expect(text).not.toContain('MORE=1');
+      expect(text).toContain('# draft: .envrc left out (its name looks like a secret)');
+    }
+    expect(ps.draft.files).toContain('.envrc');
+    expect(diff).toContain('+export const JITTER = 0.1;');
+  });
+
+  test('a key inside an ordinary file is redacted, untracked or edited in the working tree', () => {
+    const cwd = repo('redact', true);
+    fs.writeFileSync(path.join(cwd, 'lib', 'client.ts'), `export const KEY = '${FAKE_KEY}';\n`);
+    fs.appendFileSync(path.join(cwd, 'lib', 'worker.ts'), `const fallback = '${FAKE_KEY}';\n`);
+    const { ps, prompt } = lean('redact', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain(FAKE_KEY.slice(0, 20));
+      expect(text).toMatch(/^\+export const KEY = '<REDACTED-[^>]+>';$/m);
+      expect(text).toMatch(/^\+const fallback = '<REDACTED-[^>]+>';$/m);
+    }
+    expect(diff).toContain('+export const JITTER = 0.1;');
+    expect(ps.draft.sha256).toBe(sha256(fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'))));
+  });
+
   test('the DRAFT line and the prompt name the checkout that was diffed', () => {
     const cwd = repo('root', true);
     const { r, ps, prompt } = lean('root', cwd);
