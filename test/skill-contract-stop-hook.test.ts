@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AGENT_STALL_MS, STATE_ERROR_DOC, stateErrorLine } from '../lib/skill-contract';
+import { SWITCH_DEFAULT } from '../lib/skill-route';
 import {
   CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
 } from './helpers/skill-contract-fixture';
@@ -218,9 +219,15 @@ describe('fails open on state errors with one stderr line', () => {
 });
 
 describe('off switch', () => {
-  test('default off, config off, and env off over config on: no output at all', () => {
+  test('with nothing set SWITCH_DEFAULT decides; config off, env off over config on, and an unreadable config: no output at all', () => {
     const file = transcript(J1_TRANSCRIPT);
+    fs.mkdirSync(path.join(state, 'config.yaml'));
     expect(runHook(CONTRACT_HOOK, payload(file), hookEnv(state, skills))).toEqual({ code: 0, stdout: '', stderr: '' });
+    fs.rmSync(path.join(state, 'config.yaml'), { recursive: true });
+    const unset = runHook(CONTRACT_HOOK, payload(file), hookEnv(state, skills));
+    if (SWITCH_DEFAULT.skill_contracts === 'on') expect(JSON.parse(unset.stdout).decision).toBe('block');
+    else expect(unset).toEqual({ code: 0, stdout: '', stderr: '' });
+    fs.rmSync(path.join(state, 'skill-contracts'), { recursive: true, force: true });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_contracts: off\n');
     expect(runHook(CONTRACT_HOOK, payload(file), hookEnv(state, skills))).toEqual({ code: 0, stdout: '', stderr: '' });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_contracts: on\n');

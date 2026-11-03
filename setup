@@ -4905,6 +4905,10 @@ _skill_hook_gate() {
   else
     decision="$("$GSTACK_CONFIG" get --stored "$key" 2>/dev/null || true)"; src="config $key"
     if [ "$decision" = "unset" ]; then decision=""; src="default"; fi
+    if [ "$decision" = "unreadable" ]; then
+      log "  WARNING: cannot read $key from config — using 'off' for this run whatever the default; fix config.yaml, then re-run setup"
+      decision="off"
+    fi
   fi
   decision=$(printf '%s' "$decision" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
   case "$decision" in

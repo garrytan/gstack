@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { SWITCH_DEFAULT } from '../lib/skill-route';
 import {
   J1_TRANSCRIPT, ROOT, hookEnv, runHook, skillsDir, tmpDir,
 } from './helpers/skill-contract-fixture';
@@ -72,10 +73,26 @@ describe('setup: skill hook gates', () => {
     expect(setupSrc).toMatch(/_skill_hook_gate skill_contracts "\$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \\\n  "\$SKILL_CONTRACT_HOOK" gstack-skill-contract 10/);
   });
 
-  test('default off: nothing registered, nothing persisted', () => {
-    expect(gate('')).toEqual({ code: 0, out: '' });
-    expect(registered()).toEqual([]);
+  test('no flag, env or config: SWITCH_DEFAULT decides, and nothing is persisted', () => {
+    const g = gate('');
+    expect(g.code).toBe(0);
+    if (SWITCH_DEFAULT.skill_routing === 'on') {
+      expect(g.out).toContain('registered UserPromptSubmit hook: routing hint (on via default;');
+      expect(registered()).toHaveLength(1);
+    } else {
+      expect(g.out).toBe('');
+      expect(registered()).toEqual([]);
+    }
     expect(config()).not.toContain('skill_routing');
+  });
+
+  test('an unreadable config: warns, registers nothing and removes a live registration, whatever the default', () => {
+    gate('on');
+    fs.rmSync(path.join(state, 'config.yaml'));
+    fs.mkdirSync(path.join(state, 'config.yaml'));
+    const g = gate('');
+    expect(g.out).toContain("WARNING: cannot read skill_routing from config — using 'off' for this run whatever the default");
+    expect(registered()).toEqual([]);
   });
 
   test('flag on: persists, registers a schema-valid entry with a one-time line; a re-run is quiet', () => {
@@ -92,13 +109,13 @@ describe('setup: skill hook gates', () => {
     expect(registered()).toHaveLength(1);
   });
 
-  test('env on registers without persisting; a typo warns, applies off and is not persisted', () => {
+  test('env on registers without persisting; a typo warns, takes SWITCH_DEFAULT and is not persisted', () => {
     expect(gate('', { GSTACK_SKILL_ROUTING: 'yes' }).out).toContain('on via env GSTACK_SKILL_ROUTING');
     expect(config()).not.toContain('skill_routing');
     const typo = gate('onn');
-    expect(typo.out).toContain("WARNING: unrecognized skill_routing value 'onn' (from flag) — using default 'off' for this run, not persisting");
+    expect(typo.out).toContain(`WARNING: unrecognized skill_routing value 'onn' (from flag) — using default '${SWITCH_DEFAULT.skill_routing}' for this run, not persisting`);
     expect(config()).not.toContain('skill_routing');
-    expect(registered()).toEqual([]);
+    expect(registered()).toHaveLength(SWITCH_DEFAULT.skill_routing === 'on' ? 1 : 0);
   });
 
   test('off removes a live registration, and so does --no-team', () => {
@@ -116,6 +133,7 @@ describe('setup: skill hook gates', () => {
 describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () => {
   const TABLE = path.join('lib', 'skill-route.ts');
   const original = fs.readFileSync(path.join(ROOT, TABLE), 'utf8');
+  const other = (v: 'on' | 'off') => (v === 'on' ? 'off' : 'on');
   let copy = '', skills = '', work = '';
   beforeAll(() => {
     copy = tmpDir('gstack-switch-default-');
@@ -128,14 +146,15 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
   });
   afterAll(() => { for (const d of [copy, skills, work]) fs.rmSync(d, { recursive: true, force: true }); });
 
-  /** Write the copy's table with only this switch's line flipped to on, and prove the diff is that one line. */
-  function flip(key: keyof typeof GATES): void {
-    const line = `  ${key}: 'off',`;
+  /** Write the copy's table with only this switch's line flipped, prove the diff is that one line, and return the new default. */
+  function flip(key: keyof typeof GATES): 'on' | 'off' {
+    const line = `  ${key}: '${SWITCH_DEFAULT[key]}',`;
+    const next = other(SWITCH_DEFAULT[key]);
     expect(original.split('\n').filter(l => l === line)).toHaveLength(1);
-    const flipped = original.replace(line, `  ${key}: 'on',`);
-    const changed = flipped.split('\n').filter((l, i) => l !== original.split('\n')[i]);
-    expect(changed).toEqual([`  ${key}: 'on',`]);
+    const flipped = original.replace(line, `  ${key}: '${next}',`);
+    expect(flipped.split('\n').filter((l, i) => l !== original.split('\n')[i])).toEqual([`  ${key}: '${next}',`]);
     fs.writeFileSync(path.join(copy, TABLE), flipped);
+    return next;
   }
   const configAt = (root: string, ...args: string[]) => spawnSync(path.join(root, 'bin', 'gstack-config'), args, {
     env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 30_000,
@@ -146,22 +165,42 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
   const stopAt = (root: string) => {
     const file = path.join(work, 'transcript.jsonl');
     fs.writeFileSync(file, `${J1_TRANSCRIPT.join('\n')}\n`);
+    fs.rmSync(path.join(state, 'skill-contracts'), { recursive: true, force: true });
     return runHook(path.join(root, 'hosts', 'claude', 'hooks', 'skill-contract-stop-hook.ts'),
       JSON.stringify({ session_id: 'sess-d', transcript_path: file, cwd: work, hook_event_name: 'Stop', stop_hook_active: false }),
       hookEnv(state, skills));
   };
-
-  test('both defaults are off today, and every reader agrees', () => {
-    expect(original).toContain("export const SWITCH_DEFAULT: Record<SwitchName, 'on' | 'off'> = {\n  skill_routing: 'off',\n  skill_contracts: 'off',\n};");
-    for (const key of ['skill_routing', 'skill_contracts']) {
-      const get = configAt(ROOT, 'get', key);
-      expect({ code: get.status, out: get.stdout }).toEqual({ code: 0, out: 'off' });
-      expect(configAt(ROOT, 'get', '--stored', key).stdout).toBe('unset');
+  const routes = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).hookSpecificOutput.additionalContext.includes('/investigate');
+  const blocks = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).decision === 'block';
+  /** Every reader at root agrees that the switches default to want. */
+  function expectReaders(root: string, want: Record<keyof typeof GATES, 'on' | 'off'>): void {
+    for (const key of ['skill_routing', 'skill_contracts'] as const) {
+      const get = configAt(root, 'get', key);
+      expect({ key, code: get.status, out: get.stdout }).toEqual({ key, code: 0, out: want[key] });
+      expect(configAt(root, 'get', '--stored', key).stdout).toBe('unset');
+      expect(configAt(root, 'defaults').stdout).toMatch(new RegExp(`^ {2}${key}: +${want[key]}$`, 'm'));
+      const g = gate('', {}, 0, root, key);
+      expect(registered(key === 'skill_routing' ? 'UserPromptSubmit' : 'Stop')).toHaveLength(want[key] === 'on' ? 1 : 0);
+      if (want[key] === 'on') expect(g.out).toContain('(on via default;');
+      else expect(g.out).toBe('');
     }
-    expect(configAt(ROOT, 'defaults').stdout).toMatch(/^ {2}skill_routing: +off$/m);
-    expect(gate('').out).toBe('');
-    expect(routeAt(ROOT)).toEqual({ code: 0, stdout: '', stderr: '' });
-    expect(stopAt(ROOT)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(routes(routeAt(root))).toBe(want.skill_routing === 'on');
+    expect(blocks(stopAt(root))).toBe(want.skill_contracts === 'on');
+    expect(config()).toBe('');
+  }
+
+  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 39 and this pin)', () => {
+    expect(original.split('\n')[38]).toBe("  skill_routing: 'off',");
+    expect(SWITCH_DEFAULT.skill_routing).toBe('off');
+  });
+
+  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 40 and this pin)', () => {
+    expect(original.split('\n')[39]).toBe("  skill_contracts: 'off',");
+    expect(SWITCH_DEFAULT.skill_contracts).toBe('off');
+  });
+
+  test('every reader agrees with SWITCH_DEFAULT: gstack-config, setup, the routing hook and the Stop hook', () => {
+    expectReaders(ROOT, SWITCH_DEFAULT);
   });
 
   test('an absent key reads empty from gstack-config get, never "false"', () => {
@@ -169,42 +208,26 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect({ code: r.status, out: r.stdout }).toEqual({ code: 1, out: '' });
   });
 
-  test('flipping skill_routing alone: setup registers, gstack-config reports on, the hook routes; config off still wins', () => {
-    flip('skill_routing');
-    expect(configAt(copy, 'get', 'skill_routing').stdout).toBe('on');
-    expect(configAt(copy, 'get', 'skill_contracts').stdout).toBe('off');
-    expect(configAt(copy, 'defaults').stdout).toMatch(/^ {2}skill_routing: +on$/m);
-    const g = gate('', {}, 0, copy);
-    expect(g.out).toContain('registered UserPromptSubmit hook: routing hint (on via default;');
-    expect(registered()).toHaveLength(1);
-    expect(config()).not.toContain('skill_routing');
-    const hint = routeAt(copy);
-    expect(hint.code).toBe(0);
-    expect(JSON.parse(hint.stdout).hookSpecificOutput.additionalContext).toContain('/investigate');
-    expect(stopAt(copy).stdout).toBe('');
-
-    expect(configAt(copy, 'set', 'skill_routing', 'off').status).toBe(0);
+  test('flipping skill_routing alone moves every reader; an explicit config value still wins', () => {
+    const next = flip('skill_routing');
+    expectReaders(copy, { ...SWITCH_DEFAULT, skill_routing: next });
+    expect(configAt(copy, 'set', 'skill_routing', SWITCH_DEFAULT.skill_routing).status).toBe(0);
     gate('', {}, 0, copy);
-    expect(registered()).toEqual([]);
-    expect(routeAt(copy).stdout).toBe('');
+    expect(registered()).toHaveLength(SWITCH_DEFAULT.skill_routing === 'on' ? 1 : 0);
+    expect(routes(routeAt(copy))).toBe(SWITCH_DEFAULT.skill_routing === 'on');
   });
 
-  test('flipping skill_contracts alone: setup registers the Stop hook and the hook blocks', () => {
-    flip('skill_contracts');
-    const g = gate('', {}, 0, copy, 'skill_contracts');
-    expect(g.out).toContain('registered Stop hook: contract check (on via default;');
-    expect(registered('Stop')).toHaveLength(1);
-    expect(registered()).toEqual([]);
-    expect(JSON.parse(stopAt(copy).stdout).decision).toBe('block');
-    expect(routeAt(copy).stdout).toBe('');
+  test('flipping skill_contracts alone moves every reader', () => {
+    const next = flip('skill_contracts');
+    expectReaders(copy, { ...SWITCH_DEFAULT, skill_contracts: next });
   });
 
   test('a typo takes the flipped default in setup and in the hook', () => {
-    flip('skill_routing');
+    const next = flip('skill_routing');
     const typo = gate('onn', {}, 0, copy);
-    expect(typo.out).toContain("WARNING: unrecognized skill_routing value 'onn' (from flag) — using default 'on' for this run, not persisting");
-    expect(registered()).toHaveLength(1);
-    expect(JSON.parse(routeAt(copy, { GSTACK_SKILL_ROUTING: 'onn' }).stdout).hookSpecificOutput.additionalContext).toContain('/investigate');
-    expect(routeAt(ROOT, { GSTACK_SKILL_ROUTING: 'onn' }).stdout).toBe('');
+    expect(typo.out).toContain(`WARNING: unrecognized skill_routing value 'onn' (from flag) — using default '${next}' for this run, not persisting`);
+    expect(registered()).toHaveLength(next === 'on' ? 1 : 0);
+    expect(routes(routeAt(copy, { GSTACK_SKILL_ROUTING: 'onn' }))).toBe(next === 'on');
+    expect(routes(routeAt(ROOT, { GSTACK_SKILL_ROUTING: 'onn' }))).toBe(SWITCH_DEFAULT.skill_routing === 'on');
   });
 });

@@ -49,7 +49,21 @@ export function normalizeSwitch(raw: string | null | undefined): 'on' | 'off' | 
 
 export interface SwitchReading { on: boolean; source: string; invalid?: string }
 
-/** env GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS > config key > SWITCH_DEFAULT. An unrecognized value takes the default, as setup does. */
+/** A config.yaml that exists but cannot be read as a file: the person's choice is unknown. */
+function configUnreadable(env: NodeJS.ProcessEnv): boolean {
+  const file = path.join(resolveStateRoot(env), 'config.yaml');
+  try {
+    fs.accessSync(file, fs.constants.R_OK);
+    return !fs.statSync(file).isFile();
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code !== 'ENOENT';
+  }
+}
+
+/**
+ * env GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS > config key > SWITCH_DEFAULT. An unrecognized value takes the
+ * default, as setup does. An unreadable config is off whatever the default: it may hold an off the person set.
+ */
 export function readSkillSwitch(name: SwitchName, env: NodeJS.ProcessEnv = process.env): SwitchReading {
   const fallback = SWITCH_DEFAULT[name] === 'on';
   const envName = SWITCH_ENV[name];
@@ -59,7 +73,7 @@ export function readSkillSwitch(name: SwitchName, env: NodeJS.ProcessEnv = proce
     return v ? { on: v === 'on', source: `env ${envName}` } : { on: fallback, source: `env ${envName}`, invalid: raw };
   }
   const cfg = readConfigKey(name, env);
-  if (cfg === null) return { on: fallback, source: 'default' };
+  if (cfg === null) return configUnreadable(env) ? { on: false, source: 'config unreadable' } : { on: fallback, source: 'default' };
   const v = normalizeSwitch(cfg);
   return v ? { on: v === 'on', source: `config ${name}` } : { on: fallback, source: `config ${name}`, invalid: cfg };
 }

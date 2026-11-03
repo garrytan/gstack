@@ -38,6 +38,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { SWITCH_DEFAULT } from '../lib/skill-route';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CONFIG_BIN = path.join(ROOT, 'bin', 'gstack-config');
@@ -321,14 +322,14 @@ describe('design_detector (auto|off, rejecting validator)', () => {
   });
 });
 
-describe('skill_routing and skill_contracts (on|off, default off)', () => {
-  test('both default to off, and list and defaults enumerate them', () => {
-    for (const key of ['skill_routing', 'skill_contracts']) expect(get(key)).toEqual({ out: 'off', code: 0 });
+describe('skill_routing and skill_contracts (on|off, default SWITCH_DEFAULT)', () => {
+  test('get, list and defaults report SWITCH_DEFAULT for both', () => {
+    for (const key of ['skill_routing', 'skill_contracts'] as const) expect(get(key)).toEqual({ out: SWITCH_DEFAULT[key], code: 0 });
     for (const verb of ['list', 'defaults']) {
       const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
       expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/skill_routing:\s+off/);
-      expect(r.stdout).toMatch(/skill_contracts:\s+off/);
+      expect(r.stdout).toMatch(new RegExp(`skill_routing:\\s+${SWITCH_DEFAULT.skill_routing}`));
+      expect(r.stdout).toMatch(new RegExp(`skill_contracts:\\s+${SWITCH_DEFAULT.skill_contracts}`));
     }
   });
 });

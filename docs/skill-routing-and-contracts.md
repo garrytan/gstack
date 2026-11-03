@@ -14,7 +14,7 @@ Each switch resolves in this order, and the first one set wins:
 3. Config: `gstack-config set skill_routing on|off` and `gstack-config set skill_contracts on|off`.
 4. The default: `SWITCH_DEFAULT` in `lib/skill-route.ts`, the only place it is written. Setup, the hooks, `gstack-config get|list|defaults` and `gstack-skill-route --default <switch>` all read it.
 
-`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value.
+`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value. A config file that exists but cannot be read turns both hooks off in setup and in the hooks, whatever the default, because it may hold an `off` you set.
 
 Setup registers a hook only when its switch is on, prints one line the first time it registers it, and removes the registration when the switch is off (or with `--no-team`). The hooks also read the switch every time they run, so this takes effect on the next prompt without re-running setup:
 
