@@ -226,6 +226,8 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 
 ## Platform notes
 
+macOS and Linux get full support. Windows and Gemini models get minimal support: install and the core skills work, and nothing more is promised. See [support tiers](docs/support-tiers.md).
+
 **macOS:** everything runs. With the [Aside](https://aside.com) browser (macOS 15+) open and signed in, the browser skills, `/make-pdf` and `/diagram` use it and your real sessions; otherwise they use the bundled browser `./setup` builds. gstack never installs Aside.
 
 **Linux:** everything runs on the bundled browser; Aside is macOS-only, so the readiness probe says `NEEDS_ASIDE: Linux` once and the skills use gstack's own Chromium. If Chromium installs but cannot launch because the host blocks unprivileged user namespaces (Ubuntu 24.04+ AppArmor default), set `GSTACK_CHROMIUM_NO_SANDBOX=1`.
@@ -242,7 +244,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 
 | Doc | What it covers |
 |-----|---------------|
-| [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes Greptile integration) |
+| [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes review-bot triage for Greptile, CodeRabbit and other bots) |
 | [The recommended harness](docs/recommended-harness.md) | gstack + Capy from zero to the first merged train: install, the Captain and its Drive, trains, the daily flaky pass, the twice-weekly release, the factory scorecard, what is Capy-specific, known Capy limits |
 | [gstack + Capy: the software factory](capy/README.md) | What we built with Capy Captains and gstack, how the pieces fit, the measured before/after, tips, and how Garry uses it |
 | [Why gstack](docs/why-gstack.md) | The story, the productivity numbers and their caveats, Karpathy's failure modes, parallel sprints |

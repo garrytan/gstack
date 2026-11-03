@@ -185,6 +185,22 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
     expect(entry).not.toMatch(/Step 15\.[012]/);
   });
 
+  test('one owner per release commit and a defined result for a version Step 12 does not write', () => {
+    // Value: protects=the ship workflow judge's 6/6 cited conflict (Step 15 committed release metadata by hand while Step 16 finish also commits it) and its 3/6 undefined stamp-at-merge/kept result; fails_when=Step 15 regains a manual release commit or Step 12 drops the skipped/kept route; why_new=no pin covered commit ownership; seam=none; no_claim=judge scores
+    const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
+    const commit = entry.slice(entry.indexOf('## Step 15:'), entry.indexOf('## Step 16:'));
+    expect(commit).not.toContain('git commit');
+    expect(commit.replace(/\s+/g, ' ')).toMatch(/TODOS\.md and the digest uncommitted: Step 16's `finish` commits them last/);
+    const finish = entry.slice(entry.indexOf('## Step 16:'), entry.indexOf('### 1. Finish writers'));
+    expect(finish).toContain("makes Step 15's item-3 commit");
+    const version = entry.slice(entry.indexOf('## Step 12:'), entry.indexOf('1. **Classify state**')).replace(/\s+/g, ' ');
+    expect(version).not.toContain('replaces items 1–4');
+    expect(version).toContain('`VERSION: skipped`');
+    expect(version).toContain('`VERSION: <v> kept (…; no write)` ends Step 12 with `NEW_VERSION` unset');
+    expect(version).toContain('ALREADY_BUMPED derives it in item 1');
+    expect(version).toContain("Steps 18 and 20 take NO_VERSION's branch");
+  });
+
   test('a rejected push stops publication and routes changed content back through verification', () => {
     const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
     const push = entry.slice(entry.indexOf('## Step 17:'), entry.indexOf('## Step 20:'));

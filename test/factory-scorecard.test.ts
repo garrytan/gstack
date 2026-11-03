@@ -59,13 +59,31 @@ describe('factory-scorecard: recorded window', () => {
     expect(values.merged).toBe('3 (crew 2, outside 1)');
     expect(values.lead_time).toBe('median 8.0h, p90 5.0d');
     expect(values.ready_to_merge).toBe('median 1.0h, p90 2.0h (2 of 3 PRs with a READY comment)');
-    expect(values.review_passes).toBe('median 2, p90 3 (2 of 3 PRs report a pass count; 1 at the cap of 3)');
+    expect(values.review_passes).toBe('median 2, p90 3 (2 of 3 PRs report a pass count; 2 at the cap of 2)');
     expect(values.gates).toBe('2 / 1 / 1; known cost $43.00 on 2 of 4 runs');
     expect(values.cost_per_merge).toBe('$14.33 (2 runs without a known cost)');
     expect(values.red_train).toBe('50% (1 red of 2 trains; 0 red backstop, 0 red screens)');
     expect(values.flaky).toBe('2 paid case(s) passed on their one rerun (rerun spend $1.10); 2 free-suite retries in 1 of 3 runs');
     expect(values.issues).toBe('5 / 7');
     expect(values.releases).toBe('1 (v1.0.0)');
+  });
+
+  test('free runs that ran no shards (reused main pushes) stay out of the free-retry count and its denominator (#3725)', () => {
+    // Value: protects=the free-retry rate is read over runs that executed shards only; fails_when=a reused run (no artifacts, reuse job green) counts as a zero-retry run again; why_new=#3725, after #3709 a main push that reuses its PR's run uploads nothing; seam=fixtureSource; no_claim=runs past --max-artifact-runs, which are not read
+    const fx = fixture();
+    const freeRuns = fx.responses[Object.keys(fx.responses).find(k => k.includes('/free-tests.yml/runs?'))!] as { workflow_runs: any[] };
+    const real = freeRuns.workflow_runs[0];
+    freeRuns.workflow_runs.splice(0, 0, { ...real, id: 8005, created_at: '2026-10-25T18:00:00Z' });
+    freeRuns.workflow_runs.splice(2, 0, { ...real, id: 8004, created_at: '2026-10-24T18:00:00Z' });
+    for (const id of [8004, 8005]) fx.responses[`repos/acme/widgets/actions/runs/${id}/attempts/1/jobs?per_page=100&page=1`] = { jobs: [
+      { id: 1, name: 'reuse', conclusion: 'success' }, { id: 2, name: 'free-plan', conclusion: 'skipped' }, { id: 3, name: 'free-tests', conclusion: 'success' }] };
+    const card = collectScorecard(fixtureSource(fx, scratch()), options());
+    const clean = collectScorecard(fixtureSource(fixture(), scratch()), options());
+    expect(card.unavailable).toEqual([]);
+    expect(card.freeRuns).toEqual(clean.freeRuns);
+    expect(card.freeRuns.map(r => [r.id, r.retries])).toEqual([[8003, 0], [8002, 0], [8001, 2]]);
+    expect([card.freeRunsSkipped, clean.freeRunsSkipped]).toEqual([2, 0]);
+    expect(byId(scorecardRows(card)).flaky).toBe('2 paid case(s) passed on their one rerun (rerun spend $1.10); 2 free-suite retries in 1 of 3 runs; 2 reused main push(es) left out');
   });
 
   test('a crew login list overrides the author_association rule', () => {

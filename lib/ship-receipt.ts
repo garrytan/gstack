@@ -12,14 +12,14 @@ import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
 import { matchesAny } from './ship-policy';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
-import { stampOnlyLine } from './restamp';
+import { stampOnlyLine, type BranchSide } from './stamp-only';
 
 export const RECEIPT_FENCE = 'gstack-ship-receipt';
 const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'review_targeted', 'carry', 'base_red',
+  'review_loop_exception', 'review_targeted', 'review_exclude', 'carry', 'base_red',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -129,7 +129,7 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   if (r.approval) parts.push(`approval=${approvalSummary(r.approval)}`);
   const loop = parseReviewLoop(r.review_loop);
   if (loop) parts.push(`passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred}`
-    + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
+    + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.rounds !== undefined ? ` rounds=${loop.rounds}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
   if (r.carry && typeof r.carry.from === 'string') parts.push(`carried_from=${r.carry.from.slice(0, 12)}`);
   if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
@@ -188,13 +188,14 @@ const CARRY_RERUNS = ['CI at head (gstack-ship-queue ready requires it); test an
  * The file's text at the reviewed head and at HEAD, with the release version each head carries (from `VERSION`, else
  * `package.json`) and the base policy's `stamp_patterns` templates.
  */
-export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[] }
+export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[]; side?: BranchSide }
 
 /**
  * A policy-named stamp path's change is a stamp when the new text reads as the
  * old text once every new version in it is the old one, or when every changed
  * line is a stamp-form rewrite to the new version (`stampOnlyLine`: the old
- * version or a newer tentative `*_KEY_VERSION` the slot stamp moved, #3512): the rule
+ * version or a newer tentative `*_KEY_VERSION` the slot stamp moved, #3512, and
+ * on a line the branch added itself, `side`, the fork version or newer, GST-963): the rule
  * the tree receipt applies to the same `stamp_paths`, `stamp_files` and
  * `release_outputs` before the train accepts a stamp commit. No version
  * change, or a file missing on either side, is not a stamp.
@@ -209,7 +210,7 @@ export function stampOnlyText(change: CarryChange): boolean {
   const now = after.split('\n');
   if (was.length !== now.length) return false;
   const changed = was.map((line, i) => i).filter(i => was[i] !== now[i]);
-  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? []));
+  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side));
 }
 
 /**
@@ -326,7 +327,10 @@ export function parseReviewLoop(value: unknown): ReviewLoopReceipt | undefined {
   if (n('fixed') !== undefined) out.fixed = n('fixed');
   if (typeof v.scope === 'string') out.scope = v.scope.slice(0, 20);
   if (n('fix_checks') !== undefined) out.fix_checks = n('fix_checks');
+  if (n('rounds') !== undefined) out.rounds = n('rounds');
   if (n('est_input_tokens') !== undefined) out.est_input_tokens = n('est_input_tokens');
+  if (n('unrecorded')) out.unrecorded = n('unrecorded');
+  if (n('ledgers_read')) out.ledgers_read = n('ledgers_read');
   if (v.dispatches && typeof v.dispatches === 'object' && !Array.isArray(v.dispatches)) {
     const d = Object.fromEntries(Object.entries(v.dispatches as Record<string, unknown>)
       .filter(([k, c]) => /^[a-z][a-z0-9-]{0,39}$/.test(k) && typeof c === 'number' && Number.isInteger(c) && c >= 0).slice(0, 12)) as Record<string, number>;

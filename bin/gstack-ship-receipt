@@ -32,10 +32,13 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp, type ShipReceipt } from '../lib/headless-artifacts';
 import { resultLine, resultLineWithDocs } from '../lib/result-codes';
 import { versionAtRef } from '../lib/restamp';
+import { branchSides, type BranchSide } from '../lib/stamp-only';
+import { runScriptSync } from '../lib/script-invocation';
 import { readPregateFile, verifyPregate } from '../lib/pregate/index';
 import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, runningGstackVersion, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
 import { approvalForReceipt } from '../lib/approval-citations';
@@ -46,7 +49,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptDepthAtHead, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
@@ -93,9 +96,14 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   "Review-loop exception: …" line verbatim; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
-  --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by}: gstack-review-dispatch verify
-  --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id. Without it the receipt has no
-  review_targeted, which the queue reports as legacy.
+  --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
+  name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
+  RECEIPT_INVALID field=review_exclude and nothing is written (rerun the review; write alone cannot clear it); recorded as review_exclude. Carry and the queue compare that digest.
+  --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
+  --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
+  commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry
+  refuse a receipt whose head needs a targeted class (money, gate, auth, secret) that no done pass covers, as the queue's
+  targeted verdict does (#3859) (RECEIPT_INVALID, RECEIPT_CARRY_REFUSED).
   --approval-run <autoplan run dir> (repeatable; resolves plan-sha citations) (W2: a class declared in origin/<base>'s
   .gstack/approval-classes.json with hits needs a citation that resolves and binds to its effects: APPROVAL_CITATION_MISSING)
   --out <file> --body <pr-body.md>. Defaults: head=HEAD, base=origin/HEAD's branch, version=the
@@ -119,7 +127,7 @@ function jsonArg(raw: string | undefined): Record<string, unknown> | undefined {
   return parsed;
 }
 function git(args: string[], cwd?: string): string | undefined {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, maxBuffer: 256 * 1024 * 1024 });
   return r.status === 0 ? r.stdout.trim() : undefined;
 }
 function gh(args: string[]): { ok: boolean; out: string; err: string } {
@@ -178,7 +186,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const tree = receiptFile ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) : null;
   let sessionKind = flag(rest, '--session-kind') ?? process.env.GSTACK_SESSION_KIND;
   if (!sessionKind) {
-    const r = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
+    const r = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-session-kind'), [], { encoding: 'utf8', timeout: 15_000 });
     sessionKind = r.status === 0 ? r.stdout.trim() || undefined : undefined;
   }
   let pregate: PregateField | undefined;
@@ -215,11 +223,19 @@ function cmdWrite(rest: string[], json: boolean): number {
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
-  const reviewDepth = receiptDepthAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
+  const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), headSha ?? head);
+  const reviewDepth = review.depth;
+  if (review.exclude.state === 'refused') { for (const l of review.exclude.lines) process.stderr.write(`${l}; nothing written\n`); return EXIT.refused; }
+  const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
+  const excludeGiven = flag(rest, '--review-exclude') ?? 'none';
+  if ((excludeNow?.digest ?? 'none') !== excludeGiven) {
+    process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the review --review-exclude names read another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)}; fix: rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
+    return EXIT.fail;
+  }
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none'); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
@@ -254,6 +270,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
       gstack_version: runningGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
+      review_exclude: receiptExclude(review.exclude),
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }
   if (input.pr !== undefined && !Number.isInteger(input.pr)) { process.stderr.write('gstack-ship-receipt write: --pr must be an integer\n'); return EXIT.usage; }
@@ -262,6 +279,12 @@ function cmdWrite(rest: string[], json: boolean): number {
   if (errors.length) {
     for (const e of errors) process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${e.message} at ${e.path}`) + '\n');
     process.stderr.write('gstack-ship-receipt write: nothing written\n');
+    return EXIT.fail;
+  }
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head);
+  if (targetedVerdict.line.includes('(unchecked: ')) process.stderr.write(targetedVerdict.line + '\n');
+  if (!targetedVerdict.ok) {
+    process.stderr.write(`${targetedVerdict.line}\n${resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targetedVerdict.message}; run the targeted reader on HEAD and pass its record (--review-targeted @<gstack-review-dispatch verify --targeted-out file>); nothing written`)}\n`);
     return EXIT.fail;
   }
   const body = bodyFile;
@@ -399,12 +422,37 @@ function writeRunRecord(a: { receipt: ShipReceipt; head: string; pr: string | un
  */
 function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
-  const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
-  if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
-  if (!diff.stdout.trim()) return '';
-  const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, input: diff.stdout, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
-  if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
-  return id.stdout.trim().split(/\s+/)[0] ?? '';
+  const root = path.resolve(repoRoot, git(['rev-parse', '--git-path', 'gstack-patch-id'], repoRoot)?.trim() || '.git/gstack-patch-id');
+  sweepStalePatchDirs(root);
+  let dir: string;
+  try { fs.mkdirSync(root, { recursive: true }); dir = fs.mkdtempSync(path.join(root, 'run-')); } catch (e) { return { error: `cannot create a temp file under ${root} (${firstLine((e as Error).message, 'mkdtemp failed')}); make that directory writable` }; }
+  const file = path.join(dir, 'diff.patch');
+  let fd: number | undefined;
+  try {
+    const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', `--output=${file}`, from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000 });
+    if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
+    fd = fs.openSync(file, 'r');
+    const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8', timeout: 120_000 });
+    if (id.status !== 0) return { error: `git patch-id --verbatim: ${firstLine(id.stderr, id.signal ? `killed by ${id.signal}` : `exit ${id.status}`)}` };
+    return id.stdout.trim().split(/\s+/)[0] ?? '';
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A carry killed mid patch-id (preflight's timeout) skips patchId's `finally`; its product diff is removed by the next run once an hour old. */
+let swept = false;
+function sweepStalePatchDirs(root: string): void {
+  if (swept) return;
+  swept = true;
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  let names: string[] = [];
+  try { names = fs.readdirSync(root).filter(n => n.startsWith('run-')); } catch { return; }
+  for (const n of names) {
+    const p = path.join(root, n);
+    try { if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { recursive: true, force: true }); } catch { /* another run removed it */ }
+  }
 }
 
 /** `git patch-id --verbatim` exists from git 2.39 (docs/ship-policy.md#receipt-carry); an older git is a named refusal, never a silent fallback to the whitespace-stripping default. */
@@ -468,7 +516,7 @@ function productRules(repoRoot: string, base: string, outputs: readonly string[]
  * change, such as a CHANGELOG fragment next to the base's changelog.d/README.md
  * (GST-343, #3606), into the product patch-id at one head only.
  */
-function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string, branch?: { touched: ReadonlySet<string>; sides: ReadonlyArray<readonly [string, string]> }): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
+function productSpec(repoRoot: string, rules: ProductRules, from: string, to: string, branch?: { touched: ReadonlySet<string>; sides: ReadonlyArray<readonly [string, string]>; own: (rel: string) => BranchSide | undefined }): { changed: Array<{ path: string; class: ReturnType<typeof classifyCarryPath> }>; product: string[]; tests: string[] } | undefined {
   const changedRaw = git(['diff', '--name-only', from, to], repoRoot);
   if (changedRaw === undefined) return undefined;
   const blobAt = (ref: string, p: string): string | null => { const r = spawnSync('git', ['show', `${ref}:${p}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
@@ -480,7 +528,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   const versions = new Map<string, string | null>();
   const version = (ref: string) => { if (!versions.has(ref)) versions.set(ref, versionAt(ref)); return versions.get(ref)!; };
   const stamped = (p: string) => matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p);
-  const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates } : undefined);
+  const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates, side: a === from && b === to ? branch?.own(p) : undefined } : undefined);
   const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
@@ -581,6 +629,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const reviewedBase = receipt.base.replace(/^origin\//, '');
   const retarget = reviewedBase !== base.replace(/^origin\//, '');
   let plan: ReturnType<typeof planCarry>;
+  let scopedDryRun: string | undefined;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
     const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
@@ -592,7 +641,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const listed = [touchedPaths(repoRoot, fromBase, from), touchedPaths(repoRoot, headBase, head)];
     if (!listed[0] || !listed[1]) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
     const touched = new Set([...listed[0], ...listed[1]]);
-    const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[fromBase, from], [headBase, head]] });
+    const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[fromBase, from], [headBase, head]], own: branchSides(repoRoot, baseRef, from, '') });
     if (!spec) return refused('RECEIPT_CARRY_REFUSED', `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`);
     const { changed } = spec;
     const productFrom = patchId(repoRoot, fromBase, from, spec.product);
@@ -620,10 +669,14 @@ function cmdCarry(rest: string[], json: boolean): number {
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
       // branch itself touched against the base at either head: a base merge brings in every path the base changed, none of
-      // which can differ between the two base diffs. A path whose only difference is base context next to unchanged hunks
+      // which can differ between the two base diffs. A touched path with the same blob at both heads and at both bases has
+      // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A path whose only difference is base context next to unchanged hunks
       // (lib/ship-patch.ts) needs a scoped review instead of the loop.
       const sides = { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head };
-      for (const p of [...touched].sort()) {
+      const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, fromBase, headBase)];
+      if (moved.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
+      const [movedHead, movedBase] = moved as Set<string>[];
+      for (const p of [...touched].filter(p => movedHead.has(p) || movedBase.has(p)).sort()) {
         if (changedProduct.length >= CARRY_NAMED_PATHS) break;
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
         if (cls !== 'product') continue;
@@ -644,7 +697,10 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
-      if (!record) {
+      if (!record && rest.includes('--dry-run')) {
+        scopedDryRun = `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
+        scopedReview = `base context moved (scoped review pending: ${contextPaths.join(', ')})`;
+      } else if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
         try {
@@ -655,9 +711,11 @@ function cmdCarry(rest: string[], json: boolean): number {
         }
         return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
       }
-      const review = readScopedReview(record, { head }, contextPaths);
-      if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
-      scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      if (record) {
+        const review = readScopedReview(record, { head }, contextPaths);
+        if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
+        scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+      }
     }
     const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
@@ -687,17 +745,24 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (!receipt.review_depth) return refused('RECEIPT_CARRY_REFUSED', `the receipt records gstack_version but no review_depth, so the queue would refuse it; run /ship on ${head.slice(0, 12)}`);
     const checkedOut = git(['rev-parse', 'HEAD'], repoRoot)?.toLowerCase();
     if (checkedOut !== head) return refused('RECEIPT_CARRY_REFUSED', `--head ${head.slice(0, 12)} is not the checked-out HEAD ${(checkedOut ?? 'none').slice(0, 12)}; the gate scan reads the checkout, so check out ${head.slice(0, 12)} and carry there`);
-    const now = receiptDepthAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), head);
+    const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), head);
+    const now = review.depth;
+    if (review.exclude.state === 'refused') return refused('RECEIPT_CARRY_REFUSED', `${review.exclude.lines.join('; ')}; run /ship on ${head.slice(0, 12)} once the base policy reads`);
+    const digest = review.exclude.state === 'active' ? review.exclude.record.digest : 'none';
+    if (digest !== (receipt.review_exclude?.digest ?? 'none')) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the reviewers read another selection than HEAD ${head.slice(0, 12)} has under the base policy, so carry does not apply; run /ship on ${head.slice(0, 12)}`);
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
-    depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) } };
+    depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) }, review_exclude: receiptExclude(review.exclude) };
   }
   // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
   const rebound = { ...receipt, ...(retarget ? { base: base.replace(/^origin\//, '') } : {}), ...(pregateField ?? {}), ...depthField };
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head);
+  if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue refuses it too (#3859); run /ship on ${head.slice(0, 12)}`);
   const newBody = placeReceiptFirst(body, carried);
   const line = receiptSummaryLine(carried);
+  if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);
   if (rest.includes('--dry-run')) {
     process.stderr.write(line + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'dry-run', head, carry: plan.carry }) + '\n' : `CARRY: would carry from ${from.slice(0, 12)} to ${head.slice(0, 12)} (${plan.carry.reason}); nothing written\n`);
