@@ -535,6 +535,17 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(rows(f2).filter(r => r.source === 'ci')).toEqual([]);
   });
 
+  test('a working-tree edit during the post-remainder run recheck carries nothing', () => {
+    const per = `touch ../armed; ${PER(0)}`;
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: per } } }, null, 2) + '\n' }); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const w = JSON.parse(fs.readFileSync(path.join(f.root, 'world.json'), 'utf8'));
+    fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify({ ...w, editWhenArmed: { marker: path.join(f.root, 'armed'), file: path.join(f.work, 'src/b.ts'), content: 'export const b = 3;\n' } }));
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: tree_changed: /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
   test('per_file is validated: it needs {files} and an inventory entry', async () => {
     const { shipLanesErrors } = await import('../lib/ci-carry');
     expect(shipLanesErrors({ x: { profiles: ['p'], inventory: 'ls', per_file: 'bun test {files}' } }, ['p'])).toEqual([]);

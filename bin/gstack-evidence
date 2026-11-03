@@ -708,7 +708,6 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     const hereCommand = perFileCommand(m.per_file!, v.remainder);
     const exit = await cmdRun(["--label", hereLabel, "--", hereCommand]);
     if (exit !== 0) return none("skipped_failed", `the per_file run of ${v.remainder.length} skipped file(s) exited ${exit} (label=${hereLabel})`);
-    if (wtree() !== tree) return none("tree_changed", `the working tree changed while the per_file run of label=${hereLabel} ran`);
     let rows: EvidenceRecord[] = [];
     try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
     here = { label: hereLabel, files: v.remainder, tests_ran: rows.findLast((r) => r.label === hereLabel && r.source === undefined && r.cmd_sha256 === sha256(hereCommand) && r.wtree === tree)?.tests_ran ?? "unknown" };
@@ -717,6 +716,7 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
       const changed = runChanged(check.deps, e.run_id, e.run_attempt);
       if (changed) return none("run_changed", changed);
     }
+    if (wtree() !== tree) return none("tree_changed", `the working tree changed while the per_file run of label=${hereLabel} ran`);
   }
   let paths: ReturnType<typeof ledgerPath>;
   try {
