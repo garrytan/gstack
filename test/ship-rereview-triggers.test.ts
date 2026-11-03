@@ -915,4 +915,14 @@ describe('base lines do not count toward the scoped-review cap (GST-1226, founde
     expect(scoped(r)).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
     expect(r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/shots.ts)')).toBe(true);
   });
+
+  test('a base change past BASE_SECTION_CEILING counts in full again and takes the behavior route', () => {
+    const pr = block('pr', 76), other = block('other', 2100);
+    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
+    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
+    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
+    mergeMain(f, { 'src/shots.ts': join(merged) });
+    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
+  });
 });

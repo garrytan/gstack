@@ -126,13 +126,14 @@ function hunkTexts(diff: string): string[] {
 
 /** The most lines one packet section may hold; a path with a longer section takes the full loop instead. */
 export const PACKET_SECTION_CAP = 200;
+/** The most lines the base's change section may hold before its uncounted base lines count again (GST-1226). */
+export const BASE_SECTION_CEILING = 2000;
 
 /**
  * The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own
  * change; per test path, its test hunks. `over` names every path with a section past PACKET_SECTION_CAP: one reviewer
- * cannot be shown all of it, so the caller sends it to the full loop. Only the branch's own lines count toward the cap
- * (GST-1226): the base's +/- lines, already merged at base, and the base-added lines that sit as context in the current
- * hunks are shown but not counted.
+ * cannot be shown all of it, so the caller sends it to the full loop. The base's +/- lines, already merged at base, are
+ * shown but do not count toward the cap (GST-1226) until that section passes BASE_SECTION_CEILING lines.
  */
 export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): { text: string; over: string[] } {
   const over = new Set<string>();
@@ -148,9 +149,8 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     const b = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('');
-    const merged = new Set(b.split('\n').filter(l => l.startsWith('+')).map(l => ` ${l.slice(1)}`));
-    parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join(''), l => !merged.has(l)),
-      fence("The base's change", b, l => !/^[+-]/.test(l)));
+    parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
+      fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : l => !/^[+-]/.test(l)));
   }
   return { text: parts.join('\n'), over: [...over] };
 }

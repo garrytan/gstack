@@ -6033,9 +6033,10 @@ The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
 `RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section over 200
 lines takes the full loop instead, but only the branch's own lines count toward
-that limit: the base's change and the base-added lines that sit as context in
-the current hunks are shown and not counted (GST-1226), so a large base edit
-next to the branch's hunk still gets the scoped read.
+that limit: the base's +/- lines, already merged at base, are shown and not
+counted (GST-1226), so a large base edit next to the branch's hunk still gets
+the scoped read. A base change over 2,000 lines in one file counts in full
+again and takes the full loop.
 
 **Fix.** Dispatch one fix-check reviewer
 ([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
