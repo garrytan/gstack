@@ -36,7 +36,7 @@ export const SWITCH_ENV: Record<SwitchName, string> = {
 
 /** Each switch's one default. setup, gstack-config and gstack-skill-route read it through `gstack-skill-route --default <switch>`; the hooks read it here. */
 export const SWITCH_DEFAULT: Record<SwitchName, 'on' | 'off'> = {
-  skill_routing: 'off',
+  skill_routing: 'on',
   skill_contracts: 'off',
 };
 
