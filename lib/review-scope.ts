@@ -383,7 +383,7 @@ function rowLocus(f: Record<string, any>): string | null {
  */
 export interface LedgerPass {
   started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string;
-  /** Whether judge ran on it at all (a rejected judgment counts): a pass never judged that no row names was abandoned (voided) and counts nothing (GBEV-3). */ judged?: boolean;
+  /** Whether judge ran on it at all (a rejected judgment counts): a pN pass never judged that no row names, replaced by a later judged or named pass, was abandoned (voided) and counts nothing (GBEV-3); a fix-check ledger and the last pass are never voided. */ judged?: boolean;
 }
 export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass {
   const events = readLedger(ledger);
@@ -429,7 +429,9 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? rowKey(r) : `#${i}`, r] as const)).values()];
   const passes = loopRows.filter(r => r.skill === 'review');
   const named = (dir: string) => { const n = /^p(\d+)$/.exec(dir)?.[1]; return loopRows.some(r => (n !== undefined && r.skill === 'review' && String(r.pass) === n) || (Array.isArray(r.findings) && r.findings.some((f: any) => typeof f?.ledger_id === 'string' && f.ledger_id.startsWith(`${dir}/`)))); };
-  const voidedAt = new Set(allPasses.flatMap((p, i) => (p.judged === false && p.ids?.length && p.name && !named(p.name) ? [i] : [])));
+  const passNo = (p: LedgerPass) => (p.fixCheck ? undefined : Number(/^p(\d+)$/.exec(p.name ?? '')?.[1] ?? NaN));
+  const replaced = (n: number) => allPasses.some(q => (passNo(q) ?? NaN) > n && (q.judged !== false || named(q.name!)));
+  const voidedAt = new Set(allPasses.flatMap((p, i) => { const n = passNo(p); return n !== undefined && Number.isFinite(n) && p.judged === false && p.ids?.length && !named(p.name!) && replaced(n) ? [i] : []; }));
   const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
   const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
   const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
