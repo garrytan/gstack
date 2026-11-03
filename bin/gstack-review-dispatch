@@ -414,8 +414,8 @@ function main(): number {
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
     const r = recordJudgment(ledger, readJsonl<MergedLine>(merged), readJsonl<JudgedLine>(judged), judged, merged);
-    process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}\n`
-      : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one)\n`);
+    process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}${r.dismissed.length ? ` dismissed=${r.dismissed.length}` : ''}\n`
+      : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one; a summary_candidate line may be lowered with a reason)\n`);
     return r.ok ? EXIT.ok : EXIT.fail;
   }
   if (cmd === 'verify') {
