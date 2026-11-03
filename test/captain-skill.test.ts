@@ -81,15 +81,17 @@ describe('/captain skill', () => {
     expect(read('captain/templates/automation-flaky-pass.md')).toContain('never merge');
   });
 
-  test('every copy of the plan-first exemptions names the two fix exemptions and the eng-only plan for every other fix', () => {
+  test('every copy of the plan-first exemptions names the two fix exemptions and the R65 no-review rule for other bug fixes', () => {
     for (const rel of ['docs/captain.md', 'captain/SKILL.md', 'captain/templates/CREW.md', 'capy/skill/gstack/SKILL.md']) {
       const text = read(rel).replace(/\s+/g, ' ');
       expect(text, rel).toMatch(/S1 emergenc(?:y|ies) \(a? ?broken install or upgrade, a? ?red main, a security bug\)/);
       expect(text, rel).toMatch(/already[- ]diagnosed,? (?:and )?audited problem list|problem list that was already diagnosed and audited/);
-      expect(text, rel).toContain('one-round, eng-only plan');
+      expect(text, rel).toContain('--kind fix');
+      expect(text, rel).toContain('--kind feature');
+      expect(text, rel).not.toContain('one-round, eng-only plan');
     }
-    expect(read('docs/captain.md')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
-    expect(read('captain/templates/brief.md').replace(/\s+/g, ' ')).toContain('gstack-autoplan close --out <run dir> --phase ceo --deferred');
+    expect(read('docs/captain.md')).toContain('AUTOPLAN: not needed (bug fix; R65)');
+    expect(read('captain/templates/brief.md').replace(/\s+/g, ' ')).toContain('--kind feature');
   });
 
   test('is generic: parameters, not one crew\'s codes, names or repository', () => {

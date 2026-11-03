@@ -4,9 +4,10 @@
  *
  *   gstack-pregate [run] [--stage preflight|tests|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
- *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
+ *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
  *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
  *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
+ *                  [--flaky-exception "<test file>::<case>" … --pr <n> [--grant <approval id>]]   a run with failures, under the owner's grant
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
  *   gstack-pregate validate | init [--explain] [--force]         the working-tree .gstack/pregate.json
  *   gstack-pregate sealed [--range <a..b>] [--remote <name>] [--base <branch>] [--no-skip] [--json]
@@ -36,6 +37,7 @@ import { CHECKS, CHECK_IDS, PREGATE_OUT_REL, PREGATE_TIER2, clearDecision, clear
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { describeSubstitution } from '../lib/pregate/remote-receipt';
+import { approvalGrants, describeExceptions, type FlakyInput } from '../lib/pregate/flaky-exception';
 import { ensureTmpExcluded } from '../lib/restamp';
 import { RESULT_CODES, resultCodeSuffix, resultLine } from '../lib/result-codes';
 import { DEFAULT_STALL_TIMEOUT_S } from '../lib/pregate/context';
@@ -58,7 +60,10 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                   verifies GitHub Actions runs against the base branch's run_profiles instead (docs/pregate.md#run-evidence):
                   one run of the profile named after the lane, or for pregate.json/remote_gate one run per
                   remote_gate_runs profile covering the gate's inventory (needs --allow-repo-commands); where a lane has a
-                  profile, --run-url is verified the same way
+                  profile, --run-url is verified the same way. --flaky-exception "<test file>::<case>" (at most 3) --pr <n>
+                  --grant <approval id> takes such runs with failures when every failure is named from the run's shard
+                  results and logs, outside the PR's diff and import closure, and an owner's gstack-approvals row binds
+                  them; without --grant it prints the row to record (pregate only; docs/pregate.md#flaky-exception)
   lanes           print every CI lane with its platform tier (from .github/workflows/*.yml)
   validate | init the working-tree ${PREGATE_CONFIG_PATH}
   sealed [--range <a..b>] [--remote <name>] [--base <branch>] [--no-skip]
@@ -94,6 +99,9 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   --from-run <id|url>           a Free Tests run on this exact tree, verified against the base branch's run profile for this OS
                                 whose workflow holds a local lane (docs/pregate.md#from-run): the selected test files its tree.json lists count as passed and
                                 are recorded with its receipt; the rest still run. A refused run prints REUSE: refused and runs everything
+  --no-ci-carry                 without --from-run, the tests stage looks up the newest verified CI run at HEAD's clean tree under
+                                those profiles itself and uses it (CI_CARRY: accepted <receipt> or CI_CARRY: none (<reason>);
+                                docs/pregate.md#ci-carry); this flag skips that lookup
   --explain                     print each selected test's provenance and each uncertain mapping
   --json                        one JSON object on stdout; a refusal before any check runs (unavailable base, invalid pin
                                 file, WTREE_UNAVAILABLE) is {ok:false,status:'refused',code,detail,fix,docs} with exit 3,
@@ -112,9 +120,9 @@ function flag(args: string[], name: string): string | undefined { const i = args
 
 /** Flags each verb accepts: `[flags that take a value, bare flags]`. Anything else is usage (exit 2), never a silent default run. */
 const VERB_FLAGS: Record<string, [string[], string[]]> = {
-  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote']],
+  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote', '--no-ci-carry']],
   verify: [['--out'], ['--json']],
-  clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out'], ['--allow-repo-commands']],
+  clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out', '--flaky-exception', '--pr', '--grant'], ['--allow-repo-commands']],
   lanes: [[], ['--explain', '--json']],
   validate: [[], ['--json']],
   init: [[], ['--explain', '--force']],
@@ -179,6 +187,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   }
   const ctx = loaded.ctx;
   if (fromRun !== undefined) ctx.fromRun = { ref: fromRun, check: buildRunCheck(root, null, allow, base) };
+  if (rest.includes('--no-ci-carry')) ctx.ciCarry = false;
   ensureTmpExcluded(root);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
@@ -219,7 +228,12 @@ function cmdVerify(root: string, rest: string[], json: boolean): number {
   if (!read.file) { for (const e of read.errors) process.stderr.write(resultLine('gstack-pregate verify', e.code, `${e.message} at ${e.path}`) + '\n'); return EXIT.fail; }
   const v = verifyPregate(root, read.file);
   if (json) { process.stdout.write(JSON.stringify({ ...v, verdict: read.file.verdict, tree: read.file.tree, head: read.file.head, out }) + '\n'); return v.ok ? EXIT.ok : EXIT.fail; }
-  if (v.ok) { process.stdout.write(`PREGATE_VERIFY: ok ${v.message}\n`); return EXIT.ok; }
+  if (v.ok) {
+    const excepted = describeExceptions(read.file);
+    if (excepted) process.stdout.write(`PREGATE: ${excepted}\n`);
+    process.stdout.write(`PREGATE_VERIFY: ok ${v.message}\n`);
+    return EXIT.ok;
+  }
   process.stderr.write(resultLine('gstack-pregate verify', v.code!, v.message) + '\n');
   for (const r of v.uncleared) process.stdout.write(`requires-remote: ${r.lane} (${r.platform}) ${r.tests.length} test(s) uncleared\n`);
   process.stdout.write(`PREGATE_VERIFY: refused ${v.code}\n`);
@@ -229,6 +243,14 @@ function cmdVerify(root: string, rest: string[], json: boolean): number {
 function cmdClear(root: string, rest: string[]): number {
   const lane = flag(rest, '--remote');
   if (!lane) { process.stderr.write(`gstack-pregate clear: --remote <workflow.yml/job> with --run-url <url>, --bundle-lane <label> or (for ${REMOTE_GATE_LANE}) --receipt <file> is required\n`); return EXIT.usage; }
+  const cases = rest.flatMap((a, i) => a === '--flaky-exception' ? [rest[i + 1]!] : []);
+  let flaky: FlakyInput | undefined;
+  if (cases.length) {
+    if (!rest.includes('--run') && !rest.includes('--run-url')) { process.stderr.write('gstack-pregate clear: --flaky-exception needs --run <id|url>: an exception reads GitHub Actions runs\n'); return EXIT.usage; }
+    const pr = Number(flag(rest, '--pr'));
+    if (!Number.isInteger(pr) || pr <= 0) { process.stderr.write('gstack-pregate clear: --flaky-exception needs --pr <n>, the pull request the grant binds\n'); return EXIT.usage; }
+    flaky = { cases, pr, grant: flag(rest, '--grant'), grantRow: approvalGrants(root) };
+  } else if (flag(rest, '--pr') !== undefined || flag(rest, '--grant') !== undefined) { process.stderr.write('gstack-pregate clear: --pr and --grant apply only with --flaky-exception\n'); return EXIT.usage; }
   const out = outPath(root, rest);
   const read = fs.existsSync(out) ? readPregateFile(out) : { file: null, errors: [] };
   if (!read.file) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} is missing or invalid; run gstack-pregate first`) + '\n'); return EXIT.fail; }
@@ -238,7 +260,7 @@ function cmdClear(root: string, rest: string[]): number {
   const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands')) : undefined;
   if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }
   const evidence = checked && !('error' in checked) ? checked : undefined;
-  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence }, root);
+  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence, flaky }, root);
   if ('refused' in decision) {
     if (decision.refused === 'usage') { process.stderr.write(`gstack-pregate clear: ${decision.message}\n`); return EXIT.usage; }
     process.stderr.write(`gstack-pregate clear: receipt refused — ${decision.message}; fix: ${decision.fix ?? RESULT_CODES.PREGATE_RECEIPT_INVALID.fix} ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`);
@@ -246,9 +268,11 @@ function cmdClear(root: string, rest: string[]): number {
   }
   const current = readPregateFile(out).file;
   if (!current || current.tree !== read.file.tree || current.generated_at !== read.file.generated_at) { process.stderr.write(resultLine('gstack-pregate clear', 'PREGATE_STALE', `${out} changed while ${lane} was being verified; rerun the clear against the new file`) + '\n'); return EXIT.fail; }
-  const file = clearObligation(current, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution);
+  const file = clearObligation(current, lane, decision.receipt, `gstack-pregate clear ${new Date().toISOString()}`, decision.substitution, decision.exception);
   writePregateFile(root, out, file);
-  if (/ runs=\S+ profiles=/.test(decision.receipt)) process.stdout.write(`REUSE: accepted ${lane} ${decision.receipt}\n`);
+  const e = decision.exception;
+  if (e) process.stdout.write(`FLAKY_EXCEPTION: accepted ${lane} cases=${e.cases.join(' | ')} run=${e.runs.join(',')} grant=${e.grant} by=${e.by} (pregate only; every required CI check still needs its own green run at this head)\n`);
+  else if (/ runs=\S+ profiles=/.test(decision.receipt)) process.stdout.write(`REUSE: accepted ${lane} ${decision.receipt}\n`);
   if (decision.substitution) process.stdout.write(`PREGATE_RECEIPT_SUBSTITUTED: ${describeSubstitution(decision.substitution)}\n`);
   process.stdout.write(`PREGATE_CLEARED: ${lane} receipt=${decision.receipt} verdict=${file.verdict}${decision.attested ? ` (attested, not validated: ${lane} has no machine-checkable receipt)` : ''}\n`);
   if (checked && 'error' in checked) process.stderr.write(`gstack-pregate clear: run profiles unavailable (${checked.error}); ${lane} was recorded without run verification\n`);

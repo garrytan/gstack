@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
+import { STAMP_PLACEHOLDERS_KEY_VERSION } from '../lib/ship-policy';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -247,6 +248,55 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
     edited.f.write({ VERSION: '1.0.3.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.3.0', 'theirs'], ['1.0.3.0', 'mine']) }); edited.f.commit('moves a merged base row the base later edited');
     const e = finish(edited.f, edited.reviewed, edited.post, ['--reviewed-base', edited.reviewedBase]);
     expect([e.status, lineOf(e.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+  });
+
+  // Value: protects=with a kept VERSION claim, the restamp's move of the branch's own fork-version row routes as metadata,
+  //   and a base row moved the same way still stops (GST-980); fails_when=stampedFiles returns nothing at equal versions
+  //   and finish routes the row as behavior; seam=lib/ship-bin-common.ts stampedFiles
+  test('a kept VERSION claim: the moved fork-version row is metadata; a moved base row stops (GST-980)', () => {
+    const kept = (rows: [string, string][]) => {
+      const f = fx({ '.gstack/ship-policy.json': policy, VERSION: '1.0.0.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.0.0', 'base']) },
+        { VERSION: '1.0.1.0\n', 'src/notice.ts': notice(['0.9.0.0', 'old'], ['1.0.0.0', 'base'], ['1.0.0.0', 'mine']) });
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ 'src/notice.ts': notice(...rows) }); f.commit('stamp, VERSION kept');
+      return finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    };
+    const own = kept([['0.9.0.0', 'old'], ['1.0.0.0', 'base'], ['1.0.1.0', 'mine']]);
+    expect(lineOf(own.stdout, 'ROUTE')).toEqual(expect.stringMatching(/ behavior=0 docs=0 metadata=1 tests=0 /));
+    const base = kept([['0.9.0.0', 'old'], ['1.0.1.0', 'base'], ['1.0.0.0', 'mine']]);
+    expect([base.status, lineOf(base.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+  });
+
+  // Value: protects=gbrain's restamp of the PR's own `since: 'TBD'` row to the new version routes as metadata when the
+  //   policy declares TBD in stamp_placeholders (GST-1026, gbrain #8444); an undeclared placeholder, a base row moved the
+  //   same way, a duplicated base copy, or a line no stamp_pattern matches still stops; fails_when=stampedFiles reads the
+  //   move as behavior (gbrain #8444) or accepts it off the branch's own rows; seam=lib/ship-bin-common.ts stampedFiles
+  test('a declared placeholder on the branch row is metadata; undeclared, a base row or no template stops (GST-1026)', () => {
+    const declared = (placeholders: string[] | undefined, templates = ["since: '{version}'"]) => JSON.stringify({ stamp_files: ['VERSION', 'src/notice.ts'], stamp_patterns: templates,
+      ...(placeholders ? { stamp_placeholders: placeholders, min_gstack_version: STAMP_PLACEHOLDERS_KEY_VERSION } : {}) });
+    const restamped = (pol: string, baseRows: [string, string][], ownRows: [string, string][], rows: [string, string][]) => {
+      const f = fx({ '.gstack/ship-policy.json': pol, VERSION: '1.0.0.0\n', 'src/notice.ts': notice(...baseRows) },
+        { VERSION: '1.0.1.0\n', 'src/notice.ts': notice(...baseRows, ...ownRows) });
+      const reviewed = wtree(f);
+      const post = snapshot(f);
+      f.write({ VERSION: '1.0.2.0\n', 'src/notice.ts': notice(...rows) }); f.commit('restamp: TBD rows to 1.0.2.0');
+      return finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    };
+    const base: [string, string][] = [['0.9.0.0', 'old'], ['TBD', 'base']];
+    const metadata = / behavior=0 docs=0 metadata=2 tests=0 /;
+    const own = restamped(declared(['TBD']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect(lineOf(own.stdout, 'ROUTE'), own.stdout).toEqual(expect.stringMatching(metadata));
+    const undeclared = restamped(declared(undefined), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([undeclared.status, lineOf(undeclared.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const other = restamped(declared(['WIP']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([other.status, lineOf(other.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const baseRow = restamped(declared(['TBD']), base, [['TBD', 'mine']], [['0.9.0.0', 'old'], ['1.0.2.0', 'base'], ['1.0.2.0', 'mine']]);
+    expect([baseRow.status, lineOf(baseRow.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const dup = restamped(declared(['TBD']), base, [['TBD', 'base']], [['0.9.0.0', 'old'], ['1.0.2.0', 'base'], ['TBD', 'base']]);
+    expect([dup.status, lineOf(dup.stdout, 'STOP')]).toEqual([3, behaviorStop]);
+    const noTemplate = restamped(declared(['TBD'], ['version: {version}']), base, [['TBD', 'mine']], [...base, ['1.0.2.0', 'mine']]);
+    expect([noTemplate.status, lineOf(noTemplate.stdout, 'STOP')]).toEqual([3, behaviorStop]);
   });
 });
 
@@ -739,3 +789,83 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
   });
 });
 
+
+// Value: protects=a granted fix-check's clean read clears the paths it reviewed at Step 16, a gate-edited test included, so
+//   finish does not send them back through Steps 5–11.5 (GEVA-218, gstack-evals#168); fails_when=finish routes a path inside
+//   the fix-check's range as behavior, counts a path edited after the fix-check, or counts a row that is not a completed clean
+//   fix-check with a range base; seam=finish's route reading the review log; no_claim=Step 11.5's binding
+describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
+  const TEST_V1 = "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); });\n";
+  const TEST_V2 = "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); }, 1_000);\ntest('b finishes fast', () => { expect(1 + 1).toBe(2); }, 1_000);\n";
+  const logFixCheck = (f: ShipFx, row: Record<string, unknown>) => {
+    const start = f.run(path.join(BIN, 'gstack-review-log'), ['--start', 'review-fix-check']);
+    expect(start.status).toBe(0);
+    return f.run(path.join(BIN, 'gstack-review-log'), [JSON.stringify({ skill: 'review-fix-check', timestamp: '2026-11-02T00:00:00Z', via: 'ship', review_scope: 'frozen', status: 'clean', issues_found: 0, critical: 0, ...row }), '--finish', start.stdout.trim()]);
+  };
+  const grant = (f: ShipFx, stopHead: string) => {
+    const a = f.run(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`, '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { GSTACK_APPROVALS_MIRROR: '0' });
+    expect(a.status).toBe(0);
+    return JSON.parse(a.stdout).added[0] as string;
+  };
+  const afterFixCheck = () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
+    const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    f.write({ 'src/x.ts': 'export const x = 3;\n', 'test/x.test.ts': TEST_V2 }); f.commit('fix the round-2 blocker and bound its case');
+    return { f, passHead, fixHead: f.git('rev-parse', 'HEAD').stdout.trim(), reviewed, post: snapshot(f) };
+  };
+
+  test('paths inside a completed clean fix-check range count as reviewed, a gate-edited test included; a later edit still stops', () => {
+    const { f, passHead, fixHead, reviewed, post } = afterFixCheck();
+    const plain = finish(f, reviewed, post);
+    expect([plain.status, plain.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')]).toEqual([3, true]);
+    const id = grant(f, passHead);
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    const r = finish(f, reviewed, post);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}, grant ${id})`);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=unknown context=0 fix_checked=2$/);
+    expect([r.status, lineOf(r.stdout, 'EVIDENCE')]).toEqual([0, expect.stringMatching(/^EVIDENCE: FRESH label=tests /)]);
+    f.write({ 'src/x.ts': 'export const x = 4;\n' }); f.commit('an edit after the fix-check');
+    const late = finish(f, reviewed, post);
+    expect(lineOf(late.stdout, 'FIX_CHECK')).toStartWith('FIX_CHECK: reviewed test/x.test.ts (');
+    expect([late.status, late.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+  });
+
+  test('a clean fix-check row with no recorded review_loop_grant for a stop head in its range is not counted', () => {
+    const { f, passHead, reviewed, post } = afterFixCheck();
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    const ungranted = finish(f, reviewed, post);
+    expect(lineOf(ungranted.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)');
+    expect([ungranted.status, ungranted.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')]).toEqual([3, true]);
+    grant(f, mergeBase(f));
+    const elsewhere = finish(f, reviewed, post);
+    expect([elsewhere.status, lineOf(elsewhere.stdout, 'FIX_CHECK')]).toEqual([3, 'FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)']);
+  });
+
+  test('a fix-check row that did not finish clean, or names no range base, is not counted', () => {
+    const { f, passHead, reviewed, post } = afterFixCheck();
+    expect(logFixCheck(f, { completed: false, converged: false, range_base: passHead }).status).toBe(0);
+    const incomplete = finish(f, reviewed, post);
+    expect(lineOf(incomplete.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (missing start capture or incomplete/nonconverged pass)');
+    expect([incomplete.status, incomplete.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')]).toEqual([3, true]);
+    expect(logFixCheck(f, { completed: true, converged: true }).status).toBe(0);
+    const unranged = finish(f, reviewed, post);
+    expect(lineOf(unranged.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (the row names no range_base commit on this branch)');
+    expect(unranged.status).toBe(3);
+    const fork = mergeBase(f);
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: fork }).status).toBe(0);
+    const early = finish(f, reviewed, post);
+    expect(lineOf(early.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: not counted (range_base ${fork.slice(0, 12)} does not hold the reviewed tree)`);
+    expect(early.status).toBe(3);
+  });
+
+  test('a fix-check logged on uncommitted content is not counted', () => {
+    const { f, passHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/x.ts': 'export const x = 9;\n' });
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    f.git('checkout', '--', 'src/x.ts');
+    const r = finish(f, reviewed, post);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (the row was logged on content no branch commit holds)');
+    expect(r.status).toBe(3);
+  });
+});
