@@ -603,7 +603,12 @@ counts as open while the marker exists, which `gstack-ship-release finish` remov
 when Steps 15-16 pass, and while `bin/gstack-lease open` says so: under 120
 minutes old and its holder (the harness that ran preflight) alive. A finished,
 aged-out or dead run never blocks, and /ship's own first preflight (or a rerun
-after a Step 3 STOP) is never refused.
+after a Step 3 STOP) is never refused. A different `--run` from the open run's
+holder replaces it: that is a new /ship after one that stopped before finish.
+The holder is the first non-shell process above preflight: the Claude Code
+session, or on Capy the machine's one `capy-server`, so there only the same id or
+a missing `--run` is refused. The same id, no `--run`, or an open run held by
+another live process (another session) stops.
 
 **What is kept.** Nothing ran: no fetch, no merge, the tree is untouched.
 
@@ -612,6 +617,19 @@ merges, or let that /ship finish. If that run is no longer running (it stopped
 before finish), remove the marker the STOP names (`rm <marker>`), then rerun.
 
 **Expected result.** The preflight continues to `STATUS:` and `MERGE:`.
+
+<a id="ship-preflight-run-unrecorded"></a>
+### `STOP: cannot record /ship run <id> on this checkout's lease (...)`
+
+**Meaning.** `--run` was given, but `gstack-lease touch` could not open the run
+on the checkout's lease, for example while a live process holds its lock.
+Unrecorded, a later full preflight could not be refused, so preflight stops
+before the fetch instead of going on unprotected.
+
+**What is kept.** Nothing ran: no fetch, no merge.
+
+**Fix.** Do what the parenthesized `gstack-lease` line names (wait for the
+process holding `<git dir>/gstack-leases/.lock`), then rerun.
 
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`

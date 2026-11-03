@@ -50,22 +50,30 @@ const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /**
  * GST-1204: a full preflight merges the base, so it stops while the /ship run that already passed Steps 1-3 on this checkout
  * is open: its marker is in the git dir (finish removes it) and its run is open on the checkout's own lease (gstack-lease
- * open: GST-1205's released, 120-minute and dead-holder rules). The run's readers diff this tree. /ship's own first
- * preflight finds no marker or a closed run; --tests-only never gets here.
+ * open: GST-1205's released, 120-minute and dead-holder rules). The run's readers diff this tree. A different --run whose
+ * caller is the open run's holder (the harness behind preflight: the Claude Code session, or Capy's one capy-server) is a
+ * new /ship after one that stopped before finish, so it goes on; the same id, no --run, or another live holder's run stops.
+ * A --run is opened on the lease here, before the fetch, and one that cannot be is a STOP, never an unprotected run.
  */
-function openShipRun(cwd: string, base: string, r: Report): boolean {
+function shipRunClear(cwd: string, base: string, run: string | undefined, r: Report): boolean {
   const marker = shipRunMarker(cwd);
-  const run = marker && fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : '';
-  if (!RUN_ID.test(run) || bin(cwd, 'gstack-lease', ['open', '--root', cwd, '--run', run], 30_000).status !== 0) return false;
-  r.stop(`/ship run ${run} is open on this checkout and past its preflight (${marker}; open until its finish or for 120 minutes): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish; if it is no longer running, rm ${marker}, then rerun`);
-  return true;
+  const open = marker && fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : '';
+  const lease = (verb: string, id: string, from = false) => bin(cwd, 'gstack-lease', [verb, '--root', cwd, '--run', id, ...(from ? ['--from', String(process.ppid)] : [])], 60_000);
+  if (RUN_ID.test(open) && lease('open', open).status === 0 && !(run && run !== open && lease('open', open, true).status === 0)) {
+    r.stop(`/ship run ${open} is open on this checkout and past its preflight (${marker}; open until its finish or for 120 minutes): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish; if it is no longer running, rm ${marker}, then rerun`);
+    return false;
+  }
+  const touch = run ? lease('touch', run, true) : undefined;
+  if (!touch || touch.status === 0) return true;
+  r.stop(`cannot record /ship run ${run} on this checkout's lease (${firstLine(touch.stderr) || `gstack-lease touch exit ${touch.status}`}): unrecorded, a later full preflight could merge origin/${base} under this run's reviews; fix that, then rerun`);
+  return false;
 }
 
 function integrate(cwd: string, base: string, run: string | undefined, r: Report): boolean {
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
   r.add(`BRANCH: ${branch || '(detached)'} base=${base}`);
   if (!branch || branch === base) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
-  if (openShipRun(cwd, base, r)) return false;
+  if (!shipRunClear(cwd, base, run, r)) return false;
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
   const fetch = git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], 300_000);
@@ -104,7 +112,7 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the design lite check; mention /design-review when no design review exists)' : ''}`);
   if (!merge(cwd, base, r)) return false;
   const marker = run && shipRunMarker(cwd);
-  if (marker && bin(cwd, 'gstack-lease', ['touch', '--root', cwd, '--from', String(process.ppid), '--run', run], 60_000).status === 0) fs.writeFileSync(marker, `${run}\n`);
+  try { if (marker) fs.writeFileSync(marker, `${run}\n`); } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }
   return true;
 }
 

@@ -769,7 +769,7 @@ describe('gstack-lease', () => {
   });
 
   // GST-1204: gstack-ship-preflight asks whether one /ship run is still open; open answers with the same released, aged-out, dead and stale rules live uses.
-  test('open --run [--pid]: 0 while that run is open on a live holder; 1 once released, aged out, dead, reused or never recorded; usage is 2', () => {
+  test('open --run [--pid | --from]: 0 while that run is open on a live holder; 1 once released, aged out, dead, reused or never recorded; usage is 2', () => {
     const { dir, leases } = checkout();
     const open = (pid: number | string, id: string) => run(['open', '--root', dir, '--pid', String(pid), '--run', id]).status;
     const p = sleeper();
@@ -777,6 +777,9 @@ describe('gstack-lease', () => {
     expect(run(['touch', '--root', dir, '--pid', String(p), '--run', `${p}-2-b`]).status).toBe(0);
     expect(open(p, `${p}-1-a`)).toBe(0);
     expect(run(['open', '--root', dir, '--run', `${p}-1-a`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', `${p}-1-a`, '--from', String(process.pid)]).status).toBe(1);
+    expect(run(['touch', '--root', dir, '--pid', String(process.pid), '--run', 'own-1']).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', 'own-1', '--from', String(process.pid)]).status).toBe(0);
     expect(open(p, `${p}-9-z`)).toBe(1);
     expect(run(['release', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
     expect(open(p, `${p}-1-a`)).toBe(1);

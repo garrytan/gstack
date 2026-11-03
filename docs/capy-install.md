@@ -232,7 +232,7 @@ rename can be broken and then publish into its successor's lock. While a live pr
 holds the lock, or it cannot be taken at all, `touch` exits 3 without writing
 (`gstack-skill-start` reports that the session holds no lease) and a reclaim
 keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
-`GSTACK_UPGRADE_FORCE=1` overrides. `bin/gstack-lease open --run <id> [--pid <p>]`
+`GSTACK_UPGRADE_FORCE=1` overrides. `bin/gstack-lease open --run <id> [--pid <p> | --from <pid>]`
 answers for one run (exit 0 while it is open on a live holder);
 `gstack-ship-preflight` opens /ship runs on the project checkout's own lease and
 uses it to refuse a base merge under an open run
