@@ -1013,7 +1013,8 @@ a branch that does not contain the base tip it tested another tree and
 `CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
 on the branch
 (`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
-and wait again. The preflight stage (generated-file freshness, secrets, strays
+and wait again. The refusal names that command for the run's branch (`fix: gh
+workflow run free-tests.yml --ref <branch>, then gstack-ci-carry wait`). The preflight stage (generated-file freshness, secrets, strays
 and the other mechanical checks) and the sealed guard are unchanged and always
 run here. The macOS and Windows lane
 obligations still clear with `gstack-pregate clear --remote <lane> --run-url
