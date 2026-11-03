@@ -1361,8 +1361,17 @@ being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
 command above yourself before `git push`.
 
 gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
-`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens` and
-`doc-caps`. Generated SKILL.md freshness is the `regen` check's job. Other
+`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens`,
+`doc-caps` and `conflict-markers`. Generated SKILL.md freshness is the `regen`
+check's job. `conflict-markers` runs `scripts/check-conflict-markers.ts` on a
+change to code, templates or config, and reads every line the branch adds
+against its merge base with `origin/main`. A line starting with `<<<<<<<` or
+`>>>>>>>` (then a space or the line end), or a line that is exactly `=======`,
+stops the push, even inside a template literal the parser accepts. In Markdown
+it skips fenced code blocks and counts `=======` only between an unfenced
+`<<<<<<<` and its close, so a code block that shows a conflict and a heading
+underline both pass. A fixture that shows markers on purpose carries a line
+with `gstack-conflict-markers: fixture`. Other
 repos add their own `guards` the same way; the key needs no newer gstack than
 the one that already reads `guards`.
 
