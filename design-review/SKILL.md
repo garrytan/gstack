@@ -676,7 +676,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - No `user-scalable=no` or `maximum-scale=1` in viewport meta
 
 **7. Motion & Animation** (7 items)
-- Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
+- Easing: ease-out to enter and exit, ease-in-out to move; flag plain ease-in
 - Duration: 50-700ms range (nothing slower unless page transition)
 - Purpose: every animation communicates something (state change, attention, spatial relationship)
 - `prefers-reduced-motion` respected (check: `await pg.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)`)
