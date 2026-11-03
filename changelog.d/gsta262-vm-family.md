@@ -1,5 +1,0 @@
-### Tests
-- Three free tests that failed only on a busy remote test machine (remote pregate run 20261103T015240Z-11756-6ff6, PR #3892) now hold up under load:
-  - `test/review-army-budget.test.ts`: the red-team retry fixture spent a real 80 ms sleep inside its 200 ms deadline, so a pause of more than 120 ms failed attempt 2. Attempt 1 now waits for the cancellation and then drains, and attempt 2 doesn't sleep. With random 150 ms pauses injected, 6 of 10 runs passed before and 20 of 20 pass now.
-  - `test/helpers/docsync-fault-callbacks.ts`: the docsync replay assumed fixture setup took less than 5 seconds, and setup takes 5 to 12 seconds on a busy machine. The replay now checks that the session timeout equals the budget minus 15 seconds minus the time already spent, which is how the code computes it. Under 16 busy loops on 4 cores, 0 of 4 runs passed before and 4 of 4 pass now.
-  - `test/fixtures/plan-seed-cli.ts`: the fake CLI drew its screen and its startup question in two separate writes, so a screen read between them saw an empty input and pasted the plan. It now draws both in one write. Under load, 31 of 36 runs passed before and 36 of 36 pass now.

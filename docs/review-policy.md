@@ -182,6 +182,46 @@ reads everything), one `SKIP:` per reviewer left out, and `--json` with the same
 base as `base`).
 A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
+### Who reads (R65, the base policy's `review` key)
+
+The depth says how much review a diff needs; the base branch's `.gstack/ship-policy.json`
+`review` key says who does it (`review.panel`, default `all`: today's panel on every class). `gstack-review-plan`
+prints `REVIEW_MODE: <lean|panel|platform> panel=<p> reader_model=<m> platform=<on|off>`
+and, under `review.platform on`, `PLATFORM_REVIEW: <id> reviewer=capy-ai[bot] head=<sha>`
+or `PLATFORM_REVIEW: none (<reason>)`.
+
+Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
+
+| Diff | Pass 1 | After fixes (never more than 2 rounds) |
+|---|---|---|
+| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
+| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
+| Docs and tests | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
+
+`review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
+opt-in because its one-reader shape has not passed its no-loss replay: build C's replay
+scored it FIX-METHOD (its readers saw the diff without the repository). `review.panel off` gives
+risk class one merged reader too (`DISPATCH: adversarial-native merged`: the native
+adversarial brief, the gate-class checklists, the Red Team checklist and the targeted
+brief, whose ledger record is the receipt's `review_targeted`). The risk classes come
+from paths and changed lines, never from a recorded `review_depth` (FOUN-64). Two
+content rules: data and config files (JSON, YAML, TOML, CSV and the like) and analysis
+scripts under `docs/`, `results/`, `benchmarks/`, `analysis/` or `notebooks/` are
+judged by their path, so a `lease_usd` value or an `os.path.join(sys.argv[1], …)` in a
+stats script names no class (HARN-1, harness-evals#231), and binary data such as
+`*.sqlite` is data wherever it sits; a docs line that can print a credential (an
+`Authorization:` header, a bearer or key-shaped value, an environment key set to a value,
+a get or show command for auth config such as `mcp get`) is security (gbrain#8417); code
+that reserves, binds, leases or settles spend against a ledger, budget or cap (`bindCheck(ledger, …)`,
+`reserveSpend`, `bindCap`) is money (GST-1129, gstack-evals#170). When the matchers miss a class the
+lane knows the diff has, `gstack-review-plan --declare-risk <classes>` adds it: a declaration joins the
+detected classes, only raises the depth, and prints `RISK_DECLARED: classes=<declared> detected=<found>`.
+The outside voice reads its diff from a file the brief names with its sha256; past
+2,000,000 bytes it reads a path-scoped slice whose brief lists the files left out.
+`--fix-checks <n>` tells the lean loop how many fix-checks ran, so the owner's grant
+adds one fix-check after the first and never a second.
+
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
 (markdown no agent or gate reads), **tests** (test files and fixtures), **code**
 (everything else, including every `SKILL.md` and template, markdown in a skill
@@ -464,7 +504,10 @@ puts in the receipt:
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: all`) |
 | `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
 | `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
+| `review_loop.unbound` | what could not bind (GST-1168), each printed as `REVIEW_SCOPE_UNBOUND: <what>: <why>`: a row with no start token and no readable time, a `pN` ledger with no review row of pass N, a row finding's `ledger_id` no ledger collected, a `Review-Finding` trailer naming nothing; absent when 0 |
 | `review_loop.ledgers_read` | dispatch ledgers the count read; absent under `--no-ledger` |
+
+Findings bind by id first (GST-1168). A row finding that came from a dispatched reader carries `ledger_id` (`<pass dir>/<merged.jsonl id>`, such as `p2/adversarial-native#3`) and pairs with that ledger entry whatever its path:line says, so a native finding with no path:line, or a row logged after its fix moved the line, still pairs. Each fix commit names what it fixed in a `Review-Finding: <ledger_id or fingerprint> reader=<raised_by>` trailer, and a trailer counts the finding as fixed. A late defer re-logs its finding under the same id, so it counts once. Rows that record their head dedupe by kind, pass, head and finding ids, so a logger command run twice counts once. Rows and findings without an id keep the path:line pairing above. The native reader's own verdict line ("all FIXABLE, and none blocks", with no file:line, list mark, lead label or Severity/Blocks field) collects at FIXABLE, not CRITICAL; the findings it summarizes collect on their own lines.
 | `review_loop.deferred` | blocking findings in unchanged code filed as issues (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |
@@ -483,9 +526,14 @@ specialist stats they record). The summary line appends `fix_checks=`,
 loop prints the old line.
 
 Beside the counters, `write` records `review_depth` (the depth, runtime lines,
-rules hash, base and registry commits, the gate scan bound to the head and the risk classes) and
-the queue refuses a receipt below the depth its head needs
-([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). A stop the owner
+rules hash, base and registry commits, the gate scan bound to the head, the risk classes and
+`mode`: lean, panel or platform; with `--declare-risk`, `declared` and `detected` beside `risk`, so a
+class the lane added shows apart from what the matchers found) and the queue refuses a receipt below the depth its head needs
+([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). After `NEXT: platform`,
+`write --platform-review <id>` records `review_depth: platform` with `platform_review`
+(capy-ai[bot]'s review id, reviewer and head); write and the queue accept it only under
+`review.platform on`, on a docs or tests diff with no numeric, results or prereg claims,
+with the review at that exact head, so a new head needs `/ship` again. A stop the owner
 accepted after a fix-check edit goes in `review_loop_exception`, never in prose
 under `REVIEW_LOOP:`. Step 16 takes the same record:
 `gstack-ship-release finish --review-loop-exception <json|@file>` routes the

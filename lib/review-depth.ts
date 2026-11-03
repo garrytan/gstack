@@ -13,14 +13,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
-import { decodeCharRefs, matchRisk, RISK_RULES, SVG_PATH, svgActive, type RiskClass } from './review-risk';
+import { decodeCharRefs, DOC_SECRET_LINE, matchRisk, RISK_CLASSES, RISK_RULES, SVG_PATH, svgActive, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'medium' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check' | 'targeted';
-export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'done' | 'stop';
+export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'platform' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
@@ -63,6 +63,8 @@ export const isGatePath = (p: string) => GATE_PATH.some(r => r.test(p));
 export const isAgentProse = (p: string) => AGENT_PROSE.some(r => r.test(p));
 export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 
+/** Binary data, media and run logs (HARN-1: committed sqlite ledgers, trial logs): data by path wherever they sit, never code, consumed or not. */
+export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|pdf|mp3|mp4|mov|wav|webm|log|out)$|(^|\/)logs\/[^/.]+$/i;
 /** Data files: JSON, CSV, TSV and raster images. YAML and TOML are never data here: deploy configs and API specs stay code. An SVG is data only as a drawing (svgDrawing); executable SVG stays code. */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
@@ -164,7 +166,7 @@ export function svgDrawing(text: string): boolean {
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT, SVG_ELEMENTS: [...SVG_ELEMENTS],
-  patterns: Object.entries({ GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_TAG_NAME: [SVG_TAG_NAME], SVG_ATTR: [SVG_ATTR], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ BINARY_DATA_PATH: [BINARY_DATA_PATH], GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_TAG_NAME: [SVG_TAG_NAME], SVG_ATTR: [SVG_ATTR], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
@@ -240,13 +242,19 @@ export interface ClassInput {
   removed?: Record<string, readonly string[]>;
   /** Paths the base policy's review_exclude_paths leave out of every reader's diff (lib/review-exclude.ts): classified as docs. */
   excluded?: ReadonlySet<string>;
+  /** The base policy's review.risk_paths: a code path they match is risk class `policy`; data and binary files under them never are. */
+  riskPaths?: readonly string[];
+  /** Risk classes the lane declares for the diff (GST-1129, --declare-risk): they join the detected ones and can only raise the depth. */
+  declared?: readonly RiskClass[];
 }
-export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null; risk: RiskClass[] }
+/** risk is detected plus declared; `detected` is what the matchers found, `declared` what the lane added. */
+export interface ClassResult { class: DiffClass; reasons: string[]; errors: DepthError[]; runtimeLines: number | null; risk: RiskClass[]; detected: RiskClass[]; declared: RiskClass[] }
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
 const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
-const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) ? 'docs' : classifyPath(p, i.root));
+const binaryData = (i: ClassInput, p: string) => BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
+const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -277,17 +285,23 @@ export function classifyDiff(i: ClassInput): ClassResult {
     for (const p of i.paths) if (GATE_PATH.some(r => r.test(p))) { raise('gate', `gate path: ${p}`); break; }
     if (i.registry?.error) errors.push(i.registry.error);
   }
-  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true' }) : new Map<RiskClass, string>();
-  const risk = [...riskHits.keys()];
+  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
+  const docSecret = i.paths.find(p => pathClass(i, p) === 'docs' && DOC_PATH.test(p) && (i.added?.[p] ?? []).some(l => DOC_SECRET_LINE.some(r => r.test(l))));
+  if (docSecret && !riskHits.has('security')) riskHits.set('security', `docs that can print a credential: ${docSecret}`);
+  const byRank = (a: RiskClass, b: RiskClass) => RISK_CLASSES.indexOf(a) - RISK_CLASSES.indexOf(b);
+  const detected = [...riskHits.keys()].sort(byRank);
+  const declared = [...new Set(i.declared ?? [])].sort(byRank);
+  for (const d of declared) if (!riskHits.has(d)) riskHits.set(d, `declared: ${d}`);
+  const risk = [...riskHits.keys()].sort(byRank);
   reasons.push(...[...riskHits.values()].map(r => `risk: ${r}`));
-  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk };
+  if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk, detected, declared };
   let runtimeLines = 0;
   for (const e of i.perPath) {
     if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path)) continue;
     if (e.binary) errors.push({ code: 'binary_code_path', detail: 'git reports a binary change, so its lines cannot be counted', input: e.path, repair: "register it as an output of an entry with a command in the base branch's .gstack/generated.json, or accept the full review" });
     else runtimeLines += e.lines;
   }
-  return { class: cls, reasons, errors, runtimeLines, risk };
+  return { class: cls, reasons, errors, runtimeLines, risk, detected, declared };
 }
 
 /** Risk, not size (R51): any classifier error, gate class or risk class is full; everything else is light. A floor only raises; a fixed blocker or a CRITICAL raises light to standard for the next step (planReview). */
@@ -296,14 +310,14 @@ export function depthFor(o: { cls: DiffClass; runtimeLines: number; errors: read
   return o.floor && DEPTH_RANK[o.floor] > DEPTH_RANK[d] ? o.floor : d;
 }
 
-export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string; risk: RiskClass[] }
+export interface DepthResult { depth: Depth; class: DiffClass; runtimeLines: number; reasons: string[]; errors: DepthError[]; codes: ResultCodeName[]; rules: string; risk: RiskClass[]; detected: RiskClass[]; declared: RiskClass[] }
 
 function decideDepth(c: ClassResult, runtimeLines: number, floor?: Depth): DepthResult {
   const unfloored = depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk });
   const reasons = [...c.errors.map(e => `error:${e.code}`), ...(c.class === 'gate' ? ['gate-class'] : []), ...c.risk.map(r => `risk:${r}`), `runtime=${runtimeLines}`];
   if (floor && DEPTH_RANK[floor] > DEPTH_RANK[unfloored]) reasons.push(`floor:${floor}`);
   const codes = [...new Set(c.errors.flatMap(e => (e.result ? [e.result] : [])))];
-  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES, risk: c.risk };
+  return { depth: depthFor({ cls: c.class, runtimeLines, errors: c.errors, risk: c.risk, floor }), class: c.class, runtimeLines, reasons, errors: c.errors, codes, rules: DEPTH_RULES, risk: c.risk, detected: c.detected, declared: c.declared };
 }
 
 /** The depth of a collected range (lib/review-collect.ts) plus a recorded gate-scan result: what the queue recomputes at a head. */
@@ -362,6 +376,10 @@ export interface History {
   adversarialRan?: boolean;
   /** The approval id of the owner's recorded grant of one scoped fix-check after round 2 (review_loop_exception). */
   granted?: string;
+  /** R65's lean table (planReview sets it from the base policy's review.panel): one reviewer, then at most one fix-check. */
+  lean?: boolean;
+  /** Fix-checks already run in this invocation (lean: the grant adds one only after the first). */
+  fixChecks?: number;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -378,11 +396,29 @@ export interface NextStep { step: Step; reason: string }
  * one fix-check; a fix-check never earns another, so the grant cannot repeat.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
-  const n = loopStep(h, depth);
+  const n = h.lean ? leanStep(h, depth) : loopStep(h, depth);
   if (n.step !== 'stop') return n;
-  if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's voices (adversarial, outside, targeted) run before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
-  if (h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
+  if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
+  if (!h.lean && h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a fourth round` };
   return n;
+}
+
+/**
+ * R65's lean table (GSTA-258): pass 1 is the one reviewer; any fix on a risk-class diff, and a fixed blocker or a gate-class
+ * edit on any diff, earns one scoped fix-check (round 2, the cap); below-floor fixes on a light diff ship as notes. After the
+ * fix-check a blocker or gate-class edit stops for the owner, whose recorded grant adds one more fix-check, never two.
+ */
+function leanStep(h: History, depth?: Depth): NextStep {
+  if (h.last === 'none') return { step: 'full', reason: 'pass 1: one reviewer reads the whole diff (R65)' };
+  if (h.last === 'fix-check') {
+    if (!h.blockingOpen && !h.fixedBlocking && !h.touchedGate) return { step: 'done', reason: h.fixedBelow ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
+    if (h.granted && !h.blockingOpen && h.fixChecks === 1) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a second` };
+    return { step: 'stop', reason: `the fix-check ${h.blockingOpen || h.fixedBlocking ? 'found a blocking finding' : 'edited a gate-class path'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` };
+  }
+  if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
+  if (!h.fixedBlocking && !h.fixedBelow && !h.touchedGate) return { step: 'done', reason: 'the step applied no edits' };
+  if (depth === 'light' && !h.fixedBlocking && !h.touchedGate) return { step: 'done', reason: 'light depth: the below-floor fixes ship as notes in the PR body and receipt without a fix-check (R65)' };
+  return { step: 'fix-check', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : h.touchedGate ? 'a fix touched a gate-class path' : 'below-floor fixes on a risk-class diff'}: one scoped fix-check reads the touched hunks (round 2, the cap)` };
 }
 
 function loopStep(h: History, depth?: Depth): NextStep {
@@ -432,14 +468,20 @@ export interface PlanInput extends ClassInput {
   targeted?: { classes: readonly string[]; ran?: boolean };
   /** The base policy's exclusion: one `:(top,exclude,glob)` pathspec per applied pattern, added to every reader, and the kept files under them as `:(top,literal)` pathspecs. */
   exclusion?: { specs: readonly string[]; keep: readonly string[] };
+  /** The base policy's review key and the platform evidence at HEAD; absent plans today's panel (review.panel all). */
+  shape?: ReviewShape;
 }
+/** How much review a repo runs (lib/ship-policy-review.ts) plus HEAD and the platform review found at it (lib/review-platform.ts). */
+export interface ReviewShape { panel: 'off' | 'risk' | 'all'; readerModel: string; platform: 'off' | 'on'; head: string; platformReview: { id: string; head: string; reviewer: string } | null }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
-export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string; keep?: string[] }
+export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string; keep?: string[]; model?: string; classes?: string[] }
+/** lean: R65's one reviewer; panel: today's panel (review.panel); platform: the platform review at HEAD stands in for every reader. */
+export type ReviewMode = 'lean' | 'panel' | 'platform';
 export interface ReviewPlan extends DepthResult {
   /** The depth this step runs at: light raised to standard by a fixed blocker, a CRITICAL or an open blocker. */
   stepDepth: Depth;
   depthReasons: string[];
-  next: NextStep; numbers: NumbersResult; dispatches: Dispatch[]; skipped: string[];
+  next: NextStep; numbers: NumbersResult; dispatches: Dispatch[]; skipped: string[]; mode: ReviewMode;
 }
 
 const scopeWants: Partial<Record<Specialist, (s: Record<string, string>) => boolean>> = {
@@ -517,7 +559,11 @@ export function planReview(i: PlanInput): ReviewPlan {
   const c = classifyDiff(i);
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
-  const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan }, depth.depth);
+  const sh = i.shape;
+  const platformNow = !!sh && sh.platform === 'on' && sh.platformReview?.head === sh.head && i.history.fullPasses === 0 && !riskClass(c, depth) && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
+  const panel = !platformNow && (!sh || sh.panel === 'all' || (sh.panel === 'risk' && riskClass(c, depth)));
+  const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan, lean: !panel }, depth.depth);
+  if (!panel) return leanPlan(i, c, depth, next);
   const h = i.history;
   const raise = depth.depth === 'light' && (h.fixedBlocking || h.blockingOpen || i.criticalFound);
   const stepDepth: Depth = raise ? 'standard' : depth.depth;
@@ -587,7 +633,62 @@ export function planReview(i: PlanInput): ReviewPlan {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);
   }
-  return { ...depth, stepDepth, depthReasons, reasons: c.reasons, next, numbers: i.numbers, dispatches, skipped };
+  return { ...depth, stepDepth, depthReasons, reasons: c.reasons, next, numbers: i.numbers, dispatches, skipped, mode: 'panel' };
+}
+
+/**
+ * R65's lean dispatch (docs/review-policy.md#review-depth): pass 1 runs one native adversarial reader at the lane's reasoning, on
+ * review.reader_model (the lane's model by default: FOUN-32, ggstack#52). A risk-class diff under review.panel off gets the merged
+ * reader: the gate-class checklists, the Red Team checklist and the targeted brief for its classes; a non-risk code diff gets the
+ * code-class checklists and the Red Team. Docs and tests keep the core read. A docs or tests diff with no numeric, results or prereg
+ * claims, under review.platform on, with the platform review at HEAD, runs no reader at all (mode platform).
+ */
+/** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
+const riskClass = (c: ClassResult, depth: DepthResult) => c.class === 'gate' || c.risk.length > 0 || c.errors.length > 0 || depth.depth !== 'light';
+/** Whether a light diff may take the platform depth (FOUN-64 item 2): docs or tests only, no numeric claims, no results, prereg, eval or checker path. The receipt and the queue ask the same. */
+export const platformFits = (cls: DiffClass, paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => (cls === 'docs' || cls === 'tests') && runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p));
+/** Paths that carry results or preregistration claims: never the platform depth (FOUN-64 item 2). */
+const CLAIM_PATH = /(^|\/|[-_.])(results?|prereg|preregistration|benchmarks?|evals?|scorers?|checkers?)([-_./]|$)/i;
+
+function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextStep): ReviewPlan {
+  const sh = i.shape!;
+  const risky = riskClass(c, depth);
+  const skipped: string[] = [];
+  const dispatches: Dispatch[] = [];
+  const x = i.exclusion;
+  const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) =>
+    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
+  const plan = (n: NextStep, mode: ReviewMode): ReviewPlan => ({ ...depth, stepDepth: depth.depth, depthReasons: depth.reasons, reasons: c.reasons, next: n, numbers: i.numbers, dispatches, skipped, mode });
+  const pr = sh.platformReview;
+  const platformFit = !risky && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
+  if (next.step === 'full' && platformFit && sh.platform === 'on' && pr && pr.head === sh.head) {
+    const why = `planned skip: platform review ${pr.id} by ${pr.reviewer} at ${pr.head.slice(0, 12)}`;
+    for (const r of ['core checklist', 'specialists', 'red-team', 'adversarial-native', 'outside-voice', 'targeted']) skipped.push(`${r} (${why})`);
+    return plan({ step: 'platform', reason: `review.platform on: the platform review ${pr.id} read HEAD ${pr.head.slice(0, 12)}, so /ship runs no reader (Step 11.5 binds the planned skip)` }, 'platform');
+  }
+  if (sh.platform === 'on' && next.step === 'full' && !risky) skipped.push(`platform depth (${depth.runtimeLines > 0 ? 'runtime code' : i.numbers.publishes ? 'the diff publishes numbers' : !platformFit ? 'a results, prereg, eval or checker path' : pr ? `the platform review read ${pr.head.slice(0, 12)}, not HEAD` : 'no platform review at HEAD'}: the light read runs)`);
+  const classes = i.targeted?.classes.length && !i.targeted.ran ? { classes: [...i.targeted.classes] } : {};
+  const docsAndOutputs = i.paths.filter(p => !i.excluded?.has(p) && ((pathClass(i, p) === 'docs' && !(i.numbers.publishes && DOC_PATH.test(p))) || isOutput(i, p))).map(excludeSpec);
+  const reader = () => risky
+    ? add('adversarial-native', 'merged', 'full', [], { checklists: [...batchChecklists('gate', i, skipped), 'red-team'], model: sh.readerModel, ...classes })
+    : add('adversarial-native', 'single', 'full', docsAndOutputs, { checklists: [...batchChecklists('code', i, skipped), 'red-team'], model: sh.readerModel, ...classes });
+  if (next.step === 'full' && (risky || depth.runtimeLines > 0)) {
+    reader();
+    skipped.push(`specialists, red-team and outside-voice as their own readers (R65: the one ${risky ? 'risk-class' : 'light'} reader carries them)`);
+  } else if (next.step === 'full') {
+    for (const n of SPECIALISTS.filter(forcedBy(i))) add('specialist', n, i.tiers === false ? 'host' : ROLE_EFFORT.specialist);
+    if (i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
+    else skipped.push(`outside-voice (${depth.class} class, no numeric claims)`);
+  } else if (next.step === 'voices') reader();
+  else if (next.step === 'fix-check') {
+    add('fix-check', 'fix-check', 'full');
+    if (i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint) add('outside-voice', 'outside-voice (numbers changed)', 'host');
+  }
+  if (next.step === 'fix-check' && i.targeted?.classes.length) {
+    if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
+    else add('targeted', 'targeted', ROLE_EFFORT.targeted);
+  }
+  return plan(next, 'lean');
 }
 
 export function reviewPlanLine(p: ReviewPlan, pass: number): string {
