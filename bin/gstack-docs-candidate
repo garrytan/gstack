@@ -75,13 +75,17 @@ function expand(listed: string[], paths: string[]): string[] {
   return [...out].sort();
 }
 
-/** --docs values as paths: a value naming an existing file or directory is one path; any other splits on commas, and an entry with whitespace is refused. */
+/** --docs values as paths: a value naming an existing file or directory is one path; any other splits on commas, and an entry with whitespace or a value with no entry is refused. */
 function docsPaths(listed: string[], values: string[]): string[] {
   const exists = (p: string) => {
     const rel = p.replace(/^\.\//, '').replace(/\/+$/, '');
     return fs.existsSync(rel) || listed.some(f => f === rel || f.startsWith(rel + '/'));
   };
-  return values.flatMap(v => (exists(v) ? [v] : v.split(',').map(p => p.trim()).filter(Boolean))).map(p => {
+  return values.flatMap(v => {
+    const paths = exists(v) ? [v] : v.split(',').map(p => p.trim()).filter(Boolean);
+    if (!paths.length) throw new Error(`--docs ${JSON.stringify(v)} names no path: give a file or directory, repeat --docs for each path, or separate paths with commas`);
+    return paths;
+  }).map(p => {
     if (/\s/.test(p) && !exists(p)) throw new Error(`--docs ${JSON.stringify(p)} names no file or directory and holds whitespace: repeat --docs for each path, or separate paths with commas`);
     return p;
   });

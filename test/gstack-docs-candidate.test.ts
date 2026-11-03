@@ -111,6 +111,11 @@ describe('gstack-docs-candidate', () => {
     const spaced = run(dir, 'snapshot', '--out', record, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'handbook app.ts');
     expect([spaced.status, spaced.stderr.trim()]).toEqual([1, 'gstack-docs-candidate: --docs "handbook app.ts" names no file or directory and holds whitespace: repeat --docs for each path, or separate paths with commas']);
     expect(fs.existsSync(record)).toBe(false);
+    for (const empty of ['', ' ', ',']) {
+      const r = run(dir, 'snapshot', '--out', record, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', empty);
+      expect([r.status, r.stderr.trim()]).toEqual([1, `gstack-docs-candidate: --docs ${JSON.stringify(empty)} names no path: give a file or directory, repeat --docs for each path, or separate paths with commas`]);
+      expect(fs.existsSync(record)).toBe(false);
+    }
     expect(fs.readdirSync(root)).toEqual(['repo']);
   });
 
