@@ -90,6 +90,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
+| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }`: the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and the command listing its test files, which their runs must cover (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -173,7 +174,7 @@ The list lives in its own file, not in `pregate.json`, because older pregate rea
 
 ```
 gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
-               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
+               [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
 
@@ -493,8 +494,15 @@ the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or
 `test_backend/<backend>` (gstack's `scripts/ubicloud/ubi-runner.sh run --src
 <repo> -- '<runner> <files>'`). Without either, the tier runs locally under
-the supervision above. Close the obligation one of three ways:
+the supervision above. Close the obligation one of four ways:
 
+- by default, when the base declares `remote_gate_runs`, let CI clear it: the
+  tests stage clears it on its own from a verified run at this exact tree
+  ([CI carry](#ci-carry)), and the uncleared obligation's detail names that
+  route first (`push, then gstack-ci-carry wait --base <base> and rerun
+  gstack-pregate --allow-repo-commands`, the whole pregate, so the record keeps
+  its preflight checks) and the VM only as the opt-in (under `--no-ci-carry` it
+  names the VM route); or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output, validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
@@ -907,6 +915,113 @@ as a usage error. It changes nothing in the preflight stage: with `--stage all`
 the preflight checks, the secrets scan included, run as before, and
 `--stage tests` runs no preflight check in that invocation, with or without it.
 
+<a id="ci-carry"></a>
+### CI carry: pregate and /ship use CI's run instead of running again (GSTA-258)
+
+CI is the one full test run. When a verified run already passed at the exact
+tree being tested, pregate's tests stage and /ship's test lanes use it instead
+of running the suite a second time. `lib/ci-carry.ts` `findCarry` decides, and
+it accepts a run only when all of these hold:
+
+- The working tree is HEAD's committed tree (the `gstack-wtree` fingerprint
+  equals `HEAD^{tree}`), read before the lookup and again after it. A dirty
+  tree, an untracked file or an edit made during the lookup never carries.
+- The newest of HEAD's runs (up to 10) under each named profile passes
+  `verifyRun` above: same-repository head (a fork run never counts), the
+  profile's workflow, event and jobs, the newest attempt, no newer red or
+  running run on HEAD, within `max_age_hours`, and a `tree.json` naming HEAD's
+  tree. A `pull_request` run counts only when the pull request already
+  contained its base.
+- Every run executed tests, and with an inventory command, the runs'
+  `tree.json` files cover every file it prints. Each run is read once more
+  afterward (`run_changed`).
+
+Security and advisory scans, the sealed guard, guards and every preflight-stage
+check always run; only test lanes carry.
+
+**The tests stage.** Without `--from-run`, when the base branch declares
+`run_profiles`, `gstack-pregate` looks up the newest verified run at HEAD under
+the profiles `--from-run` would use and applies it as `--from-run` does: the
+selected local files its `tree.json` lists count as passed, and only the rest
+run. On a small machine a selection the run covers records no remote gate
+obligation. It prints `CI_CARRY: accepted <receipt>` or `CI_CARRY: none
+(<reason>)` on stderr; `--no-ci-carry` skips the lookup.
+
+When files are left over, the remote gate obligation still clears from the
+same run when the base declares `remote_gate_runs` naming that run's profile:
+the run must pass every `clear --run` check, with the carried files counted
+as selected files. So a remainder of only files the gate's `skipped` command
+names (gstack's paid evals, which the gate itself reports as
+`PREGATE_REMOTE_PAID_ONLY` with `tests=0`) clears with `skipped=<n>` in the
+receipt instead of becoming an obligation nothing can clear. The line is
+`CI_CARRY: cleared pregate.json/remote_gate <receipt>`, or `CI_CARRY:
+pregate.json/remote_gate stays uncleared (<reason>)` when a check refuses, for
+example a gate inventory file missing from the run's `tree.json`.
+
+**gstack's own gate.** gstack's `.gstack/pregate.json` declares
+`remote_gate_runs` with the `ci-reuse/free-tests` profile, so on gstack a green
+Free Tests run at the same tree is how the remote gate obligation clears, and
+the Ubicloud VM (`gstack-pregate --stage tests --remote`) is an opt-in for when
+no such run exists. The order after a push: wait for Free Tests
+(`gstack-ci-carry wait --base main`), then `gstack-pregate
+--allow-repo-commands`. A `pull_request` run tests GitHub's merge commit, so on
+a branch that does not contain the base tip it tested another tree and
+`CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
+on the branch
+(`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
+and wait again. The preflight stage (generated-file freshness, secrets, strays
+and the other mechanical checks) and the sealed guard are unchanged and always
+run here. The macOS and Windows lane
+obligations still clear with `gstack-pregate clear --remote <lane> --run-url
+<url>` from their CI runs.
+
+**/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
+`.gstack/pregate.json` maps its exact command (the evidence ledger binds the
+command's sha256; a label alone never carries) to the profiles whose runs carry
+it and the command that lists its test files:
+
+```json
+"ship_lanes_from": {
+  "bun run test": { "profiles": ["ci-reuse/free-tests"], "inventory": "bun --no-env-file --config=/dev/null run scripts/test-free-shards.ts --list | sed -n 's/^  //p'" }
+}
+```
+
+A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
+and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
+--label <label> --base <base> -- <command>`, which finds and verifies the run
+itself, so no caller hands it run ids or a test count: `source: "ci"`, its runs
+and profiles, the run's finish time as `ts`, bound to the clean tree), never a
+fictitious local run. `gstack-evidence check` grades it
+like any row and names `source=ci runs=…`, so `finish`'s FRESH check and the
+24-hour age limit apply to the CI run's own time. A mapped lane that cannot
+carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
+other lane runs through `gstack-evidence run --reuse`: the newest row for its
+label, command and working tree is reused when it passed with a counted run
+under the same runtime (bun and node versions, OS, architecture, runner image)
+within 24 hours; a newer failure on that tree vetoes an older pass, and the
+reused copy keeps the original timestamp. The cache is this machine's ledger
+only; across machines, CI is the trust boundary.
+
+**Finish, push and accept.** `gstack-ship-release finish` commits the release
+metadata, so the stamped tree has no CI run yet. A mapped lane that is not
+already FRESH is deferred (`EVIDENCE: DEFERRED`), and the pregate runs only its
+preflight stage on the stamped tree, written to its own file so the full
+`.gstack/tmp/pregate.json` stays in place until `accept` replaces it. `gstack-ship-release push --early` (the
+Phase 2 push that lets CI run beside the review) runs the secrets scan and the
+sealed guard before it pushes. After the final push,
+`gstack-ship-release accept --base <base> --lane …` waits (bounded by `--wait`)
+for the run at the pushed HEAD, stops on a red or still-running run, carries
+each mapped lane from the green run at that exact tree, reuses or runs the rest,
+checks every lane FRESH and reruns the pregate there, whose tests stage carries
+the same run. `gstack-ship-receipt write` records the carried runs as
+`ci_carried: [{ lane, run, attempt, tree }]`, and the `SHIP_RECEIPT:` line names
+them (`ci_carried=<lane>:<run>/<attempt>`).
+
+**`gstack-ci-carry`.** `find [--profile <name>]… [--command <exact lane command>
+--allow-repo-commands]` prints the verdict for HEAD; `wait [--timeout <s>]`
+polls the newest run at HEAD until it completes (run it in the background) and
+prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
+
 <a id="ci-reuse"></a>
 ### Main pushes reuse the merged pull request's run
 
@@ -943,6 +1058,91 @@ repository; a private fork of this setup would need `pull-requests: read`,
 and without it every push falls back to the full run. Windows Free Tests now
 runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 `reuse` job is always skipped and every nightly run takes the strict path.
+
+<a id="flaky-exception"></a>
+## Owner-granted flaky exception
+
+A timing flake in a test file the pull request never touched can keep a remote
+gate obligation red: the rerun hits the same 5 s timeout on a loaded runner,
+and nothing in the diff can fix it. `clear --flaky-exception` lets the owner
+accept named cases for one head, on the run's own records:
+
+```bash
+gstack-pregate clear --remote pregate.json/remote_gate --run <id|url> \
+  --flaky-exception "test/docsync-fault-interface-legacy.test.ts::rejects legacy-third" \
+  --pr <n> --allow-repo-commands
+```
+
+The first call checks everything below and then refuses with
+`reason=grant_needed`, printing the exact `gstack-approvals add` command to run
+once the owner says yes: its `--scope` is `flaky-exception:<sha256>`, a digest of
+the repository, PR, head, tree, lane, every run with its attempt, and the sorted
+cases. Record the owner's exact words in that row, then rerun the same clear with
+`--grant <the row id>`. The obligation clears only when all of this holds:
+
+- **Every failure is named from the run's own records.** A red run uploads no
+  `tree.json`, so the clear reads the strict shard runner's artifacts instead
+  (`free-plan`, `free-result-<n>` and `free-test-shard-logs-<n>` in
+  `free-tests.yml`; the `windows-` names in `windows-free-tests.yml`; any other
+  workflow refuses with `no_shard_results`). Every job of the attempt is
+  reconciled: only the shard jobs (`free-suite (<n>)`) and the aggregate that
+  needs them may fail, every job the profile requires must pass, and any other
+  failed or cancelled job refuses (`unnamed_failure`). Every planned shard needs
+  its result; a missing result, a timed-out shard or a missing summary is
+  `shard_incomplete`. A failure the runner could not attribute to a test file,
+  an unhandled error between tests, or a `(fail)` line in a failed shard's log
+  that its result does not record refuses. A retry that passed is a recovered
+  flake; a retry that failed again keeps its own failures.
+- **The cases are exactly the failures.** At most three, written as
+  `<test file>::<test name>` the way the run printed them. A failure no
+  `--flaky-exception` names refuses (`unnamed_failure`), and so does a named
+  case that did not fail (`case_not_failed`). The refusal lists the run's
+  failures in that form.
+- **The files are not the PR's business.** A named file in the PR's diff
+  (`case_in_diff`), or one the import graph reaches from any changed path
+  (`case_in_closure`, lib/pregate/import-graph.ts with the base branch's
+  `dependencies`), refuses. The closure follows imports only: a test that reads a
+  changed doc, template or workflow through the file system is not reached, so
+  required CI stays the check on it. A paid test file (`case_paid`) and a
+  security test (`case_security`: a file name with cso, secrets, gitleaks, sealed,
+  redact or redaction, osv, security, sanitize or inject) are never excepted. Security scans themselves are pregate checks and CI jobs,
+  not test cases, so no exception can reach them.
+- **One head, one grant.** The runs must have tested pregate.json's own head and
+  tree, with no stamp-only substitution (`head_mismatch`); the PR must be open with
+  that head (`pr_mismatch`); no newer run of the workflow may exist on the head
+  (`newer_run`), and the run may not move to another attempt during the check
+  (`run_changed`). The grant row must carry this exception's scope
+  (`grant_mismatch` otherwise), record `approved` (`grant_not_approved`) and be
+  the owner's words, not an agent's (`grant_not_owner`). That last check reads
+  the row's `by` field, which `gstack-approvals add --by` takes as written, so it
+  only catches a row honestly labeled `agent:`. The record is as trustworthy as
+  whoever writes it, the same as every gstack approval. A new head needs a new
+  run and a new grant; a grant is never rebound: `ready` and the ship receipt
+  refuse an exception granted for another PR or head, even when the tree matches.
+
+pregate.json records the grant under `exceptions` (lane, repository, PR, head,
+tree, runs, cases, grant id, who said it, their words and the binding), and the
+obligation's receipt adds `exception=<grant> cases=<n>` to the usual run fields.
+The verdict becomes `pass-with-exception`. `verify` re-checks offline that each
+exception receipt has its entry, bound to this head and tree, with a binding that
+still matches its fields, and prints
+`PREGATE: pass-with-exception (<cases>; grant <id>)`. `gstack-ship-queue ready`
+accepts it and prints one `FLAKY_EXCEPTION:` line per exception in the READY
+block, and `gstack-ship-receipt write` records `flaky_exception` (lane, runs,
+cases, grant, who).
+
+**Pregate only.** The exception clears the pregate obligation and nothing else.
+It never waives a red required CI check: `ready` still needs every required check
+green at the exact head, so a red Free Tests check on the pull request needs its
+own rerun to pass. Changing that contract is a separate decision for the owner.
+
+**Why not `base_red`.** `base_red` (docs/ship-policy.md#base-red) proves a
+failure belongs to the base by reproducing it there, at the base head and at the
+PR head. A timing flake usually passes on the base (the 2026-11-02 docsync case
+passed in 3.5 s on main and failed at 5 s on the PR's tree), so `base_red`
+returns `IN_BRANCH` and refuses. The exception path asks a different question:
+not "is the base broken?" but "is every failure named, outside this PR, and
+accepted by the owner?"
 
 <a id="guards"></a>
 ## Guards and the lane-done rule
@@ -1022,6 +1222,13 @@ those, each with its scope and its reason:
   end the outer string (GST-738). The pre-push hook sees only added lines,
   so it scans Python and Dart lines without this exemption and may still warn
   (MEDIUM, non-blocking) on them.
+- The first argument of a lookup call (`get`, `getenv`, `read`, `load`,
+  `loads`, `open`, `pop`, `fetch`) that is a lowercase file name
+  (`files.get("key.json")`) or a snake_case key of two or three words
+  (`resp.json().get("access_token")`) is a name, not a credential (GST-1064).
+  Any other call's literal (`make_password("orange_monkey_pass")`), a later
+  argument or fallback (`os.getenv("SECRET_KEY", "orange_monkey_pass")`) and a
+  kebab passphrase still report.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line

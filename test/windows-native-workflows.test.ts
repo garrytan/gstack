@@ -148,7 +148,7 @@ test('every windows-smoke test is Windows-safe, seeded fast, and says why it is 
 test('no Windows job restores or saves the bun install cache', () => {
   // GSTA-203 PR 1: a cold install (16-17 s) beat restoring the ~450 MB
   // windows-bun entry (33-42 s), and PR merge-ref saves filled the 10 GB quota.
-  for (const file of ['windows-free-tests.yml', 'windows-smoke.yml', 'windows-setup-e2e.yml']) {
+  for (const file of ['windows-free-tests.yml', 'windows-smoke.yml', 'windows-setup-e2e.yml', 'windows-scoped-tests.yml']) {
     for (const [name, job] of Object.entries<any>(load(file).jobs)) {
       const caches = (job.steps ?? []).filter((step: any) => step.uses?.startsWith('actions/cache'));
       expect({ file, job: name, caches }).toEqual({ file, job: name, caches: [] });
