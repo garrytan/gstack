@@ -1130,7 +1130,8 @@ feeds the stable release (docs/releases.md) and never writes `stable` itself:
 security and regression exceptions unchanged.
 
 The surface is off unless main's `.gstack/ship-policy.json` declares the
-block (key version 1.94.0.0, so `min_gstack_version` must be at least that):
+block, with `min_gstack_version` at least the release that introduced the key
+(validation names it):
 
 ```json
 "release_gate": {

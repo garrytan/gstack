@@ -242,7 +242,7 @@ export const BASE_RED_KEY_VERSION = '1.91.374.0';
 /** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
-export const RELEASE_GATE_KEY_VERSION = '1.94.0.0';
+export const RELEASE_GATE_KEY_VERSION = '1.95.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -786,22 +786,4 @@ export function stampFilesInTree(repoRoot: string, treeish: string, globs: reado
   return listTreeFiles(repoRoot, treeish).filter(e => e.mode !== '120000' && matchesAny(globs, e.path)).map(e => e.path);
 }
 
-/**
- * A working-tree path a stamp may write: inside `root` after realpath (a
- * symlink out of the repository is refused even when the glob matched).
- */
-export function assertInsideRoot(root: string, rel: string): string | null {
-  const realRoot = fs.realpathSync(root);
-  const abs = path.resolve(realRoot, rel);
-  if (abs !== realRoot && !abs.startsWith(realRoot + path.sep)) return `${rel} resolves outside ${root}`;
-  let probe = abs;
-  while (!fs.existsSync(probe)) {
-    const parent = path.dirname(probe);
-    if (parent === probe) break;
-    probe = parent;
-  }
-  let real: string;
-  try { real = fs.realpathSync(probe); } catch { return null; }
-  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return `${rel} resolves through a symlink to outside ${root}`;
-  return null;
-}
+export { assertInsideRoot } from './path-containment';
