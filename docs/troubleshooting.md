@@ -2704,6 +2704,8 @@ exempt wherever they appear, so there the finding means the quad is not a
 release of this repository (or the post ran outside the checkout).
 
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
+A gstack release named right after `gstack` (`gstack 1.94.4.0`, the install
+check's `gstack: ok 1.94.4.0 for=ship`) is exempt too, but only for majors 0 to 2.
 MEDIUM findings do not block pushes.
 
 <a id="redact-run-id-as-phone"></a>
