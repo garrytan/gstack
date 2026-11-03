@@ -35,18 +35,31 @@ export function stampedFiles(root: string, policy: ShipPolicy, mergeBase: string
   const npm = (rev: string) => { const r = git(root, ['show', `${rev}:package.json`]); try { return r.ok ? JSON.parse(r.out).version ?? null : null; } catch { return null; } };
   if (!('rel' in now && now.rel === 'package.json') && npm(mergeBase) !== npm(pin)) out.push('package.json version');
   if (policy.changelog && git(root, ['diff', '--quiet', mergeBase, pin, '--', policy.changelog]).ok === false) out.push(policy.changelog);
+  if (!git(root, ['diff', '--quiet', mergeBase, pin, '--', '.gstack/version-path']).ok) out.push('.gstack/version-path');
   return out;
 }
 
-/** The merge commit's tree is the pin merged onto the merge commit's first parent: GitHub merged exactly the pin. */
+/** The pin's commit is local, fetched from its branch or GitHub's refs/pull/<n>/head (which outlives a deleted branch). */
+function havePin(root: string, pr: string, pin: string, branch?: string): boolean {
+  const have = () => git(root, ['cat-file', '-e', `${pin}^{commit}`]).ok;
+  if (have()) return true;
+  if (branch) git(root, ['fetch', '-q', 'origin', `refs/heads/${branch}`]);
+  if (!have()) git(root, ['fetch', '-q', 'origin', `refs/pull/${pr}/head`]);
+  return have();
+}
+
+/** The merge commit's tree is the pin merged onto the merge commit's first parent: GitHub merged exactly the pin. A read that fails is "cannot verify", never a mismatch. */
 function verifyMerge(ctx: QueueContext, root: string, pr: string, pin: string, merge: string, lines: string[], run: string, now: Date): StepOutput {
-  git(root, ['fetch', '-q', 'origin', ctx.base]);
+  const cannot = (why: string): StepOutput => ({ ok: false, run, lines, failure: { code: 'QUEUE_NOT_READY', message: `#${pr} merged as ${merge.slice(0, 12)}, but land cannot verify it: ${why}`, fix: `fix the read named, then rerun gstack-ship-queue land --pr ${pr} --pin ${pin}; it goes straight to the tree check` } });
+  if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return cannot(`git fetch origin ${ctx.base} failed`);
+  if (!havePin(root, pr, pin)) return cannot(`the pin ${pin.slice(0, 12)} is not in this clone and refs/pull/${pr}/head did not fetch it`);
   if (!git(root, ['merge-base', '--is-ancestor', merge, `origin/${ctx.base}`]).ok) return { ok: false, run, lines, failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `the merge commit ${merge.slice(0, 12)} is not on origin/${ctx.base}` } };
   const parent = git(root, ['rev-parse', `${merge}^1`]).out;
   const tree = git(root, ['rev-parse', `${merge}^{tree}`]).out;
   const mt = git(root, ['merge-tree', '--write-tree', parent, pin]);
-  const expected = mt.ok ? mt.out.split('\n')[0] : '';
-  if (!isSha(expected) || tree !== expected) return { ok: false, run, lines: [...lines, `MAIN: ${merge} tree=${tree} parent=${parent} expected=${expected || 'conflict'}`], failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `origin/${ctx.base} ${merge.slice(0, 12)} is not the pin ${pin.slice(0, 12)} merged onto ${parent.slice(0, 12)}`, fix: `compare git diff ${expected || parent} ${merge} and revert what does not belong to #${pr}; report it to the Captain` } };
+  const expected = mt.out.split('\n')[0] ?? '';
+  if (!isSha(expected)) return cannot(`git merge-tree ${parent.slice(0, 12)} ${pin.slice(0, 12)} failed: ${mt.err.split('\n')[0]}`);
+  if (!mt.ok || tree !== expected) return { ok: false, run, lines: [...lines, `MAIN: ${merge} tree=${tree} parent=${parent} expected=${expected || 'conflict'}`], failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `origin/${ctx.base} ${merge.slice(0, 12)} is not the pin ${pin.slice(0, 12)} merged onto ${parent.slice(0, 12)}`, fix: `compare git diff ${expected || parent} ${merge} and revert what does not belong to #${pr}; report it to the Captain` } };
   const keys = repoIdentity(root);
   const at = now.toISOString();
   const note = persist(root, [{ schema: 1, kind: 'land', repo_key: keys.key, pr, pin, base_sha: parent, merge_sha: merge, tree, landed_at: at, updated_at: at }], { remote: ctx.remote });
@@ -59,6 +72,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const run = 'none';
   const now = o.now ?? (() => new Date());
   const fail = (lines: string[], failure: QueueFailure): StepOutput => ({ ok: false, lines, failure, run });
+  if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail([], { code: 'QUEUE_NOT_READY', message: `cannot fetch origin/${ctx.base}; land reads the policy and the required checks from the current base`, fix: 'fix the fetch, then rerun land' });
   const loaded = loadBasePolicy(ctx);
   if ('message' in loaded) return fail([], loaded);
   const policy = loaded.policy;
@@ -76,8 +90,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.state !== 'OPEN') return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} is ${info.state}` });
   if (info.headRefOid !== o.pin) return fail(lines, { code: 'QUEUE_LAND_PIN_MOVED', message: `#${o.pr}'s head is ${info.headRefOid.slice(0, 12)}, not the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs /ship and gstack-ship-queue ready --pr ${o.pr} at the new head and reports READY with it` });
 
-  git(root, ['fetch', '-q', 'origin', ctx.base]);
-  if (!git(root, ['cat-file', '-e', `${o.pin}^{commit}`]).ok && !git(root, ['fetch', '-q', 'origin', `refs/heads/${info.headRefName}`]).ok) git(root, ['fetch', '-q', 'origin', `refs/pull/${o.pr}/head`]);
+  if (!havePin(root, o.pr, o.pin, info.headRefName)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch the pin ${o.pin.slice(0, 12)} from ${info.headRefName} or refs/pull/${o.pr}/head`, fix: 'fix the fetch, then rerun land' });
   const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [o.pin]);
   lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
   if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: `run /ship at the pin, then gstack-ship-queue ready --pr ${o.pr}` });
@@ -111,8 +124,13 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
 
   const method = policy.history === 'merge-only' ? '--merge' : '--squash';
   const m = ctx.gh(['pr', 'merge', o.pr, method, '--match-head-commit', o.pin]);
-  const after = view(ctx, o.pr);
-  const merge = 'code' in after ? undefined : after.state === 'MERGED' ? after.mergeCommit?.oid : undefined;
+  let merge: string | undefined;
+  for (let i = 0; i < (m.ok ? 4 : 1) && !isSha(merge); i++) {
+    if (i) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3_000);
+    const after = view(ctx, o.pr);
+    merge = 'code' in after || after.state !== 'MERGED' ? undefined : after.mergeCommit?.oid;
+  }
+  if (!isSha(merge) && m.ok) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge accepted #${o.pr}, but GitHub does not show it merged yet; nothing is verified`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} in a minute; once GitHub shows the merge it goes straight to the tree check` });
   if (!isSha(merge)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200) || 'the PR is not merged'}`, fix: `read the refusal; rerun land --pr ${o.pr} --pin ${o.pin} once it is fixed` });
   return verifyMerge(ctx, root, o.pr, o.pin, merge!, lines, run, now());
 }

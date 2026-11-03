@@ -6,6 +6,7 @@
  * check, the land note, train build under merge: direct, and the policy key's validation.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
@@ -95,6 +96,8 @@ const landNotes = (fx: Fx) => {
   try { list = notes('list'); } catch { return []; }
   return list.split('\n').filter(Boolean).map(l => JSON.parse(notes('show', l.split(' ')[1]!))).filter(r => r.kind === 'land');
 };
+/** Whether a clone holds a commit. */
+const spawnCheck = (dir: string, sha: string) => spawnSync('git', ['-C', dir, 'cat-file', '-e', `${sha}^{commit}`], { timeout: 30_000 }).status === 0;
 /** Commit a file straight onto origin/main (another PR that landed first). */
 function moveMain(fx: Fx, file: string, text: string): string {
   const { repo } = fx;
@@ -314,6 +317,45 @@ describe('land --pin: fail closed and merge methods', () => {
     const r = land(fx, '25', pin);
     expect(r.err).toBe('');
     expect(fx.read().mergeArgs).toEqual(['25', '--merge', '--match-head-commit', pin]);
+  }, 90_000);
+
+  test('land reads the policy after fetching the base: a required check main added since the last fetch is enforced', () => {
+    const fx = setup();
+    const pin = openPr(fx, '27');
+    const other = fx.repo.root + '/other';
+    fx.repo.git('clone', '-q', fx.repo.origin, other);
+    fs.writeFileSync(path.join(other, '.gstack', 'ship-policy.json'), JSON.stringify({ ...POLICY, changelog_fragments: { dir: 'changelog.d', required_checks: [...REQUIRED, 'security-scan'] } }, null, 2) + '\n');
+    fx.repo.git('-C', other, 'commit', '-qam', 'require security-scan');
+    fx.repo.git('-C', other, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+    const r = land(fx, '27', pin, ['--dry-run']);
+    expect(r.err).toContain('security-scan');
+    expect(r.err).toContain('(QUEUE_LAND_CHECKS)');
+  }, 90_000);
+
+  test('a rerun from a fresh clone after the branch was deleted fetches the pin from refs/pull/<n>/head and lands', () => {
+    const fx = setup();
+    const pin = openPr(fx, '28');
+    expect(land(fx, '28', pin).status).toBe(EXIT.ok);
+    const g = (...a: string[]) => fx.repo.git('--git-dir', fx.repo.origin, ...a);
+    g('update-ref', 'refs/pull/28/head', pin);
+    fx.write(d => { d.prs['28'].headRefOid = pin; });
+    g('update-ref', '-d', 'refs/heads/pr-28');
+    const fresh = fx.repo.root + '/fresh';
+    fx.repo.git('clone', '-q', '--no-local', '--single-branch', '--branch', 'main', fx.repo.origin, fresh);
+    expect(spawnCheck(fresh, pin)).toBe(false);
+    const r = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '28', '--pin', pin, '--base', 'main'], fx.env, fresh);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toMatch(/^LANDED: /m);
+  }, 90_000);
+
+  test('QUEUE_LAND_STAMPED: a head that repoints .gstack/version-path', () => {
+    const fx = setup();
+    const pin = openPr(fx, '29', { edit: w => { fs.mkdirSync(path.join(w, '.gstack'), { recursive: true }); fs.writeFileSync(path.join(w, 'OTHER_VERSION'), fs.readFileSync(path.join(w, 'VERSION'))); fs.writeFileSync(path.join(w, '.gstack', 'version-path'), 'OTHER_VERSION\n'); fs.writeFileSync(path.join(w, 'VERSION'), '9.9.9.9\n'); } });
+    const r = land(fx, '29', pin);
+    expect(r.err).toContain('(QUEUE_LAND_STAMPED)');
+    expect(r.err).toContain('.gstack/version-path');
+    expect(fx.read().mergeArgs).toBeUndefined();
   }, 90_000);
 
   test('merge: direct without changelog_fragments refuses with the key to add', () => {

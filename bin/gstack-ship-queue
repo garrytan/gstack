@@ -166,8 +166,8 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'train') {
     const train = await import('../lib/ship-queue-train-cli');
     if (!args[0] || args[0].startsWith('-')) { process.stdout.write(train.TRAIN_HELP + '\n'); return args.includes('--help') || args.includes('-h') ? EXIT.ok : EXIT.usage; }
-    const loaded = args[0] === 'build' ? loadBasePolicy(ctx) : null;
-    if (loaded && !('message' in loaded) && loaded.policy.merge === 'direct') return finish('train build', { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, so trains are off', fix: 'land each READY PR with gstack-ship-queue land --pr <n> --pin <sha> (docs/ship-policy.md#land-direct)' } });
+    const loaded = args[0] === 'build' || args[0] === 'land' ? loadBasePolicy(ctx) : null;
+    if (loaded && !('message' in loaded) && loaded.policy.merge === 'direct') return finish(`train ${args[0]}`, { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, so trains are off', fix: 'land each READY PR with gstack-ship-queue land --pr <n> --pin <sha> (docs/ship-policy.md#land-direct)' } });
     return train.trainMain(ctx, args);
   }
   if (cmd === 'wave') return (await import('../lib/ship-queue-wave')).waveMain(ctx, args);
