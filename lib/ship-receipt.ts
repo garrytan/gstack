@@ -6,6 +6,7 @@
  * computes the P7 adoption census over merged PRs (deduplicated by run and
  * thread id against an owner-maintained thread cohort).
  */
+import { spawnSync } from 'node:child_process';
 import { ARTIFACT_SCHEMAS, checkSchema, type ShipReceipt, type ValidationError } from './headless-artifacts';
 import { approvalSummary } from './approval-citations';
 import { FRAGMENT_README } from './changelog-fragments';
@@ -177,6 +178,8 @@ export interface CarryPlanInput {
   rangeDiff: string;
   /** The base the receipt was reviewed against when it differs from the carry's (a stack parent that landed, #3570): productPatchId.from is then the recorded diff against it. */
   retargetedFrom?: string;
+  /** A commit inside the reviewed range whose product change the base already holds (a stack parent that squash-merged under a receipt written against the base, GST-1199): productPatchId.from is then the range from it. */
+  stackParent?: string;
   /** A clean scoped review of product paths whose only difference is base context next to unchanged hunks (lib/ship-patch.ts, GST-384): the carry reason it adds. */
   scopedReview?: string;
   /** Stamp files the branch changed as product whose only change since the reviewed head is a stamp on the branch's own rows, the base untouched, and without which the two product patches match (GST-980). */
@@ -253,7 +256,8 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
-  const reasons: string[] = input.retargetedFrom ? [`stack parent ${input.retargetedFrom} landed`] : [];
+  const parent = input.retargetedFrom ?? input.stackParent?.slice(0, 12);
+  const reasons: string[] = parent ? [`stack parent ${parent} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
@@ -269,6 +273,29 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
       covers: CARRY_COVERS, reruns: CARRY_RERUNS, ancestry: 'linear',
     },
   };
+}
+
+/** How many commits of the reviewed range landedStackParent tries, newest first. */
+export const STACK_PARENT_WALK = 100;
+
+/**
+ * The newest commit inside the reviewed range (rangeBase..reviewed, the reviewed head itself excluded) whose product
+ * change the current base already holds: merging it into currentBase changes no product path. That is a stack parent
+ * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
+ * product change of its own (a test-first commit) is no parent, since any base trivially holds it. Null when no
+ * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
+ */
+export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[]): string | null {
+  const run = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const commits = run(['rev-list', '--topo-order', `--max-count=${STACK_PARENT_WALK + 1}`, `${s.rangeBase}..${s.reviewed}`]);
+  if (commits.status !== 0) return null;
+  for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
+    if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
+    const merged = run(['merge-tree', '--write-tree', '--no-messages', s.currentBase, commit]);
+    const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
+    if (tree && run(['diff', '--quiet', s.currentBase, tree, '--', ...product]).status === 0) return commit;
+  }
+  return null;
 }
 
 export interface TreeCarryInput {

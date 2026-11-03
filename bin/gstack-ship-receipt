@@ -45,7 +45,7 @@ import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, r
 import { approvalForReceipt } from '../lib/approval-citations';
 import {
   CARRY_METADATA_GLOBS, CARRY_NAMED_PATHS, CARRY_TEST_GLOBS,
-  bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, missingIssueLines, orderReceipt, parseReviewLoop, placeReceiptFirst, planCarry, planTreeCarry,
+  bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceiptFirst, planCarry, planTreeCarry,
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
@@ -99,7 +99,9 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
   name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
-  RECEIPT_INVALID field=review_exclude and nothing is written (rerun the review; write alone cannot clear it); recorded as review_exclude. Carry and the queue compare that digest.
+  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest.
+  The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
+  digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
   --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
   --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
   commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry
@@ -236,7 +238,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
   const excludeGiven = flag(rest, '--review-exclude') ?? 'none';
   if ((excludeNow?.digest ?? 'none') !== excludeGiven) {
-    process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the review --review-exclude names read another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)}; fix: rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
+    process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the --review-exclude argument names another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)} (write compares the argument, not the review ledger); fix: rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
     return EXIT.fail;
   }
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
@@ -660,18 +662,29 @@ function cmdCarry(rest: string[], json: boolean): number {
   } else {
     const fromBase = git(['merge-base', baseRef, from], repoRoot);
     if (!fromBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
-    const listed = [touchedPaths(repoRoot, fromBase, from), touchedPaths(repoRoot, headBase, head)];
-    if (!listed[0] || !listed[1]) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
-    const touched = new Set([...listed[0], ...listed[1]]);
-    const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[fromBase, from], [headBase, head]], own: branchSides(repoRoot, baseRef, from, '') });
-    if (!spec) return refused('RECEIPT_CARRY_REFUSED', `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`);
+    // The reviewed range runs from the fork point, or from a stack parent inside it that has since landed on the base: a
+    // receipt written against the base while stacked reviewed the parent's hunks too, and the squash moved them into the
+    // base (GST-1199). A parent counts only when merging it into the current base changes no product path.
+    const measure = (rangeBase: string) => {
+      const listed = [touchedPaths(repoRoot, rangeBase, from), touchedPaths(repoRoot, headBase, head)];
+      if (!listed[0] || !listed[1]) return `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`;
+      const touched = new Set([...listed[0], ...listed[1]]);
+      const spec = productSpec(repoRoot, rules, from, head, { touched, sides: [[rangeBase, from], [headBase, head]], own: branchSides(repoRoot, baseRef, from, '') });
+      if (!spec) return `git diff ${from.slice(0, 12)} ${head.slice(0, 12)} failed`;
+      const ids = [patchId(repoRoot, rangeBase, from, spec.product), patchId(repoRoot, headBase, head, spec.product)];
+      for (const r of ids) if (typeof r !== 'string') return `git could not compute the product patch-id at one of the heads: ${r.error}`;
+      return { rangeBase, touched, spec, productFrom: ids[0] as string, productHead: ids[1] as string };
+    };
+    let measured = measure(fromBase);
+    if (typeof measured === 'string') return refused('RECEIPT_CARRY_REFUSED', measured);
+    const stackParent = !retarget && measured.productFrom !== measured.productHead ? landedStackParent(repoRoot, { rangeBase: fromBase, reviewed: from, currentBase: headBase }, measured.spec.product) : null;
+    if (stackParent) measured = measure(stackParent);
+    if (typeof measured === 'string') return refused('RECEIPT_CARRY_REFUSED', measured);
+    const { rangeBase, touched, spec, productFrom, productHead } = measured;
     const { changed } = spec;
-    const productFrom = patchId(repoRoot, fromBase, from, spec.product);
-    const productHead = patchId(repoRoot, headBase, head, spec.product);
     const asId = (r: string | { error: string }) => (typeof r === 'string' ? r : '');
-    const testFrom = asId(patchId(repoRoot, fromBase, from, spec.tests));
+    const testFrom = asId(patchId(repoRoot, rangeBase, from, spec.tests));
     const testHead = asId(patchId(repoRoot, headBase, head, spec.tests));
-    for (const r of [productFrom, productHead]) if (typeof r !== 'string') return refused('RECEIPT_CARRY_REFUSED', `git could not compute the product patch-id at one of the heads: ${r.error}`);
     // A stacked child whose parent landed on the base (#3570): the receipt reviewed the child's own range against the
     // parent branch, and the PR now targets the base. That reviewed range (the recorded product patch-id, else the one
     // against origin/<receipt base> when it still resolves) must be HEAD's whole product diff against the base, computed
@@ -695,8 +708,8 @@ function cmdCarry(rest: string[], json: boolean): number {
       // which can differ between the two base diffs. A touched path with the same blob at both heads and at both bases has
       // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A path whose only difference is base context next to unchanged hunks
       // (lib/ship-patch.ts) needs a scoped review instead of the loop.
-      const sides = { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head };
-      const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, fromBase, headBase)];
+      const sides = { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head };
+      const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, rangeBase, headBase)];
       if (moved.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
       const [movedHead, movedBase] = moved as Set<string>[];
       // A stamp file the branch changed as product (its own row) whose reviewed-to-current change is a stamp on its own lines
@@ -724,14 +737,14 @@ function cmdCarry(rest: string[], json: boolean): number {
       if (!changedProduct.length && !left.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
       else if (!changedProduct.length) {
         const rest = [...spec.product, ...left.map(p => `:(exclude,literal)${p}`)];
-        const restFrom = patchId(repoRoot, fromBase, from, rest);
+        const restFrom = patchId(repoRoot, rangeBase, from, rest);
         const restHead = patchId(repoRoot, headBase, head, rest);
         if (typeof restFrom !== 'string' || typeof restHead !== 'string' || restFrom !== restHead) changedProduct.push(`(a product path outside ${left.join(', ')}; compare the two base diffs without them)`);
       }
     }
     const stampedRows = changedProduct.length ? [] : stampOnly;
     let scopedReview: string | undefined;
-    const packetBody = !changedProduct.length && contextPaths.length ? contextPacket(repoRoot, { reviewedBase: fromBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : null;
+    const packetBody = !changedProduct.length && contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : null;
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
@@ -757,9 +770,9 @@ function cmdCarry(rest: string[], json: boolean): number {
     }
     const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
-    const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${fromBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
+    const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${rangeBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
@@ -787,7 +800,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const now = review.depth;
     if (review.exclude.state === 'refused') return refused('RECEIPT_CARRY_REFUSED', `${review.exclude.lines.join('; ')}; run /ship on ${head.slice(0, 12)} once the base policy reads`);
     const digest = review.exclude.state === 'active' ? review.exclude.record.digest : 'none';
-    if (digest !== (receipt.review_exclude?.digest ?? 'none')) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the reviewers read another selection than HEAD ${head.slice(0, 12)} has under the base policy, so carry does not apply; run /ship on ${head.slice(0, 12)}`);
+    if (digest !== (receipt.review_exclude?.digest ?? 'none')) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the receipt's digest is the --review-exclude argument write was given, and it names another selection than HEAD ${head.slice(0, 12)} has under the base policy (carry compares that digest, not the review ledger), so carry does not apply; run /ship on ${head.slice(0, 12)}`);
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
     depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) }, review_exclude: receiptExclude(review.exclude) };
   }

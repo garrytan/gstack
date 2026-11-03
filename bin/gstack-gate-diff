@@ -32,7 +32,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { scanCandidate, parseGateIntegrityBlock, specDirectoryHoldsSpecs, type FileDiff, type CommitInfo } from '../lib/gate-diff/index';
 import {
-  commitInfo, commitsInRange, defaultBase, diffCommit, diffWorkingTree, firstParent, headSha, mergeBase, noBaseFix, readClaudeMd, repoRoot,
+  baseNote, commitInfo, commitsInRange, defaultBase, diffCommit, diffWorkingTree, firstParent, headSha, mergeBase, noBaseFix, readClaudeMd, repoRoot,
   resolveBase, resolvesToCommit, treePaths, untrackedAsAdded,
 } from '../lib/gate-diff/git';
 import { baseContainsHead, noDefaultBaseLine } from '../lib/default-base';
@@ -162,8 +162,8 @@ function main(argv: string[]): number {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
       return 2;
     }
-    if (base.local === 'fallback') console.error(`gstack-gate-diff: ${base.unrelatedRemote ? `${base.unrelatedRemote} shares no history with HEAD` : `no remote-tracking branch for ${baseRef}`}; base is the local ${baseRef}, which may lag its remote`);
-    else if (base.local) console.error(`gstack-gate-diff: ${{ unrelated: `local ${baseRef} shares no history with HEAD`, missing: `no local branch ${baseRef}`, behind: `local ${baseRef} is behind ${base.ref}`, ahead: `local ${baseRef} is ahead of ${base.ref}`, diverged: `local ${baseRef} has diverged from ${base.ref}` }[base.local]}; base is ${base.ref}`);
+    const note = baseNote(baseRef, base);
+    if (note) console.error(`gstack-gate-diff: ${note}`);
     const mb = mergeBase(base.sha, head, root);
     if (!mb) {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
