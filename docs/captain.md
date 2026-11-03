@@ -169,6 +169,8 @@ Issues show what the crew is really doing, so keep them true:
 - An unassigned Todo that nobody will start goes to Backlog.
 - A daily sweep closes, re-assigns or backlogs any open issue outside Backlog that nobody
   has touched for 2 days and whose assignee is archived, or idle with no open PR.
+- The sweep skips an issue assigned to a person (an ask waiting on the owner, say) and a
+  Waiting issue that names what it waits on, by a blocked-by link or a dated comment, while that is still open.
 
 The target: the Overview's In progress count is about the number of working threads plus
 the PRs waiting to merge.
