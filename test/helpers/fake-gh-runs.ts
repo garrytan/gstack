@@ -7,8 +7,11 @@ import * as path from 'node:path';
 
 export interface FakeWorld {
   runs: Array<Record<string, unknown> & { id: number; run_attempt: number; head_sha: string; path: string }>;
+  /** Keyed `<run id>/<attempt>` for one attempt's jobs, else `<run id>` for every attempt. */
   jobs: Record<string, Array<{ name: string; conclusion: string | null; completed_at?: string }>>;
   trees: Record<string, Record<string, unknown>>;
+  /** Once `marker` exists, the next run read writes `content` to `file` (a working-tree edit inside a run recheck). */
+  editWhenArmed?: { marker: string; file: string; content: string };
 }
 
 /** The stub body for shipFixture's gh(): run this file with the world beside it. */
@@ -27,11 +30,13 @@ if (import.meta.main) {
     if ((m = /\/actions\/runs\/(\d+)$/.exec(route!))) {
       const run = world.runs.find(r => r.id === Number(m![1]));
       if (!run) { process.stderr.write('HTTP 404'); process.exit(1); }
+      const e = world.editWhenArmed;
+      if (e && fs.existsSync(e.marker)) fs.writeFileSync(e.file, e.content);
       process.stdout.write(JSON.stringify(run));
     } else if ((m = /\/actions\/workflows\/([^/]+)\/runs$/.exec(route!))) {
       lines(world.runs.filter(r => r.head_sha === q.get('head_sha') && r.path === `.github/workflows/${m![1]}`));
-    } else if ((m = /\/actions\/runs\/(\d+)\/attempts\/\d+\/jobs$/.exec(route!))) {
-      lines(world.jobs[m[1]!] ?? []);
+    } else if ((m = /\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs$/.exec(route!))) {
+      lines(world.jobs[`${m[1]}/${m[2]}`] ?? world.jobs[m[1]!] ?? []);
     } else if ((m = /\/actions\/runs\/(\d+)\/artifacts$/.exec(route!))) {
       lines(world.trees[m[1]!] ? [{ name: q.get('name'), size_in_bytes: 200, expired: false }] : []);
     } else { process.stderr.write(`fake gh: no route for ${p}`); process.exit(1); }

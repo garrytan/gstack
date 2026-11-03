@@ -3342,10 +3342,13 @@ targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verif
 use this code when the receipt's review_exclude digest (or the
 `--review-exclude <digest>` write was given) is not the digest HEAD has under the
 base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
-names `expected=` (now), `recorded=` (what the review read, `none` when it read
-without exclusion) and `source=` (the base commit). The reviewers read another
-selection than the one the head now has, so a receipt write alone cannot clear
-it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+names `expected=` (now), `recorded=` (the `--review-exclude` argument, or the digest
+the receipt recorded from it; `none` without one) and `source=` (the base commit).
+A mismatch proves only that this argument differs from the selection the head has
+now. Write compares the argument and does not read the review ledger, so the line
+says nothing about what the readers read, and a write that passes the `expected=` digest clears
+the field without a review. Do not do that. Rerun
+`/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
 run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
@@ -3731,6 +3734,23 @@ the entry is reported as unverified, not `REGEN_STALE`.
 
 **Fix.** Run the printed install command (`bun install`, or the one matching the
 repository's lockfile), then rerun `gstack-regen check` or the pre-gate.
+
+<a id="pregate-gstack-too-old"></a>
+### `PREGATE_GSTACK_TOO_OLD`
+
+**Meaning.** `.gstack/pregate.json` uses a key this gstack does not know, and
+the same tree's `.gstack/ship-policy.json` sets `min_gstack_version` above this
+gstack. The key belongs to a newer gstack (one a later release adds), so the
+line reads `needs gstack >= <version>; upgrade`. The policy still refuses,
+exactly as `PREGATE_CONFIG_INVALID` would. Only a gstack that has this check
+prints it; one released before it (1.94.0.0 included) reports the same key as
+`PREGATE_CONFIG_INVALID`.
+
+**Fix.** Upgrade gstack on this machine to at least the version named
+(`bin/gstack-upgrade`, or the session install with `--for <skill>`), then
+rerun. A repo adopting a new key raises `min_gstack_version` first, so an older
+gstack that has this check prints this instead of a generic invalid-config
+error.
 
 <a id="pregate-config-invalid"></a>
 ### `PREGATE_CONFIG_INVALID`
@@ -5983,7 +6003,10 @@ the reviewed tree but the base moved under it, so the diff a reviewer would see
 is not the reviewed one. For a stacked PR retargeted to the base after its
 parent landed, it means HEAD's product diff against the base is not the range
 reviewed against the parent branch: the parent has not fully landed, or the
-branch changed since. The reviewed verdict does not cover HEAD, so the
+branch changed since. A stacked PR whose receipt was written against the base
+carries from the newest reviewed commit the base already holds
+([ship-policy.md](ship-policy.md#receipt-carry)); it refuses here only when no
+such commit exists or the branch changed since. The reviewed verdict does not cover HEAD, so the
 receipt is not carried. The refusal names the changed product paths, or for a
 retargeted stacked PR the parent branch and the base.
 
