@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.94.9.0] - 2026-11-03
+
+**A pull request can clear its remote gate obligation from a run with named flaky failures, once the owner grants it (GST-1096).** A timing flake in a test file the pull request never touched used to keep the pregate red with no way through but another paid run. `gstack-pregate clear --remote <lane> --run <id|url> --flaky-exception "<file>::<case>" --pr <n> --grant <approval id>` now accepts such a run when every failure is named from the run's own shard results and logs, at most three cases, each file outside the pull request's diff and its import closure, none paid and none a security scan test, and a gstack-approvals row in the owner's words binds the repository, PR, head, tree, lane, run attempt and cases. It covers the pregate only, and a red required CI check still needs its own green run.
+
+### Added
+- **`--flaky-exception`, `--pr` and `--grant` on `gstack-pregate clear`** (`lib/pregate/flaky-exception.ts`). Every job of the run attempt is reconciled (only test-shard jobs and their aggregate may fail), every planned shard needs a complete result, and each failed shard's log must name no failure its result leaves out. Without `--grant` the clear checks everything and prints the exact `gstack-approvals add` command, whose scope is a digest of everything the grant binds, so a grant can never be moved to another head or case list.
+- **`pass-with-exception`.** pregate.json records `exceptions`; `gstack-pregate verify` re-checks the binding offline and prints `PREGATE: pass-with-exception (<cases>; grant <id>)`; `gstack-ship-queue ready` accepts it and prints a `FLAKY_EXCEPTION:` line; the ship receipt records `flaky_exception`.
+- **docs/pregate.md#flaky-exception**, including why `base_red` is not used: it proves a failure by reproducing it on the base, and a timing flake passes there.
+
+### Tests
+- `test/pregate-flaky-exception.test.ts`: a red run with one named flake clears once the bound grant exists, and verify, ready and the receipt report it; refusals for an unnamed or extra failure, a case that did not fail, more than three cases, an unattributed failure, a failed non-shard job, a missing result or log, a timed-out shard, a log failure the result omits, a file in the diff or its import closure, a paid or security test, another head, another PR head, a newer run, a run from another repository or fork, a stale or unfinished run, a moved attempt (also after the inventory runs), and a grant with another scope, outcome or speaker; ready still refuses red CI, and refuses an exception granted for another PR or head. The printed grant command quotes case names for the shell. These tests failed before the change.
+
 ## [1.94.8.0] - 2026-11-03
 
 **`gstack-approvals render` no longer puts the owner's exact words, autoplan run ids or plan hashes into PR bodies on public repositories (GST-1160).** On a public repo, /ship pasted the full `## Approvals` table into the PR description. That table carries the owner's verbatim quote, the run id and the plan sha256, and GitHub keeps every earlier version of a description in its edit history, which no API can delete.
