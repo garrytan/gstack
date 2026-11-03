@@ -396,7 +396,7 @@ export function submitResult(o: SubmitOptions): SubmitResult {
   settle(path.join(state.out, FILES.spend), open.attempt, o.usageUsd ?? 'unknown');
   open.state = 'submitted'; open.terminal_at = now();
   Object.assign(v, { status: 'completed', model, provider, output: path.basename(bound), result_sha256: sha, findings: rows.length, attempt: open.attempt, usage: { usd: o.usageUsd ?? 'unknown' }, ...receipt } satisfies Partial<VoiceState>);
-  if (bind.receipt === 'attested') (state.deviations ??= []).push(`receipt attested: ${phase} ${o.voice} ${open.attempt} bound from a hand-run record without a reviewer receipt (snapshot ${ps.snapshot.slice(0, 12)}; reason: ${o.attest})`);
+  if (bind.receipt === 'attested') (state.deviations ??= []).push(`receipt attested: ${phase} ${o.voice} ${open.attempt} bound from a hand-run record without a reviewer receipt (snapshot ${ps.snapshot.slice(0, 12)}${state.lean && ps.draft ? `, draft ${(ps.draft.sha256 ?? 'none').slice(0, 12)} not bound` : ''}; reason: ${o.attest})`);
   state.artifacts[path.basename(bound)] = { path: path.basename(bound), sha256: sha };
   if (o.voice === 'native') state.native_model = model; else state.outside_model = model;
   const lines = [`BOUND: ${open.attempt} phase=${phase} voice=${o.voice} model=${model} findings=${rows.length} sha256=${sha.slice(0, 12)} receipt=${bind.receipt}${confirm ? ` round=${round} correlated=${confirm.correlated} settled=${confirm.settled}` : ''}`];

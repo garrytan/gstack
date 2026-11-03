@@ -2,7 +2,7 @@
 /**
  * gstack-autoplan — the unattended /autoplan runner as an explicit, durable state machine (plan B2).
  *
- *   gstack-autoplan next    --kind fix                 a bug fix: no plan review (R65), status=skipped, nothing written
+ *   gstack-autoplan next    --kind fix                 a bug fix: no plan review (R65), status=skipped, nothing written (run --kind fix too)
  *   gstack-autoplan next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--ceo-only]
  *                           [--no-outside] [--light] [--spend-cap <usd>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice native|outside --result <file> | --record <file> [--attest <reason>]
@@ -97,6 +97,7 @@ DRIVER: ${driverFile()}
           --settle records a packaging/ordering change that needs no plan edit and reopens nothing (ids: decision id or d4)
   run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api] ...
           next in a loop, only when a runner executes both voices here (hosts without subagents: --native-runner api --runner api);
+          the full run unless --kind feature (the lean run) or --kind fix (no review, nothing written);
           --deadline cancels the children it started; --max-tokens caps each api call's output (default 16384; OpenAI counts reasoning tokens in it), and a
           response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
@@ -351,7 +352,9 @@ function doBudget(out: string, rest: string[], json: boolean): number {
   return EXIT.ok;
 }
 
-async function doRun(out: string, rest: string[], json: boolean): Promise<number> {
+async function doRun(out: string, args: string[], json: boolean): Promise<number> {
+  // run pays for both voices, so it starts the full run unless --kind feature asks for the lean one (R65).
+  const rest = args.includes('--kind') ? args : [...args, '--full'];
   const nativeModel = flag(rest, '--native-model'); const outsideModel = flag(rest, '--outside-model');
   const outsideRunner = (flag(rest, '--runner') ?? 'codex-cli') as RunnerId; const nativeRunner = (flag(rest, '--native-runner') ?? 'api') as RunnerId;
   if (!nativeModel || !outsideModel) return usage('run needs --native-model and --outside-model (a runner must execute both voices)');
@@ -453,10 +456,15 @@ async function main(argv: string[]): Promise<number> {
     try { process.stdout.write(checkpointLines(from).join('\n') + '\n'); return EXIT.ok; }
     catch (e: any) { if (!(e instanceof RunError)) throw e; process.stderr.write(resultLine('gstack-autoplan checkpoints', e.code, e.detail) + '\n'); return EXIT.refused; }
   }
-  if (cmd === 'next' && rest.includes('--kind')) {
+  if ((cmd === 'next' || cmd === 'run') && rest.includes('--kind')) {
     const kind = flag(rest, '--kind');
     if (!(KINDS as readonly string[]).includes(kind ?? '')) return usage(`--kind takes fix or feature (got ${JSON.stringify(kind ?? '')})`);
-    if (kind === 'fix') { process.stdout.write(FIX_LINES.join('\n') + '\n'); return EXIT.ok; }
+    if (kind === 'fix') {
+      const live = flag(rest, '--out');
+      if (live && fs.existsSync(path.join(path.resolve(live), FILES.run))) return usage(`--kind fix starts no run, but ${live} already holds a run: continue it without --kind, or pass another --out`);
+      emit(json, FIX_LINES, { skill: 'autoplan', status: 'skipped', kind: 'fix', run: null, lines: FIX_LINES.slice(0, -1) });
+      return EXIT.ok;
+    }
   }
   const outFlag = flag(rest, '--out');
   if (!outFlag && cmd !== 'shadow') return usage(`${cmd} needs --out <dir>`);

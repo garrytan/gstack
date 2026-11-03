@@ -360,8 +360,10 @@ The example above is the full run. The first `next` also takes `--kind`:
 - **`--kind fix`**: a bug fix gets no plan review. `gstack-autoplan next --kind fix`
   prints `AUTOPLAN: not needed (bug fix; R65)`, a `PROOF:` line and
   `GSTACK_RESULT: skill=autoplan status=skipped run=-`, exits 0 and writes
-  nothing (no `--out` or `--plan` needed). The PR still owes the bug's proof:
-  a repro on current main or a failing test written first.
+  nothing (no `--out` or `--plan` needed; `--json` prints one object with
+  `status: "skipped"`). `run --kind fix` does the same before any paid call.
+  An `--out` that already holds a run is refused. The PR still owes the bug's
+  proof: a repro on current main or a failing test written first.
 - **`--kind feature`**, the default for an unattended run on Capy
   (`GSTACK_CAPY=1`) that names no kind, is the lean run. The run is the `eng`
   phase alone with one native reviewer, whose prompt merges the CEO and Eng
@@ -371,9 +373,18 @@ The example above is the full run. The first `next` also takes `--kind`:
   (default `origin/HEAD`), untracked files included and the run directory
   left out, written into the phase's snapshot directory as `draft.diff` and
   hashed into `run.json` (`phases.eng.draft`) and the `phase_opened` journal
-  row. With no code yet, the run says so: `DRAFT: none (<why>)`. The reviewer's
+  row. With no code yet, the run says so: `DRAFT: none (<why>)`. A git
+  command that fails is `DRAFT: none (draft capture failed: …)`, never a
+  partial draft. An untracked file whose name looks like a secret (`.env*`,
+  `*.pem`, `*.key`, `id_rsa`, `credentials*`, `*secret*`) is left out with a
+  note, and the `DRAFT:` line names the checkout it diffed (`root=`). The prompt inlines the diff in a fence longer than any tilde
+  run inside it, cut at 100,000 bytes (`shown=` on the `DRAFT:` line) with a
+  note asking the reviewer to name what it didn't see. The reviewer's
   line after INPUT names the draft (`DRAFT: <sha256>` or `DRAFT: none`), or
-  submit refuses the result with `RESULT_RECEIPT_MISSING`. There is no outside
+  submit refuses the result with `RESULT_RECEIPT_MISSING`. A hand-run record
+  bound with `--attest` has no receipt at all, so its deviation says the
+  draft was not bound. `run`, which pays for both voices, stays the full run
+  unless `--kind feature` asks for the lean one. There is no outside
   voice, `--max-rounds` defaults to 1, carry-forward is off, and the gate has
   one revision: `revise --incorporates` applies the owner's accepted changes
   without re-review (`APPLIED: … (lean run: one gate revision; …)`) and
