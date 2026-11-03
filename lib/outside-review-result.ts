@@ -200,11 +200,9 @@ function plainReview(text: string): string {
  * blocking signals use that view, so an unclosed fence cannot hide a later `[P1]`
  * or `Verdict: not ready`, while the evidence for clean keeps it blanked. One pass:
  * an opener closes only when a later marker of its kind is at least as long.
- * `keepSpans` unwraps every inline span: the verdict is read from that view, so
- * `Verdict: \`ready\` (tests \`not run\`)` is read whole.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
-function withoutCode(text: string, readUnclosed = false, keepSpans = false): string {
+function withoutCode(text: string, readUnclosed = false): string {
   const lines = text.split(/\r?\n/);
   const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
   const closes = markers.map(() => true);
@@ -226,7 +224,7 @@ function withoutCode(text: string, readUnclosed = false, keepSpans = false): str
     }
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
-      keepSpans || inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
+      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
 }
 
@@ -252,20 +250,9 @@ function firstUnparsed(text: string): string | undefined {
   return at < 0 ? undefined : `line ${at + 1}: "${lines[at]!.trim().slice(0, 160)}"`;
 }
 
-/**
- * The value of the reply's last verdict line, or undefined when it has none:
- * `Verdict: x`, `Overall verdict — x`, `> Verdict: x`, or a bare `Verdict`
- * heading whose value is the next non-empty line.
- */
+/** The value of the reply's last `Verdict:` line, or undefined when it has none. */
 function lastVerdict(plain: string): string | undefined {
-  const lines = plain.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^[\t ]*(?:>[\t ]*)*(?:(?:overall|final)[\t ]+)?verdict[\t ]*(?:(?::|\u2014|\u2013|-(?=[\t ]))[\t ]*(.*?))?[\t ]*$/i.exec(lines[i]!);
-    if (!m) continue;
-    if (m[1]) return m[1];
-    return lines.slice(i + 1).find(line => line.trim())?.replace(/^[\t ]*(?:>[\t ]*)*/, '').trim() ?? '';
-  }
-  return undefined;
+  return [...plain.matchAll(/^[\t ]*Verdict[\t ]*:[\t ]*([^\r\n]*)$/gim)].at(-1)?.[1]!.trim();
 }
 /** A verdict that approves the change; the exact NO_FINDINGS token (its underscore is gone after plainReview) is clean too. */
 const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|clean|good to (?:go|merge|ship))\b(?![-?/])/i;
@@ -282,7 +269,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
-  const verdicts = [lastVerdict(plainReview(withoutCode(input.text, false, true))), lastVerdict(plainReview(withoutCode(input.text, true, true)))];
+  const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
   const unlabeled = reviewed && verdicts[1] !== undefined && !concludesNoFindings(code)
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
