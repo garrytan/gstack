@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.93.38.0] - 2026-11-03
+
+- **Review collector and blocker count follow what the reader said (GST-1031).** A native adversarial finding that states `Blocks: no` and one Severity now collects once, at that severity, on every review class; a numbered finding heading keeps its body (located or numbered bullets, a bold subheading, a located paragraph) so its Severity line no longer splits off as a second CRITICAL record. A closing summary such as "so nothing is CRITICAL" is marked `summary_candidate`, and lead judgment may lower it with a reason that `judge` records as `dismissed`. A CRITICAL whose reader writes the field `Blocks: no` no longer counts as a blocker in `REVIEW_LOOP`'s ledger count (classify does the same for a finding that carries `stated`; Step 9.4 does not copy it yet). Decision 3.5's fix-check pass takes a `review-fix-check` start token even when given `logStart: ["review"]`, so it is never counted as a pass. `gstack-ship-release finish` routes a `scripts/harness-version.json` edit that only records non-behavioral pins at the same version as release metadata.
+
 ## [1.93.37.0] - 2026-11-03
 
 **Eval planning prices Claude Haiku 5.5, GPT-6 Luna and Gemini 4 Argon, and the Codex docs name the current OpenAI tiers (#3640, #2943).** Before, `gstack-eval-plan arms --arms claude-haiku-5-5` stopped with EVAL_PRICE_MISSING because `lib/pricing.ts` had no row for it. docs/hosts.md and the /codex example still named gpt-5.6-sol as the current Sol model.

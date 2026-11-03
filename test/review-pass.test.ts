@@ -706,6 +706,21 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(v).toMatch(/^OUTPUT fix-check MATCH /m);
   }, 240_000);
 
+  // Value: protects=decision 3.5's fix-check takes a review-fix-check start token even when the parent passes the Capy skill's
+  //   logStart ["review"], so its row is never a pass and a review_loop_exception can follow it; fails_when=the fix-check pass logs a
+  //   review start; why_new=ggstack#52 (GST-1031): a scoped fix-check logged as review counted as a second pass; seam=the pass program;
+  //   no_claim=what the parent writes in the row
+  test('a fix-check pass given logStart ["review"] takes the review-fix-check start', async () => {
+    const { dir, env } = repo();
+    const files = path.join(dir, '.state/fc');
+    fs.mkdirSync(files, { recursive: true });
+    const fc: Record<string, string> = {};
+    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
+    const res = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fcr'), pass: 'x52fc', planFlags: ['--pass', '1', '--last', 'full', '--fixed-below'], fixCheck: fc, logStart: ['review'] });
+    expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
+    expect(res).not.toMatch(/REVIEW_LOG_START: review token=/);
+  }, 240_000);
+
   test('Step 11 records one start per row it logs, even when two rows share a skill (native and outside adversarial-review)', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');

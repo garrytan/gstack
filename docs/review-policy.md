@@ -601,22 +601,30 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
-   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167) unless collect `--manifest` names this
-   ledger's pass and its plan is the code or docs class with only `runtime=<n>` depth reasons (no `risk:`, `error:`,
-   `history:` or `floor:` reason). On such a plan a native finding's own `Severity` field decides and FIXABLE beside it
-   raises nothing once it also states `Blocks: no`; a native FIXABLE finding without `Blocks: no`, with no `Severity` field,
-   or whose field names only FIXABLE or INVESTIGATE still collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167), except that on every class a native
+   finding that states `Blocks: no` and one `Severity` field collects at that field (GST-1031 ruling A); a native FIXABLE
+   finding without `Blocks: no`, with no `Severity` field, or whose field names only FIXABLE or INVESTIGATE still collects
+   as CRITICAL. On a code or docs plan with only `runtime=<n>` depth reasons (collect `--manifest` naming this ledger's
+   pass; GST-987) FIXABLE also raises nothing through a label heading or a leading tag. A numbered finding heading keeps
+   every unlabeled line under it (located or numbered bullets, a bold subheading, a located paragraph) until its
+   `Severity` or `Blocks` line comes, so those fields never split off as a second record (GST-1031). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
-   closing summary is a known phantom: it stays at that label in the judged set, lead judgment can fold it only into a
-   finding at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
+   closing summary is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
+   `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is
+   CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
+   with a reason, which judge records as `dismissed` (GST-1031); otherwise lead judgment can fold it only into a finding
+   at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
-   instruction lives in a reviewer brief that changes only after a no-loss replay. What blocks is unchanged.
+   instruction lives in a reviewer brief that changes only after a no-loss replay. A CRITICAL whose own text writes the
+   field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
+   review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
+   its label counts it again.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
@@ -690,7 +698,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    working directory) and stops when that is another checkout or cannot be read: run /ship in the thread's own checkout.
    A start directory outside any checkout, such as a multi-repo workspace root, holds no tree to review by mistake and
    dispatches. Step 11's voices take the `adversarial-review` start
-   token by default, and a `logStart` list without it stops before anything runs.
+   token by default, and a `logStart` list without it stops before anything runs. Decision 3.5's fix-check pass turns a
+   `review` start into `review-fix-check`, so its row is never a pass (GST-1031).
 
 ## Where this is enforced
 
