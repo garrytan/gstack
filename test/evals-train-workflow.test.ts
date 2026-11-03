@@ -233,7 +233,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     const screen = simulate(evals, { github: dispatch(), inputs, outputs: { route } });
     expect(screen.checkout('build-image')?.ref).toBe(SHA.merge);
     expect(screen.checkout('build-image')?.ref).toBe(screen.checkout('eval-slices')?.ref);
-    expect(screen.checkout('build-image')?.['persist-credentials']).toBe('false');
+    expect(screen.checkout('build-image')?.['persist-credentials']).toBe(false);
     const steps = evals.jobs['build-image']!.steps;
     expect(steps.findIndex(st => st.uses?.startsWith('actions/checkout@'))).toBeLessThan(steps.findIndex(st => st.id === 'meta'));
     expect(simulate(evals, { github: dispatch(), inputs, outputs: { route }, results: { route: 'failure' } }).jobs).not.toContain('build-image');
@@ -275,9 +275,9 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(job.steps.find(st => st.name === 'Verify the prefix checkout')!.run).toContain('echo "short=${PREFIX_SHA:0:12}"');
   });
 
-  test('a refused dispatch starts nothing paid', () => {
+  test('a refused dispatch starts nothing paid and builds no image', () => {
     const sim = simulate(evals, { github: dispatch('train/t1'), inputs: { ...INPUTS, nonce: 'gate.bisect-x' }, outputs: { route: { ...ROUTE, mode: '' } }, results: { route: 'failure' } });
-    expect(sim.jobs).toEqual(['build-image', 'route']);
+    expect(sim.jobs).toEqual(['route']);
   });
 });
 
