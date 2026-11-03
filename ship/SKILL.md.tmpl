@@ -240,8 +240,8 @@ Item 3 needs `BUMP_LEVEL`: reuse this invocation's saved level. Else FRESH
 chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 
 **One call:** `~/.claude/skills/gstack/bin/gstack-ship-release version --base <base> [--bump <BUMP_LEVEL>] --why '<WHY>'`
-runs items 1 and 3–5 (reference only; a second `write` bumps twice); each
-decision left to you, item 2's level too, is a `STOP:` naming its rerun flag
+runs items 1 and 3–5 (reference only; rerunning `write` bumps twice); each
+decision left to you, item 2 included, is a `STOP:` naming its rerun flag
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
 `VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
@@ -486,8 +486,8 @@ does not authorize a third attempt.
 
 ### 5. Report, then push
 
-`finish` made the release commit. Commit only approved, verified outputs stage 1's
-builds regenerated, grouped as in Step 15; else no commit.
+`finish` made the release commit. Commit only verified outputs stage 1's
+builds regenerated, grouped as in Step 15; never create an empty commit.
 Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified
