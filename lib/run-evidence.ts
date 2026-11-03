@@ -210,12 +210,17 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (wrong.length) return fail('artifact_mismatch', `${at}'s ${p.artifact} records ${wrong.map(([k, got, want]) => `${k} ${String(got)} (expected ${want})`).join(', ')}`);
     const headTree = deps.commitTree(run.head_sha);
     if (!headTree) return fail('api_error', `git cannot read the tree of ${run.head_sha}`);
-    if (rec.tree !== headTree) return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+    const baseMoved = `gh workflow run ${p.workflow} --ref ${run.head_branch || '<branch>'}, then gstack-ci-carry wait`;
+    if (rec.tree !== headTree) {
+      const testedMerge = pr && typeof rec.sha === 'string' && SHA.test(rec.sha) && deps.commitTree(rec.sha) === rec.tree;
+      if (testedMerge) return fail('tree_mismatch', `${at} tested merge commit ${(rec.sha as string).slice(0, 12)} (tree ${String(rec.tree)}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
+      return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+    }
     if (pr) {
       if (typeof rec.sha !== 'string' || !SHA.test(rec.sha)) return fail('artifact_mismatch', `${at}'s ${p.artifact} names no merge commit (sha) for its pull_request run`);
       const mergeTree = deps.commitTree(rec.sha);
       if (!mergeTree) return fail('api_error', `git cannot read the tree of merge commit ${rec.sha}`);
-      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, `gh workflow run ${p.workflow} --ref ${run.head_branch || '<branch>'}, then gstack-ci-carry wait`);
+      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
     }
     const oses = Array.isArray(rec.os) ? rec.os : [rec.os];
     if (p.os && !oses.includes(p.os)) return fail('os_mismatch', `${at} ran on ${oses.filter(Boolean).map(String).join(', ') || 'an unrecorded OS'}; ${o.profileName} requires ${p.os}`);

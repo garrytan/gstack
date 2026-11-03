@@ -287,7 +287,9 @@ describe('GST-1189: a lane carries by named CI jobs instead of an inventory', ()
 
   test('a pull_request run whose base moved names the one-command fix (TRUT-7)', () => {
     const f = gbrain();
-    world(f, { jobs: ALL, run: { event: 'pull_request', head_branch: 'feat' }, tree: { ...NO_FILES, sha: f.git('rev-parse', 'origin/main').stdout.trim() } });
+    const mergeTree = f.git('rev-parse', 'origin/main^{tree}').stdout.trim();
+    const merge = f.git('commit-tree', mergeTree, '-p', 'HEAD', '-p', 'origin/main', '-m', 'Merge origin/main into feat').stdout.trim();
+    world(f, { jobs: ALL, run: { event: 'pull_request', head_branch: 'feat' }, tree: { ...NO_FILES, tree: mergeTree, sha: merge } });
     expect(find(f).stdout).toContain("CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch (the pull request's base moved after the run; fix: gh workflow run free.yml --ref feat, then gstack-ci-carry wait))");
   });
 
