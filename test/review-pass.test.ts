@@ -144,7 +144,7 @@ function treeLine(dir: string): string {
   return tree.status === 0 && top.status === 0 ? `REVIEWED_TREE: ${tree.stdout.trim()} ${top.stdout.trim()}\n` : '';
 }
 const briefDir = (prompt: string) => /Workspace: the checkout under review is (.+?)\. Your shell and file tools/.exec(prompt)?.[1] ?? '';
-function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean; hang?: (title: string) => boolean; stopped?: (title: string) => boolean; epoch?: number } = {}) {
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean; hang?: (title: string) => boolean; stopped?: (title: string) => boolean; keepSummary?: boolean; epoch?: number } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
@@ -156,8 +156,8 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       if (s.late && !s.summary) { s.summary = reply(s); continue; }
       if (s.status !== 'working' || o.hang?.(s.title)) continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
-      if (o.stopped?.(s.title)) s.status = 'stopped';
-      else if (o.fail?.(s.title)) s.status = 'failed';
+      if (o.stopped?.(s.title)) { s.status = 'stopped'; if (o.keepSummary) s.summary = reply(s); }
+      else if (o.fail?.(s.title)) { s.status = 'failed'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
       else { s.status = 'done'; s.summary = reply(s); }
     }
@@ -529,6 +529,27 @@ describe('Capy pass program (fake host, real bins)', () => {
       const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
       expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
       expect(v.stdout).toContain('unavailable=1');
+    }
+  }, 600_000);
+
+  // Value: protects=GST-1104 review finding: an outside voice that wrote its report and then ended stopped or failed is collected from its summary, never replaced by unavailable coverage; fails_when=the pass records the voice unavailable without reading the summary, silently dropping its findings;
+  //   why_new=GST-1104 /ship review (three readers); seam=lib/capy-review-pass.js reader poll; no_claim=what the voice found
+  test('an outside voice that ends stopped or failed with a report is collected, not marked unavailable (GST-1104)', async () => {
+    for (const [pass, o] of [['x33p1', { stopped: (t: string) => t.endsWith('outside-voice') }], ['x34p1', { fail: (t: string) => t.endsWith('outside-voice') }]] as const) {
+      const { dir, env } = repo();
+      const out = path.join(dir, '.state/run/p1');
+      const h = host(dir, env, { ...o, keepSummary: true, epoch: Date.now() });
+      const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
+      expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+      let res = '';
+      for (let i = 0; i < 6; i++) {
+        res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+        if (!res.includes('NEXT: poll')) break;
+      }
+      expect(res).not.toContain('STOP:');
+      expect(res).not.toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+      expect(res).toContain('NEXT: judge the voices');
     }
   }, 600_000);
 
