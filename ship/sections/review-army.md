@@ -27,10 +27,8 @@ family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; 
 host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
 `specialist batched` is one subagent reading every checklist its
 `checklists=` names (light adds Red Team), tagging each finding with its checklist.
-`adversarial-native single` or `merged` is Step 11's native pass carrying its `checklists=`
-(and `classes=`) on its `model=` (`lane`: yours; `cross-family`: the outside voice's).
-`NEXT: platform` dispatches nothing: skip the core read, log item 6's row with
-`"depth":"platform"` and the `PLATFORM_REVIEW:` id, then continue to Step 10.
+`NEXT: platform` runs no reader: log item 6's row with `"depth":"platform"` and the
+`PLATFORM_REVIEW:` id (Step 16's receipt write takes `--platform-review <id>`), then go to Step 10.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,

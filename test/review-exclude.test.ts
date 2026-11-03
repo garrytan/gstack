@@ -18,7 +18,8 @@ import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } fro
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
-const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
+// review.panel all keeps today's panel, whose every brief these cases read; R65's one-reader default is pinned in review-depth-lean.test.ts.
+const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, review: { panel: 'all' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
 const GZ = Buffer.from([0x1f, 0x8b, 0, 1, 2, 3, 0, 0]);
 const EXCLUDED = ['receipts/a/result.json', 'receipts/a/trial.gz', 'receipts/config/blob.bin', 'receipts/c/result.json', 'receipts/e/result.json', 'receipts/notes.md'];
 const KEPT = ['receipts/b/result.json', 'receipts/d/fixture.json', 'receipts/run.sh'];
@@ -118,8 +119,11 @@ describe('what review_exclude_paths excludes and keeps', () => {
     for (const f of KEPT) expect(read.has(f)).toBe(true);
     const outside = briefs.find(b => b.includes('## Branch diff'))!;
     expect(outside).toContain(`git diff "$DIFF_BASE" -- . ${m.readers[0].policy_exclude} and git diff "$DIFF_BASE" -- '${reader.keep[0]}'`);
-    for (const f of EXCLUDED) expect(outside).not.toContain(`diff --git a/${f}`);
-    expect(outside).toContain('diff --git a/receipts/b/result.json');
+    const diffFile = path.join(out, 'briefs', 'outside-voice.diff');
+    expect(outside).toContain(`The supplied branch diff is the file ${diffFile} `);
+    const supplied = fs.readFileSync(diffFile, 'utf8');
+    for (const f of EXCLUDED) expect(supplied).not.toContain(`diff --git a/${f}`);
+    expect(supplied).toContain('diff --git a/receipts/b/result.json');
     for (const b of briefs) expect(b).toContain(`(selection ${m.review_exclude.digest})`);
   }, 180_000);
 
@@ -150,7 +154,8 @@ describe('what review_exclude_paths excludes and keeps', () => {
     const c = JSON.parse(plan(control, ['--json']).out);
     const w = JSON.parse(plan(with_, ['--json']).out);
     expect(c.numbers.publishes).toBe(true);
-    expect(c.targeted.classes).toEqual(['money', 'secret']);
+    // HARN-1 (harness-evals#231): a JSON data file is judged by its path, so cost_usd names no money even unexcluded; its secret line still counts
+    expect(c.targeted.classes).toEqual(['secret']);
     expect(w.review_exclude.kept_files).toEqual([{ path: 'receipts/s.json', reason: 'secret-line' }]);
     expect(w.numbers.publishes).toBe(false);
     expect(w.targeted.classes).toEqual(['secret']);

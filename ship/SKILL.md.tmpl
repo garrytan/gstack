@@ -218,8 +218,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
 1. **Select the two reviews.** Run `~/.claude/skills/gstack/bin/gstack-review-read`.
    Select this invocation's final Step 9 record (`skill:"review"`, `via:"ship"`, or a
    last 3.5 `review-fix-check`) and Step 11 native record (`skill:"adversarial-review"`;
-   none after `ADVERSARIAL: skipped` or `NEXT: platform`, whose Step 9 row is the planned skip:
-   carry its `PLATFORM_REVIEW:` id to Step 16's receipt write as `--platform-review <id>`). Match each to its saved
+   none after `ADVERSARIAL: skipped`/`NEXT: platform`). Match each to its saved
    handle, original token and source; reject outside-provider or older records.
 2. **Compare their content.** All three snapshots must match: the native record's
    `wtree` (its `review_binding.state` `verified`), the Step 9 record's

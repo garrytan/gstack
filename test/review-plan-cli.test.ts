@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
 
 const BIN = path.join(import.meta.dir, '..', 'bin', 'gstack-review-plan');
 const dirs: string[] = [];
@@ -14,7 +15,11 @@ function repo(files: Record<string, string>): { dir: string; state: string } {
   dirs.push(dir, state);
   const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', timeout: 10_000 });
   git('init', '-q', '-b', 'main'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't'); git('config', 'commit.gpgsign', 'false');
-  fs.writeFileSync(path.join(dir, 'README.md'), '# x\n'); git('add', '.'); git('commit', '-qm', 'base');
+  fs.writeFileSync(path.join(dir, 'README.md'), '# x\n');
+  // These cases pin today's panel and its scoped second pass, which review.panel all keeps for every class; R65's default
+  // table (one reader off risk class) is pinned in test/review-depth-lean.test.ts.
+  fs.mkdirSync(path.join(dir, '.gstack')); fs.writeFileSync(path.join(dir, '.gstack', 'ship-policy.json'), JSON.stringify({ review: { panel: 'all' }, min_gstack_version: REVIEW_POLICY_KEY_VERSION }) + '\n');
+  git('add', '.'); git('commit', '-qm', 'base');
   git('checkout', '-qb', 'feat');
   for (const [p, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true }); fs.writeFileSync(path.join(dir, p), text); }
   git('add', '.'); git('commit', '-qm', 'feat');
@@ -121,7 +126,7 @@ describe('gstack-review-plan', () => {
     }
     expect(plan([...capStop.slice(0, -2), '--grant', id]).status).toBe(2);
     expect(plan([...capStop, '--grant', '--json']).status).toBe(2);
-  });
+  }, 30_000);
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });
     const w = (n: string, t: string) => { const f = path.join(r.state, n); fs.writeFileSync(f, t); return f; };
