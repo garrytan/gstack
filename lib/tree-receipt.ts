@@ -86,7 +86,7 @@ function stampOnlyHunks(hunks: FileDiff['hunks'], oldV: string, newV: string, te
     for (let i = 0; i < h.removed.length; i++) {
       const r = h.removed[i]!;
       const a = h.added[i]!;
-      if (!stampOnlyLine(r, a, oldV, newV, templates, side)) return { why: `${JSON.stringify(r.trim().slice(0, 60))} -> ${JSON.stringify(a.trim().slice(0, 60))}`, line: h.at + i };
+      if (!stampOnlyLine(r, a, oldV, newV, templates, side, h.removedAt[i])) return { why: `${JSON.stringify(r.trim().slice(0, 60))} -> ${JSON.stringify(a.trim().slice(0, 60))}`, line: h.at + i };
     }
   }
   return null;
