@@ -176,8 +176,8 @@ async function main(argv: string[]): Promise<number> {
     const l = await import('../lib/ship-queue-land');
     if (args.includes('--census')) return finish('land', l.census(ctx));
     if (!pr || !/^\d+$/.test(pr)) return usage('land needs --pr <number> (or --census)');
-    const pin = flag(args, '--pin');
-    if (pin !== undefined) {
+    if (args.includes('--pin')) {
+      const pin = flag(args, '--pin') ?? '';
       if (!/^[0-9a-f]{40,64}$/.test(pin)) return usage('--pin needs the full head sha the READY names');
       return finish('land', (await import('../lib/ship-queue-land-direct')).landDirect(ctx, { pr, pin, dryRun: args.includes('--dry-run') }));
     }

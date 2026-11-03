@@ -26,11 +26,12 @@ function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
   try { return JSON.parse(r.out) as DirectPr; } catch { return { code: 'QUEUE_NOT_READY', message: `gh pr view ${pr} failed: ${(r.err ?? r.out).trim().slice(0, 160)}` }; }
 }
 
-/** Release files the pin changed since its merge base: the version file, the manifest version and the CHANGELOG. */
-export function stampedFiles(root: string, policy: ShipPolicy, mergeBase: string, pin: string): string[] {
+/** Release files the pin changed since its merge base: the version file, the manifest version and the CHANGELOG; an unreadable version is an error, never a pass. */
+export function stampedFiles(root: string, policy: ShipPolicy, mergeBase: string, pin: string): string[] | { error: string } {
   const out: string[] = [];
   const [was, now] = [versionAtRef(root, mergeBase), versionAtRef(root, pin)];
-  if ('version' in was && 'version' in now && was.version !== now.version) out.push(now.rel);
+  if ('error' in was || 'error' in now) return { error: 'error' in was ? was.error : (now as { error: string }).error };
+  if (was.version !== now.version) out.push(now.rel);
   const npm = (rev: string) => { const r = git(root, ['show', `${rev}:package.json`]); try { return r.ok ? JSON.parse(r.out).version ?? null : null; } catch { return null; } };
   if (!('rel' in now && now.rel === 'package.json') && npm(mergeBase) !== npm(pin)) out.push('package.json version');
   if (policy.changelog && git(root, ['diff', '--quiet', mergeBase, pin, '--', policy.changelog]).ok === false) out.push(policy.changelog);
@@ -61,6 +62,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const loaded = loadBasePolicy(ctx);
   if ('message' in loaded) return fail([], loaded);
   const policy = loaded.policy;
+  if (policy.merge === 'direct' && !policy.changelog_fragments) return fail([], { code: 'QUEUE_NOT_READY', message: 'merge: direct needs changelog_fragments: a PR carries its entry as a fragment, and ready records READY notes only under that key', fix: 'add "changelog_fragments": { "dir": "changelog.d" } to .gstack/ship-policy.json on the base' });
   if (policy.merge !== 'direct') return fail([], { code: 'QUEUE_NOT_READY', message: `the base policy sets merge: ${policy.merge}; land --pin merges only under merge: direct`, fix: 'land through the train (gstack-ship-queue train build), or set "merge": "direct" in .gstack/ship-policy.json on the base' });
   const info = view(ctx, o.pr);
   if ('code' in info) return fail([], info);
@@ -88,7 +90,9 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (lock.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });
 
   const mergeBase = git(root, ['merge-base', `origin/${ctx.base}`, o.pin]).out;
-  const stamped = isSha(mergeBase) ? stampedFiles(root, policy, mergeBase, o.pin) : [];
+  if (!isSha(mergeBase)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot compute the merge base of the pin ${o.pin.slice(0, 12)} and origin/${ctx.base}, so the release-file check cannot run`, fix: `git fetch origin ${ctx.base} and the PR head (an unshallow clone), then rerun land` });
+  const stamped = stampedFiles(root, policy, mergeBase, o.pin);
+  if ('error' in stamped) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot read the version at the pin or its merge base: ${stamped.error}` });
   if (stamped.length) {
     const files = stamped.filter(f => f !== 'package.json version');
     const restore = files.length ? `git checkout $(git merge-base origin/${ctx.base} HEAD) -- ${files.join(' ')}` : '';

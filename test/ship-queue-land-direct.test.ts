@@ -271,6 +271,60 @@ describe('land --pin: refusals (nothing merged)', () => {
   }, 90_000);
 });
 
+describe('land --pin: fail closed and merge methods', () => {
+  test('the old stamping land refuses under merge: direct, and a --pin with no sha is a usage error', () => {
+    const fx = setup();
+    const pin = openPr(fx, '23');
+    const old = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '23', '--base', 'main', '--no-wait'], fx.env);
+    expect(old.status).not.toBe(EXIT.ok);
+    expect(old.err).toContain('merge: direct');
+    expect(old.err).toContain('land --pr 23 --pin');
+    expect(remote(fx, 'pr-23')).toBe(pin);
+    const dangling = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '23', '--base', 'main', '--pin'], fx.env);
+    expect(dangling.status).toBe(EXIT.usage);
+    expect(fx.read().mergeArgs).toBeUndefined();
+  }, 90_000);
+
+  test('a pin with no merge base on the base branch refuses instead of skipping the release-file check', () => {
+    const fx = setup();
+    const { repo } = fx;
+    repo.git('checkout', '-q', '--orphan', 'pr-24');
+    fs.writeFileSync(path.join(repo.work, 'VERSION'), '9.9.9.9\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'unrelated history');
+    repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-24');
+    const pin = repo.git('rev-parse', 'HEAD');
+    fx.write(d => { d.prs['24'] = { state: 'OPEN', baseRefName: 'main', headRefName: 'pr-24', isCrossRepository: false, title: 'PR 24', body: shippedBody('24', pin) }; });
+    markReady(fx, '24', pin);
+    repo.git('checkout', '-q', '--detach', 'origin/main');
+    const r = land(fx, '24', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('cannot compute the merge base');
+    expect(fx.read().mergeArgs).toBeUndefined();
+  }, 90_000);
+
+  test('history: merge-only merges with --merge; a PR on another base refuses', () => {
+    const fx = setup({ ...POLICY, history: 'merge-only' });
+    const pin = openPr(fx, '25');
+    fx.write(d => { d.prs['25'].baseRefName = 'dev'; });
+    const other = land(fx, '25', pin);
+    expect(other.err).toContain('targets dev, not main');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    fx.write(d => { d.prs['25'].baseRefName = 'main'; });
+    const r = land(fx, '25', pin);
+    expect(r.err).toBe('');
+    expect(fx.read().mergeArgs).toEqual(['25', '--merge', '--match-head-commit', pin]);
+  }, 90_000);
+
+  test('merge: direct without changelog_fragments refuses with the key to add', () => {
+    const fx = setup({ ...POLICY, changelog_fragments: null });
+    const pin = openPr(fx, '26');
+    const r = land(fx, '26', pin);
+    expect(r.err).toContain('merge: direct needs changelog_fragments');
+    expect(fx.read().mergeArgs).toBeUndefined();
+  }, 90_000);
+});
+
 describe('merge: direct | train', () => {
   test('train build refuses under merge: direct and names land', () => {
     const fx = setup();
