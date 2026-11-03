@@ -52,7 +52,7 @@ const fetch = async code => {
   await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events }) });
 };
 for (let k = 0; k < codes.length; k += 8) await Promise.all(codes.slice(k, k + 8).map(fetch));
-const scan = await tools.capy.bash({ command: `~/.claude/skills/gstack/bin/gstack-runaway scan --dir ${dir}; rm -rf ${dir}`, description: "Scanning" });
+const scan = await tools.capy.bash({ command: `$HOME/.local/share/gstack/bin/gstack-runaway scan --dir ${dir}; s=$?; rm -rf ${dir}; exit $s`, description: "Scanning" });
 return scan.output + (list.cursor ? "\nNEXT_CURSOR: " + list.cursor : "");
 ```
 
@@ -72,6 +72,9 @@ last 40 turns. Review rounds past 2 per PR. Act on each line:
 | `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once. |
 | `DEFER:` | The thread is mid-/ship or mid-merge: act on nothing now; scan again when that work finishes. |
 | `RUNAWAY_INPUT:` | That thread's file was unreadable: fetch it again and rerun; never count it as OK. |
+
+No `RUNAWAY:` or `SWEEP:` line means the scan failed, never that the crew is clean. `DEFER:` holds a rotation, and
+a stop of a subagent that is itself mid-/ship (its own cap stops it); stopping any other subagent goes ahead.
 
 ## 2. Stop a subagent
 
@@ -100,9 +103,9 @@ Put the lines that apply into every brief you write:
 - **Compact returns.** A program returns only the lines the next step needs; big output goes to a file under
   ~/.capy/work and you read the part you need.
 - **One /ship subagent per PR head.** A rerun or another PR gets a fresh subagent with the run directory path; never
-  message a finished /ship subagent to run another. Title it `ship #<n> at <head7>` and put
-  `GSTACK_SHIP_TASK_TITLE=<title>` in its brief: /ship then meters its own row and caps at 100M by default
-  (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
+  message a finished /ship subagent to run another. Title it `ship #<n> at <head7> <4-char nonce>` and put
+  `GSTACK_SHIP_TASK_TITLE=<title>` in its brief: /ship then takes every reading from that one row and caps at
+  100M by default (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
 - **Two review rounds.** Reader and review rounds stop at 2 per PR (R51), and every reader's title names the PR
   (`#<n>`) so the scan can count them.
 - **Rotate standing roles** at 500M own tokens or 3 days. An automation gets a fresh thread per run that archives

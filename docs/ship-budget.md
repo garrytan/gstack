@@ -80,7 +80,8 @@ A jam's own counter includes its own subagents, outside voices too (measured 202
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
 whose counter also holds every sibling tree. A subagent running /ship cannot read its own jam id. When its brief names its title
 (`GSTACK_SHIP_TASK_TITLE=<title>`), it reads `cost` from its own row of the root thread's `tasks` (the row whose `title` matches; its subtree, exact)
-and starts with `--reading-from task`. Otherwise it
+and starts with `--reading-from task`; every later reading in the run comes from that same row, and the title carries a
+nonce so a rerun at the same head can't match a finished row. Otherwise it
 reads `"this"` and starts with `--subagent --reading-from this --meter-scope tree` (`GSTACK_SHIP_SUBAGENT=1` in its
 brief stands in for `--subagent` only; `--reading-from this` is still required): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
 and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`. A

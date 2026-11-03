@@ -32,9 +32,7 @@ section read or fix-check, plus a keep-alive per 200 s waited.
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
 (Capy: `cost.tokens`, `cost.credits`). No check per step, no reservation, no meter-only
-call, no handoff; under `--token-cap` a note past the cap prints `verdict=stop`, the one stop check. A subagent
-whose brief names `GSTACK_SHIP_TASK_TITLE` reads R and C from its own row of `thread.get("this").tasks` (matched by title)
-and starts `--reading-from task`, which caps at 100M by default (`BUDGET_DEFAULT_CAP:`).
+call, no handoff; under `--token-cap` a note past the cap prints `verdict=stop`, the one stop check.
 A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
@@ -61,7 +59,7 @@ Install check, this file.
 
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
-`gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
+`gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] [--reading-from task] --reading R --credits C`, then
 `gstack-ship-preflight --base <base> --lane <label>=<command>...` (repo test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. `ship_lanes_from`: push early (`sections/tests.md#ci-carry`). A lane passes on `tests_ran: N` with exit 0; `0` is ZERO-RUN (failed); `unknown`
 is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.

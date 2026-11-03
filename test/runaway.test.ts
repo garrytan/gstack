@@ -56,15 +56,21 @@ describe('gstack-runaway scan', () => {
     expect(r.out).not.toContain('review_rounds');
   });
 
-  test('a live subagent past 100M is STOP; mid-/ship defers the stop', () => {
+  test('DEFER holds a rotation and a stop of the mid-/ship subagent itself; stopping another subagent goes ahead', () => {
     const doc = { code: 'GSTA-9', status: 'working', created_at: '2026-11-03T10:00:00Z', cost: { tokens: 300e6 },
       tasks: [task(3, 'gate fix lane', 150e6, 'idle'), task(4, 'ship 1 outside-voice (#535)', 2e6, 'working')] };
-    const r = run('scan', '--thread', write('defer.json', doc), '--now', NOW);
-    expect(r.out).toContain('verdict=DEFER');
-    expect(r.out).toContain('FLAG: STOP subagent 3 "gate fix lane" 150M > 100M (idle)');
-    expect(r.out).toContain('DEFER: mid-ship or mid-merge: 4 "ship 1 outside-voice (#535)" working');
-    doc.tasks[1]!.status = 'done';
-    expect(run('scan', '--thread', write('defer2.json', doc), '--now', NOW).out).toContain('verdict=STOP');
+    const other = run('scan', '--thread', write('defer.json', doc), '--now', NOW);
+    expect(other.out).toContain('verdict=STOP');
+    expect(other.out).toContain('FLAG: STOP subagent 3 "gate fix lane" 150M > 100M (idle)');
+    expect(other.out).not.toContain('DEFER:');
+    const self = { ...doc, tasks: [task(5, 'ship #4001 at abc1234 q7x2', 140e6, 'working')] };
+    const s = run('scan', '--thread', write('defer-self.json', self), '--now', NOW);
+    expect(s.out).toContain('verdict=DEFER');
+    expect(s.out).toContain('DEFER: mid-ship or mid-merge: 5 "ship #4001 at abc1234 q7x2" working');
+    const rot = { ...doc, created_at: '2026-10-25T00:00:00Z', tasks: [task(4, 'ship 1 outside-voice (#535)', 2e6, 'working')] };
+    expect(run('scan', '--thread', write('defer-rot.json', rot), '--now', NOW).out).toContain('verdict=DEFER');
+    const watcher = { ...rot, tasks: [task(6, 'pregate watcher', 1e6, 'waiting')] };
+    expect(run('scan', '--thread', write('defer-wait.json', watcher), '--now', NOW).out).toContain('verdict=ROTATE');
   });
 
   test('active means working, waiting, or a turn in the last 24 hours; an old quiet thread is not rotated', () => {
@@ -134,13 +140,35 @@ describe('gstack-runaway scan', () => {
     fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4));
     fs.writeFileSync(path.join(d, 'BAD-1.thread.json'), '{"code": "BAD-1", "cost": ');
     fs.writeFileSync(path.join(d, 'BAD-2.thread.json'), JSON.stringify({ code: 'BAD-2', status: 'working', tasks: [] }));
+    fs.writeFileSync(path.join(d, 'BAD-3.thread.json'), JSON.stringify({ code: 'BAD-3', cost: { tokens: 1 }, tasks: [] }));
+    fs.writeFileSync(path.join(d, 'BAD-4.thread.json'), JSON.stringify({ code: 'BAD-4', cost: { tokens: 1 }, created_at: NOW, tasks: [{ title: 'x' }] }));
+    fs.writeFileSync(path.join(d, 'BAD-5.thread.json'), '[]');
     const r = run('scan', '--dir', d, '--now', NOW);
     expect(r.code).toBe(1);
     expect(r.out).toContain('thread=FOUN-4 verdict=ROTATE');
     expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*BAD-1\.thread\.json /);
     expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*BAD-2\.thread\.json field=cost\.tokens expected=number/);
+    expect(r.out).toMatch(/BAD-3\.thread\.json field=created_at expected=ISO time/);
+    expect(r.out).toMatch(/BAD-4\.thread\.json field=tasks\[\]\.cost\.tokens expected=number/);
+    expect(r.out).toMatch(/BAD-5\.thread\.json expected a tools\.thread\.get object/);
     expect(r.out).not.toContain('thread=BAD-2');
-    expect(r.out).toContain('rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=0 unreadable=2');
+    expect(r.out).toContain('rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=0 unreadable=5');
+  });
+
+  test('a malformed --subagents file is named as RUNAWAY_INPUT, not scanned as exact', () => {
+    const doc = { code: 'X-1', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 300e6 }, tasks: [] };
+    const r = run('scan', '--thread', write('m.json', doc), '--subagents', write('m.subagents.json', [{ path: '1', title: 'big', status: 'working' }]), '--now', NOW);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*m\.subagents\.json expected a tools\.subagent\.list object/);
+    expect(r.out).not.toContain('own=300M(exact)');
+  });
+
+  test('--events accepts a bare array and a thread.get result with transcript.items', () => {
+    const at = (m: number) => new Date(Date.parse('2026-11-03T12:00:00Z') + m * 60_000).toISOString();
+    const items = Array.from({ length: 20 }, (_, k) => ({ source: 'tool', tool: 'end_turn', createdAt: at(k) }));
+    const doc = { code: 'E-1', status: 'idle', created_at: '2026-11-03T02:00:00Z', cost: { tokens: 1e6 }, tasks: [] };
+    for (const shape of [items, { transcript: { items } }])
+      expect(run('scan', '--thread', write('e.json', doc), '--events', write('e.events.json', shape), '--now', NOW).out).toContain('empty_wake=100%/20');
   });
 
   test('a finished subagent past 100M makes the verdict LOOK, not OK', () => {
@@ -167,6 +195,9 @@ describe('gstack-runaway scan', () => {
     expect(run('frob').err).toContain('RUNAWAY_USAGE: unknown command');
     expect(run('--help').code).toBe(0);
     expect(run('scan', '--thread', write('ok.json', FOUN4), '--now').err).toContain('RUNAWAY_USAGE: --now needs a value');
+    expect(run('scan', '--thread', write('ok2.json', FOUN4), '--now', 'yesterday').err).toContain('RUNAWAY_USAGE: --now is not an ISO time');
+    expect(run('scan', '--thread', write('ok3.json', FOUN4), '--dir', tmp).err).toContain('RUNAWAY_USAGE: pass exactly one of');
+    expect(run('scan', '--dir', path.join(tmp, 'nope')).err).toContain('RUNAWAY_USAGE: no directory');
   });
 });
 

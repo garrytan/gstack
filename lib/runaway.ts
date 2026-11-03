@@ -130,11 +130,12 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
   const rounds = reviewRounds(listed);
   if (rounds && rounds.rounds > LIMITS.maxRounds) flags.push({ action: 'WARN', text: 'review_rounds ' + rounds.rounds + ' on #' + rounds.pr + ' > ' + LIMITS.maxRounds });
 
-  const defer = listed.filter(t => (t.status === 'working' || t.status === 'waiting') && MID_SHIP.test(t.title ?? ''))
-    .map(t => pathOf(t) + ' ' + quote(t.title) + ' ' + t.status);
+  const shipping = listed.filter(t => t.status === 'working' && MID_SHIP.test(t.title ?? ''));
+  const stopsShipping = flags.some(f => f.action === 'STOP' && shipping.some(t => f.text.startsWith('subagent ' + pathOf(t) + ' ')));
+  const defer = shipping.map(t => pathOf(t) + ' ' + quote(t.title) + ' ' + t.status);
   const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
-  const acts = flags.some(f => f.action === 'ROTATE' || f.action === 'STOP');
-  const verdict: Verdict['verdict'] = acts && defer.length ? 'DEFER' : (worst ?? 'OK');
+  const holds = flags.some(f => f.action === 'ROTATE') || stopsShipping;
+  const verdict: Verdict['verdict'] = holds && defer.length ? 'DEFER' : (worst ?? 'OK');
   return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, rounds, flags, defer };
 }
 
@@ -150,6 +151,14 @@ export function render(v: Verdict): string[] {
 }
 
 const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+/** A tools.subagent.list result: an object whose tasks rows carry a path and numeric cost.tokens. */
+export function subagentsProblem(x: unknown): string | null {
+  const o = x as { tasks?: Task[] } | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.tasks)) return 'expected a tools.subagent.list object with tasks';
+  if (o.tasks.some(t => typeof t?.path !== 'string' || typeof t?.cost?.tokens !== 'number')) return 'field=tasks[].path,cost.tokens expected=string,number';
+  return null;
+}
+
 /** The fields assess reads, checked before it runs, so a bad file is named instead of passing as OK. */
 export function inputProblem(doc: unknown): string | null {
   const d = doc as ThreadDoc | null;
@@ -213,7 +222,10 @@ export function runawayMain(argv: string[]): number {
       file = s.events ?? file;
       const items = s.events ? itemsOf(readJson(s.events)) : (doc as ThreadDoc).events;
       file = s.subagents ?? file;
-      verdicts.push(assess(doc, { now, items, subagents: s.subagents ? readJson(s.subagents) : undefined }));
+      const subagents = s.subagents ? readJson(s.subagents) : undefined;
+      const subProblem = subagents === undefined ? null : subagentsProblem(subagents);
+      if (subProblem) throw new Error(subProblem);
+      verdicts.push(assess(doc, { now, items, subagents }));
     } catch (e) {
       unreadable++;
       console.log('RUNAWAY_INPUT: file=' + file + ' ' + (e instanceof Error ? e.message : String(e)).split('\n')[0] + '; fetch this thread again and rerun');
