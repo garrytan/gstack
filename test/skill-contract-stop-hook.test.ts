@@ -56,7 +56,7 @@ describe('block once, with the pinned text', () => {
     expect(fs.statSync(path.join(state, 'skill-contracts', 'sess-1.json')).mode & 0o777).toBe(0o600);
   });
 
-  test('stop_hook_active: allowed at once, nothing read or written', () => {
+  test('stop_hook_active with no block of ours this run: allowed, no record written', () => {
     const r = stop(transcript(J1_TRANSCRIPT), {}, { stop_hook_active: true });
     expect(r).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(fs.existsSync(path.join(state, 'skill-contracts'))).toBe(false);
@@ -71,12 +71,34 @@ describe('block once, with the pinned text', () => {
     expect((Object.values(record().runs)[0] as any).outcome).toBe('miss');
   });
 
-  test('fixed after the block: met_after_block', () => {
+  test('fixed after the block: met_after_block, recorded on the stop_hook_active Stop Claude Code sends next', () => {
     const file = transcript(J1_TRANSCRIPT);
     stop(file);
     fs.appendFileSync(file, [tool('b9', 'Bash', { command: 'bun test test/auth.test.ts' }), result('b9', 'pass'), say(DEBUG_REPORT)].join('\n') + '\n');
-    expect(stop(file).stdout).toBe('');
+    expect(stop(file, {}, { stop_hook_active: true }).stdout).toBe('');
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met_after_block');
+  });
+
+  test('still unmet on the stop_hook_active Stop after our block: a miss, never a second block', () => {
+    const file = transcript(J1_TRANSCRIPT);
+    stop(file);
+    fs.appendFileSync(file, `${say('Done.')}\n`);
+    expect(stop(file, {}, { stop_hook_active: true })).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('miss');
+  });
+
+  test('last_assistant_message supplies the final report the transcript file does not hold yet', () => {
+    const file = transcript([...J1_TRANSCRIPT.slice(0, -1), tool('b9', 'Bash', { command: 'bun test' }), result('b9', 'pass')]);
+    expect(stop(file, {}, { last_assistant_message: DEBUG_REPORT }).stdout).toBe('');
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
+  });
+
+  test('a met run stays met: a later unrelated edit turn in the same session is not blocked', () => {
+    const file = transcript([...J1_TRANSCRIPT.slice(0, -1), tool('b9', 'Bash', { command: 'bun test' }), result('b9', 'pass'), say(DEBUG_REPORT)]);
+    expect(stop(file).stdout).toBe('');
+    fs.appendFileSync(file, [user('fix the typo in README'), tool('e7', 'Edit', { file_path: 'README.md', old_string: 'teh', new_string: 'the' }), result('e7', 'updated'), say('Fixed the typo.')].join('\n') + '\n');
+    expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
   });
 
   test('a waiver read from the transcript satisfies the block but counts against follow', () => {

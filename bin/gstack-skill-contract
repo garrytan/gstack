@@ -90,8 +90,8 @@ function report(args: string[]): never {
     const found = lookupContract(run.skill, installedSkillsDir());
     if (!('contract' in found)) return null;
     try {
-      const again = checkContract(parseTranscript(readTranscriptFile(rec.transcript_path)), run.skill, found.contract);
-      return again.load?.line === run.load_line ? again : null;
+      const again = checkContract(parseTranscript(readTranscriptFile(rec.transcript_path)), run.skill, found.contract, { loadLine: run.load_line });
+      return again.load ? again : null;
     } catch {
       return null;
     }

@@ -73,11 +73,11 @@ Every item has an `id` (lowercase letters, digits, `.`, `_`, `-`) and a `kind`, 
 | kind | Fields | Met when |
 |---|---|---|
 | `report_labels` | `heading`, `labels[]` | The last assistant message containing the heading has a `Label: value` line for every label, and no value is empty or a placeholder (`[...]`, `<...>`, TBD, TODO, `...`, or a template like `DONE \| BLOCKED`) |
-| `check_after_last_edit` | optional `match` (regular expression) | No Edit, Write, MultiEdit or NotebookEdit happened, or a Bash test or repro command ran after the last one. By default a command counts when, with quoted text removed, it names a test runner, build tool or interpreter (bun, npm, pytest, go, cargo, make, node, python, curl, ...) |
-| `selected_specialists_dispatched` | optional `marker`, `empty_marker` | The selection line was printed and each specialist it names has an Agent dispatch that mentions it. The marker is literal text in which a whole-word N stands for a number; the default is `Dispatching N specialists:`. A "specialists skipped" line means zero specialists were selected, which passes |
+| `check_after_last_edit` | optional `match` (regular expression) | No Edit, Write, MultiEdit or NotebookEdit happened, or a Bash test or repro command ran after the last one. By default a command counts when, with quoted text removed, one of its parts (split on `&&`, `\|\|`, `;`, `\|`) starts with a test runner, build tool or interpreter (bun, npm, pytest, go, cargo, make, node, python, curl, ...) or a script whose name says test, spec, repro, check, verify or lint. `git commit --no-verify` and `cat test/a.test.ts` do not count |
+| `selected_specialists_dispatched` | optional `marker`, `empty_marker` | The selection line was printed in an assistant message or a Bash result (never a fetched page or file), its names are plain (letters, digits, spaces, `_`, `.`, `-`, at most 40 characters), and each specialist it names has an Agent dispatch that mentions it. The marker is literal text in which a whole-word N stands for a number; the default is `Dispatching N specialists:`. A "specialists skipped" line means zero specialists were selected, which passes |
 | `agent_dispatch` | `match` (regular expression, case-insensitive) | An Agent dispatch's description or prompt matches |
 
-Items are checked against everything after the skill's last load in the session: a Skill tool call, a typed `/name` command, or a Read of its `SKILL.md`.
+Items are checked against one run of the skill: from its last load to the end of the session, or to its next load when `report` re-checks an earlier run. A load is a Skill tool call, a typed `/name` command, or a Read of its `SKILL.md` under a `skills/` directory (reading the source in a gstack checkout is not a load). A run recorded `met` stays met, so a later unrelated turn in the same session is never blocked by it.
 
 ### Worked example
 
@@ -105,7 +105,7 @@ The hook checks the most recently loaded skill that declares a contract, and onl
 - the session is headless or unattended (`gstack-session-kind`), or
 - the turn does not end on a question to the user (a last paragraph ending in "?", an AskUserQuestion call, or `NEEDS_CONTEXT`).
 
-So an interactive session that pauses to ask a question is never blocked. The hook also allows the stop at once when Claude Code says a Stop hook already continued this turn (`stop_hook_active`), and while Agent dispatches are still running (no result yet, or launched in the background with no completion notice), because their outputs may still arrive.
+So an interactive session that pauses to ask a question is never blocked. When Claude Code says a Stop hook already continued this turn (`stop_hook_active`), the hook never blocks: after its own block it records the result (`met_after_block` or `miss`). It also allows the stop while Agent dispatches are still running (no result yet, or launched in the background with no completion notice naming that agent), because their outputs may still arrive. Because Claude Code can fire Stop before the turn's last message reaches the transcript file, the hook reads the payload's `last_assistant_message` as the turn's final text.
 
 It blocks at most once per skill run. If the model stops again with the contract still unmet, the stop is allowed and the run is recorded as a miss.
 

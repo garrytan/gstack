@@ -199,6 +199,19 @@ export function parseTranscript(text: string): Transcript {
   return { events, sessionId };
 }
 
+/**
+ * The transcript with the Stop payload's last_assistant_message as its final text, when the file does not end on it
+ * yet: Claude Code can fire Stop before it writes the turn's last message.
+ */
+export function withFinalMessage(t: Transcript, message: unknown): Transcript {
+  if (typeof message !== 'string' || !message.trim()) return t;
+  const lastPrompt = t.events.map(e => e.kind).lastIndexOf('prompt');
+  const lastText = t.events.slice(lastPrompt + 1).filter(e => e.kind === 'text').pop() as { text: string } | undefined;
+  if (lastText?.text.trim() === message.trim()) return t;
+  const line = (t.events[t.events.length - 1]?.line ?? 0) + 1;
+  return { ...t, events: [...t.events, { kind: 'text', line, text: message }] };
+}
+
 export function readTranscriptFile(file: string): string {
   try {
     const size = fs.statSync(file).size;
@@ -219,7 +232,7 @@ export function sameSkill(a: string, b: string): boolean {
 
 export interface SkillLoad { skill: string; at: number; line: number; via: 'skill-tool' | 'slash-command' | 'read' }
 
-/** Every skill load in order: a Skill tool call, a typed /command, or a Read of a SKILL.md. */
+/** Every skill load in order: a Skill tool call, a typed /command, or a Read of a SKILL.md under a skills/ directory (an installed skill, not a checkout's source). */
 export function skillLoads(t: Transcript): SkillLoad[] {
   const loads: SkillLoad[] = [];
   t.events.forEach((e, at) => {
@@ -227,7 +240,7 @@ export function skillLoads(t: Transcript): SkillLoad[] {
       const name = e.input.skill ?? e.input.command;
       if (typeof name === 'string' && name.trim()) loads.push({ skill: canonicalSkill(name.split(/\s/)[0]), at, line: e.line, via: 'skill-tool' });
     } else if (e.kind === 'tool_use' && e.name === 'Read' && typeof e.input.file_path === 'string') {
-      const m = /(?:^|[\\/])([^\\/]+)[\\/]SKILL\.md$/.exec(e.input.file_path);
+      const m = /(?:^|[\\/])skills[\\/](?:.*[\\/])?([^\\/]+)[\\/]SKILL\.md$/.exec(e.input.file_path);
       if (m) loads.push({ skill: canonicalSkill(m[1]), at, line: e.line, via: 'read' });
     } else if (e.kind === 'prompt') {
       const m = /<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/.exec(e.text);
@@ -240,7 +253,18 @@ export function skillLoads(t: Transcript): SkillLoad[] {
 export const STATUS_RE = /^[ \t>*_-]*(?:\*\*|__)?(?:STATUS|Status)(?:\*\*|__)?[ \t]*(?:\*\*|__)?:[ \t]*(?:\*\*|__)?[ \t]*(DONE_WITH_CONCERNS|DONE|BLOCKED|NEEDS_CONTEXT)\b/m;
 const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(?:Agent|Task)$/;
-export const DEFAULT_CHECK_RE = /\b(?:test|tests|spec|pytest|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|repro|reproduce|typecheck|tsc|lint|check|verify|make|cargo|go|bun|bunx|npm|npx|pnpm|yarn|node|deno|python3?|ruby|rake|mvn|gradle|dotnet|swift|xcodebuild|curl)\b/i;
+const CHECK_PROGRAM = /^(?:pytest|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|make|cargo|go|bun|bunx|npm|npx|pnpm|yarn|node|deno|python3?|ruby|rake|mvn|gradlew?|dotnet|swift|xcodebuild|curl)$|test|spec|repro|check|verify|lint/i;
+const COMMAND_PREFIX = /^(?:env|sudo|time|nice|timeout|command|exec|\w+=\S*|-\S*|\d+[smh]?)$/;
+const SAFE_SPECIALIST = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/;
+
+/** A test or repro run: some segment of the command (split on && || ; | and newlines) starts with a test runner or a test, check or repro script. */
+export function isCheckCommand(cmd: string): boolean {
+  return cmd.split(/&&|\|\||[;|\n]/).some(segment => {
+    const words = segment.trim().replace(/^[({]\s*/, '').split(/\s+/);
+    while (words.length > 1 && COMMAND_PREFIX.test(words[0])) words.shift();
+    return CHECK_PROGRAM.test(words[0].split(/[\\/]/).pop() ?? '');
+  });
+}
 const DEFAULT_SELECTION_RE = /Dispatching\s+\d+\s+specialists?:\s*(?<names>[^\n]*)/i;
 const DEFAULT_EMPTY_SELECTION_RE = /specialists skipped|Dispatching\s+0\s+specialists/i;
 const WAIVE_RE = /gstack-skill-contract["']?\s+waive\s+["']?([A-Za-z0-9][A-Za-z0-9_.-]*)["']?/;
@@ -292,9 +316,12 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
       let lastEdit = -1;
       run.forEach((e, i) => { if (isToolUse(e) && EDIT_TOOLS.test(e.name)) lastEdit = i; });
       if (lastEdit < 0) return { met: true, detail: 'no edits since the skill loaded', fix: '' };
-      const re = item.match ? new RegExp(item.match, 'i') : DEFAULT_CHECK_RE;
-      const check = run.slice(lastEdit + 1).map(bashCommand)
-        .find(cmd => cmd !== null && !/gstack-skill-contract/.test(cmd) && re.test(cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""')));
+      const re = item.match ? new RegExp(item.match, 'i') : null;
+      const check = run.slice(lastEdit + 1).map(bashCommand).find(cmd => {
+        if (cmd === null || /gstack-skill-contract/.test(cmd)) return false;
+        const bare = cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+        return re ? re.test(bare) : isCheckCommand(bare);
+      });
       return check
         ? { met: true, detail: `ran "${cut(check)}" after the last edit`, fix: '' }
         : { met: false, detail: `no test or repro command after the last ${(run[lastEdit] as ToolUse).name}`, fix: item.fix ?? 'run the test or repro again after your last edit and show its result' };
@@ -302,11 +329,13 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
     case 'selected_specialists_dispatched': {
       const marker = item.marker ? markerPattern(item.marker) : DEFAULT_SELECTION_RE;
       const empty = item.empty_marker ? markerPattern(item.empty_marker) : DEFAULT_EMPTY_SELECTION_RE;
-      const sources = run.filter(e => e.kind === 'text' || e.kind === 'tool_result').map(e => (e as { text: string }).text).reverse();
+      const bashIds = new Set(run.filter(e => bashCommand(e) !== null).map(e => (e as ToolUse).id));
+      const sources = run.filter(e => e.kind === 'text' || (e.kind === 'tool_result' && bashIds.has(e.id))).map(e => (e as { text: string }).text).reverse();
       let names: string[] | null = null;
       for (const src of sources) {
         const m = marker.exec(src);
-        if (m) { names = parseNames(m.groups?.names ?? ''); break; }
+        const parsed = m ? parseNames(m.groups?.names ?? '') : null;
+        if (parsed && parsed.every(n => SAFE_SPECIALIST.test(n))) { names = parsed; break; }
         if (empty.test(src)) { names = []; break; }
       }
       if (names === null) return { met: false, detail: 'no specialist selection line found', fix: item.fix ?? 'print the specialist selection line, then dispatch one Agent per selected specialist' };
@@ -362,12 +391,16 @@ export interface CheckResult {
   pendingAgents: string[];
 }
 
-/** The contract against everything after the skill's last load. Pure: same transcript, same result. */
-export function checkContract(t: Transcript, skill: string, contract: Contract): CheckResult {
+/**
+ * The contract against one run of the skill: from its load (the last one, or the one at loadLine) to its next load.
+ * Pure: same transcript, same result.
+ */
+export function checkContract(t: Transcript, skill: string, contract: Contract, opts: { loadLine?: number } = {}): CheckResult {
   const events = t.events;
   const loads = skillLoads(t).filter(l => sameSkill(l.skill, skill));
-  const load = loads.length ? loads[loads.length - 1] : null;
-  const run = load ? events.slice(load.at + 1) : [];
+  const load = (opts.loadLine === undefined ? loads[loads.length - 1] : loads.find(l => l.line === opts.loadLine)) ?? null;
+  const next = load ? loads.find(l => l.at > load.at) : undefined;
+  const run = load ? events.slice(load.at + 1, next?.at) : [];
   const results = new Map<string, ToolResult>();
   for (const e of run) if (e.kind === 'tool_result') results.set(e.id, e);
   const waived = load ? waivers(run, skill, results) : new Map<string, string>();
@@ -390,7 +423,9 @@ export function checkContract(t: Transcript, skill: string, contract: Contract):
     const result = results.get(e.id);
     if (!result) return [e.id];
     const resultAt = run.indexOf(result);
-    const notified = run.slice(resultAt + 1).some(n => n.kind === 'meta' && (n.text.includes(e.id) || /<task-notification\b/.test(n.text)));
+    const ids = [e.id, ...[...result.text.matchAll(/\b(?:agent|task)[_ -]?id["']?\s*[:=]\s*["']?([\w-]+)/gi)].map(m => m[1])].filter(Boolean);
+    const named = ids.map(id => new RegExp(`(?:^|[^\\w-])${escapeRe(id)}(?:[^\\w-]|$)`));
+    const notified = run.slice(resultAt + 1).some(n => n.kind === 'meta' && named.some(re => re.test(n.text)));
     return e.input.run_in_background === true && i < resultAt && !notified ? [e.id] : [];
   });
   const missing = items.filter(i => i.status === 'missing').map(i => i.id);
@@ -470,8 +505,12 @@ export function writeRecord(file: string, rec: SessionRecord): void {
   }
 }
 
-/** Block at most once per skill run: an unmet contract blocks unless this run was already blocked, which makes it a miss. */
+/**
+ * Block at most once per skill run: an unmet contract blocks unless this run was already blocked, which makes it a miss.
+ * A run recorded met (never blocked) is final: later unrelated turns in the session never reopen it.
+ */
 export function nextOutcome(prev: RunRecord | undefined, result: CheckResult): { outcome: Outcome; block: boolean } {
+  if (prev && !prev.blocked_at && (prev.outcome === 'met' || prev.outcome === 'met_waived')) return { outcome: prev.outcome, block: false };
   if (result.met) return { outcome: prev?.blocked_at ? 'met_after_block' : result.waived.length ? 'met_waived' : 'met', block: false };
   return prev?.blocked_at ? { outcome: 'miss', block: false } : { outcome: 'blocked', block: true };
 }

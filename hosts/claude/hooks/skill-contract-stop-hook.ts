@@ -5,13 +5,15 @@
  * skill_contracts is on (env GSTACK_SKILL_CONTRACTS, then config
  * skill_contracts; default off).
  *
- *   stdin -> switch on? -> stop_hook_active? allow -> transcript_path -> parse
+ *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message)
  *     -> the most recently loaded skill that declares a contract (none: allow)
  *     -> Agent dispatches still running? allow (outputs may still arrive)
  *     -> final turn? (a STATUS line, a headless or unattended session, or no
  *        pending user question) -> checkContract (lib/skill-contract.ts)
  *     -> unmet and this run never blocked: record "blocked", then block with
  *        blockMessage(); unmet again later: record "miss" and allow
+ *     -> stop_hook_active (a Stop hook already blocked this turn): record the
+ *        outcome after our block (met_after_block or miss), never block
  *
  * CONTRACT
  *   - Blocks at most once per skill run, and only through a record written
@@ -27,7 +29,7 @@ import { runBin } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
   StateError, UnknownShape, blockMessage, bumpCanary, checkContract, lookupContract, nextOutcome, parseTranscript,
-  readRecord, readTranscriptFile, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, writeRecord,
+  readRecord, readTranscriptFile, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, withFinalMessage, writeRecord,
   type CheckResult, type Contract, type Transcript,
 } from '../../../lib/skill-contract';
 
@@ -87,13 +89,13 @@ async function main(): Promise<void> {
   } catch {
     return failOpen('<stdin>', 'hook payload is not JSON');
   }
-  if (payload.stop_hook_active === true) return;
+  const stopActive = payload.stop_hook_active === true;
   sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
   const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : '';
   if (!transcriptPath || !sessionId) return unknownShape('<stdin>', 'payload has no transcript_path or session_id');
   let transcript: Transcript;
   try {
-    transcript = parseTranscript(readTranscriptFile(transcriptPath));
+    transcript = withFinalMessage(parseTranscript(readTranscriptFile(transcriptPath)), payload.last_assistant_message);
   } catch (e) {
     if (e instanceof UnknownShape) return unknownShape(transcriptPath, e.message);
     throw e;
@@ -109,6 +111,7 @@ async function main(): Promise<void> {
   const key = runKey(t.skill, result.load);
   const prev = record.runs[key];
   const { outcome, block } = nextOutcome(prev, result);
+  if (block && stopActive) return trace({ event: 'stop-hook-active', skill: t.skill });
   const missing = result.missing.join(',') || '-';
   if (prev && prev.outcome === outcome && !block) return trace({ event: 'unchanged', skill: t.skill, outcome });
   const now = new Date().toISOString();
