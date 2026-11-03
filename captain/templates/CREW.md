@@ -135,8 +135,9 @@ Homes are paths in the gstack checkout the lane checked at session start.
     import --autoplan`. New scope taken on part-way gets the same. Exempt: read-only
     lanes, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves, cap
     re-pins under a written grant, S1 emergencies (broken install or upgrade, red main,
-    a security bug) and fixes from an already-diagnosed, audited problem list; every
-    other fix gets a one-round, eng-only plan. Home: `docs/captain.md` (Plan before build),
+    a security bug) and fixes from an already-diagnosed, audited problem list. Any other
+    bug fix is exempt too (`gstack-autoplan next --kind fix`, R65) and carries a repro on
+    current main or a failing test written first in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
     `captain/templates/brief.md`.
 
 ## Crew-specific rules
