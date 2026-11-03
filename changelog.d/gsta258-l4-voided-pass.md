@@ -1,0 +1,1 @@
+- **The review summary leaves an abandoned review pass out of the receipt's counts** (`gstack-review-scope summary`, GST-1168). A pass whose dispatch ledger was never judged and that no review-log row names is left out, and the summary names it on a `REVIEW_SCOPE_VOIDED:` line instead of counting its findings as found and unrecorded.
