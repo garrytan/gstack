@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.93.39.0] - 2026-11-03
+
+**/ship on Capy stops an outside voice that hangs and records it as missing, never as converged or as an unavailable Codex CLI (GST-1104).** TRUT-7's /ship run had two outside voices end with no result (gpt-6.1-sol stopped after 20 minutes; grok-4.7 used 16.9M tokens before it was stopped), and its Step 11 row read `outside_provider: codex`, `outside_status: unavailable`, `converged: true`.
+
+### Fixed
+- **`lib/capy-review-pass.js`**: an outside voice still running with no output after `input.stuckMs` (20 minutes by default) is stopped. One that hangs, finishes empty, or stops or fails without leaving findings is collected as unavailable coverage (`COLLECT_UNAVAILABLE:`); one that stops or fails after writing findings is collected normally, so its findings are kept, and Step 11 goes on to judge the native voice instead of stopping the pass with nothing recorded. Other readers still stop the pass as before.
+- **`lib/capy-review-pass.js`**: Step 11 returns an `OUTSIDE_RECORD:` line with `outside_provider: host-subagent`, the model that ran and its status, for the review-log rows to copy instead of the template's `codex`. When the voice was unavailable, the line tells the parent to write that voice its own row first (`status: unavailable`, `completed` and `converged` false), so the native row's convergence no longer stands in for it.
+- **`docs/unattended.md`**: "The outside voice on Capy" describes the stop, the unavailable record and the new fields.
+
 ## [1.93.38.0] - 2026-11-03
 
 - **Review collector and blocker count follow what the reader said (GST-1031).** A native adversarial finding that states `Blocks: no` and one Severity now collects once, at that severity, on every review class; a numbered finding heading keeps its body (located or numbered bullets, a bold subheading, a located paragraph) so its Severity line no longer splits off as a second CRITICAL record. A closing summary such as "so nothing is CRITICAL" is marked `summary_candidate`, and lead judgment may lower it with a reason that `judge` records as `dismissed`. A CRITICAL whose reader writes the field `Blocks: no` no longer counts as a blocker in `REVIEW_LOOP`'s ledger count (classify does the same for a finding that carries `stated`; Step 9.4 does not copy it yet). Decision 3.5's fix-check pass takes a `review-fix-check` start token even when given `logStart: ["review"]`, so it is never counted as a pass. `gstack-ship-release finish` routes a `scripts/harness-version.json` edit that only records non-behavioral pins at the same version as release metadata.

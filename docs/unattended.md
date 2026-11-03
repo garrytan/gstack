@@ -216,8 +216,9 @@ review-log row is the same row every Step 11 pass writes
 (the outside provider that reviewed, with the model recorded, for the
 cross-family subagent; `codex` for completed Codex CLI output, as
 `ship/sections/adversarial.md` prescribes),
-`outside_provider` (the provider the host would have used, as the generated
-prose names it), `outside_status` (`completed` for a finished outside pass;
+`outside_provider` (on Capy, `host-subagent`, with `outside_model`, both copied
+from the pass program's `OUTSIDE_RECORD:` line; elsewhere the provider the
+generated prose names), `outside_status` (`completed` for a finished outside pass;
 `unavailable` when neither the CLI nor a subagent completed, the cause on the
 `gstack-outside-voice run:` stderr line and in `<out>.meta.json` rather than
 in the row; `disabled` under
@@ -237,7 +238,16 @@ when `input.models['outside-voice']` is empty and the lane model is
 rounds ran. Any other lane must name a model. An outside voice from the same
 provider as the lane model or the native voice stops the pass (`STOP:`) before
 either voice is created, including on a rerun, and each outside voice prints an
-`OUTSIDE_VOICE:` line saying whether it is the certified configuration.
+`OUTSIDE_VOICE:` line saying whether it is the certified configuration. An
+outside voice still running with no output after `input.stuckMs` (20 minutes by
+default) is stopped, and one that stops or fails without leaving findings, or
+finishes empty, is collected as unavailable coverage (`COLLECT_UNAVAILABLE:`)
+instead of stopping the pass, so Step 11 goes on to judge the native voice. A
+stopped or failed outside voice whose reply holds findings is collected like any
+finished one, so its findings are kept; one whose reply holds none is unavailable. That outside voice then gets its own
+row (`source: "host-subagent"`, `status: "unavailable"`, `completed` and
+`converged` false, written without `--finish` before the native row), so a
+missing voice never reads as converged or as an unavailable Codex CLI.
 
 ### The carry across a base merge or a test-only fix
 

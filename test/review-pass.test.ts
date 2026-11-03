@@ -144,18 +144,20 @@ function treeLine(dir: string): string {
   return tree.status === 0 && top.status === 0 ? `REVIEWED_TREE: ${tree.stdout.trim()} ${top.stdout.trim()}\n` : '';
 }
 const briefDir = (prompt: string) => /Workspace: the checkout under review is (.+?)\. Your shell and file tools/.exec(prompt)?.[1] ?? '';
-function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean } = {}) {
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean; hang?: (title: string) => boolean; stopped?: (title: string) => boolean; keepSummary?: boolean; epoch?: number } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
   const starts: number[][] = [];
+  const stops: string[] = [];
   const reply = (s: Sub) => treeLine(o.reportFrom?.(s.title) ?? briefDir(s.prompt)) + (o.output?.(s.title) ?? cleanReply(s.title));
   const advance = () => {
     for (const s of subs.values()) {
       if (s.late && !s.summary) { s.summary = reply(s); continue; }
-      if (s.status !== 'working') continue;
+      if (s.status !== 'working' || o.hang?.(s.title)) continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
-      if (o.fail?.(s.title)) s.status = 'failed';
+      if (o.stopped?.(s.title)) { s.status = 'stopped'; if (o.keepSummary) s.summary = reply(s); }
+      else if (o.fail?.(s.title)) { s.status = 'failed'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
       else { s.status = 'done'; s.summary = reply(s); }
     }
@@ -185,10 +187,11 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       start: async ({ indices, model }: { indices: number[]; model?: unknown }) => { starts.push(indices); for (const i of indices) { const s = subs.get(String(i))!; s.status = 'working'; if (model) s.model = model; } return { started: indices.map(index => ({ index })), rejected: [] }; },
       list: async () => { advance(); return { tasks: [...subs].map(([p, s]) => ({ path: p, title: s.title, status: s.status })), total: subs.size }; },
       get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
+      stop: async ({ paths }: { paths: string[] }) => { stops.push(...paths); for (const p of paths) subs.get(p)!.status = 'stopped'; return { results: paths.map(p => ({ path: p, ok: true })) }; },
     },
     thread: { get: async () => ({ cost: { tokens: 1000 + clock, credits: 1 + clock / 1000 } }) },
   };
-  return { tools, subs, creates, starts, sleep: async (ms: number) => { clock += ms; }, now: async () => 1_000_000 + clock };
+  return { tools, subs, creates, starts, stops, sleep: async (ms: number) => { clock += ms; }, now: async () => (o.epoch ?? 1_000_000) + clock };
 }
 
 const PROGRAM = fs.readFileSync(path.join(ROOT, 'lib/capy-review-pass.js'), 'utf8');
@@ -362,7 +365,9 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: undefined })).toContain("STOP: the outside voice needs input.models['outside-voice']");
     expect(h.creates.some(c => c.title.startsWith('ship x7p1 ') && /adversarial|outside/.test(c.title))).toBe(false);
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
-    expect(await runPass(h, { ...base, stage: 'voices', models })).toContain('NEXT: judge the voices');
+    const voices = await runPass(h, { ...base, stage: 'voices', models });
+    expect(voices).toContain('NEXT: judge the voices');
+    expect(voices).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
     expect(h.creates.find(c => c.title === 'ship x7p1 outside-voice')!.model).toEqual(models['outside-voice']);
     expect(h.creates.find(c => c.title === 'ship x7p1 adversarial-native')!.model).toEqual(models['adversarial-native']);
   }, 240_000);
@@ -487,6 +492,89 @@ describe('Capy pass program (fake host, real bins)', () => {
     const named = await voicesRun(dir, env, 'named', { 'outside-voice': certified });
     expect(over.shas).toEqual(named.shas);
     for (const t of Object.keys(named.models)) if (t !== 'ship x17p1 outside-voice') expect(over.models[t]).toEqual(named.models[t]);
+  }, 300_000);
+
+  // Value: protects=GST-1104 (TRUT-7, truther#1159): an outside voice that runs past the stuck limit, or ends stopped or failed with no result, is stopped and recorded as unavailable coverage under its own runner and model, and Step 11 goes on to judge the native voice; fails_when=the stuck subagent is left running (TRUT-7 p2 burned 16.9M tokens before anyone stopped it), the pass stops with nothing recorded, or the returned record names no host-subagent runner so the review-log row falls back to the template's codex;
+  //   why_new=GST-1104; seam=lib/capy-review-pass.js reader poll; no_claim=which outside model Step 11 picks
+  test('an outside voice that hangs or stops with no result is stopped and recorded unavailable as the host subagent, and Step 11 goes on (GST-1104)', async () => {
+    for (const [pass, o] of [['x30p1', { hang: (t: string) => t.endsWith('outside-voice') }], ['x31p1', { stopped: (t: string) => t.endsWith('outside-voice') }], ['x32p1', { fail: (t: string) => t.endsWith('outside-voice') }]] as const) {
+      const { dir, env } = repo();
+      const out = path.join(dir, '.state/run/p1');
+      const h = host(dir, env, { ...o, epoch: Date.now() });
+      const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
+      expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+      let res = '';
+      for (let i = 0; i < 6; i++) {
+        res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+        if (!res.includes('NEXT: poll')) break;
+      }
+      expect(res).not.toContain('STOP:');
+      expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"unavailable"');
+      expect(res).toContain('first write this voice its own adversarial-review row with "source":"host-subagent","status":"unavailable","completed":false,"converged":false and no --finish, then the native row');
+      expect(res).toContain('NEXT: judge the voices');
+      if ('hang' in o) {
+        const token = /REVIEW_LOG_START: adversarial-review token=(\S+)/.exec(res)![1]!;
+        const record = /OUTSIDE_RECORD: (\S+)/.exec(res)![1]!;
+        const log = (row: string, a: string[] = []) => spawnSync(path.join(BIN, 'gstack-review-log'), [row, ...a], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+        expect(log('{"skill":"adversarial-review","status":"unavailable","source":"host-subagent",' + record + ',"phase":"adversarial","completed":false,"converged":false}').status).toBe(0);
+        expect(log('{"skill":"adversarial-review","status":"clean","source":"in-host",' + record + ',"phase":"adversarial","completed":true,"converged":true}', ['--finish', token]).status).toBe(0);
+        const rows = spawnSync(path.join(BIN, 'gstack-review-read'), [], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).stdout.split('---CONFIG---')[0]!.trim().split('\n').map(l => JSON.parse(l));
+        expect(rows.map(r => [r.source, r.outside_provider, r.outside_status, r.converged])).toEqual([['host-subagent', 'host-subagent', 'unavailable', false], ['in-host', 'host-subagent', 'unavailable', true]]);
+        expect(rows[1].review_freshness).toMatchObject({ status: 'CURRENT' });
+      }
+      const ov = [...h.subs].find(([, s]) => s.title === 'ship ' + pass + ' outside-voice')!;
+      expect(ov[1].status).not.toBe('working');
+      expect(h.stops).toEqual('hang' in o ? [ov[0]] : []);
+      const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
+      expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+      expect(v.stdout).not.toContain('MISMATCH');
+      expect(v.stdout).toContain('unavailable=1');
+    }
+  }, 600_000);
+
+  // Value: protects=GST-1104 review finding: an outside voice that wrote its report and then ended stopped or failed is collected from its summary, never replaced by unavailable coverage; fails_when=the pass records the voice unavailable without reading the summary, silently dropping its findings;
+  //   why_new=GST-1104 /ship review (three readers); seam=lib/capy-review-pass.js reader poll; no_claim=what the voice found
+  test('an outside voice that ends stopped or failed with a report is collected, not marked unavailable (GST-1104)', async () => {
+    for (const [pass, o] of [['x33p1', { stopped: (t: string) => t.endsWith('outside-voice') }], ['x34p1', { fail: (t: string) => t.endsWith('outside-voice') }]] as const) {
+      const { dir, env } = repo();
+      const out = path.join(dir, '.state/run/p1');
+      const h = host(dir, env, { ...o, keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? '1. **A guard fails open** - `src/a.ts:1` accepts any input. Severity: Medium. Blocks: no.\n\nRecommendation: fix the guard because it fails open' : cleanReply(t)), epoch: Date.now() });
+      const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
+      expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+      let res = '';
+      for (let i = 0; i < 6; i++) {
+        res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+        if (!res.includes('NEXT: poll')) break;
+      }
+      expect(res).not.toContain('STOP:');
+      expect(res).not.toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+      expect(res).toContain('NEXT: judge the voices');
+    }
+  }, 600_000);
+
+  // Value: protects=GST-1104 review finding: an outside voice that ends stopped or failed with a summary that is not a review is recorded unavailable and Step 11 goes on; fails_when=collect's COLLECT_NOT_REVIEWED stops the pass and every rerun stops the same way;
+  //   why_new=GST-1104 /ship review round 2; seam=lib/capy-review-pass.js reader collect; no_claim=what the summary says
+  test('an outside voice that ends stopped with a non-review summary is recorded unavailable, not a stuck pass (GST-1104)', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { stopped: (t: string) => t.endsWith('outside-voice'), keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? 'Stopped before I could read the diff.' : cleanReply(t)), epoch: Date.now() });
+    const base = { base: 'main', out, pass: 'x35p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    let res = '';
+    for (let i = 0; i < 6; i++) {
+      res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+      if (!res.includes('NEXT: poll')) break;
+    }
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+    expect(res).toContain('"outside_status":"unavailable"');
+    expect(res).toContain('NEXT: judge the voices');
+    const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
+    expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+    expect(v.stdout).not.toContain('MISMATCH');
+    expect(v.stdout).not.toContain('NOT_REVIEWED');
   }, 300_000);
 
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
