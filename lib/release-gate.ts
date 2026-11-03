@@ -194,10 +194,12 @@ function follow(env: GateEnv, workflow: string, nonce: string, known: number | n
 
 const runRef = (env: GateEnv, run: Run) => ({ id: run.id, url: run.html_url ?? `https://github.com/${env.repo}/actions/runs/${run.id}` });
 
-function save(env: GateEnv, rec: ReleaseRecord, lines: string[]): void {
+/** Writes the record and pushes it to origin's notes; false when the push failed, so no paid dispatch may follow. */
+function save(env: GateEnv, rec: ReleaseRecord, lines: string[]): boolean {
   rec.updated_at = nowIso();
   const p = persist(env.repoRoot, [rec], { remote: env.remote });
   if (!p.pushed) lines.push(`RELEASE: record ${p.detail}`);
+  return p.pushed;
 }
 
 interface Context { gate: ReleaseGatePolicy; repoKey: string; stable: string | null; records: ReleaseRecord[]; isAncestor: (a: string, b: string) => boolean }
@@ -264,7 +266,7 @@ export function runGate(env: GateEnv, o: RunOptions): GateOut {
     red_cases: [], flaky: [], cost_usd: null, detail: 'dispatching', bisect: null, created_at: now, updated_at: now,
   };
   if (rec !== prior) {
-    save(env, rec, lines);
+    if (!save(env, rec, lines)) { lines.push(`RELEASE: incomplete sha=${sha} run=- (the record did not reach ${env.remote}; nothing dispatched, so no run repeats a paid gate)`); return out('failed', sha); }
     const failed = dispatch(env, gate.gate_workflow, gate.branch, { [DISPATCH_INPUTS.evalsAll]: 'true', [DISPATCH_INPUTS.expectedSha]: sha, [DISPATCH_INPUTS.nonce]: rec.nonce });
     if (failed) { Object.assign(rec, { verdict: 'INCOMPLETE', detail: `the gate dispatch failed (${failed})` }); save(env, rec, lines); lines.push(`RELEASE: incomplete sha=${sha} run=- (${rec.detail})`); return out('failed', sha); }
     lines.push(`RELEASE: dispatched ${gate.gate_workflow} on ${gate.branch}@${short(sha)} (nonce ${rec.nonce})`);
@@ -359,7 +361,7 @@ export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { 
     const ref = `${RELEASE_BISECT_REF}${nonce.slice(-6)}-${b.bad.slice(0, 12)}`;
     const round: ReleaseBisectRound = { nonce, ref, run: null, prefixes: prefixes.map(sha => ({ sha, results: {} })) };
     b.rounds.push(round);
-    save(env, rec, lines);
+    if (!save(env, rec, lines)) { b.rounds.pop(); lines.push('RELEASE: bisect round not dispatched: the record did not reach ' + env.remote); return; }
     const pushed = env.git(['push', '-q', env.remote, `${b.bad}:refs/heads/${ref}`]);
     const failed = pushed.ok ? dispatch(env, c.gate.gate_workflow, ref, {
       [DISPATCH_INPUTS.cases]: b.cases.join(','), [DISPATCH_INPUTS.prefixShas]: prefixes.join(','), [DISPATCH_INPUTS.expectedSha]: b.bad, [DISPATCH_INPUTS.nonce]: nonce,

@@ -56,7 +56,8 @@ const TRAIN = { gate_workflow: 'evals.yml', record_artifact: 'gstack-train-recor
 describe('release-gate.yml', () => {
   // Value: protects=the schedule fires every RELEASE_GATE_SCHEDULE_HOURS (the cadence floor the policy validates), one gate at a time, only from the
   // default branch, with contents and actions write but no checks write, and runs the bin without --sha (main's head from the remote, so an open gate on an older commit
-  // is finished first) with its outputs wired; the policy step
+  // is finished first) with its outputs wired, and a held or failed verdict leaves the job green (only a crash fails it, so main's head never carries a
+  // failed native check release-cut would read as red); the policy step
   // uses git and jq only and is inert without a release_gate block; fails_when=the cron and the cadence drift apart, two gates overlap, the job that
   // runs repository code can write check runs, or an inert policy reaches bun; why_new=new workflow; seam=none; no_claim=GitHub's cron jitter
   test('schedule, concurrency, permissions and the gate step', () => {
@@ -79,6 +80,8 @@ describe('release-gate.yml', () => {
     expect(gate.if).toBe("steps.policy.outputs.release == 'true'");
     expect(gate.run).toContain('./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes');
     expect(gate.run).not.toContain('--sha');
+    expect(gate.run).toContain("|| rc=$?");
+    expect(gate.run).toContain(`if [ "$rc" != 0 ] && ! grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT"; then exit "$rc"; fi`);
     expect(gate.run).toContain('--outputs "$GITHUB_OUTPUT"');
     expect(job.outputs).toEqual({ action: '${{ steps.gate.outputs.action }}', sha: '${{ steps.gate.outputs.sha }}', check: '${{ steps.gate.outputs.check }}' });
   });

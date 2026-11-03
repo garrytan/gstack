@@ -203,6 +203,20 @@ describe('release gate: run', () => {
     expect(fake.dispatches[1]!.inputs.expected_sha).toBe(next);
   });
 
+  // Value: protects=no paid dispatch follows a record that did not reach origin's notes (a fresh checkout reads only origin, so the next run would
+  // dispatch the same $37 gate again); fails_when=a notes push failure repeats the full gate every cadence; why_new=review finding (targeted money,
+  // l1-p2); seam=fake gh and a pre-receive hook on the bare origin; no_claim=a real ruleset
+  test('a record that cannot reach origin dispatches nothing', () => {
+    const f = fixture();
+    const hook = path.join(f.origin, 'hooks', 'pre-receive');
+    fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/notes/*) exit 1;; esac; done\nexit 0\n', { mode: 0o755 });
+    const fake = fakeGh(() => green());
+    const out = runGate(envFor(f, fake.gh), { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(out.action).toBe('failed');
+    expect(out.lines.at(-1)).toContain('nothing dispatched');
+    expect(fake.dispatches).toHaveLength(0);
+  });
+
   // Value: protects=an open gate is finished even after release-cut moved stable onto its commit, and an open gate older than OPEN_GATE_CADENCES
   // cadences stops holding up main's head; fails_when=an open record on stable's commit skips forever, or an unresolvable run blocks every later gate;
   // why_new=review findings (state-machines and red-team, l1-p2); seam=fake gh; no_claim=a real deleted run

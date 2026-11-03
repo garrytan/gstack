@@ -84,9 +84,14 @@ jobs:
           GSTACK_STATE_ROOT: ${{ runner.temp }}/gstack-state
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           IGNORE_CADENCE: ${{ inputs.ignore_cadence && '1' || '' }}
+        # held and failed are verdicts the release-check job publishes on the gated commit. Failing this job would
+        # leave a failed check on main's head, which release-cut reads as red even after that head gates green, so
+        # only a run that recorded no action (a crash) fails it.
         run: |
+          rc=0
           ./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes 330 \
-            --summary "$GITHUB_STEP_SUMMARY" --outputs "$GITHUB_OUTPUT" ${DRY_RUN:+--dry-run} ${IGNORE_CADENCE:+--ignore-cadence}
+            --summary "$GITHUB_STEP_SUMMARY" --outputs "$GITHUB_OUTPUT" ${DRY_RUN:+--dry-run} ${IGNORE_CADENCE:+--ignore-cadence} || rc=$?
+          if [ "$rc" != 0 ] && ! grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT"; then exit "$rc"; fi
 
   # The gated commit's check run (release_gate.check_name, main-backstop), the
   # evidence scripts/release-cut.ts reads. Its own job with checks: write and
