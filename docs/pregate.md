@@ -711,12 +711,18 @@ accepts, every job that must have passed (each exactly once), and the artifact
 holding the run's `tree.json`. `max_age_hours` (1–168, default 24) bounds how
 old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
 `tree.json` to record that runner OS. <a id="skippable"></a>`skippable`
-(`{ jobs, gate, scripts? }`, GST-1190) lets named jobs be skipped by a path
-filter: a skipped job counts only when the `gate` job (the one whose output
-decides the skip) succeeded in the same attempt, and the workflow file plus
-every repo file the gate job runs are byte-identical to `origin/<base>`. Those
-files are the declared `scripts` and every path the gate job's steps name in the
-base copy of the workflow. Otherwise the pull request controlled the skip
+(`{ jobs, gate, scripts }`, GST-1190) lets named jobs be skipped by a path
+filter: a skipped job counts only in a `pull_request` run (whose gate diffs
+against the pull request's base; a push or dispatch gate diffs against the last
+push, which the branch's push history controls), when the `gate` job (the one
+whose output decides the skip) succeeded in the same attempt, and the workflow
+file plus the gate's inputs are byte-identical to `origin/<base>`. Those inputs
+are the declared `scripts`, which must list every repo file the gate reads,
+plus every path the gate job's steps name in the base copy of the workflow
+(also read under the job's `working-directory` and after a `${{ … }}`
+prefix), plus `package.json` when the gate runs a package script. gstack
+cannot see what a gate script imports or what a package script runs, so list
+those files in `scripts`. Otherwise the pull request controlled the skip
 decision, so the job refuses as `job_skipped` and the lane runs here. A lane
 whose every named job was skipped this way prints `LANE: <label> not owed: CI
 skipped at this tree (gate job <name>, workflow unchanged) run=…`. Each workflow uploads `tree.json` from
@@ -749,8 +755,16 @@ once:
   <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
   the runner (a Docker image, a drive path or an installed gstack it lacks;
   GST-1190). A carry treats them as uncovered: the pregate tests stage runs
-  them here, and a /ship lane or guard whose inventory names one runs here
-  whole. A partly skipped file ran tests and stays covered. gstack's own writer
+  them here. A /ship lane or guard whose inventory names one carries the
+  covered files and runs only the skipped ones here, through the runner its
+  `ship_lanes_from` entry declares as `per_file` (a command with `{files}`,
+  such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
+  tests stage's `runner`). That run is recorded under `<label>.skipped`, the
+  `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
+  is written only after it passes; a failure there is `skipped_failed` and the
+  whole lane runs here. An entry with no `per_file` refuses as
+  `inventory_skipped`, naming the files, and the lane runs here whole. A partly
+  skipped file ran tests and stays covered. gstack's own writer
   (`scripts/ci-tree-reuse.ts record`) derives the list from the shards' per-file
   JUnit counts and leaves it out when those counts are incomplete. A `tree.json`
   without the key (older writers, other repos) is read as before, with every
@@ -1078,10 +1092,13 @@ against the verified CI run at this tree exactly as a carry would, and prints
 `SIMULATION: CI_CARRY: none (<reason>)`). It writes no evidence or ledger row
 and clears no obligation. To check every /ship lane at once, the same dry run
 takes lane flags: `gstack-ship-preflight --tests-only --base main --policy-from
-head --simulate --lane 'verify=bun run verify' …` prints `SIMULATION: LANE:
+head --simulate --allow-repo-commands --lane 'verify=bun run verify' …` prints `SIMULATION: LANE:
 <label> would carry run=…`, `SIMULATION: CI_CARRY: none label=<label> (<reason>)`
 or `not mapped` per lane, runs no lane and no pregate, and exits 0 when every
-mapped lane would carry. truther's adoption proved its map this way by hand
+mapped lane would carry. Both dry runs run the branch's inventory commands to
+check coverage, which is running the branch's code, so both need
+`--allow-repo-commands`; without it an inventory-mapped lane prints
+`inventory_not_allowed`. truther's adoption proved its map this way by hand
 before the dry run existed: run 41585332512 accepted 7 of 7 lanes. A branch's own map never carries,
 even when the base has no policy at all, because the pull request controls both
 the map and the CI that would satisfy it. So the first pull request that adopts
@@ -1200,12 +1217,16 @@ A guard is skipped as passed when its exact command already passed at this tree
    command, the guard is carried from the verified CI run at HEAD's clean tree,
    through the same `gstack-evidence record-ci` and `findCarry` path a /ship
    lane uses ([ci-carry](#ci-carry)). It prints `GUARD: <id> carried
-   runs=<id>/<attempt>`. When no run carries, it prints `CI_CARRY: none
+   runs=<id>/<attempt>`, or `GUARD: <id> not owed: CI skipped at this tree …`
+   when every job it maps was skipped by an unchanged gate
+   ([skippable](#skippable)). When no run carries, it prints `CI_CARRY: none
    guard=<id> (<reason>)` and goes on to the ledger.
-2. **The evidence ledger.** When the newest ledger row for the exact command at
-   this working tree, under any label, is a counted pass (a CI row, or a local
-   run with `tests_ran` above zero under this runtime, within 24 hours), the
-   guard prints `GUARD: <id> reused label=<L> source=<ci|local> ts=<ts>`.
+2. **The evidence ledger.** When the newest local ledger row for the exact
+   command at this working tree, under any label, is a counted pass (`tests_ran`
+   above zero under the runtime the guard would launch with, within 24 hours),
+   the guard prints `GUARD: <id> reused label=<L> source=local ts=<ts>`. CI rows
+   never count here: a CI pass counts only through `record-ci`'s live check
+   against the base, so an old CI row does not outlive a refusal.
    `gstack-evidence passed -- <command>` is the same lookup by hand. A newer
    failure of the command at that tree vetoes an older pass.
 

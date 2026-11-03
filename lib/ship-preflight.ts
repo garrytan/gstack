@@ -24,10 +24,11 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       --lanes serial|parallel   how Step 5 runs its lanes; unset, one at a time on 4 or fewer cores, all at once above
       --policy-from head   Step 5's pregate reads the branch's .gstack/pregate.json, which may only add test lanes
                            (a branch that adds the lane for a file it touches); anything else is PREGATE_HEAD_POLICY_LOOSENS
-  gstack-ship-preflight --tests-only --base <base> --policy-from head --simulate --lane <label>=<command>...
+  gstack-ship-preflight --tests-only --base <base> --policy-from head --simulate [--allow-repo-commands] --lane <label>=<command>...
       a dry run that proves a new ship_lanes_from mapping: which lanes the branch's own map would carry from a verified
-      CI run at this tree. Every line starts SIMULATION:; nothing runs, no evidence or ledger row is written and no
-      obligation clears (a real carry reads origin/<base>'s map only). Exit 0 when every mapped lane would carry, else 1
+      CI run at this tree. Every line starts SIMULATION:; no lane runs, no evidence or ledger row is written and no
+      obligation clears (a real carry reads origin/<base>'s map only). An inventory-mapped lane runs the branch's
+      inventory command, so it needs --allow-repo-commands. Exit 0 when every mapped lane would carry, else 1
   gstack-ship-preflight --audit --base <base> --out <dir>   the single reads and Steps 7-8's deterministic audits
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
@@ -175,16 +176,17 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
 /**
  * --simulate (GST-1190): HEAD's ship_lanes_from and run_profiles, findCarry against this tree, nothing else. It never calls
  * gstack-evidence or gstack-pregate, so it writes no row and clears no obligation: a PR controls both its own map and the
- * CI that would satisfy it, so head policy never carries.
+ * CI that would satisfy it, so head policy never carries. The branch's inventory commands run only with `allow`
+ * (--allow-repo-commands), as gstack-ci-carry find --simulate requires.
  */
-function simulate(cwd: string, base: string, list: { label: string; command: string }[]): { text: string; exit: number } {
+function simulate(cwd: string, base: string, list: { label: string; command: string }[], allow: boolean): { text: string; exit: number } {
   const lines: string[] = [];
   const say = (s: string) => lines.push(`SIMULATION: ${s}`);
   const done = (exit: number) => ({ text: lines.join('\n') + '\n', exit });
   const loaded = loadConfigFromHead(cwd);
-  say(`policy ${isConfigUnavailable(loaded) ? 'unavailable' : loaded.label}; a dry run: nothing runs, no evidence or ledger row is written, nothing clears (a carry reads origin/${base}'s map only)`);
+  say(`policy ${isConfigUnavailable(loaded) ? 'unavailable' : loaded.label}; a dry run: only the branch's inventory commands run, and only with --allow-repo-commands; no evidence or ledger row is written, nothing clears (a carry reads origin/${base}'s map only)`);
   if (isConfigUnavailable(loaded) || loaded.errors.length) { say(`refused: ${isConfigUnavailable(loaded) ? loaded.detail : loaded.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`); return done(1); }
-  const check = buildRunCheck(cwd, null, true, base, 'head');
+  const check = buildRunCheck(cwd, null, allow, base, 'head');
   if ('error' in check) { say(`refused: ${check.error}`); return done(1); }
   const head = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
   const tree = git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim();
@@ -195,10 +197,11 @@ function simulate(cwd: string, base: string, list: { label: string; command: str
     const m = laneMapping(loaded.config.ship_lanes_from, l.command);
     if (!m) { say(`LANE: ${l.label} not mapped by the branch's ship_lanes_from; /ship would run it`); continue; }
     mapped++;
+    if (m.inventory && !allow) { say(`CI_CARRY: none label=${l.label} (inventory_not_allowed: the branch's inventory command is a pin-file command; pass --allow-repo-commands)`); continue; }
     const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd) });
     if (!v.ok) { say(`CI_CARRY: none label=${l.label} (${v.reason}: ${v.detail})`); continue; }
     carried++;
-    say(`LANE: ${l.label} would carry run=${v.runs.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ''}`);
+    say(`LANE: ${l.label} would carry run=${v.runs.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ''}${v.remainder ? ` and would run ${v.remainder.length} skipped file(s) here with per_file` : ''}`);
   }
   say(`${carried} of ${mapped} mapped lane(s) would carry once origin/${base} holds this map`);
   return done(mapped > 0 && carried === mapped ? 0 : 1);
@@ -218,7 +221,7 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (!['base', 'head'].includes(policyFrom)) return { text: 'gstack-ship-preflight: --policy-from needs base|head\n', exit: 2 };
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
-  if (has('--simulate')) return has('--tests-only') && policyFrom === 'head' && list.length ? simulate(cwd, base, list) : { text: 'gstack-ship-preflight: --simulate needs --tests-only --policy-from head and at least one --lane <label>=<command>\n', exit: 2 };
+  if (has('--simulate')) return has('--tests-only') && policyFrom === 'head' && list.length ? simulate(cwd, base, list, has('--allow-repo-commands')) : { text: 'gstack-ship-preflight: --simulate needs --tests-only --policy-from head and at least one --lane <label>=<command>\n', exit: 2 };
   const mode = flag('--lanes');
   const concurrency = has('--lanes') && mode === undefined ? '--lanes needs serial or parallel' : laneConcurrency(mode);
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };

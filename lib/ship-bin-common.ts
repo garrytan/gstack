@@ -172,7 +172,7 @@ export function laneConcurrency(mode: string | undefined, cpus = os.availablePar
   return cpus <= 4 ? 1 : Infinity;
 }
 
-export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string; notOwed?: string }
+export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string; notOwed?: string; here?: string }
 
 /** The base branch's `ship_lanes_from` entry for each lane whose command is a key or a declared alias, byte for byte (the ledger binds its sha256). */
 export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, ShipLaneMapping> {
@@ -192,7 +192,8 @@ export function carryLane(cwd: string, base: string, l: { label: string; command
   const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
   const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(rec.stderr);
   const notOwed = /^gstack-evidence: not owed: (.+)$/m.exec(rec.stderr)?.[1];
-  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[2] ? `${got[1]} (files)` : got[1]!, log: '-', carried: got[3]!, ...(notOwed ? { notOwed } : {}) };
+  const here = / skipped_here=(\d+) tests_ran_here=(\S+)$/m.exec(rec.stderr);
+  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[2] ? `${got[1]} (files)` : got[1]!, log: '-', carried: got[3]!, ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}` } : {}) };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: /^CARRY_NONE: (.+)$/m.exec(rec.stderr)?.[1] ?? `record_failed: ${firstLine(rec.stderr)}` };
 }
 
@@ -225,7 +226,7 @@ export async function runLanes(cwd: string, list: { label: string; command: stri
 /** Step 5's lane verdict: a lane passes on its runner count, never exit 0 alone; a carried lane names its CI runs. */
 export function laneLine(l: LaneResult): { line: string; ok: boolean } {
   if (l.notOwed) return { line: `LANE: ${l.label} not owed: ${l.notOwed} run=${l.carried}`, ok: true };
-  if (l.carried) return { line: `LANE: ${l.label} carried run=${l.carried} tests_ran=${l.testsRan}`, ok: true };
+  if (l.carried) return { line: `LANE: ${l.label} carried run=${l.carried} tests_ran=${l.testsRan}${l.here ? ` ${l.here}` : ''}`, ok: true };
   const zero = l.exit === 0 && l.testsRan === '0';
   const state = l.exit !== 0 ? 'FAIL' : zero ? 'ZERO-RUN' : l.testsRan === 'unknown' ? 'pass (count unavailable)' : 'pass';
   return { line: `LANE: ${l.label} ${state} exit=${l.exit} tests_ran=${l.testsRan} log=${l.log}${l.reused ? ` reused=${l.reused}` : ''}`, ok: l.exit === 0 && !zero };

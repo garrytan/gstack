@@ -30,14 +30,15 @@
 import { normalPath, runChanged, runInventory, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RunDeps, type RunEvidence, type RunProfile, type RunSource } from './run-evidence';
 
 export type CarryRefusal = 'dirty_tree' | 'no_profile' | 'no_run' | 'no_verified_run' | 'tree_mismatch' | 'no_tests'
-  | 'inventory_failed' | 'inventory_empty' | 'inventory_uncovered' | 'run_changed' | 'tree_changed' | 'api_error';
+  | 'inventory_failed' | 'inventory_empty' | 'inventory_uncovered' | 'inventory_skipped' | 'run_changed' | 'tree_changed' | 'api_error';
 export type CarryRefused = { ok: false; reason: CarryRefusal; detail: string };
 /**
  * `tests` never claims a whole run's count for a narrow lane: with an inventory it is the number of the lane's inventory files
  * the runs' tree.json covers (`unit: 'files'`; tree.json has no per-file test counts yet), with named jobs `n/a`, and only
- * without either (the whole run carried) the runs' test count.
+ * without either (the whole run carried) the runs' test count. `remainder`: inventory files every run skipped entirely
+ * (tree.json `skipped_files`), which the caller must run here with the lane's per_file runner before the lane counts.
  */
-export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; notOwed?: string; receipt: string } | CarryRefused;
+export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; notOwed?: string; remainder?: string[]; receipt: string } | CarryRefused;
 
 /** How many of HEAD's runs per workflow are tried, newest first. */
 const CANDIDATES = 10;
@@ -63,9 +64,10 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, head:
  * working-tree fingerprint (before the lookup and after it); `inventory` lists the files the runs must cover, or `jobs`
  * names the jobs that must have succeeded in each run's newest attempt (a lane with no test files; no test count needed).
  */
-export function findCarry(src: RunSource, o: { profiles: string[]; head: string; tree: string; wtree: () => string | null; inventory?: () => string[] | { error: string }; jobs?: string[] }): CarryVerdict {
+export function findCarry(src: RunSource, o: { profiles: string[]; head: string; tree: string; wtree: () => string | null; inventory?: () => string[] | { error: string }; jobs?: string[]; perFile?: boolean }): CarryVerdict {
   const jobs = o.jobs ?? [];
   let covered: number | undefined;
+  let remainder: string[] = [];
   const before = o.wtree();
   if (before !== o.tree) return no('dirty_tree', `the working tree (${before ? before.slice(0, 12) : 'fingerprint unavailable'}) is not HEAD's committed tree ${o.tree.slice(0, 12)}; only a clean, committed tree carries`);
   if (!o.profiles.length) return no('no_profile', 'no run profile is named');
@@ -86,10 +88,12 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
       const listed = o.inventory();
       if ('error' in listed) return no('inventory_failed', listed.error);
       if (!listed.length) return no('inventory_empty', 'the inventory command printed no files');
-      const missing = uncoveredFiles(listed, runs, 'uncovered');
-      const skippedThere = missing.filter(f => runs.some(e => e.skipped?.includes(normalPath(f)))).length;
-      if (missing.length) return no('inventory_uncovered', `${missing.length} of ${listed.length} inventory file(s) are in no run's tree.json${skippedThere ? ` or skipped every test there (${skippedThere} skipped_files)` : ''}: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
-      covered = new Set(listed.map(normalPath)).size;
+      const absent = uncoveredFiles(listed, runs, 'covered');
+      const some = (fs: string[]) => `${fs.slice(0, 5).join(', ')}${fs.length > 5 ? ', …' : ''}`;
+      if (absent.length) return no('inventory_uncovered', `${absent.length} of ${listed.length} inventory file(s) are in no run's tree.json: ${some(absent)}`);
+      remainder = uncoveredFiles(listed, runs, 'uncovered');
+      if (remainder.length && !o.perFile) return no('inventory_skipped', `${remainder.length} of ${listed.length} inventory file(s) skipped every test in CI and the lane declares no per_file runner: ${some(remainder)}`);
+      covered = new Set(listed.map(normalPath)).size - remainder.length;
     }
     for (const e of runs) {
       const changed = runChanged(src.deps, e.run_id, e.run_attempt);
@@ -106,7 +110,7 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
     const notOwed = allSkipped ? `CI skipped at this tree (gate job ${gates.join(', ')}, workflow unchanged)` : undefined;
     return { ok: true, runs, tests: 'n/a', ...(notOwed ? { notOwed } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} jobs=${jobs.join(',')}${notOwed ? ` not_owed=${gates.join(',')}` : ''} ${runReceiptFields(runs, src.now)}` };
   }
-  if (covered !== undefined) return { ok: true, runs, tests: covered, unit: 'files', receipt: `ci-carry tree=${o.tree.slice(0, 12)} files=${covered} ${runReceiptFields(runs, src.now)}` };
+  if (covered !== undefined) return { ok: true, runs, tests: covered, unit: 'files', ...(remainder.length ? { remainder } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} files=${covered}${remainder.length ? ` skipped_here=${remainder.length}` : ''} ${runReceiptFields(runs, src.now)}` };
   const tests = runs.reduce((n, e) => n + (e.tests ?? e.files.length), 0);
   return { ok: true, runs, tests, receipt: `ci-carry tree=${o.tree.slice(0, 12)} tests=${tests} ${runReceiptFields(runs, src.now)}` };
 }
@@ -133,7 +137,7 @@ export async function waitForRun(deps: RunDeps, o: { workflow: string; events: s
  * `ship_lanes_from` (base branch only): exact lane command → the profiles whose runs carry it and either the command listing
  * its test files (`inventory`) or the CI jobs that run it (`jobs`, for a lane with no test files such as a typecheck; GST-1189).
  */
-export interface ShipLaneMapping { profiles: string[]; inventory?: string; jobs?: string[]; aliases?: string[] }
+export interface ShipLaneMapping { profiles: string[]; inventory?: string; jobs?: string[]; aliases?: string[]; per_file?: string }
 
 /**
  * The `ship_lanes_from` entry for an exact lane command: the entry it keys, else the entry that declares it in `aliases`
@@ -145,9 +149,13 @@ export function laneMapping(from: Record<string, ShipLaneMapping>, command: stri
   return Object.values(from).find(m => m.aliases?.includes(command));
 }
 
-/** findCarry's coverage rule for one mapping: its inventory (a pin-file command run in `cwd`) or its named jobs. */
-export const mappingCoverage = (m: ShipLaneMapping, cwd: string): { inventory?: () => string[] | { error: string }; jobs?: string[] } =>
-  m.jobs ? { jobs: m.jobs } : { inventory: () => runInventory(m.inventory!, cwd) };
+/** findCarry's coverage rule for one mapping: its inventory (a pin-file command run in `cwd`, with a per_file runner or not) or its named jobs. */
+export const mappingCoverage = (m: ShipLaneMapping, cwd: string): { inventory?: () => string[] | { error: string }; jobs?: string[]; perFile?: boolean } =>
+  m.jobs ? { jobs: m.jobs } : { inventory: () => runInventory(m.inventory!, cwd), perFile: !!m.per_file };
+
+/** The per_file runner command for `files`: `{files}` replaced by the paths, each single-quoted for bash. */
+export const perFileCommand = (template: string, files: string[]): string =>
+  template.replaceAll('{files}', files.map(f => `'${f.replace(/'/g, `'\\''`)}'`).join(' '));
 
 /** `<path>: <message>` errors for `ship_lanes_from`; empty when valid. Shared with lib/pregate/config.ts. */
 export function shipLanesErrors(raw: unknown, profileNames: readonly string[]): Array<{ path: string; message: string }> {
@@ -161,7 +169,8 @@ export function shipLanesErrors(raw: unknown, profileNames: readonly string[]): 
     if (!oneLine(command)) errors.push({ path: at, message: 'the key must be the exact lane command: one line under 512 characters' });
     if (!m || typeof m !== 'object' || Array.isArray(m)) { errors.push({ path: at, message: 'must be { profiles, inventory } or { profiles, jobs }' }); continue; }
     const o = m as Record<string, unknown>;
-    for (const k of Object.keys(o)) if (k !== 'profiles' && k !== 'inventory' && k !== 'jobs' && k !== 'aliases') errors.push({ path: `${at}.${k}`, message: 'unknown key; valid keys: profiles, inventory, jobs, aliases' });
+    for (const k of Object.keys(o)) if (!['profiles', 'inventory', 'jobs', 'aliases', 'per_file'].includes(k)) errors.push({ path: `${at}.${k}`, message: 'unknown key; valid keys: profiles, inventory, jobs, aliases, per_file' });
+    if ('per_file' in o && (!oneLine(o.per_file) || !(o.per_file as string).includes('{files}') || !('inventory' in o))) errors.push({ path: `${at}.per_file`, message: 'must be one command line under 512 characters containing {files}, on an entry with an inventory (it runs the inventory files CI skipped entirely)' });
     if ('aliases' in o) {
       const aliases = o.aliases;
       if (!Array.isArray(aliases) || !aliases.length || aliases.some(a => !oneLine(a)) || new Set(aliases).size !== aliases.length) errors.push({ path: `${at}.aliases`, message: 'must be a non-empty array of distinct exact lane commands, each one line under 512 characters' });

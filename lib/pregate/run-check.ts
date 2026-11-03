@@ -20,9 +20,10 @@ import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfi
 import type { RunCheck } from './index';
 
 /**
- * Null when a skippable profile's workflow and every repo file its gate job runs are byte-identical at HEAD and
- * origin/<base> (GST-1190); else the first that differs. The files are the profile's declared `scripts` plus every path the
- * gate job's block in the base workflow names that exists on either side, so a branch cannot move the skip decision.
+ * Null when a skippable profile's workflow, its declared `scripts` and every repo path its gate job names are byte-identical
+ * at HEAD and origin/<base> (GST-1190); else the first that differs. Named paths are read from the gate job's block in the base
+ * workflow (after `${{ … }}` prefixes, and also under each working-directory), plus package.json when the job runs a package
+ * script. Files the gate reaches indirectly (imports, a package script's own files) count only when `scripts` declares them.
  */
 export function gateInputsChanged(root: string, base: string, p: RunProfile): string | null {
   const ref = `origin/${base.replace(/^origin\//, '')}`;
@@ -39,10 +40,14 @@ export function gateInputsChanged(root: string, base: string, p: RunProfile): st
     if (/^  [\w-]+:\s*$/.test(lines[i]!)) blocks.push([lines[i]!]);
     else blocks.at(-1)?.push(lines[i]!);
   }
-  const block = blocks.find(b => b[0]!.trim() === `${gate}:` || b.some(l => l.trim() === `name: ${gate}`));
+  const block = blocks.find(b => b[0]!.trim() === `${gate}:` || b.some(l => /^    name:/.test(l) && l.trim() === `name: ${gate}`));
   if (!block) return `${wf} on ${ref} has no job ${gate}`;
-  const named = [...new Set([...block.join('\n').matchAll(/[\w.\/-]+/g)].map(m => m[0].replace(/^\.\//, '')).filter(t => t.includes('/') || /\.(sh|ts|js|mjs|cjs|py|rb)$/.test(t)))];
-  for (const f of [wf, ...(p.skippable!.scripts ?? []), ...named]) {
+  const text = block.join('\n');
+  const dirs = ['', ...[...text.matchAll(/working-directory:\s*['"]?([\w.\/-]+)/g)].map(m => `${m[1]!.replace(/^\.?\/+|\/+$/g, '')}/`)];
+  const tokens = [...text.matchAll(/[\w.\/-]+/g)].map(m => m[0]).filter(t => t.includes('/') || /\.(sh|ts|js|mjs|cjs|py|rb)$/.test(t));
+  const named = [...new Set(tokens.flatMap(t => dirs.map(d => path.posix.normalize(d + t.replace(/^\.?\/+/, ''))).filter(n => !n.startsWith('..'))))];
+  const pkg = /\b(bun|npm|pnpm|yarn)\s+(run\s+)?[\w:-]+/.test(text) ? dirs.map(d => `${d}package.json`) : [];
+  for (const f of [wf, ...(p.skippable!.scripts ?? []), ...named, ...pkg]) {
     const a = blob(ref, f);
     const b = blob('HEAD', f);
     if (a === null && b === null && f !== wf && !p.skippable!.scripts?.includes(f)) continue;

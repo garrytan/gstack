@@ -35,7 +35,7 @@ function world(f: ShipFx, over: { run?: Record<string, unknown>; tree?: Record<s
     runs: [run, ...((over.others ?? []).map(o => ({ ...run, ...o })))] as FakeWorld['runs'],
     jobs: { 7: (over.jobs ?? [{ name: 'suite', conclusion: 'success' }]).map(j => ({ ...j, completed_at: at(5) })), 9: [{ name: 'suite', conclusion: 'failure', completed_at: at(1) }],
       ...Object.fromEntries(Object.entries(over.attempts ?? {}).map(([k, js]) => [k, js.map(j => ({ ...j, completed_at: at(5) }))])) },
-    trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree, files: ['test/a.test.ts', 'test/b.test.ts'], tests: 12, os: 'Linux', ...over.tree } },
+    trees: { 7: { run_id: 7, run_attempt: 1, event: run.event, sha: head, ...(run.event === 'pull_request' ? { head_sha: head } : {}), tree, files: ['test/a.test.ts', 'test/b.test.ts'], tests: 12, os: 'Linux', ...over.tree } },
   };
   const file = path.join(f.root, 'world.json');
   fs.writeFileSync(file, JSON.stringify(w));
@@ -389,9 +389,9 @@ describe('GST-1190: a file whose every test skipped on CI is not carried', () =>
     const f = fx();
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
-    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: inventory_uncovered: 1 of 2 inventory file\(s\) are in no run's tree\.json or skipped every test there \(1 skipped_files\): test\/b\.test\.ts$/m)]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: inventory_skipped: 1 of 2 inventory file\(s\) skipped every test in CI and the lane declares no per_file runner: test\/b\.test\.ts$/m)]);
     const out = preflight(f, [`free=${FREE}`]);
-    expect(out.stdout).toContain('CI_CARRY: none label=free (inventory_uncovered');
+    expect(out.stdout).toContain('CI_CARRY: none label=free (inventory_skipped');
     expect(runs(f, 'free-runs')).toBe(1);
     world(f, { tree: { skipped_files: [] } });
     expect(f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]).status).toBe(0);
@@ -417,7 +417,7 @@ describe('GST-1190: a path-skipped CI job counts only under an unchanged gate', 
   //   workflow and the gate's scripts are byte-identical to origin/<base>; otherwise the branch controlled the skip and the lane runs here;
   //   fails_when=a branch edits the workflow or the gate script to skip its own typecheck and the lane still passes; why_new=TRUT-7 (truther #1169); seam=fake gh
   const TSC = 'bunx tsc --noEmit';
-  const SKIP_PROFILE = { ...PROFILE, jobs: ['suite'], skippable: { jobs: ['typecheck'], gate: 'changes' } };
+  const SKIP_PROFILE = { ...PROFILE, jobs: ['suite'], skippable: { jobs: ['typecheck'], gate: 'changes', scripts: ['scripts/changes.sh'] } };
   const WORKFLOW = 'name: Free\non: [pull_request, workflow_dispatch]\njobs:\n  changes:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/changes.sh\n  suite:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n  typecheck:\n    needs: changes\n    runs-on: ubuntu-latest\n    steps:\n      - run: bunx tsc --noEmit\n';
   const SKIP_BASE = {
     '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': SKIP_PROFILE }, ship_lanes_from: { [TSC]: { profiles: ['ci/free'], jobs: ['typecheck'] } } }) + '\n',
@@ -425,9 +425,9 @@ describe('GST-1190: a path-skipped CI job counts only under an unchanged gate', 
     'scripts/changes.sh': 'echo "typecheck=false" >> "$GITHUB_OUTPUT"\n',
   };
   const JOBS = (gate: string) => [{ name: 'changes', conclusion: gate }, { name: 'suite', conclusion: 'success' }, { name: 'typecheck', conclusion: 'skipped' }];
-  const setup = (feat: Record<string, string> = { 'src/b.ts': 'export const b = 2;\n' }, gate = 'success') => {
+  const setup = (feat: Record<string, string> = { 'src/b.ts': 'export const b = 2;\n' }, gate = 'success', event = 'pull_request') => {
     const f = shipFixture(SKIP_BASE, feat); fixtures.push(f);
-    world(f, { jobs: JOBS(gate), tree: { files: [], tests: 0 } });
+    world(f, { jobs: JOBS(gate), run: { event }, tree: { files: [], tests: 0, event } });
     return f;
   };
   const lane = (f: ShipFx) => preflight(f, [`tsc=${TSC}`]);
@@ -455,6 +455,11 @@ describe('GST-1190: a path-skipped CI job counts only under an unchanged gate', 
     expect(lane(f).stdout).toContain('CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)');
   });
 
+  test('only a pull_request run\'s skip counts: a push or dispatch gate diffs against the last push, not the PR base', () => {
+    const f = setup(undefined, 'success', 'workflow_dispatch');
+    expect(lane(f).stdout).toContain('CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)');
+  });
+
   test('gstack-ci-carry find --policy-from head --simulate checks the branch map, says SIMULATION on every line and writes nothing', () => {
     const VERIFY = 'bun run verify';
     const head = JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [VERIFY]: { profiles: ['ci/free'], jobs: ['suite'] } } }) + '\n';
@@ -469,5 +474,131 @@ describe('GST-1190: a path-skipped CI job counts only under an unchanged gate', 
     expect(cli(['find', '--base', 'main', '--command', VERIFY, '--allow-repo-commands']).stdout).toContain('CI_CARRY: none (not_mapped');
     expect(cli(['find', '--base', 'main', '--simulate']).status).toBe(2);
     expect(cli(['wait', '--base', 'main', '--policy-from', 'head', '--simulate']).status).toBe(2);
+  });
+});
+
+describe('GST-1190: a lane carries the covered files and runs only the skipped remainder with its per_file runner', () => {
+  // Value: protects=a fully skipped CI file runs here through the lane's declared per_file runner while the rest carries, a failing remainder
+  //   carries nothing, and a lane with no runner fails closed by name; fails_when=gstack's 6 runner-skipped files make the whole free suite rerun,
+  //   or a remainder failure still records a carried pass; why_new=HARN-7 decision (GSTA-258, per-file lane carry); seam=fake gh, gstack-evidence record-ci
+  const PER = (exit: number) => `printf '%s\\n' {files} >> ../perfile-args; printf ' 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [1.00ms]\\n' >&2; exit ${exit}`;
+  const withRunner = (exit: number) => ({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: PER(exit) } } }, null, 2) + '\n' });
+  const args = (f: ShipFx) => { const p = path.join(f.root, 'perfile-args'); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
+  const rows = (f: ShipFx) => findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl').flatMap(p => fs.readFileSync(p, 'utf8').trim().split('\n').map(l => JSON.parse(l)));
+
+  test('the covered file carries; only the skipped file runs here, and both rows are recorded', () => {
+    const f = shipFixture(withRunner(0)); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const out = preflight(f, [`free=${FREE}`]);
+    expect(out.status, out.stdout + out.stderr).toBe(0);
+    expect(lane(out.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=1 file(s) tests_ran_here=1');
+    expect([args(f), runs(f, 'free-runs')]).toEqual(['test/b.test.ts\n', 0]);
+    const all = rows(f);
+    expect(all.find(r => r.source === 'ci')).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: ['test/b.test.ts'], tests_ran: 1 } });
+    expect(all.find(r => r.label === 'free.skipped')).toMatchObject({ exit: 0, tests_ran: 1 });
+  });
+
+  test('a failing remainder carries nothing: no CI row, and the whole lane runs here', () => {
+    const f = shipFixture(withRunner(1)); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of 1 skipped file\(s\) exited 1 \(label=free\.skipped\)$/m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+    expect(preflight(f, [`free=${FREE}`]).stdout).toContain('CI_CARRY: none label=free (skipped_failed');
+    expect(runs(f, 'free-runs')).toBe(1);
+  });
+
+  test('per_file is validated: it needs {files} and an inventory entry', async () => {
+    const { shipLanesErrors } = await import('../lib/ci-carry');
+    expect(shipLanesErrors({ x: { profiles: ['p'], inventory: 'ls', per_file: 'bun test {files}' } }, ['p'])).toEqual([]);
+    expect(shipLanesErrors({ x: { profiles: ['p'], inventory: 'ls', per_file: 'bun test' } }, ['p'])).toEqual([expect.objectContaining({ path: 'ship_lanes_from["x"].per_file' })]);
+    expect(shipLanesErrors({ x: { profiles: ['p'], jobs: ['j'], per_file: 'bun test {files}' } }, ['p'])).toEqual([expect.objectContaining({ path: 'ship_lanes_from["x"].per_file' })]);
+  });
+});
+
+describe('GSTA-258 L6 review fixes: gate inputs, ledger CI rows, simulate consent', () => {
+  // Value: protects=a branch cannot move a path skip through a gate file gstack failed to compare, a stale CI ledger row never passes a guard
+  //   after record-ci refused, and --simulate runs a branch's inventory only with --allow-repo-commands; fails_when=the l6c-p1 reproductions pass
+  //   again; why_new=l6c-p1 findings (readers 15 and 16); seam=fake gh, gstack-evidence
+  const TSC = 'bunx tsc --noEmit';
+  const flow = (gateJob: string, before = '') => `name: Free\non: [pull_request, workflow_dispatch]\njobs:\n${before}  changes:\n    runs-on: ubuntu-latest\n${gateJob}  suite:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n  typecheck:\n    needs: changes\n    runs-on: ubuntu-latest\n    steps:\n      - run: bunx tsc --noEmit\n`;
+  const profile = (scripts: string[] | undefined) => ({ ...PROFILE, jobs: ['suite'], skippable: { jobs: ['typecheck'], gate: 'changes', ...(scripts ? { scripts } : {}) } });
+  const base = (workflow: string, extra: Record<string, string>, scripts: string[] | undefined = ['scripts/changes.sh']) => ({
+    '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': profile(scripts) }, ship_lanes_from: { [TSC]: { profiles: ['ci/free'], jobs: ['typecheck'] } } }) + '\n',
+    '.github/workflows/free.yml': workflow, 'scripts/changes.sh': 'echo typecheck=false >> "$GITHUB_OUTPUT"\n', ...extra,
+  });
+  const JOBS = [{ name: 'changes', conclusion: 'success' }, { name: 'suite', conclusion: 'success' }, { name: 'typecheck', conclusion: 'skipped' }];
+  const tsc = (b: Record<string, string>, feat: Record<string, string>) => { const f = shipFixture(b, feat); fixtures.push(f); world(f, { jobs: JOBS, run: { event: 'pull_request' }, tree: { files: [], tests: 0, event: 'pull_request' } }); return preflight(f, [`tsc=${TSC}`]).stdout; };
+  const REFUSED = 'CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)';
+
+  test('a gate script reached through ${{ github.workspace }} is compared', () => {
+    const b = base(flow('    steps:\n      - run: bash scripts/changes.sh && bash ${{ github.workspace }}/scripts/gate.sh\n'), { 'scripts/gate.sh': 'exit 0\n' });
+    expect(tsc(b, { 'scripts/gate.sh': 'exit 0 # moved\n' })).toContain(REFUSED);
+  });
+
+  test('a gate script under the job\'s working-directory is compared', () => {
+    const b = base(flow('    defaults:\n      run:\n        working-directory: tools\n    steps:\n      - run: bash ../scripts/changes.sh && bash gate2.sh\n'), { 'tools/gate2.sh': 'exit 0\n' });
+    expect(tsc(b, { 'tools/gate2.sh': 'exit 0 # moved\n' })).toContain(REFUSED);
+  });
+
+  test('a gate that runs a package script compares package.json', () => {
+    const b = base(flow('    steps:\n      - run: bash scripts/changes.sh && bun run detect\n'), { 'package.json': '{"scripts":{"detect":"true"}}\n' });
+    expect(tsc(b, { 'package.json': '{"scripts":{"detect":"echo typecheck=false"}}\n' })).toContain(REFUSED);
+  });
+
+  test('the gate is the job, not a same-named step in an earlier job', () => {
+    const b = base(flow('    steps:\n      - run: bash scripts/changes.sh && bash scripts/extra.sh\n', '  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo lint\n        name: changes\n'), { 'scripts/extra.sh': 'exit 0\n' });
+    expect(tsc(b, { 'scripts/extra.sh': 'exit 0 # moved\n' })).toContain(REFUSED);
+  });
+
+  test('a guard whose CI job the unchanged gate skipped says not owed, never carried', () => {
+    const b = base(flow('    steps:\n      - run: bash scripts/changes.sh\n'), {});
+    const conf = JSON.parse(b['.gstack/pregate.json']);
+    b['.gstack/pregate.json'] = JSON.stringify({ ...conf, guards: [{ id: 'tsc', when: ['src/**'], command: TSC }] }) + '\n';
+    const f = shipFixture(b, { 'src/b.ts': 'export const b = 2;\n' }); fixtures.push(f);
+    world(f, { jobs: JOBS, run: { event: 'pull_request' }, tree: { files: [], tests: 0, event: 'pull_request' } });
+    const out = f.run(path.join(BIN, 'gstack-pregate'), ['--only', 'guards', '--allow-repo-commands', '--base', 'main']);
+    expect(out.stdout, out.stdout + out.stderr).toContain('GUARD: tsc not owed: CI skipped at this tree (gate job changes, workflow unchanged) runs=7/1');
+  });
+
+  test('a skippable profile must declare its gate scripts', async () => {
+    const { runProfileErrors } = await import('../lib/run-evidence');
+    expect(runProfileErrors({ p: profile(undefined) }, undefined)).toEqual([expect.objectContaining({ path: 'run_profiles["p"].skippable' })]);
+    expect(runProfileErrors({ p: profile(['scripts/changes.sh']) }, undefined)).toEqual([]);
+  });
+
+  test('passed never counts a CI row: a carry under another base or after a refusal does not pass a guard', () => {
+    const f = fx();
+    expect(f.git('push', '-q', 'origin', 'feat').status).toBe(0);
+    world(f);
+    const ev = (a: string[]) => f.run(path.join(BIN, 'gstack-evidence'), a);
+    expect(ev(['record-ci', '--label', 'free', '--base', 'feat', '--', FREE]).status).toBe(0);
+    const p = ev(['passed', '--', FREE]);
+    expect([p.status, p.stdout]).toEqual([1, expect.stringMatching(/^NOT_PASSED: /m)]);
+  });
+
+  test('passed: a newer failure of the same command at this tree vetoes the older pass', () => {
+    const f = fx();
+    const CMD = "test -e ../fail-flag && exit 1; printf ' 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [1.00ms]\\n' >&2";
+    const ev = (a: string[]) => f.run(path.join(BIN, 'gstack-evidence'), a);
+    expect(ev(['run', '--label', 'g', '--', CMD]).status).toBe(0);
+    expect(ev(['passed', '--', CMD]).stdout).toMatch(/^PASSED: label=g source=local /m);
+    fs.writeFileSync(path.join(f.root, 'fail-flag'), '');
+    expect(ev(['run', '--label', 'g', '--', CMD]).status).toBe(1);
+    expect(ev(['passed', '--', CMD]).stdout).toMatch(/^NOT_PASSED: /m);
+  });
+
+  test('--simulate runs a branch inventory only with --allow-repo-commands', () => {
+    const INV = "printf x >> ../inv-runs; printf 'test/a.test.ts\\ntest/b.test.ts\\n'";
+    const head = JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: INV } } }) + '\n';
+    const f = shipFixture({ '.github/workflows/free.yml': BASE['.github/workflows/free.yml'] }, { '.gstack/pregate.json': head }); fixtures.push(f);
+    world(f);
+    const sim = (extra: string[]) => f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--policy-from', 'head', '--simulate', '--lane', `free=${FREE}`, ...extra]);
+    const no = sim([]);
+    expect([no.status, runs(f, 'inv-runs')]).toEqual([1, 0]);
+    expect(no.stdout).toContain('pass --allow-repo-commands');
+    const yes = sim(['--allow-repo-commands']);
+    expect([yes.status, runs(f, 'inv-runs')], yes.stdout).toEqual([0, 1]);
+    expect(yes.stdout).toContain('SIMULATION: LANE: free would carry run=7/1 tests_ran=2 unit=files');
   });
 });

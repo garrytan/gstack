@@ -43,10 +43,10 @@ import { sha256Hex, writeReceipt } from './egress-receipt';
 import { runBashSync } from './script-invocation';
 
 /**
- * `skippable` (GST-1190): named jobs the workflow may skip by path; a skip counts only when the `gate` job succeeded and the
- * workflow plus every repo file the gate job runs (`scripts` and any path its steps name) match origin/<base> byte for byte.
+ * `skippable` (GST-1190): named jobs the workflow may skip by path; a skip counts only in a pull_request run whose `gate` job
+ * succeeded, with the workflow, the declared `scripts` and any path the gate's steps name matching origin/<base> byte for byte.
  */
-export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts?: string[] } }
+export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts: string[] } }
 export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
@@ -114,8 +114,8 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
         const names = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 32 && v.every(x => typeof x === 'string' && !!x.trim() && x.length <= 128);
         const repoPath = (x: unknown) => typeof x === 'string' && !!x && !x.startsWith('/') && !x.split('/').includes('..') && !/[\0\r\n]/.test(x);
         if (!s || typeof s !== 'object' || Array.isArray(s) || Object.keys(s).some(k => !['jobs', 'gate', 'scripts'].includes(k)) || !names(s.jobs) || typeof s.gate !== 'string' || !s.gate.trim()
-          || (s.jobs as string[]).includes(s.gate as string) || ('scripts' in s && (!Array.isArray(s.scripts) || !s.scripts.every(repoPath))))
-          errors.push({ path: `${at}.skippable`, message: 'must be { jobs: [job names], gate: <the job that decides the skip>, scripts?: [repo paths the gate runs] }, the gate not among the jobs' });
+          || (s.jobs as string[]).includes(s.gate as string) || !Array.isArray(s.scripts) || !s.scripts.length || !s.scripts.every(repoPath))
+          errors.push({ path: `${at}.skippable`, message: 'must be { jobs: [job names], gate: <the job that decides the skip>, scripts: [every repo file the gate reads] }, the gate not among the jobs' });
       }
     }
   }
@@ -174,6 +174,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
       if (hits[0]!.conclusion === 'skipped') {
         const skip = p.skippable;
         if (!skip?.jobs.includes(name)) return fail('job_skipped', `${at}'s ${name} job was skipped`);
+        if (run.event !== 'pull_request') return fail('job_skipped', `${at}'s ${name} job was skipped in a ${run.event} run; only a pull_request run's gate diffs against the PR base, so only its skip counts`);
         const gate = jobs.filter(j => j.name === skip.gate);
         if (gate.length !== 1 || gate[0]!.conclusion !== 'success') return fail('job_skipped', `${at}'s ${name} job was skipped and its gate job ${skip.gate} ${gate.length === 1 ? `concluded ${gate[0]!.conclusion}` : gate.length ? 'is ambiguous' : 'is missing'}`);
         const changed = o.unchanged ? o.unchanged(p) : 'no base copy of the workflow was compared';

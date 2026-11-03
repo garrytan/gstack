@@ -37,14 +37,18 @@ interface GuardRun { guard: Guard; exit: number | null; timedOut: boolean; stall
 
 const EVIDENCE = path.resolve(import.meta.dir, '..', '..', '..', 'bin', 'gstack-evidence');
 
-/** The pass that already covers this guard's exact command at this tree (GST-1186): a CI carry, else a same-tree ledger pass. */
-function priorPass(ctx: PregateContext, guard: Guard): { prior?: string; carryNone?: string } {
-  const evidence = (args: string[]) => runScriptSync(EVIDENCE, args, { cwd: ctx.repoRoot, env: ctx.env, encoding: 'utf8', timeout: 600_000 });
+/**
+ * The pass that already covers this guard's exact command at this tree (GST-1186): a CI carry (or a CI skip the unchanged gate
+ * decided, printed as not owed), else a same-tree local ledger pass under the runtime the guard would launch with.
+ */
+function priorPass(ctx: PregateContext, guard: Guard, env: NodeJS.ProcessEnv): { prior?: string; carryNone?: string } {
+  const evidence = (args: string[]) => runScriptSync(EVIDENCE, args, { cwd: ctx.repoRoot, env, encoding: 'utf8', timeout: 600_000 });
   let carryNone: string | undefined;
   if (laneMapping(ctx.config.ship_lanes_from, guard.command)) {
     const ci = evidence(['record-ci', '--label', `guard-${guard.id}`, '--base', ctx.base, '--', guard.command]);
     const runs = / source=ci runs=(\S+)/.exec(String(ci.stderr ?? ''))?.[1];
-    if (ci.status === 0 && runs) return { prior: `carried runs=${runs}` };
+    const notOwed = /^gstack-evidence: not owed: (.+)$/m.exec(String(ci.stderr ?? ''))?.[1];
+    if (ci.status === 0 && runs) return { prior: notOwed ? `not owed: ${notOwed} runs=${runs}` : `carried runs=${runs}` };
     carryNone = /^CARRY_NONE: (.+)$/m.exec(String(ci.stderr ?? ''))?.[1] ?? `record-ci exit ${ci.status}`;
   }
   const local = evidence(['passed', '--', guard.command]);
@@ -80,7 +84,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   const dir = checkScratch(ctx.scratch, 'guards');
   const runs: GuardRun[] = [];
   for (const g of selected) {
-    const p = priorPass(ctx, g);
+    const p = priorPass(ctx, g, runtime.env);
     runs.push(p.prior ? { guard: g, exit: 0, timedOut: false, stalled: false, tail: [], log: '-', environment: null, ...p } : { ...(await runGuard(ctx, g, runtime.env, dir)), carryNone: p.carryNone });
   }
   const lines = [`runtime: ${runtime.label}`];
