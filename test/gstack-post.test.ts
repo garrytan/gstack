@@ -274,14 +274,14 @@ describe("gstack-post owns the redaction scan", () => {
   test("run ids in a runs= list or an actions/runs/ path are not phone numbers; a phone number beside them still is", () => {
     const clean = [
       "CI_CARRY: cleared pregate.json/remote_gate run tree=704992822996 tests=412 runs=41629861819/1,41629861820/2 profiles=free-tests,windows-smoke heads=2f9d11a0c3e4 verified=2026-11-03T18:00:00.000Z",
-      "carried run=41629861819/1,4162986182/3",
+      "carried run=41629861819/1,416298618201/3",
       "logs at garrytan/gstack actions/runs/41629861819/attempts/2",
     ];
     for (const body of clean) {
       const f = fakeEnv({ files: { "/b": body + "\n" }, visibility: "public" });
       expect([body, run(["pr-comment", "12", "--body-file", "/b"], f)]).toEqual([body, EXIT.posted]);
     }
-    for (const body of ["call +1 415 555 0123 about runs=41629861819/1,41629861820/2", "runs=+14155550123/1", "runs=1/4155550123", "runs=4155550123"]) {
+    for (const body of ["call +1 415 555 0123 about runs=41629861819/1,41629861820/2", "runs=+14155550123/1", "runs=1/4155550123", "runs=4155550123", "runs=4155550123/1", "sales-actions/runs/4155550123"]) {
       const f = fakeEnv({ files: { "/b": body + "\n" }, visibility: "public" });
       expect([body, run(["pr-comment", "12", "--body-file", "/b"], f)]).toEqual([body, EXIT.confirm]);
       expect(f.stdout()).toContain("RULE: pii.phone.e164 LINE: 1 PART: body");
@@ -515,6 +515,55 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(run(["pr-body", "5", "--body-file", "/b"], trailing)).toBe(EXIT.posted);
     expect(sent(trailing).input).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- the old summary\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: ship it\n\n## Tests\n\n- one\n\n" + BADGE);
     expect(trailing.stderr()).toBe("gstack-post: pr-body merged by section: replaced ship receipt, Approvals; kept What changed, Why, capy-badge block; added Tests\n");
+  });
+
+  const BADGE = "<!-- capy-badge:start -->\n[![Capy](https://capy.ai/badge.svg)](https://capy.ai)\n<!-- capy-badge:end -->\n";
+  const SHOTS = (alt: string) => "<!-- shots:start -->\n![" + alt + "](u)\n<!-- shots:end -->\n";
+
+  // Value: protects=a marker block other than a Capy badge that ends the body stays inside its section exactly as before GST-1227, so a rewrite
+  //   replaces it with the section, a new section lands after it, text after a badge in mid-section never pairs with the note under a receipt,
+  //   and the file's own block stays in its section; fails_when=the old block and the stale lines after it survive a rewrite, a shots block is
+  //   split from its section, "Fixes #12" is dropped, or the file's block moves above the first heading; why_new=GST-1227 review P1; seam=none
+  //   (mergeBodySections); no_claim=the gh round trip
+  test("a marker block that is not a trailing Capy badge stays inside its section", () => {
+    const mid = mergeBodySections(RECEIPT("aaaa") + "\n## What changed\n\n- old\n" + SHOTS("a") + "stale line\n\n## Why\n\nBecause.\n", RECEIPT("bbbb") + "\n## What changed\n\n- new\n");
+    expect([mid.body, mid.kept]).toEqual([RECEIPT("bbbb") + "\n## What changed\n\n- new\n\n## Why\n\nBecause.\n", ["Why"]]);
+    const last = mergeBodySections(CURRENT + SHOTS("a"), RECEIPT("bbbb") + "\n## Tests\n\n- one\n");
+    expect(last.body).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- the old summary\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n" + SHOTS("a") + "\n## Tests\n\n- one\n");
+    const collide = mergeBodySections("Intro\n\n## What changed\n\n- x\n" + BADGE + "Fixes #12\n", RECEIPT("bbbb") + "Review-loop exception: foo\n");
+    expect(collide.body).toBe("Intro\n\n" + RECEIPT("bbbb") + "\nReview-loop exception: foo\n\n## What changed\n\n- x\n" + BADGE + "Fixes #12\n");
+    const own = mergeBodySections(CURRENT, RECEIPT("bbbb") + "\n## What changed\n\n" + SHOTS("n") + "after the shots\n");
+    expect(own.body).toBe(RECEIPT("bbbb") + "\n## What changed\n\n" + SHOTS("n") + "after the shots\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n");
+  });
+
+  // Value: protects=a trailing badge the file brings into a body without one lands at the end once and a repost is byte-identical; fails_when=each
+  //   identical post adds another badge or moves it above the sections; why_new=GST-1227 review P2; seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a trailing badge the file brings lands at the end once and reposts byte for byte", () => {
+    const file = RECEIPT("bbbb") + "\n## Tests\n\n- one\n\n" + BADGE;
+    const once = mergeBodySections(CURRENT, file).body;
+    expect(once).toBe(RECEIPT("bbbb") + "\n## What changed\n\n- the old summary\n\n## Why\n\nBecause.\n\n## Approvals\n\n- owner: do it\n\n## Tests\n\n- one\n\n" + BADGE);
+    const twice = mergeBodySections(once, file).body;
+    expect(twice).toBe(once);
+    expect(mergeBodySections(twice, file).body).toBe(once);
+  });
+
+  // Value: protects=fences inside a marker block keep their meaning (a fenced `## x` opens no section), a badge inside a fence is text, and an
+  //   unclosed badge marker swallows nothing; fails_when=the fenced `## x` ends the block and opens a section, or the unclosed marker keeps the
+  //   rest of the old section after a rewrite; why_new=GST-1227 review P2; seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a fenced heading inside a marker block and an unclosed badge marker change nothing about the sections", () => {
+    const fenced = mergeBodySections("## What changed\n\n<!-- shots:start -->\n```md\n## x\n```\n<!-- shots:end -->\n\n## Why\n\nold\n", "## Why\n\nnew\n");
+    expect([fenced.body, fenced.replaced, fenced.kept]).toEqual(["## What changed\n\n<!-- shots:start -->\n```md\n## x\n```\n<!-- shots:end -->\n\n## Why\n\nnew\n", ["Why"], ["What changed"]]);
+    const example = mergeBodySections("## Docs\n\n```md\n" + BADGE + "```\n", "## Docs\n\nnew\n");
+    expect([example.body, example.kept]).toEqual(["## Docs\n\nnew\n", []]);
+    const unclosed = mergeBodySections(RECEIPT("aaaa") + "\n## Why\n\nBecause.\n\n## Approvals\n\n- x\n<!-- capy-badge:start -->\nmore approvals\n", RECEIPT("bbbb") + "\n## Approvals\n\n- y\n");
+    expect([unclosed.body, unclosed.kept]).toEqual([RECEIPT("bbbb") + "\n## Why\n\nBecause.\n\n## Approvals\n\n- y\n", ["Why"]]);
+  });
+
+  // Value: protects=two marker blocks with one name merge by their sections; fails_when=the merge refuses them as a duplicated section;
+  //   why_new=GST-1227 review; seam=none (mergeBodySections); no_claim=the gh round trip
+  test("two marker blocks with the same name merge by their sections", () => {
+    const two = mergeBodySections("## A\n\n" + SHOTS("a") + "\n## B\n\n" + SHOTS("b"), "## A\n\n" + SHOTS("a2"));
+    expect([two.body, two.replaced, two.kept]).toEqual(["## A\n\n" + SHOTS("a2") + "\n## B\n\n" + SHOTS("b"), ["A"], ["B"]]);
   });
 
   // Value: protects=a partial post (no receipt above its first `## ` heading, even with a caption of its own or a receipt further down) keeps

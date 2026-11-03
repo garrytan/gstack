@@ -160,7 +160,7 @@ function parseArgs(argv: string[]): Request {
   return req;
 }
 
-/** One piece of a PR body: the leading text, a `## ` section, the ship-receipt block, a marker block, or text after a receipt or marker block. */
+/** One piece of a PR body: the leading text, a `## ` section, the ship-receipt block, text after a receipt block, or a Capy badge that ends the body. */
 interface Section { key: string; label: string; text: string }
 
 /**
@@ -175,38 +175,42 @@ interface Section { key: string; label: string; text: string }
  * nothing; a receipt fence that never closes makes the body from that line
  * on one section the merge never matches (`unclosed-receipt`), so it is kept
  * byte for byte instead of being read as a receipt or as replaceable text.
- * After the first receipt or heading, a `<!-- <name>:start -->` line outside
- * a fence opens a marker block (a bot's badge, such as Capy's
- * `<!-- capy-badge:start -->…<!-- capy-badge:end -->`) that runs through its
- * `<!-- <name>:end -->` line, or up to the next heading when it never
- * closes, so a badge at the end of the body never leaves with the section
- * above it (GST-1227). A marker block in the leading text stays part of it.
+ * A Capy badge (`<!-- capy-badge:start -->` through `<!-- capy-badge:end -->`,
+ * both outside a fence) that ends the body after its first receipt or
+ * heading, with only blank lines after it, is a piece of its own
+ * (`badge:capy-badge`), so it never leaves with the section above it
+ * (GST-1227). A badge anywhere else, an unclosed badge marker and every other
+ * marker block stay inside the section they sit in.
  */
 function splitSections(body: string): Section[] {
   const out: Section[] = [];
   let fence: string | null = null;
-  let block: string | null = null;
+  let badgeAt = -1;
+  let inBadge = false;
   let plain = 0;
-  const open = (key: string, label: string) => out.push({ key, label, text: "" });
+  const open = (key: string, label: string) => { badgeAt = -1; inBadge = false; out.push({ key, label, text: "" }); };
   const openText = () => out.length === 0 ? open("text:lead", "leading text") : open(`text:${plain++}`, "trailing text");
   const closes = (run: string) => new RegExp(`^ {0,3}${run[0] === "`" ? "`" : "~"}{${run.length},}\\s*$`).test(bare);
   let bare = "";
-  const endsBlock = () => { if (block !== null && bare.includes(`<!-- ${block}:end -->`)) { block = null; openText(); } };
   for (const line of body.split(/(?<=\n)/)) {
     bare = line.replace(/\r?\n$/, "");
-    if (block !== null && /^ {0,3}## /.test(bare)) block = null;
-    if (block !== null) { out.at(-1)!.text += line; endsBlock(); continue; }
     const fenceOpen: RegExpExecArray | null = fence === null ? /^ {0,3}(`{3,}|~{3,})/.exec(bare) : null;
-    const marker = fence === null ? /^ {0,3}<!-- ([\w.-]+):start -->/.exec(bare) : null;
+    const outside = fence === null && !fenceOpen;
     if (fenceOpen && bare.trim() === "```" + RECEIPT_FENCE) { open("receipt", "ship receipt"); fence = "receipt"; }
     else if (fence === "receipt") { out.at(-1)!.text += line; if (closes("```")) { fence = null; openText(); } continue; }
     else if (fenceOpen) fence = fenceOpen[1]!;
     else if (fence && closes(fence)) fence = null;
     else if (fence === null && /^ {0,3}## /.test(bare)) { const title = bare.replace(/^ {0,3}## /, "").trim(); open(`h2:${title.toLowerCase()}`, title); }
-    else if (marker && out.some(s => s.key === "receipt" || s.key.startsWith("h2:"))) { open(`block:${marker[1]}`, `${marker[1]} block`); block = marker[1]!; }
     if (out.length === 0) openText();
+    if (outside && /^ {0,3}<!-- capy-badge:start -->/.test(bare)) { badgeAt = out.at(-1)!.text.length; inBadge = true; }
+    else if (inBadge && outside && /<!-- capy-badge:end -->/.test(bare)) inBadge = false;
+    else if (!inBadge && bare.trim() !== "") badgeAt = -1;
     out.at(-1)!.text += line;
-    endsBlock();
+  }
+  const last = out.at(-1);
+  if (last && badgeAt >= 0 && !inBadge && fence === null && last.key !== "text:lead") {
+    out.push({ key: "badge:capy-badge", label: "capy-badge block", text: last.text.slice(badgeAt) });
+    last.text = last.text.slice(0, badgeAt);
   }
   if (fence === "receipt") Object.assign(out.at(-1)!, { key: "unclosed-receipt", label: "unclosed receipt fence" });
   return out.filter(s => s.text !== "");
@@ -216,8 +220,8 @@ function splitSections(body: string): Section[] {
  * The body to send for `pr-body` without `--replace`: each section of the
  * file replaces the same-keyed section of the current body in place, current
  * sections the file does not rewrite are kept byte for byte, new `## `
- * sections are appended after them (above a marker block that ends the
- * body), new leading text goes first, and a new receipt goes right after the
+ * sections are appended after them (above a Capy badge that ends the body;
+ * a badge only the file brings goes last), new leading text goes first, and a new receipt goes right after the
  * current leading text, or first when there is none (where
  * lib/ship-receipt.ts puts the receipt). Text outside sections
  * matches by role (the file's leading text replaces the leading text; text
@@ -273,13 +277,12 @@ export function mergeBodySections(current: string, incoming: string): { body: st
   }
   const fresh = next.filter(n => !used.has(n));
   for (const n of next) if (fresh.includes(n) || (ours.includes(n) && !paired.has(n))) added.push(n.label);
-  const first = fresh.filter(n => !n.key.startsWith("h2:"));
+  const badge = (s: Section) => s.key === "badge:capy-badge";
+  const first = fresh.filter(n => !n.key.startsWith("h2:") && !badge(n));
   if (now.length === 0) return { body: incoming, replaced, kept, added, dropped };
   const lead = merged[0]?.key === "text:lead" && merged[0].text.trim() ? 1 : 0;
-  let tail = merged.length;
-  while (tail > lead && (merged[tail - 1]!.key.startsWith("block:") || !merged[tail - 1]!.text.trim())) tail--;
-  if (!merged.slice(tail).some(s => s.key.startsWith("block:"))) tail = merged.length;
-  const all = [...merged.slice(0, lead), ...first, ...merged.slice(lead, tail), ...fresh.filter(n => n.key.startsWith("h2:")), ...merged.slice(tail)];
+  const tail = merged.length && badge(merged.at(-1)!) ? merged.length - 1 : merged.length;
+  const all = [...merged.slice(0, lead), ...first, ...merged.slice(lead, tail), ...fresh.filter(n => n.key.startsWith("h2:")), ...merged.slice(tail), ...fresh.filter(badge)];
   for (const t of [...ours].reverse()) all.splice(all.indexOf(next[next.indexOf(t) - 1]!) + 1, 0, t);
   const fromFile = (s: Section) => next.includes(s);
   const body = all.map((s, i) => {

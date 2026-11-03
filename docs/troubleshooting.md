@@ -2720,12 +2720,14 @@ exact tokens it finds in these positions:
 - a 12-digit value right after `tree`, `gated_tree`, `head` or `predecessor`
   with `=` or a space (`tree=704992822996`, `tree 704992822996`);
 - an 11-digit id inside an `/actions/runs/<id>` URL or as that link's text;
-- any id inside an `actions/runs/<id>` path, with or without a host or a
-  leading `/` (`see actions/runs/41629861820`), and every id of a
-  `runs=<id>/<attempt>` list a CI carry or run clear prints
-  (`runs=41629861819/1,41629861820/2`; `run=` too). The scanner itself
-  exempts both (`isCiRunIdentifier`), and only that shape counts: each id
-  needs its `/<attempt>` of one to three digits, so `runs=4155550123`,
+- any id inside an `actions/runs/<id>` path, with or without a host, when
+  `actions/runs/` starts the line or follows whitespace, `/`, `(`, `[`,
+  `<` or a quote (`see actions/runs/41629861820`; `sales-actions/runs/…`
+  is not one), and every 11- or 12-digit id of a `runs=<id>/<attempt>` list
+  a CI carry or run clear prints (`runs=41629861819/1,41629861820/2`;
+  `run=` too). The scanner itself exempts both (`isCiRunIdentifier`), and
+  only that shape counts: each id needs its `/<attempt>` of one to three
+  digits, so `runs=4155550123`, `runs=4155550123/1`,
   `runs=+14155550123/1` and a phone number elsewhere on the line still
   report (GST-1227);
 - an 11-digit id right after a run word on the same line, with an optional
@@ -2778,10 +2780,13 @@ opening text above the first receipt or heading (a paragraph, a bot's badge
 such as `<!-- capy-badge:start -->…<!-- capy-badge:end -->`, or the whole
 body when it has no `## ` heading) is kept byte for byte, and a new receipt
 lands right under it; only opening lines the file brings of its own replace
-it (GST-1227). A marker block (`<!-- <name>:start -->` through
-`<!-- <name>:end -->`) after the first receipt or heading is a piece of its
-own, so a badge at the end of the body stays there when the section above it
-is rewritten, and new sections are added above it. A partial post (`## ` sections
+it (GST-1227). A Capy badge that ends the body after its first receipt or
+heading (`<!-- capy-badge:start -->` through `<!-- capy-badge:end -->`, outside
+a code fence, with only blank lines after it) is a piece of its own: it stays
+at the end when the section above it is rewritten, new sections go above it,
+and a badge only the file brings goes last, once. Every other marker block, a
+badge with text after it and an unclosed badge marker stay inside the section
+they sit in. A partial post (`## ` sections
 with no receipt above them, such as a lane posting `## Screenshots`) and a
 file with no `## ` section (a receipt-only or text-only post) leave that text alone, so a human
 intro or a `Review-loop exception:` line under the receipt survives. One stderr line names what was replaced, kept, added

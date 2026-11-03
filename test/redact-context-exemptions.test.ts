@@ -305,8 +305,7 @@ describe("pii.phone.e164: run ids in a runs= list or an actions/runs/ path (GST-
       // The run list a CI carry or run clear prints (lib/run-evidence.ts runReceiptFields): every id, not only the first.
       "CI_CARRY: cleared pregate.json/remote_gate run tests=412 runs=41629861819/1,41629861820/2 profiles=free-tests heads=2f9d11a0c3e4",
       '{"remote_gate": "carried runs=41629861819/1,41629861820/1,41629861821/3 profiles=free-tests,windows-smoke"}',
-      "run=41629861819/1,4162986182/1",
-      "runs=4162986182/1",
+      "run=41629861819/1,416298618201/1",
       "see actions/runs/41629861820 for the log",
       "garrytan/gstack actions/runs/4162986182/attempts/2",
     ],
@@ -318,6 +317,9 @@ describe("pii.phone.e164: run ids in a runs= list or an actions/runs/ path (GST-
       "runs=4155550123",
       "reruns=4155550123/1",
       "factions/runs/4155550123",
+      "sales-actions/runs/4155550123",
+      "runs=4162986182/1",
+      "runs=1234567890123/1",
     ],
   );
 });

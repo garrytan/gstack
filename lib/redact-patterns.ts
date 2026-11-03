@@ -357,11 +357,13 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
  * command. Only the position decides: a run/job flag (`--run 37235771700`,
  * `--job=111534615007`), a `gh run view|watch|rerun|download|cancel`
  * argument, an `actions/runs/<id>` or `/job/<id>` URL segment (with or
- * without a host or a leading `/`), a `run_id` / `job_id` key, or any id
- * of a `runs=<id>/<attempt>[,<id>/<attempt>…]` list (`run=` too), the
- * receipt a CI carry or run clear prints (lib/run-evidence.ts
- * runReceiptFields); the `/<attempt>` of one to three digits after every id
- * is what tells that list from a number (GST-1227). An 11-digit id (every GitHub Actions run id since
+ * without a host: `actions/runs/` at the line start or after whitespace,
+ * `/`, `(`, `[`, `<` or a quote, so `sales-actions/runs/<n>` is not one),
+ * a `run_id` / `job_id` key, or any 11- or 12-digit id of a
+ * `runs=<id>/<attempt>[,<id>/<attempt>…]` list (`run=` too), the receipt a
+ * CI carry or run clear prints (lib/run-evidence.ts runReceiptFields); the
+ * `/<attempt>` of one to three digits after every id is what tells that list
+ * from a number (GST-1227). An 11-digit id (every GitHub Actions run id since
  * 2025) also counts right after a run word on the same line, the way a ship
  * receipt, a READY block or an approval record names one (`screen 40477638211
  * GREEN`, `gate=40323989742`, `rerun passed 40287239206`, `run #19368712345`);
@@ -373,8 +375,8 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
  * else still report.
  */
 const CI_ID_POSITION_BEFORE =
-  /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|\bactions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
-const CI_RUN_LIST = /(?<![\w-])runs?=\d+\/\d{1,3}(?:,\d+\/\d{1,3})*(?![\w\/])/gi;
+  /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|(?:^|[\s\/(\[<"'])actions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
+const CI_RUN_LIST = /(?<![\w-])runs?=\d{11,12}\/\d{1,3}(?:,\d{11,12}\/\d{1,3})*(?![\w\/])/gi;
 /** A run word with an optional ':' '#' '=' right before an 11-digit token; shared with gstack-post's chained-id allowlist. */
 export const CI_RUN_WORD_BEFORE = /\b(?:runs?|screens?|gates?|backstop|bisect|rerun|dispatch(?:ed)?|failed|passed)\s*[:#=]?\s*$/i;
 export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean {
