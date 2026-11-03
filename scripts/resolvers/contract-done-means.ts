@@ -106,7 +106,7 @@ function plainWords(item: ContractItem): string {
   }
 }
 
-export function renderDoneMeans(contract: SkillContract, binDir: string): string {
+export function renderDoneMeans(contract: SkillContract): string {
   return [
     '## Done means',
     '',
@@ -115,12 +115,12 @@ export function renderDoneMeans(contract: SkillContract, binDir: string): string
     ...contract.items.map(item => '- ' + code(item.id) + ': ' + plainWords(item) + '.'),
     '',
     code('gstack-skill-contract check') + ' reads them from the transcript (docs/skill-routing-and-contracts.md). ' +
-      'For an item that truly does not apply, run ' + code(binDir + '/gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).',
+      'For an item that truly does not apply, run ' + code('gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).',
   ].join('\n');
 }
 
 export function generateContractDoneMeans(ctx: TemplateContext): string {
   const where = path.relative(ROOT, ctx.tmplPath).split(path.sep).join('/');
   const contract = contractFromTemplate(fs.readFileSync(ctx.tmplPath, 'utf-8'), where, { required: true });
-  return renderDoneMeans(contract!, ctx.paths.binDir);
+  return renderDoneMeans(contract!);
 }

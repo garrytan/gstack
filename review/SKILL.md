@@ -2,7 +2,7 @@
 name: review
 preamble-tier: 4
 version: 1.0.0
-description: Use when a PR or diff needs review. (gstack)
+description: Use when you review this PR's diff. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -19,8 +19,6 @@ triggers:
   - code review
   - check my diff
   - review my changes
-  - review this diff
-  - review the branch
   - pre-landing review
 contract:
   version: 1
@@ -48,7 +46,7 @@ Finish only when each of these exists (contract v1):
 - `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
 - `review-report`: a `Pre-Landing Review` with Gate edits filled in.
 
-`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `~/.claude/skills/gstack/bin/gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
+`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
 
 ## Shared preamble (load first)
 

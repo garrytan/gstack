@@ -120,7 +120,7 @@ describe('contract blocks (frozen v1 schema)', () => {
 
     test(skill + ': the body carries the Done-means placeholder and the render carries the list', () => {
       expect(body(tmpl).includes('{{CONTRACT_DONE_MEANS}}'), tmpl + ': a contract block needs {{CONTRACT_DONE_MEANS}} at the top of the body. ' + fix(skill)).toBe(true);
-      expect(read(skill + '/SKILL.md').includes(renderDoneMeans(contract, '~/.claude/skills/gstack/bin')), skill + '/SKILL.md: the Done-means list is stale. ' + fix(skill)).toBe(true);
+      expect(read(skill + '/SKILL.md').includes(renderDoneMeans(contract)), skill + '/SKILL.md: the Done-means list is stale. ' + fix(skill)).toBe(true);
     });
 
     test(skill + ': every contract marker appears in the skill text', () => {
@@ -143,7 +143,6 @@ describe('contract blocks (frozen v1 schema)', () => {
 });
 
 describe('contract-done-means renderer', () => {
-  const BIN = '~/.claude/skills/gstack/bin';
   const all = parseSkillContract({
     version: 1,
     items: [
@@ -153,7 +152,7 @@ describe('contract-done-means renderer', () => {
       { id: 'adversarial-pass', kind: 'agent_dispatch', match: 'chaos engineer' },
     ],
   }, 'fixture/SKILL.md.tmpl');
-  const out = renderDoneMeans(all, BIN);
+  const out = renderDoneMeans(all);
 
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
@@ -165,7 +164,7 @@ describe('contract-done-means renderer', () => {
 
   test('points to check and waive in the routing-and-contracts doc, never the off switch', () => {
     expect(out).toContain(BT + 'gstack-skill-contract check' + BT);
-    expect(out).toContain(BT + BIN + '/gstack-skill-contract waive <item> --reason "<why>"' + BT);
+    expect(out).toContain(BT + 'gstack-skill-contract waive <item> --reason "<why>"' + BT);
     expect(out).toContain('docs/skill-routing-and-contracts.md');
     expect(out).not.toContain('skill_contracts');
   });
