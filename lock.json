@@ -1,8 +1,8 @@
 {
-  "pr": "3917",
-  "holder": "cox.local:8488",
-  "started_at": "2026-11-03T21:07:48.290Z",
-  "phase": "waiting",
-  "journal": ".gstack/tmp/ship-queue/land/3917.json",
-  "phase_at": "2026-11-03T21:08:08.303Z"
+  "pr": "3974",
+  "holder": "cox.local:9759",
+  "started_at": "2026-11-03T22:20:30.569Z",
+  "phase": "stamping",
+  "journal": ".gstack/tmp/ship-queue/land/3974.json",
+  "phase_at": "2026-11-03T22:20:30.569Z"
 }
