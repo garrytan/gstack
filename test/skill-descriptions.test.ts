@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sentences } from '../lib/skill-triggers';
-import { contractFromTemplate, parseSkillContract, renderDoneMeans } from '../scripts/resolvers/contract-done-means';
+import { contractFromTemplate, generateContractDoneMeans, parseSkillContract, renderDoneMeans } from '../scripts/resolvers/contract-done-means';
+import { HOST_PATHS } from '../scripts/resolvers/types';
 
 /**
  * GST-1088 discovery targets: each says when to use it in the part of its
@@ -158,7 +159,7 @@ describe('contract-done-means renderer', () => {
     expect(out).toContain('## Done means');
     expect(out).toContain('- ' + BT + 'debug-report' + BT + ': a ' + BT + 'DEBUG REPORT' + BT + ' with Symptom, Root cause and Status filled in.');
     expect(out).toContain('- ' + BT + 'check-after-last-edit' + BT + ': a test or repro command run after your last edit.');
-    expect(out).toContain('- ' + BT + 'specialists-dispatched' + BT + ': the specialist selection printed (' + BT + 'Dispatching N specialists:' + BT + ' ...), then one Agent dispatch per specialist it names.');
+    expect(out).toContain('- ' + BT + 'specialists-dispatched' + BT + ': the specialist selection printed (' + BT + 'Dispatching N specialists:' + BT + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them).');
     expect(out).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "chaos engineer".');
   });
 
@@ -194,6 +195,15 @@ describe('contract-done-means renderer', () => {
       expect(message).toContain('Fix: edit demo/SKILL.md.tmpl, then bun run gen:skill-docs');
     });
   }
+
+  test('a host that suppresses the step an item checks leaves that item out', () => {
+    const render = (host: string) => generateContractDoneMeans({ skillName: 'review', tmplPath: join(ROOT, 'review', 'SKILL.md.tmpl'), host, paths: HOST_PATHS[host] } as Parameters<typeof generateContractDoneMeans>[0]);
+    const ids = (host: string) => [...render(host).matchAll(/^- \u0060([a-z-]+)\u0060:/gm)].map(m => m[1]);
+    expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
+    expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
+    expect(ids('hermes')).toEqual(['review-report']);
+    expect(renderDoneMeans({ version: 1, items: [] })).toBe('');
+  });
 
   test('a placeholder with no contract block fails the render', () => {
     expect(() => contractFromTemplate('---\nname: demo\n---\n{{CONTRACT_DONE_MEANS}}\n', 'demo/SKILL.md.tmpl', { required: true }))
