@@ -224,7 +224,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(sim.steps('slices-report')).not.toContain('Write the train record');
     expect(sim.step('slices-comment', 'Post PR comment')!.env).toMatchObject({ PR_NUMBER: '42', SCREEN_POLICY: 'narrow', SCREEN_MERGE_SHA: SHA.merge });
     const superseded = simulate(evals, { github: dispatch(), inputs, outputs: { route: { ...route, superseded: 'true' } } });
-    expect(superseded.jobs).toEqual(['build-image', 'route']);
+    expect(superseded.jobs).toEqual(['route']);
   });
 
   test('build-image keys and builds the CI image from the commit the slices test, only after the route accepts the run', () => {
