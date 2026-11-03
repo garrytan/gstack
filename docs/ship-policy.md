@@ -53,12 +53,13 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `maintainers` | GitHub logins | `[]` | Maintainer set for `/review` contributor mode; empty means repository push permission. |
 | `stamp_files` | globs | `[]` | The repo's stamp rule: when set, only these files may differ by a stamp (list the version file, manifests, plugin trees and the files holding the PR's own `since:` rows). It applies before every other stamp rule, so a doc `vX` mention outside it is a difference. |
 | `stamp_patterns` | literal templates | `[]` | At most 16 templates of at most 128 characters, each with exactly one `{version}` slot (`"version": "{version}"`, `since: '{version}'`, `<!-- x-stamp: {version} -->`); matched literally at a version boundary, never as a regex. The restamp writer, its mention scanner and the tree receipt use them beside the built-in forms. |
+| `stamp_placeholders` | literal placeholders | `[]` | At most 16 one-line literals of at most 32 characters, never `{version}` and never a version (`["TBD"]`). On a line the branch added itself, a placeholder inside a `stamp_patterns` template (`since: 'TBD'` under `since: '{version}'`) may become that template at the new version, and finish's route, the receipt carry and the tree receipt read the change as a stamp. The built-in forms never take a placeholder, and neither does a base line, even one whose text duplicates a branch line. The writer does not fill placeholders: the repo's `restamp_command` does. A newer key: set `min_gstack_version` to the release `gstack-ship-policy validate` names. Empty accepts no placeholder. |
 | `restamp_command` | command or `null` | `null` | The repo's own restamp, run first in the staging worktree; see [restamp_command](#restamp-command). |
 | `migrations` | `{ dir, id }` or `null` | `null` | The migration directory and a regex with exactly one capture group for the number in a file name (`"^v(\\d+)-"`); `gstack-pregate regate` reports `MIGRATION_COLLISION`. |
 | `gate_command` | command or `null` | `null` | The repo's full pre-merge gate. `gstack-ship-queue gate-ahead` and `ready` print it for the caller to run (in the background or in CI); gstack never executes it. Needs `min_gstack_version`. |
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
-| `review_exclude_paths` | git glob pathspecs | `[]` | Content files (data, docs, binary, `.log`) `/ship`'s reviewers leave out; read from the base only, with code, gate, config, executable and named-by-code files kept. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
+| `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
@@ -1369,8 +1370,8 @@ A pattern that matches no changed file is listed as `unmatched=` on the plan lin
 
 **What is excluded, and what is kept.** A matched file is excluded only when it
 is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
-`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
-`config/` or in a skill directory; only `policy-dir`, `gate-path`, `executable`, `link`, `gate-tagged`, or a source or script extension (`code`) keep it.
+`.log` file, or a binary file: one git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) under the branch's attributes or with no attributes from the tree, so a branch's `.gitattributes` cannot make an executable read as text, and whose bytes hold a NUL in their first 8,000, so it cannot make a text file binary content either. A binary file is content only under a known content extension (images, fonts, media, documents, compressed archives, `.bin`, `.dat`, and data blobs such as `.parquet`, `.npy` or `.sqlite`) and only when its bytes do not start with an executable image's magic (ELF, Mach-O including universal binaries, PE, WebAssembly, `#!`). Under those rules it is content even under
+`config/` or in a skill directory, and only `policy-dir`, `gate-path`, `executable`, `link` or `gate-tagged` keep it. Every other binary file is `code`: source with a NUL, a native library (`.node`, `.so`, `.dylib`, `.dll`), a compiled executable, a key store, a pickle, or a file with no extension.
 Everything else stays in every reader's diff with one reason code:
 
 | Reason | Kept because |
@@ -1382,8 +1383,8 @@ Everything else stays in every reader's diff with one reason code:
 | `agent-prose` | it is a skill, section, resolver, template or rule file |
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
-| `code` | it is code or a test, not content; a binary file with a source or script extension (`.js`, `.py`, `.sh`, `.wasm`) counts as code |
-| `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
+| `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
+| `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary) |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read |
 | `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
@@ -1433,11 +1434,15 @@ paths and three hashes). The `digest` hashes the declared patterns and the
 excluded and kept lists; `source` is provenance only. Write, carry and the queue
 each recompute the digest at the current base and compare it, so a base merge
 or a moved base that leaves the patterns and the lists unchanged still carries
-and binds. A different digest means the reviewers read another selection:
+and binds. A different digest means the digest write was given (or the receipt recorded) names another selection than the head has now:
 write refuses with `RECEIPT_INVALID field=review_exclude`, carry with
 `RECEIPT_CARRY_REFUSED review_exclude changed`, and the queue with
 `RECEIPT_INVALID field=review_exclude expected=<digest> recorded=<digest>`. The
-fix is to rerun the review, never a receipt write alone.
+fix is to rerun the review and write with the digest its `verify` prints. Write
+checks the digest against the base policy, so a stale selection cannot be
+recorded by accident, but it does not read the review ledger: a write given the
+`expected=` digest passes without a review, and only the review run shows that
+the reviewers read that selection.
 
 **Adopting it.** (1) Open a PR on the base that adds the patterns and
 `min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any
@@ -1585,6 +1590,7 @@ receipt when the base moves:
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
+| a stacked PR whose receipt was written against the base, after its parent landed and the base was merged in, HEAD's product diff exactly the reviewed range from the parent's head | carries (reason `stack parent <sha12> landed`); base context next to the child's hunks is `RECEIPT_CARRY_SCOPED_REVIEW` |
 | a stamp on the branch's own rows in a stamp file the branch also changed as product: every changed line at a branch-added position, the file's mode unchanged, the base not touching it, the rest of the product diff unchanged | carries (reason `a stamp on the branch's own rows (<file>)`) |
 
 **Stacked PRs (#3570).** A child PR's receipt is written against its parent
@@ -1601,6 +1607,21 @@ and from then on names the base it was carried to. A parent that has not landed,
 since, or a parent that landed with changes the child never merged all leave a
 different diff and refuse with `RECEIPT_CARRY_PRODUCT_CHANGED`. An older
 receipt whose parent branch is gone refuses with `RECEIPT_CARRY_REFUSED`.
+
+**Stacked PRs reviewed against the base (GST-1199).** A child PR that targets
+the base while stacked has a receipt whose `base` is the base and whose
+reviewed range holds the parent's hunks too, and the receipt records no stack
+parent. Once the parent squash-merges and the base is merged into the child,
+the two heads' product diffs differ by exactly the parent's hunks, which now
+sit in the base. When they differ, the carry looks for the newest commit inside
+the reviewed range (the reviewed head excluded, at most 100 commits) whose
+product change the current base already holds: `git merge-tree` of that commit
+into the base changes no product path. A conflicted product path never counts,
+so a parent that never landed is never treated as one, even when the child's
+merge dropped its change. The comparison then runs from that commit: an equal
+patch-id carries with reason `stack parent <sha12> landed`, base context next
+to the child's unchanged hunks is `RECEIPT_CARRY_SCOPED_REVIEW`, and any other
+difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.
 
 Since the release that added `review_scope`. A `/ship` receipt names the head it
 reviewed, so a conflict-only merge of the base or a test-only fix used to
