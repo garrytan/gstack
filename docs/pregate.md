@@ -766,9 +766,10 @@ once:
   `skipped_failed` and a run of zero tests is `skipped_zero_run`; either way the
   whole lane runs here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
-  skipped file ran tests and stays covered. gstack's own writer
-  (`scripts/ci-tree-reuse.ts record`) derives the list from the shards' per-file
-  JUnit counts and leaves it out when those counts are incomplete. A `tree.json`
+  skipped file ran tests and stays covered. gstack's own Free Tests writer does
+  not emit the list yet: it starts in the same follow-up pull request that
+  declares `per_file` for gstack's `bun run test` lane, so gstack's carry does not
+  change until both switch on together. A `tree.json`
   without the key (older writers, other repos) is read as before, with every
   listed file counted as run; add the list to your writer to close that gap.
   The remote gate's clearance does not use it: that gate runs on a Linux runner

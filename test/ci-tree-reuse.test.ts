@@ -129,19 +129,6 @@ describe('treeRecord: the tested-tree producer', () => {
     expect(treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE, PR_HEAD_SHA: HEAD }), { plan, results, os: ['Windows'], tree: TREE })).toMatchObject({ event: 'pull_request', sha: MERGE, head_sha: HEAD });
     expect(treeRecord(env(), { plan, results: [{ outcome: {} }], os: ['Linux'], tree: TREE }).tests).toBe(3);
   });
-  // Value: protects=a carry knows which files ran nothing on CI (GST-1190, harness-evals: 75 tests skipped on the runner); fails_when=a fully
-  //   skipped file is not listed, a partly skipped one is, or a run without complete counts claims a list
-  test('skipped_files lists only files whose every test skipped; a partly skipped file stays covered; incomplete counts leave it out', () => {
-    const n = (tests: number, pass: number, skip: number) => ({ tests, pass, fail: 0, skip, todo: 0, expects: pass });
-    const counted: Array<{ outcome: { summary: { testsRan: number }; counts: { complete: boolean; files: Record<string, ReturnType<typeof n>> } } }> = [
-      { outcome: { summary: { testsRan: 7 }, counts: { complete: true, files: { 'test/a.test.ts': n(3, 0, 3), 'test/b.test.ts': n(4, 2, 2) } } } },
-      { outcome: { summary: { testsRan: 5 }, counts: { complete: true, files: { 'test/c.test.ts': n(5, 5, 0) } } } },
-    ];
-    expect(treeRecord(env(), { plan, results: counted, os: ['Linux'], tree: TREE }).skipped_files).toEqual(['test/a.test.ts']);
-    expect(treeRecord(env(), { plan, results, os: ['Linux'], tree: TREE })).not.toHaveProperty('skipped_files');
-    const partial = [counted[0]!, { outcome: { ...counted[1]!.outcome, counts: { complete: false, files: {} } } }];
-    expect(treeRecord(env(), { plan, results: partial, os: ['Linux'], tree: TREE })).not.toHaveProperty('skipped_files');
-  });
   test('missing or malformed inputs throw, so the aggregate fails instead of uploading a record', () => {
     expect(() => treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE }), { plan, results, os: ['Linux'], tree: TREE })).toThrow(/PR_HEAD_SHA/);
     expect(() => treeRecord(env({ GITHUB_RUN_ID: '' }), { plan, results, os: ['Linux'], tree: TREE })).toThrow(/GITHUB_RUN_ID/);
