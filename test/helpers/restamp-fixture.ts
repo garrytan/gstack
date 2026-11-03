@@ -46,7 +46,7 @@ export function fixtureRepoAt(root: string): FixtureRepo {
   const origin = path.join(root, 'origin.git');
   const work = path.join(root, 'work');
   const home = path.join(root, 'home');
-  const env = { GSTACK_HOME: home, GSTACK_STATE_DIR: home, HOME: home, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const env = { GSTACK_STATE_ROOT: home, GSTACK_HOME: home, GSTACK_STATE_DIR: home, HOME: home, GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
   const git = (...args: string[]): string => {
     const r = gitArgvIn(work, args, 30_000, { ...process.env, ...env });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr?.toString()}`);
