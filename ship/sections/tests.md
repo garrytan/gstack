@@ -216,7 +216,9 @@ remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, str
 stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger (one at
 a time on 4 or fewer cores unless `--lanes serial|parallel`), and prints `PREGATE:`, `LANES:` and
 one `LANE: <label> <state> exit= tests_ran= log=` line each.
-`fail` or `incomplete` blocks: fix, rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
+`fail` or `incomplete` blocks: fix, rerun. **No-stop** (docs/review-policy.md#no-stop): a pregate flake rerun, a
+timeout-only fix and three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,
+`refused` stops. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
 after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.
 
