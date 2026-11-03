@@ -131,7 +131,10 @@ gstack_install_admission() {
     src=$(gstack_source_root "$bin") || src=""
     project=$(gstack_install_project "$src")
     file=$(gstack_install_verdict_path "${_GH:-$HOME/.gstack}" "$src" "$project")
-    { [ -f "$file" ] && ! gstack_doctor_install_profile "$(gstack_install_verdict_field "$file" for)"; } || [ ! -f "${GSTACK_INSTALL_VERDICT:-}" ] || file="$GSTACK_INSTALL_VERDICT"
+    case "$(gstack_install_verdict_field "$file" schema_version 2>/dev/null)" in
+      1|2) if gstack_doctor_install_profile "$(gstack_install_verdict_field "$file" for)" && [ -f "${GSTACK_INSTALL_VERDICT:-}" ]; then file="$GSTACK_INSTALL_VERDICT"; fi ;;
+    esac
+    [ -f "$file" ] || [ ! -f "${GSTACK_INSTALL_VERDICT:-}" ] || file="$GSTACK_INSTALL_VERDICT"
     [ -f "$file" ] || file=$(gstack_install_verdict_legacy_path "${_GH:-$HOME/.gstack}" "$src")
     code=INSTALL_UNVERIFIED
     fix="run the Capy skill installer (scripts/install.sh --for $skill) on this machine, then launch with the GSTACK_LAUNCH line it prints"

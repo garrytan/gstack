@@ -146,6 +146,10 @@ describe('install verdict keyed by (checkout, project): both twins', () => {
     const alone = both('autoplan', proj, { GSTACK_STATE_ROOT: sr });
     expect(alone).toMatchObject({ refuse: true, status: 'verdict', code: 'INSTALL_UNVERIFIED' });
     expect(alone.detail).toContain('certified for=review-voice');
+    const gone = both('autoplan', proj, { GSTACK_STATE_ROOT: sr, GSTACK_INSTALL_VERDICT: path.join(sr, 'gone.json') });
+    expect(gone.detail).toContain('certified for=review-voice');
+    writeVerdict(sr, { project: proj, schema_version: 3, for: 'review-voice' });
+    expect(both('autoplan', proj, env).detail).toContain('unsupported schema_version');
   });
 
   test('a running Bun other than the recorded one refuses with BUN_RESOLUTION_DRIFT and names both', () => {
