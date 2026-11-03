@@ -90,7 +90,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
-| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases`: the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
+| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -259,7 +259,8 @@ Two stages with separate clocks, both printed:
   `--allow-repo-commands` the selected guards are listed and the check is
   `incomplete`. Guards are read from the base branch's copy (or the
   user-owned file when the base carries none) and cannot be
-  downgraded to warn. See [guards](#guards).
+  downgraded to warn. A guard whose exact command already passed at this tree
+  is not run again ([guard carry](#guard-carry)). See [guards](#guards).
 
 **Stage 2, test execution:**
 
@@ -976,8 +977,9 @@ it accepts a run only when all of these hold:
   instead needs no test count: each named job succeeded in the run's newest
   attempt. Each run is read once more afterward (`run_changed`).
 
-Security and advisory scans, the sealed guard, guards and every preflight-stage
-check always run; only test lanes carry.
+Security and advisory scans, the sealed guard and every other preflight-stage
+check always run; only test lanes carry, plus guards whose exact command
+already passed at this tree ([guard carry](#guard-carry)).
 
 **The tests stage.** Without `--from-run`, when the base branch declares
 `run_profiles`, `gstack-pregate` looks up the newest verified run at HEAD under
@@ -1100,16 +1102,19 @@ head --simulate --allow-repo-commands --lane 'verify=bun run verify' …` prints
 or `not mapped` per lane, runs no lane and no pregate, and exits 0 when every
 mapped lane would carry. Both dry runs run the branch's inventory commands to
 check coverage, which is running the branch's code, so both need
-`--allow-repo-commands`; without it an inventory-mapped lane prints
-`inventory_not_allowed`. truther's adoption proved its map this way by hand
+`--allow-repo-commands`; without it `gstack-ci-carry find --command` stops
+with a usage error (exit 2), and the preflight dry run prints
+`inventory_not_allowed` for an inventory-mapped lane. truther's adoption proved its map this way by hand
 before the dry run existed: run 41585332512 accepted 7 of 7 lanes. A branch's own map never carries,
 even when the base has no policy at all, because the pull request controls both
 the map and the CI that would satisfy it. So the first pull request that adopts
 a mapping pays its full lanes; the carry starts on the pull requests after it
 merges. `ship_lanes_from` itself needs `min_gstack_version` 1.94.0.0 or later in
 `.gstack/ship-policy.json`, and `jobs` and `aliases` need the release that ships
-them. With that floor set, an older gstack prints `needs gstack >= <version>;
-upgrade` (`PREGATE_GSTACK_TOO_OLD`) instead of a generic invalid-config error.
+them. With that floor set, a gstack that has this check but not the key prints
+`needs gstack >= <version>; upgrade` (`PREGATE_GSTACK_TOO_OLD`) instead of a
+generic invalid-config error. A gstack released before the check (1.94.0.0
+included) still reports the unknown key as `PREGATE_CONFIG_INVALID`.
 
 As a second guard, every `record-ci` row names the policy that mapped it
 (`origin/<base>@<sha>:.gstack/pregate.json`), and `gstack-evidence carried`, which
@@ -1151,6 +1156,8 @@ them (`ci_carried=<lane>:<run>/<attempt>`).
 --allow-repo-commands]` prints the verdict for HEAD; `wait [--timeout <s>]`
 polls the newest run at HEAD until it completes (run it in the background) and
 prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
+`find --policy-from head --simulate` is the dry run in
+[proving a new mapping](#prove-a-mapping).
 
 <a id="ci-reuse"></a>
 ### Main pushes reuse the merged pull request's run
