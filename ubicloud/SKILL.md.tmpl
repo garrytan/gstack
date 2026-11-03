@@ -115,9 +115,10 @@ are not ignored, and `.git`, so uncommitted edits are tested), runs the
 bootstrap once, runs the command in a login shell with `umask 022`, copies
 `--pull REMOTE_GLOB:LOCAL_DIR` artifacts back and destroys the VM. It exits
 with the command's status. `--env K=V` passes a literal; `--pass NAME` forwards
-a local variable's value without printing it (never `UBICLOUD_*`: the runner's
-own credentials stay on this machine); `--keep` skips teardown for debugging,
-and then `$U down <name>` is yours to run.
+a variable you exported, as it was when the runner started, without printing it
+(never `UBICLOUD_*`, `UBI_RECOVERY_KEY` or `UBI_SINK`: the runner's own
+credentials, recovery secret and sink URL stay on this machine); `--keep`
+skips teardown for debugging, and then `$U down <name>` is yours to run.
 
 ---
 
