@@ -295,7 +295,7 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
  */
 export function targetedClassesSince(root: string, from: string, head: string): readonly TargetedClass[] | null {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
-  const at = headInputs(root, from, head);
+  const at = headInputs(root, from, head, undefined, true);
   let gateTagged: number | null = 0;
   if (gateScanNeeded(at.c.paths, at.c.root)) {
     const g = runScriptSync(path.join(BIN_DIR, 'gstack-gate-diff'), [from], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });

@@ -253,6 +253,7 @@ describe('the receipt binds the selection the reviewers read', () => {
   const receiptIn = (body: string) => extractReceipt(fs.readFileSync(body, 'utf8')).receipt!;
   const writeReceipt = (repo: FixtureRepo, body: string, extra: string[]) =>
     runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body, ...extra]);
+  const targetedAtHead = (repo: FixtureRepo) => ['--review-targeted', JSON.stringify({ classes: ['money', 'gate', 'auth', 'secret'], rules: 'r', brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted', head: repo.git('rev-parse', 'HEAD') })];
   // Value: protects=a docs-only range whose only file sits under a base pattern and carries a gate tag binds the same selection at
   //   plan and receipt write, so the receipt can be written; fails_when=receiptReviewAtHead skips the gate scan when the paths are
   //   docs-class and excludes the file the plan kept as gate-tagged (/ship review of #3852, red-team#1: digests 652d0aa8 vs
@@ -291,7 +292,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     expect(missing.err).toContain(`field=review_exclude expected=${digest} recorded=none source=origin/main@`);
     expect(missing.err).toContain('gstack-review-dispatch verify --ledger <ledger>');
     expect(fs.existsSync(body)).toBe(false);
-    expect(writeReceipt(repo, body, ['--review-exclude', digest!]).status).toBe(EXIT.ok);
+    expect(writeReceipt(repo, body, ['--review-exclude', digest!, ...targetedAtHead(repo)]).status).toBe(EXIT.ok);
     expect(receiptIn(body).review_exclude).toMatchObject({ digest, excluded: EXCLUDED.length, kept: KEPT.length });
 
     onBase(repo, { 'docs/other.md': '# other\n' });

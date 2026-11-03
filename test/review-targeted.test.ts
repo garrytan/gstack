@@ -376,7 +376,7 @@ describe('the /ship commands carry the targeted record to the receipt (GST-464)'
     fs.writeFileSync(exclude, '*.log');
     expect(spawnSync('bash', ['-c', entry!], { cwd: repo.work, encoding: 'utf8', timeout: 10_000 }).status).toBe(0);
     expect(fs.readFileSync(exclude, 'utf8').split('\n')).toEqual(expect.arrayContaining(['*.log', '/.gstack/tmp/']));
-    fs.writeFileSync(path.join(repo.work, recordPath!), JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted' }) + '\n');
+    fs.writeFileSync(path.join(repo.work, recordPath!), JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted', head: repo.git('rev-parse', 'HEAD') }) + '\n');
     const args = expand();
     expect(args).toEqual(['--review-targeted', `@${recordPath}`]);
     expect(repo.git('ls-files', '--others', '--exclude-standard')).toBe('');
