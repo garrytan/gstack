@@ -2434,7 +2434,10 @@ default `fetch-depth: 1`), a remote branch never fetched
 first parent is missing from a shallow history. The tool never guesses a
 base, because an empty diff against a wrong or absent base would read as "no
 gate edits" and pass review. `gstack-diff-scope` prints `SCOPE_ERROR=no_base`
-(all flags false, exit 2) for the same cause.
+(all flags false, exit 2) for the same cause, and also when no base was given
+and none resolves because `origin/HEAD` names the checked-out branch (or its
+upstream, or HEAD's own commit) and no PR base, live remote HEAD, `origin/main`
+or `origin/master` resolves (its comment line says so).
 
 **Fix.** Run the command the line prints. It is built for this checkout:
 `git fetch origin +<branch>:refs/remotes/origin/<branch>` for an unfetched
@@ -3330,6 +3333,72 @@ block. For the `--head` refusal, check out that commit and write there. For a
 targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verify
 --targeted-out .gstack/tmp/targeted.json`, and write again with
 `--review-targeted @.gstack/tmp/targeted.json`.
+
+**`field=review_exclude`.** `gstack-ship-receipt write` and the queue's receipt check also
+use this code when the receipt's review_exclude digest (or the
+`--review-exclude <digest>` write was given) is not the digest HEAD has under the
+base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
+names `expected=` (now), `recorded=` (what the review read, `none` when it read
+without exclusion) and `source=` (the base commit). The reviewers read another
+selection than the one the head now has, so a receipt write alone cannot clear
+it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+run `gstack-review-dispatch verify --ledger <ledger>`, which prints
+`REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
+`gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
+
+<a id="review-diff-too-large"></a>
+### `REVIEW_DIFF_TOO_LARGE`
+
+**Meaning.** One reviewer's diff is over the 2,000,000-byte review ceiling
+(about 500K tokens). `gstack-review-dispatch pass`, `stage` and `render` read
+each reader's diff once before writing anything, and stop (exit 3, nothing
+written) rather than hand a reader more than it can read. The line names the
+reader, its bytes, the five largest top-level folders (`top=<dir>:<bytes>`) and
+the base policy commit.
+
+**Fix.** The line prints the fix for where the base policy stands:
+
+- **No key:** copy the printed JSON (`{"review_exclude_paths":[…],"min_gstack_version":"…"}`)
+  into `.gstack/ship-policy.json` on the base as its own PR. A lane cannot land on
+  the base itself: ask the repo owner or the coordinator. Once it merges, bring
+  the base into the branch and rerun once; if it is still over, split the PR.
+- **The branch declares the key but the base does not:** only the base copy
+  applies; land that hunk on the base first, as above.
+- **A pattern was not applied** (`skipped=` on the `REVIEW_EXCLUDE:` line): its kept
+  files need more than 24,000 argument bytes. Narrow the pattern, move the kept
+  files out of it, or split the PR.
+- **Still over after exclusion:** add the printed folders to the base policy, or
+  split the PR.
+
+There is no override flag. See [the review ceiling](ship-policy.md#review-diff-ceiling).
+
+<a id="review-diff-unreadable"></a>
+### `REVIEW_DIFF_UNREADABLE`
+
+**Meaning.** git could not read a reviewer's diff, so the pass stopped (exit 1)
+before writing a manifest or a brief. `reason=timeout` means `git diff` ran past
+`timeout_ms` (120,000 ms; fixed, no flag); `reason=git-exit` gives git's exit code.
+The line carries the diff base, git's first stderr line with remote URLs
+replaced by `<url>`, and `log=`, a file under the run directory holding git's whole
+stderr, redacted the same way. It is also printed when git cannot list the
+files `review_exclude_paths` matches.
+
+**Fix.** By reason: a timeout, rerun once unchanged, then split the PR or
+exclude its largest data folders on the base; git exit 128 (a missing object or
+an unfetched base), `git fetch origin <base>` and rerun once; anything else, stop
+and ask a person with the log file.
+
+<a id="review-exclude-reference"></a>
+### `REVIEW_EXCLUDE_REFERENCE`
+
+**Meaning.** Informational, never a stop. A kept code file names a folder that
+`review_exclude_paths` excludes (for example the harness that writes
+`receipts/`). A folder reference does not keep files; only a full file path
+does, so readers see that code without the files it reads.
+
+**Fix.** Nothing for the review itself. If the code's correctness depends on the
+excluded files, narrow the pattern on the base so they stay in the diff.
+
 <a id="execution-unknown"></a>
 ### `EXECUTION_UNKNOWN`
 
@@ -5487,6 +5556,29 @@ wait`'s `--timeout`.
 
 **Fix.** Run `wait` again (the pause stays valid until it expires), or find who
 owns the base's red.
+
+<a id="base-contains-head"></a>
+### `BASE_CONTAINS_HEAD`
+
+**Meaning.** A base-relative step (`gstack-ship-queue ready`, `land` and
+`train` receipt binding, `gstack-review-plan`, `gstack-pregate`,
+`gstack-gate-diff`, `gstack-diff-scope`, `gstack-docs-candidate snapshot`)
+was given a base that is the head or already contains it, while the branch
+has commits its real base lacks. The comparison would read the branch against
+itself and report no changes, a false green. The usual cause is a checkout
+made by a PR flow: `refs/remotes/origin/HEAD` names the PR branch and there is
+no local `main` (GST-774). The detail names the base, the head, and the real
+base (the PR's base from `gh`, else the remote's live HEAD from
+`git ls-remote --symref`, else `origin/main`, else `origin/master`). For
+a pull request's head the queue refuses whenever the base contains it. On the
+base branch itself, on a detached HEAD, and on a fresh branch with no commits
+past its base, the step runs as before. `gstack-diff-scope` reports it as
+`SCOPE_ERROR=base_contains_head` (all flags false, exit 2) with the reason on a
+comment line.
+
+**Fix.** Pass the real base (`--base main`, or the PR's base branch). When
+`origin/HEAD` names the checked-out branch, `git remote set-head origin main`
+repairs every default at once.
 
 <a id="queue-receipt-depth-raised"></a>
 ### `QUEUE_RECEIPT_DEPTH_RAISED`

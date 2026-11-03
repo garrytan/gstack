@@ -305,6 +305,7 @@ gstack_result_anchor() {
     BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;
     BASE_RED_PAUSE_EXPIRED) printf '%s' 'base-red-pause-expired' ;;
     BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
+    BASE_CONTAINS_HEAD) printf '%s' 'base-contains-head' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
     QUEUE_RECEIPT_TARGETED_MISSING) printf '%s' 'queue-receipt-targeted-missing' ;;
@@ -348,6 +349,9 @@ gstack_result_anchor() {
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
+    REVIEW_DIFF_TOO_LARGE) printf '%s' 'review-diff-too-large' ;;
+    REVIEW_DIFF_UNREADABLE) printf '%s' 'review-diff-unreadable' ;;
+    REVIEW_EXCLUDE_REFERENCE) printf '%s' 'review-exclude-reference' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
