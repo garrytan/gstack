@@ -1224,9 +1224,9 @@ finish does not take it, since it accepts an open finding, not edits. Otherwise
 [`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
 and nothing is written. The queue checks both owner exceptions the same way
 before READY and train build: the record must parse, the body must still
-carry its line, and the fix-check head must be the bound head or its ancestor
-(after a carry across rewritten history the old fix-check commit is off the
-branch, so that check is skipped), or the receipt is
+carry its line, and the exception's head (the fix-check's or the second
+pass's) must be the bound head or its ancestor (after a carry across rewritten
+history the old commit is off the branch, so that check is skipped), or the receipt is
 [`QUEUE_RECEIPT_EXCEPTION_INVALID`](troubleshooting.md#queue-receipt-exception-invalid).
 
 **Prose against the receipt.** `gstack-ship-receipt read --pr <n> --check-prose`

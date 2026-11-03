@@ -106,11 +106,12 @@ incomplete coverage, which blocks until the reviewer is rerun.
    loop's: once `gstack-approvals add` records the grant (its ask or scope
    naming `review_loop_grant` and the stop head's sha),
    `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
-   plans that fix-check in place of the stop after a round-2 full pass with a
-   fixed blocking finding or a gate-class edit, and refuses any other row,
+   plans that fix-check in place of the stop after a round-2 full pass, or after
+   a round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
+   with a fixed blocking finding or a gate-class edit, and refuses any other row,
    including a grant for a stop head before `--range-base` (an earlier /ship).
    A fix-check never earns another, so the grant cannot repeat, and a stop after
-   a round-2 fix-check still goes to the owner. The cap approves nothing.
+   the granted fix-check still goes to the owner. The cap approves nothing.
 
 <a id="transitions"></a>
 ### Transitions
@@ -458,9 +459,11 @@ renders its brief; `verify --targeted-out .gstack/tmp/targeted.json` writes the 
 the reader got its brief verbatim and its reply was collected on a committed diff, whatever
 happened to HEAD after, and it names the commit it read (`head`). `write` binds it only while
 that commit is an ancestor of HEAD, its product patch is the receipt's, and nothing changed
-after it carries a targeted class, with the gate scan run over that range: any product change
-after the read refuses with `RECEIPT_INVALID`, docs and TODOS.md commits included, and so
-does a test edit the gate scan tags (a skipped case). Every verify
+after it carries a targeted class, with the gate scan run over that range: any other product change
+after the read refuses with `RECEIPT_INVALID`, and so does a test edit the gate scan tags (a
+skipped case). A docs-only change after the read (TODOS.md included) carries the record only
+when it changes no binary file, adds no numeric claim, touches no results, prereg or eval path,
+and names no money, security, secret or auth topic (GST-1195). Every verify
 removes `--targeted-out` before it writes a record, so an earlier run's record never reaches
 Step 19. `write` and `carry` (which rescans the gate at the new head) also
 refuse a receipt whose head needs a class no `done` record covers (`RECEIPT_INVALID`,
@@ -515,7 +518,7 @@ puts in the receipt:
 | `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than plain docs (no numeric, results, prereg, eval, money or security claim; GST-1195), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than plain docs (no binary file and no numeric, results, prereg, eval, money, security, secret or auth claim; GST-1195), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
@@ -550,9 +553,11 @@ completed clean read on committed content (freshness `CURRENT` against its own
 tree) whose commit is on the branch, whose `range_base` is a branch commit
 holding the reviewed tree, and for which an approved `review_loop_grant` in
 `gstack-approvals` names a stop head inside `range_base..commit`, each code or test path inside `range_base..commit`
-that is unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
+that is unchanged since, or whose change against the base is still the one the
+fix-check read after a base merge also edited it (GST-1195), routes as
+`fix_checked=` in `ROUTE:` and is listed on a
 `FIX_CHECK: reviewed` line, a gate-edited test included. Authored docs keep the
-stage 2.2 recheck, and a path edited after the fix-check still routes by the
+stage 2.2 recheck, and a path the branch edited after the fix-check still routes by the
 rules above. Any other row prints
 `FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`
 refuses a `review-fix-check` row without boolean `completed` and `converged`,

@@ -3332,8 +3332,8 @@ HEAD, or after which a change carries a targeted class (money, gate, auth or
 secret code changed after the targeted reader read it, a test edit the gate
 scan tags included), or whose product patch is not the receipt's and the change
 since it is more than plain docs. A docs-only change after the read carries the
-record only when it adds no numeric claim, touches no results, prereg or eval
-path, and names no money, security, secret or auth topic; any other docs change
+record only when it changes no binary file, adds no numeric claim, touches no
+results, prereg or eval path, and names no money, security, secret or auth topic; any other docs change
 needs the reader again (GST-1195).
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
@@ -5635,8 +5635,10 @@ Never edit `review_depth` by hand ([review-policy.md](review-policy.md#review-de
 
 **Meaning.** The receipt records an owner exception (`docs.exception` or
 `review_loop_exception`) that the queue cannot accept: the record does not
-parse, a review-loop exception names no fix-check (`review_loop.fix_checks`
-is 0 or missing), its `fix_check.head` is neither the bound head nor an
+parse, a review-loop exception accepts a stop the review loop does not show (a
+`fix_check` with `review_loop.fix_checks` 0 or missing, or a `second_pass`
+with fewer than two passes or no deferred finding), its head (`fix_check.head`
+or `second_pass.head`) is neither the bound head nor an
 ancestor of it (not checked after a carry across rewritten history), or the PR
 body no longer carries the exception's line word for word
 (`Documentation exception: …` or `Review-loop exception: …`).
