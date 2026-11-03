@@ -110,9 +110,16 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(r2.met).toBe(true);
     expect(check([slash('review'), say('Small diff (12 lines) — specialists skipped.'), ...red, report], 'review').met).toBe(true);
     expect(check([slash('review'), say('Dispatching 0 specialists: (small diff)'), ...red, report], 'review').met).toBe(true);
+    const sm = say('Dispatching 1 specialists: State Machines (small diff)');
+    expect(check([slash('review'), sm, ...red, report], 'review').items[0].detail).toBe('selected State Machines; no Agent dispatch for State Machines');
+    expect(check([slash('review'), sm, ...agent('s', 'State Machines specialist'), ...red, report], 'review').met).toBe(true);
     expect(check([slash('review'), say('Dispatching  2\nspecialists: Testing, Security'), ...red, report], 'review').items[0].detail).toBe('selected Testing, Security; no Agent dispatch for Testing, Security');
     expect(DEFAULT_MATCHERS).toEqual({ specialistSelection: 'Dispatching N specialists:', specialistsSkipped: 'specialists skipped' });
     expect(check([slash('review'), ...red, report], 'review').items[0].detail).toBe('no specialist selection line found');
+    const fixedLine = say('Dispatching adversarial pass: native');
+    expect(check([slash('review'), fixedLine, ...agent('d', 'Adversarial pass', 'Find the ways this diff fails.')], 'review').items[1]).toMatchObject({ status: 'met', detail: 'printed "Dispatching adversarial pass: native", then an Agent dispatch' });
+    expect(check([slash('review'), ...agent('d', 'Adversarial pass', 'Find the ways this diff fails.'), fixedLine], 'review').items[1].status).toBe('missing');
+    expect(check([slash('review'), ...red], 'review').items[1].status).toBe('met');
     expect(check([slash('review'), sel, say('Pre-Landing Review: done')], 'review').items[2]).toMatchObject({ status: 'missing', detail: 'Pre-Landing Review lacks a real value for Gate edits' });
   });
 

@@ -307,7 +307,7 @@ export function isPlaceholder(value: string): boolean {
 
 function parseNames(raw: string): string[] {
   const end = raw.search(/\.\s|\.$|\s(?:Skipped|Gated)\s*:/i);
-  return (end < 0 ? raw : raw.slice(0, end)).split(/,|;|\band\b/)
+  return (end < 0 ? raw : raw.slice(0, end)).replace(/\([^)]*\)/g, ' ').split(/,|;|\band\b/)
     .map(n => n.replace(/[[\]()"'`*]/g, '').trim()).filter(n => n && !/^none$/i.test(n));
 }
 
@@ -366,6 +366,14 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
         : { met: true, detail: `dispatched ${names.join(', ')}`, fix: '' };
     }
     case 'agent_dispatch': {
+      if (item.marker) {
+        const marker = markerPattern(item.marker);
+        let markedAt = -1;
+        run.forEach((e, i) => { if (e.kind === 'text' && marker.test(e.text)) markedAt = i; });
+        if (markedAt >= 0 && run.slice(markedAt + 1).some(e => isToolUse(e) && AGENT_TOOLS.test(e.name))) {
+          return { met: true, detail: `printed "${item.marker}", then an Agent dispatch`, fix: '' };
+        }
+      }
       const re = new RegExp(item.match as string, 'i');
       return agents.some(a => re.test(agentText(a)))
         ? { met: true, detail: `an Agent dispatch matches /${item.match}/`, fix: '' }
