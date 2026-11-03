@@ -253,7 +253,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   if (counted) {
     const range = touchedPaths(cwd, fixFrom, fixCommit), after = touchedPaths(cwd, fixCommit, now);
     if (!range || !after) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
-    by.fix_checked = [...by.behavior, ...by.tests, ...by.context].filter(p => range.has(p) && !after.has(p)).sort();
+    const fixSides = { reviewedBase: git(cwd, ['merge-base', baseRef, fixCommit]).stdout.trim(), reviewed: fixCommit, currentBase: sides?.currentBase ?? git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim(), current: now };
+    const unmoved = (p: string) => !after.has(p) || (!!fixSides.reviewedBase && !!fixSides.currentBase && comparePath(cwd, fixSides, p) === 'same');
+    by.fix_checked = [...by.behavior, ...by.tests, ...by.context].filter(p => range.has(p) && unmoved(p)).sort();
     for (const k of ['behavior', 'tests', 'context'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
     r.add(`FIX_CHECK: reviewed ${by.fix_checked.length ? short(by.fix_checked) : 'none'} (fix-check at ${fixCommit.slice(0, 12)}, range from ${fixFrom.slice(0, 12)}, grant ${grant!.id})`);
   }
@@ -355,7 +357,8 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
-  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p)))), requested: [] as string[], accepted: [] as string[] };
+  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
+    || (!!auditBase && !!nowBase && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: 'HEAD' }, p) === 'same'))), requested: [] as string[], accepted: [] as string[] };
   carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
