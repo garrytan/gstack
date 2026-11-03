@@ -4,5 +4,6 @@
 
 ### For contributors
 
+- `/ship`'s post-review route still counts a non-behavioral harness re-pin as release metadata (GST-1031): it now reads the pin files under `scripts/harness-pins/` and refuses a manifest that regains a `files` table.
 - The checks are at least as strict as before. Every pin still needs its sha and a replay whose written justification names a no-loss replay or re-score, and the brief-body check still guards the bodies. A malformed or misnamed pin file, a stray file in a pin directory, or a `files` block back in `scripts/harness-version.json` now fails too. New tests prove that a stale pin still fails, and that two branches repinning different, adjacent pins merge cleanly with a real `git merge-tree`, while two repins of one pin still conflict.
 - `bun run scripts/bump-harness-version.ts` writes and deletes pin files itself. Repin a review file by editing its `files/` pin and adding the replay file it names.
