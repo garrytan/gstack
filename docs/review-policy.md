@@ -496,11 +496,12 @@ too large for the scoped review, and without the record nothing changes.
 A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
 reads the newest `review-fix-check` row from `gstack-review-read`. When it is a
 completed clean read on committed content (freshness `CURRENT` against its own
-tree) whose `range_base` and commit are on the branch, each path inside
-`range_base..commit` that matched the reviewed tree at `range_base` and is
-unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
-`FIX_CHECK: reviewed` line, a gate-edited test included. A path edited after the
-fix-check still routes by the rules above. Any other row prints
+tree) whose commit is on the branch and whose `range_base` is a branch commit
+holding the reviewed tree, each code or test path inside `range_base..commit`
+that is unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
+`FIX_CHECK: reviewed` line, a gate-edited test included. Authored docs keep the
+stage 2.2 recheck, and a path edited after the fix-check still routes by the
+rules above. Any other row prints
 `FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`
 refuses a `review-fix-check` row without boolean `completed` and `converged`,
 before it consumes the start token, because without them the row reads

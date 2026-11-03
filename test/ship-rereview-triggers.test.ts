@@ -785,5 +785,20 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     const unranged = finish(f, reviewed, post);
     expect(lineOf(unranged.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (the row names no range_base commit on this branch)');
     expect(unranged.status).toBe(3);
+    const fork = mergeBase(f);
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: fork }).status).toBe(0);
+    const early = finish(f, reviewed, post);
+    expect(lineOf(early.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: not counted (range_base ${fork.slice(0, 12)} does not hold the reviewed tree)`);
+    expect(early.status).toBe(3);
+  });
+
+  test('a fix-check logged on uncommitted content is not counted', () => {
+    const { f, passHead, reviewed, post } = afterFixCheck();
+    f.write({ 'src/x.ts': 'export const x = 9;\n' });
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    f.git('checkout', '--', 'src/x.ts');
+    const r = finish(f, reviewed, post);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (the row was logged on content no branch commit holds)');
+    expect(r.status).toBe(3);
   });
 });

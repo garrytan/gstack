@@ -163,8 +163,9 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
 
 /**
  * Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts).
- * A path the newest completed clean review-fix-check row read (inside its range_base..commit range, the same at range_base as
- * in the reviewed tree, and unchanged since) counts as fix_checked: a granted fix-check after Step 11 is a review (GST-1130).
+ * A code or test path the newest completed clean review-fix-check row read (inside its range_base..commit range, where
+ * range_base holds the reviewed tree, and unchanged since) counts as fix_checked: a granted fix-check after Step 11 is a review
+ * (GST-1130). Authored docs keep the stage 2.2 recheck.
  */
 type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted' | 'fix_checked', string[]>;
 function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: ReviewLoopException }, r: Report): Routed | null {
@@ -209,14 +210,15 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree);
   const notCounted = !fixRow ? '' : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
     : fixRow.tree !== fixRow.wtree || !onBranch(fixCommit) ? 'the row was logged on content no branch commit holds'
-    : !onBranch(fixFrom) ? 'the row names no range_base commit on this branch' : '';
+    : !onBranch(fixFrom) ? 'the row names no range_base commit on this branch'
+    : git(cwd, ['rev-parse', `${fixFrom}^{tree}`]).stdout.trim() !== reviewed ? `range_base ${fixFrom.slice(0, 12)} does not hold the reviewed tree` : '';
   if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
   const counted = !!fixRow && !notCounted;
   if (counted) {
-    const range = touchedPaths(cwd, fixFrom, fixCommit), after = touchedPaths(cwd, fixCommit, now), before = touchedPaths(cwd, reviewed, fixFrom);
-    if (!range || !after || !before) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
-    by.fix_checked = [...by.behavior, ...by.tests, ...by.context, ...by.docs].filter(p => range.has(p) && !after.has(p) && !before.has(p)).sort();
-    for (const k of ['behavior', 'tests', 'context', 'docs'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
+    const range = touchedPaths(cwd, fixFrom, fixCommit), after = touchedPaths(cwd, fixCommit, now);
+    if (!range || !after) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
+    by.fix_checked = [...by.behavior, ...by.tests, ...by.context].filter(p => range.has(p) && !after.has(p)).sort();
+    for (const k of ['behavior', 'tests', 'context'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
     r.add(`FIX_CHECK: reviewed ${by.fix_checked.length ? short(by.fix_checked) : 'none'} (fix-check at ${fixCommit.slice(0, 12)}, range from ${fixFrom.slice(0, 12)})`);
   }
   const loop = opts.loop;
