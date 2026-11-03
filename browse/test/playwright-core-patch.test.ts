@@ -66,7 +66,7 @@ describe('playwright-core windowsHide patch (#2160, #1989)', () => {
 // microsoft/playwright#43605 disables it in 1.65, and the 1.64.1 patch backports it; drop this block at 1.65.
 describe('playwright-core TcpPortRandomizationWin backport (microsoft/playwright#43605)', () => {
   test('the patch and the installed tree disable the feature in the --disable-features list', () => {
-    expect(fs.readFileSync(path.join(ROOT, 'patches', `playwright-core@${installedPlaywrightCoreVersion()}.patch`), 'utf-8')).toContain('+      "TcpPortRandomizationWin"');
+    expect(fs.readFileSync(path.join(ROOT, 'patches', 'playwright-core@1.64.1.patch'), 'utf-8')).toContain('+      "TcpPortRandomizationWin"');
     const bundle = fs.readFileSync(path.join(ROOT, 'node_modules', 'playwright-core', 'lib', 'coreBundle.js'), 'utf-8');
     const list = bundle.slice(bundle.indexOf('disabledFeatures = ['), bundle.indexOf('].filter(Boolean);', bundle.indexOf('disabledFeatures = [')));
     expect(list).toContain('"TcpPortRandomizationWin"');
