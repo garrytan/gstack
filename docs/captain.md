@@ -131,6 +131,25 @@ such decision with a plain-language explanation of every option: what it is, why
 matters, what each answer does, and what it costs. A gate code or a tool's result line
 alone is not an ask.
 
+## New threads join the crew
+
+A crew thread never creates a thread itself. It asks its Captain, and the Captain creates
+the thread, which puts it in the crew from the start: the Captain briefs it, reads its
+reports and archives it when its work is done. When a crew thread has already made a
+thread, it reports the new thread's code to its Captain in that same turn, and the Captain
+adds it to the crew (`crew.add` on Capy).
+
+A thread in another project goes Captain to Captain, because `crew.add` refuses a thread
+from another project and a Captain creates threads only in its own project. The crew
+thread asks its Captain, who asks that project's Captain to create and own the thread, and
+the results come back the same way. For the receiving Captain, that ask is work: it
+creates the thread in its own crew, briefs it and returns the result. Only when the other
+project has no Captain does the crew thread create the thread itself, and then it records
+the new thread's code on the work's issue so the thread can still be found.
+
+Why: a crew thread once created a thread in another project directly. That thread ran
+outside every crew, so no Captain briefed it, tracked it or could archive it.
+
 ## Plan before build
 
 A lane that builds something plans first. Its first act after the session-start install
