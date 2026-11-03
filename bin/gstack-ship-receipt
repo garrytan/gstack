@@ -696,6 +696,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     }
     const current = retarget ? headPatch : productHead;
     const changedProduct: string[] = [];
+    let walkCut = false;
     const contextPaths: string[] = [];
     const stampOnly: string[] = [];
     if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
@@ -712,7 +713,7 @@ function cmdCarry(rest: string[], json: boolean): number {
       // A stamp file the branch changed as product (its own row) whose reviewed-to-current change is a stamp on its own lines
       // and that the base did not touch holds no unreviewed change, so the comparison leaves its bytes out (GST-980).
       for (const p of [...touched].filter(p => movedHead.has(p) || movedBase.has(p)).sort()) {
-        if (changedProduct.length >= CARRY_NAMED_PATHS) break;
+        if (changedProduct.length >= CARRY_NAMED_PATHS) { walkCut = true; break; }
         const cls = changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra);
         if (cls === 'metadata' && spec.ownRows.includes(p) && !movedBase.has(p)) stampOnly.push(p);
         if (cls !== 'product') continue;
@@ -764,7 +765,7 @@ function cmdCarry(rest: string[], json: boolean): number {
       const named = changedProduct.filter(p => !p.startsWith('(') && !p.includes(' ('));
       const inter = named.length ? spawnSync('git', ['diff', '--no-color', '--no-ext-diff', from, head, '--', ...named.map(p => `:(literal)${p}`)], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }) : null;
       const fullRange = rangeRaw.status === 0 && inter?.status === 0 ? `${rangeRaw.stdout.trim()}\n${inter.stdout.trim()}` : null;
-      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length });
+      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: contextPaths.length });
       const record = flag(rest, '--recheck');
       if (!r.ok) process.stderr.write(`RECHECK: not eligible (${r.reason}); run /ship on ${head.slice(0, 12)}\n`);
       else if (record) {

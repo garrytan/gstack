@@ -44,6 +44,7 @@ describe('READY tail (E1: the ready output is the whole READY)', () => {
     expect(lines[0]).toBe('REVIEW_LOOP: passes=2 blocking_found=3 deferred=0 noted=0 fixed=2 unrecorded=1 unbound=1');
     expect(lines.slice(1, 3)).toEqual([expect.stringMatching(/^TRIAL_MERGES: /), 'Attention:']);
     expect(readyTailLines(undefined)[0]).toBe('REVIEW_LOOP: none in the receipt');
+    expect(readyTailLines(receipt('f'.repeat(40)))[3]).toStartWith('reviewed by <model on another family> (risk class unknown: the receipt records no review_depth');
   });
 });
 
