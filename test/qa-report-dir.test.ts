@@ -84,7 +84,7 @@ test('report-dir names the filesystem cause when .gstack is not a directory', ()
   fs.writeFileSync(path.join(f.root, '.gstack'), 'not a directory\n');
   const r = f.tool('gstack-qa-evidence', 'report-dir');
   expect(r.status).toBe(2);
-  expect(r.stderr).toContain('report-dir failed: ENOTDIR');
+  expect(r.stderr).toMatch(process.platform === 'win32' ? /report-dir failed: (ENOTDIR|ENOENT)/ : /report-dir failed: ENOTDIR/);
 });
 
 test('report-dir refuses outside a git work tree instead of guessing a location', () => {

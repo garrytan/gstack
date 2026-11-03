@@ -91,7 +91,7 @@ describe('gstack-lease', () => {
     const r = spawnSync('bash', ['-n', LEASE], { encoding: 'utf8', timeout: 30_000 });
     expect(r.status, r.stderr).toBe(0);
     const help = spawnSync('bash', [LEASE, '--help'], { encoding: 'utf8', timeout: 30_000 });
-    expect(help.stdout).toContain('print `<pid> <age>m alive|dead|stale` for every lease');
+    expect(help.stdout).toContain('print `<pid> <age>m alive|idle|dead|stale` for every lease');
   });
 
   test('touch writes <git dir>/gstack-leases/<pid> for --pid and prunes leases older than 120 minutes', () => {
@@ -714,6 +714,58 @@ describe('gstack-lease', () => {
     } finally {
       fs.rmSync(lease, { force: true });
     }
+  });
+
+  // GST-1205: gstack-skill-end releases the run gstack-skill-start opened, so a finished run stops holding the lease.
+  test('gstack-skill-start opens a run on the lease and gstack-skill-end with its SESSION_ID releases it; another holder still counts', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lease-home-'));
+    const state = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lease-state-'));
+    dirs.push(home, state);
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'update_check: false\n');
+    const leaseDir = path.join(state, 'leases');
+    const env = { PATH: process.env.PATH!, HOME: home, GSTACK_HOME: state, GSTACK_LEASE_DIR: leaseDir };
+    const holder = sleeper();
+    const start = spawnSync(START, ['--skill', 'ship', '--parent-pid', String(holder)], { encoding: 'utf8', cwd: home, env, timeout: 30_000 });
+    expect(start.status, start.stdout + start.stderr).toBe(0);
+    const sid = start.stdout.match(/^SESSION_ID: (\S+)$/m)?.[1] ?? '';
+    expect(sid.startsWith(`${holder}-`), sid).toBe(true);
+    expect(run(['live'], env).status).toBe(0);
+    const end = spawnSync(path.join(REPO, 'bin/gstack-skill-end'), ['--skill', 'ship', '--outcome', 'success', '--session-id', sid, '--tel-start', '0'], { encoding: 'utf8', cwd: home, env, timeout: 30_000 });
+    expect(end.status, end.stdout + end.stderr).toBe(0);
+    const after = run(['live'], env);
+    expect(after.status, after.stdout + after.stderr).toBe(1);
+    expect(run(['list'], env).stdout).toMatch(new RegExp(`^${holder} \\d+m idle$`, 'm'));
+    const other = sleeper();
+    expect(run(['touch', '--pid', String(other)], env).status).toBe(0);
+    expect(run(['live'], env).stdout).toMatch(new RegExp(`^${other} \\d+m sleep$`, 'm'));
+  });
+
+  test('GST-1205 review: a hold without --run survives a sibling run\'s release in either order; an unrecorded release changes nothing; an orphaned run ages out by itself', () => {
+    const { dir, leases } = checkout();
+    const live = (pid: number) => run(['live', '--root', dir]).stdout.includes(`${pid} `);
+    for (const order of [['hold', 'run'], ['run', 'hold']]) {
+      const p = sleeper();
+      for (const step of order) expect(run(['touch', '--root', dir, '--pid', String(p), ...(step === 'run' ? ['--run', `${p}-1-a`] : [])]).status).toBe(0);
+      expect(run(['release', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+      expect(live(p), order.join('>')).toBe(true);
+    }
+    const legacy = sleeper();
+    expect(run(['touch', '--root', dir, '--pid', String(legacy)]).status).toBe(0);
+    expect(run(['release', '--root', dir, '--pid', String(legacy), '--run', `${legacy}-9-z`]).status).toBe(0);
+    expect(live(legacy)).toBe(true);
+    expect(run(['release', '--root', dir, '--pid', String(legacy)]).status).toBe(2);
+    expect(run(['release', '--root', dir, '--pid', 'x', '--run', 'y']).status).toBe(2);
+    const shared = sleeper();
+    expect(run(['touch', '--root', dir, '--pid', String(shared), '--run', `${shared}-1-old`]).status).toBe(0);
+    const file = path.join(leases, String(shared));
+    const old = Math.floor(Date.now() / 1000) - 121 * 60;
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^run (\S+) \d+$/m, `run $1 ${old}`));
+    expect(live(shared)).toBe(false);
+    expect(run(['touch', '--root', dir, '--pid', String(shared), '--run', `${shared}-2-new`]).status).toBe(0);
+    expect(live(shared)).toBe(true);
+    expect(run(['release', '--root', dir, '--pid', String(shared), '--run', `${shared}-2-new`]).status).toBe(0);
+    expect(live(shared)).toBe(false);
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('-1-old');
   });
 
   test('gstack-skill-start reports a lease the held lock kept from being written, and still starts', () => {
