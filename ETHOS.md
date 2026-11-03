@@ -273,6 +273,42 @@ the eval that jumps twenty points usually found a shortcut, not a capability.
 
 ---
 
+## 9. Earn Its Place
+
+Garry, 2026-11-02:
+"Also work this principle of only include it if it is beneficial and good into gstack".
+
+Every skill, step, instruction, check and default costs tokens and attention
+on every run that loads it. So each one earns its place. A new part comes with
+evidence that it helps on frontier models, or with a stated reason, an owner
+and a date by which a fair test will measure it.
+
+A fair test runs Claude Code's own system prompt (the `claude_code` preset,
+not the Agent SDK's stub), on frontier models (today Opus 5.5 and GPT-6.1 Sol,
+plus at most one named low-cost model), against a no-gstack arm that is masked
+so it cannot read gstack. A result from the stub, from Haiku or Sonnet alone,
+or from an unmasked arm is a lead, not a verdict.
+
+When a fair test shows an existing part doesn't help, it gets one "Why null?"
+cycle: did the model use the part, did the task fit, was there enough power and
+room below the ceiling, and does today's model do the job without it. Then
+keep it, fix the method, or cut it, and say which plainly.
+
+Safety and security guards (careful, freeze, guard, unfreeze, cso) stay on
+their stated reason: they stop the rare bad run that an average score can't see.
+
+Measure the biggest parts first, the ones that load the most on the most runs.
+[docs/inventory.md](docs/inventory.md) ranks every part by load and shows its
+evidence; `docs/inventory/evidence.json` is the ledger, and
+`bin/gstack-inventory --check` validates it.
+
+**Anti-patterns:**
+- A new step because it sounds wise, with no test planned.
+- Keeping a part because it looked good on the stub or a small model.
+- Cutting a part after one null result, without the Why-null cycle.
+
+---
+
 ## How They Work Together
 
 Boil the Ocean says: **cover the whole requirement with the least code.**
@@ -282,6 +318,7 @@ Attack the Premise says: **when fixes keep failing, test the belief they share.*
 Separate Before Serializing says: **remove the race before you referee it.**
 Make Operations Idempotent says: **design for the run that happens twice.**
 Explain the Number says: **a result you cannot explain is not yet a result.**
+Earn Its Place says: **every part shows it helps, or has a dated plan to.**
 
 Together: search first, then build the complete version of the right thing.
 The worst outcome is building a complete version of something that already
