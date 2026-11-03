@@ -96,6 +96,12 @@ describe('block once, with the pinned text', () => {
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
   });
 
+  test('an /investigate run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
+    const file = transcript([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED'))]);
+    expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
+  });
+
   test('a met run stays met: a later unrelated edit turn in the same session is not blocked', () => {
     const file = transcript([...J1_TRANSCRIPT.slice(0, -1), tool('b9', 'Bash', { command: 'bun test' }), result('b9', 'pass'), say(DEBUG_REPORT)]);
     expect(stop(file).stdout).toBe('');

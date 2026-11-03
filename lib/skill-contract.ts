@@ -91,6 +91,8 @@ export const DEFAULT_MATCHERS = {
   specialistSelection: 'Dispatching N specialists:',
   /** selected_specialists_dispatched: a line that means no specialist was selected. */
   specialistsSkipped: 'specialists skipped',
+  /** Any contract: a line that means the skill ended the whole run early, so its contract counts as met. A final STATUS: BLOCKED does too. */
+  earlyExit: 'Nothing to review',
 } as const;
 
 /**
@@ -429,17 +431,21 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const results = new Map<string, ToolResult>();
   for (const e of run) if (e.kind === 'tool_result') results.set(e.id, e);
   const waived = load ? waivers(run, skill, results) : new Map<string, string>();
-  const items: ItemResult[] = load ? contract.items.map(item => {
-    const r = checkItem(item, run);
-    if (r.met) return { id: item.id, kind: item.kind, status: 'met', detail: r.detail, fix: '' };
-    const reason = waived.get(item.id);
-    return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };
-  }) : [];
   const lastPrompt = events.map(e => e.kind).lastIndexOf('prompt');
   const turn = events.slice(lastPrompt + 1).filter(e => e.kind === 'text' || e.kind === 'tool_use');
   const final = turn[turn.length - 1];
   const finalText = [...turn].reverse().find(e => e.kind === 'text') as { text: string } | undefined;
   const statusLine = finalText ? STATUS_RE.exec(finalText.text)?.[1] ?? null : null;
+  const exitMarker = markerPattern(DEFAULT_MATCHERS.earlyExit);
+  const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED'
+    : run.some(e => e.kind === 'text' && exitMarker.test(e.text)) ? DEFAULT_MATCHERS.earlyExit : null;
+  const items: ItemResult[] = load ? contract.items.map(item => {
+    if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
+    const r = checkItem(item, run);
+    if (r.met) return { id: item.id, kind: item.kind, status: 'met', detail: r.detail, fix: '' };
+    const reason = waived.get(item.id);
+    return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };
+  }) : [];
   const lastParagraph = (finalText?.text ?? '').trim().split(/\n\s*\n/).pop() ?? '';
   const pendingQuestion = statusLine === 'NEEDS_CONTEXT' || (final !== undefined && isToolUse(final) && /AskUserQuestion$/.test(final.name)) ||
     (final !== undefined && final.kind === 'text' && /\?[\s*_)"']*$/.test(lastParagraph));

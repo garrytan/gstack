@@ -114,7 +114,7 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(check([slash('review'), sm, ...red, report], 'review').items[0].detail).toBe('selected State Machines; no Agent dispatch for State Machines');
     expect(check([slash('review'), sm, ...agent('s', 'State Machines specialist'), ...red, report], 'review').met).toBe(true);
     expect(check([slash('review'), say('Dispatching  2\nspecialists: Testing, Security'), ...red, report], 'review').items[0].detail).toBe('selected Testing, Security; no Agent dispatch for Testing, Security');
-    expect(DEFAULT_MATCHERS).toEqual({ specialistSelection: 'Dispatching N specialists:', specialistsSkipped: 'specialists skipped' });
+    expect(DEFAULT_MATCHERS).toEqual({ specialistSelection: 'Dispatching N specialists:', specialistsSkipped: 'specialists skipped', earlyExit: 'Nothing to review' });
     expect(check([slash('review'), ...red, report], 'review').items[0].detail).toBe('no specialist selection line found');
     const fixedLine = say('Dispatching adversarial pass: native');
     expect(check([slash('review'), fixedLine, ...agent('d', 'Adversarial pass', 'Find the ways this diff fails.')], 'review').items[1]).toMatchObject({ status: 'met', detail: 'printed "Dispatching adversarial pass: native", then an Agent dispatch' });
@@ -149,6 +149,18 @@ describe('checkContract is a pure function of the transcript', () => {
   test('items are checked from the skill\'s LAST load: an earlier run\'s report does not satisfy a new one', () => {
     const r = check([...INTERACTIVE_TURNS.flat(), user('another bug'), tool('s', 'Skill', { skill: 'investigate' }), tool('e', 'Edit', { file_path: 'x' })]);
     expect(r.missing).toEqual(['debug-report', 'repro-after-fix']);
+  });
+
+  test('an early exit counts as met: /review "Nothing to review" or STATUS: BLOCKED, /investigate Status: BLOCKED in its DEBUG REPORT', () => {
+    const early = (lines: string[], skill: string) => check(lines, skill);
+    const nothing = early([slash('review'), say('Nothing to review — no changes against the base branch.')], 'review');
+    expect(nothing).toMatchObject({ met: true, follow: true, missing: [] });
+    expect(nothing.items[0].detail).toBe('the skill ended the run early (Nothing to review)');
+    expect(early([slash('review'), say('Base branch could not be found.\nSTATUS: BLOCKED')], 'review').met).toBe(true);
+    const blockedReport = DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED');
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(blockedReport)], 'investigate')).toMatchObject({ met: true, statusLine: 'BLOCKED' });
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'investigate').missing).toEqual(['repro-after-fix']);
+    expect(early([slash('review'), say('I would print STATUS: BLOCKED if the base were missing, but it is here. Done.')], 'review').met).toBe(false);
   });
 
   test('a Read of a SKILL.md counts as a load only under a skills/ directory, not in a gstack checkout', () => {
