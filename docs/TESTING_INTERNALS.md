@@ -1001,8 +1001,10 @@ paid test file, its fixtures and its skills' prompt files, including the
 generated SKILL.md) plus `HARNESS_VERSION`, keyed with model, Claude CLI version
 and policy version (`scripts/eval-trial-series.ts`). Each trial also records the
 full consumed-input fingerprint as provenance. `scripts/harness-version.json`
-pins every shared-harness file (`GLOBAL_TOUCHFILES` plus the session runners, the
-PTY harness, the e2e gate and the LLM judge) by blob hash. When
+holds the version and the harness patterns, and `scripts/harness-pins/<path>.json`
+pins each shared-harness file (`GLOBAL_TOUCHFILES` plus the session runners, the
+PTY harness, the e2e gate and the LLM judge) by blob hash, one file per pin, so
+two PRs that record decisions for different harness files never conflict. When
 `test/harness-version.test.ts` fails, run one of:
 
 ```bash
@@ -1010,8 +1012,8 @@ bun run scripts/bump-harness-version.ts --non-behavioral "<why no verdict can ch
 bun run scripts/bump-harness-version.ts --bump "<what behavior changed>"                # new series for every case
 ```
 
-On a merge conflict in the manifest, take the higher version, then rerun the
-script.
+On a merge conflict in the manifest or a pin file, take the higher version, then
+rerun the script.
 
 ## Ubicloud VMs (`bun run test:ubicloud`)
 
@@ -1868,6 +1870,24 @@ own attempts. The arm gets:
   any other arm, per [Candidate-side blinding](#candidate-side-blinding));
 - the same budget treatment: it is priced and reserved in the pilot like every
   other arm.
+
+**Masking.** On Capy, the owner's user-scope instructions tell every session to
+load the user-drive gstack skill, and eval run agents inherit them: in one
+checkpoint (24 runs, 3 arms) every run in every arm tried to read that skill in
+its first minute. So `## No-gstack arm` also needs three lines, and `prereg
+--check` refuses a missing, blank or `none` one (`PREREG_NO_GSTACK_ARM`):
+
+- `masking:` an empty directory bind-mounted over `~/.capy/drive/user-garry-tan`
+  and `~/.capy/drive/org-gstack-gbrain` before the run agent starts, or a
+  container that sees no Capy drive;
+- `install:` no gstack on the arm's machine (`~/.local/share/gstack`,
+  `~/.claude/skills`), checked before the run;
+- `audit:` a per-arm audit of drive and skill reads.
+
+An arm that read a gstack skill file is contaminated and gets zero credit. A
+no-gstack result that ran before this rule without a mask is not evidence for
+an R48 verdict until it is re-checked; the evidence ledger records it under
+`prior` with `unmasked` ([docs/inventory.md](inventory.md)).
 
 **Reporting.** The no-gstack result is one row beside the variants in every
 results table and every verdict, including when it wins. A comparison that

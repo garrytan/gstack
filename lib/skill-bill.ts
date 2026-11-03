@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { estimateTokens } from "./context-bill";
+import { skillEvidence } from "./inventory";
 
 export const DUE_PCT = 10;
 
@@ -28,6 +29,8 @@ export interface SkillBillReport {
   rows: LevelRow[];
   baseline: Baseline;
   evalTasks?: EvalTasks | null;
+  /** gstack checkout only: the skill's row in docs/inventory/evidence.json (ETHOS.md: 9. Earn Its Place). */
+  evidence?: ReturnType<typeof skillEvidence>;
   warnings: string[];
 }
 
@@ -196,8 +199,10 @@ export function buildSkillBill(dir: string): SkillBillReport {
   for (const f of onDemandFiles(dir)) rows.push(row("on-demand", dir, f));
   const warnings: string[] = [];
   let evalTasks: EvalTasks | null | undefined;
+  let evidence: SkillBillReport["evidence"];
   if (kind === "gstack-checkout") {
     const root = gstackRootOf(dir)!;
+    evidence = skillEvidence(root, dir);
     const file = join(root, "test", "fixtures", "skill-evals", name, "tasks.json");
     evalTasks = existsSync(file) ? { ...checkEvalTasks(file), path: `test/fixtures/skill-evals/${name}/tasks.json` } : null;
     if (evalTasks?.problems.length) warnings.push(`EVAL_TASKS_INVALID: ${evalTasks.problems[0]}${evalTasks.problems.length > 1 ? ` (+${evalTasks.problems.length - 1} more)` : ""}. fix: the task format in docs/designs/SKILL_EVAL_CONTRACT.md`);
@@ -206,7 +211,7 @@ export function buildSkillBill(dir: string): SkillBillReport {
       warnings.push("RENDER_STALE: SKILL.md.tmpl changed but SKILL.md did not. fix: bun run gen:skill-docs");
   }
   if (kind === "gstack-install") warnings.push("INSTALLED_GSTACK_SKILL: gstack-upgrade overwrites this folder. fix: edit <skill>/SKILL.md.tmpl in a gstack checkout, or copy the skill to a folder you own");
-  return { name, dir, kind, authored, rows, baseline: findBaseline(dir, name, authored), evalTasks, warnings };
+  return { name, dir, kind, authored, rows, baseline: findBaseline(dir, name, authored), evalTasks, evidence, warnings };
 }
 
 export function renderSkillBill(r: SkillBillReport): string {
@@ -217,6 +222,7 @@ export function renderSkillBill(r: SkillBillReport): string {
   else lines.push(`BASELINE: ${b.status} (${b.reason})`);
   if (r.evalTasks) lines.push(`EVAL TASKS: ${r.evalTasks.path} (${r.evalTasks.count} tasks)`);
   else if (r.evalTasks === null) lines.push(`EVAL TASKS: none; a diet writes test/fixtures/skill-evals/${r.name}/tasks.json before any cut`);
+  if (r.evidence) lines.push(r.evidence.line);
   lines.push(...r.warnings);
   lines.push(`Commit line: Skill-Size: <before>→<after> bytes (${r.authored})`);
   return lines.join("\n");
