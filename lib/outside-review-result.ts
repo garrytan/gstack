@@ -202,6 +202,8 @@ function plainReview(text: string): string {
  * an opener closes only when a later marker of its kind is at least as long.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
+/** A verdict label before an inline span: `Verdict: \`ready\`` keeps its value. */
+const VERDICT_BEFORE = /^[\t ]*(?:>[\t ]*)*(?:#{1,6}[\t ]+|[-+*][\t ]+)?(?:\*\*|__)?(?:(?:overall|final)[\t ]+)?verdict(?:\*\*|__)?[\t ]*(?::|\u2014|\u2013|-)?[\t ]*(?:\*\*|__)?[\t ]*$/i;
 function withoutCode(text: string, readUnclosed = false): string {
   const lines = text.split(/\r?\n/);
   const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
@@ -224,7 +226,8 @@ function withoutCode(text: string, readUnclosed = false): string {
     }
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
-      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
+      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at))
+        || VERDICT_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
 }
 
@@ -250,12 +253,25 @@ function firstUnparsed(text: string): string | undefined {
   return at < 0 ? undefined : `line ${at + 1}: "${lines[at]!.trim().slice(0, 160)}"`;
 }
 
-/** The value of the reply's last `Verdict:` line, or undefined when it has none. */
+/**
+ * The value of the reply's last verdict line, or undefined when it has none:
+ * `Verdict: x`, `Overall verdict — x`, `> Verdict: x`, or a bare `Verdict`
+ * heading whose value is the next non-empty line.
+ */
 function lastVerdict(plain: string): string | undefined {
-  return [...plain.matchAll(/^[\t ]*Verdict[\t ]*:[\t ]*([^\r\n]*)$/gim)].at(-1)?.[1]!.trim();
+  const lines = plain.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^[\t ]*(?:>[\t ]*)*(?:(?:overall|final)[\t ]+)?verdict[\t ]*(?:(?::|\u2014|\u2013|-(?=[\t ]))[\t ]*(.*?))?[\t ]*$/i.exec(lines[i]!);
+    if (!m) continue;
+    if (m[1]) return m[1];
+    return lines.slice(i + 1).find(line => line.trim())?.replace(/^[\t ]*(?:>[\t ]*)*/, '').trim() ?? '';
+  }
+  return undefined;
 }
-/** A verdict that says the reviewer could not check something is never a ready one (#3925). */
-const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to)\s+(?:be\s+)?verif|\bunverifi|\bnot (?:been )?verified\b/i;
+/** A verdict that approves the change. */
+const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|clean|good to (?:go|merge|ship))\b/i;
+/** A verdict that says the reviewer could not check, run or see something is never a ready one (#3925). */
+const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to|did not|didn['\u2019]t)\s+(?:be\s+)?(?:verif|run|test|check|open|read|review)|\bunverifi|\bnot (?:been )?(?:verified|run|tested|checked|reviewed)\b|\b(?:excluded|blocked|skipped)\b/i;
 /** A numbered item at the start of a line; in a reply with a `Verdict:` line it is a finding (#3925). */
 const NUMBERED_ITEM = /^(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
 
@@ -268,7 +284,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
   const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
-  const unlabeled = reviewed && verdicts[1] !== undefined
+  const unlabeled = reviewed && verdicts[1] !== undefined && !concludesNoFindings(code)
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
   const cleanEvidence = levelsOf(code, plainCode).length > 0;
@@ -293,12 +309,17 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const notReady = verdicts.some(v => v !== undefined && /^not[\t ]+ready\b/i.test(v));
   if (blocking || notReady) return { ...result('findings'), ...(unparsed ? { unparsed } : {}) };
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
-  const unready = verdicts.find(v => v !== undefined && (!/^ready\b/i.test(v) || UNVERIFIED_CLAIM.test(v)));
+  const unready = verdicts.find(v => v !== undefined && (!READY_VERDICT.test(v) || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
   if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(code)) {
     return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
   }
   return result('clean');
+}
+
+/** The FINDINGS: value: the highest severity, `unspecified` when findings carry none, else `none`. */
+export function findingsLabel(checked: OutsideReviewClassification): string {
+  return checked.findings.highest ?? (checked.verdict === 'findings' || checked.findings.unlabeled ? 'unspecified' : 'none');
 }
 
 const LEGACY_REASONS: Partial<Record<GateReason, string>> = {
@@ -397,7 +418,7 @@ if (import.meta.main) {
   const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events });
   const label = flags['--label'] ?? 'Outside review';
   console.log(`VERDICT: ${checked.verdict}`);
-  console.log(`FINDINGS: ${checked.findings.highest ?? (checked.verdict === 'findings' || checked.findings.unlabeled ? 'unspecified' : 'none')}`);
+  console.log(`FINDINGS: ${findingsLabel(checked)}`);
   if (checked.unparsed) console.log(`UNPARSED: ${checked.unparsed}`);
   if (flags['--events'] !== undefined) console.log(formatUsageLine(usageFromEvents(events)));
   if (checked.reason) {

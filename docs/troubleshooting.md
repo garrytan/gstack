@@ -179,14 +179,19 @@ the readiness dashboard and the PR body, and never count it as a pass.
   A reply whose last `Verdict:` line says `not ready` is `findings` and exits
   3 even when readable advisory severities (P2 or P3) were parsed; `FINDINGS:`
   names the highest one. A not-ready reply with no readable severity still
-  prints `FINDINGS: unspecified` and exits 3. Any other last `Verdict:`
-  (`Can't verify`, `blocked`, `revise`, an empty one), or a `ready` one that
-  says something could not be verified, is
-  [`unverified`](#outside-review-unverified-verdict), never `clean`.
-- **Numbered findings.** In a reply with a `Verdict:` line, every numbered
-  item at the start of a line (`1. x`, `1. **Nonblocking — x**`) is a finding.
-  When one has no readable severity, `FINDINGS:` prints `unspecified` instead
-  of `none`; the verdict still comes from the rules above.
+  prints `FINDINGS: unspecified` and exits 3. The verdict line may also be
+  quoted (`> Verdict:`), say `Overall verdict`, use a dash, or be a `Verdict`
+  heading with the value on the next line. A last verdict that is not an
+  approval (`ready`, `LGTM`, `approve`, `ship it`, `pass`, `clean`, `good to
+  go`), such as `Can't verify`, `blocked`, `revise` or an empty one, or an
+  approval that says something was excluded, blocked, skipped, not run or
+  could not be verified, is [`unverified`](#outside-review-unverified-verdict),
+  never `clean`.
+- **Numbered findings.** In a reply with a verdict line, every numbered item
+  at the start of a line (`1. x`, `1. **Nonblocking — x**`) is a finding,
+  unless the reply concludes that it found nothing. When one has no readable
+  severity, `FINDINGS:` prints `unspecified` instead of `none` (here and in
+  `gstack-outside-voice run`); the verdict still comes from the rules above.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
   `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
@@ -390,9 +395,10 @@ bun lib/outside-review-result.ts --verdict execution reply.md
 <a id="outside-review-unverified-verdict"></a>
 ### `... outside review: ran, verdict unverified (the reviewer's own verdict does not say the change is ready (Verdict: ...))` / `REASON: unverified_verdict`
 
-**Meaning.** The reply's last `Verdict:` line is neither `ready` nor
+**Meaning.** The reply's last verdict is neither an approval nor
 `not ready`, for example `Verdict: Can't verify (one changed file excluded
-...)`, or it says `ready` but also that something could not be verified. The
+...)`, or it approves but also says something was excluded, blocked, skipped,
+not run or could not be verified. The
 reviewer did not say the review finished and found the change ready, so gstack
 does not count it as `clean`. The quoted verdict is in parentheses.
 
@@ -405,7 +411,7 @@ run), then re-run the review. To re-check a saved reply, run
 gstack checkout.
 
 **Expected result.** `VERDICT: clean` or `VERDICT: findings` with a last
-`Verdict: ready` or `Verdict: not ready` line.
+verdict that approves the change or says `not ready`.
 
 <a id="codex-model-unusable"></a>
 ### `CODEX_MODE: model_unusable` / `MODEL_UNUSABLE`

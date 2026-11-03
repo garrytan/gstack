@@ -218,12 +218,14 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
     expect(validateOutsideReview(read('no-findings.txt').replace('Verdict: ready', "Verdict: Can't verify"), 'execution').completed).toBe(false);
   });
 
-  test('every verdict other than ready, and a ready verdict that says it could not verify, is unverified on every review gate', () => {
+  test('every verdict that is not an approval, and an approval that says something was not checked, is unverified on every review gate', () => {
     for (const gate of ['execution', 'structured', 'review'] as const)
       for (const verdictLine of [
         "Verdict: Can't verify (suites blocked)", 'Verdict: cannot verify', 'Verdict: Unable to verify the Windows path',
         "**Verdict:** Can\u2019t verify", '### Verdict: blocked', 'Verdict: revise', 'Verdict:',
         'Verdict: ready, but I could not verify the migration', 'Verdict: ready (unverified)',
+        "> Verdict: Can't verify (suites blocked)", "## Verdict\nCan't verify (one changed file excluded)", "Overall verdict: can't verify",
+        "Verdict \u2014 can't verify", 'Verdict: ready, though one changed file was excluded', 'Verdict: ready (tests not run, sandbox blocked)',
       ])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'unverified', reason: 'unverified_verdict', unlabeled: 0 });
   });
@@ -238,8 +240,11 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
   test('negative controls: real clean replies, consult answers, tagged findings and quoted examples stay as they were', () => {
     for (const gate of ['execution', 'structured', 'review'] as const) {
       expect({ gate, ...see(read('no-findings.txt'), gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
-      expect({ gate, ...see('No issues found.\nVerdict: Ready to merge.', gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
+      for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', '**Verdict:** `ready`'])
+        expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
+      expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
     }
+    expect(see('No issues found.\n## Verdict\nReady.', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
     expect(see('1. Use a queue.\n2. Add a retry cap.', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
     expect(see('1. **P2 — The docs lag.**\n2. **P3 — Rename it.**\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
     expect(see('No issues found.\n```\n1. Nonblocking — example\nVerdict: cannot verify\n```\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
