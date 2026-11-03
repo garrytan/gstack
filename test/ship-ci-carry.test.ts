@@ -335,7 +335,7 @@ describe('GST-1190: aliases, newer-gstack keys, narrow counts, and proving a map
     const TSC = 'bunx tsc --noEmit';
     const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [TSC]: { profiles: ['ci/free'], jobs: ['typecheck'] } }, guards: [{ id: 'typecheck', when: ['src/**'], command: TSC, fix: 'bunx tsc --noEmit' }] }) + '\n' }); fixtures.push(f);
     world(f, { jobs: ALL, tree: { files: [], tests: 0 } });
-    const g = f.run(path.join(BIN, 'gstack-pregate'), ['--stage', 'guards', '--allow-repo-commands', '--base', 'main']);
+    const g = f.run(path.join(BIN, 'gstack-pregate'), ['--only', 'guards', '--allow-repo-commands', '--base', 'main']);
     expect([g.status, g.stdout]).toEqual([0, expect.stringContaining('GUARD: typecheck carried runs=7/1')]);
     const row = JSON.parse(fs.readFileSync(ledger(f)[0]!, 'utf8').trim().split('\n').at(-1)!);
     expect([row.tests_ran, row.jobs]).toEqual(['n/a', ['typecheck']]);
@@ -378,5 +378,36 @@ describe('GST-1190: aliases, newer-gstack keys, narrow counts, and proving a map
     expect(JSON.parse(ev(f, ['carried', '--base', 'main', '--json']).stdout)).toEqual([]);
     expect(JSON.parse(ev(f, ['carried', '--base', 'feat', '--json']).stdout)).toEqual([expect.objectContaining({ lane: 'free', run: 7, attempt: 1 })]);
     expect(JSON.parse(ev(f, ['carried', '--json']).stdout)).toEqual([]);
+  });
+});
+
+describe('GST-1190: a file whose every test skipped on CI is not carried', () => {
+  // Value: protects=a lane never carries a test file that ran nothing on the CI runner (Docker images, drive paths, an installed gstack), so
+  //   those tests run here instead of silently dropping; a partly skipped file and an older tree.json without skipped_files carry as before;
+  //   fails_when=harness-evals' 75 runner-skipped tests carry as passed; why_new=HARN-7 (harness-evals #240); seam=fake gh
+  test('a fully skipped inventory file runs the lane here; a partly skipped one (not listed) and an older tree.json still carry', () => {
+    const f = fx();
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: inventory_uncovered: 1 of 2 inventory file\(s\) are in no run's tree\.json or skipped every test there \(1 skipped_files\): test\/b\.test\.ts$/m)]);
+    const out = preflight(f, [`free=${FREE}`]);
+    expect(out.stdout).toContain('CI_CARRY: none label=free (inventory_uncovered');
+    expect(runs(f, 'free-runs')).toBe(1);
+    world(f, { tree: { skipped_files: [] } });
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]).status).toBe(0);
+    world(f, { tree: { skipped_files: 'test/b.test.ts' } });
+    expect(f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main', '--command', FREE, '--allow-repo-commands']).stdout).toContain('artifact_mismatch');
+  });
+
+  test('the tests stage runs a selected file the run skipped entirely, and accepts the rest', () => {
+    const conf = JSON.stringify({ runner: 'bun test {files}', dependencies: { 'src/**': ['test/a.test.ts', 'test/b.test.ts'] }, run_profiles: { 'ci/free': PROFILE } }) + '\n';
+    const t = "import { test, expect } from 'bun:test';\ntest('x', () => expect(1).toBe(1));\n";
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': conf, 'test/a.test.ts': t, 'test/b.test.ts': t }); fixtures.push(f);
+    const stage = () => f.run(path.join(BIN, 'gstack-pregate'), ['--stage', 'tests', '--allow-repo-commands', '--base', 'main']);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const skipped = stage();
+    expect(skipped.stdout + skipped.stderr).toMatch(/REUSE: accepted 1 of 2 selected local test file\(s\) from run .*; 1 still run \(1 skipped every test in the run\)/);
+    world(f);
+    expect(stage().stdout + stage().stderr).toMatch(/REUSE: accepted 2 of 2 selected local test file\(s\) from run .*; 0 still run/);
   });
 });

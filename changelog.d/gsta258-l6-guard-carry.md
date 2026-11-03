@@ -9,7 +9,10 @@
 - An unknown `.gstack/pregate.json` key under a `min_gstack_version` above the running gstack now says `needs gstack >= <version>; upgrade` (`PREGATE_GSTACK_TOO_OLD`). It still refuses.
 - docs/pregate.md#prove-a-mapping documents the proof route, the version floors, and that `tree.json` writers using Bun's JUnit must take the root `testsuite` count.
 
+- A test file whose every test skipped on the CI runner no longer counts as carried (GST-1190, harness-evals: 75 tests). `tree.json` now lists such files in `skipped_files`, written by gstack's own Free Tests from the per-file JUnit counts; the pregate tests stage runs them here, and a /ship lane or guard whose inventory names one runs here. A partly skipped file still counts. An older `tree.json` without the list is read as before.
+
 ### Tests
 - `test/ship-ci-carry.test.ts`: in founderstar's shape (guards only, no lanes), `check-quick` carries from CI, `play-through` reuses a same-tree ledger pass, `assets` runs, and a dirty tree carries nothing. It fails without the guard carry.
 - `test/ship-ci-carry.test.ts`: a lane mapped by `jobs` carries when every named job passed at the same tree with no test files, and refuses for a missing job, a skipped job, a rerun whose newest attempt skipped the job, and another tree's run. Those five fail without the change.
 - `test/ship-ci-carry.test.ts` (GST-1190): an alias carries and an undeclared env prefix does not; a narrow lane reports its covered file count, not 9677; a jobs-mapped `bunx tsc --noEmit` guard carries with `n/a`; the newer-gstack message; `--simulate` writes and clears nothing and the branch's own map never carries; `carried` drops a row another base mapped. Six of these fail without the change.
+- `test/ci-tree-reuse.test.ts` and `test/ship-ci-carry.test.ts` (GST-1190 skipped files): the writer lists only fully skipped files and leaves the list out without complete counts; a fully skipped inventory file stops the lane carry, an empty list or older `tree.json` carries, and the tests stage runs only the skipped selected file. All three fail without the change.

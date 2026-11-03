@@ -737,6 +737,17 @@ once:
   record (a reuse is never evidence). Its tree equals the tree git computes for
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
+  <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
+  the runner (a Docker image, a drive path or an installed gstack it lacks;
+  GST-1190). A carry treats them as uncovered: the pregate tests stage runs
+  them here, and a /ship lane or guard whose inventory names one runs here
+  whole. A partly skipped file ran tests and stays covered. gstack's own writer
+  (`scripts/ci-tree-reuse.ts record`) derives the list from the shards' per-file
+  JUnit counts and leaves it out when those counts are incomplete. A `tree.json`
+  without the key (older writers, other repos) is read as before, with every
+  listed file counted as run; add the list to your writer to close that gap.
+  The remote gate's clearance does not use it: that gate runs on a Linux runner
+  like CI, where the same files skip.
 - No run of the same workflow on that head, or on pregate.json's own head,
   whose newest attempt started at or after the second this run was created
   failed, was cancelled or is still running (`run_started_at`, so a red re-run
@@ -895,7 +906,8 @@ whose workflow holds a lane this machine runs (gstack's `ci-reuse/free-tests`
 on Linux), with pregate.json's own head as a further veto head. Its tree must be this tree exactly (no
 stamp-only substitution). Then:
 
-- The selected local test files the run's `tree.json` lists count as passed.
+- The selected local test files the run's `tree.json` lists count as passed,
+  except those in its `skipped_files` ([above](#skipped-files)), which run here.
   The lanes check records them under `from_run` with the run receipt
   (`run tree=… tests=… runs=<id>/<attempt> profiles=… heads=… verified=…`) and
   prints `REUSE: accepted <n> of <m> selected local test file(s) from <receipt>;
@@ -933,7 +945,8 @@ it accepts a run only when all of these hold:
   tree. A `pull_request` run counts only when the pull request already
   contained its base.
 - Every run executed tests, and with an inventory command, the runs'
-  `tree.json` files cover every file it prints. A lane mapped by `jobs`
+  `tree.json` files cover every file it prints, none of them a file whose every
+  test skipped there (`skipped_files`). A lane mapped by `jobs`
   instead needs no test count: each named job succeeded in the run's newest
   attempt. Each run is read once more afterward (`run_changed`).
 

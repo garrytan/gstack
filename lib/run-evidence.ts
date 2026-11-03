@@ -50,7 +50,7 @@ export interface ApiRun {
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
-export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown }
+export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
 
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
 export interface RunDeps {
@@ -64,7 +64,8 @@ export interface RunDeps {
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
   | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null }
+/** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[] }
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -187,11 +188,13 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (p.os && !oses.includes(p.os)) return fail('os_mismatch', `${at} ran on ${oses.filter(Boolean).map(String).join(', ') || 'an unrecorded OS'}; ${o.profileName} requires ${p.os}`);
     if (rec.files !== undefined && (!Array.isArray(rec.files) || rec.files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} files is not a list of paths`);
     if (rec.tests !== undefined && (!Number.isInteger(rec.tests) || (rec.tests as number) < 0)) return fail('artifact_mismatch', `${at}'s ${p.artifact} tests is not a non-negative integer`);
+    if (rec.skipped_files !== undefined && (!Array.isArray(rec.skipped_files) || rec.skipped_files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} skipped_files is not a list of paths`);
     const files = ((rec.files ?? []) as string[]).map(normalPath);
     const tests = rec.tests === undefined ? null : (rec.tests as number);
     const changed = runChanged(deps, id, run.run_attempt);
     if (changed) return fail('run_changed', changed);
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests } };
+    const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
@@ -211,8 +214,15 @@ export function runInventory(command: string, cwd: string, env?: Record<string, 
 }
 
 /** The files in `inventory` that no verified run's tree.json lists. */
-export function uncoveredFiles(inventory: string[], evidence: RunEvidence[]): string[] {
-  const ran = new Set(evidence.flatMap(e => e.files.map(normalPath)));
+/** A run's files minus the ones whose every test skipped there (GST-1190): only those ran anything. Older tree.json: all files. */
+export const ranFiles = (e: RunEvidence): string[] => { const skipped = new Set(e.skipped ?? []); return e.files.map(normalPath).filter(f => !skipped.has(f)); };
+
+/**
+ * The inventory files no run covers. `skipped: 'uncovered'` (a carry, which drops tests on a machine where they might run)
+ * also counts a file every test of which skipped in the run; `'covered'` (the remote gate, a Linux runner like CI) does not.
+ */
+export function uncoveredFiles(inventory: string[], evidence: RunEvidence[], skipped: 'uncovered' | 'covered' = 'covered'): string[] {
+  const ran = new Set(evidence.flatMap(e => (skipped === 'uncovered' ? ranFiles(e) : e.files.map(normalPath))));
   return inventory.filter(f => !ran.has(normalPath(f)));
 }
 

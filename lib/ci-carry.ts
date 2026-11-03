@@ -86,8 +86,9 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
       const listed = o.inventory();
       if ('error' in listed) return no('inventory_failed', listed.error);
       if (!listed.length) return no('inventory_empty', 'the inventory command printed no files');
-      const missing = uncoveredFiles(listed, runs);
-      if (missing.length) return no('inventory_uncovered', `${missing.length} of ${listed.length} inventory file(s) are in no run's tree.json: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
+      const missing = uncoveredFiles(listed, runs, 'uncovered');
+      const skippedThere = missing.filter(f => runs.some(e => e.skipped?.includes(normalPath(f)))).length;
+      if (missing.length) return no('inventory_uncovered', `${missing.length} of ${listed.length} inventory file(s) are in no run's tree.json${skippedThere ? ` or skipped every test there (${skippedThere} skipped_files)` : ''}: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
       covered = new Set(listed.map(normalPath)).size;
     }
     for (const e of runs) {
