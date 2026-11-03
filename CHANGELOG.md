@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.94.27.0] - 2026-11-03
+
+- Housekeeping checks now run before every push instead of after a CI round (GST-1138, ship-90-90 plan). `gstack-pregate --stage guards --allow-repo-commands` runs only generated-file freshness (`regen`) and the repo's `guards`, each only for the files the branch touched, and writes `.gstack/tmp/pregate-guards.json` so it never replaces the full run's record. `gstack-ship-release push` runs it before every push, early or final, prints `GUARDS:`, and stops with the guard's fix when one fails, pushing nothing. A pass already recorded at HEAD's exact tree, by push itself or by `finish`'s preflight, is reused instead of rerun. See docs/pregate.md#prepush.
+- gstack declares its own guards in `.gstack/pregate.json`: typecheck, the skill size guards, the parity suite, the context-budget ratchet, the module-size ratchet, the /ship goldens and the CLAUDE.md size cap. gbrain had 64 of 93 red heads from checks like these, and #3908 went red on the context-budget ratchet. Every gstack at or above this repo's version floor already reads the `guards` key, so the floor does not move.
+
+### Tests
+- `test/pregate-guards.test.ts`: `--stage guards` runs only `regen` and `guards`, writes its own record and refuses `--only` and `--from-run`; gstack's guard list validates, names test files that exist and fires only on its own inputs.
+- `test/ship-release.test.ts`: a failing guard stops the push with its fix and pushes nothing; a pass at the same tree is reused, and a new commit runs the guards again.
+
+On main, all five new tests fail.
+
 ## [1.94.26.0] - 2026-11-03
 
 - A lane whose command runs several `bun test --shard=i/N` processes now records the sum of the shards' counts, not the last shard's (GBEV-3, gbrain-evals#317: 3336 recorded against 6,095 run across 2 shards). The sum needs shards 1/N to N/N, in order, at the end of the log; any other set records the last summary as before, so a command that runs a suite twice, or reruns one shard, still reports its last run. The shard lines and count lines that scroll out of the 64 KiB output tail are kept for this, so a long shard run still sums (a real 2-shard, 2000-test bun run recorded 1000 before and 2000 after).
