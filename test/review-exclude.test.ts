@@ -12,14 +12,14 @@ import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, tooLargeLine, unreada
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { extractReceipt } from '../lib/ship-receipt';
 import { bindShippedReceipt, receiptReviewAtHead } from '../lib/ship-receipt-depth';
-import { REVIEW_EXCLUDE_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
+import { REVIEW_EXCLUDE_KEY_VERSION, REVIEW_POLICY_KEY_VERSION, isUnavailable } from '../lib/ship-policy';
 import { loadPolicyAt } from '../lib/ship-policy-at';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 // review.panel all keeps today's panel, whose every brief these cases read; R65's one-reader default is pinned in review-depth-lean.test.ts.
-const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, review: { panel: 'all' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
+const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, review: { panel: 'all' }, min_gstack_version: REVIEW_POLICY_KEY_VERSION }) + '\n';
 const GZ = Buffer.from([0x1f, 0x8b, 0, 1, 2, 3, 0, 0]);
 const EXCLUDED = ['receipts/a/result.json', 'receipts/a/trial.gz', 'receipts/config/blob.bin', 'receipts/c/result.json', 'receipts/e/result.json', 'receipts/notes.md'];
 const KEPT = ['receipts/b/result.json', 'receipts/d/fixture.json', 'receipts/run.sh'];
@@ -258,6 +258,7 @@ describe('the receipt binds the selection the reviewers read', () => {
   const receiptIn = (body: string) => extractReceipt(fs.readFileSync(body, 'utf8')).receipt!;
   const writeReceipt = (repo: FixtureRepo, body: string, extra: string[]) =>
     runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body, ...extra]);
+  const targetedAtHead = (repo: FixtureRepo) => ['--review-targeted', JSON.stringify({ classes: ['money', 'gate', 'auth', 'secret'], rules: 'r', brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted', head: repo.git('rev-parse', 'HEAD') })];
   // Value: protects=a docs-only range whose only file sits under a base pattern and carries a gate tag binds the same selection at
   //   plan and receipt write, so the receipt can be written; fails_when=receiptReviewAtHead skips the gate scan when the paths are
   //   docs-class and excludes the file the plan kept as gate-tagged (/ship review of #3852, red-team#1: digests 652d0aa8 vs
@@ -296,7 +297,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     expect(missing.err).toContain(`field=review_exclude expected=${digest} recorded=none source=origin/main@`);
     expect(missing.err).toContain('gstack-review-dispatch verify --ledger <ledger>');
     expect(fs.existsSync(body)).toBe(false);
-    expect(writeReceipt(repo, body, ['--review-exclude', digest!]).status).toBe(EXIT.ok);
+    expect(writeReceipt(repo, body, ['--review-exclude', digest!, ...targetedAtHead(repo)]).status).toBe(EXIT.ok);
     expect(receiptIn(body).review_exclude).toMatchObject({ digest, excluded: EXCLUDED.length, kept: KEPT.length });
 
     onBase(repo, { 'docs/other.md': '# other\n' });

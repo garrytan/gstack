@@ -65,6 +65,7 @@ const NO_LOSS_REPLAYS = {
   'R51': "R51 risk-tier routing no-loss re-score (GSTA-167): the saved panel findings (349 records over 24 of the 26 no-loss units) re-scored against the branch's plan lose no blocker whose only finders are roles it drops, and every gate, security, user-data and money fixture keeps main's reviewers plus the full panel (test/review-targeted.test.ts, test/review-risk-routing.test.ts); reviewer text is unchanged",
   'GST-508+R51': "wave review-53cfb5bfe011 merge of #3744 into main: lib/review-depth.ts keeps both admitted changes, the GST-508 no-loss replay of review_exclude_paths (Arm V 33 of 41 blockers vs R 33 of 41, p_NI 0.0279; GStack Minder drive handoffs/GSTA-202/noloss-results.md) and the R51 risk-tier re-score with GST-850's dispatch-superset no-loss check: excluded paths sit beside the added and removed line maps, and the exclusion filter keeps the publishes-docs rule",
   'GST-508+GST-464': "wave review-53cfb5bfe011 merge of #3744 into main: ship/sections/review-army.md and adversarial.md carry the GST-508 no-loss-replayed exclude pathspec placeholders inside the brief bodies (handoffs/GSTA-202/noloss-results.md) and the GST-464 lead-instruction edits outside the cut spans, which its brief-identity no-loss check admitted",
+  'GST-986': "GST-986 brief-identity no-loss check (the brief-body test below): every reviewer brief lib/review-brief.ts cuts from ship/sections/adversarial.md is byte-identical to the bodies at the GST-257 pin; only the lead's Step 11 instruction naming the targeted record's path changed, outside the cut spans",
   'GST-911-redos': "GST-911 ReDoS fix verdict-identity no-loss check (wave review-e7b551ebd865): SVG_REFUSED's url() entry, rewritten to run in linear time, refuses exactly the strings #3838's pattern refused (test/review-risk-redos.test.ts: 60,000 seeded strings and the hand-picked edges, and every SVG blob in the repository's history, with zero differences); SVG_MARKUP now refuses a DOCTYPE naming any document but W3C's SVG DTD (test/review-planner-misreads.test.ts), which only keeps more SVGs code and so drops no reviewer; GST-911's no-loss replay holds unchanged; reviewer text is unchanged",
   'GST-911': "GST-911 no-loss replay (GSTA-249/13): the planner over the last 100 first-parent main commits to f5cb6ec1e, origin/main's code against this branch, gate scan fixed at 0, changes no commit's depth, class, risk classes, targeted classes or SCOPE_AUTH; the three misreads (a drawing-only SVG, a session-named data file, a bare base) are proven on fixtures (test/review-planner-misreads.test.ts), where every SVG that can run script stays code with the security class; reviewer text is unchanged",
   'GST-508+R51+GST-911': "wave review-53cfb5bfe011 merge of main 3d99c2249 (#3848) into #3852: lib/review-depth.ts keeps GST-508's review_exclude_paths (no-loss replay, GStack Minder drive handoffs/GSTA-202/noloss-results.md), R51 with GST-850's dispatch-superset no-loss check, and GST-911's SVG drawings with GST-911-redos (no-loss replay: 0 of 100 main commits changed, reports/GSTA-249-911-decisions.tsv; test/review-planner-misreads.test.ts, test/review-risk-redos.test.ts); lib/review-risk.ts is main's GST-911 bytes. Merged-head checks (handoffs/GSTA-202/merge-3d99c22-checks.md): Arm P on unit 3593 differs only in the exclude pathspec and the disclosure line, the same brief diff as before the merge, and GST-911 panel unit f5cb6ec1e plans, dispatches and renders byte-identical briefs under 3d99c2249 and the merged head",
@@ -98,10 +99,10 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
 };
 
 /**
- * The six reviewer brief bodies lib/review-brief.ts cuts out of the two ship sections, pinned at
- * the bytes replays L and GST-257 admitted, except fixtures, redTeam and native, which carry the exclude
- * pathspec placeholders the GST-508 replay admitted (byte-identical to #3744 at 995e442). A section repin under
- * GST-464 is valid only while every body still hashes here: the section may change outside the cut spans, never inside them.
+ * The reviewer brief bodies lib/review-brief.ts cuts out of the ship sections, at the bytes replays L and GST-257
+ * admitted, except fixtures, redTeam and native, which carry the exclude pathspec placeholders the GST-508 replay
+ * admitted (byte-identical to #3744 at 995e442). A section repin under GST-464 or GST-986 is valid only while every
+ * body still hashes here: the section may change outside the cut spans, never inside them.
  */
 const BRIEF_BODIES: Record<string, string> = {
   specialist: '1ebe47ddb3291a9e4fe90b5a260eb57e328144959549bc95c119b68d23652cb5',
@@ -111,22 +112,20 @@ const BRIEF_BODIES: Record<string, string> = {
   native: 'a7cc08fb31b6ca65932a316d589f0b09677426d193d63f88ec74fee6d93ce053',
   outside: 'bd96406da28b03742384560425a333b6d6d7ed2be95bd2026c90e0039632cee2',
 };
-const bodyHashes = (root: string) => Object.fromEntries(Object.entries(sectionTexts(root)).map(([k, v]) => [k, createHash('sha256').update(v).digest('hex')]));
 
 describe('reviewer briefs stay at their no-loss-tested bytes (GSTA-167)', () => {
-  // Value: protects=the GST-464 repin of ship/sections/review-army.md and adversarial.md admits only lead-instruction
-  //   edits: every brief a reviewer reads renders byte-identical to the no-loss-tested bodies; fails_when=an edit inside a
-  //   cut span changes a brief while its section pin is moved; seam=sectionTexts, the function every render uses;
-  //   no_claim=the checklists and the targeted brief, pinned by their own file hashes above
+  // Value: protects=the GST-986 repin of ship/sections/adversarial.md admits only a lead-instruction edit: every brief a reviewer
+  //   reads renders byte-identical to the no-loss-tested bodies; fails_when=an edit inside a cut span changes a brief while the
+  //   section pin moves; seam=sectionTexts, the function every render uses; no_claim=the checklists (pinned by file hash below)
   test('every reviewer brief cut from the ship sections is byte-identical to its pinned body', () => {
-    expect(bodyHashes(ROOT)).toEqual(BRIEF_BODIES);
+    const hashes = (root: string) => Object.fromEntries(Object.entries(sectionTexts(root)).map(([k, v]) => [k, createHash('sha256').update(v).digest('hex')]));
+    expect(hashes(ROOT)).toEqual(BRIEF_BODIES);
     const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-bodies-'));
     try {
-      fs.mkdirSync(path.join(copy, 'ship', 'sections'), { recursive: true });
-      for (const f of ['review-army.md', 'adversarial.md']) fs.copyFileSync(path.join(ROOT, 'ship', 'sections', f), path.join(copy, 'ship', 'sections', f));
-      const army = path.join(copy, 'ship', 'sections', 'review-army.md');
-      fs.writeFileSync(army, fs.readFileSync(army, 'utf8').replace('You are a specialist code reviewer.', 'You are a specialist code reviewer. Skim.'));
-      expect(bodyHashes(copy).specialist).not.toBe(BRIEF_BODIES.specialist);
+      fs.cpSync(path.join(ROOT, 'ship', 'sections'), path.join(copy, 'ship', 'sections'), { recursive: true });
+      const adversarial = path.join(copy, 'ship', 'sections', 'adversarial.md');
+      fs.writeFileSync(adversarial, fs.readFileSync(adversarial, 'utf8').replace('Recommendation:', 'Recommendation (short):'));
+      expect(hashes(copy)).not.toEqual(BRIEF_BODIES);
     } finally {
       fs.rmSync(copy, { recursive: true, force: true });
     }

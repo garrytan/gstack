@@ -30,7 +30,8 @@ host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place 
 `specialist batched` is one subagent reading every checklist its
 `checklists=` names (light adds Red Team), tagging each finding with its checklist.
 `NEXT: platform` runs no reader: log item 6's row with `"depth":"platform"` and the
-`PLATFORM_REVIEW:` id (Step 16's receipt write takes `--platform-review <id>`), then go to Step 10.
+`PLATFORM_REVIEW:` id (Step 16's receipt write takes `--platform-review <id>`; Step 11.5 selects no Step 11
+record), then go to Step 10.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
