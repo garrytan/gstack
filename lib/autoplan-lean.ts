@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { OUTSIDE_ROLE, sectionLoadFor, type Phase, type Scope } from './autoplan-prompts';
 import { RunError, type RunState } from './autoplan-state';
+import { redactFindingSpans } from './redact-engine';
 
 export const KINDS = ['fix', 'feature'] as const;
 export type AutoplanKind = typeof KINDS[number];
@@ -33,7 +34,7 @@ export const FIX_LINES = [
 const LENS: Record<Phase, string> = { ceo: 'CEO', design: 'Design', dx: 'DX', eng: 'Eng' };
 const INLINE_DRAFT_BYTES = 100_000;
 const UNTRACKED_MAX = 200;
-const SECRET_NAME = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.(pem|key|p12|pfx|keystore)|id_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.npmrc|\.pypirc|credentials(\.[^/]*)?|[^/]*secret[^/]*)$/i;
+const SECRET_NAME = /(^|\/)(\.env[^/]*|[^/]*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|dsa|ecdsa|ed25519)(_sk)?|[._]netrc|\.npmrc|\.pypirc|\.pgpass|[^/]*credentials[^/]*|[^/]*secret[^/]*)$/i;
 
 /** The first next's mode: lean for --kind feature, or for an unattended Capy run that names no kind; --full and --ceo-only keep today's run. */
 export function leanMode(o: { kind?: AutoplanKind; full?: boolean; ceoOnly?: boolean; base?: string; sessionKind: string; env: NodeJS.ProcessEnv }): LeanMode | undefined {
@@ -56,7 +57,9 @@ export const draftLine = (d: DraftInput) =>
 /**
  * The draft code against the base: tracked changes since the merge base (committed and not) plus untracked files,
  * the run directory excluded, written once to <dir>/draft.diff (read-only) and hashed. No git, no merge base, no
- * change or a git command that failed is an honest none with its reason, never a partial draft.
+ * change or a git command that failed is an honest none with its reason, never a partial draft. The draft goes to
+ * a model provider, so a file whose name looks like a secret is never diffed (tracked or untracked), and every
+ * file's patch passes through the redact engine; one it cannot redact is left out with a note (GST-1164, #3914).
  */
 export function captureDraft(cwd: string, dir: string, out: string, base?: string): DraftInput {
   const git = (args: string[], at = cwd) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: at, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
@@ -73,19 +76,33 @@ export function captureDraft(cwd: string, dir: string, out: string, base?: strin
   const failed = (r: ReturnType<typeof git>, what: string, ok = [0]) => r.error || r.status === null || !ok.includes(r.status)
     ? `draft capture failed: ${what} ${r.error ? `errored (${r.error.message})` : `exited ${r.status ?? r.signal}`}${r.stderr?.trim() ? `: ${r.stderr.trim().split('\n')[0]}` : ''}` : undefined;
   const raw = ['diff', '--no-color', '--no-ext-diff', '--no-textconv'];
-  const tracked = git([...raw, mergeBase, '--'], root);
-  const names = git(['diff', '--name-only', mergeBase, '--'], root);
+  const names = git(['diff', '--name-status', '-z', '-M', '-C', mergeBase, '--'], root);
   const others = git(['ls-files', '--others', '--exclude-standard', '-z'], root);
-  const broken = failed(tracked, 'git diff') ?? failed(names, 'git diff --name-only') ?? failed(others, 'git ls-files');
+  const listed = failed(names, 'git diff') ?? failed(others, 'git ls-files');
+  if (listed) return { base: ref, none: listed };
+  const fields = names.stdout.split('\0');
+  const changed: string[] = [];
+  const secretTracked: string[][] = [];
+  for (let i = 0; fields[i];) {
+    const entry = /^[RC]/.test(fields[i++]!) ? [fields[i++]!, fields[i++]!] : [fields[i++]!];
+    changed.push(...entry);
+    if (entry.some(f => SECRET_NAME.test(f))) secretTracked.push(entry);
+  }
+  const tracked = git([...raw, '-M', mergeBase, '--', '.', ...secretTracked.flat().map(f => `:(exclude,literal)${f}`)], root);
+  const broken = failed(tracked, 'git diff');
   if (broken) return { base: ref, none: broken };
+  const redacted = (patch: string, what: string) => redactFindingSpans(patch) ?? `# draft: ${what} left out (it could not be redacted safely)\n`;
   const untracked = others.stdout.split('\0').filter(f => f && !inRun(f)).sort();
-  const parts = [tracked.stdout];
+  const parts = [
+    ...tracked.stdout.split(/^(?=diff --git )/m).map(p => redacted(p, p.slice(0, p.indexOf('\n')))),
+    ...secretTracked.map(e => `# draft: ${e.join(' -> ')} left out (${e.length > 1 ? 'a rename or copy of a file whose name looks like a secret' : 'its name looks like a secret'})\n`),
+  ];
   for (const f of untracked.slice(0, UNTRACKED_MAX)) {
     if (SECRET_NAME.test(f)) { parts.push(`# draft: untracked ${f} left out (its name looks like a secret)\n`); continue; }
     const d = git([...raw, '--no-index', '--', '/dev/null', f], root);
     const bad = failed(d, `git diff --no-index ${f}`, [0, 1]);
     if (bad) return { base: ref, none: bad };
-    parts.push(d.stdout);
+    parts.push(redacted(d.stdout, `untracked ${f}`));
   }
   if (untracked.length > UNTRACKED_MAX) parts.push(`# draft: ${untracked.length - UNTRACKED_MAX} more untracked files not shown\n`);
   const text = parts.join('');
@@ -94,7 +111,7 @@ export function captureDraft(cwd: string, dir: string, out: string, base?: strin
   fs.writeFileSync(file, text, process.platform === 'win32' ? { flag: 'wx' } : { flag: 'wx', mode: 0o444 });
   const bytes = fs.readFileSync(file);
   return { base: ref, root, merge_base: mergeBase, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
-    ...(bytes.length > INLINE_DRAFT_BYTES ? { shown_bytes: INLINE_DRAFT_BYTES } : {}), files: [...new Set([...names.stdout.split('\n').filter(Boolean), ...untracked])].sort() };
+    ...(bytes.length > INLINE_DRAFT_BYTES ? { shown_bytes: INLINE_DRAFT_BYTES } : {}), files: [...new Set([...changed, ...untracked])].sort() };
 }
 
 /** The merged brief (before the shared blocks) and the receipt line (after RESULT FORMAT) a lean phase's native prompt adds. */

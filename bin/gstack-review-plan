@@ -28,6 +28,7 @@ import { locate, readRecord } from '../lib/approval-record';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
+import { baseNote } from '../lib/gate-diff/git';
 import { collectCommit, collectLive } from '../lib/review-collect';
 import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
 import { isUnavailable } from '../lib/ship-policy';
@@ -126,8 +127,11 @@ function main(): number {
     for (const e of collected.errors) process.stderr.write(`gstack-review-plan: git could not list the diff (${e.input}: ${e.detail}); fix: ${e.repair}; no plan is safer than a plan for an empty diff\n`);
     return EXIT.fail;
   }
+  const note = collected.base && baseNote(base, collected.base);
+  if (note) process.stderr.write(`gstack-review-plan: ${note}\n`);
+  const ref = collected.base?.ref ?? base;
   const head = git(['rev-parse', 'HEAD'])?.trim() ?? 'unknown';
-  const self = collected.mergeBase === head ? baseContainsHead(root, git(['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]) ? `origin/${base}` : base) : null;
+  const self = collected.mergeBase === head ? baseContainsHead(root, ref) : null;
   if (self) { process.stderr.write(`${resultLine('gstack-review-plan', 'BASE_CONTAINS_HEAD', self)}; no plan is safer than a plan for a diff compared with itself\n`); return EXIT.fail; }
   const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
   const scopeOf = (args: string[]): Record<string, string> => {
@@ -145,7 +149,6 @@ function main(): number {
   const gateTagsOf = (args: string[]): number | null => { const g = runGateDiff(args); return tagCount(g.stdout, g.status); };
   const diffBase = collected.mergeBase ?? base;
   const scope = scopeOf([diffBase]);
-  const ref = git(['rev-parse', '--verify', '-q', `origin/${base}^{commit}`]) !== null ? `origin/${base}` : base;
   const baseSha = collected.registry.sha ?? git(['rev-parse', '--verify', '-q', `${ref}^{commit}`])?.trim() ?? '';
   const policy = baseSha ? loadPolicyAt(root, baseSha, ref) : null;
   const declares = !!policy && !isUnavailable(policy) && policy.policy.review_exclude_paths.length > 0;
@@ -193,11 +196,11 @@ function main(): number {
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings,
+    process.stdout.write(JSON.stringify({ ...rest, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, base: collected.base, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings,
       ...(exclusion.state === 'head-only' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
     return EXIT.ok;
   }
-  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`,
+  const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`, `REVIEW_BASE: ${ref} ${baseSha.slice(0, 12)}`,
     `TARGETED: classes=${classList(targeted.classes)} rules=${targeted.rules} brief=${brief} targeted_patch_id=${patch}${targeted.reasons.length ? ` reasons=${targeted.reasons.join('; ')}` : ''}`];
   out.push(...excludeLines(exclusion, base));
   if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);

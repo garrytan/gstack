@@ -137,6 +137,27 @@ export function resolveBase(ref: string, cwd: string, head?: string): { ref: str
   return sha ? { ref, sha } : null;
 }
 
+export type ResolvedBase = NonNullable<ReturnType<typeof resolveBase>>;
+
+/** Why resolveBase read another ref than the name given (`local main is behind origin/main; base is origin/main`); null when the name stood as given. */
+export function baseNote(name: string, base: ResolvedBase): string | null {
+  if (base.local === 'fallback') return `${base.unrelatedRemote ? `${base.unrelatedRemote} shares no history with HEAD` : `no remote-tracking branch for ${name}`}; base is the local ${name}, which may lag its remote`;
+  if (!base.local) return null;
+  return `${{ unrelated: `local ${name} shares no history with HEAD`, missing: `no local branch ${name}`, behind: `local ${name} is behind ${base.ref}`, ahead: `local ${name} is ahead of ${base.ref}`, diverged: `local ${name} has diverged from ${base.ref}` }[base.local]}; base is ${base.ref}`;
+}
+
+/**
+ * A --base argument as the commit a review or ship bin reads (GST-1036): resolveBase against HEAD, so a bare `main`
+ * reads origin/main over a stale local main, with the note on stderr as `<bin>: <note>` when it read another ref than
+ * the name. An unresolvable name comes back as given, so the caller's own git error still names it.
+ */
+export function baseArg(bin: string, name: string, cwd: string): string {
+  const base = resolveBase(name, cwd, 'HEAD');
+  const note = base && baseNote(name, base);
+  if (note) process.stderr.write(`${bin}: ${note}\n`);
+  return base?.sha ?? name;
+}
+
 /** A word for a printed shell line: as is when it is plain, single-quoted otherwise (ref names may hold `;`, `$`, `(`, `{1,2}`). */
 function shellWord(s: string): string {
   return /^[A-Za-z0-9._\/@^~+:-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
