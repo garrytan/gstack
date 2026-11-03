@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PROMPT_MAX_CHARS, ROUTE_THRESHOLD, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
+import { PROMPT_MAX_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
 import { ROOT, ROUTE_HOOK, SKILLS, hookEnv, runHook, skillsDir, tmpDir } from './helpers/skill-contract-fixture';
 
 let state = '', skills = '';
@@ -50,6 +50,14 @@ describe('scorer', () => {
     expect(routePrompt('please review my diff', fixtureSkills)).toMatchObject({ route: null, reason: 'below-threshold' });
     expect(routePrompt('/investigate fix this bug', fixtureSkills)).toMatchObject({ route: null, reason: 'slash-command' });
     expect(routePrompt(`fix this bug ${'x'.repeat(PROMPT_MAX_CHARS)}`, fixtureSkills)).toMatchObject({ route: null, reason: 'prompt-too-long' });
+  });
+
+  test('only the four discovery targets route; another installed skill with a matching trigger does not', () => {
+    expect(ROUTED_SKILLS).toEqual(['investigate', 'review', 'qa', 'verify']);
+    const ship = { name: 'ship', file: '', frontmatter: '', triggers: ['ship this branch'] };
+    expect(scorePrompt('ship this branch', [ship])[0]).toMatchObject({ skill: 'ship', score: 1 });
+    expect(routePrompt('ship this branch', [...fixtureSkills, ship])).toMatchObject({ route: null, reason: 'below-threshold' });
+    expect(routePrompt('this test fails, ship this branch', [ship, ...fixtureSkills]).route?.skill).toBe('investigate');
   });
 
   test('malformed triggers are reported and skipped, never thrown', () => {

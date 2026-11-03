@@ -176,6 +176,13 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
   return out.sort((a, b) => b.score - a.score || b.matched - a.matched || a.skill.localeCompare(b.skill));
 }
 
+/**
+ * The skills the hook may route to: plan-v2 decision 4's discovery targets. Run D's prompts showed routing
+ * every installed skill's triggers false-routes most non-fit prompts (docs/skill-routing-and-contracts.md).
+ */
+export const ROUTED_SKILLS = ['investigate', 'review', 'qa', 'verify'];
+const isRouted = (name: string) => ROUTED_SKILLS.includes(name.toLowerCase().replace(/^gstack[-:]/, ''));
+
 export type RouteDecision =
   | { route: RouteCandidate; candidates: RouteCandidate[] }
   | { route: null; reason: 'slash-command' | 'prompt-too-long' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
@@ -185,7 +192,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (prompt.length > PROMPT_MAX_CHARS) return { route: null, reason: 'prompt-too-long', candidates: [] };
-  const candidates = scorePrompt(prompt, skills);
+  const candidates = scorePrompt(prompt, skills.filter(s => isRouted(s.name)));
   const top = candidates[0];
   return top && top.score >= threshold ? { route: top, candidates } : { route: null, reason: 'below-threshold', candidates };
 }

@@ -35,6 +35,7 @@ The off switch is for people. The text the Stop hook shows the model never menti
 The hook scores the prompt against the `triggers:` list in each installed `SKILL.md` (`~/.claude/skills/*/SKILL.md`, or `$CLAUDE_CONFIG_DIR/skills`). It makes no model call and no network request, and the same prompt always gets the same answer.
 
 - A trigger scores 1 when its whole phrase appears in the prompt. Otherwise it scores the share of its content words (common words dropped, light stemming, so "failing" matches "fails") that the prompt contains. A trigger with one content word counts only on its whole phrase, unless that word has five or more letters and is not a question word.
+- Only /investigate, /review, /qa and /verify route. In the d7 check (PR #3912), scoring every installed skill's triggers sent 17 of 32 non-fit Terminal-Bench prompts to some skill at 0.66; routing only these four sends 4. The other skills wait for their own trigger review.
 - The skill with the best score routes when it reaches the threshold, 0.66: both words of a two-word trigger, or two of three.
 - Prompts that start with `/` (you already picked a skill) and prompts over 8,000 characters (pasted logs) are never routed.
 - The injected line names its source and its off switch, and asks the model to tell you in one sentence that gstack routed the request.
