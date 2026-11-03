@@ -88,7 +88,11 @@ describe.skipIf(process.platform === 'win32')('CI carry clears the remote gate o
     const file = await runPregate(loaded.ctx, { stage: 'tests' });
     expect(gate(file)?.receipt).toBeNull();
     const detail = file.checks.find(c => c.id === 'lanes')?.detail ?? '';
-    expect(detail).toContain(`a verified CI run at this tree clears it: push, then gstack-ci-carry wait --base main and rerun --stage tests`);
+    expect(detail).toContain(`a verified CI run at this tree clears it: push, then gstack-ci-carry wait --base main and rerun gstack-pregate --allow-repo-commands`);
     expect(detail.indexOf('gstack-ci-carry wait')).toBeLessThan(detail.indexOf('opt in to the VM: gstack-pregate --remote --spend-cap <usd> --allow-repo-commands'));
+    loaded.ctx.ciCarry = false;
+    const off = (await runPregate(loaded.ctx, { stage: 'tests' })).checks.find(c => c.id === 'lanes')?.detail ?? '';
+    expect(off).not.toContain('gstack-ci-carry wait');
+    expect(off).toContain('run it, then gstack-pregate clear --remote pregate.json/remote_gate');
   }, 120_000);
 });

@@ -499,8 +499,10 @@ the supervision above. Close the obligation one of four ways:
 - by default, when the base declares `remote_gate_runs`, let CI clear it: the
   tests stage clears it on its own from a verified run at this exact tree
   ([CI carry](#ci-carry)), and the uncleared obligation's detail names that
-  route first (`push, then gstack-ci-carry wait --base <base> and rerun --stage
-  tests`) and the VM only as the opt-in; or
+  route first (`push, then gstack-ci-carry wait --base <base> and rerun
+  gstack-pregate --allow-repo-commands`, the whole pregate, so the record keeps
+  its preflight checks) and the VM only as the opt-in (under `--no-ci-carry` it
+  names the VM route); or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output, validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
@@ -961,10 +963,11 @@ example a gate inventory file missing from the run's `tree.json`.
 Free Tests run at the same tree is how the remote gate obligation clears, and
 the Ubicloud VM (`gstack-pregate --stage tests --remote`) is an opt-in for when
 no such run exists. The order after a push: wait for Free Tests
-(`gstack-ci-carry wait --base main`), then `gstack-pregate --stage tests
+(`gstack-ci-carry wait --base main`), then `gstack-pregate
 --allow-repo-commands`. A `pull_request` run tests GitHub's merge commit, so on
 a branch that does not contain the base tip it tested another tree and
-`CI_CARRY` says `tree_mismatch`: dispatch Free Tests on the branch
+`CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
+on the branch
 (`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
 and wait again. The preflight stage (generated-file freshness, secrets, strays
 and the other mechanical checks) and the sealed guard are unchanged and always

@@ -122,6 +122,8 @@ interface EvidenceRecord {
   source?: "ci";
   runs?: string[];
   profiles?: string[];
+  /** The base policy that mapped a carried lane (record-ci), as `origin/<base>@<sha>:.gstack/pregate.json`. */
+  policy?: string;
   /** The runner's own test count (executed for bun/jest/vitest/pytest/rspec; ran with skips included for gstack's shard runner and the remote gate), 0 for ZERO-RUN, or "unknown" when no supported summary was seen. */
   tests_ran?: number | "unknown";
 }
@@ -671,10 +673,10 @@ function cmdRecordCi(argv: string[]): number {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles,
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label,
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests} log=- source=ci runs=${runs.join(",")}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}`);
   return 0;
 }
 

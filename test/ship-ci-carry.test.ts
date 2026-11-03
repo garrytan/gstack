@@ -7,6 +7,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fakeGhScript, type FakeWorld } from './helpers/fake-gh-runs';
+import { findFilesBySuffix } from './helpers/scratch-repo';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(120_000);
@@ -102,7 +103,9 @@ describe('Step 5 lanes: CI carry and the tree cache', () => {
     expect(ev(['check', '--label', 'free', '--expect-cmd', FREE]).stdout).not.toContain('EVIDENCE: FRESH');
     expect(JSON.parse(ev(['carried', '--json']).stdout)).toEqual([]);
     const ok = ev(['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
-    expect([ok.status, ok.stderr]).toEqual([0, expect.stringContaining('tests_ran=12 log=- source=ci runs=7/1')]);
+    expect([ok.status, ok.stderr]).toEqual([0, expect.stringContaining('tests_ran=12 log=- source=ci runs=7/1 policy=origin/main@')]);
+    const row = JSON.parse(fs.readFileSync(findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl')[0]!, 'utf8').trim().split('\n').at(-1)!);
+    expect(row.policy).toMatch(/^origin\/main@[0-9a-f]{12}:\.gstack\/pregate\.json$/);
   });
 });
 
