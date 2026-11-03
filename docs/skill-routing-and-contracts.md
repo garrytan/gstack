@@ -97,7 +97,7 @@ Items are checked against one run of the skill: from its last load to the end of
 
 A session loads /investigate, edits `src/auth.ts` and answers "Fixed: the null check was missing." with no report and no test run. The Stop hook blocks once with:
 
-    SKILL_CONTRACT_UNMET investigate (contract v1): missing debug-report, repro-after-fix. Fix: debug-report: print the DEBUG REPORT with real values for Symptom, Root cause, Fix, Evidence; repro-after-fix: run the test or repro again after your last edit and show its result. If an item truly does not apply, run "<gstack>/bin/gstack-skill-contract" waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.
+    SKILL_CONTRACT_UNMET investigate (contract v1): missing debug-report, repro-after-fix. Fix: debug-report: print the DEBUG REPORT with real values for Symptom, Root cause, Fix, Evidence; repro-after-fix: run the test or repro again after your last edit and show its result. If an item truly does not apply, run '<gstack>/bin/gstack-skill-contract' waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.
 
 The model runs `bun test`, prints the DEBUG REPORT, and stops. The record reads `met_after_block`.
 

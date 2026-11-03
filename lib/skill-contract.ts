@@ -465,7 +465,7 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
 export function blockMessage(result: CheckResult, bin: string): string {
   const fixes = result.items.filter(i => i.status === 'missing').map(i => `${i.id}: ${i.fix}`).join('; ');
   return `SKILL_CONTRACT_UNMET ${result.skill} (contract v1): missing ${result.missing.join(', ')}. Fix: ${fixes}. ` +
-    `If an item truly does not apply, run "${bin}" waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.`;
+    `If an item truly does not apply, run '${bin.replaceAll("'", "'\\''")}' waive <item> --reason "<why>" (this session only; counted as a miss for follow). This blocks once.`;
 }
 
 export type ContractLookup =

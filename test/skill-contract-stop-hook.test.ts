@@ -60,7 +60,7 @@ describe('block once, with the pinned text', () => {
   test('GST-1242: the block names the waive command by the path this install resolves, not a bare name off PATH', () => {
     const reason: string = JSON.parse(stop(transcript(J1_TRANSCRIPT)).stdout).reason;
     expect(reason).not.toMatch(/run gstack-skill-contract waive/);
-    const named = /run "([^"]+)" waive <item>/.exec(reason)?.[1];
+    const named = /run '([^']+)' waive <item>/.exec(reason)?.[1];
     expect(named).toBe(BIN);
     const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
     const waive = spawnSync(named!, ['waive', 'repro-after-fix', '--reason', 'docs-only change'], { env: hookEnv(state, skills), encoding: 'utf8', timeout: 20_000 });

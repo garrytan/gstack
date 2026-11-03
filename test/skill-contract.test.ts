@@ -133,6 +133,18 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(parseContract('contract:\n  version: 1\n  items: [{id: a, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:"}]')).toHaveProperty('contract');
   });
 
+  test('GST-1242: the waive command in the block text is a literal path to bash, and the transcript reader counts it', () => {
+    const r = check(J1_TRANSCRIPT);
+    const bin = "/opt/it's gstack $(touch pwned)/bin/gstack-skill-contract";
+    const cmd = /does not apply, run (.+) waive <item>/.exec(blockMessage(r, bin))![1];
+    const printed = spawnSync('bash', ['-c', `printf %s ${cmd}`], { cwd: tmpDir('gstack-contract-quote-'), encoding: 'utf8', timeout: 10_000 });
+    expect(printed.stdout).toBe(bin);
+    expect(fs.existsSync(path.join(printed.stdout, '..', 'pwned'))).toBe(false);
+    const base = [...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)];
+    const waived = check([...base, tool('w', 'Bash', { command: `${cmd} waive repro-after-fix --reason "docs-only change"` }), result('w', 'ack')]);
+    expect(waived).toMatchObject({ met: true, waived: ['repro-after-fix'] });
+  });
+
   test('waivers come from waive Bash calls in the transcript; an errored waive or another skill\'s waive does not count', () => {
     const waive = (cmd: string, isError = false) => [tool('w', 'Bash', { command: cmd }), result('w', 'ack', isError)];
     const base = [...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)];
