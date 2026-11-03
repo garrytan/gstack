@@ -3,7 +3,7 @@
  * skill-contract-stop-hook — Stop hook that blocks once when a contract skill
  * ends without its required outputs (GST-1088, lane A). Off unless
  * skill_contracts is on (env GSTACK_SKILL_CONTRACTS, then config
- * skill_contracts; default off).
+ * skill_contracts, then SWITCH_DEFAULT).
  *
  *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message)
  *     -> the most recently loaded skill that declares a contract (none: allow)
