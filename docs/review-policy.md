@@ -174,9 +174,12 @@ applies no edits is its exit too.
 `gstack-review-plan --base <base>` classifies the diff, picks a **depth** and prints
 the reviewers the next step dispatches: `REVIEW_CLASS:`, `REVIEW_DEPTH: <d>
 runtime_lines=<n> rules=<hash> reasons=<…> codes=<…>`, `GATE_SCAN: tagged=<n>|unavailable
-head=<sha>`, one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
+head=<sha>`, `REVIEW_BASE: <ref> <sha12>` (the base the diff was taken against: a bare
+`--base main` reads `origin/main` when it shares history with HEAD, and a local `main` that lags
+it is named on stderr), one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
 with its effort and a shell-quoted `DIFF_CMD:` (plus `DIFF_EXCLUDE: <name> none` when it
-reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields.
+reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields (the
+base as `base`).
 A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
@@ -384,7 +387,7 @@ and matching is token-bounded: `costume` never reads as cost.
 |---|---|
 | money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
-| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH` |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH`, and `SCOPE_AUTH` fails safe: any name token containing auth sets it (`auth.ts`, `/auth/`, `oauth`, `useAuth.ts`, `nextauthmiddleware.ts`) except the authorship words `author`, `authors`, `authored`, `authoring`, `authorship`, `authority`, `authorities`, `coauthor` and `coauthors` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
 
 An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
