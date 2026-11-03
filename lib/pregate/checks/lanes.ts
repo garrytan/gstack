@@ -39,7 +39,7 @@ import { isDeviceDart, listRepoFiles, readRepoFile } from '../import-graph';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
-import { adapterFor, readRange, supervise, type Counter, type Supervised } from '../supervise';
+import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
 import { verifyFromRun } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -401,7 +401,7 @@ function unfinished(ctx: PregateContext, r: Awaited<ReturnType<typeof runLocal>>
   const timedOut = r.runs.filter(x => x.outcome === 'timeout');
   const rest = r.failed ? `; ${r.failed} failed` : '';
   if (stalled.length) {
-    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in ${ctx.configFile}; 0 disables) for a test that is quiet for longer` };
+    return { code: 'PREGATE_STALLED', detail: `no test output for ${ctx.stallTimeoutMs / 1000} s${STALL_IDLE}; process group killed; last file started: ${stalled.map(x => x.lastFile ?? `(none reported; ${x.files.length} file(s))`).join(', ')}${rest}`, fix: `read ${r.log} for the stalled file; fix the hang, or raise --stall-timeout (stall_timeout_s in ${ctx.configFile}; 0 disables) for a test that waits quietly for longer` };
   }
   const launch = r.runs.find(x => x.outcome === 'spawn-failed');
   if (launch) {

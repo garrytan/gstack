@@ -1,0 +1,4 @@
+{
+  "bytes": 591,
+  "why": "GST-464: Step 9 creates .gstack/tmp, excludes it and clears the targeted record on every entry"
+}

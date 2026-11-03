@@ -24,7 +24,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
 
 const designFocusBoundary = (fp: AskUserQuestionFingerprint): boolean =>
-  fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(({ question, options }) => {
+  fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(({ header, question, options }) => {
     const text = question.trim().replace(/^D\d+(?:\.\d+)?\s*[—–:-]\s*/i, '');
     // A target menu can mention a design system without reviewing this plan.
     // The source Step 0D question, or a native title (first line) that offers all
@@ -46,7 +46,12 @@ const designFocusBoundary = (fp: AskUserQuestionFingerprint): boolean =>
     // or focus on a few?") and lettered its options ("A) Review all 7 areas"). Either place
     // carries the offer; issue-numbered options are a finding, never Step 0D. Runs 41178131219
     // and 41186376825 lettered the leading option itself ("A) All 7 passes (recommended)").
+    // Every captured Step 0D (ten calls, runs 39199692993 to 41414111284) set the native header chip
+    // to "Focus", and no other captured question did; run 41414111284's label put the count second
+    // ("Full review, all 7 (recommended)"). With that header, the rating and an all-7 option suffice.
     const lead = text.split(/\r?\n|\s+(?=Project\/branch\/task:)/, 1)[0]!;
+    if (/^\s*focus\s*$/i.test(header ?? '') && rated(text) && options.length >= 2 && !issueLabeled(options)
+      && options.some(({ label }) => /\ball (?:7|seven)\b/i.test(label))) return true;
     return /^I(?:['’]ve| have) rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\.[\s\S]*\bWant me to focus on specific areas instead(?: of all (?:7|seven))?\?/i.test(text)
       || (/\ball (?:7|seven) (?:design )?(?:dimensions|passes)\b/i.test(title) && /\bfocus\b/i.test(title)
         && (/\bdesign\b/i.test(title) || rated(text.slice(title.length))) && /\?\s*$/.test(title))
