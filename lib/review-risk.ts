@@ -49,7 +49,8 @@ export const PAID_MONEY_LINE = [
   /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
 ];
 export const MONEY_LINE = [...MONEY_USD, ...PAID_MONEY_LINE];
-/** A config file's price or rate key (input_price_usd, cost_per_1k_usd): money outside a results tree, where #3920's path-only rule otherwise keeps config values out (GST-961+962). */
+/** A config file's price or rate key (input_price_usd, cost_per_1k_usd): money outside a results or receipts tree (PRICE_KEY_EXEMPT), where #3920's path-only rule otherwise keeps config values out (GST-961+962). */
+export const PRICE_KEY_EXEMPT = /(^|\/)(?:docs?|wiki|results|reports|receipts)\//i;
 export const PRICE_USD_KEY = /(?:^|[^a-z])(?:price|prices|pricing|rate|rates)_[a-z0-9_]*usd\b|cost_?per|per_?token|per_?1[km]\b/i;
 /** A _usd or Usd name is money unless every one on the line is a reported cost the line only reads: no cap word, comparison or number set. */
 export const usdMoney = (line: string) => {
@@ -137,7 +138,7 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -176,7 +177,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
-      if (!why.has('money') && pathOnly && (PAID_MONEY_LINE.some(r => r.test(line)) || (!RESULTS_TREE.test(p) && MONEY_USD.some(r => r.test(line)) && PRICE_USD_KEY.test(line)))) hit('money', 'spend cap, paid call or price key: ' + p);
+      if (!why.has('money') && pathOnly && (PAID_MONEY_LINE.some(r => r.test(line)) || (!PRICE_KEY_EXEMPT.test(p) && MONEY_USD.some(r => r.test(line)) && PRICE_USD_KEY.test(line)))) hit('money', 'spend cap, paid call or price key: ' + p);
       if (pathOnly) continue;
       if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
