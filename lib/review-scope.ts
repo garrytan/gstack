@@ -14,7 +14,7 @@
  * Pure functions here; bin/gstack-review-scope runs git and gh.
  */
 import { SPECIALISTS } from './review-depth';
-import { rank, type LedgerBlocker } from './review-ledger';
+import { rank, readLedger, type LedgerBlocker } from './review-ledger';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -29,7 +29,7 @@ export const HUNK_CONTEXT_LINES = 3;
 export interface ScopeFinding {
   fingerprint?: string; path?: string; line?: number; severity?: string; category?: string; summary?: string;
   problem?: string; fix?: string; specialist?: string; advisory?: boolean; test_stub?: string;
-  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); shown, never used to classify. */
+  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); `Blocks: no` keeps a CRITICAL below the floor (GST-1031). */
   stated?: { severity?: string; blocks?: string };
   /** The changed line that causes a defect reported elsewhere (a broken caller, a consumer of a removed export); the locus follows it. */
   cause?: { path?: string; line?: number };
@@ -180,11 +180,13 @@ export function kindOf(finding: ScopeFinding): Kind {
 
 /**
  * The blocking floor: a CRITICAL defect (a test that would fail, a production
- * break, a security or data-loss defect). Advisories, test gaps, wording and
- * INFORMATIONAL items are below it and never trigger another pass.
+ * break, a security or data-loss defect) its reviewer did not mark `Blocks: no`
+ * (GST-1031). Advisories, test gaps, wording and INFORMATIONAL items are below
+ * it and never trigger another pass.
  */
+export const statesNoBlock = (f: Record<string, any>) => String(f.stated?.blocks ?? '').toLowerCase() === 'no';
 export function isBlocking(finding: ScopeFinding, kind = kindOf(finding)): boolean {
-  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL';
+  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL' && !statesNoBlock(finding);
 }
 
 export interface ScopeInput { policy: ReviewScopePolicy; pass: number; diffHunks: HunkMap; rangeHunks: HunkMap | null; context?: number }
@@ -355,8 +357,8 @@ function rowDispatches(row: Record<string, any>): Array<{ role: string; bytes: n
 
 /** Row actions that record what happened to a finding. */
 const DISPOSITIONS = ['fixed', 'auto-fixed', 'deferred', 'noted', 'skipped', 'kept', 'restored', 'open'];
-/** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect (logged before Step 9.4's classify). */
-const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4);
+/** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect its reviewer did not mark Blocks: no (logged before Step 9.4's classify). */
+const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4 && !statesNoBlock(f));
 /** The reviewer behind a row's raised_by or a ledger id: every specialist is one; the lead's additions and unknowns name none. */
 function raiserOf(raiser: unknown): string | null {
   const role = typeof raiser === 'string' ? raiser.split(/[/#]/)[0]!.trim() : '';
@@ -371,6 +373,18 @@ function rowLocus(f: Record<string, any>): string | null {
 }
 
 /**
+ * When a dispatch ledger started (its first event) and whether it holds a fix-check reader's review: a fix-check run through
+ * gstack-review-dispatch (the pass program's `fix-check` step) leaves this ledger even when no review-fix-check row was logged.
+ */
+export interface LedgerPass { started: number; fixCheck: boolean }
+export function ledgerPass(ledger: string): LedgerPass {
+  const events = readLedger(ledger);
+  const started = Date.parse(String(events[0]?.at ?? ''));
+  const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
+  return { started: Number.isFinite(started) ? started : NaN, fixCheck };
+}
+
+/**
  * The loop summary. blocking_found counts every blocker found (GST-951). Each CRITICAL the dispatch ledgers hold
  * (`ledgerBlockers`, one list per ledger) is paired with at most one row finding per ledger at the same path:line, raised
  * by the same reviewer (or naming none; a fix-check re-reads every reviewer's fixes), that may be it (no severity yet, CRITICAL as logged or before a mapper lowered
@@ -380,8 +394,13 @@ function rowLocus(f: Record<string, any>): string | null {
  * A ledger CRITICAL with no locus, or a second one at a paired line, counts on its own. A different defect the same reviewer
  * raises at the exact line of a finding a row classified below the floor pairs with that finding: path:line is the only
  * identity rows and ledgers share until rows carry the ledger id.
+ * Fix-checks (GST-986, #3862; `ledgerPasses`, one per ledger): fix_checks is the larger of the review-fix-check rows and the
+ * fix-check ledgers, so one logged both ways counts once. When fix-checks ran without their review-fix-check rows (more fix-check
+ * ledgers than rows), a blocker no row disposes counts as fixed if a fix-check ledger started after the last ledger that raised it:
+ * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
+ * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly LedgerBlocker[])[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly LedgerBlocker[])[] = [], ledgerPasses: readonly LedgerPass[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
   const loopRows = rows.filter(r => inRun(r) && (r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL));
@@ -414,20 +433,28 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   const paired = new Set<string>();
   let ledgerOnly = 0;
+  let ledgerOnlyFixed = 0;
   const pairedIds = new Set<string>();
+  const followedIds = new Set<string>();
+  const lastPaired = new Map<string, number>();
+  const fixCheckStarts = ledgerPasses.filter(p => p.fixCheck && Number.isFinite(p.started)).map(p => p.started);
+  const rowFixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
+  const followed = (n: number) => fixCheckStarts.length > rowFixChecks && fixCheckStarts.some(t => t > (ledgerPasses[n]?.started ?? Infinity));
   for (const [n, list] of ledgers.entries()) {
     for (const b of list) {
       const by = b.id.startsWith('fix-check') ? null : raiserOf(b.id);
       const id = b.locus ? [...seen].find(([k, s]) => s.candidate && s.locus === b.locus && (!s.raiser || !by || s.raiser === by) && !paired.has(`${n}\0${k}`))?.[0] : undefined;
-      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); } else ledgerOnly++;
+      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else { ledgerOnly++; if (followed(n)) ledgerOnlyFixed++; }
     }
   }
+  for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
-  const unrecorded = ledgerOnly + blockers.filter(([, s]) => !s.disposed).length;
-  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnly, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
+  for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
+  const unrecorded = ledgerOnly - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
+  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnly, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;
   if (ledgers.length) out.ledgers_read = ledgers.length;
-  const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
+  const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
   out.rounds = passes.length + fixChecks;
   const byRole: Record<string, number> = {};

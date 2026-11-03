@@ -9,7 +9,7 @@ import { STALL_WINDOW_MS } from '../../test/helpers/eval-budgets';
 import {
   isFinalizedEvalResultFile, credentialRejection, failureClassOf, panelVerdict, sanitizeTrialError, formatTrialOutcomes, TRIAL_OUTCOME_SCHEMA, TRIAL_OUTCOMES_FILE,
   type EvalCaseKind, type PanelVerdict, type TrialFailureClass, type TrialOutcome, type TrialOutcomeRecord,
-  trialCostKnown, trialFailureFields, trialSessions, type TrialFailureDetail,
+  trialFailureFields, trialSessions, type TrialFailureDetail,
 } from '../../test/helpers/eval-store';
 import { readSessionLedger, type SessionLedgerRow } from '../../test/helpers/session-ledger';
 import { publishedFence, sanitizeFixedFenceLine } from './published-text';
@@ -230,6 +230,8 @@ export interface JUnitCensus {
   deselected: Map<string, number>;
   /** Per shard key: skip reason -> skipped testcase count. */
   shardSkipReasons: Map<string, Map<string, number>>;
+  /** Streamed session cost (sessions without a terminal result), which no collector record carries; the headline adds it to the collectors' total_cost_usd. */
+  ledgerCostUsd: number;
   /** `<shard key> :: <test name> (<outcome>)` for every testcase no rule attributes. */
   unattributed: string[];
 }
@@ -240,6 +242,24 @@ const bump = (counts: Map<string, number>, key: string) => counts.set(key, (coun
 function caseSessions(rows: SessionLedgerRow[], id: string, onlyCase: boolean): SessionLedgerRow[] {
   return rows.filter(row => row.case === id || (!row.case && (onlyCase || row.test_name === id || row.test_name === CASE_TEST_NAMES[id])));
 }
+
+/** Cases that run no model (a binary data flow): with no record and no session they cost a known $0. test/paid-report-cost.test.ts pins each body model-free. */
+export const MODEL_FREE_CASES: ReadonlySet<string> = new Set(['timeline-event-flow']);
+
+/**
+ * A trial's cost: its records' sum plus what no record carries, a session without a terminal result priced from its
+ * streamed usage (streamed_cost_usd). With no record, a billed session counts its own cost_usd (Codex). Unknown when any
+ * record or session cost is; a listed model-free case with neither record nor session is a known $0.
+ */
+export function caseCost(id: string, records: any[], sessions: SessionLedgerRow[]): { cost_usd: number; cost_known?: false } {
+  if (!records.length && !sessions.length) return MODEL_FREE_CASES.has(id) ? { cost_usd: 0 } : { cost_usd: 0, cost_known: false };
+  const unrecorded = sessions.map(s => s.billed !== false ? (records.length ? 0 : s.cost_usd) : s.streamed_cost_usd);
+  const known = records.every(r => r?.cost_known !== false) && unrecorded.every(c => typeof c === 'number' && Number.isFinite(c));
+  const total = records.reduce((sum, r) => sum + (Number(r?.cost_usd) || 0), 0) + knownSum(unrecorded);
+  return { cost_usd: Math.round(total * 100) / 100, ...(known ? {} : { cost_known: false as const }) };
+}
+
+const knownSum = (costs: Array<number | undefined>) => costs.reduce<number>((sum, c) => sum + (typeof c === 'number' && Number.isFinite(c) ? c : 0), 0);
 
 /** The artifact holding a slice's shards: the downloaded directory's own name when it is one. */
 /** The red-census guide the report and every eval:pass-rates view link. */
@@ -252,7 +272,8 @@ export function sliceArtifactName(root: string, slice: number, attempt: number):
 
 export function junitCensus(manifest: PaidRunManifest, artifacts: ReportArtifact[], recordsByShard: Map<string, any[]>,
   base: Record<string, unknown>, cliVersion?: string): JUnitCensus {
-  const census: JUnitCensus = { ruleCases: [], history: [], failedShards: new Set(), skipped: [], deselected: new Map(), shardSkipReasons: new Map(), unattributed: [] };
+  const census: JUnitCensus = { ruleCases: [], history: [], failedShards: new Set(), skipped: [], deselected: new Map(), shardSkipReasons: new Map(), unattributed: [],
+    ledgerCostUsd: 0 };
   const entries = new Map(manifest.entries.map(entry => [normalizeRelativePath(entry.file), entry]));
   for (const { root, result } of artifacts) {
     for (const outcome of result.outcomes) {
@@ -277,11 +298,15 @@ export function junitCensus(manifest: PaidRunManifest, artifacts: ReportArtifact
         const caseOutcome: TrialOutcome = failed ? 'failed' : cases.some(tc => tc.outcome === 'passed') ? 'passed' : 'skipped';
         // A record is named by its case id or carries case_id; an E2E record named by its display label ("/qa fix loop") is
         // the shard's only case's when the shard ran one case, else it stays unattributed and the trial's cost unknown.
-        const mine = records.filter((r: any) => r?.name === id || r?.case_id === id || (byCase.size === 1 && !r?.case_id));
-        const failedRecord = mine.find((r: any) => r.passed === false);
+        // A display-label record whose runSkillTest testName is this case (cost_case_id) adds its cost only: the failed record stays the named one.
+        const named = records.filter((r: any) => r?.name === id || r?.case_id === id || (byCase.size === 1 && !r?.case_id));
+        const mine = [...named, ...records.filter((r: any) => r?.cost_case_id === id && !named.includes(r) && !byCase.has(r?.name))];
+        const failedRecord = named.find((r: any) => r.passed === false);
         const recorded: TrialFailureClass | undefined = !failed ? undefined
           : failed.failureType === 'TimeoutError' ? 'timeout' : failedRecord ? failureClassOf(failedRecord) : 'assertion';
         const sessions = caseSessions(ledger, id, byCase.size === 1);
+        const cost = caseCost(id, mine, sessions);
+        census.ledgerCostUsd += knownSum(sessions.map(s => s.billed === false ? s.streamed_cost_usd : 0));
         const credentials = failed && recorded !== 'contract' ? credentialRejection({ error: `${failedRecord?.error ?? ''}\n${failed.message ?? ''}`, sessions }) : undefined;
         const failureClass = credentials ? 'infra' : recorded;
         const rawError = credentials ? `credentials rejected: ${credentials}` : failedRecord?.error ?? failed?.message;
@@ -295,7 +320,7 @@ export function junitCensus(manifest: PaidRunManifest, artifacts: ReportArtifact
           census.skipped.push(`◌ ${id}  ${key} (${cases.map(tc => tc.name).join('; ')}): ${RUNTIME_SKIP_REASON}`);
         }
         census.ruleCases.push({ id, kind, outcome: caseOutcome, key, slice: result.sliceIndex, ...(failureClass ? { failureClass } : {}), ...(error && failed ? { error } : {}),
-          costUsd: Math.round(mine.reduce((sum: number, r: any) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100, costKnown: trialCostKnown(mine, sessions).cost_known !== false,
+          costUsd: cost.cost_usd, costKnown: cost.cost_known !== false,
           ...(failed ? { line: `✗ ${id}  ${kind}  FAIL  ${failureClass}${failedRecord?.exit_reason === 'timeout' && failedRecord?.timeout_at_turn !== undefined ? ` at turn ${failedRecord.timeout_at_turn}` : ''}${error ? ` — ${error}` : ''}`
             + `${diagnosisText(diagnosis, error)}  [slice ${result.sliceIndex}, attempt ${result.attempt ?? 1}]`
             + `${evidencePointer(sliceArtifactName(root, result.sliceIndex, result.attempt ?? 1), key, typeof base.run_id === 'string' ? base.run_id : undefined, id)}`
@@ -303,8 +328,8 @@ export function junitCensus(manifest: PaidRunManifest, artifacts: ReportArtifact
         census.history.push({ ...base, case: id, file: shardFile(key), kind, trial: 1, panel: { n: 1, k: 1 }, outcome: caseOutcome,
           ...(failureClass ? { failure_class: failureClass } : {}), ...(failedRecord?.exit_reason ? { exit_reason: String(failedRecord.exit_reason) } : {}),
           ...(error && failed ? { error } : {}), ...diagnosis, ...trialSessions(sessions), duration_ms: Math.min(cases.reduce((sum, tc) => sum + tc.timeMs, 0), outcome.elapsedMs),
-          cost_usd: Math.round(mine.reduce((sum: number, r: any) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100, ...trialCostKnown(mine, sessions),
-          ...(typeof mine[0]?.model === 'string' ? { model: mine[0].model } : {}), ...(cliVersion ? { cli_version: cliVersion } : {}),
+          ...cost,
+          ...(typeof named[0]?.model === 'string' ? { model: named[0].model } : {}), ...(cliVersion ? { cli_version: cliVersion } : {}),
           quarantined: false, execution: outcome.reused ? 'reused' : 'executed', source: 'junit' } as TrialOutcomeRecord);
       }
       census.shardSkipReasons.set(key, reasons);
@@ -776,7 +801,7 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
     ...(spend.executions ? { reruns: spend } : {}),
     actionRequired: verdict.problems.length,
     wallMs: wall.length ? Math.max(...wall.map(r => r.finishedAt!)) - Math.min(...wall.map(r => r.startedAt!)) : null,
-    costUsd: Math.round(costUsd * 100) / 100,
+    costUsd: Math.round((costUsd + census.ledgerCostUsd) * 100) / 100,
     redispatchEligible: red && infraOnly(verdict.problems),
   };
   const executed = history.filter(r => r.attempt === primary && r.execution === 'executed' && r.outcome !== 'skipped');

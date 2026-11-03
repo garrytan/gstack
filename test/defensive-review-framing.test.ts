@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from '../scripts/resolvers/defensive-review';
+import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE, fixtureSummaryMode } from '../scripts/resolvers/defensive-review';
 import { generateReviewArmy } from '../scripts/resolvers/review-army';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -27,7 +27,7 @@ describe('defensive-security framing reaches every adversarial dispatch', () => 
     test(`${skill}: adversarial subagent keeps the framing and fixture summary mode`, () => {
       const prompt = between(adversarial, 'Subagent prompt:', 'Think like an attacker');
       expect(prompt).toContain(DEFENSIVE_REVIEW_FRAMING);
-      expect(prompt).toContain(FIXTURE_SUMMARY_MODE);
+      expect(prompt).toContain(fixtureSummaryMode(skill === 'ship'));
     });
 
     test(`${skill}: Red Team prompt starts from the framing and fixture summary mode`, () => {
@@ -41,7 +41,7 @@ describe('defensive-security framing reaches every adversarial dispatch', () => 
       const dispatch = between(army, '### Dispatch specialists in parallel', '**Subagent configuration:**');
       const securityOnly = between(dispatch, '4. **Defensive framing (Security specialist and the Red Team below only).**', 'Instructions:');
       expect(securityOnly).toContain(DEFENSIVE_REVIEW_FRAMING);
-      expect(securityOnly).toContain(FIXTURE_SUMMARY_MODE);
+      expect(securityOnly).toContain(fixtureSummaryMode(skill === 'ship'));
       expect(securityOnly).toContain('including Testing, reads the full diff with fixtures');
       const sharedInstructions = dispatch.slice(dispatch.indexOf('Instructions:'));
       expect(sharedInstructions).not.toContain(FRAMING_SENTENCE);
