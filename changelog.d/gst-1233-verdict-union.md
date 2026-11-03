@@ -1,0 +1,3 @@
+### Fixed
+
+- **A child's install for another workflow no longer drops /ship's install verdict on a shared machine (GST-1233).** When a /ship docs child ran `install.sh --for document-release` with a different Bun on PATH, or its install failed, it replaced the shared install verdict, and the parent's finish pregate refused with `INSTALL_UNVERIFIED` until someone reinstalled `--for ship`. Each workflow install now also writes that workflow's own verdict beside the shared one (`<verdict>.for/<workflow>.json`), and workflow admission and the pregate fall back to it with the same checks. A new HEAD still invalidates both.

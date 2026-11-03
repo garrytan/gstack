@@ -330,7 +330,14 @@ keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
    the installer prints `the install verdict at <file> keeps for=<old> and adds
    <new> (for=<list>)`, and the trailer still names this run's workflow). A
    failing run, a new HEAD or another Bun replaces the verdict, and so does any
-   workflow install over a review-voice verdict. Admission refuses a workflow whose
+   workflow install over a review-voice verdict. Each workflow install (and
+   `--check`) also writes that workflow's own verdict beside it, at
+   `<verdict>.for/<workflow>.json`, with only this run's result. When the shared
+   verdict does not admit a workflow, admission and the pregate try the
+   workflow's own record with the same checks, so a later install for another
+   workflow on a shared machine (a /ship docs child resolving another Bun, or a
+   failed child install) never drops /ship's admission (GST-1233). A new HEAD
+   still invalidates both. Admission refuses a workflow whose
    running Bun is not the one the verdict recorded
    ([BUN_RESOLUTION_DRIFT](troubleshooting.md#bun-resolution-drift)), and so
    do the pregate's lanes and guards, which also refuse an invalid verdict

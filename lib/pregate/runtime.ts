@@ -22,7 +22,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { findInstallVerdict, installProject, readInstallVerdict, sourceRoot, verdictProblem } from '../install-verdict';
+import { admittedVerdict, findInstallVerdict, installProject, readInstallVerdict, sourceRoot } from '../install-verdict';
 import { resultCodeSuffix } from '../result-codes';
 import { collectPins, evaluatePins, exactPlan, parseVersion, satisfies } from '../runtime-pins';
 import { resolveStateRoot } from '../state-root';
@@ -152,15 +152,15 @@ export interface LaunchRuntime {
  * The Bun the lanes and guards run under, its dir first on PATH; the env is
  * unchanged when nothing qualifies. Under the admission condition the install
  * verdict for (checkout, project) is validated as workflow admission does
- * (verdictProblem: ok, HEAD, pins, project, coverage, for /ship) and its
+ * (admittedVerdict: ok, HEAD, pins, project, coverage, for /ship; else /ship's own record) and its
  * recorded Bun is the one launched; the gstack checkout itself binds the
  * 'none' verdict (installProject).
  */
 export function launchRuntime(repoRoot: string, env: NodeJS.ProcessEnv): LaunchRuntime {
   const checkout = sourceRoot(GSTACK_ROOT);
   const project = installProject(checkout, repoRoot);
-  const file = findInstallVerdict(checkout, project, env);
-  const recorded = readInstallVerdict(file);
+  const admitted = admittedVerdict('ship', checkout, findInstallVerdict(checkout, project, env), project, '', '');
+  const recorded = readInstallVerdict(admitted.file);
   let pinsRoot: string | null = null;
   try { pinsRoot = fs.realpathSync(repoRoot); } catch { /* unresolvable: no pins */ }
   const { pinExact, accept } = projectBunPins(pinsRoot, env);
@@ -174,7 +174,7 @@ export function launchRuntime(repoRoot: string, env: NodeJS.ProcessEnv): LaunchR
   if (env.GSTACK_CAPY !== '1' && !recorded) {
     verdictLine = 'install verdict: not checked (no GSTACK_CAPY=1 and no verdict for this checkout and project)';
   } else {
-    const problem = verdictProblem('ship', GSTACK_ROOT, env, '', '', repoRoot);
+    const { problem } = admitted;
     if (problem) return refuse('INSTALL_UNVERIFIED', problem.detail, problem.fix ?? installer);
     verdict = 'ok';
     if (recorded!.bun_path) {
