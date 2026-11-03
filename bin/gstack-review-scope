@@ -27,7 +27,7 @@ import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { EXIT as POST_EXIT, runPost } from '../lib/gstack-post';
 import {
-  parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  ledgerPass, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   ALREADY_FILED_REASON, DEFERRED_MARKER, findingIdentity, findingWhere, REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
 import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
@@ -269,7 +269,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   if (!noLedger && !files.length) return refuse('summary', 'REVIEW_SCOPE_LEDGER', 'name the review\'s dispatch ledgers (--run <run dir> or --ledger <f>), or --no-ledger when no reader ran through gstack-review-dispatch');
   let ledgers: LedgerBlocker[][];
   try { ledgers = files.map(ledgerBlockers); } catch (e: any) { return refuse('summary', 'REVIEW_SCOPE_LEDGER', e.message); }
-  const summary = summarizeReviewLoop(rows, since, ledgers);
+  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(ledgerPass));
   const line = reviewLoopLine(summary);
   // A /ship invocation always runs Step 9 once; zero matching rows means the wrong --since or a review log written elsewhere, never a loop to record.
   if (summary.passes === 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `no review-log row of this branch is a via:ship review at or after ${since}; check REVIEW_SINCE (${line})`);

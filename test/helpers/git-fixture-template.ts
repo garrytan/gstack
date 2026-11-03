@@ -54,8 +54,9 @@ export function rebindGitDir(gitDir: string, from: string, to: string): void {
 
 /**
  * Files and symlinks under dir (and the template's meta value) that still name templateRoot. Skipped: zlib-compressed object
- * storage, and the log Capy's /usr/bin/git shim appends to in whatever HOME it runs under (.capy/git-shim.log), which names
- * the template whenever a fixture home ran git during build; nothing reads it back.
+ * storage, and every .capy directory: Capy's /usr/bin/git shim creates $HOME/.capy in whatever HOME it runs under and logs
+ * there, so a fixture home that ran git during build holds the machine's writes, not gstack's (install-fixture's tree() skips
+ * it for the same reason); nothing reads them back.
  */
 export function templateReferences(dir: string, templateRoot: string, meta?: unknown): string[] {
   const needles = pathSpellings(templateRoot).map(s => Buffer.from(s));
@@ -65,8 +66,8 @@ export function templateReferences(dir: string, templateRoot: string, meta?: unk
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, entry.name);
       if (entry.isSymbolicLink()) { if (names(Buffer.from(fs.readlinkSync(p)))) hits.push(p); }
-      else if (entry.isDirectory()) { if (!(path.basename(d) === 'objects' && /^(pack|[0-9a-f]{2})$/.test(entry.name))) walk(p); }
-      else if (entry.isFile() && !(entry.name === 'git-shim.log' && path.basename(d) === '.capy') && names(fs.readFileSync(p))) hits.push(p);
+      else if (entry.isDirectory()) { if (entry.name !== '.capy' && !(path.basename(d) === 'objects' && /^(pack|[0-9a-f]{2})$/.test(entry.name))) walk(p); }
+      else if (entry.isFile() && names(fs.readFileSync(p))) hits.push(p);
     }
   };
   walk(dir);
