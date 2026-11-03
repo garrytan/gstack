@@ -485,15 +485,17 @@ function prepushGuards(cwd: string, base: string | undefined): { line: string; s
     if (tree && rec.tree === tree && rows.every(row => row?.status === 'pass')) return { line: `GUARDS: pass (reused from ${path.basename(file)} at tree ${tree.slice(0, 12)}: ${rows.map(row => `${row!.id} ${row!.detail ?? 'pass'}`).join('; ')})` };
   }
   fs.rmSync(out, { force: true });
-  const pg = bin(cwd, 'gstack-pregate', ['--stage', 'guards', '--allow-repo-commands', '--out', out, ...(base ? ['--base', base] : [])], 3_600_000);
-  const text = pg.stdout + pg.stderr;
-  const verdict = /^PREGATE: (.+?) tree=/m.exec(text)?.[1] ?? `unreadable (exit ${pg.status})`;
-  let detail: string | undefined;
-  try { detail = (JSON.parse(fs.readFileSync(out, 'utf8')).checks as { id: string; detail?: string }[]).map(c => `${c.id} ${c.detail ?? ''}`.trim()).join('; '); } catch { /* no record: the verdict line says why */ }
-  const line = `GUARDS: ${verdict}${detail ? ` (${detail})` : ''}`;
+  const pg = bin(cwd, 'gstack-pregate', ['--stage', 'guards', '--allow-repo-commands', '--json', '--out', out, ...(base ? ['--base', base] : [])], 3_600_000);
+  let res: { status?: string; verdict?: string; tree?: string; code?: string; detail?: string; fix?: string; checks?: { id: string; status: string; detail?: string; fix?: string }[] } = {};
+  try { res = JSON.parse(pg.stdout.trim().split('\n').pop() ?? ''); } catch { /* unreadable: stops below */ }
+  if (res.status === 'refused' && res.code === 'POLICY_SOURCE_UNAVAILABLE' && /is not a resolvable commit/.test(res.detail ?? '')) return { line: `GUARDS: not run (no base branch to read guards from: ${res.detail})` };
+  if (res.status === 'refused') return { line: `GUARDS: refused ${res.code}`, stop: `the pre-push guards could not run (${res.detail}; fix: ${res.fix}): repair it, then rerun push` };
+  if (res.tree && res.tree !== tree) return { line: `GUARDS: not certified (they checked the working tree ${res.tree.slice(0, 12)}, not HEAD's tree ${tree.slice(0, 12)})`, stop: 'the working tree differs from HEAD (uncommitted or untracked files): commit or stash them, then rerun push' };
+  const verdict = res.verdict ?? `unreadable (exit ${pg.status}: ${firstLine(pg.stderr)})`;
+  const line = `GUARDS: ${verdict}${res.checks ? ` (${res.checks.map(c => `${c.id} ${c.detail ?? c.status}`).join('; ')})` : ''}`;
   if (pg.status === 0 && /^(pass|warn)/.test(verdict)) return { line };
-  const fix = /^gstack-pregate: (?:regen|guards): .*$/m.exec(pg.stderr)?.[0] ?? firstLine(pg.stderr || pg.stdout);
-  return { line, stop: `the pre-push guards did not pass (${fix}): fix it, commit, then rerun push` };
+  const bad = (res.checks ?? []).filter(c => c.status !== 'pass' && c.status !== 'warn').map(c => `${c.id}: ${c.fix ?? c.detail ?? c.status}`).join('; ');
+  return { line, stop: `the pre-push guards did not pass (${bad || firstLine(pg.stderr || pg.stdout)}): fix it, commit, then rerun push` };
 }
 
 export function push(argv: readonly string[], cwd: string): Report {

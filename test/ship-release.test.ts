@@ -378,4 +378,40 @@ describe('push: the pre-push housekeeping guards (GST-1138)', () => {
     expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'GUARDS')).not.toContain('reused');
     expect(fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8')).toBe('ran\nran\n');
   });
+
+  test('an uncommitted or untracked file the guards saw stops the push: the verdict must describe the pushed tree', () => {
+    const f = fx({ '.gstack/pregate.json': policy('test -f src/needed.ts') });
+    ready(f);
+    f.write({ 'src/needed.ts': 'export const n = 1;\n' });
+    const r = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'GUARDS')).toContain('not certified');
+    expect(r.stdout).toContain('STOP: the working tree differs from HEAD');
+    expect(pushedHead(f)).toBe('');
+  });
+
+  test("finish's preflight record is reused only at HEAD's tree with passing regen and guards rows", () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo ran >> ../guard-runs') });
+    ready(f);
+    const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    const record = (at: string, guards: string) => JSON.stringify({ tree: at, checks: [{ id: 'regen', status: 'pass' }, { id: 'guards', status: guards }] });
+    const finishRecord = path.join(f.work, '.git', 'gstack', 'pregate-finish-preflight.json');
+    fs.mkdirSync(path.dirname(finishRecord), { recursive: true });
+    const runs = () => (fs.existsSync(path.join(f.root, 'guard-runs')) ? fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8') : '');
+    for (const [at, guards] of [[tree, 'fail'], ['0'.repeat(40), 'pass']]) {
+      fs.rmSync(path.join(f.work, '.git', 'gstack', 'pregate-guards.json'), { force: true });
+      fs.writeFileSync(finishRecord, record(at, guards));
+      fs.rmSync(path.join(f.root, 'guard-runs'), { force: true });
+      expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'GUARDS')).not.toContain('reused');
+      expect(runs()).toBe('ran\n');
+      f.git('push', '-q', 'origin', '--delete', 'feat');
+    }
+    fs.rmSync(path.join(f.work, '.git', 'gstack', 'pregate-guards.json'), { force: true });
+    fs.writeFileSync(finishRecord, record(tree, 'pass'));
+    fs.rmSync(path.join(f.root, 'guard-runs'), { force: true });
+    const reused = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(lineOf(reused.stdout, 'GUARDS')).toMatch(/^GUARDS: pass \(reused from pregate-finish-preflight\.json at tree /);
+    expect(runs()).toBe('');
+    expect(lineOf(reused.stdout, 'PUSH')).toMatch(/^PUSH: pushed /);
+  });
 });
