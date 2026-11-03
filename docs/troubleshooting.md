@@ -6035,9 +6035,10 @@ against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
 `lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
 range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
 range-diff can clear it instead of a full second /ship. A rebased branch
-(`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, an empty or unreadable
-range-diff and anything over the cap print `RECHECK: not eligible (<why>)`
-instead.
+(`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
+`review_depth`, more than 20 changed product paths, a binary path, base
+context moved next to reviewed hunks, an empty or unreadable range-diff and a
+packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
 
 **Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
 `--dry-run` writes none). When it comes back clean, write
