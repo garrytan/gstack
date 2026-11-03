@@ -17,7 +17,9 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
-gave `--depth-floor <d>` (it only raises); a repeat uses the plan run that picked it.
+gave `--depth-floor <d>` (it only raises); add `--declare-risk <classes>` when the diff touches a risk
+class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
+receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
 reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
@@ -27,6 +29,9 @@ family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; 
 host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
 `specialist batched` is one subagent reading every checklist its
 `checklists=` names (light adds Red Team), tagging each finding with its checklist.
+`NEXT: platform` runs no reader: log item 6's row with `"depth":"platform"` and the
+`PLATFORM_REVIEW:` id (Step 16's receipt write takes `--platform-review <id>`; Step 11.5 selects no Step 11
+record), then go to Step 10.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
@@ -687,7 +692,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    (all sources, queued Steps 10–11 included) as a JSON array to
    `.gstack/tmp/review-findings-p$PASS.json` with your file-write tool, each with
    `raised_by` (`core`, `qa`, a specialist, `red-team`, `adversarial-native`,
-   `outside-voice` or `fix-check`), then:
+   `outside-voice` or `fix-check`) and, for a dispatched reader's finding, `ledger_id`
+   (`<pass dir>/<its merged.jsonl id>`, e.g. `p2/adversarial-native#3`), then:
    `~/.claude/skills/gstack/bin/gstack-review-scope classify --base <base> --pass $PASS --range-base $RANGE_BASE --findings .gstack/tmp/review-findings-p$PASS.json --json > .gstack/tmp/review-classified-p$PASS.json`
    (omit `--range-base` on pass 1). Every Step 9.4 scratch file lives under
    `.gstack/tmp/` (gitignored): `<classified>` below is this pass's classified
@@ -754,7 +760,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    row under its own skill (a tokenless `review` row would read UNVERIFIED):
    `~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review-late-defer","via":"ship","timestamp":"TIMESTAMP","status":"issues_found","issues_found":0,"critical":0,"informational":0,"pass":PASS,"review_scope":"SCOPE","findings":FINDINGS_JSON}'`
    with `findings` holding only the deferred records (`action: "deferred"`, `issue`,
-   `locus`, `kind`, `blocking` as in item 6) and no `--finish` token.
+   `locus`, `kind`, `blocking`, `ledger_id` as in item 6) and no `--finish` token. Log it in the
+   program that decides the defer, with that moment's full ISO 8601 TIMESTAMP, never at Step 19.
 
 4. **Finish and log this pass before choosing the next step.** Apply each A) Restore
    by reverting only the relaxation. After any fix or restore in this pass, run item
@@ -765,7 +772,8 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    REVIEW_START. Missing dispatched output uses `status:"unavailable"`,
    `completed:false` and `converged:false`; fixes also require `converged:false`.
    Then commit named fixed files, if any
-   (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`).
+   (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes" --trailer "Review-Finding: <ledger_id or fingerprint> reader=<raised_by>"`,
+   one trailer per fixed finding: the receipt counts fixes by it).
 
 5. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped), D deferred, O noted`
 
@@ -804,7 +812,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`.
   ACTION: `"auto-fixed"`, `"fixed"` (approved), `"skipped"` (explicit Skip),
   `"deferred"` (with `issue`, the filed number or `null`) or `"noted"`. Copy
-  `locus`, `kind`, `blocking` and `raised_by` from the classified output onto every finding.
+  `locus`, `kind`, `blocking`, `raised_by` and `ledger_id` from the classified output onto every finding.
   Merge revalidated invocation decisions by identity and advisory/defect kind;
   preserve `advisory`, `evidence_paths` and `helper_target`.
   Gate findings add `gate` (RH tag), `gate_id` (the tool's hunk identity), `reason`
@@ -822,9 +830,9 @@ Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan -
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
-`--depth-floor <d>` when given, `--grant <approval id>` once the owner's grant of one scoped fix-check is
+`--depth-floor <d>` when given, `--fix-checks <n>` after a fix-check, `--grant <approval id>` once the owner's grant of one scoped fix-check is
 in `gstack-approvals` naming `review_loop_grant` and the stop head), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
-its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4. `voices` 4: Step 11 runs before the stop.
+its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
 `scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 

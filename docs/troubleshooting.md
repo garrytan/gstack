@@ -2091,8 +2091,8 @@ browse chain 'goto https://example.com | text'
 <a id="browse-chromium-path-failed"></a>
 ### `Chromium at GSTACK_CHROMIUM_PATH=<path> failed to launch: ...`
 
-**Meaning.** Headless browse and make-pdf now use `GSTACK_CHROMIUM_PATH`
-(NixOS, macOS 13). That binary could not start.
+**Meaning.** Headless browse, headed browse, `browse handoff` and make-pdf use
+`GSTACK_CHROMIUM_PATH` (NixOS, macOS 13). That binary could not start.
 
 **Fix.** Point `GSTACK_CHROMIUM_PATH` at a working Chromium, or
 `unset GSTACK_CHROMIUM_PATH` to use gstack's bundled one.
@@ -4165,15 +4165,17 @@ refuses to start without a passing check.
 
 **Meaning.** The preregistration says `stack: loaded` (some arm loads gstack or
 another skill stack) and its `## No-gstack arm` section is missing, lacks one
-of `arms:`, `inputs:`, `prompt:`, `panel:` or `report:`, lists an arm that
+of `arms:`, `inputs:`, `prompt:`, `panel:`, `report:`, `masking:`, `install:`
+or `audit:` (or says `none` for one of the last three), lists an arm that
 is not a `<model>#no-gstack` Arms line, or leaves a model in the comparison
 without its own no-gstack arm. Arms match on whole identities, so
 `claude-opus-5#no-gstack` does not cover `claude-opus-5-5`.
 
 **Fix.** Add one `<model>#no-gstack` line per model under `## Arms`, list them
-on the `arms:` line, and fill the other four keys: the same inputs, a plain
-prompt with no skill text, the same panel and judge, and where the result row
-goes beside the variants. When no arm loads a skill stack, write
+on the `arms:` line, and fill the other keys: the same inputs, a plain
+prompt with no skill text, the same panel and judge, where the result row
+goes beside the variants, how the run agent is masked from the Capy drives,
+the check that no gstack is installed, and the per-arm drive-read audit. When no arm loads a skill stack, write
 `stack: none` with a `why:` line instead. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
@@ -5707,7 +5709,8 @@ closed PRs.
 verdict is read from the run itself, never from a lane's report: the
 `gate-binding-a<attempt>` artifact evals.yml's report job uploads (verdict,
 reconcile exit, flaky cases) and the `report-verdict-a<attempt>` artifact's
-`collector-outcomes.json` (the panels that failed the lane and the rule-16
+`collector-outcomes.json` (the panels that failed the lane, the report's `✗`
+failure lines, which name rule cases that have no panel, and the rule-16
 flaky lines). A case the binding calls red already failed twice inside the
 run (rule 16 reruns a first failure once), so the red is real. `ready`
 refuses with this code when the head's recorded screen run is red, whichever
@@ -6018,7 +6021,9 @@ output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
 landed on the base, a stamp on the branch's own rows in a stamp file it also
 changed as product (every changed line at a branch-added position, the mode
-unchanged, the base not touching the file), or base context next to unchanged
+unchanged, the base not touching the file), a stamp file the branch changes by
+no more than a stamp against each head's base (a changelog-fragment conversion
+that puts `package.json` back at the base's content), or base context next to unchanged
 hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
@@ -6033,7 +6038,12 @@ hunk). The merge may have spliced the two, as in a JSON entry where the branch
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
-`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code.
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section over 200
+lines takes the full loop instead, but only the branch's own lines count toward
+that limit: the base's +/- lines, already merged at base, are shown and not
+counted (GST-1226), so a large base edit next to the branch's hunk still gets
+the scoped read. A base change over 2,000 lines in one file counts in full
+again and takes the full loop.
 
 **Fix.** Dispatch one fix-check reviewer
 ([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
@@ -6051,6 +6061,30 @@ written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the p
 none of carry's other checks would refuse; carry without `--dry-run` writes it.
 In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
+
+<a id="receipt-carry-recheck"></a>
+### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1)
+
+**Meaning.** The product diff changed since the receipt's head, so the receipt
+can't carry as it is. When the history is linear, the base is the one the
+receipt was reviewed against, and `git range-diff` of the reviewed range
+against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
+`lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
+range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
+range-diff can clear it instead of a full second /ship. A rebased branch
+(`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
+`review_depth`, more than 20 changed product paths, a binary path, base
+context moved next to reviewed hunks, an empty or unreadable range-diff and a
+packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
+
+**Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
+`--dry-run` writes none). When it comes back clean, write
+`{"from":"<reviewed head>","head":"<HEAD>","range_diff_sha256":"<from the RECHECK line>","reader":"<model>","verdict":"clean"}`
+and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
+reason records the reader and the range-diff size. Carry still refuses when
+HEAD needs a deeper review depth or a different risk class than the receipt
+recorded; that, or a blocking finding, means /ship on the new head. In /ship
+Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
