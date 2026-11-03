@@ -381,7 +381,7 @@ describe('a targeted record across a docs-only delta (GST-1195, TRUT-26)', () =>
       { 'designs/research/dfi-evals.md': '# Evals\n\nHow the cases run, one runner each.\n' },
       { 'designs/08-house-agent.md': '# House agent\n\nThe agent no longer checks the spend cap.\n' },
       { 'designs/research/notes.md': '# Notes\n\nThe API key now lives in the repo.\n' },
-    ]) {
+    ] as Record<string, string>[]) {
       docsCommit(files);
       const w = write();
       expect([Object.keys(files)[0], w.status === 0, w.err.includes(`the targeted reader read ${head.slice(0, 12)}`)]).toEqual([Object.keys(files)[0], false, true]);
