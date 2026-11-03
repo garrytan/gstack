@@ -11,10 +11,11 @@
  * persisted before its subagent is created and its path right after, so a resumed program
  * reconciles by deterministic title and never doubles a reader.
  */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
-import { disclosureDigest } from './review-exclude';
+import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
+import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
@@ -31,6 +32,8 @@ export interface PassReader {
   classes?: string[]; diff_base?: string;
   /** An audit reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
+  /** The plan's model=cross-family (R65's risk reader or a numbers diff's one reader): the program runs it on the outside voice's model. */
+  cross_family?: boolean;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
   /** With the base policy's review_exclude_paths active: its `:(top,exclude,glob)` items, shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
   policy_exclude?: string; keep?: string[];
@@ -103,6 +106,8 @@ export function buildManifest(o: {
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
       ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(d.keep?.length ? { keep: d.keep } : {}),
       ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(role === 'adversarial-native' && d.classes?.length ? { classes: [...d.classes], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(d.model === 'cross-family' ? { cross_family: true } : d.model && d.model !== 'lane' ? { model: { model_id: d.model } } : {}),
       ...(role === 'red-team' && o.rangeBase ? { diff_base: o.rangeBase } : {}) });
   }
   for (const e of o.extras ?? []) {
@@ -176,14 +181,21 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
-    if (role === 'outside-voice') slots.diff = diffFor(m.diff_base, r);
+    let slice: Record<string, unknown> = {};
+    if (role === 'outside-voice') {
+      const s = sliceDiff(diffFor(m.diff_base, r), REVIEW_DIFF_MAX_BYTES);
+      const diffFile = path.join(briefs, 'outside-voice.diff');
+      fs.writeFileSync(diffFile, s.text, { mode: 0o600 });
+      Object.assign(slots, { diff_file: diffFile, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) });
+      slice = { payload: { file: diffFile, sha256: slots.diff_sha256 }, ...(s.sliced ? { diff_slice: { kept: s.kept, files: s.files, bytes: s.bytes, total: s.total } } : {}) };
+    }
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
       Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
     }
     let targeted = {};
-    if (role === 'targeted') {
+    if (role === 'targeted' || (role === 'adversarial-native' && r.classes?.length)) {
       const checklist = path.join(m.checklist_root, 'review/specialists/targeted.md');
       let brief: string;
       try { brief = fs.readFileSync(checklist, 'utf8'); } catch { throw new BriefError(`cannot read the targeted brief ${checklist}`); }
@@ -195,7 +207,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }
