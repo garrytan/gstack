@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.93.34.0] - 2026-11-03
+
+**The docsync fault-callback replays and the runShadow deadline test stop failing on loaded remote pregate VMs.**
+
+### Fixed
+- **Docsync fault-callback replays** (`test/helpers/docsync-fault-callbacks.ts` and its three wrappers): each replay in the generated child now has a 30 s limit instead of bun's 5 s default, and each wrapper's limit is that per-replay limit times its replay count plus one. A replay spawns 30 to 40 real actor, hook and git processes. That takes about 1.3 s on CI and up to 4.9 s on an idle 4-core machine, and it ran past 5 s on GSTA-234's remote pregate for #3892. With 8 busy loops on 4 cores, main fails all 12 legacy-control replays at 5 s, and this branch passes all 12 (172 s for the whole wrapper). `test/docsync-report-interface.test.ts` gets the same limits, because its child cases ran 5.5 s and 11.4 s on #3869's remote pregate.
+- **`test/autoplan-shadow.test.ts` "one deadline covers the call and its retry"**: the first call now has 1 s of room inside the deadline instead of 300 ms. The time limit allows 2.4 s past the deadline before it would match an unshared retry, up from 0.9 s; the remote failure ran 1.06 s past. The test still requires the retry to be cut (p1 malformed) and the call to end before an unshared retry could finish.
+
 ## [1.93.33.0] - 2026-11-03
 
 - On a checkout whose `origin/HEAD` points at the checked-out branch itself (a PR-branch clone), every base-relative step resolved the base to HEAD and reported zero changes, so review depth, `ready`, pregate and the docs audit passed on an empty diff (GST-774). Base resolution now skips a remote HEAD that names the checked-out branch, its upstream or HEAD's own commit (so a local branch under another name and a detached checkout of the PR branch are caught too), then uses the PR's base ref when `gh` finds one, then the remote's live default branch from `git ls-remote --symref`, then `main` or `master`. A repository whose default branch is `develop` or `trunk` keeps it. When the resolved base equals HEAD or contains it while the branch has commits its real base lacks, `gstack-diff-scope`, `gstack-gate-diff`, `gstack-review-plan`, `gstack-pregate`, `gstack-docs-candidate`, `/ship` policy base resolution and the receipt's depth binding refuse with `BASE_CONTAINS_HEAD` instead of reporting no changes. A pull request's head is refused whenever the base contains it; on the base branch itself, on a fresh branch with only uncommitted work, and on a detached HEAD given an explicit base, the step runs as before. `gstack-ship-queue land` resuming a merge-only PR that GitHub already merged with a true merge commit still lands, its depth check included. See docs/troubleshooting.md#base-contains-head.
