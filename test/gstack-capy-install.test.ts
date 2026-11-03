@@ -423,6 +423,14 @@ describe('gstack-capy-install', () => {
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', bun_path: path.join(childBin, 'bun') });
     expect(admits('ship')).toBeNull();
     expect(admits('document-release')).toBeNull();
+    const shipBun = JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path;
+    expect(shipBun).not.toBe(path.join(childBin, 'bun'));
+    const check = run(f, ['--check', '--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path).toBe(shipBun);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'ship', bun_path: shipBun });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
     const failed = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', STUB_DOCTOR_FAIL: '1' });
     expect(failed.status).not.toBe(0);
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', ok: false });

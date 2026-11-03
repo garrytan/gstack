@@ -148,12 +148,13 @@ export function verdictProblem(skill: string, gstackRoot: string, env: Env, bunP
 /**
  * The verdict file that admits `skill`: `file` itself, else the workflow's own record
  * <verdict>.for/<skill>.json that every install also writes, so a later install for another
- * workflow never drops this one (GST-1233). When neither admits, `file` with its problem.
+ * workflow never drops this one (GST-1233), except after a failed ./setup, which changed the
+ * checkout every record certified. When neither admits, `file` with its problem.
  */
 export function admittedVerdict(skill: string, src: string, file: string, project: string | null, bunPath: string, bunVersion: string): { file: string; problem: VerdictProblem | null } {
   const problem = verdictFileProblem(file, skill, src, project, bunPath, bunVersion);
   const own = file.replace(/\.json$/, `.for/${skill}.json`);
-  if (problem && /^[A-Za-z0-9._-]+$/.test(skill) && fs.existsSync(own) && !verdictFileProblem(own, skill, src, project, bunPath, bunVersion)) return { file: own, problem: null };
+  if (problem && /^[A-Za-z0-9._-]+$/.test(skill) && !readInstallVerdict(file)?.trailer?.startsWith('gstack: fail setup') && fs.existsSync(own) && !verdictFileProblem(own, skill, src, project, bunPath, bunVersion)) return { file: own, problem: null };
   return { file, problem };
 }
 

@@ -163,8 +163,10 @@ PROJECT_REAL=""; [ -n "$PROJECT" ] && PROJECT_REAL=$(cd "$PROJECT" && pwd -P) &&
 VERDICT=$(gstack_install_verdict_path "$GSTACK_STATE_ROOT" "$ROOT_REAL" "$PROJECT_REAL")
 REC_BUN="" REC_VER="" REC_RULE="" REC_BUN_INSTALL="" REC_FOR=""
 if [ -f "$VERDICT" ]; then
-  REC_BUN=$(gstack_install_verdict_field "$VERDICT" bun_path) REC_VER=$(gstack_install_verdict_field "$VERDICT" bun_version)
-  REC_RULE=$(gstack_install_verdict_field "$VERDICT" bun_rule) REC_BUN_INSTALL=$(gstack_install_verdict_field "$VERDICT" bun_install)
+  _rec=$VERDICT
+  case "$FOR" in ''|*[!A-Za-z0-9._-]*) ;; *) [ "$PROFILE" -eq 0 ] && [ "$(gstack_install_verdict_field "${VERDICT%.json}.for/$FOR.json" ok 2>/dev/null)" = true ] && _rec="${VERDICT%.json}.for/$FOR.json" ;; esac
+  REC_BUN=$(gstack_install_verdict_field "$_rec" bun_path) REC_VER=$(gstack_install_verdict_field "$_rec" bun_version)
+  REC_RULE=$(gstack_install_verdict_field "$_rec" bun_rule) REC_BUN_INSTALL=$(gstack_install_verdict_field "$_rec" bun_install)
   REC_FOR=$(gstack_install_verdict_field "$VERDICT" for)
 fi
 # A reviewer's machine (--for review-voice) asked to run a workflow upgrades

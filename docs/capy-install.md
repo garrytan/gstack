@@ -337,7 +337,12 @@ keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
    workflow's own record with the same checks, so a later install for another
    workflow on a shared machine (a /ship docs child resolving another Bun, or a
    failed child install) never drops /ship's admission (GST-1233). A new HEAD
-   still invalidates both. Admission refuses a workflow whose
+   still invalidates both, and a failed `./setup` (`gstack: fail setup`)
+   invalidates every workflow's record. `--check --for <workflow>` keeps the
+   Bun that workflow's own record holds. The launch file and launch directory
+   stay shared per checkout and project (GST-1239), so the pregate launches
+   from the recorded Bun's own directory when the launch directory's `bun`
+   resolves to another one. Admission refuses a workflow whose
    running Bun is not the one the verdict recorded
    ([BUN_RESOLUTION_DRIFT](troubleshooting.md#bun-resolution-drift)), and so
    do the pregate's lanes and guards, which also refuse an invalid verdict

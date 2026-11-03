@@ -192,9 +192,11 @@ gstack_install_admission() {
     _gstack_ia_check
     # GST-1233: each install also keeps its own verdict per workflow, so when a
     # later install for another workflow replaced the shared one, this
-    # workflow's own record still admits it.
+    # workflow's own record still admits it; never after a failed ./setup, which
+    # changed the checkout every record certified.
     _ia_own="${file%.json}.for/$skill.json"
     case "$skill" in ''|*[!A-Za-z0-9._-]*) _ia_own="" ;; esac
+    case "$trailer" in "gstack: fail setup"*) _ia_own="" ;; esac
     if [ -n "$detail" ] && [ -n "$_ia_own" ] && [ -f "$_ia_own" ]; then
       _ia_m_file=$file _ia_m_detail=$detail _ia_m_fix=$fix _ia_m_code=$code _ia_m_status=$_ia_status _ia_m_trailer=$trailer
       file=$_ia_own _ia_status=ok

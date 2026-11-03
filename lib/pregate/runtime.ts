@@ -181,7 +181,9 @@ export function launchRuntime(repoRoot: string, env: NodeJS.ProcessEnv): LaunchR
       const now = fs.existsSync(recorded!.bun_path) ? bunVersionOf(recorded!.bun_path, env) : '';
       const why = !now ? 'is gone' : now !== recorded!.bun_version ? `now reports ${now}` : !accept(now) ? 'no longer satisfies the project pins' : '';
       if (why) return refuse('BUN_RESOLUTION_DRIFT', `recorded bun ${recorded!.bun_version} at ${recorded!.bun_path} ${why}`, 're-run the Capy skill installer with --check (scripts/install.sh --check --for ship) and follow its fix');
-      const launch = recorded!.launch_path && fs.existsSync(recorded!.launch_path) ? recorded!.launch_path : path.dirname(recorded!.bun_path);
+      let launchBun = '';
+      try { launchBun = fs.realpathSync(path.join(recorded!.launch_path, 'bun')); } catch { /* no Bun in the launch dir */ }
+      const launch = recorded!.launch_path && fs.existsSync(recorded!.launch_path) && (!launchBun || launchBun === recorded!.bun_path) ? recorded!.launch_path : path.dirname(recorded!.bun_path);
       return result(launch, now, `bun ${now} at ${recorded!.bun_path} (recorded by the install verdict)`, 'ok', '');
     }
   }

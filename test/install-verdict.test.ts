@@ -164,6 +164,12 @@ describe('install verdict keyed by (checkout, project): both twins', () => {
     writeVerdict(sr, { project: proj, bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'ship', trailer: 'gstack: ok 9.9.9.9 for=ship' }, own);
     expect(both('ship', proj, env)).toMatchObject({ refuse: false, status: 'ok' });
     expect(bashAdmit('ship', proj, { _GH: sr, ...env }).line).toBe('INSTALL_VERDICT: ok gstack: ok 9.9.9.9 for=ship');
+    const setupFailed = { project: proj, bun_path: '/opt/child/bun', bun_version: '1.4.2', schema_version: 2, for: 'document-release', ok: false, trailer: 'gstack: fail setup' };
+    writeVerdict(sr, setupFailed);
+    expect(both('ship', proj, env)).toMatchObject({ refuse: true, status: 'verdict', detail: 'the install verdict says: gstack: fail setup' });
+    writeVerdict(sr, { ...setupFailed, trailer: 'gstack: fail codex' });
+    expect(both('ship', proj, env)).toMatchObject({ refuse: false, status: 'ok' });
+    writeVerdict(sr, { project: proj, bun_path: '/opt/child/bun', bun_version: '1.4.2', schema_version: 2, for: 'document-release', required: ['claude', 'runtime'], trailer: 'gstack: ok 9.9.9.9 for=document-release' });
     writeVerdict(sr, { project: proj, bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'ship', head: 'f'.repeat(40) }, own);
     const stale = both('ship', proj, env);
     expect(stale).toMatchObject({ refuse: true, status: 'verdict', code: 'INSTALL_UNVERIFIED', detail: without.detail });
