@@ -13,7 +13,7 @@ import { EXCLUDED_BILLING_CATEGORIES, PRICING, estimateCostUsd, hasPricing, pric
 import * as helperPricing from './helpers/pricing';
 import {
   PREREG_SECTIONS, checkPrereg, dryRun, formatEvalCalls, parseEvalCalls, pilotReport, preregTemplate, renderArms, renderDryRun, renderPilotReport, renderSpendTable,
-  resolveArms, settlePilot, startPilot,
+  resolveArms, settlePilot, startPilot, estimateTokens, REASONING_OUTPUT_FLOOR, isSmallTierModel,
 } from '../lib/eval-plan';
 import { capyHost, type CapyHost } from './helpers/capy-host';
 
@@ -41,6 +41,12 @@ describe('lib/pricing', () => {
   test('the default eval-arms tier (smart) is priced out of the box', () => {
     for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) expect(hasPricing(model)).toBe(true);
   });
+
+  test('claude-haiku-5-5, gpt-6-luna and gemini-4-argon are priced (#3640)', () => {
+    for (const model of ['claude-haiku-5-5', 'anthropic/claude-haiku-5-5', 'gpt-6-luna', 'openai/gpt-6-luna', 'gemini-4-argon']) expect(hasPricing(model)).toBe(true);
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'claude-haiku-5-5')).toBe(0.6);
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'gemini-4-argon')).toBe(24);
+  });
 });
 
 describe('preregistration', () => {
@@ -67,6 +73,17 @@ describe('arms', () => {
     const unpriced = resolveArms({ cwd: d, explicit: ['gpt-6-astra', 'made-up-model'] });
     expect(unpriced.errors.map(e => e.code)).toEqual(['EVAL_PRICE_MISSING']);
     expect(renderArms(unpriced, { input: 1000, output: 1000 })).toContain('price=MISSING');
+    const added = resolveArms({ cwd: d, explicit: ['claude-haiku-5-5', 'gpt-6-luna', 'gemini-4-argon'] });
+    expect(added.errors).toEqual([]);
+  });
+
+  test('a policy document naming a newly priced model yields that arm', () => {
+    const d = tmp();
+    const doc = path.join(d, 'MODELS.md');
+    fs.writeFileSync(doc, '- cheap arm: claude-haiku-5-5\n- strong arm: claude-opus-5-5\n');
+    const r = resolveArms({ cwd: d, policyDoc: doc, modelsCli: () => ({ code: 1, stdout: '' }) });
+    expect(r.errors).toEqual([]);
+    expect(r.arms.map(a => a.model).sort()).toEqual(['claude-haiku-5-5', 'claude-opus-5-5']);
   });
 
   test('the eval-arms role is read through the models CLI seam, never the network', () => {
@@ -109,6 +126,52 @@ describe('dry run', () => {
     expect(dryRun({ input: rows, arms: ['gpt-6-astra'] }).checks.retry_prompt.ok).toBe(false);
     expect(dryRun({ input: rows, arms: ['gpt-6-astra'], retryPrompt: retry, outputBudget: 100 }).checks.output_budget.ok).toBe(false);
     expect(dryRun({ input: rows, arms: ['made-up'], retryPrompt: retry }).checks.price_table.missing).toEqual(['made-up']);
+  });
+
+  test('R54: refuses a Haiku- or Sonnet-only plan unless it names a tier question, warns on a mix, and re-costs on frontier prices', () => {
+    const d = tmp();
+    const rows = path.join(d, 'rows.jsonl');
+    fs.writeFileSync(rows, [JSON.stringify({ prompt: 'hello world' }), JSON.stringify({ prompt: 'second row' })].join('\n') + '\n');
+    const retry = path.join(d, 'retry.txt'); fs.writeFileSync(retry, 'retry\n');
+    const small = dryRun({ input: rows, arms: ['claude-haiku-4-5', 'claude-sonnet-5-5#no-gstack'], retryPrompt: retry });
+    expect(small.pass).toBe(false);
+    expect(small.checks.frontier).toMatchObject({ ok: false, small_tier: ['claude-haiku-4-5', 'claude-sonnet-5-5#no-gstack'], tier_question: null });
+    const avgIn = Math.ceil((estimateTokens('hello world') + estimateTokens('second row')) / 2);
+    expect(small.checks.frontier.recost_usd['claude-opus-5-5']).toBe(2 * 2 * estimateCostUsd({ input: avgIn, output: REASONING_OUTPUT_FLOOR }, 'claude-opus-5-5'));
+    expect(small.checks.frontier.recost_usd['gpt-6.1-sol']).toBeGreaterThan(0);
+    expect(renderDryRun(small)).toContain('CHECK: frontier refused');
+    const asked = dryRun({ input: rows, arms: ['claude-haiku-4-5'], retryPrompt: retry, tierQuestion: 'does the diet hold on Haiku' });
+    expect(asked.pass).toBe(true);
+    expect(renderDryRun(asked)).toContain('CHECK: frontier ok (tier question');
+    const mixed = dryRun({ input: rows, arms: ['claude-opus-5-5', 'claude-sonnet-5-5'], retryPrompt: retry });
+    expect(mixed.pass).toBe(true);
+    expect(renderDryRun(mixed)).toContain('CHECK: frontier warn');
+    const frontier = dryRun({ input: rows, arms: ['claude-opus-5-5', 'gpt-6.1-sol#no-gstack'], retryPrompt: retry });
+    expect(frontier.checks.frontier).toMatchObject({ ok: true, small_tier: [] });
+    expect(renderDryRun(frontier)).not.toContain('CHECK: frontier');
+    expect(['claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6-luna', 'gemini-3.8-flash'].some(isSmallTierModel)).toBe(false);
+    const dryFile = (name: string, r: unknown) => { const f = path.join(d, name); fs.writeFileSync(f, JSON.stringify(r)); return f; };
+    const swapped = startPilot({ out: path.join(d, 'swapped'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('frontier.json', frontier) });
+    expect(swapped.error?.code).toBe('EVAL_DRY_RUN_FAILED');
+    expect(fs.existsSync(path.join(d, 'swapped'))).toBe(false);
+    expect(startPilot({ out: path.join(d, 'asked'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('asked.json', asked) }).error).toBeUndefined();
+    expect(startPilot({ out: path.join(d, 'mixed'), cap: 5, n: 1, arms: ['claude-opus-5-5', 'claude-sonnet-5-5'], dryRun: dryFile('frontier2.json', frontier) }).error).toBeUndefined();
+  });
+
+  test('R54 CLI: --tier-question refuses another flag as its answer', () => {
+    const host = capyHost();
+    try {
+      const rows = path.join(host.base, 'rows.jsonl'); fs.writeFileSync(rows, JSON.stringify({ prompt: 'hello world' }) + '\n');
+      const retry = path.join(host.base, 'retry.txt'); fs.writeFileSync(retry, 'retry\n');
+      const run = (...extra: string[]) => spawnSync(BIN, ['dry-run', '--input', rows, '--arms', 'claude-haiku-4-5', '--retry-prompt', retry, ...extra], { cwd: host.base, env: host.env, encoding: 'utf8', timeout: 30_000 });
+      const flagAnswer = run('--tier-question', '--json');
+      expect(flagAnswer.status).not.toBe(0);
+      expect(flagAnswer.stderr).toContain('--tier-question needs the question');
+      const refused = run();
+      expect(refused.status).not.toBe(0);
+      expect(refused.stderr).toContain('R54');
+      expect(run('--tier-question', 'does the diet hold on Haiku').status).toBe(0);
+    } finally { host.cleanup(); }
   });
 });
 

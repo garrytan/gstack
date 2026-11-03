@@ -570,6 +570,9 @@ the base has moved.
 **Meaning.** The working tree changed between the pass's `gstack-review-log --start` and
 its logged row: an edit, commit or merge landed while reviewers were still reading. The
 reviewers may not have seen that change, so the row's `review_binding.state` is `changed`.
+Review records fingerprint with `gstack-wtree --review`, which skips untracked root dot-folders
+that hold no tracked file (never `.github/` or `.gstack/`), so a test lane's scratch folder alone
+does not move the tree.
 Step 11.5 cannot bind it and inserts `9 → 10 → 11 → 11.5`. Logging the same results again
 cannot repair it.
 
@@ -2431,7 +2434,10 @@ default `fetch-depth: 1`), a remote branch never fetched
 first parent is missing from a shallow history. The tool never guesses a
 base, because an empty diff against a wrong or absent base would read as "no
 gate edits" and pass review. `gstack-diff-scope` prints `SCOPE_ERROR=no_base`
-(all flags false, exit 2) for the same cause.
+(all flags false, exit 2) for the same cause, and also when no base was given
+and none resolves because `origin/HEAD` names the checked-out branch (or its
+upstream, or HEAD's own commit) and no PR base, live remote HEAD, `origin/main`
+or `origin/master` resolves (its comment line says so).
 
 **Fix.** Run the command the line prints. It is built for this checkout:
 `git fetch origin +<branch>:refs/remotes/origin/<branch>` for an unfetched
@@ -2592,12 +2598,24 @@ case with `bun run eval:pass-rates --headroom --case <id>`.
 <a id="cost-unknown"></a>
 ### `cost unknown (no billing captured for any of <N> trial(s))` / `cost $<x> known + <N> of <M> trial(s) cost unknown`
 
-**Meaning.** PTY and Codex sessions record no billing, so their cost is
-unknown. So is a trial in a multi-case shard whose result records are named by
-a display label rather than the case id, because no record can be attributed
-to it (a one-case shard's records are its case's). Only the known sum is
-shown. A train verdict's `ATTEMPT:` line reports the same as `cost=$<x> known
-+ <n> of <m> case(s) cost unknown`, a bare `cost=$<x>` only when every case
+**Meaning.** Some trials' cost was not captured, so only the known sum is
+shown. A trial is cost-unknown when it ran a PTY session whose transcript
+could not be priced (a non-hermetic or resumed launch, the native
+AskUserQuestion capture, two new transcripts for one cwd, no transcript or
+usage, or a model with no price row), a
+Codex session that completed no turn or whose model has no price row, a
+`claude -p` session that ended without a result, or an aborted Agent SDK
+session whose streamed usage could not be priced (no usage, or a model with no
+price row). A PTY or aborted Agent SDK session that does price counts its
+`streamed_cost_usd` instead. A trial is also unknown when no record and no
+session can be attributed to it, for example a multi-case shard's
+display-label record without `cost_case_id` (a one-case shard's records are
+its case's); a model-free case (`timeline-event-flow`) is a known $0. A panel
+trial (`behavior`, `judge`) is unknown whenever any of its sessions billed
+nothing, even one with a priced `streamed_cost_usd`. The rules are in
+[Failure causes and details](TESTING_INTERNALS.md#failure-causes). A train
+verdict's `ATTEMPT:` line reports the same as `cost=$<x> known + <n> of <m>
+case(s) cost unknown`, a bare `cost=$<x>` only when every case
 in the train record is priced, and no cost at all when none is.
 
 **Fix.** None needed; this is informational.
@@ -3302,10 +3320,85 @@ for an older PR, write it once by hand with the same command.
 **Meaning.** The block exists but does not validate against the `ship-receipt`
 schema (`gstack-artifact schema ship-receipt`). `gstack-ship-receipt write`
 also refuses with this code, and writes nothing, when `--head` is not the
-checked-out HEAD: the receipt binds the tree the review read.
+checked-out HEAD: the receipt binds the tree the review read. It refuses the
+same way when the head touches money, gate, auth or secret code and no done
+targeted record covers those classes (`REVIEW_TARGETED: … verdict=missing|failed`),
+or when `--review-targeted` names a read commit whose product patch is not
+the receipt's and a change after it carries a targeted class (money, gate,
+auth or secret code changed after the targeted reader read it, a test edit the
+gate scan tags included), or that is not an ancestor of HEAD.
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
-block. For the `--head` refusal, check out that commit and write there.
+block. For the `--head` refusal, check out that commit and write there. For a
+targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verify
+--targeted-out .gstack/tmp/targeted.json`, and write again with
+`--review-targeted @.gstack/tmp/targeted.json`.
+
+**`field=review_exclude`.** `gstack-ship-receipt write` and the queue's receipt check also
+use this code when the receipt's review_exclude digest (or the
+`--review-exclude <digest>` write was given) is not the digest HEAD has under the
+base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
+names `expected=` (now), `recorded=` (what the review read, `none` when it read
+without exclusion) and `source=` (the base commit). The reviewers read another
+selection than the one the head now has, so a receipt write alone cannot clear
+it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+run `gstack-review-dispatch verify --ledger <ledger>`, which prints
+`REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
+`gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
+
+<a id="review-diff-too-large"></a>
+### `REVIEW_DIFF_TOO_LARGE`
+
+**Meaning.** One reviewer's diff is over the 2,000,000-byte review ceiling
+(about 500K tokens). `gstack-review-dispatch pass`, `stage` and `render` read
+each reader's diff once before writing anything, and stop (exit 3, nothing
+written) rather than hand a reader more than it can read. The line names the
+reader, its bytes, the five largest top-level folders (`top=<dir>:<bytes>`) and
+the base policy commit.
+
+**Fix.** The line prints the fix for where the base policy stands:
+
+- **No key:** copy the printed JSON (`{"review_exclude_paths":[…],"min_gstack_version":"…"}`)
+  into `.gstack/ship-policy.json` on the base as its own PR. A lane cannot land on
+  the base itself: ask the repo owner or the coordinator. Once it merges, bring
+  the base into the branch and rerun once; if it is still over, split the PR.
+- **The branch declares the key but the base does not:** only the base copy
+  applies; land that hunk on the base first, as above.
+- **A pattern was not applied** (`skipped=` on the `REVIEW_EXCLUDE:` line): its kept
+  files need more than 24,000 argument bytes. Narrow the pattern, move the kept
+  files out of it, or split the PR.
+- **Still over after exclusion:** add the printed folders to the base policy, or
+  split the PR.
+
+There is no override flag. See [the review ceiling](ship-policy.md#review-diff-ceiling).
+
+<a id="review-diff-unreadable"></a>
+### `REVIEW_DIFF_UNREADABLE`
+
+**Meaning.** git could not read a reviewer's diff, so the pass stopped (exit 1)
+before writing a manifest or a brief. `reason=timeout` means `git diff` ran past
+`timeout_ms` (120,000 ms; fixed, no flag); `reason=git-exit` gives git's exit code.
+The line carries the diff base, git's first stderr line with remote URLs
+replaced by `<url>`, and `log=`, a file under the run directory holding git's whole
+stderr, redacted the same way. It is also printed when git cannot list the
+files `review_exclude_paths` matches.
+
+**Fix.** By reason: a timeout, rerun once unchanged, then split the PR or
+exclude its largest data folders on the base; git exit 128 (a missing object or
+an unfetched base), `git fetch origin <base>` and rerun once; anything else, stop
+and ask a person with the log file.
+
+<a id="review-exclude-reference"></a>
+### `REVIEW_EXCLUDE_REFERENCE`
+
+**Meaning.** Informational, never a stop. A kept code file names a folder that
+`review_exclude_paths` excludes (for example the harness that writes
+`receipts/`). A folder reference does not keep files; only a full file path
+does, so readers see that code without the files it reads.
+
+**Fix.** Nothing for the review itself. If the code's correctness depends on the
+excluded files, narrow the pattern on the base so they stay in the diff.
+
 <a id="execution-unknown"></a>
 ### `EXECUTION_UNKNOWN`
 
@@ -3683,7 +3776,12 @@ directory, or under a scratch name (`zz-*`, `tmp*`, `scratch*`).
 appears with its old value in a test file the branch did not update — nightly-
 and Heavy-only files included.
 
-**Fix.** Update every listed `file:line`, or keep the old value.
+**Fix.** Update every listed `file:line`, or keep the old value. When a test
+keeps the old value on purpose (the refused input after a minimum version goes
+up), mark that line: `// pregate-literal: NAME=<old value> <reason>` on the line
+or on the comment line directly above it. The marker waives only that line, and
+the check lists it as `waived:`. Don't use `warn: ["literals"]` for this, since
+that turns the check off for every constant.
 
 <a id="pregate-no-lane"></a>
 ### `PREGATE_NO_LANE`
@@ -3819,14 +3917,14 @@ the lane log, then rerun or split the selection. A tool missing from PATH is
 <a id="pregate-stalled"></a>
 ### `PREGATE_STALLED`
 
-**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log for the stall timeout (default 300 s,
+**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log, and its process group used under a tenth of one CPU (Windows: log growth alone), for the stall timeout (default 300 s,
 `stall_timeout_s` in the base branch's `.gstack/pregate.json` or the user-owned file, or
 `--stall-timeout`). pregate killed its process group and names the last test
 file started. The check is incomplete, never pass.
 
 **Fix.** Open the printed log, find the hang in the named file (a blocked
 child, a server that never exits, a synchronous wait), fix it and rerun
-`gstack-pregate --stage tests`. A test that is legitimately quiet for longer
+`gstack-pregate --stage tests`. A test that legitimately waits quietly for longer
 needs a larger `--stall-timeout`; `0` disables the stall kill and leaves only
 `--timeout`. The `--remote` gate never stalls: it is bounded by `--timeout`
 (else `timeout_s`), so a gate that waits on CI needs a timeout long enough for
@@ -3920,7 +4018,10 @@ and the table prints `environment: <kind> — <evidence>`. A test that failed an
 whose log also names a connection error is **not** this code: the runner's own
 summary counted a failure, so it is `PREGATE_LANE_FAILED` with `cause:
 "diff"`; nor is a runner, guard or gate script whose own binary is present but
-exits 127. `proof: "launch"` is certain (the command could not start, its
+exits 127. One exception: a Playwright lane where every test failed and
+Playwright says its browsers are not installed is `missing-binary` with
+`proof: "output"` (`npx playwright install`); a partial install stays the
+diff's failure. `proof: "launch"` is certain (the command could not start, its
 binary is off PATH, the runtime or a gstack tool refused); `proof: "output"`
 means a rule matched the command's text before any test was counted, which the
 diff's own output could have written, so the line says `(inferred from output)`
@@ -5456,6 +5557,29 @@ wait`'s `--timeout`.
 **Fix.** Run `wait` again (the pause stays valid until it expires), or find who
 owns the base's red.
 
+<a id="base-contains-head"></a>
+### `BASE_CONTAINS_HEAD`
+
+**Meaning.** A base-relative step (`gstack-ship-queue ready`, `land` and
+`train` receipt binding, `gstack-review-plan`, `gstack-pregate`,
+`gstack-gate-diff`, `gstack-diff-scope`, `gstack-docs-candidate snapshot`)
+was given a base that is the head or already contains it, while the branch
+has commits its real base lacks. The comparison would read the branch against
+itself and report no changes, a false green. The usual cause is a checkout
+made by a PR flow: `refs/remotes/origin/HEAD` names the PR branch and there is
+no local `main` (GST-774). The detail names the base, the head, and the real
+base (the PR's base from `gh`, else the remote's live HEAD from
+`git ls-remote --symref`, else `origin/main`, else `origin/master`). For
+a pull request's head the queue refuses whenever the base contains it. On the
+base branch itself, on a detached HEAD, and on a fresh branch with no commits
+past its base, the step runs as before. `gstack-diff-scope` reports it as
+`SCOPE_ERROR=base_contains_head` (all flags false, exit 2) with the reason on a
+comment line.
+
+**Fix.** Pass the real base (`--base main`, or the PR's base branch). When
+`origin/HEAD` names the checked-out branch, `git remote set-head origin main`
+repairs every default at once.
+
 <a id="queue-receipt-depth-raised"></a>
 ### `QUEUE_RECEIPT_DEPTH_RAISED`
 
@@ -5800,7 +5924,10 @@ working tree's status. It also refuses when an owner exception the receipt recor
 no longer stands, and, for a receipt from a gstack that records review
 depth, when HEAD needs a deeper review than the receipt records, `--head` is
 not the checked-out HEAD, or the receipt records `gstack_version` without
-`review_depth` ([ship-policy.md](ship-policy.md#ship-receipt)). The receipt in
+`review_depth` ([ship-policy.md](ship-policy.md#ship-receipt)). It refuses, too, when
+HEAD needs a targeted class (money, gate, auth, secret) that the receipt's
+`review_targeted` does not cover with a done pass, since the queue would refuse
+that receipt. The receipt in
 the body is unchanged and still names the old head, so `gstack-ship-queue
 ready` refuses `QUEUE_RECEIPT_STALE`.
 
@@ -5808,7 +5935,7 @@ ready` refuses `QUEUE_RECEIPT_STALE`.
 `gstack-ship-receipt carry --pr <n>` at the new head. When the history is
 already rewritten and the receipt predates `head_tree`, run /ship on the new
 head; next time merge the base in instead of rebasing. For a retargeted stacked
-PR whose older receipt lost its parent branch, or a depth or exception
+PR whose older receipt lost its parent branch, or a depth, targeted or exception
 refusal, run /ship on the new head. When `--head` is not the checked-out HEAD,
 check it out and carry there.
 
@@ -5903,8 +6030,9 @@ body that names a counter the receipt records (`passes=3` against
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
-`## Approvals` table `gstack-approvals` renders, and the `Review-loop exception: …`
-line the receipt's exception requires, are never read as claims.
+`## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`
+and `Documentation exception: …` lines the receipt's exceptions require, and
+the inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

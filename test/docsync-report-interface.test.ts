@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { CALLBACK_TEST_MS, callbackBudgetMs } from './helpers/docsync-fault-callbacks';
 
 test('actual registered documentation callbacks stage the generated report contract and consume their builders', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-report-interface-'));
@@ -91,13 +92,13 @@ for (const name of ['ship-docsync-completion', 'ship-docsync-current', 'ship-doc
     await expect(callbacks.get(name)()).rejects.toBe(stopped);
     expect(launched).toBe(before + 1);
     expect(fs.existsSync(fixture.home)).toBe(false);
-  });
+  }, ${CALLBACK_TEST_MS});
 }
 `);
     const result = Bun.spawnSync([process.execPath, 'test', script], {
       env: { ...process.env, EVALS: '', EVALS_TIER: '', EVALS_ALL: '', EVALS_RUN_ID: 'free-docsync-interface',
         GSTACK_EVAL_DIR: path.join(dir, 'evidence'), GSTACK_HOME: path.join(dir, 'state') },
-      stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
+      stdout: 'pipe', stderr: 'pipe', timeout: callbackBudgetMs(4),
     });
     const output = result.stdout.toString() + result.stderr.toString();
     expect(result.exitCode, output).toBe(0);
@@ -106,4 +107,4 @@ for (const name of ['ship-docsync-completion', 'ship-docsync-current', 'ship-doc
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, callbackBudgetMs(4) + 10_000);

@@ -205,7 +205,7 @@ function userPolicyChange(file: PregateFile): string | null {
 
 export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string; runs?: string[]; evidence?: RunCheck }
 /** What a run clear needs: the base branch's run profiles, the verifier's dependencies, the clock, and the remote gate's inventory. */
-export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; inventory: (command: string, tree: string) => string[] | { error: string } }
+export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string } }
 export type ClearDecision = { receipt: string; attested: boolean; substitution?: PregateReceiptSubstitution } | { refused: 'usage' | 'PREGATE_RECEIPT_INVALID'; message: string; fix?: string };
 
 /**
@@ -312,7 +312,8 @@ function treeSubstitution(file: PregateFile, gatedTree: string, lane: string, re
 /**
  * `clear --run`: GitHub Actions runs as the obligation's evidence (lib/run-evidence.ts). The remote gate needs one
  * verified run per `remote_gate_runs` profile, all on one tree, whose tree.json file lists together cover every file
- * the gate's inventory command prints; any other lane needs one verified run of the profile named after it. The run
+ * the gate's inventory command prints and every selected file except those its skipped command says the gate itself
+ * does not run (never an inventory file); any other lane needs one verified run of the profile named after it. The run
  * tree must be pregate.json's tree or a stamp-only predecessor of it, exactly as a gate report's tree must.
  */
 function clearByRuns(file: PregateFile, lane: string, refs: string[], check: RunCheck | undefined, repoRoot: string): ClearDecision {
@@ -359,10 +360,19 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   const idle = evidence.filter(e => (e.tests ?? e.files.length) === 0);
   if (idle.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=no_tests — ${idle.map(e => `run ${e.run_id} (${e.profile})`).join(', ')} records no tests; ${lane} stays uncleared` };
   const required = new Set(file.requires_remote?.find(r => r.lane === lane)?.tests ?? []);
+  let skippedCount = 0;
   if (isGate) {
     const listed = check.inventory(check.gateRuns!.inventory, file.tree);
     if ('error' in listed) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=inventory_failed — the remote gate's inventory command failed: ${listed.error}; ${lane} stays uncleared` };
     if (!listed.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=inventory_empty — the remote gate's inventory command listed no test files; ${lane} stays uncleared` };
+    const skipCommand = check.gateRuns!.skipped;
+    if (skipCommand && required.size) {
+      const skipped = check.inventory(skipCommand, file.tree, [...required]);
+      if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed: ${skipped.error}; ${lane} stays uncleared` };
+      const inventory = new Set(listed);
+      for (const f of skipped) if (!inventory.has(f) && required.delete(f)) skippedCount++;
+      if (!required.size) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=paid_only — the remote gate skips every selected test file (${skippedCount}), so no selected test ran; like the gate's own tests=0 report, that never clears; ${lane} stays uncleared` };
+    }
     for (const f of listed) required.add(f);
   }
   const missing = uncoveredFiles([...required], evidence);
@@ -375,7 +385,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   }
   const tests = evidence.reduce((n, e) => n + (e.tests ?? e.files.length), 0);
   const accepted = sub.substitution ? ` accepted-for=${file.tree.slice(0, 12)} stamp-only=${sub.substitution.files.length}` : '';
-  return { receipt: `${isGate ? 'remote-gate' : 'run'} tree=${trees[0]!.slice(0, 12)} tests=${tests}${accepted} ${runReceiptFields(evidence, check.now)}`, attested: false, substitution: sub.substitution };
+  return { receipt: `${isGate ? 'remote-gate' : 'run'} tree=${trees[0]!.slice(0, 12)} tests=${tests}${skippedCount ? ` skipped=${skippedCount}` : ''}${accepted} ${runReceiptFields(evidence, check.now)}`, attested: false, substitution: sub.substitution };
 }
 
 /** Record the receipt that clears one obligation (a run URL, an evidence-bundle lane label, or a remote gate report, with the stamp-only substitution when one was accepted). */

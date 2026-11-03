@@ -337,7 +337,7 @@ in about a hundred lines, generated from the code.
 
 ```bash
 AP=bin/gstack-autoplan
-$AP next --out <dir> --plan <plan.md> [--ui|--no-ui] [--developer-tool] [--no-dx] [--light] [--spend-cap <usd>]
+$AP next --out <dir> --plan <plan.md> --full [--ui|--no-ui] [--developer-tool] [--no-dx] [--light] [--spend-cap <usd>]
 #   PHASE: ceo snapshot=<sha> order=ceo,design,dx,eng
 #   SCOPE: ui=yes (...) dx=yes (detected: ...) source=ui:detected,dx:detected
 #   DRIVER: <root>/autoplan/DRIVER.md
@@ -352,6 +352,46 @@ The first `next` prints `SCOPE: … source=ui:<flag|marker|detected>,dx:<…>`
 and, when CLI flags differ from the plan's marker, `SCOPE_PIN: add <!--
 gstack-autoplan-scope: … --> as the first line of <file>`; gstack never writes
 the plan.
+
+### Kinds: fix, feature and full (R65)
+
+The example above is the full run. The first `next` also takes `--kind`:
+
+- **`--kind fix`**: a bug fix gets no plan review. `gstack-autoplan next --kind fix`
+  prints `AUTOPLAN: not needed (bug fix; R65)`, a `PROOF:` line and
+  `GSTACK_RESULT: skill=autoplan status=skipped run=-`, exits 0 and writes
+  nothing (no `--out` or `--plan` needed; `--json` prints one object with
+  `status: "skipped"`). `run --kind fix` does the same before any paid call.
+  An `--out` that already holds a run is refused. The PR still owes the bug's
+  proof: a repro on current main or a failing test written first.
+- **`--kind feature`**, the default for an unattended run on Capy
+  (`GSTACK_CAPY=1`) that names no kind, is the lean run. The run is the `eng`
+  phase alone with one native reviewer, whose prompt merges the CEO and Eng
+  lenses (Design and DX only when scope detects them) and always asks "Any
+  outside terms, licences or rights involved?". The reviewer reads the draft
+  code with the plan: `git diff` from the merge base with `--base <ref>`
+  (default `origin/HEAD`), untracked files included and the run directory
+  left out, written into the phase's snapshot directory as `draft.diff` and
+  hashed into `run.json` (`phases.eng.draft`) and the `phase_opened` journal
+  row. With no code yet, the run says so: `DRAFT: none (<why>)`. A git
+  command that fails is `DRAFT: none (draft capture failed: …)`, never a
+  partial draft. An untracked file whose name looks like a secret (`.env*`,
+  `*.pem`, `*.key`, `id_rsa`, `credentials*`, `*secret*`) is left out with a
+  note, and the `DRAFT:` line names the checkout it diffed (`root=`). The prompt inlines the diff in a fence longer than any tilde
+  run inside it, cut at 100,000 bytes (`shown=` on the `DRAFT:` line) with a
+  note asking the reviewer to name what it didn't see. The reviewer's
+  line after INPUT names the draft (`DRAFT: <sha256>` or `DRAFT: none`), or
+  submit refuses the result with `RESULT_RECEIPT_MISSING`. A hand-run record
+  bound with `--attest` has no receipt at all, so its deviation says the
+  draft was not bound. `run`, which pays for both voices, stays the full run
+  unless `--kind feature` asks for the lean one. There is no outside
+  voice, `--max-rounds` defaults to 1, carry-forward is off, and the gate has
+  one revision: `revise --incorporates` applies the owner's accepted changes
+  without re-review (`APPLIED: … (lean run: one gate revision; …)`) and
+  approves. The gate and `gstack-owner-brief render --captain` relay work as
+  in the full run. A paid-eval prereg counts as a feature.
+- **`--full`** restores every phase and both voices. Off Capy, and in an
+  interactive session, the default stays full; `--ceo-only` stays its own run.
 
 1. **Dispatch each `ATTEMPT:`.** The native voice is a subagent on the parent's
    own model given the prompt file; the outside voice is a subagent on another
