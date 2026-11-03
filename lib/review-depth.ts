@@ -549,7 +549,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
   const sh = i.shape;
-  const platformNow = !!sh && sh.platform === 'on' && sh.platformReview?.head === sh.head && i.history.fullPasses === 0 && !riskClass(c, depth) && platformFits(i.paths, depth.runtimeLines, i.numbers);
+  const platformNow = !!sh && sh.platform === 'on' && sh.platformReview?.head === sh.head && i.history.fullPasses === 0 && !riskClass(c, depth) && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
   const panel = !platformNow && (!sh || sh.panel === 'all' || (sh.panel === 'risk' && riskClass(c, depth)));
   const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan, lean: !panel }, depth.depth);
   if (!panel) return leanPlan(i, c, depth, next);
@@ -635,7 +635,7 @@ export function planReview(i: PlanInput): ReviewPlan {
 /** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
 const riskClass = (c: ClassResult, depth: DepthResult) => c.class === 'gate' || c.risk.length > 0 || c.errors.length > 0 || depth.depth !== 'light';
 /** Whether a light diff may take the platform depth (FOUN-64 item 2): docs or tests only, no numeric claims, no results, prereg, eval or checker path. The receipt and the queue ask the same. */
-export const platformFits = (paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p));
+export const platformFits = (cls: DiffClass, paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => (cls === 'docs' || cls === 'tests') && runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p));
 /** Paths that carry results or preregistration claims: never the platform depth (FOUN-64 item 2). */
 const CLAIM_PATH = /(^|\/|[-_.])(results?|prereg|preregistration|benchmarks?|evals?|scorers?|checkers?)([-_./]|$)/i;
 
@@ -649,7 +649,7 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
   const plan = (n: NextStep, mode: ReviewMode): ReviewPlan => ({ ...depth, stepDepth: depth.depth, depthReasons: depth.reasons, reasons: c.reasons, next: n, numbers: i.numbers, dispatches, skipped, mode });
   const pr = sh.platformReview;
-  const platformFit = !risky && platformFits(i.paths, depth.runtimeLines, i.numbers);
+  const platformFit = !risky && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
   if (next.step === 'full' && platformFit && sh.platform === 'on' && pr && pr.head === sh.head) {
     const why = `planned skip: platform review ${pr.id} by ${pr.reviewer} at ${pr.head.slice(0, 12)}`;
     for (const r of ['core checklist', 'specialists', 'red-team', 'adversarial-native', 'outside-voice', 'targeted']) skipped.push(`${r} (${why})`);

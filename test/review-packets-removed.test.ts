@@ -95,8 +95,8 @@ const REVIEWER_BRIEFS: Record<string, { sha: string; replay: Replay }> = {
     'review/specialists/testing.md': { sha: 'd6cc2bef7be562387d0c0a22fefe646dff9c295f1d34d8453a6cb496584150e4', replay: '#3638' },
     'review/specialists/targeted.md': { sha: '7f92a0d0a8319c3c0e076fb3b1a4689c45120b2be2c14dfc7d4cb03aafa9d6a5', replay: 'GST-257' },
     'scripts/resolvers/fix-check.ts': { sha: '712bf5b0c439e96bac32f19cbe25394dabb4c94aa66600100bfde9b100e15a08', replay: '#3638' },
-    'lib/review-depth.ts': { sha: '7a5ca1f98318902c5ebd3e537f37b7cef05689232ff307a429923397d60abdac', replay: 'GSTA-258-C' },
-    'lib/review-risk.ts': { sha: '2c5b96b921b8be5b977b734b3787361ed80e7d3f779ff6c4a20948f85e4d4474', replay: 'GSTA-258-C' },
+    'lib/review-depth.ts': { sha: 'aec55c5d2f834ad7d25fb0d9f7dba239f45d01361ad3fddc8bf54597d09bdfaa', replay: 'GSTA-258-C' },
+    'lib/review-risk.ts': { sha: '0c840724b6b8f09a3d7daae3eeef15424f2033ed90f4f7890e4a88d248eddb57', replay: 'GSTA-258-C' },
 };
 
 /**

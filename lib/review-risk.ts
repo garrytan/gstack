@@ -37,6 +37,8 @@ export const MONEY_LINE = [
   /\bapi\.(?:anthropic|openai|voyageai)\.com\b/, /\bgenerativelanguage\.googleapis\.com\b/, /\bopenrouter\.ai\b/,
   /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
 ];
+/** The MONEY_LINE entries a config file or results script still answers to: a spend cap and a paid-provider call site, never a bare _usd value. */
+export const PAID_MONEY_LINE = MONEY_LINE.slice(2);
 export const AUTH_PATH_TOKENS = ['auth', 'authn', 'authz', 'oauth', 'oauth2', 'jwt', 'session', 'sessions', 'permission', 'permissions', 'role', 'roles'];
 export const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
 export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i;
@@ -90,8 +92,11 @@ export const DATA_LINE = [
  * A key in a config file still names a secret.
  */
 export const CONFIG_DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|ya?ml|toml|ini|cfg|conf|env|properties|xml|plist)$/i;
-/** Analysis scripts that live with their results (docs/benchmarks/.../results/cost-intervals.py): judged by their path, which names no risk class. */
-export const STATS_SCRIPT = /(^|\/)(docs|results|benchmarks?|analysis|notebooks?)\/(?:[^/]+\/)*[^/]+\.(py|r|jl|ipynb)$/i;
+/**
+ * Analysis scripts that live with their results (docs/benchmarks/.../results/cost-intervals.py): their path tokens and generic
+ * lines name no risk class, but a secret, a spend cap or a paid-provider call in one still does (PAID_MONEY_LINE).
+ */
+export const STATS_SCRIPT = /(^|\/)results\/(?:[^/]+\/)*[^/]+\.(py|r|jl|ipynb)$/i;
 
 /**
  * Docs that can print a credential (gbrain#8417: `mcp get gbrain` shows a stored bearer token): an Authorization header, a
@@ -112,7 +117,7 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -134,9 +139,10 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
     if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
-    if (STATS_SCRIPT.test(p)) continue;
-    const t = tokens(p);
+    const stats = STATS_SCRIPT.test(p);
+    const t = stats ? [] : tokens(p);
     const config = CONFIG_DATA_PATH.test(p);
+    const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
@@ -147,7 +153,8 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
-      if (config) continue;
+      if (!why.has('money') && pathOnly && PAID_MONEY_LINE.some(r => r.test(line))) hit('money', 'spend cap or paid call: ' + p);
+      if (pathOnly) continue;
       if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);

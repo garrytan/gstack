@@ -155,7 +155,7 @@ function render(): number {
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
   const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}) });
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}) });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }

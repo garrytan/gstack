@@ -187,7 +187,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const diffFile = path.join(briefs, 'outside-voice.diff');
       fs.writeFileSync(diffFile, s.text, { mode: 0o600 });
       Object.assign(slots, { diff_file: diffFile, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) });
-      if (s.sliced) slice = { diff_slice: { kept: s.kept, files: s.files, bytes: s.bytes, total: s.total } };
+      slice = { payload: { file: diffFile, sha256: slots.diff_sha256 }, ...(s.sliced ? { diff_slice: { kept: s.kept, files: s.files, bytes: s.bytes, total: s.total } } : {}) };
     }
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };

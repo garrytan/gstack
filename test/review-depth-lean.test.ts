@@ -1,7 +1,10 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { classifyDiff, nextStep, planReview, scanNumbers, type PlanInput, type ReviewShape } from '../lib/review-depth';
+import { classifyDiff, nextStep, planReview, platformFits, scanNumbers, type PlanInput, type ReviewShape } from '../lib/review-depth';
+import { appendEvent, verify } from '../lib/review-ledger';
+import * as os from 'node:os';
+import { createHash } from 'node:crypto';
 import { matchRisk } from '../lib/review-risk';
 import { renderBrief, sectionTexts, sliceDiff, sliceNote } from '../lib/review-brief';
 import { validatePolicy, DEFAULT_POLICY, REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
@@ -39,6 +42,16 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     const p = 'docs/benchmarks/2026-11-01-installer-cc-codex/results/cost-intervals.py';
     expect(matchRisk({ codePaths: [p], added: { [p]: ["rows = [json.loads(l) for l in open(os.path.join(sys.argv[1], 'trials.jsonl'))]"] }, scopeAuth: false }).size).toBe(0);
     expect(matchRisk({ codePaths: ['tools/fetch.py'], added: { 'tools/fetch.py': ['p = os.path.join(sys.argv[1], name)'] }, scopeAuth: false }).has('security')).toBe(true);
+  });
+  test('a paid-provider call, a spend cap or a key in a results script or config file still counts', () => {
+    const run = 'benchmarks/run_models.py', sweep = 'analysis/sweep.py', cfg = 'evals/config.yaml';
+    expect(matchRisk({ codePaths: [run], added: { [run]: ['resp = client.messages.create(model=m)'] }, scopeAuth: false }).has('money')).toBe(true);
+    expect(matchRisk({ codePaths: [sweep], added: { [sweep]: ['MAX = spend_cap(5)'] }, scopeAuth: false }).has('money')).toBe(true);
+    expect(matchRisk({ codePaths: [run], added: { [run]: ['key = os.environ["OPENAI_API_KEY"]'] }, scopeAuth: false }).has('secret')).toBe(true);
+    expect(matchRisk({ codePaths: [cfg], added: { [cfg]: ['spend_cap: 9999'] }, scopeAuth: false }).has('money')).toBe(true);
+    expect(matchRisk({ codePaths: [cfg], added: { [cfg]: ['lease_usd: 3'] }, scopeAuth: false }).has('money')).toBe(false);
+    expect(matchRisk({ codePaths: ['lib/analysis/billing.py'], added: { 'lib/analysis/billing.py': ['charge(customer, amount_usd)'] }, scopeAuth: false }).has('money')).toBe(true);
+    expect(matchRisk({ codePaths: ['docs/conf.py'], added: { 'docs/conf.py': ['p = os.path.join(sys.argv[1], name)'] }, scopeAuth: false }).has('security')).toBe(true);
   });
   test('a secret in a config file still counts', () => {
     expect(matchRisk({ codePaths: ['deploy/app.yaml'], added: { 'deploy/app.yaml': ['  key: ${OPENAI_API_KEY}'] }, scopeAuth: false }).has('secret')).toBe(true);
@@ -117,6 +130,24 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
 });
 
 describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the platform review at the exact head', () => {
+  test('runtime code never fits the platform depth, even with no runtime lines (a registered generated output, a mode-only change)', () => {
+    const none = scanNumbers({});
+    expect(platformFits('code', ['dist/app.js'], 0, none)).toBe(false);
+    expect(platformFits('gate', ['scripts/start.sh'], 0, none)).toBe(false);
+    expect(platformFits('docs', ['docs/a.md'], 0, none)).toBe(true);
+    expect(platformFits('tests', ['test/a.test.ts'], 0, none)).toBe(true);
+  });
+  test('verify marks an outside-voice diff file changed after render as a mismatch', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-'));
+    const ledger = path.join(dir, 'ledger.jsonl'), brief = path.join(dir, 'brief.md'), diff = path.join(dir, 'outside-voice.diff');
+    fs.writeFileSync(brief, 'brief'); fs.writeFileSync(diff, '+code\n');
+    const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+    appendEvent(ledger, { event: 'rendered', reader: 'outside-voice', role: 'outside-voice', file: brief, sha256: sha('brief'), payload: { file: diff, sha256: sha('+code\n') } } as any);
+    expect(verify(ledger).rows.find(r => r.kind === 'BRIEF')!.detail).not.toContain('payload_changed_since_render');
+    fs.writeFileSync(diff, '+docs only\n');
+    const row = verify(ledger).rows.find(r => r.kind === 'BRIEF')!;
+    expect([row.status, row.detail.includes('payload_changed_since_render')]).toEqual(['MISMATCH', true]);
+  });
   const on = (review: ReviewShape['platformReview']) => lean({ platform: 'on', platformReview: review });
   const docs = { paths: ['docs/howto-install.md', 'test/a.test.ts'] };
   test('platform on with the review at HEAD on a docs or tests diff: no reader, a planned SKIP for every reader, the core read included', () => {

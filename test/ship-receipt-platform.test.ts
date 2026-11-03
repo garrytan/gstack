@@ -74,6 +74,7 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
     expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'), 'APPROVED').ok).toBe(true);
     expect(withGh(head, () => platformReviewAt(dir, head), 'CHANGES_REQUESTED').ok).toBe(false);
     expect(withGh(head, () => platformReviewAt(dir, head))).toMatchObject({ ok: true, review: { id: '99' } });
+    expect(withGh(head, () => platformReviewAt(dir, head, { id: '98' })).ok).toBe(false);
   });
   test('the receipt records the risk_paths class and the panel mode the base policy gives', () => {
     const { dir, head } = repo({ review: { risk_paths: ['src/balance/**'] } }, { 'src/balance/x.ts': 'export const x = 1;\n' });

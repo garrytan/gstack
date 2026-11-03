@@ -25,8 +25,8 @@ export function platformReviewAt(root: string, head: string, o: { pr?: string; i
   let reviews: Array<{ id?: number; user?: { login?: string }; commit_id?: string; state?: string }>;
   try { reviews = (JSON.parse(list.out) as unknown[]).flat() as typeof reviews; } catch { return { ok: false, reason: `PR #${pr}'s reviews are not JSON` }; }
   const at = reviews.filter(r => r.user?.login === PLATFORM_REVIEWER && r.state !== 'PENDING' && r.commit_id?.toLowerCase() === head.toLowerCase() && r.id !== undefined);
-  const found = o.id ? at.find(r => String(r.id) === o.id) : at.at(-1);
-  const hit = found && (found.state === 'APPROVED' || found.state === 'COMMENTED') ? found : undefined;
+  const newest = at.at(-1);
+  const hit = newest && (!o.id || String(newest.id) === o.id) && (newest.state === 'APPROVED' || newest.state === 'COMMENTED') ? newest : undefined;
   if (!hit) return { ok: false, reason: o.id ? `review ${o.id} on PR #${pr} is not a ${PLATFORM_REVIEWER} review at ${head.slice(0, 12)}` : `no ${PLATFORM_REVIEWER} review of PR #${pr} at ${head.slice(0, 12)}` };
   return { ok: true, review: { id: String(hit.id), head: head.toLowerCase(), reviewer: PLATFORM_REVIEWER } };
 }

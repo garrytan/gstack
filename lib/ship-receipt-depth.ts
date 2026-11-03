@@ -132,7 +132,7 @@ export function platformReceiptDepth(repoRoot: string, base: string, depth: Rece
   const { review } = basePolicy(repoRoot, baseSha.ok ? `origin/${branch}` : branch, baseSha.ok ? baseSha.out : null);
   if (review.platform !== 'on') return { ok: false, message: `--platform-review needs review.platform on in ${branch}'s .gstack/ship-policy.json; with platform review off at least one /ship reader runs` };
   const c = collectCommit(repoRoot, depth.base, head);
-  if (depth.depth !== 'light' || !platformFits(c.paths, depth.runtime_lines, scanNumbers(c.added))) return { ok: false, message: `head ${head.slice(0, 12)} needs ${depth.depth} review (${depth.class} class, ${depth.runtime_lines} runtime lines): the platform depth covers only docs or tests diffs with no numeric, results or prereg claims` };
+  if (depth.depth !== 'light' || !platformFits(depth.class, c.paths, depth.runtime_lines, scanNumbers(c.added))) return { ok: false, message: `head ${head.slice(0, 12)} needs ${depth.depth} review (${depth.class} class, ${depth.runtime_lines} runtime lines): the platform depth covers only docs or tests diffs with no numeric, results or prereg claims` };
   const found = platformReviewAt(repoRoot, head, { pr, id });
   if (!found.ok) return { ok: false, message: `--platform-review ${id}: ${found.reason}` };
   return { ok: true, depth: { ...depth, depth: 'platform', mode: 'platform', platform_review: found.review } };
@@ -290,7 +290,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
   if (have === 'platform') {
     const pr = rd!.platform_review;
-    const fits = need.depth === 'light' && platformFits(c.paths, need.runtimeLines, scanNumbers(c.added));
+    const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));
     const ok = review.platform === 'on' && fits && !!pr && pr.head === head.toLowerCase();
     if (ok) return { ok: true, line: `${line} platform_review=${pr!.id}@${pr!.head.slice(0, 12)}` };
     return { ok: false, line, message: `the receipt records the platform depth, but ${review.platform !== 'on' ? `the base policy has review.platform ${review.platform}` : !fits ? `head ${head.slice(0, 12)} needs ${need.depth} review of a diff the platform depth does not cover` : `its platform review is not at head ${head.slice(0, 12)}`}; the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
