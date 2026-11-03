@@ -277,10 +277,8 @@ is visible: a `standard-16` run is billed from create to confirmed teardown.
 2. `$U records` and `$U list --mine`, then `$U down` anything of yours that no
    rerun will reattach to.
 3. After a machine swap nothing reattaches; tier checkpoints on a Drive
-   (`UBI_CHECKPOINT_DIR`) still count. If `up` ran with `UBI_RECOVERY_DIR`, run
-   `$U recover` (`--owner OLD` for another owner's VMs) only once the creating
-   machine is dead, then `pull` and `down` from here (`RECOVER_*` codes:
-   docs/troubleshooting.md). Counted runs (`--counted`) refuse without it.
+   (`UBI_CHECKPOINT_DIR`) still count; with `UBI_RECOVERY_DIR`, `$U recover`
+   rebuilds VM state here once the old machine is dead.
 4. A background log with no exit sentinel and no VM is an interrupted run, not
    a pass; rerun it.
 5. Measure before/after pairs on the same size and location, never one side

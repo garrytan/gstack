@@ -910,11 +910,13 @@ vm_gone_final() {
     && { [ "$4" = "$$" ] || ! kill -0 "$4" 2>/dev/null; }; }
 }
 
-# Recovery bundles. RB_PY reads the secret on stdin and derives an encryption
-# key and a MAC key from it (HMAC-SHA256 over fixed labels); the encryption key
-# reaches openssl on a pipe fd (-pass fd:N). A bundle is UBIRB1, the ciphertext
-# of a JSON map of the state files, and an HMAC over both, checked with
-# compare_digest before anything is decrypted. open exits 3 on any failure.
+# Recovery bundles. RB_PY reads the secret on stdin and stretches it with
+# PBKDF2-SHA256 (200000 rounds, a random salt per bundle) into an encryption key
+# and a MAC key; the encryption key reaches openssl on a pipe fd (-pass fd:N).
+# A bundle is UBIRB1, the salt, the ciphertext of a JSON map of the state files
+# with the VM name and owner, and an HMAC over all of it, checked with
+# compare_digest before anything is decrypted. open NAME OWNER exits 3 on any
+# failure, a sealed name or owner other than NAME and OWNER included.
 RB_PY='
 import base64, hashlib, hmac, json, os, subprocess, sys
 MAGIC = b"UBIRB1\n"
@@ -922,48 +924,55 @@ FILES = ("key", "key.pub", "env", "tags", "sink")
 secret = sys.stdin.buffer.read()
 if not secret:
     sys.exit(2)
-enc_key = hmac.new(secret, b"ubi-runner recovery bundle enc v1", hashlib.sha256).hexdigest().encode()
-mac_key = hmac.new(secret, b"ubi-runner recovery bundle mac v1", hashlib.sha256).digest()
-def ossl(mode, data):
+def keys(salt):
+    k = hashlib.pbkdf2_hmac("sha256", secret, b"ubi-runner recovery bundle v1" + salt, 200000, 64)
+    return k[:32].hex().encode(), k[32:]
+def ossl(mode, data, enc_key):
     r, w = os.pipe()
     os.write(w, enc_key + b"\n")
     os.close(w)
     try:
-        p = subprocess.run(["openssl", "enc", mode, "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-salt", "-pass", "fd:%d" % r],
+        p = subprocess.run(["openssl", "enc", mode, "-aes-256-cbc", "-pbkdf2", "-iter", "1000", "-salt", "-pass", "fd:%d" % r],
                            input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, pass_fds=(r,))
     finally:
         os.close(r)
     return p.returncode, p.stdout
 if sys.argv[1] == "seal":
-    src, out = sys.argv[2], sys.argv[3]
+    src, out, name, owner = sys.argv[2:6]
+    salt = os.urandom(16)
+    enc_key, mac_key = keys(salt)
     files = {}
     for n in FILES:
         if os.path.isfile(os.path.join(src, n)):
             with open(os.path.join(src, n), "rb") as f:
                 files[n] = base64.b64encode(f.read()).decode()
-    rc, ct = ossl("-e", json.dumps({"v": 1, "files": files}).encode())
+    rc, ct = ossl("-e", json.dumps({"v": 1, "name": name, "owner": owner, "files": files}).encode(), enc_key)
     if rc != 0 or not ct:
         sys.exit(1)
-    body = MAGIC + ct
+    body = MAGIC + salt + ct
     os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
     tmp = "%s.tmp.%d" % (out, os.getpid())
     with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as f:
         f.write(body + hmac.new(mac_key, body, hashlib.sha256).digest())
     os.rename(tmp, out)
 else:
-    bundle, dest = sys.argv[2], sys.argv[3]
+    bundle, dest, name, owner = sys.argv[2:6]
     with open(bundle, "rb") as f:
         data = f.read()
     body, mac = data[:-32], data[-32:]
-    if len(data) < len(MAGIC) + 33 or not body.startswith(MAGIC) \
-            or not hmac.compare_digest(mac, hmac.new(mac_key, body, hashlib.sha256).digest()):
+    if len(data) < len(MAGIC) + 16 + 33 or not body.startswith(MAGIC):
         sys.exit(3)
-    rc, plain = ossl("-d", body[len(MAGIC):])
+    enc_key, mac_key = keys(body[len(MAGIC):len(MAGIC) + 16])
+    if not hmac.compare_digest(mac, hmac.new(mac_key, body, hashlib.sha256).digest()):
+        sys.exit(3)
+    rc, plain = ossl("-d", body[len(MAGIC) + 16:], enc_key)
     try:
-        files = json.loads(plain)["files"] if rc == 0 else None
+        sealed = json.loads(plain) if rc == 0 else {}
     except ValueError:
-        files = None
-    if not isinstance(files, dict) or "env" not in files or "key" not in files or any(n not in FILES for n in files):
+        sealed = {}
+    files = sealed.get("files") if isinstance(sealed, dict) else None
+    if sealed.get("name") != name or sealed.get("owner") != owner or not isinstance(files, dict) \
+            or "env" not in files or "key" not in files or any(n not in FILES for n in files):
         sys.exit(3)
     for n, b in files.items():
         with os.fdopen(os.open(os.path.join(dest, n), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as f:
@@ -974,7 +983,7 @@ else:
 # set. A counted run stops on a failed write; any other run warns and goes on.
 bundle_save() {
   [ -n "$RECOVERY_DIR" ] || return 0
-  printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" seal "$(state_dir "$1")" "$RECOVERY_DIR/$OWNER/$1.bundle" && return 0
+  printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" seal "$(state_dir "$1")" "$RECOVERY_DIR/$OWNER/$1.bundle" "$1" "$OWNER" && return 0
   [ "$COUNTED" != 1 ] || die "UBI_RECOVERY_UNAVAILABLE: could not write the recovery bundle for $1 under $RECOVERY_DIR (needs openssl and a writable directory); a counted run needs it"
   log "WARNING: could not write the recovery bundle for $1 under $RECOVERY_DIR (UBI_RECOVERY_UNAVAILABLE); continuing without one"
 }
@@ -1019,14 +1028,18 @@ cmd_recover() {
       continue
     fi
     tmp=$(mktemp -d "$STATE_ROOT/.recover.XXXXXX")
-    if ! printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" open "$b" "$tmp"; then
+    local NAME="" LOCATION="" SIZE="" IP="" CREATED="" CREATE_AT=0 CREATE_PID="" line
+    if printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" open "$b" "$tmp" "$name" "$from"; then
+      while IFS= read -r line; do
+        [[ "$line" =~ ^(NAME|LOCATION|SIZE|IP|CREATED|CREATE_AT|CREATE_PID)=([A-Za-z0-9._:/-]*)$ ]] || continue
+        printf -v "${BASH_REMATCH[1]}" %s "${BASH_REMATCH[2]}"
+      done <"$tmp/env"
+    fi
+    if [ "$NAME" != "$name" ] || ! [[ "$CREATE_AT" =~ ^[0-9]+$ && "$LOCATION" =~ ^[a-z0-9-]+$ ]]; then
       rm -rf "$tmp"
-      recover_failed "$name" RECOVER_DECRYPT_FAILED "the bundle does not authenticate under this secret; set UBI_RECOVERY_KEY (or UBICLOUD_API_KEY) to the creating controller's"
+      recover_failed "$name" RECOVER_DECRYPT_FAILED "the bundle does not authenticate under this secret, or it was sealed for another VM or owner; set UBI_RECOVERY_KEY (or UBICLOUD_API_KEY) to the creating controller's"
       continue
     fi
-    local NAME="" LOCATION="" SIZE="" IP="" CREATED="" CREATE_AT=0 CREATE_PID=""
-    # shellcheck disable=SC1091
-    . "$tmp/env"
     code=$(api "$out" vm "$LOCATION/$name" show)
     case $code in
       200)
@@ -1040,7 +1053,7 @@ cmd_recover() {
         fi
         mv "$tmp" "$dest"
         record_vm "$name" "$LOCATION" "$from"
-        tags=$(paste -s -d, "$dest/tags" 2>/dev/null || true)
+        tags=$(grep -E '^[A-Za-z0-9_.-]+=[A-Za-z0-9_.:/@+-]*$' "$dest/tags" 2>/dev/null | paste -s -d, - || true)
         echo "RECOVERED: vm=$name ip=${ip:-$IP} owner=$from tags=$tags" ;;
       404)
         rm -rf "$tmp"
@@ -1070,10 +1083,12 @@ sink_check() {
 }
 
 # SINK_SH: the VM-side pusher. Every SINK_INTERVAL seconds it packs
-# heartbeat.json and the SINK_PATHS entries under ~ into results.tgz and
-# pushes it when they changed, or every fifth interval regardless. A failed
-# push backs off and retries; it never ends the loop. --once pushes one time
-# and exits 1 with "seq= last_push=" on failure.
+# heartbeat.json and the SINK_PATHS entries under ~ (never ~/.ubirun-*, which
+# hold --pass values and the URL) into results.tgz and pushes it when they
+# changed, or every fifth interval regardless. A snapshot tar cannot read, or
+# one over UBI_SINK_MAX_MB, is skipped, so the last good one stays in the sink.
+# A failed or skipped push backs off and retries; it never ends the loop.
+# --once pushes one time and exits 1 with "seq= last_push= [sink_skipped=]".
 SINK_SH='#!/usr/bin/env bash
 . ~/.ubirun-sink.conf || exit 1
 once=0
@@ -1082,22 +1097,24 @@ once=0
 seq=$(cat ~/.ubirun-sink.seq 2>/dev/null || echo 0)
 last=$(cat ~/.ubirun-sink.last 2>/dev/null || echo never)
 present() { P=(); local p; for p in ${SINK_PATHS[@]+"${SINK_PATHS[@]}"}; do [ ! -e "$HOME/$p" ] || P+=("$p"); done; }
-digest() { present; [ ${#P[@]} -gt 0 ] || { echo none; return 0; }; tar -cf - -C "$HOME" "${P[@]}" 2>/dev/null | cksum; }
+digest() { present; [ ${#P[@]} -gt 0 ] || { echo none; return 0; }; tar -cf - --exclude=".ubirun-*" -C "$HOME" "${P[@]}" 2>/dev/null | cksum; }
 beat() { printf "{\"vm\": \"%s\", \"owner\": \"%s\", \"seq\": %d, \"time\": \"%s\", \"last_push\": \"%s\", \"sink_skipped\": \"%s\"}\n" \
   "$SINK_VM" "$SINK_OWNER" "$seq" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$last" "$2" > "$1/heartbeat.json"; }
 push() {
   local d rc=0
+  skipped=""
   d=$(mktemp -d "$HOME/.ubirun-sink.XXXXXX") || return 1
   seq=$((seq + 1)); echo "$seq" > ~/.ubirun-sink.seq
   present
   beat "$d" ""
   if [ ${#P[@]} -gt 0 ]; then
-    tar -czf "$d/results.tgz" -C "$d" heartbeat.json -C "$HOME" "${P[@]}" 2>/dev/null || rc=$?
-    if [ "$rc" -gt 1 ]; then beat "$d" tar_failed; tar -czf "$d/results.tgz" -C "$d" heartbeat.json; fi
-    if [ "$(wc -c < "$d/results.tgz")" -gt $((SINK_MAX_MB * 1048576)) ]; then beat "$d" size; tar -czf "$d/results.tgz" -C "$d" heartbeat.json; fi
+    tar -czf "$d/results.tgz" --exclude=".ubirun-*" -C "$d" heartbeat.json -C "$HOME" "${P[@]}" 2>/dev/null || rc=$?
+    [ "$rc" -le 1 ] || skipped=tar_failed
+    [ -n "$skipped" ] || [ "$(wc -c < "$d/results.tgz")" -le $((SINK_MAX_MB * 1048576)) ] || skipped=size
   else
     tar -czf "$d/results.tgz" -C "$d" heartbeat.json
   fi
+  if [ -n "$skipped" ]; then rm -rf "$d"; return 2; fi
   rc=0
   case $SINK_KIND in
     file) { mkdir -p "$SINK_DIR/$SINK_VM" && cp "$d/results.tgz" "$SINK_DIR/$SINK_VM/.results.tgz.$$" \
@@ -1109,7 +1126,7 @@ push() {
   [ "$rc" -ne 0 ] || { last=$(date +%s); echo "$last" > ~/.ubirun-sink.last; }
   return "$rc"
 }
-if [ "$once" = 1 ]; then push && exit 0; echo "seq=$seq last_push=$last"; exit 1; fi
+if [ "$once" = 1 ]; then push && exit 0; echo "seq=$seq last_push=$last${skipped:+ sink_skipped=$skipped}"; exit 1; fi
 h="" beats=0 backoff=0
 while :; do
   n=$(digest)
@@ -1122,6 +1139,10 @@ while :; do
   sleep $(( SINK_INTERVAL + backoff ))
 done
 '
+
+# SINK_STOP: end the running pusher (its process group, so an upload in
+# flight dies with it) and wait for it, so no older snapshot lands later.
+SINK_STOP='p=$(cat ~/.ubirun-sink.pid 2>/dev/null); if [ -n "$p" ]; then kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do kill -0 "$p" 2>/dev/null || break; sleep 0.5; done; kill -KILL -- "-$p" 2>/dev/null; rm -f ~/.ubirun-sink.pid; fi;'
 
 # sink_start NAME SPEC PATH...: write the pusher's config (600; the URL only in
 # ~/.ubirun-sink.curl, over ssh stdin), upload it and start it outside any ssh
@@ -1140,21 +1161,22 @@ sink_start() {
     printf 'url = "%s"\n' "$url" | remote "$name" 'umask 077 && cat > ~/.ubirun-sink.curl && chmod 600 ~/.ubirun-sink.curl'
   fi
   printf %s "$SINK_SH" | remote "$name" 'umask 077 && cat > ~/.ubirun-sink.sh'
-  remote "$name" 'if command -v setsid >/dev/null 2>&1; then setsid -f bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1; else nohup bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1 & fi' </dev/null >/dev/null
+  remote "$name" "$SINK_STOP"' if command -v setsid >/dev/null 2>&1; then setsid -f bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1; else nohup bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1 & fi' </dev/null >/dev/null
   : >"$(state_dir "$name")/sink"
   log "sink: pushing $# path(s) to a $kind sink every ${interval}s (pid in ~/.ubirun-sink.pid on $name)"
 }
 
-# sink_flush NAME: one last push before down destroys NAME (60 s cap). A
-# failure prints SINK_FLUSH_FAILED and sets SINK_FLUSH_FAILED, which turns a
-# passing run or verify into exit 1; the VM is destroyed either way.
+# sink_flush NAME: stop the pusher, then one last push before down destroys
+# NAME (150 s cap, above curl's 120). A failure prints SINK_FLUSH_FAILED and
+# adds NAME to SINK_FLUSH_FAILED, which turns a passing run or verify of that
+# VM into exit 1; the VM is destroyed either way.
 sink_flush() {
   local out
-  if out=$(remote "$1" 'timeout 60 bash ~/.ubirun-sink.sh --once' </dev/null 2>/dev/null); then
+  if out=$(remote "$1" "$SINK_STOP"' timeout 150 bash ~/.ubirun-sink.sh --once' </dev/null 2>/dev/null); then
     log "sink: final push done for $1"
     return 0
   fi
-  SINK_FLUSH_FAILED=1
+  SINK_FLUSH_FAILED="$SINK_FLUSH_FAILED $1 "
   out=$(tail -n 1 <<<"$out")
   echo "SINK_FLUSH_FAILED: vm=$1 ${out:-seq=unknown last_push=unknown} (results in the sink may be incomplete)" >&2
 }
@@ -1544,7 +1566,7 @@ run_teardown() {
   fi
   leftover "left=$left owner=$OWNER vm=$RUN_VM others=$others"
   if [ "$left" = 0 ]; then
-    [ -z "$SINK_FLUSH_FAILED" ] || [ "$rc" -ne 0 ] || exit 1
+    [[ "$SINK_FLUSH_FAILED" != *" $RUN_VM "* ]] || [ "$rc" -ne 0 ] || exit 1
     return 0
   fi
   log "VM cleanup not confirmed for $RUN_VM (left=$left); destroy it with: $0 down $RUN_VM"
@@ -1554,8 +1576,14 @@ run_teardown() {
 TIER_NAMES=() TIER_CMDS=() RESUME=1 RERUN_FAILED=0 FORCE_ATTACH="" RUN_ARGS=()
 cmd_run() {
   require_owner
-  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0
-  RUN_ARGS=("$@")
+  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0 a skip=""
+  # The run record replays RUN_ARGS on attach; a --sink URL stays out of it (pass it as UBI_SINK).
+  RUN_ARGS=()
+  for a in "$@"; do
+    if [ -n "$skip" ]; then skip=""; continue; fi
+    if [ "$a" = --sink ]; then skip=1; continue; fi
+    RUN_ARGS+=("$a")
+  done
   while [ $# -gt 0 ]; do
     case $1 in
       -S|--storage) check_storage "$2"; up_args+=("$1" "$2"); shift 2 ;;
@@ -1583,9 +1611,11 @@ cmd_run() {
   src=$(cd "$src" && pwd)
   [ -n "$dest" ] || dest="work/$(basename "$src")"
 
-  local i name="" size=$DEFAULT_SIZE location=$DEFAULT_LOCATION image=ubuntu-noble storage="" e n
+  local i name="" size=$DEFAULT_SIZE location=$DEFAULT_LOCATION image=ubuntu-noble storage="" e n sink=${UBI_SINK:-} sink_paths=()
   for (( i = 0; i < ${#up_args[@]}; i += 2 )); do
     case ${up_args[i]} in
+      --sink) sink=${up_args[i+1]} ;;
+      --sink-path) sink_paths+=("${up_args[i+1]}") ;;
       -n|--name) name=${up_args[i+1]} ;;
       -s|--size) size=${up_args[i+1]} ;;
       -l|--location) location=${up_args[i+1]} ;;
@@ -1655,6 +1685,11 @@ cmd_run() {
     cmd_down "$attach" >/dev/null || log "WARNING: failed to destroy $attach; run: $0 down $attach"
     attach=""
   fi
+  if [ -n "$attach" ] && [ "$COUNTED" = 1 ]; then
+    recovery_preflight
+    compgen -G "$RECOVERY_DIR/*/$attach.bundle" >/dev/null \
+      || die "UBI_RECOVERY_REQUIRED: a counted run would reattach to $attach, which has no recovery bundle under $RECOVERY_DIR; destroy it ($0 down $attach) and rerun"
+  fi
   [ -z "$attach" ] || name=$attach
   [ -n "$name" ] || { name=$(new_name); up_args+=(-n "$name"); }
   RUN_VM=$name
@@ -1666,6 +1701,11 @@ cmd_run() {
   if [ -n "$attach" ]; then
     load "$name"
     log "reattached to $name created_at=$CREATE_AT key=${RUN_KEY:0:12}"
+    if [ -n "$sink" ]; then
+      sink_check "$sink"
+      sink_start "$name" "$sink" ${sink_paths[@]+"${sink_paths[@]}"}
+      bundle_save "$name"
+    fi
   else
     cmd_up "${up_args[@]}" >/dev/null
     trap 'exit 130' INT TERM QUIT

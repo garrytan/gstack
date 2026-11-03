@@ -6560,7 +6560,7 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 <a id="recover-decrypt-failed"></a>
 ### `RECOVER_FAILED: vm=<name> code=RECOVER_DECRYPT_FAILED`
 
-**Meaning.** The bundle didn't authenticate under this machine's secret, so nothing was decrypted and no state was written. Either the secret differs from the creating controller's (another `UBI_RECOVERY_KEY`, or a different Ubicloud token), or the file was changed. **Fix.** Set `UBI_RECOVERY_KEY` (or `UBICLOUD_API_KEY`) to the value the creating controller used and rerun `recover`. If the secret is right, treat the bundle as tampered and destroy the VM from the Ubicloud console instead.
+**Meaning.** The bundle didn't authenticate under this machine's secret, or it was sealed for a different VM name or owner than its file name and folder say, so no state was written. Either the secret differs from the creating controller's (another `UBI_RECOVERY_KEY`, or a different Ubicloud token), or the file was changed, renamed or moved. **Fix.** Set `UBI_RECOVERY_KEY` (or `UBICLOUD_API_KEY`) to the value the creating controller used and rerun `recover`. If the secret is right, treat the bundle as tampered and destroy the VM from the Ubicloud console instead.
 
 <a id="recover-api-unavailable"></a>
 ### `RECOVER_FAILED: vm=<name> code=RECOVER_API_UNAVAILABLE`
@@ -6583,9 +6583,9 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 **Meaning.** `--sink` or `UBI_SINK` names something other than `https-put:<presigned https URL>`. `file:<absolute dir>` works only with `UBI_SINK_ALLOW_FILE=1`, which is meant for tests, and there is no `git:` sink because it would put a repository credential on the VM. Nothing was created, and the line never prints the URL. **Fix.** Pass a presigned PUT URL for one object.
 
 <a id="sink-flush-failed"></a>
-### `SINK_FLUSH_FAILED: vm=<name> seq=<n> last_push=<epoch|never>`
+### `SINK_FLUSH_FAILED: vm=<name> seq=<n> last_push=<epoch|never> [sink_skipped=size|tar_failed]`
 
-**Meaning.** `down` ran the sink's last push and it failed or took longer than 60 seconds. The VM was destroyed anyway, so the sink holds results only up to push `seq`, made at `last_push`. `run` and `verify` exit 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun.
+**Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun.
 
 ## Per-repo cleanup (gstack-clean)
 

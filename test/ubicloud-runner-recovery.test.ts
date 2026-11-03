@@ -63,7 +63,7 @@ describe('ubi-runner results sink (GST-1220 a)', () => {
     const url = 'https://bucket.example/o?X-Amz-Signature=sekritsig123';
     const up = run(f, ['up'], { UBI_SINK: 'https-put:' + url, UBI_REAP: '0' });
     expect(up.exitCode).toBe(0);
-    await until(() => existsSync(join(f.vm, '.ubirun-sink.curl')), 30_000);
+    await until(() => existsSync(join(f.vm, '.ubirun-sink.curl')) && existsSync(join(f.vm, '.ubirun-sink.pid')), 30_000);
     expect(readFileSync(join(f.vm, '.ubirun-sink.curl'), 'utf8')).toContain('sekritsig123');
     expect(statSync(join(f.vm, '.ubirun-sink.curl')).mode & 0o777).toBe(0o600);
     expect(statSync(join(f.vm, '.ubirun-sink.conf')).mode & 0o777).toBe(0o600);
@@ -78,6 +78,39 @@ describe('ubi-runner results sink (GST-1220 a)', () => {
     const r = run(f, ['run', '--src', gitSrc(f), '--', 'echo hi'], { ...fileSink(f, blocker), UBI_SINK_INTERVAL: '3600' });
     expect(out(r)).toContain('SINK_FLUSH_FAILED: vm=');
     expect(r.exitCode).toBe(1);
+    expect(f.listed().trim()).toBe('');
+  }, 90_000);
+
+  test('a snapshot over UBI_SINK_MAX_MB keeps the last good one, and the final flush stops the pusher and fails', async () => {
+    const f = make();
+    const env = { ...fileSink(f), UBI_SINK_MAX_MB: '1' };
+    const up = run(f, ['up', '--sink-path', 'results', '--sink-path', '.'], env);
+    expect(up.exitCode).toBe(0);
+    const name = up.stdout.toString().trim();
+    mkdirSync(join(f.vm, 'results'), { recursive: true });
+    writeFileSync(join(f.vm, 'results', 'r.json'), '{"score": 7}\n');
+    const tgz = join(f.root, 'sink', name, 'results.tgz');
+    await until(() => existsSync(tgz) && tarList(tgz).includes('results/r.json'), 30_000);
+    expect(tarList(tgz)).not.toContain('.ubirun-');
+    const pid = Number(readFileSync(join(f.vm, '.ubirun-sink.pid'), 'utf8').trim());
+    writeFileSync(join(f.vm, 'results', 'big.bin'), Buffer.from(Array.from({ length: 3 << 20 }, () => Math.floor(Math.random() * 256))));
+    const down = run(f, ['down', name], env);
+    expect(down.exitCode).toBe(0);
+    expect(out(down)).toMatch(new RegExp('SINK_FLUSH_FAILED: vm=' + name + ' seq=\\d+ last_push=\\d+ sink_skipped=size'));
+    expect(tarList(tgz)).toContain('results/r.json');
+    expect(tarList(tgz)).not.toContain('big.bin');
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 90_000);
+
+  test('a reaped VM whose final push fails does not fail a run that passed on its own VM', () => {
+    const f = make();
+    const blocker = join(f.root, 'blocker');
+    writeFileSync(blocker, 'a file where the sink directory should be\n');
+    const old = 'ubirun-thrd1-1000000000-abcd1234-t1';
+    expect(run(f, ['up', '-n', old], { ...fileSink(f, blocker), UBI_SINK_INTERVAL: '3600' }).exitCode).toBe(0);
+    const r = run(f, ['run', '--src', gitSrc(f), '--', 'echo hi']);
+    expect(out(r)).toContain('SINK_FLUSH_FAILED: vm=' + old);
+    expect(r.exitCode).toBe(0);
     expect(f.listed().trim()).toBe('');
   }, 90_000);
 });
@@ -134,6 +167,22 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(existsSync(bundle)).toBe(true);
   }, 60_000);
 
+  test('a valid bundle under another VM or owner name is refused before the API is asked', () => {
+    const { f, rec, name, bundle, state2 } = setup();
+    const other = 'ubirun-other-1700000000-dead1234-t3';
+    writeFileSync(join(rec, 'thrd1', other + '.bundle'), readFileSync(bundle));
+    mkdirSync(join(rec, 'thrd9'), { recursive: true });
+    writeFileSync(join(rec, 'thrd9', name + '.bundle'), readFileSync(bundle));
+    writeFileSync(join(f.root, 'listed'), f.listed() + 'us-east-a2 ' + other + '\n');
+    const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_REAP: '0' };
+    const r = run(f, ['recover'], env2);
+    expect(r.stdout.toString()).toContain(`RECOVER_FAILED: vm=${other} code=RECOVER_DECRYPT_FAILED`);
+    expect(r.stdout.toString()).toContain(`RECOVERED: vm=${name}`);
+    expect(existsSync(join(state2, other))).toBe(false);
+    const adopted = run(f, ['recover', '--owner', 'thrd9'], { ...env2, UBI_RUNNER_STATE: join(f.root, 'state3') });
+    expect(adopted.stdout.toString()).toContain(`RECOVER_FAILED: vm=${name} code=RECOVER_DECRYPT_FAILED`);
+  }, 60_000);
+
   test('an API outage keeps the bundle; a VM that is gone drops it', () => {
     const { f, rec, name, bundle, state2 } = setup();
     const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_REAP: '0' };
@@ -155,6 +204,11 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
       expect(r.exitCode).not.toBe(0);
       expect(out(r)).toContain('UBI_RECOVERY_REQUIRED');
     }
+    expect(creates(f)).toBe(0);
+    writeFileSync(join(f.root, 'blocker'), 'a file where the recovery directory should be\n');
+    const unwritable = run(f, ['up', '--counted'], { UBI_RECOVERY_DIR: join(f.root, 'blocker', 'rec'), UBI_REAP: '0' });
+    expect(unwritable.exitCode).not.toBe(0);
+    expect(out(unwritable)).toContain('UBI_RECOVERY_UNAVAILABLE');
     expect(creates(f)).toBe(0);
     const rec = join(f.root, 'recovery');
     const ok = run(f, ['up', '--counted'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
