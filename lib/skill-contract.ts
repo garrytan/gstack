@@ -267,23 +267,65 @@ export function skillLoads(t: Transcript): SkillLoad[] {
 export const STATUS_RE = /^[ \t>*_-]*(?:\*\*|__)?(?:STATUS|Status)(?:\*\*|__)?[ \t]*(?:\*\*|__)?:[ \t]*(?:\*\*|__)?[ \t]*(DONE_WITH_CONCERNS|DONE|BLOCKED|NEEDS_CONTEXT)\b/m;
 const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(?:Agent|Task)$/;
-const CHECK_RUNNER = /^(?:pytest|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|make|cargo|go|bun|bunx|npm|npx|pnpm|yarn|node|deno|python3?|ruby|rake|mvn|gradlew?|dotnet|swift|xcodebuild|curl|mix|bazel|just|dart|flutter|rails)$/i;
-const CHECK_SCRIPT = /(?:^|[-_.])(?:tests?|spec|repro|check|verify|lint)(?:[-_.]|$)/i;
+const TEST_RUNNER = /^(?:pytest|py\.test|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|rake|playwright|cypress)$/i;
+const CHECK_SCRIPT = /(?:^|[-_.:])(?:tests?|spec|repro|check|typecheck|verify|lint)(?:[-_.:]|$)/i;
+const CHECK_VERB = /^(?:tests?|t|check|verify|spec|vet|clippy|nextest|lint|e2e)$/i;
+const SUBCOMMAND_TOOL = /^(?:make|cargo|go|dotnet|swift|mix|bazel|just|dart|flutter|rails|mvn|gradlew?|xcodebuild|bun|npm|pnpm|yarn|deno)$/i;
+const RUNS_PROGRAM = /^(?:cargo|go|dotnet|swift)$/i;
+const PACKAGE_EXEC = /^(?:npx|bunx|pnpx)$/i;
+const INTERPRETER = /^(?:node|python3?|ruby|php|perl|tsx|ts-node)$/i;
+const FILE_INTERPRETER = /^(?:bun|deno)$/i;
 const COMMAND_WRAPPER = /^(?:bundle|uv|poetry|pipenv|docker|podman|xvfb-run|bash|sh|zsh)$/;
 const COMMAND_PREFIX = /^(?:env|sudo|time|nice|timeout|command|exec|\w+=\S*|-\S*|\d+[smh]?)$/;
-const isCheckProgram = (word: string) => { const name = word.split(/[\\/]/).pop() ?? ''; return CHECK_RUNNER.test(name) || (name !== 'test' && CHECK_SCRIPT.test(name)); };
+const SCRIPT_ARG = /[\\/]|\.(?:[cm]?[jt]sx?|py|rb|php|pl|sh)$/;
+/** Options whose next word is their value (`make -C web test`, `pnpm --filter app test`, `xcodebuild -scheme App test`). */
+const VALUE_FLAG = /^(?:-[CfpwF]|--(?:prefix|filter|cwd|dir|directory|workspace|package|manifest-path|project|file)|-(?:scheme|project|workspace|destination|configuration|target|sdk))$/;
+const WRAPPER_DEPTH = 3;
+const baseName = (word: string) => word.split(/[\\/]/).pop() ?? '';
+const isCheckScript = (word: string) => { const name = baseName(word); return name !== 'test' && CHECK_SCRIPT.test(name); };
+
+/** The words after the program that are not options or option values. */
+function positionals(words: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 1; i < words.length; i++) {
+    if (words[i] === '--') break;
+    if (!words[i].startsWith('-')) out.push(words[i]);
+    else if (VALUE_FLAG.test(words[i])) i++;
+  }
+  return out;
+}
+
+/**
+ * One command's words (prefixes removed): does it run tests, a check, or a repro? Installs, builds and version probes
+ * do not. Wrappers nest at most WRAPPER_DEPTH deep, so a long chain of wrapper words costs linear time, not exponential.
+ */
+function runsCheck(words: string[], depth = 0): boolean {
+  const program = baseName(words[0] ?? '');
+  const args = positionals(words);
+  if (TEST_RUNNER.test(program) || isCheckScript(words[0] ?? '')) return true;
+  if (depth < WRAPPER_DEPTH && PACKAGE_EXEC.test(program)) return runsCheck(words.slice(1).filter(w => !w.startsWith('-')), depth + 1);
+  if (COMMAND_WRAPPER.test(program)) return depth < WRAPPER_DEPTH && [1, 2, 3, 4, 5].some(i => i < words.length && runsCheck(words.slice(i), depth + 1));
+  if (INTERPRETER.test(program)) return args.length > 0 || words.slice(1).some(w => /^-[ecm]$|^--test$/.test(w));
+  if (program === 'curl') return args.some(a => /^https?:\/\/|^localhost|^127\./.test(a));
+  if (FILE_INTERPRETER.test(program) && args[0] && SCRIPT_ARG.test(args[0])) return true;
+  if (!SUBCOMMAND_TOOL.test(program) || !args[0]) return false;
+  const [verb, next] = args;
+  if (CHECK_VERB.test(verb) || isCheckScript(verb) || args.some(a => CHECK_VERB.test(a))) return true;
+  if (verb === 'run' || verb === 'exec' || verb === 'x') return RUNS_PROGRAM.test(program) || (!!next && (CHECK_VERB.test(next) || isCheckScript(next) || TEST_RUNNER.test(baseName(next)) || SCRIPT_ARG.test(next)));
+  return /^(?:yarn|pnpm)$/i.test(program) && TEST_RUNNER.test(verb);
+}
 const SAFE_SPECIALIST = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/;
 
 /**
- * A test or repro run: some segment of the command (split on && || ; | and newlines) starts with a test runner or a
- * test, check or repro script, directly or behind a wrapper (bundle exec, uv run, docker compose run, xvfb-run, bash).
+ * A test or repro run: some segment of the command (split on && || ; | and newlines) runs a test runner, a test verb
+ * (`npm test`, `go test`, `make check`), a test, check or repro script, or code through an interpreter, directly or
+ * behind a wrapper (bundle exec, uv run, docker compose run, xvfb-run, bash). Installs, builds and version probes do not count.
  */
 export function isCheckCommand(cmd: string): boolean {
   return cmd.split(/&&|\|\||[;|\n]/).some(segment => {
     const words = segment.trim().replace(/^[({]\s*/, '').split(/\s+/);
     while (words.length > 1 && COMMAND_PREFIX.test(words[0])) words.shift();
-    if (isCheckProgram(words[0])) return true;
-    return COMMAND_WRAPPER.test(words[0].split(/[\\/]/).pop() ?? '') && words.slice(1, 6).some(isCheckProgram);
+    return runsCheck(words);
   });
 }
 const WAIVE_RE = /gstack-skill-contract["']?\s+waive\s+["']?([A-Za-z0-9][A-Za-z0-9_.-]*)["']?/;
@@ -495,8 +537,11 @@ export function lookupContract(skill: string, skillsDir: string, skillFile?: str
   return 'error' in parsed ? { skill, file, error: `${file}: ${parsed.error}`, reason: 'invalid' } : { skill, file, contract: parsed.contract };
 }
 
-export type Outcome = 'met' | 'met_waived' | 'blocked' | 'met_after_block' | 'miss';
-export interface RunRecord { skill: string; load_line: number; outcome: Outcome; missing: string[]; waived: string[]; blocked_at?: string; updated_at: string }
+export type Outcome = 'met' | 'met_waived' | 'blocked' | 'met_after_block' | 'miss' | 'deferred';
+/** deferred_agents: the Agent dispatches still running at the last stop the hook let through unchecked; deferred_at: when that set was first seen. */
+export interface RunRecord { skill: string; load_line: number; outcome: Outcome; missing: string[]; waived: string[]; blocked_at?: string; deferred_agents?: string[]; deferred_at?: string; updated_at: string }
+/** The same Agent dispatches still running this long after the stop that first saw them count as stalled. */
+export const AGENT_STALL_MS = 10 * 60 * 1000;
 export interface SessionRecord { version: 1; session_id: string; transcript_path: string; runs: Record<string, RunRecord> }
 
 export function recordsDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -562,16 +607,15 @@ export function bumpCanary(why: string, env: NodeJS.ProcessEnv = process.env): n
 
 export interface ReportRow { session: string; skill: string; outcome: Outcome | 'fixed_after_block'; missing: string[]; waived: string[]; transcript: string }
 
-/** Every recorded run; a run still marked blocked is re-checked against its transcript when a recheck is given. */
+/** Every recorded run; a run still marked blocked or deferred is re-checked against its transcript when a recheck is given. */
 export function reportRows(records: SessionRecord[], recheck?: (rec: SessionRecord, run: RunRecord) => CheckResult | null): ReportRow[] {
   return records.flatMap(rec => Object.values(rec.runs).map(run => {
     const row: ReportRow = { session: rec.session_id, skill: run.skill, outcome: run.outcome, missing: run.missing, waived: run.waived, transcript: rec.transcript_path };
-    if (run.outcome !== 'blocked' || !recheck) return row;
+    if ((run.outcome !== 'blocked' && run.outcome !== 'deferred') || !recheck) return row;
     const again = recheck(rec, run);
     if (!again) return row;
-    return again.met
-      ? { ...row, outcome: 'fixed_after_block' as const, missing: [], waived: again.waived }
-      : { ...row, outcome: 'miss' as const, missing: again.missing, waived: again.waived };
+    if (!again.met) return { ...row, outcome: 'miss' as const, missing: again.missing, waived: again.waived };
+    return { ...row, outcome: run.outcome === 'blocked' ? 'fixed_after_block' as const : 'met' as const, missing: [], waived: again.waived };
   }));
 }
 

@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.94.34.0] - 2026-11-03
+
+### Fixed
+
+- **The autoplan-guard-pty eval no longer fails when its test actor mistypes a hash.** The live guard test has a Haiku model act out an /autoplan phase boundary, and it had to copy each reviewer dispatch, including two 64-character hashes, into its Agent call. Every so often it got a hash wrong (in PR screen 41247097050 it made up a tail for the Design dispatch's hash), and the guard rightly refused the dispatch. Now the actor sends a short declared token, `DISPATCH ceo` or `DISPATCH design`, and a loopback relay in the test driver puts that phase's exact dispatch in place of the token before Claude Code sees the tool call. The relay also puts the token back in the history the actor sees, because in the first panel's trial 1 the actor copied the substituted CEO dispatch for its Design call. The guard, the hash in the dispatch, the Haiku actor and every assertion are unchanged. The first preregistered panel stopped at that trial 1 failure. After the history fix, the second panel passed 3 of 3 (4 of 4 guarded allows in each trial, no permission cards).
+- **The plan-design-with-ui-scope eval accepts both ways the skill writes the outside-voices menu.** The question format says option descriptions use literal ✅/❌ bullets, and models read that two ways: earlier captures kept the bullets in the descriptions, while train gate 41470212877 moved them into the question text and dropped them from the descriptions, so the test's fixture user refused the menu. The fixture now declares both spellings, and the picker accepts exactly the declared description, or that description with every bullet removed. The red question is saved as a fixture. Restoring only some bullets, flipping one, swapping or rewording a description still fail. A focused paid run passed.
+
+## [1.94.33.0] - 2026-11-03
+
+Follow-ups to the skill routing and contract hooks (GST-1088). `gstack-ship-queue ready` no longer misreads files a PR adds as deleted when the installed gstack is older than the checkout: the paid-case selector now derives dependencies from the checkout under review. Each of the two hook switches now has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts` (both still off), which setup, both hooks, `gstack-config get|list|defaults` and the new `gstack-skill-route --default <switch>` all read, so changing a default is a one-line edit; `gstack-config list` and `defaults` now show both switches, an unrecognized value takes the default in the hooks as it already did in setup, and a config file that exists but cannot be read turns both hooks off in setup and in the hooks whatever the default. The contract checker no longer counts installs, builds or version probes (`bun install`, `go build`, `node --version`, `make clean`) as a test run after an edit, while option values (`make -C web test`, `pnpm --filter app test`) and `node --test` still count, and the Stop hook lets a final stop through while Agent dispatches are still running, recording the run as `deferred`, then checks the contract once the same agents have been running for 10 minutes; `gstack-skill-contract report` re-checks deferred runs.
+
+## [1.94.32.0] - 2026-11-03
+
+### Fixed
+
+- **A RED paid screen now names its rule cases.** `gstack-ship-queue ready`, `verify --screen` and `train build` took a screen's red cases only from its behavior and judge panels, so rule cases that failed twice under the flaky-rerun rule never showed up. #3947's screen run 41662815506 printed `SCREEN_VERDICT: … RED flaky=ship-docsync-stale-after` with no `red=` list, and the refusal said "RED on its gate binding". That made it look like the one flaky case had turned the run red, when seven rule cases had actually failed twice. The verdict line and the `QUEUE_SCREEN_RED` refusal now list every case the report marks with ✗ (qa-quick, browse-basic and five more in that run). The verdict itself doesn't change. A case that passes on its one rerun is still green with a FLAKY line, and a case that fails twice is still red.
+
+### Tests
+
+- `test/ship-queue-screen-verdict.test.ts` reads the real gate binding and collector outcomes from run 41662815506. The seven twice-failed rule cases are named red, and the rerun-pass case stays only flaky. Negative control: with just the rerun-pass case left, the run reads GREEN with its FLAKY line. A red that never reran (INFRA, an unreported shard) is still named, and quarantined or passing split panel lines are not.
+
+## [1.94.31.0] - 2026-11-03
+
+**gstack's browser now runs Chromium 156, which fixes CVE-2026-106378, a macOS sandbox escape ([#3907](https://github.com/garrytan/gstack/issues/3907)).** Playwright 1.62.1 bundled Chromium 151, which predates the fix. Your next `./setup` or `/gstack-upgrade` downloads the new browser.
+
+### Fixed
+- **Playwright 1.64.1** (Chromium 156.0.8078.4, revision 1248). Chromium's fix is commit `0c2f3e54b265` ("Disclaim TCC responsibility for GPU process", crbug.com/507596239). Its code is in the tagged source for 156.0.8078.4 and missing from 151.0.7922.34. We checked the source; nobody ran the exploit. A new test fails if the bundled Chromium ever drops below 155.0.8059.12, the first tag with the fix.
+- **`browse handoff` opens the browser `GSTACK_CHROMIUM_PATH` names**, as the headless and headed launches already did. Before, handoff always fell back to Playwright's bundled Chromium. It never probes or self-heals a custom browser, and it doesn't load the sidebar extension into a build that already bakes it in.
+
+### For contributors
+- `patches/playwright-core@1.64.1.patch` keeps the launch `windowsHide` hunk and the `TcpPortRandomizationWin` backport. Playwright 1.64 passes `windowsHide` on its `taskkill` call itself, so that hunk is gone; the installed-tree test still checks it.
+- `.gstack/pregate.json` maps `patches/**` to `browse/test/playwright-core-patch.test.ts`, so the next Playwright bump gets a test lane without renaming anything.
+- Linux arm64 now downloads the Chrome for Testing build (`chrome-linux-arm64.zip`).
+
 ## [1.94.30.0] - 2026-11-03
 
 **/ship sends more diffs to full review: spend-binding code, eval scorers, a repo's own risk paths and docs that print secrets now count as risk, and a lane can declare a class the matchers miss (GSTA-258 build C).** Today's reviewer panel stays the default. The one-reader shape for non-risk code ships as an opt-in (`review.panel risk`) because its no-loss replay didn't pass: with only the diff and no repository, the reader found 2 of 68 non-risk blockers, so the replay is being redone with readers working in a checkout. A repo with platform review on can skip /ship's readers on plain docs.
