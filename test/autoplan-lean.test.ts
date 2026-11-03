@@ -376,7 +376,7 @@ describe('draft capture edges', () => {
 
   test('an untracked file named like a secret is left out of the draft and said so', () => {
     const cwd = repo('secret', true);
-    fs.writeFileSync(path.join(cwd, 'lib', 'deploy.pem'), '-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n');
+    fs.writeFileSync(path.join(cwd, 'lib', 'deploy.pem'), 'not-a-real-key\n');
     fs.writeFileSync(path.join(cwd, 'credentials.json'), '{"token":"not-a-real-token"}\n');
     const { ps, prompt } = lean('secret', cwd);
     const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
