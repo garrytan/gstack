@@ -238,7 +238,8 @@ describe('gstack-diff-scope', () => {
   for (const file of ['src/auth.ts', 'app/auth/login.rb', 'lib/oauth.ts', 'src/oauth2/token.ts', 'lib/authn/check.go', 'src/authz.py', 'src/authService.ts',
     'src/useAuth.ts', 'lib/OAuthClient.ts', 'lib/authentication.rb', 'lib/authorization_policy.rb', 'src/Authorize.tsx', 'config/AUTH_KEYS.md', 'pkg/auth-middleware.go',
     'lib/auth0.ts', 'src/basicauth.go', 'src/authguard.ts', 'lib/reauth.ts', 'pages/api/nextauth.ts', 'src/authtoken.ts', 'lib/preauth.rb', 'src/HTTPAuth.ts',
-    'src/unauthenticated.ts', 'lib/reauthentication.ts', 'src/deauthorize.ts', 'app/oauth2client.py', 'api/HTTPAuthorization.ts']) {
+    'src/unauthenticated.ts', 'lib/reauthentication.ts', 'src/deauthorize.ts', 'app/oauth2client.py', 'api/HTTPAuthorization.ts',
+    'src/nextauthmiddleware.ts', 'src/reauthn.ts', 'src/noauthrequired.ts']) {
     test(`${file} is an auth path`, () => {
       expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('true');
     });

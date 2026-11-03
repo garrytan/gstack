@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BANNED_TERMS_SCHEMA } from '../lib/banned-terms';
+import { resolveBase } from '../lib/gate-diff/git';
 import { resolveCommit } from '../lib/pr-shots';
 
 const BIN = path.join(import.meta.dir, '..', 'bin');
@@ -99,6 +100,16 @@ describe('a bare --base reads origin/<base> over a stale local branch (GST-1036)
     expect(r.out).toContain(`base=${origin} `);
     expect(r.out).toContain('committed: "src/v.ts"\n');
     expect(r.err).toContain(`gstack-docs-candidate: ${NOTE}`);
+  }, 120_000);
+
+  // Value: protects=a remote-qualified base is never re-qualified: origin/main reads refs/remotes/origin/main or nothing;
+  //   fails_when=resolveBase falls through to refs/remotes/origin/origin/main when the tracking ref is missing; why_new=GST-1036 review (#3852 rule); seam=lib/gate-diff/git.ts resolveBase
+  test('resolveBase never re-qualifies origin/main when refs/remotes/origin/main is missing', () => {
+    const { work, sh, origin } = fixture();
+    expect(resolveBase('origin/main', work, 'HEAD')?.sha).toBe(origin);
+    sh(work, 'git update-ref refs/remotes/origin/origin/main HEAD && git update-ref -d refs/remotes/origin/main');
+    expect(resolveBase('origin/main', work, 'HEAD')).toBeNull();
+    expect(resolveBase('main', work, 'HEAD')?.ref).toBe('main');
   }, 120_000);
 
   // Value: protects=the PR screenshot's before side is origin's base, not a stale local copy; fails_when=resolveCommit reads refs/heads/main first;

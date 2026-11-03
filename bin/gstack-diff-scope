@@ -129,21 +129,19 @@ _session_data() {
 }
 
 # An auth path holds a token, split the way lib/review-risk.ts tokens() splits
-# paths (camelCase, then every non-alphanumeric run), that names auth
-# (GST-1065): authoriz or authenticat anywhere in it (unauthenticated,
-# deauthorize), oauth at its start (oauth2client), or auth at its start or end
-# (auth.ts, /auth/, authn, authz, auth0, basicauth, nextauth). A token starting
-# with author (author-spec.md, AUTHORS, authority.ts) is not auth, and oauth
-# inside a word (coauthors) is not either.
+# paths (camelCase, then every non-alphanumeric run), that contains auth
+# (GST-1065). It fails safe: every such token raises the class except the
+# authorship words below, so author-spec.md, AUTHORS, authority.ts and
+# coauthors.ts do not, while auth.ts, /auth/, nextauthmiddleware.ts,
+# noauthrequired.ts, unauthenticated.ts and HTTPAuthorization.ts do.
 _auth_path() {
   local s="$1" t r=1
   while [[ "$s" =~ ^(.*[a-z0-9])([A-Z].*)$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
   shopt -s nocasematch
   for t in ${s//[^a-zA-Z0-9]/ }; do
     case "$t" in
-      *authoriz*|*authenticat*|oauth*) r=0; break ;;
-      author*) ;;
-      auth*|*auth) r=0; break ;;
+      author|authors|authored|authoring|authorship|authority|authorities|coauthor|coauthors) ;;
+      *auth*) r=0; break ;;
     esac
   done
   shopt -u nocasematch
