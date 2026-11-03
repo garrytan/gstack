@@ -95,7 +95,7 @@ import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/shi
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
 import { findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/ci-carry";
-import { runChanged } from "../lib/run-evidence";
+import { DEFAULT_MAX_AGE_HOURS, runChanged } from "../lib/run-evidence";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
 
@@ -162,6 +162,9 @@ class OutputTail {
     return tails.join("\n");
   }
 }
+
+/** The one spelling a lane label has in the ledger: run and record-ci write it, check reads it (`pnpm lint` is `pnpm_lint`, TRUT-7). */
+const ledgerLabel = (raw: string): string => raw.replace(/[^a-zA-Z0-9._-]/g, "_");
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const strip = (l: string) => l.replace(ANSI, "").replace(/\r$/, "");
@@ -428,7 +431,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   const commandString = cmdArgv.length === 1 ? cmdArgv[0] : cmdArgv.join(" ");
   const shell = cmdArgv.length === 1 ? bashCommandInvocation(cmdArgv[0]) : null;
   const cmdSha = sha256(commandString);
-  label = label.replace(/[^a-zA-Z0-9._-]/g, "_");
+  label = ledgerLabel(label);
 
   // Bookkeeping context — every piece is optional; failures only warn.
   let paths: ReturnType<typeof ledgerPath> | undefined;
@@ -675,7 +678,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const sep = argv.indexOf("--");
   const opts = sep < 0 ? argv : argv.slice(0, sep);
   const get = (name: string) => { const i = opts.indexOf(name); return i >= 0 ? opts[i + 1] : undefined; };
-  const label = get("--label")?.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const raw = get("--label");
+  const label = raw === undefined ? undefined : ledgerLabel(raw);
   const base = get("--base");
   const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
   if (!label || !base || !command || opts.length !== 4) {
@@ -754,11 +758,74 @@ function cmdCarried(argv: string[]): number {
   const wtree = currentWtree();
   const latest = new Map<string, EvidenceRecord>();
   for (const r of records) latest.set(r.label, r);
-  const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs) && typeof r.policy === "string" && r.policy.startsWith(policyRef))
+  const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs) && typeof r.policy === "string" && r.policy.startsWith(policyRef)
+    && gradeRecord(r, { maxAgeHours: DEFAULT_MAX_AGE_HOURS, allowPaths: [], wtreeNow: wtree }).verdict === "FRESH")
     .flatMap((r) => r.runs!.map((ref) => { const [run, attempt] = ref.split("/").map(Number); return { lane: r.label, run, attempt, tree: r.wtree! }; }));
   if (argv.includes("--json")) console.log(JSON.stringify(carried));
   else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}`);
   return 0;
+}
+
+/** check's verdict for one ledger row; `carried` lists a CI row only when it grades FRESH here, so a carry that never reached FRESH leaves no receipt entry. */
+function gradeRecord(latest: EvidenceRecord, o: { maxAgeHours?: number; expectCmd?: string; allowPaths: string[]; wtreeNow: string | undefined }): { verdict: "FRESH" | "STALE" | "ZERO-RUN"; reason: string } {
+  const { maxAgeHours, expectCmd, allowPaths, wtreeNow } = o;
+  const testsRan = typeof latest.tests_ran === "number" || latest.tests_ran === "n/a" ? latest.tests_ran : "unknown";
+  const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
+  let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
+  let reason = "";
+  if (latest.exit !== 0) {
+    verdict = "STALE";
+    reason = "recorded run failed";
+  } else if (testsRan === 0) {
+    // Zero-run green: exit 0 with nothing executed (all skipped, empty
+    // selection, "No tests found"). Graded like STALE under its own label;
+    // "unknown" (no recognised runner summary) stays non-blocking.
+    verdict = "ZERO-RUN";
+    reason = "runner reported 0 executed tests";
+  } else if (maxAgeHours !== undefined) {
+    const ageMs = Date.now() - Date.parse(latest.ts);
+    if (!(ageMs >= 0 && ageMs <= maxAgeHours * 3600 * 1000)) {
+      verdict = "STALE";
+      reason = `older than ${maxAgeHours}h`;
+    }
+  }
+  if (verdict === "FRESH" && expectCmd !== undefined && sha256(expectCmd) !== latest.cmd_sha256) {
+    verdict = "STALE";
+    reason = "command changed (cmd_sha256 mismatch)";
+  }
+  if (verdict === "FRESH") {
+    // Content binding: identical working-tree fingerprint, or a diff confined
+    // to the allow-list. Any git failure (gc'd tree, not a repo) → STALE —
+    // never an error into the calling flow.
+    if (!latest.wtree || !/^[0-9a-f]{40}$/.test(latest.wtree) || !wtreeNow) {
+      // Stored fingerprints are re-validated before reaching git argv — a
+      // forged/corrupt ledger line must degrade, never inject options.
+      verdict = "STALE";
+      reason = !latest.wtree
+        ? changedDuringRun.length
+          ? `content changed during the run: ${changedDuringRun.join(", ")}`
+          : "record has no content fingerprint"
+        : !/^[0-9a-f]{40}$/.test(latest.wtree)
+          ? "record has malformed fingerprint"
+          : "current fingerprint unavailable";
+    } else if (latest.wtree !== wtreeNow) {
+      const diff = git(["diff", "--name-only", latest.wtree, wtreeNow]);
+      if (diff === undefined) {
+        verdict = "STALE";
+        reason = "content changed (fingerprint diff unavailable)";
+      } else {
+        const changed = diff.split("\n").map((s) => s.trim()).filter(Boolean);
+        const outside = changed.filter((f) => !allowPaths.some((a) => f === a || f.startsWith(a.replace(/\/$/, "") + "/")));
+        if (changed.length === 0 || outside.length === 0) {
+          reason = changed.length ? `diff confined to allow-paths (${changed.length} file(s))` : "";
+        } else {
+          verdict = "STALE";
+          reason = `content changed: ${outside.slice(0, 5).join(", ")}${outside.length > 5 ? ", ..." : ""}`;
+        }
+      }
+    }
+  }
+  return { verdict, reason };
 }
 
 function cmdCheck(argv: string[]): number {
@@ -771,7 +838,7 @@ function cmdCheck(argv: string[]): number {
   let allowPaths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--label") wanted.push({ label: argv[++i] ?? "" });
+    if (a === "--label") wanted.push({ label: ledgerLabel(argv[++i] ?? "") });
     else if (a === "--expect-cmd") {
       if (wanted.length === 0) {
         console.error("gstack-evidence: --expect-cmd requires a preceding --label");
@@ -820,63 +887,9 @@ function cmdCheck(argv: string[]): number {
       continue;
     }
     const testsRan = typeof latest.tests_ran === "number" || latest.tests_ran === "n/a" ? latest.tests_ran : "unknown";
-    const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
     const ci = latest.source === "ci" && Array.isArray(latest.runs) ? ` source=ci runs=${latest.runs.filter((s) => /^\d+\/\d+$/.test(s)).join(",")}` : "";
     const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan}${latest.tests_unit === "files" ? " unit=files" : ""} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}${ci}`;
-    let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
-    let reason = "";
-    if (latest.exit !== 0) {
-      verdict = "STALE";
-      reason = "recorded run failed";
-    } else if (testsRan === 0) {
-      // Zero-run green: exit 0 with nothing executed (all skipped, empty
-      // selection, "No tests found"). Graded like STALE under its own label;
-      // "unknown" (no recognised runner summary) stays non-blocking.
-      verdict = "ZERO-RUN";
-      reason = "runner reported 0 executed tests";
-    } else if (maxAgeHours !== undefined) {
-      const ageMs = Date.now() - Date.parse(latest.ts);
-      if (!(ageMs >= 0 && ageMs <= maxAgeHours * 3600 * 1000)) {
-        verdict = "STALE";
-        reason = `older than ${maxAgeHours}h`;
-      }
-    }
-    if (verdict === "FRESH" && expectCmd !== undefined && sha256(expectCmd) !== latest.cmd_sha256) {
-      verdict = "STALE";
-      reason = "command changed (cmd_sha256 mismatch)";
-    }
-    if (verdict === "FRESH") {
-      // Content binding: identical working-tree fingerprint, or a diff confined
-      // to the allow-list. Any git failure (gc'd tree, not a repo) → STALE —
-      // never an error into the calling flow.
-      if (!latest.wtree || !/^[0-9a-f]{40}$/.test(latest.wtree) || !wtreeNow) {
-        // Stored fingerprints are re-validated before reaching git argv — a
-        // forged/corrupt ledger line must degrade, never inject options.
-        verdict = "STALE";
-        reason = !latest.wtree
-          ? changedDuringRun.length
-            ? `content changed during the run: ${changedDuringRun.join(", ")}`
-            : "record has no content fingerprint"
-          : !/^[0-9a-f]{40}$/.test(latest.wtree)
-            ? "record has malformed fingerprint"
-            : "current fingerprint unavailable";
-      } else if (latest.wtree !== wtreeNow) {
-        const diff = git(["diff", "--name-only", latest.wtree, wtreeNow]);
-        if (diff === undefined) {
-          verdict = "STALE";
-          reason = "content changed (fingerprint diff unavailable)";
-        } else {
-          const changed = diff.split("\n").map((s) => s.trim()).filter(Boolean);
-          const outside = changed.filter((f) => !allowPaths.some((a) => f === a || f.startsWith(a.replace(/\/$/, "") + "/")));
-          if (changed.length === 0 || outside.length === 0) {
-            reason = changed.length ? `diff confined to allow-paths (${changed.length} file(s))` : "";
-          } else {
-            verdict = "STALE";
-            reason = `content changed: ${outside.slice(0, 5).join(", ")}${outside.length > 5 ? ", ..." : ""}`;
-          }
-        }
-      }
-    }
+    const { verdict, reason } = gradeRecord(latest, { maxAgeHours, expectCmd, allowPaths, wtreeNow });
     console.log(`EVIDENCE: ${verdict} ${detail}${reason ? ` reason=${reason}` : ""}`);
     if (verdict !== "FRESH") allFresh = false;
   }
