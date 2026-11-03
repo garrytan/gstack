@@ -227,6 +227,19 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(superseded.jobs).toEqual(['build-image', 'route']);
   });
 
+  test('build-image keys and builds the CI image from the commit the slices test, only after the route accepts the run', () => {
+    const inputs = { ...INPUTS, evals_all: false, nonce: 'pr.screen.narrow-x', expected_sha: SHA.merge, base_ref: 'main', base_sha: SHA.base, screen_pr: '42', screen_merge_sha: SHA.merge, screen_policy: 'narrow' };
+    const route = { ...ROUTE, ...train, mode: 'screen', screen_head: SHA.screenHead, screen_base: SHA.screenBase, screen_branch: 'feature' };
+    const screen = simulate(evals, { github: dispatch(), inputs, outputs: { route } });
+    expect(screen.checkout('build-image')?.ref).toBe(SHA.merge);
+    expect(screen.checkout('build-image')?.ref).toBe(screen.checkout('eval-slices')?.ref);
+    expect(screen.checkout('build-image')?.['persist-credentials']).toBe('false');
+    const steps = evals.jobs['build-image']!.steps;
+    expect(steps.findIndex(st => st.uses?.startsWith('actions/checkout@'))).toBeLessThan(steps.findIndex(st => st.id === 'meta'));
+    expect(simulate(evals, { github: dispatch(), inputs, outputs: { route }, results: { route: 'failure' } }).jobs).not.toContain('build-image');
+    for (const github of [pr(), dispatch()]) expect(simulate(evals, { github, inputs: github.event_name === 'pull_request' ? {} : INPUTS, outputs: { route: { ...ROUTE, mode: github.event_name === 'pull_request' ? 'pr' : 'dispatch' } } }).checkout('build-image')?.ref).toBe(SHA.main);
+  });
+
   test('a train gate runs the full gate, writes its record from the report and publishes the check; it never reuses or binds', () => {
     const inputs = { ...INPUTS, nonce: 'gate.train-x', expected_sha: SHA.head };
     const sim = simulate(evals, { github: dispatch('train/t1'), inputs, outputs: { route: { ...ROUTE, ...train, mode: 'train' } } });
