@@ -136,8 +136,8 @@ Homes are paths in the gstack checkout the lane checked at session start.
     lanes, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves, cap
     re-pins under a written grant, S1 emergencies (broken install or upgrade, red main,
     a security bug) and fixes from an already-diagnosed, audited problem list. Any other
-    bug fix gets no plan review (`gstack-autoplan next --kind fix`, R65) and carries its
-    proof in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
+    bug fix is exempt too (`gstack-autoplan next --kind fix`, R65) and carries a repro or
+    failing test in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
     `captain/templates/brief.md`.
 
 ## Crew-specific rules

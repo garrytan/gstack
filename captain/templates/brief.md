@@ -18,7 +18,7 @@ Spend cap: <focused paid runs per PR, from SPEND>
    ## Why it matters, ## What caused this work, ## Big decisions and ## Implementation plan
    sections, then run gstack-autoplan next --out <run dir> --plan <plan.md> <scope flags>
    sized to this brief (a feature: --kind feature, the lean run with one reviewer over
-   the plan and the draft code; a bug fix needs no plan run, see Plan: exempt).
+   the plan and the draft code; a bug fix needs no plan run: Plan: exempt: bug fix (R65)).
    At the gate send me the output of
    gstack-owner-brief render --captain --out <run dir> whole, as a needs-you report.
    Build nothing yet.
