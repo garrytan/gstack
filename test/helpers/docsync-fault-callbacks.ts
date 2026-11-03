@@ -66,6 +66,7 @@ mock.module(path.join(root, 'test/helpers/session-runner.ts'), () => ({ async ru
   const scenario = legacy ? 'legacy-completion' : options.testName.slice('ship-docsync-'.length);
   expect(options.maxTurns).toBe(legacy ? 30 : 24);
   const remaining = (legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 15_000;
+  // gstack-timing-ok: runShipDocsFault derives the timeout from elapsed time, so the bound measures the same elapsed time
   expect(options.timeout).toBeGreaterThanOrEqual(remaining - (Date.now() - bodyStartedAt));
   expect(options.timeout).toBeLessThanOrEqual(remaining);
   expect(options.tools).toEqual(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']);

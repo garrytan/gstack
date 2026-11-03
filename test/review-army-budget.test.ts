@@ -110,6 +110,7 @@ const run = async opts => {
   opts.signal?.addEventListener('abort', () => events.push('abort-' + attempt), { once: true });
   if (attempt === 1) {
     await new Promise(resolve => opts.signal.addEventListener('abort', resolve, { once: true }));
+    // gstack-timing-ok: the drain after cancellation is the behavior under test; no deadline remains during it
     await Bun.sleep(drainMs);
   }
   expect(fs.existsSync(opts.workingDirectory)).toBe(true);
