@@ -539,7 +539,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     for (const [pass, o] of [['x33p1', { stopped: (t: string) => t.endsWith('outside-voice') }], ['x34p1', { fail: (t: string) => t.endsWith('outside-voice') }]] as const) {
       const { dir, env } = repo();
       const out = path.join(dir, '.state/run/p1');
-      const h = host(dir, env, { ...o, keepSummary: true, epoch: Date.now() });
+      const h = host(dir, env, { ...o, keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? '1. **A guard fails open** - `src/a.ts:1` accepts any input. Severity: Medium. Blocks: no.\n\nRecommendation: fix the guard because it fails open' : cleanReply(t)), epoch: Date.now() });
       const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
       expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
       let res = '';
@@ -574,6 +574,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
     expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
     expect(v.stdout).not.toContain('MISMATCH');
+    expect(v.stdout).not.toContain('NOT_REVIEWED');
   }, 300_000);
 
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {

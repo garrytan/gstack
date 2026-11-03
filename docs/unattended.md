@@ -240,11 +240,11 @@ provider as the lane model or the native voice stops the pass (`STOP:`) before
 either voice is created, including on a rerun, and each outside voice prints an
 `OUTSIDE_VOICE:` line saying whether it is the certified configuration. An
 outside voice still running with no output after `input.stuckMs` (20 minutes by
-default) is stopped, and one that stops or fails without leaving a review, or
+default) is stopped, and one that stops or fails without leaving findings, or
 finishes empty, is collected as unavailable coverage (`COLLECT_UNAVAILABLE:`)
 instead of stopping the pass, so Step 11 goes on to judge the native voice. A
-stopped or failed outside voice that did leave a review is collected like any
-finished one, so its findings are kept. That outside voice then gets its own
+stopped or failed outside voice whose reply holds findings is collected like any
+finished one, so its findings are kept; one whose reply holds none is unavailable. That outside voice then gets its own
 row (`source: "host-subagent"`, `status: "unavailable"`, `completed` and
 `converged` false, written without `--finish` before the native row), so a
 missing voice never reads as converged or as an unavailable Codex CLI.
