@@ -134,6 +134,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a fix-check that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
 | a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
+| a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
@@ -219,8 +220,9 @@ lane knows the diff has, `gstack-review-plan --declare-risk <classes>` adds it: 
 detected classes, only raises the depth, and prints `RISK_DECLARED: classes=<declared> detected=<found>`.
 The outside voice reads its diff from a file the brief names with its sha256; past
 2,000,000 bytes it reads a path-scoped slice whose brief lists the files left out.
-`--fix-checks <n>` tells the lean loop how many fix-checks ran, so the owner's grant
-adds one fix-check after the first and never a second.
+`--fix-checks <n>` tells the loop how many fix-checks ran, so the owner's grant
+adds one fix-check after the first and never a second, in the lean loop and after
+a round-2 fix-check in the full loop (GEVA-223).
 
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
 (markdown no agent or gate reads), **tests** (test files and fixtures), **code**
@@ -513,7 +515,7 @@ puts in the receipt:
 | `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than plain docs (no numeric, results, prereg, eval, money or security claim; GST-1195), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
@@ -531,7 +533,8 @@ class the lane added shows apart from what the matchers found) and the queue ref
 (capy-ai[bot]'s review id, reviewer and head); write and the queue accept it only under
 `review.platform on`, on a docs or tests diff with no numeric, results or prereg claims,
 with the review at that exact head, so a new head needs `/ship` again. A stop the owner
-accepted after a fix-check edit goes in `review_loop_exception`, never in prose
+accepted after a fix-check edit, or after the second full pass with a finding
+left open (`second_pass`), goes in `review_loop_exception`, never in prose
 under `REVIEW_LOOP:`. Step 16 takes the same record:
 `gstack-ship-release finish --review-loop-exception <json|@file>` routes the
 paths the branch touched at `fix_check.head` (narrowed to the record's

@@ -1216,7 +1216,11 @@ fix-check edit under frozen scope (#3559), from `write --review-loop-exception
 It needs `--review-loop` with `fix_checks` of 1 or more, a `fix_check.head`
 that is the receipt head or its ancestor, and, with `--body`, the line
 `Review-loop exception: accepted by <owner> <date> via <ref>: <reason> (fix-check at <sha12>, <n> findings)`
-word for word; otherwise
+word for word. A stop after the second full pass that left a finding open
+(TRUT-7) takes `second_pass: { head, deferred: [<finding id>] }` in place of
+`fix_check`, with `--review-loop` counting 2 or more passes and 1 or more
+deferred, and the line ends `(second full pass at <sha12>, deferred <ids>)`;
+finish does not take it, since it accepts an open finding, not edits. Otherwise
 [`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
 and nothing is written. The queue checks both owner exceptions the same way
 before READY and train build: the record must parse, the body must still

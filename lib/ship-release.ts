@@ -198,8 +198,9 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * head inside range_base..commit: the owner's granted fix-check after Step 11 is a review (GST-1130). Authored docs keep the
  * stage 2.2 recheck.
  */
+type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
 type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted' | 'fix_checked', string[]>;
-function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: ReviewLoopException }, r: Report): Routed | null {
+function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException }, r: Report): Routed | null {
   const now = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
   if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return null; }
   const changedSet = touchedPaths(cwd, reviewed, now);
@@ -390,16 +391,18 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const base = flag('--base')!;
   const r = new Report();
   const list = lanes(argv) as { label: string; command: string }[];
-  let loop: ReviewLoopException | undefined;
+  let loop: FixCheckException | undefined;
   const loopArg = flag('--review-loop-exception');
   if (loopArg !== undefined) {
     let raw: unknown;
     try { raw = JSON.parse(loopArg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, loopArg.slice(1)), 'utf8') : loopArg); } catch (e) { return r.stop(`--review-loop-exception: ${firstLine((e as Error).message)}`); }
     const parsed = parseReviewLoopException(raw);
     if (!parsed.ok) return r.stop(`--review-loop-exception: ${parsed.message}`);
-    if (Array.isArray((raw as { fix_check?: { files?: unknown } }).fix_check?.files) && !parsed.exception.fix_check.files) return r.stop('--review-loop-exception: fix_check.files lists no paths; omit it to accept the paths the branch touched at fix_check.head');
-    if (git(cwd, ['merge-base', '--is-ancestor', parsed.exception.fix_check.head, 'HEAD']).status !== 0) return r.stop(`--review-loop-exception: fix_check.head ${parsed.exception.fix_check.head.slice(0, 12)} is not HEAD or an ancestor of it`);
-    loop = parsed.exception;
+    const fixCheck = parsed.exception.fix_check;
+    if (!fixCheck) return r.stop('--review-loop-exception: finish routes edits made after a fix-check; a second_pass exception accepts an open finding, not edits, so run finish without it and pass it to gstack-ship-receipt write');
+    if (Array.isArray((raw as { fix_check?: { files?: unknown } }).fix_check?.files) && !fixCheck.files) return r.stop('--review-loop-exception: fix_check.files lists no paths; omit it to accept the paths the branch touched at fix_check.head');
+    if (git(cwd, ['merge-base', '--is-ancestor', fixCheck.head, 'HEAD']).status !== 0) return r.stop(`--review-loop-exception: fix_check.head ${fixCheck.head.slice(0, 12)} is not HEAD or an ancestor of it`);
+    loop = { ...parsed.exception, fix_check: fixCheck };
   }
   const policy = shipPolicy(cwd, base);
   if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD', base), flag('--trailer'), r)) return r;

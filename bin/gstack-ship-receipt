@@ -50,7 +50,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
+import { deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -95,7 +95,8 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   blocked without an exception is DOCS_AUDIT_BLOCKED, and with --body the body must carry the exception line verbatim)
   --review-loop-exception <json|@file> ({accepted_by, date, via, reason, fix_check: {head, findings[, files]}}: the owner accepted a
   stop after a fix-check edit; needs --review-loop with fix_checks >= 1, fix_check.head an ancestor of the head, and with --body the
-  "Review-loop exception: …" line verbatim; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
+  "Review-loop exception: …" line verbatim; or second_pass: {head, deferred: [<finding id>]} in place of fix_check for a stop after
+  the second full pass with a finding left open, needing passes >= 2 and deferred >= 1; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
@@ -232,9 +233,10 @@ function cmdWrite(rest: string[], json: boolean): number {
     try { loopException = parseReviewLoopException(jsonArg(flag(rest, '--review-loop-exception'))); } catch (e: any) { return refuse(`--review-loop-exception: ${e.message}`); }
     if (!loopException.ok) return refuse(loopException.message);
     let loop: unknown; try { loop = jsonArg(flag(rest, '--review-loop')); } catch {}
-    if (!parseReviewLoop(loop)?.fix_checks) return refuse('--review-loop-exception needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check');
-    const fc = loopException.exception.fix_check.head;
-    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`fix_check.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
+    const loopProblem = exceptionLoopProblem(loopException.exception, parseReviewLoop(loop));
+    if (loopProblem) return refuse(`--review-loop-exception ${loopProblem}`);
+    const fc = exceptionHead(loopException.exception);
+    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`${loopException.exception.fix_check ? 'fix_check' : 'second_pass'}.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
@@ -258,7 +260,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });

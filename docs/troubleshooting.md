@@ -3327,10 +3327,14 @@ also refuses with this code, and writes nothing, when `--head` is not the
 checked-out HEAD: the receipt binds the tree the review read. It refuses the
 same way when the head touches money, gate, auth or secret code and no done
 targeted record covers those classes (`REVIEW_TARGETED: … verdict=missing|failed`),
-or when `--review-targeted` names a read commit whose product patch is not
-the receipt's and a change after it carries a targeted class (money, gate,
-auth or secret code changed after the targeted reader read it, a test edit the
-gate scan tags included), or that is not an ancestor of HEAD.
+or when `--review-targeted` names a read commit that is not an ancestor of
+HEAD, or after which a change carries a targeted class (money, gate, auth or
+secret code changed after the targeted reader read it, a test edit the gate
+scan tags included), or whose product patch is not the receipt's and the change
+since it is more than plain docs. A docs-only change after the read carries the
+record only when it adds no numeric claim, touches no results, prereg or eval
+path, and names no money, security, secret or auth topic; any other docs change
+needs the reader again (GST-1195).
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
 block. For the `--head` refusal, check out that commit and write there. For a
@@ -5971,12 +5975,16 @@ check it out and carry there.
 ### `REVIEW_LOOP_EXCEPTION_INVALID`
 
 **Meaning.** `gstack-ship-receipt write --review-loop-exception` refused the
-record and wrote nothing: it is not `{ accepted_by, date, via, reason,
-fix_check: { head, findings[, files] } }`, `--review-loop` is missing or counts
-no fix-check, `fix_check.head` is neither the receipt head nor its ancestor,
-or the `--body` file lacks the `Review-loop exception: …` line.
+record and wrote nothing: it is not `{ accepted_by, date, via, reason }` with
+exactly one of `fix_check: { head, findings[, files] }` (a stop after a
+fix-check) or `second_pass: { head, deferred: [<finding id>] }` (a stop after
+the second full pass left a finding open, TRUT-7), `--review-loop` is missing
+or does not show that stop (no fix-check counted, or fewer than two passes or
+no deferred finding), the head is neither the receipt head nor its ancestor, or
+the `--body` file lacks the `Review-loop exception: …` line.
 
-**Fix.** Record the owner's exact words and the fix-check the stop followed,
+**Fix.** Record the owner's exact words and the stop they accepted (the
+fix-check, or the second full pass with the deferred finding's id),
 pass the `gstack-review-scope summary` file as `--review-loop`, put the printed
 line in the PR body, and write again
 ([ship-policy.md](ship-policy.md#ship-receipt)).
