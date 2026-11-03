@@ -135,7 +135,7 @@ export function dispatchEventRewriter(artifacts: string, substituted: (phase: Di
   };
   return {
     push(chunk: string): string {
-      pending += chunk.replace(/\r\n/g, '\n');
+      pending = (pending + chunk).replace(/\r\n/g, '\n');
       const events = pending.split('\n\n');
       pending = events.pop()!;
       return events.map(e => take(e + '\n\n')).join('');

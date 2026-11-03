@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closePacketReadAfterNotice, dispatchPromptDelta, dispatchToken, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
+import { closePacketReadAfterNotice, dispatchEventRewriter, dispatchPromptDelta, dispatchToken, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 import { codeOf, guardFixture } from './helpers/autoplan-guard-fixture';
 
 const base = '/home/runner/.cache/gstack-paid-shard-x/tmp/ap-guard-pty-y';
@@ -154,4 +154,25 @@ test('the dispatch relay hands the guard the exact dispatch for the declared tok
     relay.stop(); upstream.stop(true);
     f.cleanup(); retypedFixture.cleanup(); fs.rmSync(artifacts, { recursive: true, force: true });
   }
+});
+
+// /ship outside voice on PR #3953: a CRLF stream whose \r and \n land in separate chunks kept the token unsubstituted.
+test('the event rewriter substitutes the token however LF or CRLF delimiters are split across chunks', () => {
+  const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-guard-crlf-'));
+  try {
+    fs.writeFileSync(path.join(artifacts, 'dispatch-ceo.txt'), 'exact dispatch');
+    const json = JSON.stringify({ description: 'CEO review', prompt: dispatchToken('ceo') });
+    const lf = [{ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 't', name: 'Agent', input: {} } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json } },
+      { type: 'content_block_stop', index: 0 }].map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+    for (const stream of [lf, lf.replace(/\n/g, '\r\n')]) for (const size of [1, 2, 3, 7, stream.length]) {
+      const substituted: string[] = [];
+      const rewrite = dispatchEventRewriter(artifacts, phase => substituted.push(phase));
+      let out = '';
+      for (let i = 0; i < stream.length; i += size) out += rewrite.push(stream.slice(i, i + size));
+      out += rewrite.end();
+      expect({ crlf: stream !== lf, size, substituted }).toEqual({ crlf: stream !== lf, size, substituted: ['ceo'] });
+      expect(out).toContain(JSON.stringify(JSON.stringify({ description: 'CEO review', prompt: 'exact dispatch' })).slice(1, -1));
+    }
+  } finally { fs.rmSync(artifacts, { recursive: true, force: true }); }
 });
