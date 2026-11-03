@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
+import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
 import { matchesAny } from './ship-policy';
@@ -170,26 +171,62 @@ export function laneConcurrency(mode: string | undefined, cpus = os.availablePar
   return cpus <= 4 ? 1 : Infinity;
 }
 
-/** Run each lane through gstack-evidence run, at most `concurrency` at a time, and read its recorded line; results keep the lanes' order. */
-export async function runLanes(cwd: string, list: { label: string; command: string }[], concurrency = Infinity): Promise<{ label: string; exit: number | null; testsRan: string; log: string }[]> {
-  const out: { label: string; exit: number | null; testsRan: string; log: string }[] = [];
+export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string }
+
+/** The base branch's `ship_lanes_from` entry for each lane whose command is a key, byte for byte (the ledger binds its sha256). */
+export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, { profiles: string[]; inventory: string }> {
+  const loaded = loadConfigFromBase(cwd, base);
+  const map = new Map<string, { profiles: string[]; inventory: string }>();
+  if (isConfigUnavailable(loaded) || loaded.errors.length) return map;
+  const from = loaded.config.ship_lanes_from;
+  for (const l of list) if (Object.prototype.hasOwnProperty.call(from, l.command)) map.set(l.label, from[l.command]!);
+  return map;
+}
+
+/**
+ * A mapped lane carried from CI at HEAD's clean tree: gstack-evidence record-ci finds and verifies the run (lib/ci-carry.ts)
+ * and records the CI-sourced ledger row; or why it was not (`carryNone`), so the caller runs it.
+ */
+export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
+  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
+  const got = / tests_ran=(\d+) log=- source=ci runs=(\S+)/.exec(rec.stderr);
+  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[1]!, log: '-', carried: got[2]! };
+  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: /^CARRY_NONE: (.+)$/m.exec(rec.stderr)?.[1] ?? `record_failed: ${firstLine(rec.stderr)}` };
+}
+
+/**
+ * Run each lane, at most `concurrency` at a time; results keep the lanes' order. With `base`, a lane the base branch maps in
+ * `ship_lanes_from` is carried from a verified CI run at this exact tree when one exists. Every other lane runs through
+ * gstack-evidence run --reuse (a pass at this tree, command and runtime is reused; `reuse: false` forces a run).
+ */
+export async function runLanes(cwd: string, list: { label: string; command: string }[], concurrency = Infinity, opts: { base?: string; reuse?: boolean } = {}): Promise<LaneResult[]> {
+  const out: LaneResult[] = [];
+  const mapped = opts.base ? mappedLanes(cwd, opts.base, list) : new Map<string, { profiles: string[]; inventory: string }>();
   let next = 0;
   const worker = async () => {
     while (next < list.length) {
       const i = next++;
       const l = list[i]!;
-      const r = await binAsync(cwd, 'gstack-evidence', ['run', '--label', l.label, '--', l.command]);
-      const m = /gstack-evidence: recorded label=\S+ exit=(\S+) tests_ran=(\S+) log=(\S+)/.exec(r.stderr);
-      out[i] = { label: l.label, exit: r.status, testsRan: m?.[2] ?? 'unknown', log: m?.[3] ?? '-' };
+      const m = mapped.get(l.label);
+      const carry = m ? carryLane(cwd, opts.base!, l) : null;
+      if (carry?.carried) { out[i] = carry; continue; }
+      const r = await binAsync(cwd, 'gstack-evidence', ['run', ...(opts.reuse === false ? [] : ['--reuse']), '--label', l.label, '--', l.command]);
+      const rec = /gstack-evidence: recorded label=\S+ exit=(\S+) tests_ran=(\S+) log=(\S+)/.exec(r.stderr);
+      const reused = /gstack-evidence: reused label=\S+ tree=\S+ from=(\S+)/.exec(r.stderr)?.[1];
+      out[i] = { label: l.label, exit: r.status, testsRan: rec?.[2] ?? 'unknown', log: rec?.[3] ?? '-', ...(reused ? { reused } : {}), ...(carry?.carryNone ? { carryNone: carry.carryNone } : {}) };
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, list.length)) }, worker));
   return out;
 }
 
-/** Step 5's lane verdict: a lane passes on its runner count, never exit 0 alone. */
-export function laneLine(l: { label: string; exit: number | null; testsRan: string; log: string }): { line: string; ok: boolean } {
+/** Step 5's lane verdict: a lane passes on its runner count, never exit 0 alone; a carried lane names its CI runs. */
+export function laneLine(l: LaneResult): { line: string; ok: boolean } {
+  if (l.carried) return { line: `LANE: ${l.label} carried run=${l.carried} tests_ran=${l.testsRan}`, ok: true };
   const zero = l.exit === 0 && l.testsRan === '0';
   const state = l.exit !== 0 ? 'FAIL' : zero ? 'ZERO-RUN' : l.testsRan === 'unknown' ? 'pass (count unavailable)' : 'pass';
-  return { line: `LANE: ${l.label} ${state} exit=${l.exit} tests_ran=${l.testsRan} log=${l.log}`, ok: l.exit === 0 && !zero };
+  return { line: `LANE: ${l.label} ${state} exit=${l.exit} tests_ran=${l.testsRan} log=${l.log}${l.reused ? ` reused=${l.reused}` : ''}`, ok: l.exit === 0 && !zero };
 }
+
+/** The CI_CARRY line for a mapped lane that ran here instead. */
+export const carryNoneLine = (l: LaneResult) => (l.carryNone ? `CI_CARRY: none label=${l.label} (${l.carryNone.length > 220 ? `${l.carryNone.slice(0, 220)}…` : l.carryNone})` : null);
