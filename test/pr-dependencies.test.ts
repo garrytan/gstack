@@ -304,6 +304,20 @@ describe('deleted files (paths absent from the head tree)', () => {
     expect(real.referencers('bin/gstack-next-version')).toContain('review/SKILL.md.tmpl');
   });
 
+  test('a file the PR adds is read from the checkout under review, not from the selector\'s own tree (an older install)', () => {
+    const added = 'hosts/claude/hooks/zz-added-hook.ts';
+    expect(fs.existsSync(path.join(ROOT, added))).toBe(false);
+    expect(real.referencers(added)).toContain('setup');
+    const checkout = fixtureRepo({ setup: 'SETUP_HOOK=hosts/claude/hooks/zz-added-hook\n', [added]: 'export {};\n' });
+    try {
+      const result = computePaidCaseSelection({ profile: 'pr', rootDir: checkout, env: { EVALS_BASE: 'HEAD' }, changedFiles: [added], packageVersionOnly: true });
+      expect(result.coverage!.unknownFileLabels.filter(l => l.file === added)).toEqual([]);
+      expect(result.reason).not.toContain('deleted but still referenced');
+    } finally {
+      fs.rmSync(checkout, { recursive: true, force: true });
+    }
+  });
+
   test('a deleted file a full-gate input still references, or a deleted full-gate entry, restores the full gate', () => {
     expect(real.referencers('bin/gstack-install-registry.sh')).toContain('setup');
     const referenced = pick('bin/gstack-install-registry.sh');
