@@ -253,16 +253,23 @@ export function skillLoads(t: Transcript): SkillLoad[] {
 export const STATUS_RE = /^[ \t>*_-]*(?:\*\*|__)?(?:STATUS|Status)(?:\*\*|__)?[ \t]*(?:\*\*|__)?:[ \t]*(?:\*\*|__)?[ \t]*(DONE_WITH_CONCERNS|DONE|BLOCKED|NEEDS_CONTEXT)\b/m;
 const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(?:Agent|Task)$/;
-const CHECK_PROGRAM = /^(?:pytest|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|make|cargo|go|bun|bunx|npm|npx|pnpm|yarn|node|deno|python3?|ruby|rake|mvn|gradlew?|dotnet|swift|xcodebuild|curl)$|test|spec|repro|check|verify|lint/i;
+const CHECK_RUNNER = /^(?:pytest|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|make|cargo|go|bun|bunx|npm|npx|pnpm|yarn|node|deno|python3?|ruby|rake|mvn|gradlew?|dotnet|swift|xcodebuild|curl|mix|bazel|just|dart|flutter|rails)$/i;
+const CHECK_SCRIPT = /(?:^|[-_.])(?:tests?|spec|repro|check|verify|lint)(?:[-_.]|$)/i;
+const COMMAND_WRAPPER = /^(?:bundle|uv|poetry|pipenv|docker|podman|xvfb-run|bash|sh|zsh)$/;
 const COMMAND_PREFIX = /^(?:env|sudo|time|nice|timeout|command|exec|\w+=\S*|-\S*|\d+[smh]?)$/;
+const isCheckProgram = (word: string) => { const name = word.split(/[\\/]/).pop() ?? ''; return CHECK_RUNNER.test(name) || (name !== 'test' && CHECK_SCRIPT.test(name)); };
 const SAFE_SPECIALIST = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/;
 
-/** A test or repro run: some segment of the command (split on && || ; | and newlines) starts with a test runner or a test, check or repro script. */
+/**
+ * A test or repro run: some segment of the command (split on && || ; | and newlines) starts with a test runner or a
+ * test, check or repro script, directly or behind a wrapper (bundle exec, uv run, docker compose run, xvfb-run, bash).
+ */
 export function isCheckCommand(cmd: string): boolean {
   return cmd.split(/&&|\|\||[;|\n]/).some(segment => {
     const words = segment.trim().replace(/^[({]\s*/, '').split(/\s+/);
     while (words.length > 1 && COMMAND_PREFIX.test(words[0])) words.shift();
-    return CHECK_PROGRAM.test(words[0].split(/[\\/]/).pop() ?? '');
+    if (isCheckProgram(words[0])) return true;
+    return COMMAND_WRAPPER.test(words[0].split(/[\\/]/).pop() ?? '') && words.slice(1, 6).some(isCheckProgram);
   });
 }
 const DEFAULT_SELECTION_RE = /Dispatching\s+\d+\s+specialists?:\s*(?<names>[^\n]*)/i;
@@ -507,10 +514,10 @@ export function writeRecord(file: string, rec: SessionRecord): void {
 
 /**
  * Block at most once per skill run: an unmet contract blocks unless this run was already blocked, which makes it a miss.
- * A run recorded met (never blocked) is final: later unrelated turns in the session never reopen it.
+ * A run recorded met, met_waived or met_after_block is final: later unrelated turns in the session never reopen it.
  */
 export function nextOutcome(prev: RunRecord | undefined, result: CheckResult): { outcome: Outcome; block: boolean } {
-  if (prev && !prev.blocked_at && (prev.outcome === 'met' || prev.outcome === 'met_waived')) return { outcome: prev.outcome, block: false };
+  if (prev && (prev.outcome === 'met' || prev.outcome === 'met_waived' || prev.outcome === 'met_after_block')) return { outcome: prev.outcome, block: false };
   if (result.met) return { outcome: prev?.blocked_at ? 'met_after_block' : result.waived.length ? 'met_waived' : 'met', block: false };
   return prev?.blocked_at ? { outcome: 'miss', block: false } : { outcome: 'blocked', block: true };
 }

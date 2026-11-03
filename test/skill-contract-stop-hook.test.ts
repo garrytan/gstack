@@ -77,6 +77,9 @@ describe('block once, with the pinned text', () => {
     fs.appendFileSync(file, [tool('b9', 'Bash', { command: 'bun test test/auth.test.ts' }), result('b9', 'pass'), say(DEBUG_REPORT)].join('\n') + '\n');
     expect(stop(file, {}, { stop_hook_active: true }).stdout).toBe('');
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met_after_block');
+    fs.appendFileSync(file, [user('also fix the README typo'), tool('e8', 'Edit', { file_path: 'README.md', old_string: 'teh', new_string: 'the' }), result('e8', 'updated'), say('Fixed.')].join('\n') + '\n');
+    expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('met_after_block');
   });
 
   test('still unmet on the stop_hook_active Stop after our block: a miss, never a second block', () => {

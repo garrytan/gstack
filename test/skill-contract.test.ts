@@ -149,9 +149,10 @@ describe('checkContract is a pure function of the transcript', () => {
   });
 
   test('check_after_last_edit: a command counts by the program it runs, not by a word inside it', () => {
-    for (const cmd of ['bun test', 'cd repo && npm test', 'FOO=1 timeout 60 pytest -x', './scripts/run-tests.sh', 'node repro.js | tail -5', 'bin/gstack-verify'])
+    for (const cmd of ['bun test', 'cd repo && npm test', 'FOO=1 timeout 60 pytest -x', './scripts/run-tests.sh', 'node repro.js | tail -5', 'bin/gstack-verify',
+      'bundle exec rspec', 'uv run pytest', 'poetry run pytest', 'docker compose run app pytest', 'xvfb-run -a npm test', 'bash scripts/test.sh', 'mix test', 'bazel test //...'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go'])
+    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
   });
 
