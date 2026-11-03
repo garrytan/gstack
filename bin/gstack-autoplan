@@ -2,7 +2,8 @@
 /**
  * gstack-autoplan — the unattended /autoplan runner as an explicit, durable state machine (plan B2).
  *
- *   gstack-autoplan next    --out <dir> [--plan <file>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--ceo-only]
+ *   gstack-autoplan next    --kind fix                 a bug fix: no plan review (R65), status=skipped, nothing written (run --kind fix too)
+ *   gstack-autoplan next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--ceo-only]
  *                           [--no-outside] [--light] [--spend-cap <usd>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice native|outside --result <file> | --record <file> [--attest <reason>]
  *                           --model <id> [--attempt <id>] [--runner <r>] [--usage-usd <n>] [--reconcile <jsonl>] [--json]
@@ -45,6 +46,7 @@ import { capyRelayLine } from '../lib/captain-brief';
 import { exportPublic } from '../lib/autoplan-public';
 import { migrateRun } from '../lib/autoplan-migrate';
 import { reviseRun } from '../lib/autoplan-revise';
+import { FIX_LINES, KINDS, type AutoplanKind } from '../lib/autoplan-lean';
 import { pendingAmendments, type RunState, type Voice } from '../lib/autoplan-state';
 import { FILES, RunError, currentPhase, fitReservation, initRun, markOutside, markSent, nextStep, readState, resumeRun, retireAttempt, statusLines, submitResult, withRunLock, writeState, type NextOptions } from '../lib/autoplan-run';
 import { driverFile, type Phase } from '../lib/autoplan-prompts';
@@ -61,9 +63,16 @@ import { exportShadow, renderShadowExport } from '../lib/autoplan-shadow-reader'
 const HELP = `gstack-autoplan — unattended /autoplan: next/submit loop, answer, resume (docs/unattended.md)
 DRIVER: ${driverFile()}
 
-  next    --out <dir> [--plan <file>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only] [--ceo-only]
+  next    --kind fix   a bug fix needs no plan review (R65): prints AUTOPLAN: not needed and status=skipped, writes nothing (no --out or --plan);
+          the PR still needs the bug's proof (a repro on current main or a failing test written first)
+  next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only] [--ceo-only]
           [--no-outside] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
-          --max-rounds (first next): review rounds per phase (default 2 unattended); at the cap a phase closes accepted-with-findings
+          --kind feature (first next; the default for an unattended Capy run, GSTACK_CAPY=1): the lean run (R65): the eng phase alone with one
+          native reviewer whose brief merges the CEO and Eng lenses (Design/DX when scope detects them), reads the draft code (git diff of
+          --base, default origin/HEAD, hashed into the snapshot; DRAFT: none when there is no code yet) and always asks about outside terms;
+          no outside voice, one round, one gate revision (accepted changes apply without re-review), no carry check
+          --full (first next): every phase and both voices, as before R65; off Capy, or in an interactive session, the default stays full
+          --max-rounds (first next): review rounds per phase (default 2 unattended, 1 lean); at the cap a phase closes accepted-with-findings
           --docs-only (first next; also detected when every Implementation-plan path is docs-class): CEO (native voice only) + Eng
           --ceo-only (first next, command line only): the CEO phase alone, no gate; ends status=reviewed with <out>/ceo-review.md, never approved
           --estimate-usd: reserved per new attempt, kept for the rest of the run; with --spend-cap any run (or an unattended run on Capy) reserves a default so the cap binds
@@ -88,6 +97,7 @@ DRIVER: ${driverFile()}
           --settle records a packaging/ordering change that needs no plan edit and reopens nothing (ids: decision id or d4)
   run     --out <dir> --plan <file> --native-model <id> --outside-model <id> [--runner codex-cli|api] [--native-runner api] ...
           next in a loop, only when a runner executes both voices here (hosts without subagents: --native-runner api --runner api);
+          the full run unless --kind feature (the lean run) or --kind fix (no review, nothing written);
           --deadline cancels the children it started; --max-tokens caps each api call's output (default 16384; OpenAI counts reasoning tokens in it), and a
           response cut off at that limit is reported truncated; submit's result checks judge every completed response
   answer  --out <dir> --gate-rev <rev> --reply "<rec | rec except d3a | d3b uc1a | as-is>" --by <human|agent:<id>> [--json]
@@ -247,7 +257,7 @@ function doNext(out: string, rest: string[], price?: NextOptions['price']): Repo
     if (carryCheckCapUsd !== undefined && !(carryCheckCapUsd >= 0)) throw new RunError('ARTIFACT_SCHEMA', '--carry-check-cap needs a number >= 0', 1);
     const shadow = shadowSwitch({ outsideEnabled: !rest.includes('--no-outside'), ceoOnly }, process.env);
     if (shadow.line) initLines.push(shadow.line);
-    initRun({ plan, out, cwd, planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
+    initRun({ plan, out, cwd, kind: flag(rest, '--kind') as AutoplanKind | undefined, full: rest.includes('--full'), base: flag(rest, '--base'), planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
       carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd, ceoOnly, shadow: shadow.shadow,
       deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
   }
@@ -342,7 +352,9 @@ function doBudget(out: string, rest: string[], json: boolean): number {
   return EXIT.ok;
 }
 
-async function doRun(out: string, rest: string[], json: boolean): Promise<number> {
+async function doRun(out: string, args: string[], json: boolean): Promise<number> {
+  // run pays for both voices, so it starts the full run unless --kind feature asks for the lean one (R65).
+  const rest = args.includes('--kind') ? args : [...args, '--full'];
   const nativeModel = flag(rest, '--native-model'); const outsideModel = flag(rest, '--outside-model');
   const outsideRunner = (flag(rest, '--runner') ?? 'codex-cli') as RunnerId; const nativeRunner = (flag(rest, '--native-runner') ?? 'api') as RunnerId;
   if (!nativeModel || !outsideModel) return usage('run needs --native-model and --outside-model (a runner must execute both voices)');
@@ -443,6 +455,16 @@ async function main(argv: string[]): Promise<number> {
     if (!from) return usage('checkpoints needs --from <checkpoint dir>');
     try { process.stdout.write(checkpointLines(from).join('\n') + '\n'); return EXIT.ok; }
     catch (e: any) { if (!(e instanceof RunError)) throw e; process.stderr.write(resultLine('gstack-autoplan checkpoints', e.code, e.detail) + '\n'); return EXIT.refused; }
+  }
+  if ((cmd === 'next' || cmd === 'run') && rest.includes('--kind')) {
+    const kind = flag(rest, '--kind');
+    if (!(KINDS as readonly string[]).includes(kind ?? '')) return usage(`--kind takes fix or feature (got ${JSON.stringify(kind ?? '')})`);
+    if (kind === 'fix') {
+      const live = flag(rest, '--out');
+      if (live && fs.existsSync(path.join(path.resolve(live), FILES.run))) return usage(`--kind fix starts no run, but ${live} already holds a run: continue it without --kind, or pass another --out`);
+      emit(json, FIX_LINES, { skill: 'autoplan', status: 'skipped', kind: 'fix', run: null, lines: FIX_LINES.slice(0, -1) });
+      return EXIT.ok;
+    }
   }
   const outFlag = flag(rest, '--out');
   if (!outFlag && cmd !== 'shadow') return usage(`${cmd} needs --out <dir>`);
