@@ -369,8 +369,7 @@ adopting this starts from
 
 **A. The record.** Every lane keeps an `## Approvals` table in its report and PR body,
 rendered by `gstack-approvals render`: date, what was asked, the owner's exact words, who
-relayed them, what the answer covers, what is pending. On a public repository (or unknown
-visibility) `render` prints only `Approved: yes|no (record <id>)` for the PR body. Standing approvals are cited with
+relayed them, what the answer covers, what is pending. Standing approvals are cited with
 their rule; a fresh ask is always needed for a product or behaviour decision, spend over
 a cap, anything published outside the repository, a threshold, budget, trial-count or
 case-kind change, closing a contribution without landing it, and anything destructive.
