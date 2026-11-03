@@ -121,7 +121,15 @@
 # --sink or UBI_SINK names one, and `down` makes one last push first
 # (SINK_FLUSH_FAILED turns a passing run into exit 1).
 set -euo pipefail
-INHERITED_ENV=" $(compgen -e | tr '\n' ' ')"
+# The caller's exported names and values, captured before the runner sets any
+# variable of its own: --pass forwards from here, never from a live variable.
+INHERITED_NAMES=() INHERITED_VALUES=()
+for _ubi_n in $(compgen -e); do
+  [ -n "${!_ubi_n+x}" ] || continue
+  INHERITED_NAMES+=("$_ubi_n") INHERITED_VALUES+=("${!_ubi_n}")
+done
+unset _ubi_n
+INHERITED_ENV=" ${INHERITED_NAMES[*]-} "
 # Keep heredoc bodies on temp files, not the pipe window (test/heredoc-pipe-deadlock.test.ts).
 BASH_COMPAT=50
 
@@ -1531,7 +1539,19 @@ pass_name() {
   [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "--pass $1: not a variable name"
   case $1 in UBICLOUD_*) die "--pass $1: the runner never forwards its own Ubicloud credentials to a VM" ;; esac
   case $1 in RECOVERY_SECRET|UBI_RECOVERY_KEY|UBI_SINK) die "--pass $1: the runner never forwards its recovery secret or sink URL to a VM" ;; esac
+  case $1 in INHERITED_NAMES|INHERITED_VALUES|INHERITED_ENV|PASS_VALUE|_ubi_n) die "--pass $1: the runner never forwards its own variables" ;; esac
   [[ "$INHERITED_ENV" == *" $1 "* ]] || die "--pass $1: not in this shell's environment; the runner forwards only variables you exported, never its own"
+}
+
+# inherited NAME: PASS_VALUE becomes NAME's value as the caller exported it.
+inherited() {
+  local i
+  for i in "${!INHERITED_NAMES[@]}"; do
+    [ "${INHERITED_NAMES[i]}" = "$1" ] || continue
+    PASS_VALUE=${INHERITED_VALUES[i]}
+    return 0
+  done
+  die "--pass $1: not in this shell's environment"
 }
 
 # inside_dir DIR ROOT: DIR resolves, symlinks followed, to ROOT or below it.
@@ -1596,7 +1616,7 @@ cmd_run() {
       --dest) dest=$2; shift 2 ;;
       --setup) setup=$2; shift 2 ;;
       --env) envs+=("$2"); shift 2 ;;
-      --pass) pass_name "$2"; [ -n "${!2+x}" ] || die "--pass $2: not set locally"; passes+=("$2"); shift 2 ;;
+      --pass) pass_name "$2"; passes+=("$2"); shift 2 ;;
       --pull) pulls+=("$2"); shift 2 ;;
       --keep) keep=1; shift ;;
       --key-input) key_inputs+=("$2"); shift 2 ;;
@@ -1639,7 +1659,7 @@ cmd_run() {
       printf 'command %q\n' "$*"
       if [ -n "$setup" ]; then echo "setup $(sha256 <"$setup")"; else echo "setup none"; fi
       for e in ${envs[@]+"${envs[@]}"}; do printf 'env %q\n' "$e"; done
-      for n in ${passes[@]+"${passes[@]}"}; do printf 'pass %s %s\n' "$n" "$(printf %s "${!n}" | sha256)"; done
+      for n in ${passes[@]+"${passes[@]}"}; do inherited "$n"; printf 'pass %s %s\n' "$n" "$(printf %s "$PASS_VALUE" | sha256)"; done
       printf 'vm %q %q %q %q\n' "$size" "$location" "$image" "$storage"
       echo "base $(base_sha "$src")"
       echo "runner $(sha256 <"${BASH_SOURCE[0]}")"
@@ -1744,7 +1764,7 @@ cmd_run() {
   qdest=$(printf %q "$dest")
   if [ ! -f "$dir/synced" ]; then
     { for e in ${envs[@]+"${envs[@]}"}; do printf 'export %s=%q\n' "${e%%=*}" "${e#*=}"; done
-      for n in ${passes[@]+"${passes[@]}"}; do printf 'export %s=%q\n' "$n" "${!n}"; done; } \
+      for n in ${passes[@]+"${passes[@]}"}; do inherited "$n"; printf 'export %s=%q\n' "$n" "$PASS_VALUE"; done; } \
       | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
     cmd_sync "$name" "$src" "$dest"
     # A subdirectory of a checkout uploads the whole .git with only its own
