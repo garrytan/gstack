@@ -52,10 +52,12 @@ const TEST_PATH = [/(^|\/)(tests?|spec|__tests__)\/|(^|\/)tests?\.py$|(^|\/)test
 const DOC_PATH = /\.(md|mdx|markdown|rst|txt|adoc)$/i;
 /** Release metadata a version stamp writes: never a reason for review depth on its own. */
 const RELEASE_METADATA = [/^CHANGELOG\.md$/, /^VERSION$/, /^agents-digest\//];
+/** The harness pins scripts/bump-harness-version.ts writes per harness file: code, though their paths repeat a test/ segment. */
+const HARNESS_PINS = /^scripts\/harness-pins\//;
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope|targeted|risk)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted|risk|exclude)\.ts$/, /^lib\/default-base\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** The path rules lib/review-exclude.ts keeps a matched file for: a gate path, agent prose, or a data-shaped config file. */
@@ -67,7 +69,7 @@ export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
 const DATA_CONFIG = [
-  /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/,
+  /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/, HARNESS_PINS,
   /(^|\/)(package|package-lock|npm-shrinkwrap|composer|deno|jsr|tsconfig[^/]*|jsconfig[^/]*|manifest|app|vercel|netlify|firebase|renovate|turbo|nx|lerna|biome|angular|nest-cli|lint-staged|components|pyrightconfig|cdk|serverless|appsettings[^/]*)\.json$/i,
 ];
 
@@ -174,7 +176,7 @@ export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
  */
 export function classifyPath(p: string, root?: string | readonly string[]): PathClass {
   if (RELEASE_METADATA.some(r => r.test(p))) return 'docs';
-  if (AGENT_PROSE.some(r => r.test(p))) return 'code';
+  if (AGENT_PROSE.some(r => r.test(p)) || HARNESS_PINS.test(p)) return 'code';
   if (TEST_PATH.some(r => r.test(p))) return 'tests';
   if (!DOC_PATH.test(p)) return 'code';
   const top = p.includes('/') ? p.split('/')[0]! : '';
