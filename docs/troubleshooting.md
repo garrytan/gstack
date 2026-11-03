@@ -401,7 +401,13 @@ bun lib/outside-review-result.ts --verdict execution reply.md
 ...)`, or it approves but also says something was excluded, blocked, skipped,
 not run or could not be verified. The
 reviewer did not say the review finished and found the change ready, so gstack
-does not count it as `clean`. The quoted verdict is in parentheses.
+does not count it as `clean`. The quoted verdict is in parentheses. Besides
+the approvals, only the exact `NO_FINDINGS` token counts as a clean verdict.
+
+A `/codex` consult or challenge answer whose verdict picks an option
+(`Verdict: go with B`, `Verdict: Proceed with the plan`) is `unverified` on
+purpose: a consult is advice, not a pass/fail review, so there is no pass to
+report. Read the answer itself; an answer with no verdict line stays `clean`.
 
 **What is kept.** The full reply is shown above.
 

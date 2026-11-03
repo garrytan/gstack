@@ -268,7 +268,7 @@ function lastVerdict(plain: string): string | undefined {
   }
   return undefined;
 }
-/** A verdict that approves the change. */
+/** A verdict that approves the change; the exact NO_FINDINGS token (its underscore is gone after plainReview) is clean too. */
 const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|clean|good to (?:go|merge|ship))\b(?![-?/])/i;
 /** A verdict that says the reviewer could not check, run or see something is never a ready one (#3925). */
 const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to|did not|didn['\u2019]t)\s+(?:be\s+)?(?:verif|run|test|check|open|read|review|execut)|\bunverifi|\bnot (?:yet|until)\b|\bnot (?:been )?(?:verified|run|tested|checked|reviewed|executed)\b|\b(?:excluded|blocked|skipped)\b/i;
@@ -309,7 +309,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const notReady = verdicts.some(v => v !== undefined && /^not[\t ]+ready\b/i.test(v));
   if (blocking || notReady) return { ...result('findings'), ...(unparsed ? { unparsed } : {}) };
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
-  const unready = verdicts.find(v => v !== undefined && (!READY_VERDICT.test(v) || UNVERIFIED_CLAIM.test(v)));
+  const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
   if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(code)) {
     return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');

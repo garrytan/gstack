@@ -228,6 +228,7 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
         "Verdict \u2014 can't verify", 'Verdict: ready, though one changed file was excluded', 'Verdict: ready (tests not run, sandbox blocked)',
         'Verdict: `ready` (tests `not run`)', 'Verdict: Ready? Not until the migration is fixed.', 'Verdict: clean-up required before merge',
         'Verdict: ready, but I did not execute the suites', 'Verdict: ready (tests not executed)',
+        'Verdict: no_findings', 'Verdict: NO_FINDINGS except the migration', 'Verdict: go with B.', 'Verdict: Proceed with the plan.',
       ])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'unverified', reason: 'unverified_verdict', unlabeled: 0 });
   });
@@ -242,7 +243,7 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
   test('negative controls: real clean replies, consult answers, tagged findings and quoted examples stay as they were', () => {
     for (const gate of ['execution', 'structured', 'review'] as const) {
       expect({ gate, ...see(read('no-findings.txt'), gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
-      for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', '**Verdict:** `ready`'])
+      for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', '**Verdict:** `ready`', 'Verdict: NO_FINDINGS', 'Verdict: `NO_FINDINGS`'])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
       expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
     }
