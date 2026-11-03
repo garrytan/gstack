@@ -41,6 +41,8 @@ export const MAX_RELEASE_ATTEMPTS = 2;
 /** Cron start jitter the cadence forgives. */
 export const CADENCE_GRACE_HOURS = 1;
 export const MAX_BISECT_ROUNDS = 4;
+/** An open gate (a run past its budget, or a red gate's running bisect) on an older commit is finished first for this many cadences; after that it stops holding up main's head. */
+export const OPEN_GATE_CADENCES = 3;
 const SHA = /^[0-9a-f]{40}$/;
 const CASE_ID = /^[A-Za-z0-9 _.:/-]{1,128}$/;
 const HOUR = 3_600_000;
@@ -232,14 +234,15 @@ export function runGate(env: GateEnv, o: RunOptions): GateOut {
   if ('error' in c) { lines.push(`RELEASE: cannot read refs/notes/gstack-trains (${c.error}); nothing dispatched`); return out('failed', null); }
   const head = o.sha ?? env.git(['ls-remote', env.remote, `refs/heads/${gate.branch}`]).out.split(/\s/)[0] ?? '';
   if (!SHA.test(head)) { lines.push(`RELEASE: cannot resolve ${gate.branch} on ${env.remote} (${JSON.stringify(head)})`); return out('failed', null); }
-  const open = o.sha ? null : c.records.find(r => r.sha !== head && ((r.verdict === 'PENDING' && r.run) || (r.verdict === 'RED' && r.bisect?.state === 'running')));
+  const fresh = (r: ReleaseRecord) => env.now() - Date.parse(r.created_at) < OPEN_GATE_CADENCES * gate.cadence_hours * HOUR;
+  const open = o.sha ? null : c.records.find(r => r.sha !== head && fresh(r) && ((r.verdict === 'PENDING' && r.run) || (r.verdict === 'RED' && r.bisect?.state === 'running')));
   if (open && o.dryRun) { lines.push(`RELEASE: dry run: would finish the open gate on ${short(open.sha)} (${open.verdict}, run ${open.run?.id ?? '-'}) before gating ${gate.branch}@${short(head)}; nothing written`); return out('dry-run', open.sha); }
   if (open) lines.push(`RELEASE: finishing the open gate on ${short(open.sha)} (${open.verdict}, run ${open.run?.id ?? '-'}) before gating ${gate.branch}@${short(head)}`);
   const sha = open?.sha ?? head;
   ensureHistory(env, gate, sha);
   const prior = c.records.find(r => r.sha === sha) ?? null;
   const skip = (why: string) => { lines.push(`RELEASE: skip sha=${sha} (${why})`); return out('skipped', sha); };
-  if (sha === c.stable) return skip(`${gate.branch} has not moved since ${gate.stable_ref}`);
+  if (!open && sha === c.stable) return skip(`${gate.branch} has not moved since ${gate.stable_ref}`);
   if (prior?.verdict === 'GREEN' || prior?.verdict === 'RED') {
     if (prior.verdict === 'RED' && prior.bisect?.state === 'running' && !o.dryRun) return finishRed(env, c, prior, lines, out);
     return skip(`${gate.branch} has not moved since the last gate: ${prior.verdict} run ${prior.run?.id ?? '-'}`);

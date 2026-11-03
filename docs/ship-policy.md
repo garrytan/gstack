@@ -1151,7 +1151,8 @@ policy read, so no paid work starts and nothing is written. With the block it ru
 
 1. first finishes an open gate on an older commit (a run that outlived its
    budget, or a red gate's unfinished bisect), so main moving never orphans a
-   verdict; only then does it look at main's head;
+   verdict; only then does it look at main's head. An open gate older than
+   three cadences stops holding up the head;
 2. skips when main has not moved since `stable` or since the last gate, or
    when the last gate is younger than `cadence_hours` (`--ignore-cadence`
    overrides only the age);

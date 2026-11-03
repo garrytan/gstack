@@ -13,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import {
-  MAX_RELEASE_ATTEMPTS, activeHold, bisectGate, classifyRun, gateStatus, loadReleaseGate, narrow, parseReport, planPrefixes, releaseRecords, runGate,
+  MAX_RELEASE_ATTEMPTS, OPEN_GATE_CADENCES, activeHold, bisectGate, classifyRun, gateStatus, loadReleaseGate, narrow, parseReport, planPrefixes, releaseRecords, runGate,
   type GateEnv, type Run,
 } from '../lib/release-gate';
 import { RELEASE_GATE_SCHEDULE_HOURS, releaseGateErrors, type ReleaseGatePolicy } from '../lib/release-gate-policy';
@@ -201,6 +201,30 @@ describe('release gate: run', () => {
     expect(third.sha).toBe(next);
     expect(fake.dispatches).toHaveLength(2);
     expect(fake.dispatches[1]!.inputs.expected_sha).toBe(next);
+  });
+
+  // Value: protects=an open gate is finished even after release-cut moved stable onto its commit, and an open gate older than OPEN_GATE_CADENCES
+  // cadences stops holding up main's head; fails_when=an open record on stable's commit skips forever, or an unresolvable run blocks every later gate;
+  // why_new=review findings (state-machines and red-team, l1-p2); seam=fake gh; no_claim=a real deleted run
+  test('an open gate on the commit stable moved to is still finished; a stale open gate no longer blocks the head', () => {
+    const f = fixture();
+    let dispatched = 0;
+    const fake = fakeGh(() => (dispatched++ === 0 ? { conclusion: 'success', status: 'in_progress', artifacts: report('GREEN') } : green()));
+    expect(runGate({ ...envFor(f, fake.gh), deadline: 0 }, { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true }).action).toBe('failed');
+    git(f.seed, 'push', '-q', '-f', 'origin', f.c[4] + ':refs/heads/stable');
+    f.commit('c6');
+    fake.runs[0]!.status = 'completed';
+    const finished = runGate(envFor(f, fake.gh), { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(finished.action, finished.lines.join('\n')).toBe('gated');
+    expect(finished.sha).toBe(f.c[4]);
+
+    const g = fixture();
+    const fake2 = fakeGh(() => ({ conclusion: 'success', status: 'in_progress', artifacts: report('GREEN') }));
+    expect(runGate({ ...envFor(g, fake2.gh), deadline: 0 }, { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true }).action).toBe('failed');
+    const head = g.commit('c6');
+    const late = runGate({ ...envFor(g, fake2.gh, OPEN_GATE_CADENCES * GATE.cadence_hours + 1), deadline: 0 }, { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(late.lines.some(l => l.includes('finishing the open gate'))).toBe(false);
+    expect(fake2.dispatches.at(-1)!.inputs.expected_sha).toBe(head);
   });
 });
 

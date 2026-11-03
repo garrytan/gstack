@@ -85,7 +85,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           IGNORE_CADENCE: ${{ inputs.ignore_cadence && '1' || '' }}
         run: |
-          ./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --budget-minutes 330 \
+          ./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes 330 \
             --summary "$GITHUB_STEP_SUMMARY" --outputs "$GITHUB_OUTPUT" ${DRY_RUN:+--dry-run} ${IGNORE_CADENCE:+--ignore-cadence}
 
   # The gated commit's check run (release_gate.check_name, main-backstop), the
