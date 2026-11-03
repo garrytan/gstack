@@ -223,8 +223,32 @@ export function cell(text: string, cap = 400): string {
 export const APPROVALS_TABLE_HEADER = '| Date | Asked | Exact words | Outcome | Covers | Still pending |';
 export const APPROVALS_FOOTER_END = '(display only; not an approval citation).';
 
-export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean } = {}): string {
+export type RepoVisibility = 'public' | 'private' | 'unknown';
+
+/** The origin repository's visibility as GitHub reports it through gh; anything gh cannot answer is unknown. */
+export function repoVisibility(cwd: string, env: Env = process.env): RepoVisibility {
+  const r = spawnSync('gh', ['repo', 'view', '--json', 'visibility', '-q', '.visibility'], { cwd, env, encoding: 'utf8', timeout: 15_000 });
+  if (r.status !== 0) return 'unknown';
+  const v = (r.stdout ?? '').trim().toLowerCase();
+  return v === 'private' || v === 'internal' ? 'private' : v === 'public' ? 'public' : 'unknown';
+}
+
+/**
+ * Full rows only where the repository is known private, or --full asks for them and GitHub does not report it public.
+ * A PR description keeps every earlier version in its edit history, so a public or unknown repository gets the
+ * redacted block: whether anything was approved and an opaque id of the record (a hash of its row ids), nothing else.
+ */
+export function renderMode(visibility: RepoVisibility, full: boolean): 'full' | 'redacted' {
+  return visibility === 'private' || (full && visibility === 'unknown') ? 'full' : 'redacted';
+}
+
+export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean; mode?: 'full' | 'redacted' } = {}): string {
   const head = o.heading === false ? [] : ['## Approvals', ''];
+  if (o.mode === 'redacted' && read.rows.length) {
+    const approved = read.rows.some(r => r.outcome === 'approved' || r.outcome === 'standing');
+    const id = 'r-' + createHash('sha256').update(read.rows.map(r => r.id).sort().join('\n')).digest('hex').slice(0, 12);
+    return [...head, `Approved: ${approved ? 'yes' : 'no'} (record ${id}). The full approval record stays private: this repository is public or its visibility is unknown.`, ''].join('\n');
+  }
   if (read.state === 'unavailable') return [...head, `Record unavailable on this machine: no approval record for branch ${cell(loc.branch)} here, and the state root is ephemeral with no Drive mirror, so this is not proof that nothing was approved.`, ''].join('\n');
   if (!read.rows.length) return [...head, `No approvals recorded for branch ${cell(loc.branch)}.`, ''].join('\n');
   const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
