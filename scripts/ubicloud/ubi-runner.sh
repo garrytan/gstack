@@ -102,6 +102,24 @@
 # reads .gstack/ubicloud.json (setup, command, size, location, env, pass, pull)
 # and runs it through `run`, so lanes share one committed definition instead of
 # per-lane wrappers.
+#
+# Surviving a dead controller (GST-1220). With UBI_RECOVERY_DIR set (on Capy,
+# GSTACK_CAPY_RECOVERY_DIR names a drive folder), `up` writes an encrypted
+# recovery bundle of each VM's local state (ssh key, env, tags) to
+# <dir>/<owner>/<vm>.bundle, and `recover [--owner OLD]` on another machine
+# rebuilds that state so pull, ssh and down work there. The bundle is AES-256
+# (openssl enc, pbkdf2) under a key derived from UBI_RECOVERY_KEY or else
+# UBICLOUD_API_KEY, with an HMAC-SHA256 checked before anything is decrypted;
+# the secret travels only on a pipe, never in argv, a child's environment or a
+# file. A counted run (--counted or UBI_COUNTED=1) refuses before any create
+# without a bundle (UBI_RECOVERY_REQUIRED, UBI_RECOVERY_UNAVAILABLE). Run
+# recover only once the creating machine is dead: a paused one is not detected.
+# `up --sink https-put:<presigned URL> --sink-path PATH` starts a pusher on the
+# VM that uploads heartbeat.json and the PATH entries as results.tgz every
+# UBI_SINK_INTERVAL seconds, so results land even when every controller dies;
+# the URL reaches the VM only in a 600 curl config file. The sink is off unless
+# --sink or UBI_SINK names one, and `down` makes one last push first
+# (SINK_FLUSH_FAILED turns a passing run into exit 1).
 set -euo pipefail
 # Keep heredoc bodies on temp files, not the pipe window (test/heredoc-pipe-deadlock.test.ts).
 BASH_COMPAT=50
@@ -142,6 +160,15 @@ for bin in curl python3 ssh ssh-keygen tar; do
   command -v "$bin" >/dev/null || die "$bin is required"
 done
 UBICLOUD_API_KEY="${UBICLOUD_API_KEY:-${UBICLOUD_API_TOKEN:-}}"
+RECOVERY_DIR="${UBI_RECOVERY_DIR:-${GSTACK_CAPY_RECOVERY_DIR:-}}"
+RECOVERY_SECRET="${UBI_RECOVERY_KEY:-$UBICLOUD_API_KEY}"
+unset UBI_RECOVERY_KEY
+COUNTED="${UBI_COUNTED:-0}"
+SINK_INTERVAL="${UBI_SINK_INTERVAL:-300}"
+SINK_MAX_MB="${UBI_SINK_MAX_MB:-512}"
+SINK_FLUSH_FAILED=""
+[[ "$SINK_INTERVAL" =~ ^[1-9][0-9]*$ ]] || die "UBI_SINK_INTERVAL must be a whole number of seconds, at least 1"
+[[ "$SINK_MAX_MB" =~ ^[1-9][0-9]*$ ]] || die "UBI_SINK_MAX_MB must be a whole number of megabytes, at least 1"
 [[ "$GC_HOURS" =~ ^[0-9]+$ ]] || die "UBI_GC_HOURS must be a whole number of hours (unset or 0 disables the sweep)"
 for v in IDLE_TIMEOUT RUN_TIMEOUT HEARTBEAT QUOTA_WAIT CHECKPOINT_MAX_AGE REATTACH_MARGIN; do
   [[ "${!v}" =~ ^[0-9]+$ ]] || die "UBI_$v must be a whole number of seconds (0 disables it)"
@@ -854,10 +881,10 @@ write_state() {
     "$1" "$2" "$3" "$4" "$5" "$6" "$$" >"$(state_dir "$1")/env"
 }
 
-# record_vm NAME LOCATION: append to the scratch VM-id file (record-before-create).
+# record_vm NAME LOCATION [OWNER]: append to the scratch VM-id file (record-before-create).
 record_vm() {
   mkdir -p "$(dirname "$VM_RECORD")" 2>/dev/null || return 0
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$OWNER" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-$OWNER}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
 }
 
 # forget_vm NAME: drop the VM from the scratch file once it is confirmed gone.
@@ -873,6 +900,263 @@ cmd_records() {
   [ -s "$VM_RECORD" ] || { echo "(no VMs recorded)"; return 0; }
   printf '%-40s %-14s %-12s %-20s %s\n' NAME LOCATION OWNER CREATED_AT PID
   awk -F'\t' '{ printf "%-40s %-14s %-12s %-20s %s\n", $1, $2, $3, $4, $5 }' "$VM_RECORD"
+}
+
+# vm_gone_final SEEN CREATED CREATE_AT CREATE_PID: a "not found" for the VM is
+# final: it was seen, its create was answered, or the create was sent more than
+# UBI_CREATE_GRACE seconds ago by a process that is gone (or is this one).
+vm_gone_final() {
+  [ "$1" = 1 ] || [ "$2" != unknown ] || { [ $(( $(date +%s) - $3 )) -ge "$CREATE_GRACE" ] \
+    && { [ "$4" = "$$" ] || ! kill -0 "$4" 2>/dev/null; }; }
+}
+
+# Recovery bundles. RB_PY reads the secret on stdin and derives an encryption
+# key and a MAC key from it (HMAC-SHA256 over fixed labels); the encryption key
+# reaches openssl on a pipe fd (-pass fd:N). A bundle is UBIRB1, the ciphertext
+# of a JSON map of the state files, and an HMAC over both, checked with
+# compare_digest before anything is decrypted. open exits 3 on any failure.
+RB_PY='
+import base64, hashlib, hmac, json, os, subprocess, sys
+MAGIC = b"UBIRB1\n"
+FILES = ("key", "key.pub", "env", "tags", "sink")
+secret = sys.stdin.buffer.read()
+if not secret:
+    sys.exit(2)
+enc_key = hmac.new(secret, b"ubi-runner recovery bundle enc v1", hashlib.sha256).hexdigest().encode()
+mac_key = hmac.new(secret, b"ubi-runner recovery bundle mac v1", hashlib.sha256).digest()
+def ossl(mode, data):
+    r, w = os.pipe()
+    os.write(w, enc_key + b"\n")
+    os.close(w)
+    try:
+        p = subprocess.run(["openssl", "enc", mode, "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-salt", "-pass", "fd:%d" % r],
+                           input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, pass_fds=(r,))
+    finally:
+        os.close(r)
+    return p.returncode, p.stdout
+if sys.argv[1] == "seal":
+    src, out = sys.argv[2], sys.argv[3]
+    files = {}
+    for n in FILES:
+        if os.path.isfile(os.path.join(src, n)):
+            with open(os.path.join(src, n), "rb") as f:
+                files[n] = base64.b64encode(f.read()).decode()
+    rc, ct = ossl("-e", json.dumps({"v": 1, "files": files}).encode())
+    if rc != 0 or not ct:
+        sys.exit(1)
+    body = MAGIC + ct
+    os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
+    tmp = "%s.tmp.%d" % (out, os.getpid())
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as f:
+        f.write(body + hmac.new(mac_key, body, hashlib.sha256).digest())
+    os.rename(tmp, out)
+else:
+    bundle, dest = sys.argv[2], sys.argv[3]
+    with open(bundle, "rb") as f:
+        data = f.read()
+    body, mac = data[:-32], data[-32:]
+    if len(data) < len(MAGIC) + 33 or not body.startswith(MAGIC) \
+            or not hmac.compare_digest(mac, hmac.new(mac_key, body, hashlib.sha256).digest()):
+        sys.exit(3)
+    rc, plain = ossl("-d", body[len(MAGIC):])
+    try:
+        files = json.loads(plain)["files"] if rc == 0 else None
+    except ValueError:
+        files = None
+    if not isinstance(files, dict) or "env" not in files or "key" not in files or any(n not in FILES for n in files):
+        sys.exit(3)
+    for n, b in files.items():
+        with os.fdopen(os.open(os.path.join(dest, n), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as f:
+            f.write(base64.b64decode(b))
+'
+
+# bundle_save NAME: (re)write NAME's recovery bundle when UBI_RECOVERY_DIR is
+# set. A counted run stops on a failed write; any other run warns and goes on.
+bundle_save() {
+  [ -n "$RECOVERY_DIR" ] || return 0
+  printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" seal "$(state_dir "$1")" "$RECOVERY_DIR/$OWNER/$1.bundle" && return 0
+  [ "$COUNTED" != 1 ] || die "UBI_RECOVERY_UNAVAILABLE: could not write the recovery bundle for $1 under $RECOVERY_DIR (needs openssl and a writable directory); a counted run needs it"
+  log "WARNING: could not write the recovery bundle for $1 under $RECOVERY_DIR (UBI_RECOVERY_UNAVAILABLE); continuing without one"
+}
+
+# recovery_preflight: a counted run needs a bundle another controller can open.
+recovery_preflight() {
+  [ -n "$RECOVERY_DIR" ] || die "UBI_RECOVERY_REQUIRED: a counted run (--counted or UBI_COUNTED=1) needs a recovery bundle; set UBI_RECOVERY_DIR to a directory another controller can read (on Capy, a drive folder), then rerun"
+  command -v openssl >/dev/null && [ -n "$RECOVERY_SECRET" ] \
+    || die "UBI_RECOVERY_UNAVAILABLE: a counted run needs openssl and a secret (UBI_RECOVERY_KEY or UBICLOUD_API_KEY) to write its recovery bundle"
+}
+
+# recover_failed NAME CODE FIX: one RECOVER_FAILED line; the bundle is kept.
+recover_failed() { echo "RECOVER_FAILED: vm=$1 code=$2 fix=$3"; RECOVER_FAILS=$(( RECOVER_FAILS + 1 )); }
+
+# recover [--owner OLD] [--dir DIR]: rebuild local state for every VM with a
+# bundle under DIR/OLD (default UBI_RECOVERY_DIR and this owner). A live VM
+# prints RECOVERED, a VM confirmed gone drops its bundle (RECOVER_GONE), and
+# anything else prints RECOVER_FAILED and keeps the bundle. State already on
+# this machine is never overwritten.
+RECOVER_FAILS=0
+cmd_recover() {
+  local from=$OWNER dir=$RECOVERY_DIR b name dest tmp code out ip tags
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --owner) from=$2; shift 2 ;;
+      --dir) dir=$2; shift 2 ;;
+      *) die "recover: unknown option $1" ;;
+    esac
+  done
+  [[ "$from" =~ ^[a-z][a-z0-9]{0,11}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
+  [ -n "$dir" ] || die "UBI_RECOVERY_REQUIRED: recover reads bundles from UBI_RECOVERY_DIR (or --dir DIR), and neither is set"
+  command -v openssl >/dev/null || die "UBI_RECOVERY_UNAVAILABLE: openssl is required to open recovery bundles"
+  mkdir -p "$STATE_ROOT"
+  out=$(mktemp)
+  for b in "$dir/$from"/*.bundle; do
+    [ -f "$b" ] || { log "recover: no bundles under $dir/$from"; continue; }
+    name=$(basename "$b" .bundle)
+    valid_name "$name" || continue
+    dest=$(state_dir "$name")
+    if [ -e "$dest" ]; then
+      recover_failed "$name" RECOVER_EXISTS "this machine already has state for $name; use it, or run down $name"
+      continue
+    fi
+    tmp=$(mktemp -d "$STATE_ROOT/.recover.XXXXXX")
+    if ! printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" open "$b" "$tmp"; then
+      rm -rf "$tmp"
+      recover_failed "$name" RECOVER_DECRYPT_FAILED "the bundle does not authenticate under this secret; set UBI_RECOVERY_KEY (or UBICLOUD_API_KEY) to the creating controller's"
+      continue
+    fi
+    local NAME="" LOCATION="" SIZE="" IP="" CREATED="" CREATE_AT=0 CREATE_PID=""
+    # shellcheck disable=SC1091
+    . "$tmp/env"
+    code=$(api "$out" vm "$LOCATION/$name" show)
+    case $code in
+      200)
+        ip=$(sed -n 's/^ip4: //p' "$out")
+        printf 'NAME=%q\nLOCATION=%q\nSIZE=%q\nIP=%q\nCREATED=yes\nCREATE_AT=%q\nCREATE_PID=\nADOPTED_BY=%q\n' \
+          "$name" "$LOCATION" "$SIZE" "${ip:-$IP}" "$CREATE_AT" "$OWNER" >"$tmp/env"
+        if [ -e "$dest" ]; then
+          rm -rf "$tmp"
+          recover_failed "$name" RECOVER_EXISTS "state for $name appeared on this machine while recovering; use it"
+          continue
+        fi
+        mv "$tmp" "$dest"
+        record_vm "$name" "$LOCATION" "$from"
+        tags=$(paste -s -d, "$dest/tags" 2>/dev/null || true)
+        echo "RECOVERED: vm=$name ip=${ip:-$IP} owner=$from tags=$tags" ;;
+      404)
+        rm -rf "$tmp"
+        if vm_gone_final 0 "$CREATED" "$CREATE_AT" ""; then
+          rm -f "$b"
+          echo "RECOVER_GONE: vm=$name"
+        else
+          recover_failed "$name" RECOVER_API_UNAVAILABLE "its create may still be in flight; rerun recover after UBI_CREATE_GRACE (${CREATE_GRACE}s)"
+        fi ;;
+      *)
+        rm -rf "$tmp"
+        recover_failed "$name" RECOVER_API_UNAVAILABLE "the Ubicloud API answered HTTP $code; nothing changed, rerun recover" ;;
+    esac
+  done
+  rm -f "$out"
+  [ "$RECOVER_FAILS" -eq 0 ]
+}
+
+# sink_check SPEC: https-put:<https URL> is the only network sink; file:<dir>
+# only under UBI_SINK_ALLOW_FILE=1 (tests). The URL is never printed.
+sink_check() {
+  case $1 in
+    https-put:https://*) [[ "${1#https-put:}" =~ ^https://[^[:space:]]+$ ]] && return 0 ;;
+    file:/*) [ "${UBI_SINK_ALLOW_FILE:-}" = 1 ] && return 0 ;;
+  esac
+  die "UBI_SINK_INVALID: a sink is https-put:<presigned https URL> (file:<absolute dir> only with UBI_SINK_ALLOW_FILE=1); got a '${1%%:*}:' spec. Nothing was created"
+}
+
+# SINK_SH: the VM-side pusher. Every SINK_INTERVAL seconds it packs
+# heartbeat.json and the SINK_PATHS entries under ~ into results.tgz and
+# pushes it when they changed, or every fifth interval regardless. A failed
+# push backs off and retries; it never ends the loop. --once pushes one time
+# and exits 1 with "seq= last_push=" on failure.
+SINK_SH='#!/usr/bin/env bash
+. ~/.ubirun-sink.conf || exit 1
+once=0
+[ "${1:-}" != --once ] || once=1
+[ "$once" = 1 ] || echo $$ > ~/.ubirun-sink.pid
+seq=$(cat ~/.ubirun-sink.seq 2>/dev/null || echo 0)
+last=$(cat ~/.ubirun-sink.last 2>/dev/null || echo never)
+present() { P=(); local p; for p in ${SINK_PATHS[@]+"${SINK_PATHS[@]}"}; do [ ! -e "$HOME/$p" ] || P+=("$p"); done; }
+digest() { present; [ ${#P[@]} -gt 0 ] || { echo none; return 0; }; tar -cf - -C "$HOME" "${P[@]}" 2>/dev/null | cksum; }
+beat() { printf "{\"vm\": \"%s\", \"owner\": \"%s\", \"seq\": %d, \"time\": \"%s\", \"last_push\": \"%s\", \"sink_skipped\": \"%s\"}\n" \
+  "$SINK_VM" "$SINK_OWNER" "$seq" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$last" "$2" > "$1/heartbeat.json"; }
+push() {
+  local d rc=0
+  d=$(mktemp -d "$HOME/.ubirun-sink.XXXXXX") || return 1
+  seq=$((seq + 1)); echo "$seq" > ~/.ubirun-sink.seq
+  present
+  beat "$d" ""
+  if [ ${#P[@]} -gt 0 ]; then
+    tar -czf "$d/results.tgz" -C "$d" heartbeat.json -C "$HOME" "${P[@]}" 2>/dev/null || rc=$?
+    if [ "$rc" -gt 1 ]; then beat "$d" tar_failed; tar -czf "$d/results.tgz" -C "$d" heartbeat.json; fi
+    if [ "$(wc -c < "$d/results.tgz")" -gt $((SINK_MAX_MB * 1048576)) ]; then beat "$d" size; tar -czf "$d/results.tgz" -C "$d" heartbeat.json; fi
+  else
+    tar -czf "$d/results.tgz" -C "$d" heartbeat.json
+  fi
+  rc=0
+  case $SINK_KIND in
+    file) { mkdir -p "$SINK_DIR/$SINK_VM" && cp "$d/results.tgz" "$SINK_DIR/$SINK_VM/.results.tgz.$$" \
+      && mv -f "$SINK_DIR/$SINK_VM/.results.tgz.$$" "$SINK_DIR/$SINK_VM/results.tgz"; } 2>/dev/null || rc=1 ;;
+    https-put) curl -sS --fail --max-time 120 -K "$HOME/.ubirun-sink.curl" -T "$d/results.tgz" >/dev/null 2>&1 || rc=1 ;;
+    *) rc=1 ;;
+  esac
+  rm -rf "$d"
+  [ "$rc" -ne 0 ] || { last=$(date +%s); echo "$last" > ~/.ubirun-sink.last; }
+  return "$rc"
+}
+if [ "$once" = 1 ]; then push && exit 0; echo "seq=$seq last_push=$last"; exit 1; fi
+h="" beats=0 backoff=0
+while :; do
+  n=$(digest)
+  if [ "$n" != "$h" ] || [ "$beats" -ge 5 ]; then
+    if push; then h=$n; beats=0; backoff=0
+    else backoff=$(( backoff ? backoff * 2 : SINK_INTERVAL )); [ "$backoff" -le 900 ] || backoff=900; fi
+  else
+    beats=$((beats + 1))
+  fi
+  sleep $(( SINK_INTERVAL + backoff ))
+done
+'
+
+# sink_start NAME SPEC PATH...: write the pusher's config (600; the URL only in
+# ~/.ubirun-sink.curl, over ssh stdin), upload it and start it outside any ssh
+# session, and mark the state dir so down flushes it.
+sink_start() {
+  local name=$1 spec=$2 kind interval=$SINK_INTERVAL url sdir=""
+  shift 2
+  kind=${spec%%:*}
+  [ "$kind" != file ] || sdir=${spec#file:}
+  [ "$kind" = file ] || [ "$interval" -ge 60 ] || interval=60
+  { printf 'SINK_KIND=%q\nSINK_DIR=%q\nSINK_VM=%q\nSINK_OWNER=%q\nSINK_INTERVAL=%q\nSINK_MAX_MB=%q\n' \
+      "$kind" "$sdir" "$name" "$OWNER" "$interval" "$SINK_MAX_MB"
+    printf 'SINK_PATHS=(%s)\n' "$(qwords "$@")"; } | remote "$name" 'umask 077 && cat > ~/.ubirun-sink.conf && chmod 600 ~/.ubirun-sink.conf'
+  if [ "$kind" = https-put ]; then
+    url=${spec#https-put:}; url=${url//\\/\\\\}; url=${url//\"/\\\"}
+    printf 'url = "%s"\n' "$url" | remote "$name" 'umask 077 && cat > ~/.ubirun-sink.curl && chmod 600 ~/.ubirun-sink.curl'
+  fi
+  printf %s "$SINK_SH" | remote "$name" 'umask 077 && cat > ~/.ubirun-sink.sh'
+  remote "$name" 'if command -v setsid >/dev/null 2>&1; then setsid -f bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1; else nohup bash ~/.ubirun-sink.sh </dev/null >>~/.ubirun-sink.log 2>&1 & fi' </dev/null >/dev/null
+  : >"$(state_dir "$name")/sink"
+  log "sink: pushing $# path(s) to a $kind sink every ${interval}s (pid in ~/.ubirun-sink.pid on $name)"
+}
+
+# sink_flush NAME: one last push before down destroys NAME (60 s cap). A
+# failure prints SINK_FLUSH_FAILED and sets SINK_FLUSH_FAILED, which turns a
+# passing run or verify into exit 1; the VM is destroyed either way.
+sink_flush() {
+  local out
+  if out=$(remote "$1" 'timeout 60 bash ~/.ubirun-sink.sh --once' </dev/null 2>/dev/null); then
+    log "sink: final push done for $1"
+    return 0
+  fi
+  SINK_FLUSH_FAILED=1
+  out=$(tail -n 1 <<<"$out")
+  echo "SINK_FLUSH_FAILED: vm=$1 ${out:-seq=unknown last_push=unknown} (results in the sink may be incomplete)" >&2
 }
 
 new_name() {
@@ -943,7 +1227,7 @@ UP_NAME=""
 UP_READY=""
 cmd_up() {
   require_owner
-  local size=$DEFAULT_SIZE location=$DEFAULT_LOCATION name="" storage="" image=ubuntu-noble
+  local size=$DEFAULT_SIZE location=$DEFAULT_LOCATION name="" storage="" image=ubuntu-noble sink=${UBI_SINK:-} tags=() sink_paths=()
   while [ $# -gt 0 ]; do
     case $1 in
       -s|--size) size=$2; shift 2 ;;
@@ -951,11 +1235,17 @@ cmd_up() {
       -n|--name) name=$2; shift 2 ;;
       -S|--storage) check_storage "$2"; storage=$2; shift 2 ;;
       -b|--image) image=$2; shift 2 ;;
+      --tag) [[ "$2" =~ ^[A-Za-z0-9_.-]+=[A-Za-z0-9_.:/@+-]*$ ]] || die "up: --tag $2: expected key=value (letters, digits and _.:/@+- only)"; tags+=("$2"); shift 2 ;;
+      --sink) sink=$2; shift 2 ;;
+      --sink-path) [[ "$2" != /* && "/$2/" != */../* && -n "$2" ]] || die "up: --sink-path $2: must be a path under ~ on the VM"; sink_paths+=("$2"); shift 2 ;;
+      --counted) COUNTED=1; shift ;;
       *) die "up: unknown option $1" ;;
     esac
   done
   [ -n "$name" ] || name=$(new_name)
   valid_name "$name" || die "invalid VM name '$name' (Ubicloud allows 1-63 of a-z, 0-9 and '-', starting and ending with a letter or digit)"
+  [ "$COUNTED" != 1 ] || recovery_preflight
+  [ -z "$sink" ] || sink_check "$sink"
   if [ "$REAP" != 0 ]; then
     cmd_reap || log "reap failed; continuing"
   fi
@@ -969,12 +1259,14 @@ cmd_up() {
   mkdir -p "$dir"
   chmod 700 "$dir"
   ssh-keygen -q -t ed25519 -N '' -C "$name" -f "$dir/key"
+  [ ${#tags[@]} -eq 0 ] || printf '%s\n' "${tags[@]}" >"$dir/tags"
 
   local args=(vm "$location/$name" create -s "$size" -b "$image")
   [ -z "$storage" ] || args+=(-S "$storage")
   args+=("$(cat "$dir/key.pub")")
   create_at=$(date +%s)
   write_state "$name" "$location" "$size" "" unknown "$create_at"
+  bundle_save "$name"
   record_vm "$name" "$location"
   UP_NAME=$name
   log "creating $location/$name ($size)"
@@ -984,6 +1276,7 @@ cmd_up() {
   trap 'interrupted=1' INT TERM HUP QUIT
   cli "${args[@]}" >/dev/null 2>"$dir/create.err" || created=no
   write_state "$name" "$location" "$size" "" "$created" "$create_at"
+  [ "$created" = no ] || bundle_save "$name"
   trap 'exit 130' INT TERM HUP QUIT
   [ -z "$interrupted" ] || exit 130
   if [ "$created" = no ]; then
@@ -1010,6 +1303,7 @@ cmd_up() {
     sleep "$POLL"
   done
   write_state "$name" "$location" "$size" "$ip" yes "$create_at"
+  bundle_save "$name"
 
   load "$name"
   deadline=$(( $(date +%s) + 300 ))
@@ -1019,6 +1313,10 @@ cmd_up() {
     sleep "$POLL"
   done
   remote "$name" 'cloud-init status --wait >/dev/null 2>&1 || true'
+  if [ -n "$sink" ]; then
+    sink_start "$name" "$sink" ${sink_paths[@]+"${sink_paths[@]}"}
+    bundle_save "$name"
+  fi
   UP_READY=1
   log "ready: $name ($IP)"
   echo "$name"
@@ -1044,6 +1342,7 @@ cmd_down() {
   if [ -f "$dir/env" ]; then
     load "$name"
     loc=$LOCATION
+    [ ! -f "$dir/sink" ] || [ -z "$IP" ] || sink_flush "$name"
     if [ -S "$dir/ctl" ] && [ -n "$IP" ]; then
       # shellcheck disable=SC2046
       ssh $(ssh_opts) -O exit "ubi@$IP" >/dev/null 2>&1 || true
@@ -1075,11 +1374,11 @@ cmd_down() {
         log "destroy requested: $loc/$name"
       fi
     elif [ "$code" = 404 ]; then
-      if [ "$seen" = 1 ] || [ "$CREATED" != unknown ] || { [ $(( now - CREATE_AT )) -ge "$CREATE_GRACE" ] \
-        && { [ "$CREATE_PID" = "$$" ] || ! kill -0 "$CREATE_PID" 2>/dev/null; }; }; then
+      if vm_gone_final "$seen" "$CREATED" "$CREATE_AT" "$CREATE_PID"; then
         rm -f "$out"
         rm -rf "$dir"
         forget_vm "$name"
+        [ -z "$RECOVERY_DIR" ] || rm -f "$RECOVERY_DIR"/*/"$name.bundle"
         if [ "$seen" = 1 ]; then log "destroyed ${loc:-?}/$name"; else log "gone: ${loc:-?}/$name (never existed or already destroyed)"; fi
         return 0
       fi
@@ -1244,7 +1543,10 @@ run_teardown() {
     left=unknown others=unknown
   fi
   leftover "left=$left owner=$OWNER vm=$RUN_VM others=$others"
-  [ "$left" = 0 ] && return 0
+  if [ "$left" = 0 ]; then
+    [ -z "$SINK_FLUSH_FAILED" ] || [ "$rc" -ne 0 ] || exit 1
+    return 0
+  fi
   log "VM cleanup not confirmed for $RUN_VM (left=$left); destroy it with: $0 down $RUN_VM"
   [ "$rc" -ne 0 ] || exit 1
 }
@@ -1257,7 +1559,8 @@ cmd_run() {
   while [ $# -gt 0 ]; do
     case $1 in
       -S|--storage) check_storage "$2"; up_args+=("$1" "$2"); shift 2 ;;
-      -s|--size|-l|--location|-n|--name|-b|--image) up_args+=("$1" "$2"); shift 2 ;;
+      -s|--size|-l|--location|-n|--name|-b|--image|--tag|--sink|--sink-path) up_args+=("$1" "$2"); shift 2 ;;
+      --counted) COUNTED=1; shift ;;
       --src) src=$2; shift 2 ;;
       --dest) dest=$2; shift 2 ;;
       --setup) setup=$2; shift 2 ;;
@@ -1526,8 +1829,8 @@ print("cfg_cmd=" + q(c.get("command", "")))
     case $1 in
       --) shift; user_cmd=("$@"); break ;;
       --trust-config) trust=1; shift ;;
-      --keep|--resume|--no-resume|--rerun-failed|--probe) user_pre+=("$1"); shift ;;
-      --pass|-S|--storage|-s|--size|-l|--location|-n|--name|-b|--image|--src|--dest|--setup|--env|--pull)
+      --keep|--resume|--no-resume|--rerun-failed|--probe|--counted) user_pre+=("$1"); shift ;;
+      --pass|-S|--storage|-s|--size|-l|--location|-n|--name|-b|--image|--src|--dest|--setup|--env|--pull|--tag|--sink|--sink-path)
         [ $# -ge 2 ] || die "verify: $1 needs a value"
         [ "$1" != --pass ] || granted+=("$2")
         user_pre+=("$1" "$2"); shift 2 ;;
@@ -1569,9 +1872,19 @@ usage: ubi-runner.sh <command> [args]
                          here (--pass NAME, or all: --trust-config). With tiers, a pass checkpoint
                          under the same run key is reused (resume is the default)
   attach NAME            resume the run recorded for NAME on this machine, as a rerun would
-  up [-s SIZE] [-l LOCATION] [-n NAME] [-S STORAGE_GIB] [-b IMAGE]
+  up [-s SIZE] [-l LOCATION] [-n NAME] [-S STORAGE_GIB] [-b IMAGE] [--tag K=V]...
+     [--sink https-put:URL] [--sink-path PATH]... [--counted]
                          create a VM and wait for SSH; prints its name
-                         (STORAGE_GIB: one of $ALLOWED_STORAGE)
+                         (STORAGE_GIB: one of $ALLOWED_STORAGE). --tag is kept in the VM's
+                         state and recovery bundle; --sink starts a pusher on the VM that
+                         uploads heartbeat.json and the PATH entries under ~ as results.tgz;
+                         --counted (or UBI_COUNTED=1) refuses without a recovery bundle
+                         (UBI_RECOVERY_REQUIRED, UBI_RECOVERY_UNAVAILABLE). run and verify
+                         take the same four options
+  recover [--owner OLD] [--dir DIR]
+                         rebuild this machine's state for the VMs with a bundle under
+                         DIR/OLD (UBI_RECOVERY_DIR, this owner); prints RECOVERED, RECOVER_GONE
+                         or RECOVER_FAILED per VM. Run it only once the creating machine is dead
   ssh NAME [COMMAND]     shell or login-shell command on the VM (user ubi, passwordless sudo)
   sync NAME [SRC] [DEST] stream a checkout (tracked + untracked-unignored + .git)
   pack [SRC]             write that checkout tarball to stdout
@@ -1605,7 +1918,10 @@ env: UBI_TTL_HOURS (${TTL_HOURS}h in the name, 1-999), UBI_REAP (0: up skips the
      UBI_GC_HOURS (unset/0: no sweep on up), UBI_CREATE_GRACE (${CREATE_GRACE}s),
      UBI_DOWN_TIMEOUT (${DOWN_TIMEOUT}s), UBI_API_TIMEOUT (${API_TIMEOUT}s), UBI_VM_RECORD (scratch VM-id file),
      UBI_ALLOWED_STORAGE (the -S sizes Ubicloud accepts; default "320 640"),
-     UBI_CHECKPOINT_DIR (tier checkpoints; $CHECKPOINT_DIR), UBI_CHECKPOINT_MAX_AGE (${CHECKPOINT_MAX_AGE}s a pass is reused)
+     UBI_CHECKPOINT_DIR (tier checkpoints; $CHECKPOINT_DIR), UBI_CHECKPOINT_MAX_AGE (${CHECKPOINT_MAX_AGE}s a pass is reused),
+     UBI_RECOVERY_DIR (recovery bundles; GSTACK_CAPY_RECOVERY_DIR on Capy), UBI_RECOVERY_KEY (bundle secret;
+     else UBICLOUD_API_KEY), UBI_COUNTED, UBI_SINK (a sink spec), UBI_SINK_INTERVAL (${SINK_INTERVAL}s, at least 60
+     for https-put), UBI_SINK_MAX_MB (${SINK_MAX_MB}: a bigger results.tgz is skipped, sink_skipped=size)
 EOF
 }
 
@@ -1630,6 +1946,7 @@ case $cmd in
   unpack) cmd_unpack "$@" ;;
   pull) cmd_pull "$@" ;;
   down) cmd_down "$@" ;;
+  recover) cmd_recover "$@" ;;
   list) cmd_list "$@" ;;
   usage) cmd_usage ;;
   owner) echo "$OWNER" ;;

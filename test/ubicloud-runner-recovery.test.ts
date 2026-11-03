@@ -150,11 +150,15 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
 
   test('a counted run refuses before any create without a recovery directory', () => {
     const f = make();
-    for (const extra of [{ UBI_COUNTED: '1' }, {}]) {
-      const r = run(f, extra.UBI_COUNTED ? ['up'] : ['up', '--counted'], { ...extra, UBI_REAP: '0' });
+    for (const [args, extra] of [[['up'], { UBI_COUNTED: '1' }], [['up', '--counted'], {}]] as [string[], Record<string, string>][]) {
+      const r = run(f, args, { ...extra, UBI_REAP: '0' });
       expect(r.exitCode).not.toBe(0);
       expect(out(r)).toContain('UBI_RECOVERY_REQUIRED');
     }
     expect(creates(f)).toBe(0);
+    const rec = join(f.root, 'recovery');
+    const ok = run(f, ['up', '--counted'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
+    expect(ok.exitCode).toBe(0);
+    expect(existsSync(join(rec, 'thrd1', ok.stdout.toString().trim() + '.bundle'))).toBe(true);
   });
 });

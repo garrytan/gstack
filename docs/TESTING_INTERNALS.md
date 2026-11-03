@@ -1116,6 +1116,12 @@ machine swap, in this order:
 1. `scripts/ubicloud/ubi-runner.sh records` and `list --mine`: a VM listed in
    the record but absent from the project is already gone (forget it); a VM
    in the project but not in the record belongs to another owner, leave it.
+   After a machine swap, `scripts/ubicloud/ubi-runner.sh recover` rebuilds the
+   state of every VM that `up` wrote a bundle for (`UBI_RECOVERY_DIR`; `--owner
+   OLD` adopts another owner's), so `pull` and `down NAME` work again. Run it
+   only once the creating machine is dead: it cannot tell a paused one. A VM
+   started with `--sink` pushes its own results, so they land even if no
+   controller survives.
 2. Watched background operations: a runner started under `gstack-detach` keeps
    its `### gstack-detach EXIT=<code> ###` sentinel in its log; a log without
    the sentinel after the VM is gone is an interrupted run, not a pass.
