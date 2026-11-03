@@ -106,6 +106,53 @@ describe("env.kv: a function call assigned to a credential name is code (#2899)"
   );
 });
 
+describe("env.kv: a name-shaped literal inside a call is a file or dict key, not a secret (GST-1064)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const FAKE_STRIPE_TAIL = "4eC39HqLyjWDarjtT1zdp7dc";
+  table(
+    "env.kv",
+    "MEDIUM",
+    [
+      String.raw`key = json.loads(files.get("key.json", ""))`,
+      String.raw`token = resp.json().get("access_token")`,
+      String.raw`    session = store.load('session.cookie')`,
+      String.raw`secret = vault.read("client_secret")`,
+    ],
+    [
+      String.raw`key = "${FAKE_KEY}"`,
+      String.raw`KEY=${FAKE_KEY}`,
+      String.raw`key = json.loads("sk_live_${FAKE_STRIPE_TAIL}")`,
+      String.raw`token = resp.json().get("access_token", "${FAKE_KEY}")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "hunter2.Zx9Qw8")`,
+      String.raw`key = json.loads(files.get("key.json")) or "${FAKE_KEY}"`,
+      String.raw`password = os.getenv("DB_PASSWORD", "correct-horse-battery-staple")`,
+      String.raw`api_key = decrypt("prod-signing-key")`,
+      String.raw`token = decrypt("correct_horse_battery_staple")`,
+      String.raw`key = decrypt("qwhzxkvbnmplor")`,
+      String.raw`SECRET_KEY = os.getenv("SECRET_KEY", "orange_monkey_pass")`,
+      String.raw`password = os.environ.get("DB_PASSWORD", "purple_walrus")`,
+      String.raw`token = resp.json().get("access_token", "orange_monkey_pass")`,
+      String.raw`key = derive_secret("tigers.horse")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "qwhzxkvbnmplor.txt")`,
+      String.raw`password = make_password("orange_monkey_pass")`,
+      String.raw`password = bcrypt.hashpw("orange_monkey_pass", salt)`,
+      String.raw`token = jwt.encode("purple_walrus_pie", payload)`,
+      String.raw`api_key = settings.Secret("correct_horse_battery")`,
+      String.raw`password = hash_password("purple_walrus")`,
+      String.raw`password=hash_password("purple_walrus")`,
+      String.raw`+password = hash_password( "purple_walrus" )`,
+      String.raw`password = hash_password("purple_walrus").encode()`,
+      String.raw`password = hash_password("purple_walrus")  # seed user`,
+      String.raw`password = config.get("db_password") or ("orange_monkey_pass")`,
+      String.raw`password = config.get("db_password", ("orange_monkey_pass"))`,
+      String.raw`password = login(user, ("purple_walrus"))`,
+      String.raw`password = load_cfg("app.yaml"); login("purple_walrus")`,
+      String.raw`password = login(user, str("purple_walrus"))`,
+      String.raw`password = encrypt(str("orange_monkey_pass"))`,
+    ],
+  );
+});
+
 describe("internal.hostname: per-machine config filenames are not hosts (#2962, #2740)", () => {
   table(
     "internal.hostname",
