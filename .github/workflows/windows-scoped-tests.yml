@@ -28,7 +28,10 @@ name: Windows Scoped Tests
 #
 # The windows-scoped-tests job is the check to read: it passes when nothing
 # is in scope (no Windows job ran) and otherwise requires the Windows job, so
-# a skipped run still reports success if this ever becomes a required check.
+# a skipped run reports success. It is not one of the required checks, but
+# gstack-ship-queue ready and land refuse a head with any failed check, so a
+# red Windows job blocks the pull request it runs on: a change to a curated
+# test file has to pass on Windows.
 # gstack-pregate reads a job keyed on a dispatch input as manual, never a PR
 # obligation: this check runs on the pull request itself. A workflow_dispatch
 # run with the files input reruns chosen Windows-safe files on a branch.

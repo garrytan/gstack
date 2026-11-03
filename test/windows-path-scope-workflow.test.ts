@@ -17,7 +17,7 @@
  * The filter and scope steps run here as the runner would run them: bash in a
  * two-commit git repository, with HEAD^1 as the pull request's base.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -84,8 +84,12 @@ function parseOutputs(text: string): Record<string, string> {
 
 interface StepRun { status: number | null; stderr: string; outputs: Record<string, string>; summary: string; temp: string }
 
+const TEMPS: string[] = [];
+afterAll(() => { for (const dir of TEMPS) fs.rmSync(dir, { recursive: true, force: true }); });
+const newTemp = () => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-scope-temp-')); TEMPS.push(dir); return dir; };
+
 /** Run one workflow step's script under bash with a fresh GITHUB_OUTPUT and summary; temp is RUNNER_TEMP, kept for a later step. */
-function runStep(script: string, cwd: string, env: Record<string, string> = {}, temp = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-scope-temp-'))): StepRun {
+function runStep(script: string, cwd: string, env: Record<string, string> = {}, temp = newTemp()): StepRun {
   const output = path.join(temp, 'github-output');
   const summary = path.join(temp, 'github-summary');
   fs.writeFileSync(output, '');
@@ -242,6 +246,14 @@ describe('the path-scoped Windows shard on pull requests', () => {
     return { windows: filter.outputs.windows, scope, files: select.outputs.files };
   }
   const CURATED = ['test/hook-scripts.test.ts', 'test/review-risk-linear.test.ts', 'test/review-risk-routing.test.ts'];
+
+  test.skipIf(!CAN_SELECT)('the select step reads the real curated plan: a changed Windows-safe test is picked, a POSIX-only one is not', () => {
+    const temp = newTemp();
+    fs.writeFileSync(path.join(temp, 'changed-files'), 'freeze/bin/check-freeze.sh\ntest/hook-scripts.test.ts\ntest/windows-path-scope-workflow.test.ts\n');
+    const select = runStep(selectScript, ROOT, { PATH: `${toShell(path.dirname(process.execPath))}:${process.env.PATH}` }, temp);
+    expect(select.status, select.stderr).toBe(0);
+    expect(select.outputs.files).toBe('test/hook-scripts.test.ts');
+  }, 60_000);
 
   test.skipIf(!CAN_SELECT)('#3758: the hook paths put it in scope and the Windows job runs test/hook-scripts.test.ts', () => {
     const dir = prRepo(PR_3758);
