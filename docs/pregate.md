@@ -1059,6 +1059,39 @@ and without it every push falls back to the full run. Windows Free Tests now
 runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 `reuse` job is always skipped and every nightly run takes the strict path.
 
+<a id="ci-reuse-pr"></a>
+#### Pull requests reuse only a run they can't control
+
+Free Tests' `reuse` job also runs on `pull_request`, as
+`find … --pull-request` (`findPrReuse`). Main pushes stay the only consumers
+of anything a pull request could certify for itself, so a `pull_request` run
+is never a source. A pull request run reuses a green run only when all of these
+hold:
+
+1. the pull request's head is on this repository (`fork_head`) and it targets
+   main (`not_main_pr`);
+2. GitHub's merge commit has exactly two parents, main and the pull request's
+   head (`merge_mismatch`);
+3. the merge commit leaves `.github/workflows/free-tests.yml`
+   (`workflow_changed`), `scripts/ci-tree-reuse.ts` and `lib/run-evidence.ts`
+   (`script_changed`) byte-identical to its main parent, so the rules that
+   decide the reuse are main's;
+4. the source is a `push` or `workflow_dispatch` run on main, or a
+   `workflow_dispatch` run on the pull request's own branch, newest first and
+   at most 10 (`no_candidate`), whose head commit has the merge commit's tree
+   (`tree_mismatch`); and
+5. `verifyRun` accepts it under `ci-reuse/free-tests` with `push` and
+   `workflow_dispatch` as the accepted events, its `tested-tree` record names
+   the merge commit's tree, and no newer red run on its head vetoes it (the
+   pull request's own run in progress is not a veto).
+
+The aggregate's route step accepts a reuse on a `pull_request` run of
+`refs/pull/<n>/merge` as it does on a push to main. A reused pull request run
+uploads no `tested-tree`, so the main push after the merge finds the source run
+on the head (a branch dispatch) or runs every job. The usual case is a branch
+that already holds main's tip. Dispatch Free Tests on the branch, and the
+pull request run that follows reuses it instead of running the suite again.
+
 <a id="guards"></a>
 ## Guards and the lane-done rule
 

@@ -45,7 +45,7 @@ import { runBashSync } from './script-invocation';
 export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
 export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
-  id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
+  id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string; head_branch?: string | null;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
 }
@@ -132,7 +132,7 @@ const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
  * whose newer runs of the same workflow can veto (the consumer's own head).
  */
-export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; now: Date }): RunVerdict {
+export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; ignoreRun?: number; now: Date }): RunVerdict {
   const id = parseRunRef(o.runRef, o.repo);
   if (id === null) return fail('run_ref_invalid', `${JSON.stringify(o.runRef)} is not a run id or a run URL on ${o.repo}`);
   const p = o.profile;
@@ -161,7 +161,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];
     for (const head of heads) {
-      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
+      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && r.id !== o.ignoreRun && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
       if (newer.length) return fail('newer_run_vetoes', `newer run ${newer[0]!.id} of ${p.workflow} on ${head.slice(0, 12)} is ${newer[0]!.status === 'completed' ? newer[0]!.conclusion : newer[0]!.status}`);
     }
     let rec: TreeRecord;
