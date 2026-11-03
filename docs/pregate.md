@@ -494,8 +494,13 @@ the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or
 `test_backend/<backend>` (gstack's `scripts/ubicloud/ubi-runner.sh run --src
 <repo> -- '<runner> <files>'`). Without either, the tier runs locally under
-the supervision above. Close the obligation one of three ways:
+the supervision above. Close the obligation one of four ways:
 
+- by default, when the base declares `remote_gate_runs`, let CI clear it: the
+  tests stage clears it on its own from a verified run at this exact tree
+  ([CI carry](#ci-carry)), and the uncleared obligation's detail names that
+  route first (`push, then gstack-ci-carry wait --base <base> and rerun --stage
+  tests`) and the VM only as the opt-in; or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output, validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
@@ -950,6 +955,22 @@ receipt instead of becoming an obligation nothing can clear. The line is
 `CI_CARRY: cleared pregate.json/remote_gate <receipt>`, or `CI_CARRY:
 pregate.json/remote_gate stays uncleared (<reason>)` when a check refuses, for
 example a gate inventory file missing from the run's `tree.json`.
+
+**gstack's own gate.** gstack's `.gstack/pregate.json` declares
+`remote_gate_runs` with the `ci-reuse/free-tests` profile, so on gstack a green
+Free Tests run at the same tree is how the remote gate obligation clears, and
+the Ubicloud VM (`gstack-pregate --stage tests --remote`) is an opt-in for when
+no such run exists. The order after a push: wait for Free Tests
+(`gstack-ci-carry wait --base main`), then `gstack-pregate --stage tests
+--allow-repo-commands`. A `pull_request` run tests GitHub's merge commit, so on
+a branch that does not contain the base tip it tested another tree and
+`CI_CARRY` says `tree_mismatch`: dispatch Free Tests on the branch
+(`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
+and wait again. The preflight stage (generated-file freshness, secrets, strays
+and the other mechanical checks) and the sealed guard are unchanged and always
+run here. The macOS and Windows lane
+obligations still clear with `gstack-pregate clear --remote <lane> --run-url
+<url>` from their CI runs.
 
 **/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
 `.gstack/pregate.json` maps its exact command (the evidence ledger binds the

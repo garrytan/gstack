@@ -76,4 +76,19 @@ describe.skipIf(process.platform === 'win32')('CI carry clears the remote gate o
     expect(gate(file)?.receipt).toBeNull();
     expect(progress).toContainEqual(expect.stringMatching(new RegExp(`^CI_CARRY: ${LANE} stays uncleared \\(REUSE: refused reason=inventory_uncovered`)));
   }, 120_000);
+
+  // Value: protects=when the base declares remote_gate_runs, the uncleared gate names the CI route first and the VM only as an opt-in;
+  //   fails_when=the obligation sends an agent to the paid VM while a CI run at the same tree would clear it; why_new=GSTA-258 A, plan choice F1
+  test('with remote_gate_runs on the base, an uncleared gate names the CI route first and the VM as the opt-in', async () => {
+    const repo = makeFixtureRepo({ pregate: { ...BASE_PREGATE, remote_gate: 'node scripts/remote-gate.js', run_profiles: { 'ci-reuse/free-tests': PROFILE }, remote_gate_runs: { profiles: ['ci-reuse/free-tests'], inventory: 'echo test/retry.test.js' } } });
+    repos.push(repo);
+    commit(repo, { 'lib/retry.js': 'exports.MAX_RETRIES = 3;\nexports.TIMEOUT_MS = 5000;\nexports.retry = (fn) => fn();\nexports.touched = 2;\n' }, 'touch retry');
+    const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 4, testBackend: 'local' });
+    if (!('ctx' in loaded)) throw new Error('fixture context refused');
+    const file = await runPregate(loaded.ctx, { stage: 'tests' });
+    expect(gate(file)?.receipt).toBeNull();
+    const detail = file.checks.find(c => c.id === 'lanes')?.detail ?? '';
+    expect(detail).toContain(`a verified CI run at this tree clears it: push, then gstack-ci-carry wait --base main and rerun --stage tests`);
+    expect(detail.indexOf('gstack-ci-carry wait')).toBeLessThan(detail.indexOf('opt in to the VM: gstack-pregate --remote --spend-cap <usd> --allow-repo-commands'));
+  }, 120_000);
 });
