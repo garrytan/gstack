@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { platformReceiptDepth, receiptDepthVerdict, receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
+import { platformReviewAt } from '../lib/review-platform';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 
 const BIN = path.join(import.meta.dir, '..', 'bin');
@@ -41,7 +42,7 @@ beforeAll(() => {
   fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'fakegh-'));
   priorState = process.env.GSTACK_STATE_ROOT;
   process.env.GSTACK_STATE_ROOT = path.join(fakeBin, 'state');
-  fs.writeFileSync(path.join(fakeBin, 'gh'), '#!/bin/sh\ncase "$1" in\n  pr) echo \'{"number":7}\' ;;\n  api) echo "[[{\\"id\\":99,\\"user\\":{\\"login\\":\\"capy-ai[bot]\\"},\\"commit_id\\":\\"$FAKE_REVIEW_HEAD\\",\\"state\\":\\"$FAKE_REVIEW_STATE\\"}]]" ;;\nesac\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(fakeBin, 'gh'), '#!/bin/sh\ncase "$1" in\n  pr) echo \'{"number":7}\' ;;\n  api) echo "[[{\\"id\\":98,\\"user\\":{\\"login\\":\\"capy-ai[bot]\\"},\\"commit_id\\":\\"$FAKE_REVIEW_HEAD\\",\\"state\\":\\"COMMENTED\\"},{\\"id\\":99,\\"user\\":{\\"login\\":\\"capy-ai[bot]\\"},\\"commit_id\\":\\"$FAKE_REVIEW_HEAD\\",\\"state\\":\\"$FAKE_REVIEW_STATE\\"}]]" ;;\nesac\n', { mode: 0o755 });
 });
 afterAll(() => { if (priorState === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = priorState; });
 
@@ -71,6 +72,8 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
     expect(withGh('c'.repeat(40), () => platformReceiptDepth(dir, 'main', d, head, '99'))).toMatchObject({ ok: false, message: expect.stringContaining('capy-ai[bot]') });
     for (const state of ['CHANGES_REQUESTED', 'DISMISSED']) expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'), state).ok).toBe(false);
     expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'), 'APPROVED').ok).toBe(true);
+    expect(withGh(head, () => platformReviewAt(dir, head), 'CHANGES_REQUESTED').ok).toBe(false);
+    expect(withGh(head, () => platformReviewAt(dir, head))).toMatchObject({ ok: true, review: { id: '99' } });
   });
   test('the receipt records the risk_paths class and the panel mode the base policy gives', () => {
     const { dir, head } = repo({ review: { risk_paths: ['src/balance/**'] } }, { 'src/balance/x.ts': 'export const x = 1;\n' });
