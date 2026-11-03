@@ -249,6 +249,31 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect([tampered.status, tampered.stdout.includes('OUTPUT outside-voice MISMATCH')]).toEqual([1, true]);
   });
 
+  // Value: protects=a pass whose readers all came back clean records "nothing to judge" without a hand-written judged.jsonl, and a pass with findings still needs lead judgment's file; fails_when=judge crashes on the absent judged set of an empty merge (gstack-evals#191 /ship), or an absent judged set passes a merge that holds findings;
+  //   why_new=judge always read --judged; seam=judge and verify; no_claim=that Step 9.4 runs judge at all on an empty merge
+  test('judge on an empty merge records nothing to judge without a judged set; a merge with findings still needs one', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('none.out', 'NO FINDINGS\n'), '--merged', p.merged]).status).toBe(0);
+    expect(fs.readFileSync(p.merged, 'utf8')).toBe('');
+    const judged = path.join(p.out, 'judged.jsonl');
+    const empty = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]);
+    expect([empty.status, empty.stderr, empty.stdout.trim()]).toEqual([0, '', `JUDGMENT: ok nothing to judge (${p.merged} holds no findings; wrote an empty ${judged})`]);
+    expect(fs.readFileSync(judged, 'utf8')).toBe('');
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('JUDGE - OK'), v.stdout.includes('VERIFY: clean briefs=1 outputs=1')]).toEqual([0, true, true]);
+    const q = pass();
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const finding = q.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"x","specialist":"testing"}\n');
+    expect(run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', finding, '--merged', q.merged]).status).toBe(0);
+    const missing = path.join(q.out, 'judged.jsonl');
+    const needed = run(['judge', '--ledger', q.ledger, '--merged', q.merged, '--judged', missing]);
+    expect([needed.status, needed.stdout]).toEqual([2, '']);
+    expect(needed.stderr.trim()).toBe(`gstack-review-dispatch judge: ${missing} does not exist; ${q.merged} holds 1 finding, so lead judgment writes one judged line per finding first`);
+    expect(fs.existsSync(missing)).toBe(false);
+    expect(fs.readFileSync(q.ledger, 'utf8')).not.toContain('"event":"judge"');
+  });
+
   // Value: protects=verify is clean only when every collected output came from a brief rendered and sent verbatim, nothing was collected after the judgment, and the judged set still passes as recorded; a fold keeps a standalone survivor; fails_when=outputs from hand-written briefs, a finding collected after judge, a judged.jsonl edited after judge, a self-fold or a fold cycle still read clean (/ship #3648 pass-1 Red Team);
   //   why_new=the first gate trusted the last verdict and any duplicate_of; seam=verify and judge; no_claim=the host's dispatch
   test('verify is dirty for an unrendered reader, an output after judge and a judged set edited after judge; self-folds and fold cycles are drops', () => {

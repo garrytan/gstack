@@ -56,7 +56,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
       duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
-      JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1)
+      JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1). An empty merged.jsonl needs no judged file: judge writes an
+      empty one and prints JUDGMENT: ok nothing to judge; a merge with findings and no judged file is refused (exit 2)
   verify --ledger <f> [--targeted-out <file>]
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
@@ -68,6 +69,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
       the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      <id> is letters, digits and dashes, read as lowercase (P1 is p1): the manifest, reader titles and a resume use that form.
       A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       --diff-base sets every reader's base, a scoped pass's Red Team included (the targeted reader keeps the merge base).
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
@@ -184,8 +186,9 @@ function ceiling(context: string, base: string, outDir: string, readers: Readonl
 }
 
 function pass(): number {
-  const base = flag('--base'), out = flag('--out'), id = flag('--pass');
-  if (!base || !out || !id || !/^[a-z0-9-]+$/.test(id)) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id> (lowercase letters, digits, dashes)\n'); return EXIT.usage; }
+  const base = flag('--base'), out = flag('--out'), given = flag('--pass'), id = given?.toLowerCase();
+  if (!base || !out || !id) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id>\n'); return EXIT.usage; }
+  if (!/^[a-z0-9-]+$/.test(id)) { process.stderr.write(`gstack-review-dispatch pass: --pass ${JSON.stringify(given)} is not a pass id: use letters, digits and dashes (read as lowercase, so P1 is p1)\n`); return EXIT.usage; }
   const file = manifestPath(out);
   if (fs.existsSync(file)) {
     const m = readManifest(file);
@@ -413,7 +416,15 @@ function main(): number {
     const merged = flag('--merged');
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
-    const r = recordJudgment(ledger, readJsonl<MergedLine>(merged), readJsonl<JudgedLine>(judged), judged, merged);
+    const lines = readJsonl<MergedLine>(merged);
+    const nothing = !lines.length && !fs.existsSync(judged);
+    if (lines.length && !fs.existsSync(judged)) {
+      process.stderr.write(`gstack-review-dispatch judge: ${judged} does not exist; ${merged} holds ${lines.length} finding${lines.length === 1 ? '' : 's'}, so lead judgment writes one judged line per finding first\n`);
+      return EXIT.usage;
+    }
+    if (nothing) fs.writeFileSync(judged, '', { mode: 0o600 });
+    const r = recordJudgment(ledger, lines, readJsonl<JudgedLine>(judged), judged, merged);
+    if (nothing && r.ok) { process.stdout.write(`JUDGMENT: ok nothing to judge (${merged} holds no findings; wrote an empty ${judged})\n`); return EXIT.ok; }
     process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}${r.dismissed.length ? ` dismissed=${r.dismissed.length}` : ''}\n`
       : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one; a summary_candidate line may be lowered with a reason)\n`);
     return r.ok ? EXIT.ok : EXIT.fail;

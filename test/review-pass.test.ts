@@ -675,6 +675,29 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(bin(dir, env, ['pass', '--base', 'main', '--out', path.join(dir, '.state/run/d2'), '--pass', 'x16b', '--audit-only']).status).not.toBe(0);
   }, 240_000);
 
+  // Value: protects=a pass id typed in capitals is read as its lowercase id, so the manifest, its titles and a resume agree, and an id with other characters is still refused naming the rule; fails_when=--pass P1 is refused as a missing flag (gstack-evals#191 /ship), a capitalized resume of p1 reads as another pass, or p_1 is accepted;
+  //   why_new=the id was matched case-sensitively and its refusal read as a missing flag; seam=gstack-review-dispatch pass; no_claim=the reviewer plan, which --audit-only skips
+  test('pass reads its id as lowercase; an id with other characters is still refused with the rule', () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/docs');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run Step 14.5 as written.\n');
+    const extras = path.join(dir, '.state/extras.json');
+    fs.writeFileSync(extras, JSON.stringify([{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }]));
+    const args = (id: string) => ['pass', '--base', 'main', '--out', out, '--pass', id, '--audit-only', '--extras', extras];
+    const upper = bin(dir, env, args('Docs-P1'));
+    expect(upper.status, upper.stderr).toBe(0);
+    expect(upper.stdout).toContain(`MANIFEST: file=${path.join(out, 'pass-manifest.json')} pass=docs-p1 readers=1 audit-only`);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect([m.pass, m.readers[0].title]).toEqual(['docs-p1', 'ship docs-p1 audit/docs']);
+    const resumed = bin(dir, env, args('docs-p1'));
+    expect([resumed.status, resumed.stdout.includes('pass=docs-p1 readers=1 resumed')]).toEqual([0, true]);
+    for (const bad of ['p_1', 'p 1', 'p1/']) {
+      const r = bin(dir, env, args(bad));
+      expect([r.status, r.stderr.trim()]).toEqual([2, `gstack-review-dispatch pass: --pass ${JSON.stringify(bad)} is not a pass id: use letters, digits and dashes (read as lowercase, so P1 is p1)`]);
+    }
+  }, 120_000);
+
   test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
     const { dir, env } = repo();
     const rec = path.join(dir, '.state/rec.md');

@@ -652,6 +652,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
    the ledger collected is a drop. Each addition and promotion is logged with its reason.
+   When every reader came back clean, `merged.jsonl` is empty and there is nothing to
+   judge: `judge` writes an empty `judged.jsonl` itself and prints
+   `JUDGMENT: ok nothing to judge`. A merge that holds findings with no `judged.jsonl`
+   is refused (exit 2), naming the finding count.
 5. `verify --ledger <f>` replays all of it from the run's ledger: rendered against
    dispatched hashes per render (each render is one dispatch of its reader, so a
    two-pass ledger checks pass-1 sends against pass-1 briefs; a later render prints as
@@ -680,7 +684,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    recorded judged set, covering every collected id. A ledger from a run that kept no
    prompts prints `VERIFY: no brief records` (exit 3), never clean.
 6. `pass --base <b> --out <dir> --pass <id> -- <plan flags>` runs one pass from a
-   staged manifest (`<dir>/pass-manifest.json`): audit readers marked first, then
+   staged manifest (`<dir>/pass-manifest.json`). The pass id is letters, digits and
+   dashes, read as lowercase (`P1` is `p1`); any other character is refused. Audit readers marked first, then
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
    are the parent's. `--diff-base` sets every reader's base, a scoped pass's Red
