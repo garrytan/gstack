@@ -18,7 +18,7 @@ export type ContractItem =
   | { id: string; kind: 'report_labels'; heading: string; labels: string[] }
   | { id: string; kind: 'check_after_last_edit' }
   | { id: string; kind: 'selected_specialists_dispatched'; marker: string }
-  | { id: string; kind: 'agent_dispatch'; match: string };
+  | { id: string; kind: 'agent_dispatch'; match: string; marker?: string };
 
 export interface SkillContract {
   version: 1;
@@ -30,6 +30,11 @@ const KIND_FIELDS: Record<ContractItem['kind'], string[]> = {
   check_after_last_edit: [],
   selected_specialists_dispatched: ['marker'],
   agent_dispatch: ['match'],
+};
+
+// Fields a kind may carry; when present each must be non-empty text. bin/gstack-skill-contract checks agent_dispatch's marker before its match.
+const OPTIONAL_FIELDS: Partial<Record<ContractItem['kind'], string[]>> = {
+  agent_dispatch: ['marker'],
 };
 
 // The resolver and section that render the step each kind checks today. A host that suppresses the resolver, or a loadout that excludes the section, never shows that step, so its items are left out of the list there.
@@ -69,10 +74,13 @@ export function parseSkillContract(value: unknown, where: string): SkillContract
     if (seen.has(raw.id)) fail(where, at + ' duplicate id "' + raw.id + '"');
     seen.add(raw.id);
     for (const key of Object.keys(raw)) {
-      if (key !== 'id' && key !== 'kind' && !KIND_FIELDS[kind].includes(key)) fail(where, at + ' (' + kind + ') has unknown key "' + key + '"');
+      if (key !== 'id' && key !== 'kind' && !KIND_FIELDS[kind].includes(key) && !OPTIONAL_FIELDS[kind]?.includes(key)) fail(where, at + ' (' + kind + ') has unknown key "' + key + '"');
     }
     for (const field of KIND_FIELDS[kind]) {
       if (field !== 'labels' && !isText(raw[field])) fail(where, at + ' ' + field + ' must be a non-empty string');
+    }
+    for (const field of OPTIONAL_FIELDS[kind] ?? []) {
+      if (field in raw && !isText(raw[field])) fail(where, at + ' ' + field + ' must be a non-empty string');
     }
     if (kind === 'report_labels') {
       if (!Array.isArray(raw.labels) || raw.labels.length === 0) fail(where, at + ' labels must be a non-empty list');
