@@ -30,7 +30,7 @@ export const REPORTED_COST_WORDS = ['cost', 'costs', 'total', 'totals', 'usd', '
 /** A reported cost is still money on a line naming a cap, limit, budget, price, charge, reservation or estimate. */
 export const MONEY_USD_WORDS = ['cap', 'caps', 'limit', 'limits', 'max', 'maximum', 'min', 'budget', 'budgets', 'ceiling', 'allowance', 'threshold', 'spend', 'spent', 'spending', 'price', 'prices', 'pricing', 'fee', 'fees', 'bill', 'billing', 'paid', 'payment', 'charge', 'refund', 'amount', 'invoice', 'reserve', 'reservation', 'estimate'];
 /** A reported cost compared with `<` or `>` (never an arrow or a shift), or set to a number. */
-export const USD_COMPARE = [/(?<![=\-<>])[<>](?![<>])/, /(?:_usd|Usd)\b["']?\s{0,20}[:=]\s{0,20}-?\d/i];
+export const USD_COMPARE = [/<>|(?<![=\-<>])[<>](?![<>])/, /(?:_usd|Usd)\b["']?\s{0,20}[:=]\s{0,20}-?\d/i];
 /** Docs and results trees: an unread data file there names no money by its path or a reported cost (GST-961). */
 export const RESULTS_TREE = /(^|\/)(?:docs?|wiki|results|reports)\//i;
 /** Any spend_cap spelling and paid-provider call sites (the providers lib/pricing.ts prices). */

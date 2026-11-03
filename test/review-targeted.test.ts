@@ -480,6 +480,8 @@ describe('incidental money signals (GST-961, GST-962)', () => {
       '  a.estimate_usd = usd;',
       '    ship_measure_ask_per_trial_usd) echo "200" ;;',
       "  trial_reservation_usd: v => (typeof v === 'number' && v > 0 && v <= 100000 ? null : 'x'),",
+      'if ($cost_usd <> 0) return;',
+      'SELECT id FROM runs WHERE cost_usd <> 0;',
     ]) expect(at(line), line).toEqual(['money']);
   });
 
