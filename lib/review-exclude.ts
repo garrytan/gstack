@@ -122,20 +122,38 @@ function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<
   return { byPattern, files };
 }
 
+/** Executable image magic: ELF, Mach-O (thin, universal and 64-bit universal; 0xcafebabe is also a Java class), PE, WebAssembly and a script's #!. */
+const NATIVE_MAGIC = [[0x7f, 0x45, 0x4c, 0x46], [0xfe, 0xed, 0xfa, 0xce], [0xfe, 0xed, 0xfa, 0xcf], [0xce, 0xfa, 0xed, 0xfe], [0xcf, 0xfa, 0xed, 0xfe], [0xca, 0xfe, 0xba, 0xbe], [0xca, 0xfe, 0xba, 0xbf], [0x4d, 0x5a], [0x00, 0x61, 0x73, 0x6d], [0x23, 0x21]];
+
 /**
- * The matched paths git calls binary whose bytes hold a NUL in their first 8,000 (git's own test), read from the head blob,
- * the file on a live tree, or the old blob for a deletion. A branch's .gitattributes can make git call a text file binary;
- * only real bytes make it binary content here.
+ * The matched paths git calls binary by their bytes alone: `git diff --numstat` with attributes read from the empty tree, so
+ * a branch's .gitattributes (`diff`, `-binary`, `text`) cannot make an executable image read as text and skip the
+ * magic check. null when git cannot run it (a git without --attr-source); the caller then reads every matched file's bytes.
  */
-function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>, unread: Set<string>): Set<string> {
+function bytesBinary(i: ExcludeInput, patterns: readonly string[]): string[] | null {
+  const empty = git(i.root, ['hash-object', '-t', 'tree', '--stdin'], '');
+  if (!empty.ok) return null;
+  const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
+  const r = git(i.root, [`--attr-source=${empty.out.trim()}`, 'diff', '--numstat', '-z', '--no-renames', ...range, '--', ...patterns.map(p => `:(top,glob)${p}`)]);
+  return r.ok ? r.out.split('\0').filter(l => l.startsWith('-\t-\t')).map(l => l.slice(4)) : null;
+}
+const nativeImage = (b: Buffer) => NATIVE_MAGIC.some(m => m.every((x, k) => b[k] === x));
+
+/**
+ * The claimed paths (git calls them binary under the branch's attributes or under none: bytesBinary) whose bytes hold a NUL
+ * in their first 8,000 (git's own test), read from the head blob, the file on a live tree, or the old blob for a deletion.
+ * A branch's .gitattributes can make git call a text file binary; only real bytes make it binary content here. A binary file that starts with executable image magic also goes in `native`.
+ */
+function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>, unread: Set<string>, native: Set<string>): Set<string> {
   const out = new Set<string>();
+  const sniff = (p: string, b: Buffer) => { if (!b.includes(0)) return; out.add(p); if (nativeImage(b)) native.add(p); };
   const real = (sha: string) => /^[0-9a-f]{40,64}$/.test(sha) && !/^0+$/.test(sha);
   const bySha = new Map<string, string[]>();
   for (const p of claimed) {
     const m = files.get(p);
     if (!m) continue;
     if (!i.head && m.newMode !== '000000') {
-      try { const fd = fs.openSync(path.join(i.root, p), 'r'); const buf = Buffer.alloc(8000); const n = fs.readSync(fd, buf, 0, 8000, 0); fs.closeSync(fd); if (buf.subarray(0, n).includes(0)) out.add(p); } catch { unread.add(p); }
+      try { const fd = fs.openSync(path.join(i.root, p), 'r'); const buf = Buffer.alloc(8000); const n = fs.readSync(fd, buf, 0, 8000, 0); fs.closeSync(fd); sniff(p, buf.subarray(0, n)); } catch { unread.add(p); }
       continue;
     }
     const sha = real(m.newSha) ? m.newSha : real(m.oldSha) ? m.oldSha : '';
@@ -144,8 +162,36 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
   for (const [sha, paths] of bySha) {
     const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd: i.root, timeout: 30_000, maxBuffer: 8000 });
     const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
-    const binary = read && (r.stdout ?? Buffer.alloc(0)).subarray(0, 8000).includes(0);
-    for (const p of paths) if (!read) unread.add(p); else if (binary) out.add(p);
+    const head = (r.stdout ?? Buffer.alloc(0)).subarray(0, 8000);
+    for (const p of paths) if (!read) unread.add(p); else sniff(p, head);
+  }
+  return out;
+}
+
+/**
+ * The added lines of matched files git calls binary only because of their attributes (the bytes hold no NUL): the
+ * collector's added lines are empty for them, so the secret-line rule reads `git diff --text` instead, which no
+ * .gitattributes, textconv or external diff driver changes. One git diff per KEEP_ARG_MAX_BYTES of literal pathspecs;
+ * git prints one section per path in byte order, so a chunk whose sections do not line up with its sorted paths, or a
+ * git failure, puts every path of that chunk in `unread`.
+ */
+function attributeBinaryLines(i: ExcludeInput, paths: readonly string[], unread: Set<string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
+  const chunks: string[][] = [];
+  let bytes = Infinity;
+  for (const p of [...paths].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
+    const n = argBytes([p]);
+    if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
+    chunks[chunks.length - 1]!.push(p);
+    bytes += n;
+  }
+  for (const chunk of chunks) {
+    const r = git(i.root, ['diff', '--text', '--no-textconv', '--no-ext-diff', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', '-U0', ...range, '--', ...chunk.map(literal)]);
+    const sections = r.ok ? r.out.split(/^(?=diff --git )/m).filter(s => s.startsWith('diff --git ')) : [];
+    const aligned = sections.length === chunk.length && chunk.every((p, k) => /["\\\x00-\x1f\x7f]/.test(p) || sections[k]!.startsWith(`diff --git a/${p} b/${p}\n`));
+    if (!aligned) { for (const p of chunk) unread.add(p); continue; }
+    chunk.forEach((p, k) => { let hunk = false; out[p] = sections[k]!.split('\n').filter(l => (hunk ||= l.startsWith('@@')) && l.startsWith('+')).map(l => l.slice(1)); });
   }
   return out;
 }
@@ -159,17 +205,21 @@ function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): C
   return classifyPath(p, i.classRoot) === 'docs' ? 'docs' : null;
 }
 
-/** Source and script extensions: a NUL in one does not make it excludable binary content. */
-const CODE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kts?|scala|swift|exs?|php|cs|c|h|cc|cpp|hpp|mm?|dart|pl|pm|lua|sh|bash|zsh|fish|ps1|bat|cmd|vue|svelte|html?|wasm)$/i;
+/**
+ * The only extensions a binary file may be excludable content under: images, fonts, media, documents, compressed archives
+ * and data blobs. Any other binary (source with a NUL, a native library or executable, a key store, a pickle, no
+ * extension) is code; so is one that starts with executable image magic whatever its extension.
+ */
+const BINARY_CONTENT_EXT = /\.(?:png|jpe?g|gif|webp|bmp|ico|avif|tiff?|heic|heif|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|oga|ogv|webm|mov|avi|mkv|flac|aac|opus|pdf|docx|xlsx|pptx|odt|ods|odp|gz|tgz|zip|tar|bz2|xz|zst|7z|bin|dat|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|sqlite3?|db|safetensors)$/i;
 
-/** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode or gate tags keep it. */
-function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>): KeptReason | null {
+/** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode, gate tags, extension or magic keep it. */
+function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
   if (isGatePath(p)) return 'gate-path';
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
-  if (binary.has(p)) return CODE_EXT.test(p) ? 'code' : null;
+  if (binary.has(p)) return BINARY_CONTENT_EXT.test(p) && !native.has(p) ? null : 'code';
   if (isAgentProse(p)) return 'agent-prose';
   if (isDataConfig(p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
@@ -227,9 +277,12 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const sel = select(i, patterns);
   if ('error' in sel) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_exclude_paths matches (${sel.error}); fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
   const unread = new Set<string>();
-  const binary = binaryContent(i, sel.files, new Set(i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path)), unread);
+  const native = new Set<string>();
+  const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
+  const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
+  const text = { ...i, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
   const reasons = new Map<string, KeptReason | null>();
-  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(i, p, m, binary));
+  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const named = grepFixed(i, [...candidates].filter(p => !p.includes('\n')), candidates, [i.mergeBase]);
   for (const p of candidates) {
