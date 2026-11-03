@@ -47,6 +47,7 @@ function converted(repo: FixtureRepo, opts: { mainScripts?: Record<string, strin
   for (const [rel, text] of Object.entries(opts.extra ?? {})) write(repo.work, rel, text);
   if (opts.executable) fs.chmodSync(path.join(repo.work, 'package.json'), 0o755);
   repo.git('add', '-A');
+  if (opts.executable) repo.git('update-index', '--chmod=+x', 'package.json');
   repo.git('commit', '-q', '--no-edit', '-m', 'convert to a changelog fragment');
   return { reviewed, body };
 }
