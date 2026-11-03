@@ -157,7 +157,7 @@ describe('contract-done-means renderer', () => {
 
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
-    expect(out).toContain('- ' + BT + 'debug-report' + BT + ': a ' + BT + 'DEBUG REPORT' + BT + ' with Symptom, Root cause and Status filled in.');
+    expect(out).toContain('- ' + BT + 'debug-report' + BT + ': a ' + BT + 'DEBUG REPORT' + BT + ' with Symptom, Root cause and Status filled in (' + BT + 'none: <why>' + BT + " where the skill's own stop rule leaves one empty).");
     expect(out).toContain('- ' + BT + 'check-after-last-edit' + BT + ': a test or repro command run after your last edit.');
     expect(out).toContain('- ' + BT + 'specialists-dispatched' + BT + ': the specialist selection printed (' + BT + 'Dispatching N specialists:' + BT + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them).');
     expect(out).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "chaos engineer".');
@@ -205,9 +205,10 @@ describe('contract-done-means renderer', () => {
     expect(renderDoneMeans(all, false)).not.toContain('gstack-skill-contract');
   });
 
-  test('a host that suppresses the step an item checks leaves that item out', () => {
-    const render = (host: string) => generateContractDoneMeans({ skillName: 'review', tmplPath: join(ROOT, 'review', 'SKILL.md.tmpl'), host, paths: HOST_PATHS[host] } as Parameters<typeof generateContractDoneMeans>[0]);
-    const ids = (host: string) => [...render(host).matchAll(/^- \u0060([a-z-]+)\u0060:/gm)].map(m => m[1]);
+  test('a host that suppresses, or a loadout that excludes, the step an item checks leaves that item out', () => {
+    const render = (host: string, excluded: string[] = []) => generateContractDoneMeans({ skillName: 'review', tmplPath: join(ROOT, 'review', 'SKILL.md.tmpl'), host, paths: HOST_PATHS[host], modules: excluded.length ? { name: 'test', excluded: new Set(excluded) } : undefined } as unknown as Parameters<typeof generateContractDoneMeans>[0]);
+    const ids = (host: string, excluded: string[] = []) => [...render(host, excluded).matchAll(/^- \u0060([a-z-]+)\u0060:/gm)].map(m => m[1]);
+    expect(ids('claude', ['section:review/review-army', 'section:review/adversarial'])).toEqual(['review-report']);
     expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);

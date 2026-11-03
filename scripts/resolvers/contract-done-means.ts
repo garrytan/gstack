@@ -32,10 +32,10 @@ const KIND_FIELDS: Record<ContractItem['kind'], string[]> = {
   agent_dispatch: ['match'],
 };
 
-// The resolver that renders the step each kind checks today. A host that suppresses it never shows that step, so its items are left out of the list there.
-const BACKED_BY: Partial<Record<ContractItem['kind'], string>> = {
-  selected_specialists_dispatched: 'REVIEW_ARMY',
-  agent_dispatch: 'ADVERSARIAL_STEP',
+// The resolver and section that render the step each kind checks today. A host that suppresses the resolver, or a loadout that excludes the section, never shows that step, so its items are left out of the list there.
+const BACKED_BY: Partial<Record<ContractItem['kind'], { resolver: string; section: string }>> = {
+  selected_specialists_dispatched: { resolver: 'REVIEW_ARMY', section: 'review-army' },
+  agent_dispatch: { resolver: 'ADVERSARIAL_STEP', section: 'adversarial' },
 };
 
 const PLACEHOLDER = /^\[.*\]$|^<.*>$|^\.\.\.$|^(todo|tbd|n\/a)$/i;
@@ -106,7 +106,7 @@ const list = (xs: string[]) => xs.length < 2 ? xs.join('') : xs.slice(0, -1).joi
 
 function plainWords(item: ContractItem): string {
   switch (item.kind) {
-    case 'report_labels': return 'a ' + code(item.heading) + ' with ' + list(item.labels) + ' filled in';
+    case 'report_labels': return 'a ' + code(item.heading) + ' with ' + list(item.labels) + ' filled in (' + code('none: <why>') + ' where the skill\'s own stop rule leaves one empty)';
     case 'check_after_last_edit': return 'a test or repro command run after your last edit';
     case 'selected_specialists_dispatched': return 'the specialist selection printed (' + code(item.marker) + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them)';
     case 'agent_dispatch': return 'an Agent dispatch for the ' + item.id.replace(/-/g, ' ') + ', its prompt including "' + item.match + '"';
@@ -131,5 +131,9 @@ export function generateContractDoneMeans(ctx: TemplateContext): string {
   const where = path.relative(ROOT, ctx.tmplPath).split(path.sep).join('/');
   const contract = contractFromTemplate(fs.readFileSync(ctx.tmplPath, 'utf-8'), where, { required: true })!;
   const suppressed = new Set(getHostConfig(ctx.host).suppressedResolvers ?? []);
-  return renderDoneMeans({ ...contract, items: contract.items.filter(item => !suppressed.has(BACKED_BY[item.kind] ?? '')) });
+  const shown = (item: ContractItem) => {
+    const backing = BACKED_BY[item.kind];
+    return !backing || (!suppressed.has(backing.resolver) && !ctx.modules?.excluded.has('section:' + ctx.skillName + '/' + backing.section));
+  };
+  return renderDoneMeans({ ...contract, items: contract.items.filter(shown) });
 }

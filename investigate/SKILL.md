@@ -85,7 +85,7 @@ gbrain:
 
 Finish only when each of these exists (contract v1):
 
-- `debug-report`: a `DEBUG REPORT` with Symptom, Root cause, Fix, Evidence, Regression test and Status filled in.
+- `debug-report`: a `DEBUG REPORT` with Symptom, Root cause, Fix, Evidence, Regression test and Status filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 - `check-after-last-edit`: a test or repro command run after your last edit.
 
 ## Shared preamble (load first)

@@ -44,7 +44,7 @@ Finish only when each of these exists (contract v1):
 
 - `specialists-dispatched`: the specialist selection printed (`Dispatching N specialists:` ...), then one Agent dispatch per specialist it names (none when a small diff skips them).
 - `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
-- `review-report`: a `Pre-Landing Review` with Gate edits filled in.
+- `review-report`: a `Pre-Landing Review` with Gate edits filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 
 ## Shared preamble (load first)
 
