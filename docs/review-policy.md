@@ -174,9 +174,12 @@ applies no edits is its exit too.
 `gstack-review-plan --base <base>` classifies the diff, picks a **depth** and prints
 the reviewers the next step dispatches: `REVIEW_CLASS:`, `REVIEW_DEPTH: <d>
 runtime_lines=<n> rules=<hash> reasons=<…> codes=<…>`, `GATE_SCAN: tagged=<n>|unavailable
-head=<sha>`, one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
+head=<sha>`, `REVIEW_BASE: <ref> <sha12>` (the base the diff was taken against: a bare
+`--base main` reads `origin/main` when it shares history with HEAD, and a local `main` that lags
+it is named on stderr), one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
 with its effort and a shell-quoted `DIFF_CMD:` (plus `DIFF_EXCLUDE: <name> none` when it
-reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields.
+reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields (the
+base as `base`).
 A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
 ### Who reads (R65, the base policy's `review` key)
@@ -244,7 +247,7 @@ elements and RDF metadata, CSS made of declarations only (no `@` rule and no
 function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
 `image()`, `element()` and every other CSS load), no backslash escape, every
 `href` a same-file `#` reference or an inline raster image, no event handler and no
-entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded; anything else, a
+entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded. A `<style>` element's text is read as written. Any `&` in it keeps the SVG code, its comments are read as CSS, an opening tag it cannot read as quoted `name="value"` pairs keeps the SVG code, and only ASCII whitespace may come before the `>` of either tag, so no character-reference `</style>`, comment that only an HTML parser ends early, quoted `>` or Unicode space can hide CSS. A non-ASCII character in an element or attribute name, such as a `gé:` prefix, keeps the SVG code too (GST-940); anything else, a
 script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
@@ -424,7 +427,7 @@ and matching is token-bounded: `costume` never reads as cost.
 |---|---|
 | money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
-| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH` |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH`, and `SCOPE_AUTH` fails safe: any name token containing auth sets it (`auth.ts`, `/auth/`, `oauth`, `useAuth.ts`, `nextauthmiddleware.ts`) except the authorship words `author`, `authors`, `authored`, `authoring`, `authorship`, `authority`, `authorities`, `coauthor` and `coauthors` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
 
 An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
@@ -537,6 +540,21 @@ paths the branch touched at `fix_check.head` (narrowed to the record's
 through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes.
+
+A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
+reads the newest `review-fix-check` row from `gstack-review-read`. When it is a
+completed clean read on committed content (freshness `CURRENT` against its own
+tree) whose commit is on the branch, whose `range_base` is a branch commit
+holding the reviewed tree, and for which an approved `review_loop_grant` in
+`gstack-approvals` names a stop head inside `range_base..commit`, each code or test path inside `range_base..commit`
+that is unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
+`FIX_CHECK: reviewed` line, a gate-edited test included. Authored docs keep the
+stage 2.2 recheck, and a path edited after the fix-check still routes by the
+rules above. Any other row prints
+`FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`
+refuses a `review-fix-check` row without boolean `completed` and `converged`,
+before it consumes the start token, because without them the row reads
+`UNVERIFIED` and finish cannot count it.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
