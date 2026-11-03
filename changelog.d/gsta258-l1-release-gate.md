@@ -5,7 +5,7 @@ bump: minor
 
 ### Added
 - **`release_gate` policy key** (`lib/release-gate-policy.ts`, key version 1.94.0.0): `cadence_hours` (8 to 168), `gate_workflow`, `branch`, `stable_ref`, `check_name`, `on_red: hold-release` and `bisect_spend_cap_usd`, every field required.
-- **`bin/gstack-release-gate`** (`lib/release-gate.ts`): `run [--dry-run] [--sha] [--ignore-cadence]`, `status` and `bisect`. `--policy <file>` reads the block from a file, for a dry run or a proof before adoption. Exit 0 means gated, skipped, inert or a dry run; 1 means held; 2 means failed.
+- **`bin/gstack-release-gate`** (`lib/release-gate.ts`): `run [--dry-run] [--sha] [--ignore-cadence]`, `status` and `bisect`. `--policy <file>` reads the block from a file, for a dry run or a proof before adoption. Exit 0 means gated, skipped, inert or a dry run; 1 means held, failed or a refused policy; 2 is a usage error.
 - **`.github/workflows/release-gate.yml`**: an 8-hour schedule and a manual dispatch. The check run comes from a separate job that holds `checks: write` and runs no repository code.
 - **Capy skill installer follows the update channel** (`capy/skill/gstack/scripts/install.sh`, wrapper revision 4). With `GSTACK_UPDATE_CHANNEL=stable` or a stable `update_channel`, a fresh clone or a floor upgrade goes to `stable` when it meets the support floor, and to main otherwise. `--revision` still wins.
 

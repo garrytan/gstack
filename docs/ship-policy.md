@@ -1188,7 +1188,7 @@ Common flags: `--repo`, `--policy <file>` (read the block from a file instead
 of main, for a dry run or a proof before adoption), `--remote`,
 `--summary`, `--outputs`, `--poll-seconds`, `--budget-minutes`. Every line
 starts with `RELEASE:`. Exit 0 means gated, skipped, inert or a dry run; 1
-means held (red); 2 means failed or incomplete.
+means held (red), failed, incomplete or a refused policy; 2 is a usage error.
 
 **Escape hatch.** Remove the block on main. The per-push backstop gates the
 next push again, and release-cut reads its check runs as before.
