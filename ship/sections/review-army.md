@@ -27,6 +27,10 @@ family (`full` is the lane's reasoning, `medium` reasoning medium, `light` low; 
 host that cannot set it runs its default) and reading its `DIFF_CMD:`, in place of 9.1's and 9.2's own selection rules;
 `specialist batched` is one subagent reading every checklist its
 `checklists=` names (light adds Red Team), tagging each finding with its checklist.
+`adversarial-native single` or `merged` is Step 11's native pass carrying its `checklists=`
+(and `classes=`) on its `model=` (`lane`: yours; `cross-family`: the outside voice's).
+`NEXT: platform` dispatches nothing: skip the core read, log item 6's row with
+`"depth":"platform"` and the `PLATFORM_REVIEW:` id, then continue to Step 10.
 A `SKIP:` reviewer logs `{"dispatched":false,"reason":"scope"}`. Audits run at
 `AUDIT_EFFORT:`. The core checklist, gate scan and QA always run. Item 6's row adds
 `"dispatches":[{"role":R,"prompt_bytes":N,"diff_bytes":N}]`, `"depth"`,
@@ -822,9 +826,9 @@ Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan -
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
-`--depth-floor <d>` when given, `--grant <approval id>` once the owner's grant of one scoped fix-check is
+`--depth-floor <d>` when given, `--fix-checks <n>` after a fix-check, `--grant <approval id>` once the owner's grant of one scoped fix-check is
 in `gstack-approvals` naming `review_loop_grant` and the stop head), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
-its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4. `voices` 4: Step 11 runs before the stop.
+its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
 `scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 

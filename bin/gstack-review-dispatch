@@ -16,10 +16,11 @@
  * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
+import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
 import { cleanMarkers, collect, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
@@ -132,8 +133,9 @@ function render(): number {
   if (diff !== undefined) {
     fs.mkdirSync(out, { recursive: true, mode: 0o700 });
     const f = path.join(path.resolve(out), 'outside-voice.diff');
-    fs.writeFileSync(f, diff, { mode: 0o600 });
-    diffFile = { diff_file: f, diff_bytes: String(Buffer.byteLength(diff)), diff_sha256: createHash('sha256').update(diff).digest('hex') };
+    const s = sliceDiff(diff, REVIEW_DIFF_MAX_BYTES);
+    fs.writeFileSync(f, s.text, { mode: 0o600 });
+    diffFile = { diff_file: f, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) };
   }
   const slots: Slots = {
     name, diff_base: diffBase, exclude: flag('--exclude'), stack: flag('--stack'), test_fw: flag('--test-fw'),
@@ -186,7 +188,7 @@ function ceiling(context: string, base: string, outDir: string, readers: Readonl
     const at = r.diff_base ?? diffBase;
     const d = selectionOf(at, r.exclude, r.keep);
     if (!d.ok) return { exit: EXIT.fail, line: unreadableLine(context, r.reader, d, at, base, outDir) };
-    if (d.bytes > REVIEW_DIFF_MAX_BYTES) return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
+    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.reader !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
   }
   return null;
 }

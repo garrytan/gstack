@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyDiff, nextStep, planReview, scanNumbers, type PlanInput, type ReviewShape } from '../lib/review-depth';
 import { matchRisk } from '../lib/review-risk';
-import { renderBrief, sectionTexts } from '../lib/review-brief';
+import { renderBrief, sectionTexts, sliceDiff, sliceNote } from '../lib/review-brief';
 import { validatePolicy, DEFAULT_POLICY, REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
 
 const ROOT = path.join(import.meta.dir, '..');
@@ -18,6 +18,12 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
   test('committed sqlite ledgers git cannot count are data, not code, and never name money', () => {
     const c = classifyDiff({ paths: [sqlite, 'README.md'], gateTagged: 0, perPath: [{ path: sqlite, lines: 0, binary: true }, { path: 'README.md', lines: 3, binary: false }], consumed: [] });
     expect([c.class, c.errors.map(e => e.code), c.risk]).toEqual(['docs', [], []]);
+  });
+  test('run logs are data too: *.log, *.out and extensionless files under logs/ never name money or security (subagent replay at f6a7eba)', () => {
+    const logs = ['docs/b/results/cc-installer.plan.log', 'docs/b/results/trials/t1/r1/agent.out', 'docs/b/results/trials/t1/r1/logs/ready'];
+    const c = classifyDiff({ paths: logs, gateTagged: 0, added: Object.fromEntries(logs.map(p => [p, ['spend_cap_usd=5 fetch(url) rm -rf /tmp/x']])) });
+    expect([c.class, c.risk]).toEqual(['docs', []]);
+    expect(classifyDiff({ paths: ['src/logs/rotate.ts'], gateTagged: 0 }).class).toBe('code');
   });
   test('a sqlite file is data even when a script names it', () => {
     const c = classifyDiff({ paths: [sqlite, 'scripts/load.py'], gateTagged: 0, perPath: [{ path: sqlite, lines: 0, binary: true }, { path: 'scripts/load.py', lines: 4, binary: false }], consumed: [sqlite] });
@@ -168,6 +174,14 @@ describe('C7 merged reader brief and the outside voice reading its diff from dis
     expect(text).toContain(t.native.slice(0, 60));
     expect(text).toContain('/x/testing.md, /x/red-team.md');
     expect(text).toMatch(/money/);
+  });
+  test('past the cap the outside voice reads a path-scoped slice that names what it left out (FOUN-32 §3)', () => {
+    const sec = (p: string, n: number) => `diff --git a/${p} b/${p}\n+${'x'.repeat(n)}\n`;
+    const s = sliceDiff(sec('a.ts', 10) + sec('big.json', 500) + sec('b.ts', 10), 100);
+    expect([s.sliced, s.kept, s.files, s.left]).toEqual([true, 2, 3, ['big.json']]);
+    expect(s.text).toContain('b/b.ts');
+    expect(sliceNote(s, 100)).toMatch(/2 of 3 files.*big\.json/);
+    expect(sliceDiff(sec('a.ts', 10), 100).sliced).toBe(false);
   });
   test('the outside voice gets a path and a hash, not the pasted diff', () => {
     const text = renderBrief('outside-voice', { diff_base: sha, diff_file: '/tmp/o/outside-voice.diff', diff_sha256: 'd'.repeat(64), diff_bytes: '1234' }, t);

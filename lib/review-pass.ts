@@ -14,8 +14,8 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
-import { disclosureDigest } from './review-exclude';
+import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
+import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedPatchId } from './review-targeted';
@@ -181,11 +181,13 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
+    let slice: Record<string, unknown> = {};
     if (role === 'outside-voice') {
-      const diff = diffFor(m.diff_base, r);
+      const s = sliceDiff(diffFor(m.diff_base, r), REVIEW_DIFF_MAX_BYTES);
       const diffFile = path.join(briefs, 'outside-voice.diff');
-      fs.writeFileSync(diffFile, diff, { mode: 0o600 });
-      Object.assign(slots, { diff_file: diffFile, diff_bytes: String(Buffer.byteLength(diff)), diff_sha256: createHash('sha256').update(diff).digest('hex') });
+      fs.writeFileSync(diffFile, s.text, { mode: 0o600 });
+      Object.assign(slots, { diff_file: diffFile, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) });
+      if (s.sliced) slice = { diff_slice: { kept: s.kept, files: s.files, bytes: s.bytes, total: s.total } };
     }
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
@@ -205,7 +207,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }

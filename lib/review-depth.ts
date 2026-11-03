@@ -63,8 +63,8 @@ export const isGatePath = (p: string) => GATE_PATH.some(r => r.test(p));
 export const isAgentProse = (p: string) => AGENT_PROSE.some(r => r.test(p));
 export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 
-/** Binary data and media (HARN-1: committed sqlite ledgers git cannot count): data by extension wherever they sit, never code, consumed or not. */
-export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|pdf|mp3|mp4|mov|wav|webm)$/i;
+/** Binary data, media and run logs (HARN-1: committed sqlite ledgers, trial logs): data by path wherever they sit, never code, consumed or not. */
+export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|pdf|mp3|mp4|mov|wav|webm|log|out)$|(^|\/)logs\/[^/.]+$/i;
 /** Data files: JSON, CSV, TSV and raster images. YAML and TOML are never data here: deploy configs and API specs stay code. An SVG is data only as a drawing (svgDrawing); executable SVG stays code. */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
@@ -626,6 +626,8 @@ export function planReview(i: PlanInput): ReviewPlan {
  */
 /** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
 const riskClass = (c: ClassResult, depth: DepthResult) => c.class === 'gate' || c.risk.length > 0 || c.errors.length > 0 || depth.depth !== 'light';
+/** Whether a light diff may take the platform depth (FOUN-64 item 2): docs or tests only, no numeric claims, no results, prereg, eval or checker path. The receipt and the queue ask the same. */
+export const platformFits = (paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p));
 /** Paths that carry results or preregistration claims: never the platform depth (FOUN-64 item 2). */
 const CLAIM_PATH = /(^|\/|[-_.])(results?|prereg|preregistration|benchmarks?|evals?|scorers?|checkers?)([-_./]|$)/i;
 
@@ -639,7 +641,7 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
   const plan = (n: NextStep, mode: ReviewMode): ReviewPlan => ({ ...depth, stepDepth: depth.depth, depthReasons: depth.reasons, reasons: c.reasons, next: n, numbers: i.numbers, dispatches, skipped, mode });
   const pr = sh.platformReview;
-  const platformFit = !risky && depth.runtimeLines === 0 && !i.numbers.publishes && !i.paths.some(p => CLAIM_PATH.test(p));
+  const platformFit = !risky && platformFits(i.paths, depth.runtimeLines, i.numbers);
   if (next.step === 'full' && platformFit && sh.platform === 'on' && pr && pr.head === sh.head) {
     const why = `planned skip: platform review ${pr.id} by ${pr.reviewer} at ${pr.head.slice(0, 12)}`;
     for (const r of ['core checklist', 'specialists', 'red-team', 'adversarial-native', 'outside-voice', 'targeted']) skipped.push(`${r} (${why})`);

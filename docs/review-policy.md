@@ -179,6 +179,38 @@ with its effort and a shell-quoted `DIFF_CMD:` (plus `DIFF_EXCLUDE: <name> none`
 reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields.
 A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
+### Who reads (R65, the base policy's `review` key)
+
+The depth says how much review a diff needs; the base branch's `.gstack/ship-policy.json`
+`review` key says who does it (`review.panel`, default `risk`). `gstack-review-plan`
+prints `REVIEW_MODE: <lean|panel|platform> panel=<p> reader_model=<m> platform=<on|off>`
+and, under `review.platform on`, `PLATFORM_REVIEW: <id> reviewer=capy-ai[bot] head=<sha>`
+or `PLATFORM_REVIEW: none (<reason>)`.
+
+| Diff | Pass 1 | After fixes (never more than 2 rounds) |
+|---|---|---|
+| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
+| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
+| Docs and tests | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
+
+`review.panel all` keeps today's panel and loop on every class; `review.panel off` gives
+risk class one merged reader too (`DISPATCH: adversarial-native merged`: the native
+adversarial brief, the gate-class checklists, the Red Team checklist and the targeted
+brief, whose ledger record is the receipt's `review_targeted`). The risk classes come
+from paths and changed lines, never from a recorded `review_depth` (FOUN-64). Two
+content rules: data and config files (JSON, YAML, TOML, CSV and the like) and analysis
+scripts under `docs/`, `results/`, `benchmarks/`, `analysis/` or `notebooks/` are
+judged by their path, so a `lease_usd` value or an `os.path.join(sys.argv[1], …)` in a
+stats script names no class (HARN-1, harness-evals#231), and binary data such as
+`*.sqlite` is data wherever it sits; a docs line that can print a credential (an
+`Authorization:` header, a bearer or key-shaped value, an environment key set to a value,
+a get or show command for auth config such as `mcp get`) is security (gbrain#8417). The
+outside voice reads its diff from a file the brief names with its sha256; past
+2,000,000 bytes it reads a path-scoped slice whose brief lists the files left out.
+`--fix-checks <n>` tells the lean loop how many fix-checks ran, so the owner's grant
+adds one fix-check after the first and never a second.
+
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
 (markdown no agent or gate reads), **tests** (test files and fixtures), **code**
 (everything else, including every `SKILL.md` and template, markdown in a skill
@@ -468,9 +500,13 @@ specialist stats they record). The summary line appends `fix_checks=`,
 loop prints the old line.
 
 Beside the counters, `write` records `review_depth` (the depth, runtime lines,
-rules hash, base and registry commits, the gate scan bound to the head and the risk classes) and
-the queue refuses a receipt below the depth its head needs
-([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). A stop the owner
+rules hash, base and registry commits, the gate scan bound to the head, the risk classes and
+`mode`: lean, panel or platform) and the queue refuses a receipt below the depth its head needs
+([ship-policy.md#ship-receipt](ship-policy.md#ship-receipt)). After `NEXT: platform`,
+`write --platform-review <id>` records `review_depth: platform` with `platform_review`
+(capy-ai[bot]'s review id, reviewer and head); write and the queue accept it only under
+`review.platform on`, on a docs or tests diff with no numeric, results or prereg claims,
+with the review at that exact head, so a new head needs `/ship` again. A stop the owner
 accepted after a fix-check edit goes in `review_loop_exception`, never in prose
 under `REVIEW_LOOP:`. Step 16 takes the same record:
 `gstack-ship-release finish --review-loop-exception <json|@file>` routes the
