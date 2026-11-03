@@ -223,8 +223,42 @@ export function cell(text: string, cap = 400): string {
 export const APPROVALS_TABLE_HEADER = '| Date | Asked | Exact words | Outcome | Covers | Still pending |';
 export const APPROVALS_FOOTER_END = '(display only; not an approval citation).';
 
-export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean } = {}): string {
+export type RepoVisibility = 'public' | 'private' | 'unknown';
+
+/**
+ * The repository's visibility as GitHub reports it through gh, for the repository gh acts on by default (GH_REPO, its
+ * default repo, an upstream remote) and for the origin remote a PR is opened against: private only when every one
+ * asked is private, public when any is public, and unknown for anything gh cannot answer.
+ */
+export function repoVisibility(cwd: string, env: Env = process.env): RepoVisibility {
+  const ask = (repo: string[]): RepoVisibility => {
+    const r = spawnSync('gh', ['repo', 'view', ...repo, '--json', 'visibility', '-q', '.visibility'], { cwd, env, encoding: 'utf8', timeout: 15_000 });
+    if (r.status !== 0) return 'unknown';
+    const v = (r.stdout ?? '').trim().toLowerCase();
+    return v === 'private' || v === 'internal' ? 'private' : v === 'public' ? 'public' : 'unknown';
+  };
+  const origin = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd, env, encoding: 'utf8', timeout: 15_000 });
+  const slug = origin.status === 0 ? /([^/:]+\/[^/]+?)(?:\.git)?\/*$/.exec(origin.stdout.trim())?.[1] : undefined;
+  const seen = [ask([]), ...(slug ? [ask([slug])] : [])];
+  return seen.includes('public') ? 'public' : seen.every(v => v === 'private') ? 'private' : 'unknown';
+}
+
+/**
+ * Full rows only where the repository is known private, or --full asks for them and GitHub does not report it public.
+ * A PR description keeps every earlier version in its edit history, so a public or unknown repository gets the
+ * redacted block: whether anything was approved and an opaque id of the record (a hash of its row ids), nothing else.
+ */
+export function renderMode(visibility: RepoVisibility, full: boolean): 'full' | 'redacted' {
+  return visibility === 'private' || (full && visibility === 'unknown') ? 'full' : 'redacted';
+}
+
+export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean; mode?: 'full' | 'redacted' } = {}): string {
   const head = o.heading === false ? [] : ['## Approvals', ''];
+  if (o.mode === 'redacted' && read.rows.length) {
+    const approved = read.rows.some(r => r.outcome === 'approved' || r.outcome === 'standing');
+    const id = 'r-' + createHash('sha256').update(read.rows.map(r => r.id).sort().join('\n')).digest('hex').slice(0, 12);
+    return [...head, `Approved: ${approved ? 'yes' : 'no'} (record ${id}). The full approval record stays private: this repository is public or its visibility is unknown.`, ''].join('\n');
+  }
   if (read.state === 'unavailable') return [...head, `Record unavailable on this machine: no approval record for branch ${cell(loc.branch)} here, and the state root is ephemeral with no Drive mirror, so this is not proof that nothing was approved.`, ''].join('\n');
   if (!read.rows.length) return [...head, `No approvals recorded for branch ${cell(loc.branch)}.`, ''].join('\n');
   const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
@@ -235,7 +269,7 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
 }
 
-interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; carried_from?: string; label?: string; chosen_text?: string;
+interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
   carried_gate_from?: string; carried_gate_rev?: number; carried_answered_by?: string; carried_under?: string; carry_check?: string }
 
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
@@ -254,7 +288,12 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     if (!line.trim()) continue;
     try { rows.push(JSON.parse(line)); } catch { return { code: 'ARTIFACT_MALFORMED_JSONL', message: `decisions.jsonl has a line that is not JSON` }; }
   }
-  const run = (() => { try { return JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8')); } catch { return {}; } })();
+  const runFile = path.join(runDir, 'run.json');
+  let run: Record<string, any> = {};
+  if (fs.existsSync(runFile)) {
+    try { run = JSON.parse(fs.readFileSync(runFile, 'utf8')); } catch (e: any) { return { code: 'ARTIFACT_INVALID_JSON', message: `run.json in ${runDir} is unreadable (${e?.message ?? e}); an approval names the run it came from` }; }
+  }
+  if (run.ceo_only || run.status === 'reviewed') return { code: 'CEO_ONLY_NO_GATE', message: `${runDir} is a CEO-only run (status ${run.status}): it has no gate and was never approved` };
   const plan = reviewedPlan(runDir, run);
   const planTitle = firstTitle(plan.text) ?? 'the plan';
   const planSha = plan.sha;
@@ -278,7 +317,8 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const answerer = first.answered_by ?? 'unknown';
     const carried = p1?.carried_gate_from ? p1 : undefined;
     const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';
-    const who = carried ? `${by ?? 'the owner'} (words from gate_rev ${carried.carried_gate_rev}${relayed}), carried forward by gstack-autoplan`
+    const who = first.words_by ? `${first.words_by}, its own decision (not the owner's words)`
+      : carried ? `${by ?? 'the owner'} (words from gate_rev ${carried.carried_gate_rev}${relayed}), carried forward by gstack-autoplan`
       : answerer === 'human' ? (by ? `${by}, typed at the gate` : 'the owner, typed at the gate') : `${by ?? 'the owner'}, relayed by ${answerer}`;
     const unseen = items.filter(r => r.carried_under).map(r => stripRef(r.title ?? ''));
     const checked = [...new Set(items.map(r => r.carry_check).filter((c): c is string => !!c))];
@@ -286,7 +326,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
       unseen.length ? `taken under "do it", not seen by the owner: ${unseen.join('; ')}` : '', checked.length ? `post-cap delta checked by ${checked.join(', ')}` : ''].filter(Boolean).join('; ');
     const built = buildRow({
       ask: `Approve the plan "${planTitle}" (autoplan run ${runId}, ${carried ? `gate_rev ${rev} carried forward from gate_rev ${carried.carried_gate_rev}, ` : ''}${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
-      words: first.owner_reply ?? first.reply ?? '(no words recorded)',
+      words: first.owner_reply ?? first.answer_words ?? first.reply ?? '(no words recorded)',
       by: who.slice(0, CAPS.by),
       scope: scope.slice(0, CAPS.scope),
       pending: (stillPending.length ? `${stillPending.length} decision(s) unanswered: ${stillPending.map(r => stripRef(r.title ?? '')).join('; ')}` : outcome === 'pending' ? 'the plan approval itself' : 'none').slice(0, CAPS.pending),

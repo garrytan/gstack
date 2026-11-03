@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { laneConcurrency } from '../lib/ship-bin-common';
 import { lineOf, PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
@@ -56,6 +57,50 @@ describe('gstack-ship-preflight', () => {
     expect(r.status).toBe(0);
   });
 
+  // Value: protects=a failed lookup of the remote's HEAD stops with "restore access first" instead of guessing the default branch from a local origin/HEAD;
+  //   fails_when=a failed ls-remote falls back to the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature
+  //   branch a Capy checkout's origin/HEAD names is refused as the base branch; why_new=GST-511 follow-up from #3718; seam=a git wrapper on PATH that fails
+  //   ls-remote only; no_claim=which access failure it was
+  test('a failed remote HEAD lookup stops before merging, even when the fetch works', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "ls-remote: unreachable" >&2; exit 128; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    for (const r of [onDefault, onFeature]) {
+      expect(r.status).toBe(3);
+      expect(r.stdout).toContain('STOP: git ls-remote origin HEAD failed: ls-remote: unreachable; restore access first');
+      expect(r.stdout).not.toContain('MERGE:');
+    }
+  });
+
+  // Value: protects=a remote whose HEAD names no branch (detached, or a server that sends no symref) falls back to the default-base ladder, not the local origin/HEAD;
+  //   fails_when=the fallback reads the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature branch a
+  //   Capy checkout's origin/HEAD names is refused as the base branch; why_new=pass-1 review of the ls-remote stop; seam=a git wrapper whose ls-remote prints
+  //   only a sha; no_claim=a repository whose default is neither main nor master
+  test('with no symbolic remote HEAD, the default branch still stops and a feature branch named by a local origin/HEAD goes on', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "0000000000000000000000000000000000000000\tHEAD"; exit 0; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    expect(onDefault.status).toBe(3);
+    expect(onDefault.stdout).toContain('STOP: on the base branch (main)');
+    expect(onDefault.stdout).not.toContain('MERGE:');
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(onFeature.stdout).not.toContain('STOP: on the base branch');
+    expect(onFeature.status).toBe(0);
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {
@@ -85,6 +130,52 @@ describe('gstack-ship-preflight', () => {
     expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
   });
 
+  // Value: protects=Step 1 refreshes origin/<base> itself, so a clone whose fetch refspec leaves out the base (a single-branch
+  //   clone) still diffs against the current base tip (GST-462, HARN-15); fails_when=preflight runs `git fetch origin <base>`,
+  //   which then updates only FETCH_HEAD; seam=remote.origin.fetch; no_claim=remotes other than origin
+  test('a single-branch clone: the fetch refreshes origin/<base>, so DIFF is the branch alone', () => {
+    const f = fx({ '.gstack/ship-policy.json': '{"queue_mode":"stamp-at-merge"}\n' });
+    f.git('config', 'remote.origin.fetch', '+refs/heads/feat:refs/remotes/origin/feat');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    f.git('fetch', '-q', f.origin, 'main');
+    f.git('merge', '-q', '--no-edit', 'FETCH_HEAD');
+    const stale = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(0);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).not.toBe(stale);
+    expect(lineOf(r.stdout, 'DIFF')).toMatch(/^DIFF: 1 file changed, 1 insertion\(\+\); commits=2$/);
+  });
+
+  // Value: protects=a diff far larger than the PR's own (a stale or wrong base: HARN-15 reviewed 17,000 files of main's history)
+  //   stops before any reader runs, naming the PR's base; fails_when=preflight never compares the diff with the PR's changed
+  //   files; seam=gh pr view (changedFiles, headRefOid, baseRefName); no_claim=GitHub's own count
+  test('a diff far beyond or short of the PR\'s changed files stops at the pushed head; another head or a matching size goes on', () => {
+    const files = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`src/f${i}.ts`, `export const f${i} = ${i};\n`]));
+    const f = fx({}, files);
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const stub = (changed: number, prHead: string, prBase = 'release') => f.gh(`case "$*" in *"pr list"*) echo 7 ;; *changedFiles*) echo "${changed} ${prHead} ${prBase}" ;; esac`);
+    stub(3, head);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is not the PR\'s base; rerun with --base release after git fetch origin +refs/heads/release:refs/remotes/origin/release');
+    stub(3, head, 'main');
+    const fork = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    expect(fork.stdout).not.toContain('rerun with --base');
+    stub(3, head, 'x;rm');
+    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain("rerun with --base 'x;rm' after git fetch origin +refs/heads/'x;rm':refs/remotes/origin/'x;rm'");
+    stub(61, head, 'main');
+    const fewer = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fewer.status).toBe(3);
+    expect(fewer.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 61 (its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [61, 'f'.repeat(40)], [60, head], [0, head]] as const) {
+      stub(changed, prHead);
+      const go = f.run(PREFLIGHT, ['--base', 'main']);
+      expect(go.stdout).not.toContain('lists 60 files');
+      expect(lineOf(go.stdout, 'PR')).toBe('PR: #7');
+    }
+  });
+
   // Value: protects=Step 1's scope check reads the fetched origin/<base>, so a clone without a local base branch still sees frontend files; fails_when=the preflight reports frontend=false because gstack-diff-scope could not resolve a local <base>;
   //   why_new=GSTA-167 dogfood on #3633: a Capy checkout has no local main and SCOPE printed false; seam=gstack-diff-scope; no_claim=design review itself
   test('no local base branch: SCOPE still reads the fetched base', () => {
@@ -105,6 +196,47 @@ describe('gstack-ship-preflight', () => {
     const zero = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', 'tests=printf " 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [5.00ms]\\n"']);
     expect(zero.status).toBe(3);
     expect(lineOf(zero.stdout, 'LANE')).toMatch(/^LANE: tests ZERO-RUN exit=0 tests_ran=0/);
+  });
+
+  // Value: protects=Step 5 can run its lanes one at a time, and each lane keeps its own tests_ran (GST-851: GSTA-2 saw six lanes start within
+  //   60 ms on a 4-core machine on gstack-evals#115); fails_when=--lanes serial lanes overlap, a lane loses its count, or a bad --lanes value runs;
+  //   why_new=runLanes started every lane at once with no serial mode; seam=runLanes; no_claim=how long a lane takes
+  test('--lanes serial runs one lane at a time and keeps each lane\'s count; a bad --lanes value is usage', () => {
+    const f = fx();
+    const log = path.join(f.root, 'lane-order.log');
+    const lane = (n: string) => `${n}=echo start ${n} >> '${log}'; sleep 1; echo end ${n} >> '${log}'; printf " 2 pass\\n 0 fail\\nRan 2 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'serial', '--lane', lane('a'), '--lane', lane('b')]);
+    expect(r.status).toBe(0);
+    const order = fs.readFileSync(log, 'utf8').trim().split('\n');
+    expect(order.length).toBe(4);
+    expect(order.map(l => l.split(' ')[0])).toEqual(['start', 'end', 'start', 'end']);
+    expect(order[1]!.split(' ')[1]).toBe(order[0]!.split(' ')[1]);
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.replace(/ log=\S+$/, ''))).toEqual(['LANE: a pass exit=0 tests_ran=2', 'LANE: b pass exit=0 tests_ran=2']);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: serial (--lanes)');
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'fast', '--lane', LANE]).status).toBe(2);
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE, '--lanes']).status).toBe(2);
+  });
+
+  // Value: protects=parallel lanes report in the order given even when a later lane finishes first, and an unflagged run names the core count
+  //   behind its default (GST-851); fails_when=results come back in finish order or the LANES line drops its reason; why_new=runLanes became a
+  //   worker pool; seam=runLanes, LANES line; no_claim=which default any given machine picks
+  test('--lanes parallel keeps lane order when a later lane finishes first; unflagged LANES names the core count', () => {
+    const f = fx();
+    const lane = (n: string, wait: number) => `${n}=sleep ${wait}; printf " 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'parallel', '--lane', lane('slow', 1), '--lane', lane('fast', 0)]);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: parallel (--lanes)');
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.split(' ')[1])).toEqual(['slow', 'fast']);
+    expect(lineOf(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE]).stdout, 'LANES')).toMatch(/^LANES: (serial|parallel) \(\d+ cores\)$/);
+  });
+
+  // Value: protects=a small machine runs lanes one at a time without a flag, a large one keeps running them together, and the flag overrides
+  //   either way (GST-851); fails_when=a 4-core default runs lanes at once or the flag is ignored; why_new=no default existed; seam=laneConcurrency;
+  //   no_claim=the core count of any CI runner
+  test('lane concurrency: serial on 4 cores or fewer, parallel above, --lanes overrides', () => {
+    expect([laneConcurrency(undefined, 2), laneConcurrency(undefined, 4), laneConcurrency(undefined, 8)]).toEqual([1, 1, Infinity]);
+    expect([laneConcurrency('serial', 64), laneConcurrency('parallel', 2)]).toEqual([1, Infinity]);
+    expect(laneConcurrency('fast', 8)).toBe('--lanes fast is not serial or parallel');
   });
 
   // Value: protects=Step 2's candidates and Step 1.4's carry check are reported for the agent to judge, and an open PR's carry verdict is printed; fails_when=a new bin/ artifact goes unmentioned or the carry check is skipped when a PR is open;

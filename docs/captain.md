@@ -135,9 +135,8 @@ alone is not an ask.
 
 A lane that builds something plans first. Its first act after the session-start install
 check, before any product code, is a `/autoplan` run on its brief, sized to the work. The
-phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
-scope has them, and a fix the exemptions below don't cover gets a short run (`--no-ui --no-dx --max-rounds 1`, with
-`--estimate-usd` set so a small `--spend-cap` still seats its attempts), not no run. On Capy the
+full run's phases run in order, CEO, then design, then DX, then eng, with design and DX only when the
+scope has them. A bug fix gets no plan review and a feature gets the lean run (both below). On Capy the
 unattended loop is `autoplan/DRIVER.md` in the gstack checkout. New functionality a lane
 takes on part-way, scope its brief did not name, gets its own plan and its own ask before
 the lane builds it. In the rules file this is rule 24 of the
@@ -172,7 +171,7 @@ not a new ask ([carry-forward](unattended.md#carry-forward)).
 
 **The record.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` (with
 `--stack <b1,b2,...>` for a stacked PR set) writes the approval row (date, the ask, the owner's exact words, the lane that answered as relayer,
-what it covers); `gstack-approvals render` puts it in the report and the PR body. Before
+what it covers; a gate answered with `--words-by agent:<id>` is listed under that agent as its own decision, not the owner's words); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
 The brief's done line names the row. A plan approval is not a READY field; the
@@ -183,9 +182,11 @@ flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size o
 cap re-pinned under the controller's written grant need no plan. Two kinds of fix are exempt
 too: an S1 emergency (a broken install or upgrade, a red main, a security bug), and a fix
 from a problem list that was already diagnosed and audited, where that list is the plan.
-Every other fix, a one-line bug fix included, gets a one-round, eng-only plan: the short
-run above, with the CEO phase closed before its voices are dispatched
-(`gstack-autoplan close --out <run dir> --phase ceo --deferred "eng-only fix plan" --by agent:<thread>`).
+Any other bug fix is exempt too (R65; the brief's reason is `bug fix (R65)`): `gstack-autoplan next --kind fix` prints
+`AUTOPLAN: not needed (bug fix; R65)` and writes nothing, and the PR carries the bug's
+proof, a repro on current main or a failing test written first. A feature gets the lean
+run, `--kind feature`: one reviewer reading the plan and the draft code together, one gate
+revision and no carry check (docs/unattended.md). `--full` brings back the full run.
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
@@ -317,8 +318,9 @@ stamp on the bare pin leaves the PR conflicting on the CHANGELOG. The lane merge
 into its pin first (expect a CHANGELOG-only conflict; resolve it with `mergeChangelogs`
 from `lib/changelog-check.ts`, the `bun -e` one-liner in
 [ship-policy.md](ship-policy.md#run-a-merge-train), never by hand, and grep for conflict
-markers before stamping), then restamps, then commits only the merge and the stamp
-files. In practice slot 1 needs the same merge whenever the base moved after the pin was
+markers before stamping), then restamps (the restamp stages the stamp files it wrote,
+so a plain `git commit` after a `--no-commit` merge keeps them), then commits only the
+merge and the stamp files. In practice slot 1 needs the same merge whenever the base moved after the pin was
 taken. A stamp commit with one extra byte freezes the queue for every
 lane behind it.
 
@@ -433,7 +435,9 @@ A scheduled automation starts one lane a day with the
 runs' flake-records artifacts and the free suites' retried cases, writes one ledger line
 per event, groups by case, and fixes the worst repeat first with a PR that shows the
 failure red before green. It never reruns a gate and never touches a threshold, trial
-count or case kind. On Capy, create it with the automation tool, scheduled in the owner's
+count or case kind. Where a repository runs `gstack-flaky`, the lane also reads
+`gstack-flaky quarantine report --ledger <downloaded ledgers>` and fixes expiring quarantine
+entries before anything else ([flaky.md](flaky.md#the-daily-flaky-pass)). On Capy, create it with the automation tool, scheduled in the owner's
 timezone, running as a thread in the crew so its report lands in `reports/`.
 
 The lane's side of the same rule: in CI the gate reruns a case that failed on its own

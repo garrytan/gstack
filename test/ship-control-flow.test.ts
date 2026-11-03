@@ -55,7 +55,7 @@ describe('ship source controller', () => {
 
   test('Step 1 carries a receipt only after a dry run and a pregate at HEAD', () => {
     const carry = compact(entry.slice(entry.indexOf('4. **Carry check.**'), entry.indexOf('5. Display historical readiness')));
-    const order = ['carry --pr <n> --base <base> --dry-run', '`CARRY: would carry`', 'skip review', '`gstack-pregate --allow-repo-commands`', 'carry without `--dry-run`', '`--pregate .gstack/tmp/pregate.json`', '`CARRY: carried` binds HEAD', 'A failed check, HEAD moving after pregate, `refused` or `current` re-runs Steps 2–16.'];
+    const order = ['carry --pr <n> --base <base> --dry-run', '`CARRY: would carry`', 'skip review', '`gstack-pregate --allow-repo-commands`', 'carry without `--dry-run`', '`--pregate .gstack/tmp/pregate.json`', '`CARRY: carried` binds HEAD', 'A failed check, HEAD moving after pregate, `current`, or `refused` with no `NEXT: carry route` re-runs Steps 2–16.'];
     const at = order.map(t => carry.indexOf(t));
     expect(at.every(i => i >= 0)).toBe(true);
     expect(at).toEqual([...at].sort((a, b) => a - b));
@@ -336,6 +336,16 @@ describe('ship source controller', () => {
     expect(docs).toMatch(/never run a third audit/i);
     expect(docs).toContain('`Documentation: blocked`');
     expect(docs).toMatch(/never silently refresh hashes/i);
+  });
+
+  // Value: protects=finish's scoped-review STOP and --docs-requested carry are routes Step 16 names, so a driver that reads
+  //   the template instead of the STOP text keeps the GST-384/GST-391 saving; fails_when=stage 2 sends every tests=/context=
+  //   STOP to the full loop or stage 3 offers only a re-audit or a named risk (GST-444); seam=none; no_claim=the bins' own STOP text
+  test('Step 16 routes the scoped-review STOP and the --docs-requested fix (GST-444)', () => {
+    const behavior = gate.slice(gate.indexOf('1. **Behavior'), gate.indexOf('2. **Only authored'));
+    expect(behavior).toContain('A STOP naming a scoped-review packet instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.');
+    const docs = gate.slice(gate.indexOf('### 3.'), gate.indexOf('### 4.'));
+    expect(docs).toContain('**A fix the audit\'s result named:** rerun finish with `--docs-requested <path> --docs-result <json>`.');
   });
 
   test('tests, absent test approval and new writes reopen final verification', () => {

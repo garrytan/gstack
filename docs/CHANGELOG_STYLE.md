@@ -1,7 +1,9 @@
 # CHANGELOG + VERSION style
 
 Moved verbatim from CLAUDE.md (token-load reduction). Read this BEFORE
-writing any `## [X.Y.Z]` CHANGELOG entry.
+writing a CHANGELOG entry. In gstack the entry is a fragment,
+`changelog.d/<branch-slug>.md`, and the merge step gives it its `## [X.Y.Z.W]`
+heading ([changelog fragments](ship-policy.md#changelog-fragments)).
 
 ## Versioning and branch-scoped entries
 
@@ -9,15 +11,15 @@ Moved verbatim from CLAUDE.md (#2096 size limit). The autonomous version
 policy (choose versions without asking; default to PATCH) stays in CLAUDE.md
 as the single source.
 
-**Versioning invariant (workspace-aware ship).** VERSION is a monotonic ordered
-release identifier, not a strict semver commitment. The bump level
-(major/minor/patch/micro) expresses intent at ship time. Queue-advancing past a
-claimed version within the same bump level is explicitly permitted — if branch A
-claims v1.7.0.0 as a MINOR and branch B is also a MINOR, B lands at v1.8.0.0
-(still a MINOR relative to main). Downstream consumers must NOT rely on
-"MINOR = feature-only, PATCH = fix-only" as a strict contract. This is why
-`bin/gstack-next-version` advances within the chosen bump level rather than
-repicking the level when collisions happen.
+**Versioning invariant.** VERSION is a monotonic ordered release identifier,
+not a strict semver commitment. The bump level (major/minor/patch/micro)
+expresses intent. Versions are assigned at merge, in merge order: each stamp
+takes the version before it plus the effective bump, which is the policy's
+PATCH raised by any folded fragment's `bump:` front matter. If PR A and PR B
+both ask for MINOR and land back to back on v1.6.0.0, A lands at v1.7.0.0 and
+B at v1.8.0.0 (still a MINOR relative to the version before it). Downstream
+consumers must NOT rely on "MINOR = feature-only, PATCH = fix-only" as a
+strict contract.
 
 **package.json carries the npm-valid translation, not VERSION verbatim.**
 VERSION stays the 4-digit source of truth (e.g. `1.67.0.0`); package.json and
@@ -26,18 +28,25 @@ translation (`1.67.0`), and lockfile `version` fields sync only when the
 lockfile already exists. `bin/gstack-version-bump` (via `lib/version-source.ts`)
 owns the translation and judges drift on translated forms — do NOT "fix" the
 apparent mismatch by hand, and do not write a 4-digit version into
-package.json (npm rejects it). Rationale and translation rules live in the
+package.json (npm rejects it). A branch never writes either one: the merge
+stamp does, through `bin/gstack-version-bump`. Rationale and translation rules live in the
 `lib/version-source.ts` header; `test/gstack-version-bump.test.ts` pins the
 contract.
 
-**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
-own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
-not what was already on main.
+**The CHANGELOG entry is branch-scoped; the version is not.** Every feature
+branch that ships writes one entry as `changelog.d/<branch-slug>.md`: the entry
+text only, with no `## [x]` heading, and `bump: minor` or `bump: major` front
+matter only when the change warrants more than a PATCH. A branch never edits
+VERSION, package.json's version or a released CHANGELOG.md section. At merge,
+`train land` (or `gstack-ship-queue land`) assigns the version, folds the
+fragment into one `## [<version>] - <date>` section at the top of CHANGELOG.md
+and deletes the file. The entry describes what THIS branch adds — not what was
+already on main.
 
 **The CHANGELOG entry is the diff between main and the shipping branch — what users
 get when they upgrade. NOT how the branch got there.** A reader landing on the entry
 should learn what they can do now that they couldn't before; they should not learn
-about the branch's internal version bumps, the bugs we caught and fixed mid-branch,
+about versions the branch carried during development, the bugs we caught and fixed mid-branch,
 the plan reviews we ran, or the commits we squashed. That is branch development
 narrative. It belongs in PR descriptions and commit messages, not CHANGELOG.
 
@@ -62,29 +71,28 @@ the user gets; the path to that system is invisible to them.
 **When to write the CHANGELOG entry:**
 - At `/ship` time (Step 13), not during development or mid-branch.
 - The entry covers ALL commits on this branch vs the base branch.
-- `/ship` lints the lines the branch added with `bin/gstack-prose-lint CHANGELOG.md --base origin/<base> --gate`,
-  and the Quality gate workflow gates the `## [Unreleased]` block the same way. Rewrite each `PROSE:` line
-  it names ([docs/troubleshooting.md](troubleshooting.md#prose-lint-found)).
-- Never fold new work into an existing CHANGELOG entry from a prior version that
-  already landed on main. If main has v0.10.0.0 and your branch adds features,
-  bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
+- `/ship` lints the fragment with `bin/gstack-prose-lint changelog.d/<branch-slug>.md --gate`.
+  Rewrite each `PROSE:` line it names ([docs/troubleshooting.md](troubleshooting.md#prose-lint-found)).
+- Never fold new work into a CHANGELOG.md section that already landed on main.
+  New work goes in this branch's fragment, and the merge stamp gives it its own
+  section at the next version.
 
 **Key questions before writing:**
 1. What branch am I on? What did THIS branch change?
-2. Is the base branch version already released? (If yes, bump and create new entry.)
-3. Does an existing entry on this branch already cover earlier work? (If yes, replace
-   it with one unified entry for the final version.)
+2. Does this change warrant more than a PATCH? (If yes, open the fragment with
+   `bump: minor` or `bump: major` front matter; otherwise add none.)
+3. Does this branch's fragment already cover earlier work? (If yes, rewrite it as
+   one unified entry.)
 
-**Merging main does NOT mean adopting main's version.** When you merge origin/main into
-a feature branch, main may bring new CHANGELOG entries and a higher VERSION. Your branch
-still needs its OWN version bump on top. If main is at v0.13.8.0 and your branch adds
-features, bump to v0.13.9.0 with a new entry. Never jam your changes into an entry that
-already landed on main. Your entry goes on top because your branch lands next.
+**Merging main never gives your branch a version.** When you merge origin/main into
+a feature branch, main may bring new CHANGELOG sections and a higher VERSION. Take them
+exactly as main has them. Your branch still carries only its fragment, and never jams its
+changes into a section that already landed on main; the merge stamp puts its section on top.
 
 **After merging main, always check:**
-- Does CHANGELOG have your branch's own entry separate from main's entries?
-- Is VERSION higher than main's VERSION?
-- Is your entry the topmost entry in CHANGELOG (above main's latest)?
+- Is your fragment still in `changelog.d/`, with its own text, separate from main's sections?
+- Are VERSION, package.json's version and every released CHANGELOG.md section exactly
+  main's? (The Version Gate check requires this of a head the merge step did not stamp.)
 If any answer is no, fix it before continuing.
 
 **After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
@@ -93,13 +101,9 @@ order. Gaps between version numbers are fine. A branch that ships at v1.6.4.0 wi
 a prior v1.5.2.0 or v1.5.3.0 entry on main is correct — those were branch-internal
 version numbers that never landed. Do not back-fill gaps with placeholder entries.
 
-**Never orphan branch-internal versions.** If your branch bumped VERSION several times
-during development (v1.5.1.0 → v1.5.2.0 → v1.6.4.0, say) and those earlier entries were
-never released to main, the final ship consolidates ALL of them into a single entry at
-the final version (v1.6.4.0). Collapse them — delete the old entries and move their
-content into the final entry, re-version table columns accordingly. Readers see one
-release, not a branch diary. Gaps are fine (v1.6.3.0 → v1.6.4.0 with no v1.5.x
-in between on main is correct).
+**Keep one entry per branch.** When the branch's work grows after its fragment was
+written, rewrite that fragment as one unified entry instead of adding a second file
+beside it. Readers see one release, not a branch diary.
 
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 
@@ -122,9 +126,9 @@ we got here. Keep out of the CHANGELOG, always:
   documents what DID ship, not what MIGHT ship.
 - Version-bump housekeeping when no user-facing work actually landed.
 
-If the diff between the base branch version and this version has no user-facing change
-(only merges, only CHANGELOG edits, only placeholder work), the honest entry is one
-sentence: "Version bump for branch-ahead discipline. No user-facing changes yet." Stop
+If the diff between the base branch and this branch has no user-facing change
+(only merges, only CHANGELOG edits, only placeholder work), the honest fragment is one
+sentence: "No user-facing changes yet." Stop
 there. Do not pad. Do not explain the plan that will ship eventually. Do not narrate
 the branch's history. When real work lands, the entry will replace this at /ship time.
 

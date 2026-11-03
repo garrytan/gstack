@@ -18,7 +18,7 @@ const BUN_MISSING = 'gstack-learnings-search: bun not found on PATH, so learning
 
 const CALLERS: Array<{ name: string; file: (host: string) => string; hosts: string[] }> = [
   { name: 'Prior Learnings (review)', file: h => (h === 'claude' ? 'review/SKILL.md' : '.agents/skills/gstack-review/SKILL.md'), hosts: ['claude', 'codex'] },
-  { name: 'investigate hypothesis refresh', file: h => (h === 'claude' ? 'investigate/SKILL.md' : '.agents/skills/gstack-investigate/SKILL.md'), hosts: ['claude', 'codex'] },
+  { name: 'investigate prior learnings', file: h => (h === 'claude' ? 'investigate/SKILL.md' : '.agents/skills/gstack-investigate/SKILL.md'), hosts: ['claude', 'codex'] },
   { name: 'qa fix-loop search', file: h => (h === 'claude' ? 'qa/SKILL.md' : '.agents/skills/gstack-qa/SKILL.md'), hosts: ['claude', 'codex'] },
   { name: 'ship adversarial search', file: h => (h === 'claude' ? 'ship/sections/adversarial.md' : '.agents/skills/gstack-ship/sections/adversarial.md'), hosts: ['claude', 'codex'] },
   { name: 'review army specialist search', file: () => 'review/sections/review-army.md', hosts: ['claude'] },
