@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.94.2.0] - 2026-11-03
+
+### Fixed
+
+- **More recursive deletes keep the security class (GST-942).** `fs.rmSync(path.join(dir, "x"), { recursive: true })`, a `)` inside a comment before `recursive: true`, `fs.rm`/`fs.promises.rm`/an imported `rm`, and a new call a formatter split across lines all slipped past the rule, because it stopped reading at the first `)` and read one line at a time. The review depth could then drop to light on real recursive-delete code. The rule now reads up to 500 characters after `rmSync(` or `rm(` across the file's changed lines, still in linear time. An edit to one line of an existing split call is still read on its own.
+
 ## [1.94.1.0] - 2026-11-03
 
 ### Fixed
