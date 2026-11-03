@@ -4,10 +4,11 @@
  * moved into the bin; each STOP is a place the prose leaves the decision to the agent.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { laneConcurrency } from '../lib/ship-bin-common';
-import { lineOf, PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
 const fixtures: ShipFx[] = [];
@@ -394,6 +395,108 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
       const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', bad, '--lane', LANE]);
       expect(u.status).toBe(2);
       expect(u.stdout + u.stderr).toContain('--timeout needs whole seconds from 1 to 3600');
+    }
+  });
+});
+
+describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {
+  const CHECKOUT = { GSTACK_LEASE_DIR: '' };
+  const leaseFile = (f: ShipFx) => path.join(f.work, '.git', 'gstack-leases', String(process.pid));
+  const wtree = (f: ShipFx) => f.run(path.join(path.dirname(RELEASE), 'gstack-wtree'), [], CHECKOUT).stdout.trim();
+  /** Steps 12-16 in the fixture: the version bump, the docs snapshot and finish (the step that ends the run's hold on the base merge). */
+  const finish = (f: ShipFx) => {
+    const reviewed = wtree(f);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro'], CHECKOUT).status).toBe(0);
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(path.dirname(RELEASE), 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md'], CHECKOUT).status).toBe(0);
+    const done = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE], CHECKOUT);
+    expect(done.status, done.stdout).toBe(0);
+  };
+  const refusedUntouched = (f: ShipFx, args: string[], run: string) => {
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const tracked = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, args, CHECKOUT);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain(`STOP: /ship run ${run} is open on this checkout and past its preflight (`);
+    expect(r.stdout).toContain('rerun Step 5 with --tests-only');
+    expect(r.stdout).toMatch(/if it is no longer running, rm \S+gstack-ship-run, then rerun/);
+    expect(r.stdout).not.toContain('MERGE:');
+    expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(tracked);
+    expect(f.git('status', '--porcelain').stdout).toBe('');
+    expect(fs.existsSync(path.join(f.work, 'docs/new.md'))).toBe(false);
+  };
+
+  // Value: protects=a full preflight run again while this checkout's /ship run is open and past its own preflight stops before the fetch, so review readers never diff a tree the base merge moved;
+  //   fails_when=the rerun fetches or merges origin/<base> into the tree readers are diffing (gbrain-evals#317 voided a review pass), with or without --run; why_new=GST-1204;
+  //   seam=the run marker and gstack-lease open on the checkout's own lease; no_claim=a preflight that never passed --run
+  test('a full preflight while this checkout\'s /ship run is open and past its preflight refuses before the fetch and leaves the tree untouched', () => {
+    const f = fx();
+    const run = `${process.pid}-${Math.floor(Date.now() / 1000)}-ab12cd34`;
+    expect(f.run(PREFLIGHT, ['--base', 'main', '--run', run], CHECKOUT).status).toBe(0);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    refusedUntouched(f, ['--base', 'main', '--run', run], run);
+    refusedUntouched(f, ['--base', 'main'], run);
+  });
+
+  // Value: protects=the Capy driver's sequence (ship/DRIVER.md Phase 2: preflight with --run and lanes, then --audit; repairs rerun --tests-only) is covered, and a mid-run full preflight is refused;
+  //   fails_when=the guard needs a workflow lease the driver never takes (GBEV-3 was a Capy lane), or it blocks --audit or --tests-only; why_new=GST-1204 driver coverage;
+  //   seam=the checkout lease gstack-ship-preflight opens itself; no_claim=reader dispatch
+  test('the driver\'s sequence: Phase 2 preflight with --run, --audit and --tests-only go on; a mid-run full preflight is refused', () => {
+    const f = fx();
+    const phase2 = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7', '--lane', LANE], CHECKOUT);
+    expect(phase2.status).toBe(0);
+    expect(lineOf(phase2.stdout, 'LANE')).toMatch(/^LANE: tests pass/);
+    expect(f.run(PREFLIGHT, ['--audit', '--base', 'main', '--out', path.join(f.root, 'run')], CHECKOUT).status).toBe(0);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    refusedUntouched(f, ['--base', 'main', '--lane', LANE], 'ship-run-7');
+    const repair = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE], CHECKOUT);
+    expect(repair.status).toBe(0);
+    expect(lineOf(repair.stdout, 'LANE')).toMatch(/^LANE: tests pass exit=0 tests_ran=3/);
+  });
+
+  // Value: protects=finish ends the run's hold, and a run past the 120-minute window (GST-1205's fresh rule) or released no longer blocks the next preflight;
+  //   fails_when=a marker left by an earlier /ship refuses every later preflight on the checkout; why_new=GST-1204 negative control; seam=finish clears the marker, gstack-lease fresh; no_claim=dead or reused holders, covered in test/gstack-lease.test.ts
+  test('a finished, aged-out or released /ship run does not block a full preflight', () => {
+    const ends: Record<string, (f: ShipFx) => void> = {
+      finished: finish,
+      'aged out': f => fs.writeFileSync(leaseFile(f), fs.readFileSync(leaseFile(f), 'utf8').replace(/^(run \S+ )(\d+)$/m, (_, p, t) => `${p}${Number(t) - 7300}`)),
+      released: f => expect(spawnSync('bash', [path.join(path.dirname(PREFLIGHT), 'gstack-lease'), 'release', '--root', f.work, '--pid', String(process.pid), '--run', 'ship-run-7'], { encoding: 'utf8', env: { ...process.env, ...CHECKOUT }, timeout: 30_000 }).status).toBe(0),
+    };
+    for (const [why, end] of Object.entries(ends)) {
+      const f = fx();
+      expect(f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT).status).toBe(0);
+      end(f);
+      f.advanceBase({ 'docs/new.md': '# new\n' });
+      const r = f.run(PREFLIGHT, ['--base', 'main'], CHECKOUT);
+      expect({ why, status: r.status }).toEqual({ why, status: 0 });
+      expect(lineOf(r.stdout, 'MERGE')).toMatch(/^MERGE: merged origin\/main at /);
+    }
+  });
+
+  // Value: protects=/ship's own first preflight runs, and a first preflight that stopped (Step 3's conflict: commit and rerun) reruns in the same /ship run;
+  //   fails_when=the run is recorded before Steps 1-3 pass, so /ship blocks itself; why_new=GST-1204 negative control; seam=the marker is written only once Steps 1-3 pass; no_claim=conflict resolution
+  test('/ship\'s own first preflight runs, and a stopped first preflight reruns in the same run', () => {
+    const f = fx({}, { 'src/a.ts': 'export const a = 2;\n' });
+    f.advanceBase({ 'src/a.ts': 'export const a = 3;\n' });
+    const first = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT);
+    expect(first.status).toBe(3);
+    expect(first.stdout).toContain('STOP: merge conflicts in src/a.ts');
+    f.write({ 'src/a.ts': 'export const a = 4;\n' });
+    f.commit('merge main');
+    const again = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT);
+    expect(again.status).toBe(0);
+    expect(lineOf(again.stdout, 'MERGE')).toBe('MERGE: up to date');
+  });
+
+  // Value: protects=--run takes only a plain token, so a crafted value cannot become a path or split a lease entry; fails_when=any string is recorded and looked up;
+  //   why_new=GST-1204; seam=flag parsing; no_claim=none
+  test('--run that is not a plain run id is usage', () => {
+    const f = fx();
+    for (const bad of [['--run', '../x'], ['--run', 'a b'], ['--run', '-x'], ['--run']]) {
+      const r = f.run(PREFLIGHT, ['--base', 'main', ...bad]);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain('--run needs a run id');
     }
   });
 });

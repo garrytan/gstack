@@ -23,7 +23,7 @@ import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
 import { waitForRun } from './ci-carry';
 import { buildRunCheck } from './pregate/run-check';
-import { bin, carryLane, carryNoneLine, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
+import { bin, carryLane, carryNoneLine, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -376,7 +376,15 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   return true;
 }
 
+/** Steps 15-16; once they pass, the /ship run's preflight marker is cleared, so a full preflight may merge the base again (GST-1204). */
 export async function finish(argv: readonly string[], cwd: string): Promise<Report> {
+  const r = await finishStages(argv, cwd);
+  const marker = r.exit === 0 && shipRunMarker(cwd);
+  if (marker) fs.rmSync(marker, { force: true });
+  return r;
+}
+
+async function finishStages(argv: readonly string[], cwd: string): Promise<Report> {
   const { flag, all, has } = flagReader(argv);
   const base = flag('--base')!;
   const r = new Report();

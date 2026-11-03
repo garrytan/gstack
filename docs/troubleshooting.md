@@ -588,6 +588,31 @@ fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tre
 **Expected result.** `gstack-review-read` shows both records at one tree with
 `review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
 
+<a id="ship-preflight-run-open"></a>
+### `STOP: /ship run <id> is open on this checkout and past its preflight (<marker>; open until its finish or for 120 minutes) ...`
+
+**Meaning.** A full `gstack-ship-preflight` (Steps 1-3) ran on a checkout where a
+/ship run already passed them and has not finished. A full preflight merges the
+base into the working tree, and that run's review readers diff this tree, so the
+merge would void their pass (gbrain-evals#317). /ship passes `--run <id>` (Step 1:
+the preamble's `SESSION_ID`; `ship/DRIVER.md` Phase 2: the run dir's name). Once
+Steps 1-3 succeed, preflight records the run in the checkout's git dir
+(`gstack-ship-run`) and opens it on the checkout's own lease
+(`<git dir>/gstack-leases`, so the driver needs no workflow lease). The run
+counts as open while the marker exists, which `gstack-ship-release finish` removes
+when Steps 15-16 pass, and while `bin/gstack-lease open` says so: under 120
+minutes old and its holder (the harness that ran preflight) alive. A finished,
+aged-out or dead run never blocks, and /ship's own first preflight (or a rerun
+after a Step 3 STOP) is never refused.
+
+**What is kept.** Nothing ran: no fetch, no merge, the tree is untouched.
+
+**Fix.** Rerun Step 5 with `gstack-ship-preflight --tests-only`, which never
+merges, or let that /ship finish. If that run is no longer running (it stopped
+before finish), remove the marker the STOP names (`rm <marker>`), then rerun.
+
+**Expected result.** The preflight continues to `STATUS:` and `MERGE:`.
+
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
 
