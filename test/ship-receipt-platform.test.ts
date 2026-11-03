@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -27,15 +27,23 @@ function repo(policy: object, files: Record<string, string>): { dir: string; hea
 }
 
 let fakeBin = '';
-const withGh = <T,>(head: string, fn: () => T): T => {
-  const prev = process.env.PATH, prevHead = process.env.FAKE_REVIEW_HEAD;
-  process.env.PATH = fakeBin + path.delimiter + prev; process.env.FAKE_REVIEW_HEAD = head;
-  try { return fn(); } finally { process.env.PATH = prev; if (prevHead === undefined) delete process.env.FAKE_REVIEW_HEAD; else process.env.FAKE_REVIEW_HEAD = prevHead; }
+const withGh = <T,>(head: string, fn: () => T, state = 'COMMENTED'): T => {
+  const prev = process.env.PATH, prevHead = process.env.FAKE_REVIEW_HEAD, prevState = process.env.FAKE_REVIEW_STATE;
+  process.env.PATH = fakeBin + path.delimiter + prev; process.env.FAKE_REVIEW_HEAD = head; process.env.FAKE_REVIEW_STATE = state;
+  try { return fn(); } finally {
+    process.env.PATH = prev;
+    if (prevHead === undefined) delete process.env.FAKE_REVIEW_HEAD; else process.env.FAKE_REVIEW_HEAD = prevHead;
+    if (prevState === undefined) delete process.env.FAKE_REVIEW_STATE; else process.env.FAKE_REVIEW_STATE = prevState;
+  }
 };
+let priorState: string | undefined;
 beforeAll(() => {
   fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'fakegh-'));
-  fs.writeFileSync(path.join(fakeBin, 'gh'), '#!/bin/sh\ncase "$1" in\n  pr) echo \'{"number":7}\' ;;\n  api) echo "[[{\\"id\\":99,\\"user\\":{\\"login\\":\\"capy-ai[bot]\\"},\\"commit_id\\":\\"$FAKE_REVIEW_HEAD\\",\\"state\\":\\"COMMENTED\\"}]]" ;;\nesac\n', { mode: 0o755 });
+  priorState = process.env.GSTACK_STATE_ROOT;
+  process.env.GSTACK_STATE_ROOT = path.join(fakeBin, 'state');
+  fs.writeFileSync(path.join(fakeBin, 'gh'), '#!/bin/sh\ncase "$1" in\n  pr) echo \'{"number":7}\' ;;\n  api) echo "[[{\\"id\\":99,\\"user\\":{\\"login\\":\\"capy-ai[bot]\\"},\\"commit_id\\":\\"$FAKE_REVIEW_HEAD\\",\\"state\\":\\"$FAKE_REVIEW_STATE\\"}]]" ;;\nesac\n', { mode: 0o755 });
 });
+afterAll(() => { if (priorState === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = priorState; });
 
 describe('C6 receipt: review_depth platform, honest and bound to the exact head (FOUN-63)', () => {
   test('a docs diff under review.platform on with capy-ai[bot]\'s review at HEAD records platform, and the queue accepts it at that head only', () => {
@@ -44,7 +52,7 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
     expect([d.depth, d.mode]).toEqual(['light', 'panel']);
     const p = withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'));
     expect(p.ok && [p.depth.depth, p.depth.mode, p.depth.platform_review]).toEqual(['platform', 'platform', { id: '99', head, reviewer: 'capy-ai[bot]' }]);
-    const r = { gstack_version: '1.94.0.0', review_depth: (p as any).depth } as ShipReceipt;
+    const r = { gstack_version: REVIEW_POLICY_KEY_VERSION, review_depth: (p as any).depth } as ShipReceipt;
     expect(receiptDepthVerdict(dir, 'origin/main', r, head)).toMatchObject({ ok: true, line: expect.stringContaining('platform_review=99@') });
     const moved = { ...r, review_depth: { ...r.review_depth!, platform_review: { id: '99', head: 'b'.repeat(40), reviewer: 'capy-ai[bot]' } } } as ShipReceipt;
     expect(receiptDepthVerdict(dir, 'origin/main', moved, head).ok).toBe(false);
@@ -61,6 +69,8 @@ describe('C6 receipt: review_depth platform, honest and bound to the exact head 
     const { dir, head } = repo({ review: { platform: 'on' } }, { 'docs/howto.md': 'x\n' });
     const d = receiptReviewAtHead(dir, 'main', BIN, head).depth;
     expect(withGh('c'.repeat(40), () => platformReceiptDepth(dir, 'main', d, head, '99'))).toMatchObject({ ok: false, message: expect.stringContaining('capy-ai[bot]') });
+    for (const state of ['CHANGES_REQUESTED', 'DISMISSED']) expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'), state).ok).toBe(false);
+    expect(withGh(head, () => platformReceiptDepth(dir, 'main', d, head, '99'), 'APPROVED').ok).toBe(true);
   });
   test('the receipt records the risk_paths class and the panel mode the base policy gives', () => {
     const { dir, head } = repo({ review: { risk_paths: ['src/balance/**'] } }, { 'src/balance/x.ts': 'export const x = 1;\n' });

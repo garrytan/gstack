@@ -85,9 +85,14 @@ describe('GST-1129 item 2: a declared risk class only raises the depth', () => {
   }, 60_000);
   test('the receipt records declared and detected classes beside the raised depth, and the schema accepts them', () => {
     const r = repo();
-    const d = receiptReviewAtHead(r.dir, 'main', BIN, r.head, ['money']).depth;
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = r.state;
+    let d: ReturnType<typeof receiptReviewAtHead>['depth'];
+    try {
+      d = receiptReviewAtHead(r.dir, 'main', BIN, r.head, ['money']).depth;
+      expect(receiptReviewAtHead(r.dir, 'main', BIN, r.head).depth).not.toHaveProperty('declared');
+    } finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
     expect([d.depth, d.risk, d.declared, d.detected]).toEqual(['full', ['money'], ['money'], []]);
-    expect(receiptReviewAtHead(r.dir, 'main', BIN, r.head).depth).not.toHaveProperty('declared');
     const errors: ValidationError[] = [];
     checkSchema({ schema_version: 1, head: r.head, base: 'main', review_depth: d }, ARTIFACT_SCHEMAS['ship-receipt'], '', errors);
     expect(errors.filter(e => JSON.stringify(e).includes('review_depth'))).toEqual([]);

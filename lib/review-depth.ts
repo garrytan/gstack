@@ -401,7 +401,7 @@ function leanStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1: one reviewer reads the whole diff (R65)' };
   if (h.last === 'fix-check') {
     if (!h.blockingOpen && !h.fixedBlocking && !h.touchedGate) return { step: 'done', reason: h.fixedBelow ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
-    if (h.granted && !h.blockingOpen && (h.fixChecks ?? 1) < 2) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a second` };
+    if (h.granted && !h.blockingOpen && h.fixChecks === 1) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), never a second` };
     return { step: 'stop', reason: `the fix-check ${h.blockingOpen || h.fixedBlocking ? 'found a blocking finding' : 'edited a gate-class path'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` };
   }
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };

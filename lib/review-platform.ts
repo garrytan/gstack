@@ -2,7 +2,8 @@
  * review-platform — the exact-head evidence that a platform review read a PR (design C6, FOUN-32 on founderstar#496).
  * Capy's automatic review posts a pull-request review by capy-ai[bot] whose commit_id is the head it read; that review's
  * id is the run id the plan's planned skip and the receipt's review_depth platform record. Anything else (no PR, no such
- * review, a review at another commit, gh unavailable) is no evidence, and the single light reader runs.
+ * review, a review at another commit, one that requested changes or was dismissed, gh unavailable) is no evidence, and the
+ * single light reader runs.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -23,7 +24,7 @@ export function platformReviewAt(root: string, head: string, o: { pr?: string; i
   if (!list.ok) return { ok: false, reason: `gh cannot list the reviews of PR #${pr}` };
   let reviews: Array<{ id?: number; user?: { login?: string }; commit_id?: string; state?: string }>;
   try { reviews = (JSON.parse(list.out) as unknown[]).flat() as typeof reviews; } catch { return { ok: false, reason: `PR #${pr}'s reviews are not JSON` }; }
-  const at = reviews.filter(r => r.user?.login === PLATFORM_REVIEWER && r.state !== 'PENDING' && r.commit_id?.toLowerCase() === head.toLowerCase() && r.id !== undefined);
+  const at = reviews.filter(r => r.user?.login === PLATFORM_REVIEWER && (r.state === 'APPROVED' || r.state === 'COMMENTED') && r.commit_id?.toLowerCase() === head.toLowerCase() && r.id !== undefined);
   const hit = o.id ? at.find(r => String(r.id) === o.id) : at.at(-1);
   if (!hit) return { ok: false, reason: o.id ? `review ${o.id} on PR #${pr} is not a ${PLATFORM_REVIEWER} review at ${head.slice(0, 12)}` : `no ${PLATFORM_REVIEWER} review of PR #${pr} at ${head.slice(0, 12)}` };
   return { ok: true, review: { id: String(hit.id), head: head.toLowerCase(), reviewer: PLATFORM_REVIEWER } };

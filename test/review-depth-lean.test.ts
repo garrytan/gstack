@@ -166,6 +166,7 @@ describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1 }), 'full').step).toBe('stop');
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1, granted: 'apr_1' }), 'full').step).toBe('fix-check');
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 2, granted: 'apr_1' }), 'full').step).toBe('stop');
+    expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, granted: 'apr_1' }), 'full').step).toBe('stop');
   });
   test('planReview marks the loop lean and a fix-check dispatches one full-effort reader', () => {
     expect(roles(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel: 'off' }) })))).toEqual(['fix-check:fix-check:full:-']);
