@@ -83,11 +83,23 @@ const STRING_FIELDS = ['heading', 'match', 'marker', 'empty_marker', 'fix', 'sum
 const REGEX_FIELDS = ['match'] as const;
 
 /**
- * A selection marker is literal text, matched case-insensitively, in which a whole-word N stands for a number
- * ("Dispatching N specialists:"); the names are the rest of that line.
+ * Every default matcher string the checker uses, in one table: edit it here. A contract item's own marker or
+ * empty_marker replaces its row for that item. Markers are literal text in which a whole-word N is a number.
+ */
+export const DEFAULT_MATCHERS = {
+  /** selected_specialists_dispatched: the selection line. The names are the rest of the line; N = 0 selects none. */
+  specialistSelection: 'Dispatching N specialists:',
+  /** selected_specialists_dispatched: a line that means no specialist was selected. */
+  specialistsSkipped: 'specialists skipped',
+} as const;
+
+/**
+ * A marker as a pattern: literal text, case-insensitive, any run of spaces matching any whitespace, and a whole-word
+ * N matching a number (the first one captured as count). The names are the rest of that line.
  */
 export function markerPattern(marker: string): RegExp {
-  const body = marker.split(/\bN\b/).map(escapeRe).join('\\d+');
+  const literal = (s: string) => s.split(/\s+/).map(escapeRe).join('\\s+');
+  const body = marker.split(/\bN\b/).map(literal).map((s, i) => (i === 0 ? s : `${i === 1 ? '(?<count>\\d+)' : '\\d+'}${s}`)).join('');
   return new RegExp(`${body}\\s*(?<names>[^\\n]*)`, 'i');
 }
 
@@ -272,8 +284,6 @@ export function isCheckCommand(cmd: string): boolean {
     return COMMAND_WRAPPER.test(words[0].split(/[\\/]/).pop() ?? '') && words.slice(1, 6).some(isCheckProgram);
   });
 }
-const DEFAULT_SELECTION_RE = /Dispatching\s+\d+\s+specialists?:\s*(?<names>[^\n]*)/i;
-const DEFAULT_EMPTY_SELECTION_RE = /specialists skipped|Dispatching\s+0\s+specialists/i;
 const WAIVE_RE = /gstack-skill-contract["']?\s+waive\s+["']?([A-Za-z0-9][A-Za-z0-9_.-]*)["']?/;
 
 type ToolUse = Extract<TranscriptEvent, { kind: 'tool_use' }>;
@@ -334,14 +344,14 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
         : { met: false, detail: `no test or repro command after the last ${(run[lastEdit] as ToolUse).name}`, fix: item.fix ?? 'run the test or repro again after your last edit and show its result' };
     }
     case 'selected_specialists_dispatched': {
-      const marker = item.marker ? markerPattern(item.marker) : DEFAULT_SELECTION_RE;
-      const empty = item.empty_marker ? markerPattern(item.empty_marker) : DEFAULT_EMPTY_SELECTION_RE;
+      const marker = markerPattern(item.marker ?? DEFAULT_MATCHERS.specialistSelection);
+      const empty = markerPattern(item.empty_marker ?? DEFAULT_MATCHERS.specialistsSkipped);
       const bashIds = new Set(run.filter(e => bashCommand(e) !== null).map(e => (e as ToolUse).id));
       const sources = run.filter(e => e.kind === 'text' || (e.kind === 'tool_result' && bashIds.has(e.id))).map(e => (e as { text: string }).text).reverse();
       let names: string[] | null = null;
       for (const src of sources) {
         const m = marker.exec(src);
-        const parsed = m ? parseNames(m.groups?.names ?? '') : null;
+        const parsed = m ? (m.groups?.count === '0' ? [] : parseNames(m.groups?.names ?? '')) : null;
         if (parsed && parsed.every(n => SAFE_SPECIALIST.test(n))) { names = parsed; break; }
         if (empty.test(src)) { names = []; break; }
       }

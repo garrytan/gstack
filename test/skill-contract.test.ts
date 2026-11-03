@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  EXIT, STATUS_RE, blockMessage, checkContract, isCheckCommand, isPlaceholder, parseContract, parseTranscript, skillLoads, UnknownShape,
+  DEFAULT_MATCHERS, EXIT, STATUS_RE, blockMessage, checkContract, isCheckCommand, isPlaceholder, parseContract, parseTranscript, skillLoads, UnknownShape,
   type Contract,
 } from '../lib/skill-contract';
 import { readFrontmatter } from '../lib/skill-route';
@@ -109,6 +109,9 @@ describe('checkContract is a pure function of the transcript', () => {
     const r2 = check([slash('review'), sel, ...agent('a', 'Testing specialist'), ...agent('b', 'data-migration specialist'), ...red, report], 'review');
     expect(r2.met).toBe(true);
     expect(check([slash('review'), say('Small diff (12 lines) — specialists skipped.'), ...red, report], 'review').met).toBe(true);
+    expect(check([slash('review'), say('Dispatching 0 specialists: (small diff)'), ...red, report], 'review').met).toBe(true);
+    expect(check([slash('review'), say('Dispatching  2\nspecialists: Testing, Security'), ...red, report], 'review').items[0].detail).toBe('selected Testing, Security; no Agent dispatch for Testing, Security');
+    expect(DEFAULT_MATCHERS).toEqual({ specialistSelection: 'Dispatching N specialists:', specialistsSkipped: 'specialists skipped' });
     expect(check([slash('review'), ...red, report], 'review').items[0].detail).toBe('no specialist selection line found');
     expect(check([slash('review'), sel, say('Pre-Landing Review: done')], 'review').items[2]).toMatchObject({ status: 'missing', detail: 'Pre-Landing Review lacks a real value for Gate edits' });
   });
