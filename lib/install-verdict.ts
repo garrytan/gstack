@@ -142,7 +142,24 @@ export interface VerdictProblem { detail: string; code: ResultCodeName; fix?: st
 export function verdictProblem(skill: string, gstackRoot: string, env: Env, bunPath: string, bunVersion: string, cwd?: string): VerdictProblem | null {
   const src = sourceRoot(gstackRoot);
   const project = installProject(src, cwd);
-  const file = findInstallVerdict(src, project, env);
+  return admittedVerdict(skill, src, findInstallVerdict(src, project, env), project, bunPath, bunVersion).problem;
+}
+
+/**
+ * The verdict file that admits `skill`: `file` itself, else the workflow's own record
+ * <verdict>.for/<skill>.json that every install also writes, so a later install for another
+ * workflow never drops this one (GST-1233), except after a failed ./setup, which changed the
+ * checkout every record certified. When neither admits, `file` with its problem.
+ */
+export function admittedVerdict(skill: string, src: string, file: string, project: string | null, bunPath: string, bunVersion: string): { file: string; problem: VerdictProblem | null } {
+  const problem = verdictFileProblem(file, skill, src, project, bunPath, bunVersion);
+  const own = file.replace(/\.json$/, `.for/${skill}.json`);
+  if (problem && /^[A-Za-z0-9._-]+$/.test(skill) && !readInstallVerdict(file)?.trailer?.startsWith('gstack: fail setup') && fs.existsSync(own) && !verdictFileProblem(own, skill, src, project, bunPath, bunVersion)) return { file: own, problem: null };
+  return { file, problem };
+}
+
+/** Why the verdict in `file` does not admit `skill`; null when it does. */
+function verdictFileProblem(file: string, skill: string, src: string, project: string | null, bunPath: string, bunVersion: string): VerdictProblem | null {
   const v = readInstallVerdict(file);
   const problem = (detail: string): VerdictProblem => ({ detail, code: 'INSTALL_UNVERIFIED' });
   if (!v && fs.existsSync(file)) return problem(`the install verdict at ${file} is unreadable or has an unsupported schema_version; rerun the installer`);

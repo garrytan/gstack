@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.95.0.0] - 2026-11-03
+
+### Added
+
+- **Merge each PR at its own green head (`merge: direct`).** `gstack-ship-queue land --pr <n> --pin <sha>` merges one READY PR with `--squash --match-head-commit`, with no train, no stamp commit and no extra CI round. It refuses unless the /ship receipt and the READY note are bound to the pin, every check there is green with none pending, GitHub reports the PR mergeable and clean, and the PR leaves VERSION, the `package.json` version and the CHANGELOG to the release. After the merge it checks that main's tree is the pin merged onto its parent and writes a land note. A new ship-policy key, `merge: train | direct`, turns it on, and `train build` refuses under `direct`. gstack switches its own policy to `direct` in a follow-up once this release exists, so `min_gstack_version` names a version that was actually published. Each refusal has its own code and fix in docs/troubleshooting.md, and docs/captain.md has the new runbook.
+
+## [1.94.44.0] - 2026-11-03
+
+### Fixed
+
+- **A child's install for another workflow no longer drops /ship's install verdict on a shared machine (GST-1233).** When a /ship docs child ran `install.sh --for document-release` with a different Bun on PATH, or its install check failed, it replaced the shared install verdict, and the parent's finish pregate refused with `INSTALL_UNVERIFIED` until someone reinstalled `--for ship`. Each workflow install now also writes that workflow's own verdict beside the shared one (`<verdict>.for/<workflow>.json`), and workflow admission and the pregate fall back to it with the same checks. A new HEAD or a failed `./setup` still invalidates every record, `--check --for ship` keeps ship's own recorded Bun, and the pregate skips a launch directory whose `bun` resolves to a Bun other than the one its admitting record certified. The shared launch file is a separate follow-up (GST-1239).
+
+## [1.94.43.0] - 2026-11-03
+
+### Fixed
+
+- **`gstack-evidence passed` skips the tree hash when the ledger has nothing to match.** Before pregate runs a guard, it asks `gstack-evidence passed` whether that exact command already passed at this tree (#3929). Each check hashed the working tree (`gstack-wtree`) before it looked at the ledger. Usually the ledger has no row for the command at all, so that hash was wasted. Each check took 0.19 s idle and 0.74 to 0.94 s on a busy 4-core machine, once per guard. Now the ledger is read first, and the tree is hashed only when a local row names the command. The answer is the same. Only the no-row message drops its "at tree …" suffix.
+- **Two local test cases no longer run out of time at Bun's default 5 s.** `test/pregate-guards.test.ts`'s guard-timeout case ran two full pregates, each waiting out a real 1 s guard timeout. It is now two cases, one with several guards together and one with a lone timed-out guard. Its fixture also writes the manifest into the base commit instead of making a second commit. On a 4-core machine it went from 4.1 s to 2.0 s and 1.75 s idle. With every core busy (busy loops at nice 10), it went from 0 of 3 runs passing to 10 of 10. `test/spec-quality-gate-secret-sink.test.ts` rendered every host's skill docs in `beforeAll` but reads only the claude and codex output. It now renders just those two, which are byte-identical to the full render: 1.38 s down to 0.37 s. With 16 busy loops, that hook went from timing out in 3 of 3 runs to passing 3 of 3. That is the hook timeout the macOS named-regressions job hit on #3926.
+
+## [1.94.42.0] - 2026-11-03
+
+### Tests
+- Three free tests that failed only on a busy remote test machine (remote pregate run 20261103T015240Z-11756-6ff6, PR #3892) now hold up under load:
+  - `test/review-army-budget.test.ts`: the red-team retry fixture spent a real 80 ms sleep inside its 200 ms deadline, so a pause of more than 120 ms failed attempt 2. Attempt 1 now waits for the cancellation and then drains, and attempt 2 doesn't sleep. With random 150 ms pauses injected, 6 of 10 runs passed before and 20 of 20 pass now.
+  - `test/helpers/docsync-fault-callbacks.ts`: the docsync replay assumed fixture setup took less than 5 seconds, and setup takes 5 to 12 seconds on a busy machine. The replay now checks that the session timeout equals the budget minus 15 seconds minus the time already spent, which is how the code computes it. Under 16 busy loops on 4 cores, 0 of 4 runs passed before and 4 of 4 pass now.
+  - `test/fixtures/plan-seed-cli.ts`: the fake CLI drew its screen and its startup question in two separate writes, so a screen read between them saw an empty input and pasted the plan. It now draws both in one write. Under load, 31 of 36 runs passed before and 36 of 36 pass now.
+
+## [1.94.41.0] - 2026-11-03
+
+**/ship's receipt counts its review findings by id, keeps every run, and a small change after review gets one reader instead of a second /ship (GSTA-258 L4; GST-1136, GST-1168, GST-1179).** The receipt's `REVIEW_LOOP` counts were wrong in a repeatable way: gbrain-evals#310's receipt said 3 blockers found and 2 fixed when 2 were found, 1 fixed and 1 deferred; gstack-evals#174 counted 16 blocking with 8 unrecorded against 9 found and 9 fixed; #3906 and #3911 showed `fixed=0` after real fixes. The summary paired findings by path:line only, so a native finding with no path:line, a row logged after its fix moved the line, or a late defer re-logged under another fingerprint all broke the count, and rows it couldn't place were dropped without a word.
+
+### Changed
+- **`gstack-review-scope summary` binds by finding id.** A row finding carries `ledger_id` (`<pass dir>/<merged.jsonl id>`), each fix commit names what it fixed in a `Review-Finding: <id> reader=<role>` trailer, rows that record their head dedupe by kind, pass, head and finding ids, and a late defer counts once. Rows and findings without an id keep the path:line pairing.
+- **What can't bind is named, never a silent zero.** A row with no start token or readable time, a `pN` ledger with no review row, a `ledger_id` no ledger holds and a trailer naming nothing each print `REVIEW_SCOPE_UNBOUND: <what>: <why>`, and the line and receipt carry `unbound=N`.
+- **The native reader's own verdict line no longer collects as a blocker.** "There are three low-severity findings, all FIXABLE, and none blocks." (#3901) collected as CRITICAL beside the findings it summarized; it now collects at FIXABLE. A line that says something blocks, names a file:line or leads with FIXABLE still collects as CRITICAL. A finding's `Severity: Low. Blocks: no` after a closing quote (`… its base." Severity: Low`) now counts as its own field: on ggstack#71 that one quote made one of four identical findings CRITICAL.
+- **`gstack-ship-receipt carry` offers a scoped re-check (J1).** On `RECEIPT_CARRY_PRODUCT_CHANGED` with linear history against the reviewed base and a range-diff (plus the diff of the changed product paths) of at most 400 lines, carry prints `RECHECK: eligible … packet=<file>`. One reader on the packet and `carry --recheck <record.json>` rebind the receipt, unless HEAD needs a deeper review depth or another risk class. Rebased branches, retargeted stacks, receipts with no recorded review depth, more than 20 changed product paths, binary paths, moved base context and packets over 400 lines or 64 KB still need /ship.
+- **Every /ship run's receipt is kept.** When `write` or `carry` replaces a different receipt, the old one's identifiers and counters move to an append-only `gstack-receipt-runs` block in the PR body (newest 30).
+- **`gstack-ship-queue ready` prints the whole READY.** It adds the receipt's `REVIEW_LOOP:` line, a `TRIAL_MERGES:` line for the lane to fill and an `Attention:` stub that opens with `reviewed by <model>` on risk-class PRs and `self-audited` on every other PR. docs/unattended.md now asks for the cross-family trail read only on risk-class PRs.
+- **The `GSTACK_RESULT:` line names the full head** (`status=complete head=<sha> run=<dir>`), so a leftover line from an earlier ship can't pass for a new head (GST-1179). `parseResult` reads the optional token.
+- **The receipt schema has `no_stop`**, one `{class, reason, evidence}` record per routine stop a run went on past (`write --no-stop`), for the five no-stop defaults that come next.
+
+### Tests
+- `test/review-loop-binding.test.ts`: the GBEV-3, GEVA-223, #3906, #3892/#3903/#3911 and #3911 duplicate-row cases. On main the GBEV-3 case reproduces its receipt exactly (3 found, 2 fixed) and GEVA-223's pattern (18 found, 9 unrecorded).
+- `test/review-ledger-verdict-line.test.ts`: the captured #3901 output and ggstack#71's findings, with negative controls.
+- `test/ship-recheck.test.ts`: every refusal that does and doesn't qualify, the record binding, and the carry end to end.
+- `test/ship-receipt-runs.test.ts`, `test/ship-receipt-result-head.test.ts`: the runs block, the READY tail, `no_stop` validation and the `head=` token.
+
+## [1.94.40.0] - 2026-11-03
+
+- **The macOS named regressions no longer fail when a test that spawns many processes runs past Bun's 5 s default on a slow runner (GST-1280).** The `macos-named-regressions` job in Free Tests now runs `bun test --timeout=30000`, the same per-test limit the Linux free suite and the pregate runner already use. On #3917's stamp commit (run 41719016775) the codex probe-model test, which runs nine probe scripts one after another, was killed at 5,022 ms in both attempts; in three green macOS runs (41720189541, 41716637247, 41720760241) it took 941 ms, 2,079 ms and 3,428 ms, and 505 to 580 ms on Linux. Train 107's first build (run 41712557655) lost two CSO Git fixture tests the same way. Tests that set their own timeout keep it, and the job's 20-minute limit is unchanged.
+
 ## [1.94.39.0] - 2026-11-03
 
 **A base merge next to a reviewed hunk no longer forces a second full review because of the base's own lines.** On founderstar#515, a base merge put 62 lines of another PR, already merged at base, next to the PR's 76 reviewed and unchanged lines in `tests/ui_shots.gd`. The scoped-review section went past its 200-line limit, so `gstack-ship-release finish` took the behavior route, which a review-loop exception can't accept, and asked for Steps 5 to 11.5 again. #3923 hit the same limit when only one trailing context line changed (GST-1226).

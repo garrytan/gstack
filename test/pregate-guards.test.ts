@@ -30,7 +30,7 @@ import * as path from 'node:path';
 import { afterEach } from 'bun:test';
 import { EXIT } from '../lib/headless-artifacts';
 import { capyHost, type CapyHost } from './helpers/capy-host';
-import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
+import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 const hosts: CapyHost[] = [];
@@ -50,16 +50,8 @@ const SERIAL_TEST = "const test = require('node:test');\ntest('serial', () => {}
 
 /** The base branch gains the manifest, its check script and the given pregate config. */
 function guardedFixture(pregate: Record<string, unknown>): FixtureRepo {
-  const repo = makeFixtureRepo({ pregate });
+  const repo = makeFixtureRepo({ pregate, baseFiles: { 'scripts/check-serial.js': CHECK_SERIAL, 'scripts/serial-files.tsv': 'path\treason\n' } });
   repos.push(repo);
-  repo.git('checkout', '-q', 'main');
-  write(repo.work, 'scripts/check-serial.js', CHECK_SERIAL);
-  write(repo.work, 'scripts/serial-files.tsv', 'path\treason\n');
-  repo.git('add', '-A');
-  repo.git('commit', '-q', '-m', 'serial manifest');
-  repo.git('push', '-q', 'origin', 'main');
-  repo.git('checkout', '-q', 'feature');
-  repo.git('merge', '-q', '--ff-only', 'main');
   return repo;
 }
 const pregate = (repo: FixtureRepo, args: string[], env: Record<string, string> = {}) => runBin(repo, 'gstack-pregate', ['--base', 'main', ...args], env);
@@ -92,7 +84,7 @@ describe('guards (CD1)', () => {
     expect(r.out).toContain('GSTACK_RESULT: skill=pregate status=incomplete');
   });
 
-  test('each guard runs in its own process with its timeout: a failing guard does not stop the next, a timed-out guard is incomplete, never pass', () => {
+  test('each guard runs in its own process with its timeout: a failing guard does not stop the next, a timed-out guard never passes', () => {
     const repo = guardedFixture({ ...BASE_PREGATE, guards: [
       { id: 'first', when: ['lib/**'], command: 'echo first-ran; exit 3' },
       { id: 'second', when: ['lib/**'], command: 'touch ../second-ran' },
@@ -108,6 +100,9 @@ describe('guards (CD1)', () => {
     expect(row.status).toBe('fail');
     expect(row.detail).toContain('first');
     expect(row.detail).not.toContain('second');
+  });
+
+  test('a timed-out guard with no failing guard beside it is incomplete, never pass', () => {
     const slowOnly = guardedFixture({ ...BASE_PREGATE, guards: [{ id: 'slow', when: ['lib/**'], command: 'sleep 20', timeout_s: 1 }] });
     commit(slowOnly, { 'lib/util.js': "exports.add = (a, b) => a + b + 0;\n" });
     expect(pregate(slowOnly, ['--allow-repo-commands', '--stage', 'preflight', '--only', 'guards']).status).toBe(EXIT.fail);
