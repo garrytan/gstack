@@ -54,7 +54,7 @@ export interface PregateContext {
   timeoutMs: number;
   /** Where timeoutMs came from: `--timeout`, `timeout_s from <policy>`, or the 600 s default. */
   timeoutSource?: string;
-  /** No output for this long kills a test-tier process group (`--stall-timeout`, `stall_timeout_s`); 0 disables. */
+  /** No output and no CPU activity for this long kills a test-tier process group (`--stall-timeout`, `stall_timeout_s`); 0 disables. */
   stallTimeoutMs: number;
   /** Live stderr lines: per-file progress, heartbeats, the stage result. */
   progress: (line: string) => void;
@@ -64,6 +64,8 @@ export interface PregateContext {
   policyFrom: 'base' | 'head';
   /** `--from-run`: a Free Tests run whose tree.json files count as passed for this tree (lanes, lib/run-evidence.ts verifyFromRun), with the base branch's run check or why it could not be built. */
   fromRun?: { ref: string; check: RunSource | { error: string } };
+  /** `--no-ci-carry`: false skips the tests stage's automatic --from-run (lib/ci-carry.ts findCarry at HEAD's clean tree). */
+  ciCarry?: boolean;
   /** `--remote`: run the declared remote gate now, under this spend cap. */
   remote: { spendCapUsd: number } | null;
   env: NodeJS.ProcessEnv;

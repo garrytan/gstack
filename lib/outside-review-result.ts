@@ -297,6 +297,43 @@ const LEGACY_REASONS: Partial<Record<GateReason, string>> = {
   review_refused: 'review refused',
 };
 
+export interface TokenUsage {
+  input_tokens?: number; cached_input_tokens?: number; cache_write_input_tokens?: number;
+  output_tokens?: number; reasoning_output_tokens?: number; total_tokens?: number; usd: number | 'unknown';
+}
+const USAGE_COUNTERS = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'] as const;
+
+/**
+ * Token usage from `codex exec --json` events, read loosely. A cumulative
+ * `total_token_usage` snapshot (info, payload.info or msg.info) wins, latest first;
+ * without one, the latest `usage` object does: codex exec fills turn.completed.usage
+ * with the session's running total, so summing turns would overcount. Only the
+ * counters the events carry are reported.
+ */
+export function usageFromEvents(events: string): TokenUsage {
+  let cumulative: Record<string, unknown> | undefined;
+  let latest: Record<string, unknown> = {};
+  for (const line of events.split('\n')) {
+    if (!line.trim()) continue;
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const snapshot = obj?.info?.total_token_usage ?? obj?.payload?.info?.total_token_usage ?? obj?.msg?.info?.total_token_usage;
+    if (snapshot && typeof snapshot === 'object') { cumulative = snapshot; continue; }
+    if (!obj?.usage || typeof obj.usage !== 'object') continue;
+    latest = obj.usage;
+  }
+  const source = cumulative ?? latest;
+  const usage: TokenUsage = { usd: 'unknown' };
+  for (const key of USAGE_COUNTERS) if (typeof source[key] === 'number') usage[key] = source[key] as number;
+  return usage;
+}
+
+/** The OUTSIDE_USAGE line: counters the events carried, or `unknown` when they carried none. */
+export function formatUsageLine(usage: TokenUsage): string {
+  const parts = USAGE_COUNTERS.filter(key => usage[key] !== undefined).map(key => `${key.replace(/_tokens$/, '')}=${usage[key]}`);
+  return `OUTSIDE_USAGE: ${parts.length ? parts.join(' ') : 'unknown'}`;
+}
+
 /** Text-only compatibility shape for direct importers (claude-code/SKILL.md.tmpl) and the two-argument CLI. */
 export function validateOutsideReview(text: string, gate: OutsideGate): { completed: boolean; reason?: string; score?: number; gate?: 'pass' | 'fail' } {
   const checked = classifyOutsideReview({ text, gate });
@@ -347,12 +384,13 @@ if (import.meta.main) {
     if (!result.completed) { console.error(`Outside review unavailable: ${result.reason}; missing coverage.`); process.exit(1); }
     process.exit(0);
   }
-  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit,
-    stderr: await readOptional(flags['--stderr']), events: await readOptional(flags['--events']) });
+  const events = await readOptional(flags['--events']);
+  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events });
   const label = flags['--label'] ?? 'Outside review';
   console.log(`VERDICT: ${checked.verdict}`);
   console.log(`FINDINGS: ${checked.findings.highest ?? (checked.verdict === 'findings' ? 'unspecified' : 'none')}`);
   if (checked.unparsed) console.log(`UNPARSED: ${checked.unparsed}`);
+  if (flags['--events'] !== undefined) console.log(formatUsageLine(usageFromEvents(events)));
   if (checked.reason) {
     console.log(`REASON: ${checked.reason}`);
     console.error(gateOutcomeLine(label, checked.reason, checked.detail));
