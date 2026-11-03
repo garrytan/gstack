@@ -140,7 +140,7 @@ export function dispatchEventRewriter(artifacts: string, substituted: (phase: Di
       pending = events.pop()!;
       return events.map(e => take(e + '\n\n')).join('');
     },
-    end: (): string => { const rest = pending; pending = ''; return rest; },
+    end: (): string => { const rest = (held ? held.raw.join('') : '') + pending; held = null; pending = ''; return rest; },
   };
 }
 

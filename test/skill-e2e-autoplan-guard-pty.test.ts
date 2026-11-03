@@ -32,7 +32,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
     const s = prepareGuardSession(process.env.ANTHROPIC_API_KEY);
     const relay = startDispatchRelay(path.join(s.project, '.gstack', 'tmp', 'autoplan'));
     const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url },
-      timeoutMs: 540_000, observeScreen: true });
+      timeoutMs: 540_000, observeScreen: true }).catch(error => { relay.stop(); throw error; });
     const started = performance.now();
     const prompts: string[] = [];
     let phase1Ms: number | null = null;
