@@ -146,7 +146,9 @@ record. Another successful fetch alone cannot certify corrupted history.
 
 Outside reviews send your diff, plan or question to a second AI provider. Their
 verdict comes from `lib/outside-review-result.ts`, which prints
-`VERDICT: clean|findings|unverified|unavailable`. A `findings` verdict with a
+`VERDICT: clean|findings|unverified|unavailable`. When given an events file, it
+also prints `OUTSIDE_USAGE:` with the token counters Codex reported, or
+`OUTSIDE_USAGE: unknown` when it reported none. A `findings` verdict with a
 P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
@@ -3920,14 +3922,14 @@ the lane log, then rerun or split the selection. A tool missing from PATH is
 <a id="pregate-stalled"></a>
 ### `PREGATE_STALLED`
 
-**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log for the stall timeout (default 300 s,
+**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log, and its process group used under a tenth of one CPU (Windows: log growth alone), for the stall timeout (default 300 s,
 `stall_timeout_s` in the base branch's `.gstack/pregate.json` or the user-owned file, or
 `--stall-timeout`). pregate killed its process group and names the last test
 file started. The check is incomplete, never pass.
 
 **Fix.** Open the printed log, find the hang in the named file (a blocked
 child, a server that never exits, a synchronous wait), fix it and rerun
-`gstack-pregate --stage tests`. A test that is legitimately quiet for longer
+`gstack-pregate --stage tests`. A test that legitimately waits quietly for longer
 needs a larger `--stall-timeout`; `0` disables the stall kill and leaves only
 `--timeout`. The `--remote` gate never stalls: it is bounded by `--timeout`
 (else `timeout_s`), so a gate that waits on CI needs a timeout long enough for
@@ -5990,8 +5992,10 @@ retargeted stacked PR the parent branch and the base.
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
-landed on the base, or base context next to unchanged hunks after a clean
-scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
+landed on the base, a stamp on the branch's own rows in a stamp file it also
+changed as product (every changed line at a branch-added position, the mode
+unchanged, the base not touching the file), or base context next to unchanged
+hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 
