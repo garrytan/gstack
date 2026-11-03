@@ -121,6 +121,7 @@
 # --sink or UBI_SINK names one, and `down` makes one last push first
 # (SINK_FLUSH_FAILED turns a passing run into exit 1).
 set -euo pipefail
+INHERITED_ENV=" $(compgen -e | tr '\n' ' ')"
 # Keep heredoc bodies on temp files, not the pipe window (test/heredoc-pipe-deadlock.test.ts).
 BASH_COMPAT=50
 
@@ -1522,11 +1523,15 @@ cmd_pull() {
   remote "$name" "cd $dir && tar -czf - $(basename "$from")" | tar -xzf - -C "$to"
 }
 
-# pass_name NAME: a variable this runner may forward to a VM. Its own
-# credentials (UBICLOUD_*) never leave this machine, whoever asks.
+# pass_name NAME: a variable this runner may forward to a VM: one the caller's
+# environment held when the runner started. Its own credentials (UBICLOUD_*),
+# its recovery secret and sink URL, and every variable it sets itself
+# (RECOVERY_SECRET holds the Ubicloud key by default) never leave this machine.
 pass_name() {
   [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "--pass $1: not a variable name"
   case $1 in UBICLOUD_*) die "--pass $1: the runner never forwards its own Ubicloud credentials to a VM" ;; esac
+  case $1 in RECOVERY_SECRET|UBI_RECOVERY_KEY|UBI_SINK) die "--pass $1: the runner never forwards its recovery secret or sink URL to a VM" ;; esac
+  [[ "$INHERITED_ENV" == *" $1 "* ]] || die "--pass $1: not in this shell's environment; the runner forwards only variables you exported, never its own"
 }
 
 # inside_dir DIR ROOT: DIR resolves, symlinks followed, to ROOT or below it.
@@ -1576,16 +1581,13 @@ run_teardown() {
 TIER_NAMES=() TIER_CMDS=() RESUME=1 RERUN_FAILED=0 FORCE_ATTACH="" RUN_ARGS=()
 cmd_run() {
   require_owner
-  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0 a skip=""
-  # The run record replays RUN_ARGS on attach; a --sink URL stays out of it (pass it as UBI_SINK).
+  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() passes=() key_inputs=() probe=0
+  # The run record replays RUN_ARGS on attach. Each option's words are copied as
+  # it is parsed, so a --sink URL stays out of it (pass it as UBI_SINK).
+  local all=("$@") pos=0 opt left
   RUN_ARGS=()
-  for a in "$@"; do
-    if [ "$skip" = 1 ]; then skip=""; continue; fi
-    if [ "$skip" != cmd ] && [ "$a" = --sink ]; then skip=1; continue; fi
-    [ "$a" != -- ] || skip=cmd
-    RUN_ARGS+=("$a")
-  done
   while [ $# -gt 0 ]; do
+    opt=$1 left=$#
     case $1 in
       -S|--storage) check_storage "$2"; up_args+=("$1" "$2"); shift 2 ;;
       -s|--size|-l|--location|-n|--name|-b|--image|--tag|--sink|--sink-path) up_args+=("$1" "$2"); shift 2 ;;
@@ -1605,7 +1607,10 @@ cmd_run() {
       --) shift; break ;;
       *) die "run: unknown option $1" ;;
     esac
+    [ "$opt" = --sink ] || RUN_ARGS+=("${all[@]:pos:left-$#}")
+    pos=$(( pos + left - $# ))
   done
+  [ "$pos" -ge ${#all[@]} ] || RUN_ARGS+=("${all[@]:pos}")
   [ $# -gt 0 ] || [ ${#TIER_NAMES[@]} -gt 0 ] || die "run: missing command after --"
   [ -z "$setup" ] || [ -f "$setup" ] || die "setup script not found: $setup"
   command -v git >/dev/null || die "git is required: the run key fingerprints the checkout with it"
@@ -1688,8 +1693,13 @@ cmd_run() {
   fi
   if [ -n "$attach" ] && [ "$COUNTED" = 1 ]; then
     recovery_preflight
-    compgen -G "$RECOVERY_DIR/*/$attach.bundle" >/dev/null \
-      || die "UBI_RECOVERY_REQUIRED: a counted run would reattach to $attach, which has no recovery bundle under $RECOVERY_DIR; destroy it ($0 down $attach) and rerun"
+    local opened rbt
+    rbt=$(mktemp -d)
+    opened=0
+    printf %s "$RECOVERY_SECRET" | python3 -c "$RB_PY" open "$RECOVERY_DIR/$OWNER/$attach.bundle" "$rbt" "$attach" "$OWNER" 2>/dev/null && opened=1
+    rm -rf "$rbt"
+    [ "$opened" = 1 ] \
+      || die "UBI_RECOVERY_REQUIRED: a counted run would reattach to $attach, which has no recovery bundle under $RECOVERY_DIR/$OWNER that opens under this secret; destroy it ($0 down $attach) and rerun"
   fi
   [ -z "$attach" ] || name=$attach
   [ -n "$name" ] || { name=$(new_name); up_args+=(-n "$name"); }
