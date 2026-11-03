@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.94.14.0] - 2026-11-03
+
+**`review_exclude_paths` keeps code it used to exclude, and the docs say exactly what the receipt check stops (GST-972).** Three ways to get code or a credential out of review under a base pattern are closed, each with a failing-first test in `test/review-exclude.test.ts`, and the receipt docs no longer over-claim.
+
+### Fixed
+- **Native binaries are code.** A `.node`, `.so`, `.dylib` or `.dll` file under a base pattern was excluded as binary content, and so was a compiled executable with a data extension. A binary file that starts with ELF, Mach-O (universal binaries included), PE, WebAssembly or `#!` magic is now kept as `code` whatever its extension. Binary here is git's own verdict on the bytes, read with no attributes from the tree as well as with the branch's, so a branch's `.gitattributes` (`*.png diff -binary`) cannot make an ELF read as text and skip the check (#3910).
+- **A NUL byte no longer makes code excludable.** A binary file was content unless its extension was on a short source list, so `.gradle`, `.sql`, `.tf`, `.groovy`, a `.p12` key store or an extensionless private key with a NUL byte was excluded. A binary file is now content only under a known content extension (images, fonts, media, documents, compressed archives, `.bin`, `.dat` and data blobs); every other binary file is kept as `code`.
+- **A branch's `.gitattributes` cannot get a file with a credential line excluded.** Marking `receipts/**` binary left the collector's added lines empty, so the secret-line keep rule saw nothing and the file was excluded. For a file git calls binary only because of its attributes, the rule now reads `git diff --text --no-textconv --no-ext-diff`, so the file stays in review and the plan lists it as `REVIEW_EXCLUDE_KEPT: secret-line`. Readers' own diffs still follow the branch's attributes and show that file as `Binary files differ`; reading such files as text in every reader's diff is a separate follow-up.
+- **`gstack-ship-receipt write --review-exclude` docs are exact.** The help, `docs/troubleshooting.md`, `docs/ship-policy.md` and the queue's refusal line said a receipt write alone cannot clear `field=review_exclude`. Write checks the digest against the base policy and does not read the review ledger, so a write given the refusal's `expected=` digest passes without a review. A mismatch proves only that the `--review-exclude` argument (or the digest the receipt recorded from it) differs from the head's selection, not what the readers read. The text now says that, and that the review rerun is the fix.
+
 ## [1.94.13.0] - 2026-11-03
 
 - **A bare `--base main` reads origin/main in every review and ship bin (GST-1036).** `gstack-review-plan` now prints `REVIEW_BASE: <ref> <sha>` and names a lagging local base on stderr. `gstack-banned-terms`, `gstack-prose-lint --base`, `gstack-docs-candidate`, `gstack-design-detect.ts scan --changed` and `gstack-pr-shots --base` no longer merge against a stale local main and report lines the branch only inherited. They all use the one resolver gstack-gate-diff already used.
