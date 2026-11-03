@@ -146,7 +146,9 @@ record. Another successful fetch alone cannot certify corrupted history.
 
 Outside reviews send your diff, plan or question to a second AI provider. Their
 verdict comes from `lib/outside-review-result.ts`, which prints
-`VERDICT: clean|findings|unverified|unavailable`. A `findings` verdict with a
+`VERDICT: clean|findings|unverified|unavailable`. When given an events file, it
+also prints `OUTSIDE_USAGE:` with the token counters Codex reported, or
+`OUTSIDE_USAGE: unknown` when it reported none. A `findings` verdict with a
 P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
@@ -5987,8 +5989,10 @@ retargeted stacked PR the parent branch and the base.
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
-landed on the base, or base context next to unchanged hunks after a clean
-scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
+landed on the base, a stamp on the branch's own rows in a stamp file it also
+changed as product (every changed line at a branch-added position, the mode
+unchanged, the base not touching the file), or base context next to unchanged
+hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 
