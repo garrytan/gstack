@@ -248,7 +248,7 @@ describe('GSTA-135: registered skills get used', () => {
     }
     const oc = register(opts(d, 'openclaw', { mode: 'all', skillsDir: path.join(d, 'oc') }));
     const review = fs.readFileSync(path.join(oc.dest, 'gstack-review', 'SKILL.md'), 'utf8');
-    expect(descriptionOf(review)[0]).not.toMatch(/^Use /);
+    expect(descriptionOf(review)[0]).not.toMatch(/^Use for: /);
   }, 120_000);
 
   test('OpenClaw hybrid is the default: the task skills listed directly, the router for the rest; mode switches refresh and uninstall cleanly', () => {

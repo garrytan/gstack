@@ -380,4 +380,20 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
     expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: (tests |all )?incomplete/);
     expect(lineOf(r.stdout, 'PREGATE_DETAIL')).toContain('timed out after 2000 ms (timeout_s from origin/main');
   });
+
+  // Value: protects=--timeout on preflight reaches Step 5's pregate, so a repo with no timeout_s can run lanes past 600 s without a standalone pregate; fails_when=preflight drops the flag and pregate runs at timeout_s or the 600 s default;
+  //   why_new=GST-1196 (GEVA-2, gstack-evals#176/#179): a 128-file group stopped at 600 s; seam=gstack-pregate --timeout; no_claim=the finish fallback
+  test('--timeout reaches Step 5 pregate over the policy and default, and a bad value is usage', () => {
+    const slow = "const test = require('node:test');\ntest('slow', async () => { await new Promise(r => setTimeout(r, 4000)); });\n";
+    const f = fx(base({ timeout_s: 600 }), { 'test/slow.serial.test.js': slow });
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', '2', '--lane', LANE]);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: (tests |all )?incomplete/);
+    expect(lineOf(r.stdout, 'PREGATE_DETAIL')).toContain('timed out after 2000 ms (--timeout applies');
+    for (const bad of ['0', '3601', '1.5', 'x']) {
+      const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', bad, '--lane', LANE]);
+      expect(u.status).toBe(2);
+      expect(u.stdout + u.stderr).toContain('--timeout needs whole seconds from 1 to 3600');
+    }
+  });
 });
