@@ -19,8 +19,8 @@ const TEMPLATE = 'const SAVE_VERSION = {n};';
 const POLICY = JSON.stringify({ min_gstack_version: CARRY_MECHANICAL_KEY_VERSION, carry_mechanical: { version_constants: [{ path: 'src/game.js', template: TEMPLATE }], goldens: ['tests/goldens/**'] } }, null, 2) + '\n';
 const REGISTRY = { $schema: 'https://github.com/garrytan/gstack/docs/pregate.md#generated-v1', entries: [{ id: 'digest', command: 'node gen.js', outputs: ['tests/goldens/**'], inputs: ['src/**', 'gen.js'] }] };
 const GEN = "const fs=require('fs');const {SAVE_VERSION}=require('./src/game.js');fs.writeFileSync('tests/goldens/digest.txt','# digest v'+SAVE_VERSION+'\\n');\n";
-const game = (n: number, o: { score?: string; bonus?: string; after?: string } = {}) =>
-  `const SAVE_VERSION = ${n};\n${o.after ?? ''}exports.SAVE_VERSION = SAVE_VERSION;\nexports.score = (a) => ${o.score ?? 'a * 2'};\n// one\n// two\n// three\n// four\n// five\nexports.bonus = (a) => ${o.bonus ?? 'a + 1'};\n`;
+const game = (n: number, o: { score?: string; bonus?: string; after?: string; one?: string } = {}) =>
+  `const SAVE_VERSION = ${n};\n${o.after ?? ''}exports.SAVE_VERSION = SAVE_VERSION;\nexports.score = (a) => ${o.score ?? 'a * 2'};\n${o.one ?? '// one'}\n// two\n// three\n// four\n// five\nexports.bonus = (a) => ${o.bonus ?? 'a + 1'};\n`;
 const digest = (n: number) => `# digest v${n}\n`;
 const pregateOut = (repo: FixtureRepo) => path.join(repo.work, '.gstack/tmp/pregate.json');
 const pregate = (repo: FixtureRepo) => runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands']);
@@ -29,7 +29,7 @@ const pregate = (repo: FixtureRepo) => runBin(repo, 'gstack-pregate', ['--base',
  * main holds 41; the branch reviews a score change that took 42; main then takes 42 itself and edits bonus (an
  * unrelated function); the branch merges main and retakes 43 with `head` (the default also regenerates the digest).
  */
-function retaken(o: { policyOnBranch?: boolean; reviewedGame?: string; head?: Record<string, string> } = {}): { repo: FixtureRepo; reviewed: string; body: string } {
+function retaken(o: { policyOnBranch?: boolean; reviewedGame?: string; mainGame?: string; head?: Record<string, string> } = {}): { repo: FixtureRepo; reviewed: string; body: string } {
   const repo = makeFixtureRepo({ registry: REGISTRY, pregate: { ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, 'tests/goldens/**': [] } }, baseFiles: { 'src/game.js': game(41), 'gen.js': GEN, 'tests/goldens/digest.txt': digest(41), ...(o.policyOnBranch ? {} : { '.gstack/ship-policy.json': POLICY }) } });
   repos.push(repo);
   const reviewed = commit(repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n', 'src/game.js': o.reviewedGame ?? game(42, { score: 'a * 3' }), 'tests/goldens/digest.txt': digest(42), ...(o.policyOnBranch ? { '.gstack/ship-policy.json': POLICY } : {}) }, 'triple the score, take 42');
@@ -37,10 +37,10 @@ function retaken(o: { policyOnBranch?: boolean; reviewedGame?: string; head?: Re
   const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]);
   expect(w.status).toBe(EXIT.ok);
   repo.git('checkout', '-q', 'main');
-  commit(repo, { 'src/game.js': game(42, { bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(42) }, 'main: take 42, raise the bonus');
+  commit(repo, { 'src/game.js': o.mainGame ?? game(42, { bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(42) }, 'main: take 42, raise the bonus');
   repo.git('push', '-q', 'origin', 'main');
   repo.git('checkout', '-q', 'feature');
-  repo.git('merge', '-q', '--no-edit', 'origin/main');
+  try { repo.git('merge', '-q', '--no-edit', 'origin/main'); } catch { /* an adjacent base edit conflicts; the head commit below resolves it */ }
   commit(repo, o.head ?? { 'src/game.js': game(43, { score: 'a * 3', bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(43) }, 'retake 43');
   return { repo, reviewed, body };
 }
@@ -134,6 +134,18 @@ describe('carry_mechanical: a retaken version constant and proven goldens (GST-1
     const out = carry(repo, body);
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain('the reviewed head did not take the constant');
+    expect(headOf(body)).toBe(reviewed);
+  }, 120_000);
+
+  // Value: protects=the scoped review never replaces the goldens' proof; fails_when=a masked context verdict on a declared
+  // constant carries on a clean scoped-review record with stale goldens and no pregate; seam=none; no_claim=-
+  test('a masked context verdict still needs the regen check: stale goldens and a clean scoped review refuse', () => {
+    const { repo, reviewed, body } = retaken({ mainGame: game(42, { one: '// one, moved by main' }), head: { 'src/game.js': game(43, { score: 'a * 3', one: '// one, moved by main' }) } });
+    const record = path.join(repo.root, 'scoped.json');
+    fs.writeFileSync(record, JSON.stringify({ head: repo.git('rev-parse', 'HEAD'), paths: ['src/game.js'], reviewer: 'fixture', verdict: 'clean' }));
+    const out = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', '--scoped-review', record]);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('regen');
     expect(headOf(body)).toBe(reviewed);
   }, 120_000);
 
