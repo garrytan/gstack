@@ -317,7 +317,7 @@ export function collectLive(root: string, base: string): Collected {
   }
   const consumed = scanConsumers(root, [...diff.perPath.map(e => e.path), ...diff.deleted], [mergeBase], true, root, errors);
   const drawings = drawingsAmong(diff.perPath, root, p => {
-    try { return fs.statSync(path.join(root, p)).size <= DRAWING_READ_CAP ? fs.readFileSync(path.join(root, p)) : null; } catch { return null; }
+    try { const st = fs.lstatSync(path.join(root, p)); return st.isFile() && st.size <= DRAWING_READ_CAP ? fs.readFileSync(path.join(root, p)) : null; } catch { return null; }
   });
   const executables = executablesAmong(diff.perPath, root, e => {
     try {

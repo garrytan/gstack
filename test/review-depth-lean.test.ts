@@ -36,6 +36,9 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     expect(c.class).toBe('code');
     expect(c.reasons).toEqual(expect.arrayContaining(['code: scripts/logs/prune']));
     for (const p of exe) expect(classifyDiff({ paths: [p], gateTagged: 0, executables: [p] }).class).toBe('code');
+    const txt = 'scripts/logs/prune.txt';
+    const printsKey = classifyDiff({ paths: [txt], gateTagged: 0, executables: [txt], added: { [txt]: ['curl -H "Authorization: Bearer abcdefgh12345678"'] } });
+    expect([printsKey.class, printsKey.risk]).toEqual(['code', ['security']]);
     expect(classifyDiff({ paths: ['logs/run.txt', 'docs/r/logs/ready'], gateTagged: 0, executables: [] }).class).toBe('docs');
   });
   // Value: protects=sealed custody and outside-model prompt egress plan full depth (GST-1177: harness-evals#237, gstack #3921);

@@ -147,6 +147,18 @@ describe('GSTA-258 L7 Addendum 1 and 7: executables among data-named paths', () 
       expect([d.class, d.risk.includes('security'), d.depth]).toEqual(['code', true, 'full']);
     }
   });
+  // Value: protects=collectLive never opens a symlinked SVG (GStack Minder second exception on #3972); fails_when=a tracked
+  //   art.svg linked to a FIFO blocks the drawing read; seam=drawingsAmong's live reader
+  test('a symlinked SVG is not read as a drawing in collectLive', () => {
+    const r = repo({});
+    const fifo = path.join(r.dir, '.git', 'fifo');
+    spawnSync('mkfifo', [fifo], { timeout: 5_000 });
+    fs.symlinkSync(fifo, path.join(r.dir, 'art.svg'));
+    r.commit({});
+    const t0 = Date.now();
+    expect(collectLive(r.dir, 'main').drawings).toEqual([]);
+    expect(Date.now() - t0).toBeLessThan(20_000);
+  }, 30_000);
 });
 
 describe('collectLive: the working tree', () => {
