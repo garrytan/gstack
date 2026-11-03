@@ -130,13 +130,15 @@ export const PACKET_SECTION_CAP = 200;
 /**
  * The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own
  * change; per test path, its test hunks. `over` names every path with a section past PACKET_SECTION_CAP: one reviewer
- * cannot be shown all of it, so the caller sends it to the full loop.
+ * cannot be shown all of it, so the caller sends it to the full loop. Only the branch's own lines count toward the cap
+ * (GST-1226): the base's +/- lines, already merged at base, and the base-added lines that sit as context in the current
+ * hunks are shown but not counted.
  */
 export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): { text: string; over: string[] } {
   const over = new Set<string>();
   let current = '';
-  const fence = (label: string, body: string) => {
-    if (body.split('\n').length > PACKET_SECTION_CAP) over.add(current);
+  const fence = (label: string, body: string, counts: (line: string) => boolean = () => true) => {
+    if (body.split('\n').filter(counts).length > PACKET_SECTION_CAP) over.add(current);
     return `${label}\n\`\`\`diff\n${body.trimEnd()}\n\`\`\`\n`;
   };
   const parts = [`# Scoped review: base context moved next to the reviewed hunks\n\nreviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}. The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`];
@@ -145,8 +147,10 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
     current = rel;
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
-    parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
-      fence("The base's change", hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('')));
+    const b = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('');
+    const merged = new Set(b.split('\n').filter(l => l.startsWith('+')).map(l => ` ${l.slice(1)}`));
+    parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join(''), l => !merged.has(l)),
+      fence("The base's change", b, l => !/^[+-]/.test(l)));
   }
   return { text: parts.join('\n'), over: [...over] };
 }
