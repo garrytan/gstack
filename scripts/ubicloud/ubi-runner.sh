@@ -1580,8 +1580,9 @@ cmd_run() {
   # The run record replays RUN_ARGS on attach; a --sink URL stays out of it (pass it as UBI_SINK).
   RUN_ARGS=()
   for a in "$@"; do
-    if [ -n "$skip" ]; then skip=""; continue; fi
-    if [ "$a" = --sink ]; then skip=1; continue; fi
+    if [ "$skip" = 1 ]; then skip=""; continue; fi
+    if [ "$skip" != cmd ] && [ "$a" = --sink ]; then skip=1; continue; fi
+    [ "$a" != -- ] || skip=cmd
     RUN_ARGS+=("$a")
   done
   while [ $# -gt 0 ]; do

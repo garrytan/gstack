@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { creates, fakeVm, gitSrc, run, until, type FakeVm } from './helpers/ubi-runner-fake-vm';
+import { creates, fakeVm, gitSrc, run, until, vmDirs, type FakeVm } from './helpers/ubi-runner-fake-vm';
 
 const fixtures: FakeVm[] = [];
 const make = () => { const f = fakeVm(); fixtures.push(f); return f; };
@@ -70,6 +70,19 @@ describe('ubi-runner results sink (GST-1220 a)', () => {
     expect(f.ssh()).not.toContain('sekritsig123');
     expect(out(up)).not.toContain('sekritsig123');
   }, 60_000);
+
+  test('run keeps the presigned URL out of its run record, and a command word --sink stays in it', async () => {
+    const f = make();
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 3\n');
+    const a = f.spawn(['run', '--sink', 'https-put:https://b.example/o?X-Amz-Signature=sekritsig456', '--src', gitSrc(f), '--', 'make', 'test', '--sink', 'kept'], { UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    const name = vmDirs(f)[0]!;
+    const record = readFileSync(join(f.state, name, 'run'), 'utf8');
+    expect(record).not.toContain('sekritsig456');
+    expect(record).toContain(' -- make test --sink kept');
+    expect(await a.exited).toBe(0);
+    expect(f.listed().trim()).toBe('');
+  }, 90_000);
 
   test('a failed final push prints SINK_FLUSH_FAILED, the VM is destroyed anyway, and run exits 1', () => {
     const f = make();
@@ -210,9 +223,30 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(unwritable.exitCode).not.toBe(0);
     expect(out(unwritable)).toContain('UBI_RECOVERY_UNAVAILABLE');
     expect(creates(f)).toBe(0);
+    for (const bad of [['--sink-path', '/etc'], ['--sink-path', 'a/../..'], ['--tag', 'no-equals']]) {
+      const r = run(f, ['up', ...bad], { UBI_REAP: '0' });
+      expect(r.exitCode).not.toBe(0);
+    }
+    expect(creates(f)).toBe(0);
     const rec = join(f.root, 'recovery');
     const ok = run(f, ['up', '--counted'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0' });
     expect(ok.exitCode).toBe(0);
     expect(existsSync(join(rec, 'thrd1', ok.stdout.toString().trim() + '.bundle'))).toBe(true);
   });
+
+  test('a counted rerun refuses to reattach to a VM that has no bundle', async () => {
+    const f = make();
+    const repo = gitSrc(f);
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 4; echo end\n');
+    const a = f.spawn(['run', '--src', repo, '--', 'make test'], { UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    process.kill(a.pid, 'SIGKILL');
+    await a.exited;
+    const name = vmDirs(f)[0]!;
+    const r = run(f, ['run', '--counted', '--src', repo, '--', 'make test'], { UBI_RECOVERY_DIR: join(f.root, 'rec'), UBI_REAP: '0' });
+    expect(out(r)).toContain('UBI_RECOVERY_REQUIRED: a counted run would reattach to ' + name);
+    expect(r.exitCode).not.toBe(0);
+    expect(creates(f)).toBe(1);
+    expect(run(f, ['down', name]).exitCode).toBe(0);
+  }, 90_000);
 });
