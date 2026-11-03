@@ -398,7 +398,7 @@ describe('a branch cannot hide code under a base pattern', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
     fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
     const nul = (code: string) => Buffer.from(`/* \0 */ ${code}\n`);
-    const kept = { 'assets/Build.groovy': nul('println "x"'), 'assets/build.gradle': nul('apply plugin: "java"'), 'assets/id_ed25519': nul('-----BEGIN OPENSSH PRIVATE KEY-----'), 'assets/main.tf': nul('resource "x" "y" {}'), 'assets/query.sql': nul('DROP TABLE users;'), 'assets/server.p12': Buffer.from([0x30, 0x82, 0, 1, 2, 3]) };
+    const kept = { 'assets/Build.groovy': nul('println "x"'), 'assets/build.gradle': nul('apply plugin: "java"'), 'assets/id_ed25519': nul('openssh-key-v1'), 'assets/main.tf': nul('resource "x" "y" {}'), 'assets/query.sql': nul('DROP TABLE users;'), 'assets/server.p12': Buffer.from([0x30, 0x82, 0, 1, 2, 3]) };
     const content = { 'assets/report.pdf': GZ, 'assets/shot.png': GZ };
     for (const [rel, bytes] of Object.entries({ ...kept, ...content })) fs.writeFileSync(path.join(repo.work, rel), bytes);
     commit(repo, {});
