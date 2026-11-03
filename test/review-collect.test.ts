@@ -130,6 +130,23 @@ describe('GSTA-258 L7 Addendum 1 and 7: executables among data-named paths', () 
     r.write({ 'r.log': null });
     expect(collectLive(r.dir, 'main').executables).toEqual([]);
   });
+  // Value: protects=a docs or config name never hides an executable's lines, and a symlink is never opened (outside voice on #3972);
+  //   fails_when=a 755 prune.txt or prune.json with rm -rf classes light with no security, or a logs/ symlink is read through;
+  //   seam=collectors -> classifyDiff -> matchRisk
+  test('executable .txt and .json scripts are code with security lines; a symlink counts as executable without being read', () => {
+    const r = repo({});
+    const script = '#!/bin/sh\nrm -rf "$1"\n';
+    r.write({ 'scripts/logs/prune.txt': script, 'tools/prune.json': script });
+    for (const p of ['scripts/logs/prune.txt', 'tools/prune.json']) fs.chmodSync(path.join(r.dir, p), 0o755);
+    fs.mkdirSync(path.join(r.dir, 'logs'));
+    fs.symlinkSync('/dev/null', path.join(r.dir, 'logs/run'));
+    const head = r.commit({});
+    for (const c of [collectCommit(r.dir, r.baseSha, head), collectLive(r.dir, 'main')]) {
+      expect(c.executables).toEqual(['logs/run', 'scripts/logs/prune.txt', 'tools/prune.json']);
+      const d = depthOfCommitInput({ ...c, gateTagged: 0 });
+      expect([d.class, d.risk.includes('security'), d.depth]).toEqual(['code', true, 'full']);
+    }
+  });
 });
 
 describe('collectLive: the working tree', () => {

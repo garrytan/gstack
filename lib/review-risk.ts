@@ -134,6 +134,8 @@ export interface RiskInput {
   removed?: Record<string, readonly string[]>;
   /** gstack-diff-scope's SCOPE_AUTH: the auth class needs it and an auth token in the path. */
   scopeAuth: boolean;
+  /** Executables (lib/review-collect.ts): never a config file or results script, so their lines are always read. */
+  executables?: readonly string[];
   /** The base policy's review.risk_paths matcher: a code path it matches is risk class `policy`. */
   isRiskPath?: (p: string) => boolean;
 }
@@ -144,9 +146,10 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
     if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
-    const stats = STATS_SCRIPT.test(p);
+    const exe = !!i.executables?.includes(p);
+    const stats = !exe && STATS_SCRIPT.test(p);
     const t = stats ? [] : tokens(p);
-    const config = CONFIG_DATA_PATH.test(p);
+    const config = !exe && CONFIG_DATA_PATH.test(p);
     const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);

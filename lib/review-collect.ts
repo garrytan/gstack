@@ -234,16 +234,16 @@ function drawingsAmong(perPath: readonly PathLines[], classRoot: string | readon
 }
 
 /**
- * The changed paths the data rules could move to docs (a data or run-log name) that are executables: the exec bit, or text
+ * The changed paths a docs, data or run-log rule could move out of code that are executables: the exec bit, a symlink, or text
  * that starts with "#!" (GSTA-258 L7). `isExec` answers for one path and fails closed (true) when it cannot read it.
  */
 function executablesAmong(perPath: readonly PathLines[], classRoot: string | readonly string[], isExec: (e: PathLines) => boolean): string[] {
-  return perPath.filter(e => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot)).filter(isExec).map(e => e.path).sort();
+  return perPath.filter(e => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot) || classifyPath(e.path, classRoot) === 'docs').filter(isExec).map(e => e.path).sort();
 }
 
 /**
- * The executables among the changed paths at `headSha`: tree mode 100755, or a text blob whose first two bytes are "#!" (only
- * those bytes are read). A path the head tree lacks is a deletion, never an executable; an unreadable tree or blob counts as one.
+ * The executables among the changed paths at `headSha`: tree mode 100755 or 120000 (a symlink, as collectLive sees it), or a text
+ * blob whose first two bytes are "#!". A path the head tree lacks is a deletion, never an executable; an unreadable tree or blob counts as one.
  */
 function executablesAt(root: string, headSha: string, perPath: readonly PathLines[], classRoot: readonly string[]): string[] {
   const tree = git(root, ['ls-tree', '-r', '-z', headSha]);
@@ -252,7 +252,7 @@ function executablesAt(root: string, headSha: string, perPath: readonly PathLine
     if (!tree.ok) return true;
     const t = entries.get(e.path);
     if (!t) return false;
-    if (t.mode === '100755') return true;
+    if (t.mode === '100755' || t.mode === '120000') return true;
     if (e.binary) return false;
     const r = spawnSync('git', ['cat-file', 'blob', t.sha], { cwd: root, timeout: 30_000, maxBuffer: 2 });
     const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
@@ -322,7 +322,8 @@ export function collectLive(root: string, base: string): Collected {
   const executables = executablesAmong(diff.perPath, root, e => {
     try {
       const f = path.join(root, e.path);
-      if (fs.statSync(f).mode & 0o111) return true;
+      const st = fs.lstatSync(f);
+      if (!st.isFile() || st.mode & 0o111) return true;
       if (e.binary) return false;
       const fd = fs.openSync(f, 'r');
       const buf = Buffer.alloc(2);
