@@ -44,7 +44,7 @@ export function runBin(name: string, args: string[], opts: SpawnSyncOptions) {
 /** Claude Code's timeout for a gstack hook, as setup registers it (`--timeout 5`). */
 export const HOOK_TIMEOUT_MS = 5000;
 /** Kept back from HOOK_TIMEOUT_MS so a hook logs and exits before Claude Code kills it. */
-export const HOOK_EXIT_RESERVE_MS = 500;
+const HOOK_EXIT_RESERVE_MS = 500;
 
 /**
  * What is left of a hook's registered budget for its next child. Every child

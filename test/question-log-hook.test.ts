@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
-import { HOOK_EXIT_RESERVE_MS, HOOK_TIMEOUT_MS, hookChildBudgetMs } from '../hosts/claude/hooks/spawn-bin';
+import { hookChildBudgetMs } from '../hosts/claude/hooks/spawn-bin';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-log-hook');
@@ -402,9 +402,9 @@ describe('PostToolUse hook (crash safety)', () => {
 
 describe('PostToolUse hook (budget)', () => {
   test('every child shares the registered 5 s budget, less the exit reserve', () => {
-    expect(hookChildBudgetMs(1_000, 1_000)).toBe(HOOK_TIMEOUT_MS - HOOK_EXIT_RESERVE_MS);
-    expect(hookChildBudgetMs(1_000, 3_000)).toBe(HOOK_TIMEOUT_MS - HOOK_EXIT_RESERVE_MS - 2_000);
-    expect(hookChildBudgetMs(1_000, 1_000 + HOOK_TIMEOUT_MS)).toBeLessThan(0);
+    expect(hookChildBudgetMs(1_000, 1_000)).toBe(4_500);
+    expect(hookChildBudgetMs(1_000, 3_000)).toBe(2_500);
+    expect(hookChildBudgetMs(1_000, 6_000)).toBeLessThan(0);
   });
 
   test('slow children stop at the hook budget and the skipped questions are logged', () => {
@@ -436,7 +436,9 @@ describe('PostToolUse hook (budget)', () => {
       });
       expect(res.status).toBe(0);
       expect(readLog().length).toBeLessThan(questions.length);
-      expect(fs.readFileSync(path.join(stateRoot, 'hook-errors.log'), 'utf-8')).toContain('budget is spent');
+      const errors = fs.readFileSync(path.join(stateRoot, 'hook-errors.log'), 'utf-8');
+      expect(errors).toMatch(/exited null \(SIG\w+ after \d+ of \d+ ms\)/);
+      expect(errors).toContain('budget is spent');
     } finally {
       fs.rmSync(fakeBin, { recursive: true, force: true });
     }
