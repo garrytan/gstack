@@ -395,12 +395,27 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
 const VERSION_DECLARATION_BEFORE =
   /(?:\b[Vv]ersion|\bVERSION|[a-z0-9_]Version|[_-][Vv]ersion|_VERSION)["'\]]?(?:[ \t]*[:=(>][ \t]*|[ \t]+)["']?$/;
 const CHANGELOG_HEADING_BEFORE = /^#{1,6}[ \t]+\[$/;
-export function isDeclaredVersion(match: RegExpExecArray): boolean {
-  const input = match.input ?? "";
-  const { start, end } = spanBounds(match);
+/**
+ * gstack names its own release right before the quad: `gstack 1.94.4.0`, `upgraded gstack from 1.93.14.0`, and the
+ * install check's trailer `gstack: ok 1.94.4.0 for=ship` or `gstack: fail claude,codex (1.93.37.0)`, which every lane
+ * report and PR body quotes (GST-1204). `gstack-proxy 1.128.1.0` or `gstack talks to 8.8.8.8` still report.
+ */
+const GSTACK_NAMED_BEFORE = /\bgstack(?:[ \t]*:[ \t]*(?:ok|fail)(?:[ \t]+[a-z0-9_,-]+)?[ \t]+\(?|[ \t]+(?:from[ \t]+)?)$/;
+/** The second end of a range (`X to Y`, `X-Y`) whose first end is itself a declared version. */
+const RANGE_END_BEFORE = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[ \t]*(?:to|through|-|\u2013)[ \t]*$/;
+function declaredAt(input: string, start: number, end: number, range: boolean): boolean {
   const lineStart = input.lastIndexOf("\n", start - 1) + 1;
-  if (VERSION_DECLARATION_BEFORE.test(input.slice(Math.max(lineStart, start - 48), start))) return true;
-  return CHANGELOG_HEADING_BEFORE.test(input.slice(lineStart, start)) && input[end] === "]";
+  const before = input.slice(Math.max(lineStart, start - 48), start);
+  if (VERSION_DECLARATION_BEFORE.test(before) || GSTACK_NAMED_BEFORE.test(before)) return true;
+  if (CHANGELOG_HEADING_BEFORE.test(input.slice(lineStart, start)) && input[end] === "]") return true;
+  const first = range ? RANGE_END_BEFORE.exec(before) : null;
+  if (!first) return false;
+  const firstStart = start - before.length + first.index;
+  return declaredAt(input, firstStart, firstStart + first[1]!.length, false);
+}
+export function isDeclaredVersion(match: RegExpExecArray): boolean {
+  const { start, end } = spanBounds(match);
+  return declaredAt(match.input ?? "", start, end, true);
 }
 
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────

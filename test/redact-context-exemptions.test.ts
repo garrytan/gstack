@@ -208,6 +208,28 @@ describe("pii.ip_public: a four-part version needs a version declaration (#2784)
   );
 });
 
+describe("pii.ip_public: a four-part version gstack names is not an address (GST-1204)", () => {
+  table(
+    "pii.ip_public",
+    "MEDIUM",
+    [
+      "gstack 1.94.4.0",
+      "gstack: ok 1.94.4.0 for=ship",
+      "gstack: fail claude,codex (1.93.37.0)",
+      "upgraded gstack from 1.93.14.0 to 1.94.4.0",
+      "seen on gstack 1.94.4.0 to 1.94.8.0",
+      "(gstack 1.94.4.0-1.94.8.0)",
+    ],
+    [
+      "gstack talks to 8.8.8.8",
+      "gstack-proxy 1.128.1.0",
+      "landed in 1.94.4.0",
+      "gstack 1.94.4.0 via 8.8.8.8",
+      "from 1.128.1.0 to 1.128.1.1",
+    ],
+  );
+});
+
 describe("db.url_with_password: postgres:postgres only on a loopback host (#2913)", () => {
   // Assembled from parts so this file's own source never carries a
   // credential-bearing URL for the repo's secret scan to block.
