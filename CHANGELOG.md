@@ -1,5 +1,116 @@
 # Changelog
 
+## [1.94.4.0] - 2026-11-03
+
+- The captain skill, the CREW template, the lane brief, docs/captain.md and the Capy gstack skill now follow R65 instead of telling a lane that every fix needs a one-round, eng-only plan. A bug fix is exempt from plan review (`gstack-autoplan next --kind fix`; the brief's reason is `bug fix (R65)`), and its PR carries a repro on current main or a failing test written first. A feature gets the lean run (`--kind feature`): one reviewer reading the plan and the draft code together. The S1 and audited-problem-list exemptions are unchanged.
+
+## [1.94.3.0] - 2026-11-03
+
+**`gstack-ship-preflight` no longer trusts a local `origin/HEAD` when origin can't say its default branch.** Preflight fell back to the local `origin/HEAD` whenever `git ls-remote --symref origin HEAD` failed or named no branch. With no local `origin/HEAD`, it went on from the default branch itself and merged the given base into it. When a PR-branch clone's `origin/HEAD` named the feature branch, it refused that branch as "on the base branch". Now a failed `ls-remote` stops with `git ls-remote origin HEAD failed: …; restore access first` before anything merges. A remote HEAD that names no branch (a detached HEAD, or a server that sends no symref) falls back to the shared default-base order in `lib/default-base.ts`, which uses the local `origin/HEAD` only when it doesn't name the checked-out branch, its upstream or HEAD's commit. The default-branch check now runs after the fetch, so a failed fetch still reports the fetch.
+
+### Fixed
+- **`docs/eval-calls.md`, `docs/eval-models.md`**: the default `--base` now matches base resolution: origin/HEAD's branch unless it names the checked-out branch, its upstream or HEAD's commit, then the PR's base, the remote's live HEAD, `main` or `master`.
+
+### Tests
+- `test/ship-preflight.test.ts`: with `ls-remote` failing and the fetch working, preflight stops before merging in two cases. One is the default branch with no local `origin/HEAD`, where main exited 0 and merged `release` into `main`. The other is a feature branch that the local `origin/HEAD` names, where main stopped as "on the base branch". When `ls-remote` prints only a sha, the default branch still stops as the base branch (main exited 0) and the feature branch goes on.
+
+## [1.94.2.0] - 2026-11-03
+
+### Fixed
+
+- **More recursive deletes keep the security class (GST-942).** `fs.rmSync(path.join(dir, "x"), { recursive: true })`, a `)` inside a comment before `recursive: true`, `fs.rm`/`fs.promises.rm`/an imported `rm`, and a new call a formatter split across lines all slipped past the rule, because it stopped reading at the first `)` and read one line at a time. The review depth could then drop to light on real recursive-delete code. The rule now reads up to 500 characters after `rmSync(` or `rm(` across the file's changed lines, still in linear time. An edit to one line of an existing split call is still read on its own.
+
+## [1.94.1.0] - 2026-11-03
+
+### Fixed
+- **The secrets check no longer reads a file name or dict key inside a call as a credential (GST-1064).** `key = json.loads(files.get("key.json", ""))` failed pregate with `PREGATE_SECRETS` (`env.kv`): eight distinct letters in `"key.json"` reach the entropy bar, so the call's argument looked like a secret. So did `token = resp.json().get("access_token")`. The first argument of a lookup call (`get`, `getenv`, `read`, `load`, `loads`, `open`, `pop`, `fetch`) that is a lowercase file name or a snake_case key of two or three words now counts as a name. Any other call still reports a password-shaped literal (`make_password("orange_monkey_pass")`, `bcrypt.hashpw(...)`), and so do a later argument or fallback (`os.getenv("SECRET_KEY", "orange_monkey_pass")`), a real key in quotes or in a `.env` line, and a kebab passphrase (`decrypt("prod-signing-key")`). The entropy bar is unchanged.
+
+## [1.94.0.0] - 2026-11-03
+
+- CI is now the one full test run. When a verified CI run already passed at the exact, clean tree, `gstack-pregate`'s tests stage and /ship's test lanes use it instead of running the suite again (GSTA-258, R65 item 1). The tests stage looks up the newest verified run at HEAD under the base branch's `run_profiles` by itself (`CI_CARRY: accepted …`; `--no-ci-carry` turns it off). A /ship lane carries only when the base branch's `.gstack/pregate.json` maps its exact command in the new `ship_lanes_from` key, and only when the run's `tree.json` covers the lane's inventory; gstack maps `bun run test` to its Free Tests run. A carried lane prints `LANE: <label> carried run=<id>/<attempt>` and is recorded as an explicit CI-sourced evidence row (`gstack-evidence record-ci`), never as a local run. Dirty trees, fork runs, stale runs and a newer red or running run never carry.
+- A lane that already passed at the same tree, command and runtime is reused instead of rerun (`gstack-evidence run --reuse`, the default from `gstack-ship-preflight` and `finish`): a newer failure vetoes an older pass, and the reused row keeps its original timestamp, so the 24-hour age limit still measures the real run.
+- /ship runs beside CI: on a repo that maps its lanes, Phase 2 pushes early (`gstack-ship-release push --early` runs the secrets scan and the sealed guard first), `finish` defers a mapped lane it cannot carry yet (`EVIDENCE: DEFERRED`), and the new `gstack-ship-release accept` carries it from the green run at the final pushed head and reruns the pregate there. `gstack-ci-carry find|wait` checks or waits for that run, and the ship receipt records `ci_carried`. See docs/pregate.md#ci-carry.
+- On a small machine, the remote gate obligation clears from the same carried run (through `remote_gate_runs` and its inventory check) when the files left over are only ones the gate skips, such as gstack's paid evals. Before, that remainder made the gate report `tests=0` and `clear --run` refuse it as `paid_only`, so nothing could clear it.
+- On gstack itself, a green Free Tests run at the same tree is now the default way the remote gate obligation clears, and the Ubicloud VM (`gstack-pregate --stage tests --remote`) is an opt-in. The uncleared obligation names the CI route first: push, `gstack-ci-carry wait --base main`, then rerun `gstack-pregate --allow-repo-commands`. On a branch behind main, dispatch Free Tests on the branch (`gh workflow run free-tests.yml --ref <branch>`), because a `pull_request` run tests the merge commit, another tree.
+- `gstack-evidence record-ci` now finds and verifies the CI run itself (`record-ci --label <L> --base <base> -- <command>`), so no caller can hand it run ids or a test count. `finish` writes its preflight-only pregate run to its own file, so the full `.gstack/tmp/pregate.json` stays in place until `accept` replaces it.
+
+## [1.93.42.0] - 2026-11-03
+
+**The stamp checks name the branch's lines by position, and the carry and finish accept a kept VERSION claim (GST-979, GST-980).** After GST-963, three gaps were left in the checks that accept a stamp commit, all found by the #3862 reviewers. A base line whose text duplicated a line the branch added got the branch's fork-version bound, so a hand edit of that base copy passed the tree receipt. When a train slot kept its claimed VERSION, a base line moved down to that version also read as a stamp. And the /ship receipt carry and finish refused the fork-version row move the restamp now makes: the carry kept the branch-added row in both product patch-ids (`RECEIPT_CARRY_PRODUCT_CHANGED`), and with a kept VERSION claim the carry and finish read every change as product or behavior.
+
+### Fixed
+- **`lib/stamp-only.ts`:** `BranchSide` carries the positions of the branch's lines, and `stampOnlyLine` takes the removed line's position. Only a line at a branch-added position gets the fork-version bound. When the version does not move, only such a line may change.
+- **`lib/restamp.ts`:** `parseUnifiedDiff` records each removed line's position on the old side, which the tree receipt, the train checks and finish's `stampedFiles` pass along.
+- **`lib/ship-receipt.ts`, `lib/ship-bin-common.ts`:** `stampOnlyText` and `stampedFiles` accept a kept VERSION claim for the branch's own rows and nothing else.
+- **`bin/gstack-ship-receipt` carry:** a stamp file the branch changed as product, whose only change since the reviewed head is a stamp on its own rows and which the base did not touch, is left out of the product comparison. The carry records `a stamp on the branch's own rows (<file>)` as the reason. It reads that file line by line. Only lines at the branch's own positions may move, and the file must keep its reviewed mode, so a version edit on a base line of the same file or a mode change still refuses, as does a product edit anywhere else.
+
+### Tests
+- `test/tree-receipt-stamp-sensitive.test.ts`: the bound holds only at the branch line's position, and a kept VERSION refuses a base line moved down.
+- `test/restamp-mentions.test.ts`: a hand move of a base row whose text the branch duplicates reads `TREE: changed`, and the carry follows the fork-version row stamp but still refuses a product edit beside it, a hand version edit on a base line of the same file, and a mode change.
+- `test/gstack-ship-receipt-docs.test.ts`, `test/ship-rereview-triggers.test.ts`: the carry classifier and finish accept the kept-claim row move and refuse a base row moved the same way.
+
+On main, five of the seven new tests fail. The other two, the carry's refusals of a base-line version edit and a mode change, pass on main, which refuses every such carry; they fail on the broader first version of this fix.
+
+## [1.93.41.0] - 2026-11-03
+
+**Codex outside reviews report their token usage (#2948).** Codex already emits token counts in its `--json` events, and gstack used to throw them away. When `lib/outside-review-result.ts` is given an events file, it now prints `OUTSIDE_USAGE: input=… cached_input=… output=… reasoning_output=…` (only the counters Codex reported), or `OUTSIDE_USAGE: unknown`, on every verdict.
+
+### Changed
+- **Every Codex outside voice that runs `codex exec --json`** (/review, /ship, /autoplan, the plan reviews) now prints one more stdout line, `OUTSIDE_USAGE:`, after `VERDICT:` and `FINDINGS:`.
+- **One usage parser** (`usageFromEvents`, now in `lib/outside-review-result.ts` and re-exported by `lib/outside-voice-runner.ts`). A cumulative `total_token_usage` snapshot wins; without one, the latest `turn.completed` usage does, because Codex reports the session's running total there. It adds cached, cache-write, reasoning and total counters when the events carry them.
+
+Thanks to @omicron-soft for the report. Storing usage in review-log rows, the native `codex review` path and a token column in /ship come in a follow-up.
+
+## [1.93.40.0] - 2026-11-03
+
+### Fixed
+
+- **/ship and /review exploratory QA no longer write reports into your project (GST-969).** /ship Step 9.2.1 and /review Step 4.7 used to put its QA reports, deadline file and captured evidence in `.gstack/qa-reports/` inside the repository under review. In a project that doesn't ignore `.gstack/`, those files showed up as untracked changes, so they could land in the PR and change the tree the review certified. The new `gstack-qa-evidence report-dir` command creates a fresh run directory under `.gstack/tmp/qa-reports/` and adds `/.gstack/tmp/` to the repository's git exclude file, and both QA steps now use it. It refuses a symlinked `.gstack`, a `.gitignore` rule that un-ignores `.gstack/tmp`, and a directory outside a git repository. /qa keeps its `.gstack/qa-reports` output directory.
+
+## [1.93.39.0] - 2026-11-03
+
+**/ship on Capy stops an outside voice that hangs and records it as missing, never as converged or as an unavailable Codex CLI (GST-1104).** TRUT-7's /ship run had two outside voices end with no result (gpt-6.1-sol stopped after 20 minutes; grok-4.7 used 16.9M tokens before it was stopped), and its Step 11 row read `outside_provider: codex`, `outside_status: unavailable`, `converged: true`.
+
+### Fixed
+- **`lib/capy-review-pass.js`**: an outside voice still running with no output after `input.stuckMs` (20 minutes by default) is stopped. One that hangs, finishes empty, or stops or fails without leaving findings is collected as unavailable coverage (`COLLECT_UNAVAILABLE:`); one that stops or fails after writing findings is collected normally, so its findings are kept, and Step 11 goes on to judge the native voice instead of stopping the pass with nothing recorded. Other readers still stop the pass as before.
+- **`lib/capy-review-pass.js`**: Step 11 returns an `OUTSIDE_RECORD:` line with `outside_provider: host-subagent`, the model that ran and its status, for the review-log rows to copy instead of the template's `codex`. When the voice was unavailable, the line tells the parent to write that voice its own row first (`status: unavailable`, `completed` and `converged` false), so the native row's convergence no longer stands in for it.
+- **`docs/unattended.md`**: "The outside voice on Capy" describes the stop, the unavailable record and the new fields.
+
+## [1.93.38.0] - 2026-11-03
+
+- **Review collector and blocker count follow what the reader said (GST-1031).** A native adversarial finding that states `Blocks: no` and one Severity now collects once, at that severity, on every review class; a numbered finding heading keeps its body (located or numbered bullets, a bold subheading, a located paragraph) so its Severity line no longer splits off as a second CRITICAL record. A closing summary such as "so nothing is CRITICAL" is marked `summary_candidate`, and lead judgment may lower it with a reason that `judge` records as `dismissed`. A CRITICAL whose reader writes the field `Blocks: no` no longer counts as a blocker in `REVIEW_LOOP`'s ledger count (classify does the same for a finding that carries `stated`; Step 9.4 does not copy it yet). Decision 3.5's fix-check pass takes a `review-fix-check` start token even when given `logStart: ["review"]`, so it is never counted as a pass. `gstack-ship-release finish` routes a `scripts/harness-version.json` edit that only records non-behavioral pins at the same version as release metadata.
+
+## [1.93.37.0] - 2026-11-03
+
+**Eval planning prices Claude Haiku 5.5, GPT-6 Luna and Gemini 4 Argon, and the Codex docs name the current OpenAI tiers (#3640, #2943).** Before, `gstack-eval-plan arms --arms claude-haiku-5-5` stopped with EVAL_PRICE_MISSING because `lib/pricing.ts` had no row for it. docs/hosts.md and the /codex example still named gpt-5.6-sol as the current Sol model.
+
+### Added
+- **Price rows** for `claude-haiku-5-5` ($0.10 / $0.50, cached $0.01, standard tier up to 100,000 tokens), `gpt-6-luna` ($0.10 / $0.50, cached $0.01) and `gemini-4-argon` ($4.00 / $20.00, cached $0.20). Each row cites its provider page. Argon uses the rates that start on 2026-12-01, so estimates never come in low after that date. A repository's model-policy document that names one of these models now gets it as an eval arm.
+
+### Changed
+- **docs/hosts.md and /codex** name `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6-luna` as the current tiers. They also say the bounded-scope overlay still applies only to `gpt-5.6-sol` until it has its own eval.
+
+Thanks to @exGeni (#3640) and @DanCanadian (#2943) for the reports. The TypeSafe Jev rows from #3640 are not included, because a $0 output price breaks the price table's rule that every row has an output price.
+
+## [1.93.36.0] - 2026-11-03
+
+- **/autoplan R65 defaults: no review for bug fixes, one lean review for features.** `gstack-autoplan next --kind fix` prints `AUTOPLAN: not needed (bug fix; R65)` and `status=skipped run=-` and writes nothing; the PR still needs the bug's proof. `--kind feature`, now the default for an unattended Capy run, runs the eng phase alone with one native reviewer whose brief merges the CEO and Eng lenses (Design and DX only when scope detects them), reads the draft code (a diff against `--base`, hashed into the snapshot, or an honest `DRAFT: none`), always asks "Any outside terms, licences or rights involved?", and has no outside voice, one round, one gate revision and no carry check. The reviewer's result must name the draft hash on its `DRAFT:` line. A failed git command reads `DRAFT: none (draft capture failed: …)`, untracked files named like secrets stay out of the draft, the `DRAFT:` line names the checkout it diffed, and a draft over 100,000 bytes is still inlined, cut there and marked. `run` stays the full run unless `--kind feature` asks for the lean one, `run --kind fix` skips like `next`, and `--kind fix --json` prints one skipped object. `--full` brings back every phase and voice; off Capy and in interactive sessions nothing changes. The gate cost line and the owner brief say a lean `rec` reopens nothing.
+
+## [1.93.35.0] - 2026-11-03
+
+**pregate no longer kills a quiet test suite that is busy working.**
+
+### Fixed
+- **`lib/pregate/supervise.ts`**: the stall timeout now needs both no log output and an idle process group. Each second, supervise reads the group's CPU time (`/proc` on Linux, `ps -S` on macOS and BSDs). If it grew by at least a tenth of the wall time, the group counts as alive. Before, a parallel `check.sh` that printed nothing for 9 minutes while working ended `PREGATE_STALLED` at the 300 s default (Founderstar FOUN-63). A hang that waits on nothing still stalls. A hang that keeps using CPU now runs to `--timeout`, and either way the check is incomplete, never a pass. Windows reads no CPU time and keeps log growth alone. The `PREGATE_STALLED` detail, the guard line and the docs say what was measured. Both new tests fail on main. There a silent CPU-bound command ends `stalled` and a busy lane test ends `PREGATE_STALLED`.
+
+## [1.93.34.0] - 2026-11-03
+
+**The docsync fault-callback replays and the runShadow deadline test stop failing on loaded remote pregate VMs.**
+
+### Fixed
+- **Docsync fault-callback replays** (`test/helpers/docsync-fault-callbacks.ts` and its three wrappers): each replay in the generated child now has a 30 s limit instead of bun's 5 s default, and each wrapper's limit is that per-replay limit times its replay count plus one. A replay spawns 30 to 40 real actor, hook and git processes. That takes about 1.3 s on CI and up to 4.9 s on an idle 4-core machine, and it ran past 5 s on GSTA-234's remote pregate for #3892. With 8 busy loops on 4 cores, main fails all 12 legacy-control replays at 5 s, and this branch passes all 12 (172 s for the whole wrapper). `test/docsync-report-interface.test.ts` gets the same limits, because its child cases ran 5.5 s and 11.4 s on #3869's remote pregate.
+- **`test/autoplan-shadow.test.ts` "one deadline covers the call and its retry"**: the first call now has 1 s of room inside the deadline instead of 300 ms. The time limit allows 2.4 s past the deadline before it would match an unshared retry, up from 0.9 s; the remote failure ran 1.06 s past. The test still requires the retry to be cut (p1 malformed) and the call to end before an unshared retry could finish.
+
 ## [1.93.33.0] - 2026-11-03
 
 - On a checkout whose `origin/HEAD` points at the checked-out branch itself (a PR-branch clone), every base-relative step resolved the base to HEAD and reported zero changes, so review depth, `ready`, pregate and the docs audit passed on an empty diff (GST-774). Base resolution now skips a remote HEAD that names the checked-out branch, its upstream or HEAD's own commit (so a local branch under another name and a detached checkout of the PR branch are caught too), then uses the PR's base ref when `gh` finds one, then the remote's live default branch from `git ls-remote --symref`, then `main` or `master`. A repository whose default branch is `develop` or `trunk` keeps it. When the resolved base equals HEAD or contains it while the branch has commits its real base lacks, `gstack-diff-scope`, `gstack-gate-diff`, `gstack-review-plan`, `gstack-pregate`, `gstack-docs-candidate`, `/ship` policy base resolution and the receipt's depth binding refuse with `BASE_CONTAINS_HEAD` instead of reporting no changes. A pull request's head is refused whenever the base contains it; on the base branch itself, on a fresh branch with only uncommitted work, and on a detached HEAD given an explicit base, the step runs as before. `gstack-ship-queue land` resuming a merge-only PR that GitHub already merged with a true merge commit still lands, its depth check included. See docs/troubleshooting.md#base-contains-head.

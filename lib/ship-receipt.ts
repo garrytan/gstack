@@ -16,7 +16,7 @@ import { stampOnlyLine, type BranchSide } from './stamp-only';
 
 export const RECEIPT_FENCE = 'gstack-ship-receipt';
 const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
-  'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd',
+  'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
   'review_loop_exception', 'review_targeted', 'review_exclude', 'carry', 'base_red', 'flaky_exception',
@@ -131,6 +131,7 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   if (loop) parts.push(`passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred}`
     + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.rounds !== undefined ? ` rounds=${loop.rounds}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
   if (r.carry && typeof r.carry.from === 'string') parts.push(`carried_from=${r.carry.from.slice(0, 12)}`);
+  if (Array.isArray(r.ci_carried) && r.ci_carried.length) parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}`);
   if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
 }
@@ -178,6 +179,8 @@ export interface CarryPlanInput {
   retargetedFrom?: string;
   /** A clean scoped review of product paths whose only difference is base context next to unchanged hunks (lib/ship-patch.ts, GST-384): the carry reason it adds. */
   scopedReview?: string;
+  /** Stamp files the branch changed as product whose only change since the reviewed head is a stamp on the branch's own rows, the base untouched, and without which the two product patches match (GST-980). */
+  stampedRows?: string[];
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -195,22 +198,23 @@ export interface CarryChange { before: string | null; after: string | null; oldV
  * old text once every new version in it is the old one, or when every changed
  * line is a stamp-form rewrite to the new version (`stampOnlyLine`: the old
  * version or a newer tentative `*_KEY_VERSION` the slot stamp moved, #3512, and
- * on a line the branch added itself, `side`, the fork version or newer, GST-963): the rule
+ * on a line the branch added itself, `side`, the fork version or newer, GST-963; with a kept VERSION only such a line,
+ * GST-980): the rule
  * the tree receipt applies to the same `stamp_paths`, `stamp_files` and
  * `release_outputs` before the train accepts a stamp commit. No version
- * change, or a file missing on either side, is not a stamp.
+ * change outside the branch's own lines, or a file missing on either side, is not a stamp.
  */
 export function stampOnlyText(change: CarryChange): boolean {
   const { before, after, oldVersion, newVersion } = change;
-  if (before === null || after === null || !oldVersion || !newVersion || oldVersion === newVersion) return false;
+  if (before === null || after === null || !oldVersion || !newVersion || (oldVersion === newVersion && !change.side)) return false;
   // Digit-bounded: replacing 1.2.3 inside 11.2.3 or 1.2.34 would read a different version's stamp as this one's.
   const escaped = newVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (after.replace(new RegExp(`(?<![0-9])${escaped}(?![0-9])`, 'g'), oldVersion) === before) return true;
+  if (oldVersion !== newVersion && after.replace(new RegExp(`(?<![0-9])${escaped}(?![0-9])`, 'g'), oldVersion) === before) return true;
   const was = before.split('\n');
   const now = after.split('\n');
   if (was.length !== now.length) return false;
   const changed = was.map((line, i) => i).filter(i => was[i] !== now[i]);
-  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side));
+  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side, i + 1));
 }
 
 /**
@@ -241,16 +245,18 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * conflict-only base merge, a test-only fix or a release-metadata change
  * leaves behind. A product patch that differs is RECEIPT_CARRY_PRODUCT_CHANGED,
  * whatever else changed, unless every difference is base context next to unchanged hunks
- * and a scoped review of those hunks came back clean (`scopedReview`).
+ * and a scoped review of those hunks came back clean (`scopedReview`), or a stamp on the
+ * branch's own rows in a stamp file the branch also changed as product (`stampedRows`, GST-980).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || !input.scopedReview)) {
+  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
   const reasons: string[] = input.retargetedFrom ? [`stack parent ${input.retargetedFrom} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
+  if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');
   if (input.changed.some(c => c.class === 'generated')) reasons.push('regenerated outputs');
