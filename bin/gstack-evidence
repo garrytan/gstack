@@ -95,6 +95,7 @@ import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/shi
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
 import { findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/ci-carry";
+import { runChanged } from "../lib/run-evidence";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
 
@@ -710,6 +711,11 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     let rows: EvidenceRecord[] = [];
     try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
     here = { label: hereLabel, files: v.remainder, tests_ran: rows.findLast((r) => r.label === hereLabel && r.source === undefined)?.tests_ran ?? "unknown" };
+    if (typeof here.tests_ran !== "number" || here.tests_ran <= 0) return none("skipped_zero_run", `the per_file run of ${v.remainder.length} skipped file(s) ran ${here.tests_ran} tests here (label=${hereLabel}); a lane passes on its runner count, never exit 0 alone`);
+    for (const e of v.runs) {
+      const changed = runChanged(check.deps, e.run_id, e.run_attempt);
+      if (changed) return none("run_changed", changed);
+    }
   }
   let paths: ReturnType<typeof ledgerPath>;
   try {

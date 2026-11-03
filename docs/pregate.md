@@ -761,7 +761,9 @@ once:
   such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
   tests stage's `runner`). That run is recorded under `<label>.skipped`, the
   `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
-  is written only after it passes; a failure there is `skipped_failed` and the
+  is written only after it passes with a test count above zero and every carried
+  run still stands (`run_changed` otherwise). A failure there is
+  `skipped_failed` and a run of zero tests is `skipped_zero_run`; either way the
   whole lane runs here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
   skipped file ran tests and stays covered. gstack's own writer

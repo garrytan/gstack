@@ -508,6 +508,26 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(runs(f, 'free-runs')).toBe(1);
   });
 
+  test('a remainder that ran zero tests here carries nothing: the lane runs whole', () => {
+    const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 1 skip\\n 0 fail\\nRan 1 test across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
+    const f = shipFixture(zero); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
+  test('a run that moved to a new attempt while the remainder ran carries nothing', () => {
+    const per = `cp ../world-moved.json ../world.json; ${PER(0)}`;
+    const f2 = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: per } } }, null, 2) + '\n' }); fixtures.push(f2);
+    world(f2, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const w2 = JSON.parse(fs.readFileSync(path.join(f2.root, 'world.json'), 'utf8'));
+    fs.writeFileSync(path.join(f2.root, 'world-moved.json'), JSON.stringify({ ...w2, runs: w2.runs.map((r: Record<string, unknown>) => ({ ...r, run_attempt: 2, conclusion: 'failure' })) }));
+    const rec = f2.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: run_changed: /m)]);
+    expect(rows(f2).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
   test('per_file is validated: it needs {files} and an inventory entry', async () => {
     const { shipLanesErrors } = await import('../lib/ci-carry');
     expect(shipLanesErrors({ x: { profiles: ['p'], inventory: 'ls', per_file: 'bun test {files}' } }, ['p'])).toEqual([]);
