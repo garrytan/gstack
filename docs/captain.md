@@ -183,9 +183,11 @@ flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size o
 cap re-pinned under the controller's written grant need no plan. Two kinds of fix are exempt
 too: an S1 emergency (a broken install or upgrade, a red main, a security bug), and a fix
 from a problem list that was already diagnosed and audited, where that list is the plan.
-Every other fix, a one-line bug fix included, gets a one-round, eng-only plan: the short
-run above, with the CEO phase closed before its voices are dispatched
-(`gstack-autoplan close --out <run dir> --phase ceo --deferred "eng-only fix plan" --by agent:<thread>`).
+Any other bug fix gets no plan review (R65): `gstack-autoplan next --kind fix` prints
+`AUTOPLAN: not needed (bug fix; R65)` and writes nothing, and the PR carries the bug's
+proof, a repro on current main or a failing test written first. A feature gets the lean
+run, `--kind feature`: one reviewer reading the plan and the draft code together, one gate
+revision and no carry check (docs/unattended.md). `--full` brings back the full run.
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an

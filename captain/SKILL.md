@@ -374,7 +374,10 @@ lane builds only after the owner's word is answered into the run and it reports 
 New scope taken on part-way gets its own plan. Read-only lanes, the flaky pass's repairs,
 slot stamps, CHANGELOG resolves, cap re-pins under a grant, S1 emergencies (broken install
 or upgrade, red main, a security bug) and fixes from an already-diagnosed, audited problem
-list are exempt; every other fix gets a one-round, eng-only plan. The brief a
+list are exempt. Any other bug fix gets no plan review (`gstack-autoplan next --kind fix`,
+R65), and its PR carries the proof: a repro on current main or a failing test written
+first. A feature gets the lean run (`--kind feature`): one reviewer reading the plan and
+the draft code together. The brief a
 controller hands a lane, with its `Plan: required | approved | exempt` line, is
 `captain/templates/brief.md`; the rule is `docs/captain.md` (Plan before build).
 
