@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sentences } from '../lib/skill-triggers';
-import { contractFromTemplate, generateContractDoneMeans, parseSkillContract, renderDoneMeans } from '../scripts/resolvers/contract-done-means';
+import { CONTRACT_CHECKER_SHIPPED, contractFromTemplate, generateContractDoneMeans, parseSkillContract, renderDoneMeans } from '../scripts/resolvers/contract-done-means';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
 /**
@@ -198,6 +198,7 @@ describe('contract-done-means renderer', () => {
 
   test('check and waive appear only once bin/gstack-skill-contract ships', () => {
     const shipped = existsSync(join(ROOT, 'bin', 'gstack-skill-contract'));
+    expect(CONTRACT_CHECKER_SHIPPED, 'CONTRACT_CHECKER_SHIPPED in scripts/resolvers/contract-done-means.ts must be ' + shipped + ' while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: set it, then bun run gen:skill-docs').toBe(shipped);
     for (const skill of ['investigate', 'review']) {
       expect(read(skill + '/SKILL.md').includes('gstack-skill-contract'), skill + '/SKILL.md names gstack-skill-contract while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: bun run gen:skill-docs').toBe(shipped);
     }

@@ -113,8 +113,11 @@ function plainWords(item: ContractItem): string {
   }
 }
 
-/** The list; checker names the check and waive commands, which only a tree that ships bin/gstack-skill-contract should mention. */
-export function renderDoneMeans(contract: SkillContract, checker = fs.existsSync(path.join(ROOT, 'bin', 'gstack-skill-contract'))): string {
+/** Whether bin/gstack-skill-contract ships. The PR that adds it flips this, regenerates and re-pins; test/skill-descriptions.test.ts fails while the two disagree. */
+export const CONTRACT_CHECKER_SHIPPED = false;
+
+/** The list; checker adds the check and waive commands, which only a tree that ships the checker may mention. */
+export function renderDoneMeans(contract: SkillContract, checker = CONTRACT_CHECKER_SHIPPED): string {
   if (contract.items.length === 0) return '';
   return [
     '## Done means',
