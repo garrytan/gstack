@@ -48,7 +48,7 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { comparePath, contextPacket, PACKET_SECTION_CAP, portedEntry, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -535,7 +535,11 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   const version = (ref: string) => { if (!versions.has(ref)) versions.set(ref, versionAt(ref)); return versions.get(ref)!; };
   const stamped = (p: string) => matchesAny(rules.metadata, p) && !matchesAny(rules.extra.outputs, p);
   const classify = (p: string, a: string, b: string) => classifyCarryPath(p, rules.extra, stamped(p) ? { before: blobAt(a, p), after: blobAt(b, p), oldVersion: version(a), newVersion: version(b), templates: rules.templates, side: a === from && b === to ? branch?.own(p) : undefined } : undefined);
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: classify(p, from, to) }));
+  // A stamp file the branch changed on neither side beyond a stamp against that side's base (back at the base's content
+  // after a changelog-fragment conversion, or only its version moved) holds none of the branch's product: whatever else
+  // differs between the two heads came from the base (GST-1210).
+  const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => blobAt(a, p) === blobAt(b, p) || classify(p, a, b) === 'metadata');
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
     : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => blobAt(a, p) !== blobAt(b, p) && classify(p, a, b) === 'product')));
@@ -695,6 +699,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const changedProduct: string[] = [];
     const contextPaths: string[] = [];
     const stampOnly: string[] = [];
+    const ported: string[] = [];
     if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
@@ -714,10 +719,11 @@ function cmdCarry(rest: string[], json: boolean): number {
         if (cls === 'metadata' && spec.ownRows.includes(p) && !movedBase.has(p)) stampOnly.push(p);
         if (cls !== 'product') continue;
         const verdict = comparePath(repoRoot, sides, p);
-        if (verdict === 'changed') changedProduct.push(p);
+        if (verdict === 'changed' && portedEntry(repoRoot, sides, p, movedBase)) ported.push(p);
+        else if (verdict === 'changed') changedProduct.push(p);
         else if (verdict === 'context') contextPaths.push(p);
       }
-      const left = [...contextPaths, ...stampOnly];
+      const left = [...contextPaths, ...stampOnly, ...ported];
       if (!changedProduct.length && !left.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
       else if (!changedProduct.length) {
         const rest = [...spec.product, ...left.map(p => `:(exclude,literal)${p}`)];
@@ -756,7 +762,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
     const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${rangeBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(!changedProduct.length && ported.length ? { portedEntries: ported } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,

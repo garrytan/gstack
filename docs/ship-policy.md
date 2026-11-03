@@ -1505,6 +1505,8 @@ receipt when the base moves:
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
 | a stacked PR whose receipt was written against the base, after its parent landed and the base was merged in, HEAD's product diff exactly the reviewed range from the parent's head | carries (reason `stack parent <sha12> landed`); base context next to the child's hunks is `RECEIPT_CARRY_SCOPED_REVIEW` |
 | a stamp on the branch's own rows in a stamp file the branch also changed as product: every changed line at a branch-added position, the file's mode unchanged, the base not touching it, the rest of the product diff unchanged | carries (reason `a stamp on the branch's own rows (<file>)`) |
+| a stamp file the branch changes, against each head's base, by no more than a stamp (back at the base's content after a changelog-fragment conversion, or only its version field moved), whatever else the base changed in it | carries (reason `release metadata`, GST-1210) |
+| a one-line `*.json` pin file the branch added, named `…/<key>.json`, whose change since the reviewed head is byte for byte the base's own edit of entry `<key>` in a JSON map line of a base file (a merge that ports a base repin into a one-file-per-entry split) | carries (reason `base entries ported byte for byte (<file>)`, GST-1210); a pin that differs from the base's entry, or sits in another entry's file, refuses |
 
 **Stacked PRs (#3570).** A child PR's receipt is written against its parent
 branch, so its `base` names that branch and its `product_patch_id` is the
