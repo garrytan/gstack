@@ -229,6 +229,7 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
         'Verdict: `ready` (tests `not run`)', 'Verdict: Ready? Not until the migration is fixed.', 'Verdict: clean-up required before merge',
         'Verdict: ready, but I did not execute the suites', 'Verdict: ready (tests not executed)',
         'Verdict: no_findings', 'Verdict: NO_FINDINGS except the migration', 'Verdict: go with B.', 'Verdict: Proceed with the plan.',
+        '## Verdict\nready (tests `not run`)', '**Verdict**\nready (suites `skipped`)', 'Verdict: Ship it? No.', 'Verdict: Ready ? No.',
       ])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'unverified', reason: 'unverified_verdict', unlabeled: 0 });
   });
@@ -243,7 +244,7 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
   test('negative controls: real clean replies, consult answers, tagged findings and quoted examples stay as they were', () => {
     for (const gate of ['execution', 'structured', 'review'] as const) {
       expect({ gate, ...see(read('no-findings.txt'), gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
-      for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', '**Verdict:** `ready`', 'Verdict: NO_FINDINGS', 'Verdict: `NO_FINDINGS`'])
+      for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', '**Verdict:** `ready`', 'Verdict: NO_FINDINGS', 'Verdict: `NO_FINDINGS`', 'Verdict: ready. The `[P1]` from round 1 is fixed.'])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
       expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
     }

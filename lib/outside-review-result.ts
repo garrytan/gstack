@@ -200,11 +200,11 @@ function plainReview(text: string): string {
  * blocking signals use that view, so an unclosed fence cannot hide a later `[P1]`
  * or `Verdict: not ready`, while the evidence for clean keeps it blanked. One pass:
  * an opener closes only when a later marker of its kind is at least as long.
+ * `keepSpans` unwraps every inline span: the verdict is read from that view, so
+ * `Verdict: \`ready\` (tests \`not run\`)` is read whole.
  */
 const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
-/** A verdict line keeps every inline span: `Verdict: \`ready\` (tests \`not run\`)` is read whole. */
-const VERDICT_LINE = /^[\t ]*(?:>[\t ]*)*(?:#{1,6}[\t ]+|[-+*][\t ]+)?(?:\*\*|__)?(?:(?:overall|final)[\t ]+)?verdict\b/i;
-function withoutCode(text: string, readUnclosed = false): string {
+function withoutCode(text: string, readUnclosed = false, keepSpans = false): string {
   const lines = text.split(/\r?\n/);
   const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
   const closes = markers.map(() => true);
@@ -226,8 +226,7 @@ function withoutCode(text: string, readUnclosed = false): string {
     }
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
-      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at))
-        || VERDICT_LINE.test(line) ? inner : ' ');
+      keepSpans || inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
 }
 
@@ -283,7 +282,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
-  const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
+  const verdicts = [lastVerdict(plainReview(withoutCode(input.text, false, true))), lastVerdict(plainReview(withoutCode(input.text, true, true)))];
   const unlabeled = reviewed && verdicts[1] !== undefined && !concludesNoFindings(code)
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
@@ -309,7 +308,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const notReady = verdicts.some(v => v !== undefined && /^not[\t ]+ready\b/i.test(v));
   if (blocking || notReady) return { ...result('findings'), ...(unparsed ? { unparsed } : {}) };
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
-  const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || UNVERIFIED_CLAIM.test(v)));
+  const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || v.includes('?') || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
   if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(code)) {
     return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
