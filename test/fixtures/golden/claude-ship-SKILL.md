@@ -956,7 +956,7 @@ The last line printed is the result line a parent greps (docs/unattended.md):
 ```
 
 It binds the receipt to HEAD, writes the run record and prints `GSTACK_RESULT: skill=ship
-status=complete run=<dir>`; `QUEUE_RECEIPT_STALE` means HEAD moved after the receipt (rewrite,
+status=complete head=<sha> run=<dir>`; `QUEUE_RECEIPT_STALE` means HEAD moved after the receipt (rewrite,
 repost, rerun). A run that STOPs earlier ends with `GSTACK_RESULT: skill=ship status=refused run=-`.
 
 ---

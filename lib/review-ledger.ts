@@ -73,7 +73,7 @@ const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\
  * ("1. Drops rows (q.ts:7). Severity: Low", "(t.md:3) Severity: Low", "- Severity: P0"), its label closing the clause. With one present a severity word in the body never raises the label (GST-976); prose that mentions a
  * severity ("pass 1 had Severity: Low", "filed at severity low", "(Severity: Low in pass 1)") is not a field.
  */
-const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks)))`, 'gi');
+const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])|(?:[.;,|()]["'”’\`]*\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks)))`, 'gi');
 /**
  * A label leading its line past list, quote, heading, emphasis and emoji marks (one mark per step, so a long divider stays linear)
  * and an optional file:line, closed by a mark or a separator, or by a space, comma or parenthesis after an all-caps word ("[P0] …",

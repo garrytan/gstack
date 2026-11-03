@@ -32,6 +32,16 @@ describe('native verdict line (collector severity inflation)', () => {
     expect(labels('- FIXABLE, and nothing blocks')).toEqual(['CRITICAL']);
   });
 
+  // ggstack#71 (GGST-15, gstack 1.94.4.0, gate-class plan): four identically shaped native findings, the first labeled CRITICAL
+  // because its Severity field followed a closing quote ('… its base." Severity: Low'). Excerpt of findings 1 and 2, as returned.
+  test('ggstack#71: a Severity field after a closing quote is still the finding\'s own field', () => {
+    const out = ['## Findings', '', "**1. The CHANGELOG describes the \"behind main\" rule wrongly (CHANGELOG.md:10).** It says \"a pull request that doesn't contain main's tip runs the suite here as before.\" gstack's actual rule is different: the run's merge-commit tree must equal the head's tree. That means the head had to contain its base as it was when CI ran, and that base isn't always main (stacked PRs). Nothing in `findCarry` or `verifyRun` compares against main's current tip, so a run from before main moved still carries. /ship's own merge of the base usually changes the tree before this matters, but the text states a guarantee the code doesn't make. FIXABLE: reword it to something like \"a pull_request run made while the branch was behind its base.\" Severity: Low. Blocks: no", '', "**2. `files` is a static file listing, and run.sh skips Godot silently (test.yml:46, pregate.json:7).** tree.json's `files` comes from the same `ls -1 test/*.sh test/*.py test/*.gd` as the inventory, so the coverage check passes by construction. The receipt's `tests=9` counts files, not tests. run.sh prints SKIP and exits 0 when `$GODOT` isn't executable or neither `xvfb-run` nor `DISPLAY` is available. Web has `REQUIRE_WEB`, but nothing equivalent makes a missing Godot fail. Today the Godot and xvfb install steps fail hard, so nothing falsely carries. If a later workflow edit makes either step soft, CI would still list the `.gd` tests as covered. A local run without Godot skips them the same way, so the carry is never weaker than the lane it replaces. FIXABLE: add `REQUIRE_GODOT=1`, or fail the record step when the run.sh output contains `test: SKIP`. Severity: Low. Blocks: no", '', 'Recommendation: Ship as-is.'].join('\n');
+    expect(labels(out)).toEqual(['Low', 'Low']);
+    expect(labels('1. **Wording (a.md:3).** FIXABLE: say \'the base\'. Severity: Low. Blocks: no')).toEqual(['Low']);
+    expect(labels('1. **Wording (a.md:3).** FIXABLE: say \u201cthe base.\u201d Severity: Low. Blocks: no')).toEqual(['Low']);
+    expect(labels('1. **Data loss (a.ts:3).** FIXABLE: guard it." Severity: Low. Blocks: yes')).toEqual(['CRITICAL']);
+  });
+
   test('a stated Blocks field on the line wins: Blocks: yes stays CRITICAL', () => {
     expect(labels('All FIXABLE, none blocks. Blocks: yes')).toEqual(['CRITICAL']);
   });
