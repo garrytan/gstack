@@ -6,7 +6,9 @@
  *       The producer. A Free Tests or Windows Free Tests aggregate runs it only after its strict verification
  *       passed, and uploads the file as the `tested-tree` artifact: run_id, run_attempt, event, sha (GITHUB_SHA),
  *       head_sha (the pull request head for pull_request, else GITHUB_SHA), tree (git's tree of GITHUB_SHA),
- *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan) and tests.
+ *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan) and tests, plus
+ *       sizing_experiment: true when a dispatch overrode the runner, shards or sub-shards (SIZING_OVERRIDE), which
+ *       verifyRun never accepts as evidence.
  *
  *   bun run scripts/ci-tree-reuse.ts find --workflow <file.yml> --profile <run_profiles name>
  *       The main-push consumer (the `reuse` job). A push to main whose tree a pull request already tested green
@@ -43,7 +45,7 @@ export interface PrReuseDeps extends RunDeps {
   commit(sha: string): { tree: string; parents: string[] } | null;
   blob(sha: string, file: string): string | null;
 }
-export interface PrContext { number: number; mergeSha: string; headSha: string; headRef: string; headRepo: string; baseRef: string; runId: number }
+export interface PrContext { number: number; mergeSha: string; headSha: string; headRef: string; headRepo: string; baseRef: string; runId: number; runAttempt: number }
 /** The files whose bytes decide what a reuse means: a pull request that edits one runs every job. */
 export const reuseGuardedFiles = (workflow: string) => [`.github/workflows/${workflow}`, 'scripts/ci-tree-reuse.ts', 'lib/run-evidence.ts'];
 export type ReuseVerdict =
@@ -95,6 +97,7 @@ export function findPrReuse(deps: PrReuseDeps, o: { repo: string; base: string; 
   const { pr } = o;
   if (!SHA.test(pr.mergeSha) || !SHA.test(pr.headSha)) return refuse('usage', `merge ${JSON.stringify(pr.mergeSha)} or head ${JSON.stringify(pr.headSha)} is not a commit sha`);
   if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !pr.headRef) return refuse('usage', 'the pull_request event names no pull request number or head branch');
+  if (pr.runAttempt !== 1) return refuse('rerun', `attempt ${pr.runAttempt} of run ${pr.runId}: a re-run never reuses, so an earlier red attempt can't be hidden`);
   if (pr.baseRef !== o.base) return refuse('not_main_pr', `#${pr.number} targets ${pr.baseRef}, not ${o.base}`);
   if (o.profile.workflow !== o.workflow) return refuse('profile_mismatch', `profile ${o.profileName} names ${o.profile.workflow}, not ${o.workflow}`);
   if (pr.headRepo.toLowerCase() !== o.repo.toLowerCase()) return refuse('fork_head', `#${pr.number}'s head is on ${pr.headRepo || 'a deleted repository'}, not ${o.repo}`);
@@ -146,7 +149,7 @@ export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ 
   if (!files.length) throw new Error('the plan lists no test files');
   const counts = o.results.map(r => r.outcome?.summary?.testsRan);
   const tests = o.results.length && counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce((a, b) => a! + b!, 0)! : files.length;
-  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests };
+  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests, ...(env.SIZING_OVERRIDE ? { sizing_experiment: true } : {}) };
 }
 
 function flag(args: string[], name: string): string | undefined { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
@@ -206,7 +209,7 @@ function find(args: string[]): number {
   let event: { pull_request?: { number?: number; head?: { sha?: string; ref?: string; repo?: { full_name?: string } | null }; base?: { ref?: string } } };
   try { event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH ?? '', 'utf8')); } catch (e: any) { return settle(refuse('usage', `GITHUB_EVENT_PATH: ${String(e?.message ?? e).slice(0, 200)}`)); }
   const p = event.pull_request ?? {};
-  const pr: PrContext = { number: Number(p.number), mergeSha: env.GITHUB_SHA ?? '', headSha: p.head?.sha ?? '', headRef: p.head?.ref ?? '', headRepo: p.head?.repo?.full_name ?? '', baseRef: p.base?.ref ?? '', runId: Number(env.GITHUB_RUN_ID) };
+  const pr: PrContext = { number: Number(p.number), mergeSha: env.GITHUB_SHA ?? '', headSha: p.head?.sha ?? '', headRef: p.head?.ref ?? '', headRepo: p.head?.repo?.full_name ?? '', baseRef: p.base?.ref ?? '', runId: Number(env.GITHUB_RUN_ID), runAttempt: Number(env.GITHUB_RUN_ATTEMPT) };
   const prDeps: PrReuseDeps = {
     ...deps,
     runsForBranch: (wf, branch) => ghApiJson<{ workflow_runs?: ApiRun[] }>(`repos/${repo}/actions/workflows/${wf}/runs?branch=${encodeURIComponent(branch)}&per_page=${MAX_CANDIDATES}`).workflow_runs ?? [],

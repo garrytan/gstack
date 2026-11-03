@@ -1063,13 +1063,17 @@ runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 #### Pull requests reuse only a run they can't control
 
 Free Tests' `reuse` job also runs on `pull_request`, as
-`find … --pull-request` (`findPrReuse`). Main pushes stay the only consumers
+`find … --pull-request` (`findPrReuse`). On a pull request it checks out the
+base commit, never the merge commit, and runs bun with `--no-env-file
+--config=/dev/null`, so the reuse script, everything it imports and the run
+profile are main's code. Main pushes stay the only consumers
 of anything a pull request could certify for itself, so a `pull_request` run
 is never a source. A pull request run reuses a green run only when all of these
 hold:
 
-1. the pull request's head is on this repository (`fork_head`) and it targets
-   main (`not_main_pr`);
+1. the pull request's head is on this repository (`fork_head`), it targets
+   main (`not_main_pr`), and this is the run's first attempt (`rerun`: a re-run
+   never reuses, so a red earlier attempt stays visible);
 2. GitHub's merge commit has exactly two parents, main and the pull request's
    head (`merge_mismatch`);
 3. the merge commit leaves `.github/workflows/free-tests.yml`
@@ -1083,7 +1087,10 @@ hold:
 5. `verifyRun` accepts it under `ci-reuse/free-tests` with `push` and
    `workflow_dispatch` as the accepted events, its `tested-tree` record names
    the merge commit's tree, and no newer red run on its head vetoes it (the
-   pull request's own run in progress is not a veto).
+   pull request's own run in progress is not a veto). A dispatch that
+   overrode the runner, shards or sub-shards records `sizing_experiment` in
+   its `tested-tree`, and `verifyRun` never accepts it (`sizing_experiment`),
+   for any consumer.
 
 The aggregate's route step accepts a reuse on a `pull_request` run of
 `refs/pull/<n>/merge` as it does on a push to main. A reused pull request run

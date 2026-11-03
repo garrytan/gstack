@@ -101,8 +101,12 @@ jobs:
       run_url: ${{ steps.find.outputs.run_url }}
       tree: ${{ steps.find.outputs.tree }}
     steps:
+      # On a pull request this checks out main (the base commit), never the
+      # merge commit, so the reuse script, its imports and the run profile are
+      # main's code; bun ignores any .env or bunfig.toml in the checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -111,7 +115,7 @@ jobs:
         name: Find a green run of this exact tree that this run's pull request cannot control
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bun run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests --pull-request
+        run: bun --no-env-file --config=/dev/null run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests --pull-request
 
   free-plan:
     needs: reuse
@@ -763,6 +767,7 @@ jobs:
         if: steps.route.outputs.reused != 'true'
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SIZING_OVERRIDE: ${{ inputs.free_runner }}${{ inputs.free_shards }}${{ inputs.free_jobs }}
         run: bun run scripts/ci-tree-reuse.ts record --plan "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results" --os Linux,macOS,Windows --out "$RUNNER_TEMP/tested-tree/tree.json"
       - name: Upload the tested tree
         if: steps.route.outputs.reused != 'true'

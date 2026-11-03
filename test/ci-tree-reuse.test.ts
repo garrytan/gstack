@@ -126,7 +126,7 @@ describe('findPrReuse: a pull request reuses only a run it cannot control', () =
   const SELF = 999;
   const GUARDED = ['.github/workflows/free-tests.yml', 'scripts/ci-tree-reuse.ts', 'lib/run-evidence.ts'];
   interface PrFake { id: number; event: string; branch: string; head: string; conclusion?: string | null; status?: string; started?: string; record?: Partial<TreeRecord> }
-  interface PrWorld { runs: PrFake[]; trees: Record<string, string>; blobs: Record<string, string>; parents: string[]; headRepo: string }
+  interface PrWorld { runs: PrFake[]; trees: Record<string, string>; blobs: Record<string, string>; parents: string[]; headRepo: string; attempt?: number }
   const blobs = (over: Record<string, string> = {}) => ({ ...Object.fromEntries(GUARDED.flatMap(p => [[`${MERGE}:${p}`, `blob-${p}`], [`${BASE}:${p}`, `blob-${p}`]])), ...over });
   const prWorld = (over: Partial<PrWorld> = {}): PrWorld => ({
     runs: [{ id: 500, event: 'push', branch: 'main', head: MAIN_HEAD }, { id: SELF, event: 'pull_request', branch: 'feat', head: HEAD, status: 'in_progress', conclusion: null, started: '2026-10-30T11:30:00Z' }],
@@ -148,7 +148,7 @@ describe('findPrReuse: a pull request reuses only a run it cannot control', () =
     };
   }
   const pr = (w: PrWorld) => findPrReuse(prDeps(w), { repo: REPO, base: 'main', workflow: 'free-tests.yml', profileName: 'ci-reuse/free-tests', profile: PROFILE, now: NOW,
-    pr: { number: 42, mergeSha: MERGE, headSha: HEAD, headRef: 'feat', headRepo: w.headRepo, baseRef: 'main', runId: SELF } });
+    pr: { number: 42, mergeSha: MERGE, headSha: HEAD, headRef: 'feat', headRepo: w.headRepo, baseRef: 'main', runId: SELF, runAttempt: w.attempt ?? 1 } });
   const prWhy = (w: PrWorld) => { const v = pr(w); return v.reused ? 'reused' : v.reason; };
 
   test('a green push run on main at the merge commit\'s exact tree is reused', () => {
@@ -186,6 +186,15 @@ describe('findPrReuse: a pull request reuses only a run it cannot control', () =
     expect(prWhy(prWorld({ headRepo: 'someone/gstack' }))).toBe('fork_head');
   });
 
+  test('a runner-sizing experiment dispatch is never a source (red team p1 #1)', () => {
+    const v = pr(prWorld({ runs: [{ id: 506, event: 'workflow_dispatch', branch: 'feat', head: HEAD, record: { sizing_experiment: true } }] }));
+    expect(v).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('reason=sizing_experiment') });
+  });
+
+  test('a re-run attempt of the pull request run never reuses, so its own red earlier attempt stays visible (red team p1 #2)', () => {
+    expect(prWhy(prWorld({ attempt: 2, runs: [{ id: 501, event: 'workflow_dispatch', branch: 'feat', head: HEAD }] }))).toBe('rerun');
+  });
+
   test('a merge commit that is not base plus this head, or an unreadable one, is refused', () => {
     expect(prWhy(prWorld({ parents: [BASE, '6'.repeat(40)] }))).toBe('merge_mismatch');
     expect(prWhy(prWorld({ parents: [BASE] }))).toBe('merge_mismatch');
@@ -200,6 +209,8 @@ describe('treeRecord: the tested-tree producer', () => {
     expect(treeRecord(env(), { plan, results, os: ['Linux', 'macOS', 'Windows'], tree: TREE })).toEqual({ run_id: 300, run_attempt: 2, event: 'workflow_dispatch', sha: HEAD, head_sha: HEAD, tree: TREE, workflow: '.github/workflows/free-tests.yml', os: ['Linux', 'macOS', 'Windows'], files: ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'], tests: 12 });
     expect(treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE, PR_HEAD_SHA: HEAD }), { plan, results, os: ['Windows'], tree: TREE })).toMatchObject({ event: 'pull_request', sha: MERGE, head_sha: HEAD });
     expect(treeRecord(env(), { plan, results: [{ outcome: {} }], os: ['Linux'], tree: TREE }).tests).toBe(3);
+    expect(treeRecord(env({ SIZING_OVERRIDE: '1' }), { plan, results, os: ['Linux'], tree: TREE })).toMatchObject({ sizing_experiment: true });
+    expect(treeRecord(env({ SIZING_OVERRIDE: '' }), { plan, results, os: ['Linux'], tree: TREE })).not.toHaveProperty('sizing_experiment');
   });
   test('missing or malformed inputs throw, so the aggregate fails instead of uploading a record', () => {
     expect(() => treeRecord(env({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: MERGE }), { plan, results, os: ['Linux'], tree: TREE })).toThrow(/PR_HEAD_SHA/);

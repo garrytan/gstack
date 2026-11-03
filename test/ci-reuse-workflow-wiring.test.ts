@@ -1,8 +1,8 @@
 /**
  * CI reuse wiring (GSTA-156 P3b) for free-tests.yml and windows-free-tests.yml. Pins the properties that make reuse
  * safe: nothing a pull request controls certifies it (a push to main consumes; free-tests.yml's pull_request runs consume
- * only through find --pull-request, whose sources and guarded files test/ci-tree-reuse.test.ts pins; dispatch runs never
- * consume), the reuse job alone reads Actions with a job-level actions: read,
+ * only through find --pull-request run from main's checkout, whose sources and guarded files test/ci-tree-reuse.test.ts
+ * pins; a sizing-experiment dispatch records sizing_experiment and is never evidence; dispatch runs never consume), the reuse job alone reads Actions with a job-level actions: read,
  * a skipped or failed reuse job runs every job exactly as before (GitHub skips a job whose needed job was skipped
  * unless its condition uses a status function, so every dependent condition starts with !cancelled()), the
  * aggregate's reuse branch runs before any download and the strict path is otherwise unchanged, tested-tree is
@@ -52,8 +52,9 @@ for (const [file, spec] of Object.entries(FILES)) {
       expect(source).not.toContain('pull_request_target');
       const find = jobs.reuse.steps.find((s: any) => s.id === 'find');
       expect(find.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
-      expect(find.run).toBe(`bun run scripts/ci-tree-reuse.ts find --workflow ${file} --profile ${spec.profile}${spec.pullRequest ? ' --pull-request' : ''}`);
+      expect(find.run).toBe(spec.pullRequest ? `bun --no-env-file --config=/dev/null run scripts/ci-tree-reuse.ts find --workflow ${file} --profile ${spec.profile} --pull-request` : `bun run scripts/ci-tree-reuse.ts find --workflow ${file} --profile ${spec.profile}`);
       expect(jobs.reuse.steps[0].with['persist-credentials']).toBe(false);
+      if (spec.pullRequest) expect(jobs.reuse.steps[0].with.ref).toBe('${{ github.event.pull_request.base.sha || github.sha }}');
       expect(Object.keys(jobs.reuse.outputs).sort()).toEqual(['reused', 'run_id', 'run_url', 'tree']);
     });
 
@@ -100,7 +101,7 @@ for (const [file, spec] of Object.entries(FILES)) {
       expect(steps.length).toBe(upload + 1);
       expect(steps[upload].uses).toStartWith('actions/upload-artifact@');
       expect(steps[upload].with['if-no-files-found']).toBe('error');
-      expect(steps[record].env).toEqual({ PR_HEAD_SHA: '${{ github.event.pull_request.head.sha }}' });
+      expect(steps[record].env).toEqual({ PR_HEAD_SHA: '${{ github.event.pull_request.head.sha }}', ...(spec.pullRequest ? { SIZING_OVERRIDE: '${{ inputs.free_runner }}${{ inputs.free_shards }}${{ inputs.free_jobs }}' } : {}) });
       expect(steps[1].run).toMatch(/set -eu\n(test "\$[A-Z_]+_RESULT" = success\n)+$/);
     });
 

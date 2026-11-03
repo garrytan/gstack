@@ -50,7 +50,7 @@ export interface ApiRun {
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
-export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown }
+export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown }
 
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
 export interface RunDeps {
@@ -63,7 +63,7 @@ export interface RunDeps {
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
-  | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
+  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
 export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null }
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
 
@@ -169,6 +169,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
+    if (rec.sizing_experiment !== undefined) return fail('sizing_experiment', `${at} was a runner-sizing experiment (a dispatch that overrode the runner, shards or sub-shards); it is never a Free Tests result`);
     const pr = run.event === 'pull_request';
     const recHeads = pr ? [['head_sha', rec.head_sha, run.head_sha] as const] : rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
     const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, run.run_attempt], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);
