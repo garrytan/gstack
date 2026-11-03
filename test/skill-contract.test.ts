@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  DEFAULT_MATCHERS, EXIT, STATUS_RE, blockMessage, checkContract, isCheckCommand, isPlaceholder, parseContract, parseTranscript, skillLoads, UnknownShape,
+  DEFAULT_MATCHERS, EXIT, STATUS_RE, blockMessage, checkContract, isCheckCommand, isMiss, isPlaceholder, parseContract, parseTranscript, reportRows, skillLoads, UnknownShape,
+  type CheckResult,
   type Contract,
 } from '../lib/skill-contract';
 import { readFrontmatter } from '../lib/skill-route';
@@ -176,8 +177,31 @@ describe('checkContract is a pure function of the transcript', () => {
     for (const cmd of ['bun test', 'cd repo && npm test', 'FOO=1 timeout 60 pytest -x', './scripts/run-tests.sh', 'node repro.js | tail -5', 'bin/gstack-verify',
       'bundle exec rspec', 'uv run pytest', 'poetry run pytest', 'docker compose run app pytest', 'xvfb-run -a npm test', 'bash scripts/test.sh', 'mix test', 'bazel test //...'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh'])
+    for (const cmd of ['npm test', 'npm run test:unit', 'yarn jest', 'go test ./...', 'cargo test', 'make check', 'python -m pytest', 'bun repro.ts', 'npx vitest run', 'curl -s http://localhost:3000/api'])
+      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
+    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh',
+      'bun install', 'npm install lodash', 'bun add zod', 'go build ./...', 'go mod tidy', 'node --version', 'make clean', 'make', 'npm run build', 'curl --version'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
+  });
+
+  test('check_after_last_edit: an option value is never the verb, and a long chain of wrapper words stays fast', () => {
+    for (const cmd of ['make -C web test', 'npm --prefix web test', 'pnpm --filter app test', 'bun --cwd app test', 'yarn workspace app test',
+      'xcodebuild -scheme App test', 'cargo +nightly test', 'mvn clean test', 'bun run typecheck', 'node --test'])
+      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
+    for (const cmd of ['make -C web build', 'npm --prefix web install', 'pnpm --filter app build', 'xcodebuild -scheme App build'])
+      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
+    const started = performance.now();
+    expect(isCheckCommand(`${Array(40).fill('sh').join(' ')} echo`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  test('report re-checks a deferred run: unmet is a miss, met is met', () => {
+    const run = { skill: 'review', load_line: 1, outcome: 'deferred' as const, missing: [], waived: [], deferred_agents: ['a1'], updated_at: '' };
+    const rec = { version: 1 as const, session_id: 's', transcript_path: 't', runs: { k: run } };
+    const unmet = reportRows([rec], () => ({ met: false, missing: ['specialists'], waived: [] }) as unknown as CheckResult);
+    expect(unmet.map(r => [r.outcome, isMiss(r)])).toEqual([['miss', true]]);
+    const met = reportRows([rec], () => ({ met: true, missing: [], waived: [] }) as unknown as CheckResult);
+    expect(met.map(r => [r.outcome, isMiss(r)])).toEqual([['met', false]]);
   });
 
   test('selected_specialists_dispatched: a selection line only counts from assistant text or a Bash result, with plain names', () => {

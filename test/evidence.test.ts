@@ -495,6 +495,24 @@ describe('gstack-evidence tests_ran — zero-run green is a third state, never m
     expect(chk.stdout).not.toContain('STALE');
   });
 
+  test('bun --shard processes in one log record their sum; an incomplete or repeated shard set falls back to the last summary', () => {
+    // GBEV-3 (gbrain-evals#317): scripts/test-shards.ts prints each `bun test --shard=i/N` process's whole output, then its own
+    // total. The lane recorded 3336 (the last shard) against 6095 run across 2 shards.
+    const shard = (i: number, pass: number, skip: number) => `===== shard ${i}/2 (exit 0) =====\nbun test v1\n--shard=${i}/2: running 80/160 test files\n\n ${pass} pass\n ${skip} skip\n 0 fail\nRan ${pass + skip} tests across 80 files. [10.00ms]\n`;
+    const log = (name: string, text: string) => { const p = path.join(gstackHome, name); fs.writeFileSync(p, text); return `cat '${p}' >&2`; };
+    run(['run', '--label', 'tests', '--', log('shards.out', shard(1, 2759, 20) + shard(2, 3336, 18) + '\n2 shards: 6095 pass, 38 skip, 0 fail in 400s\n')]);
+    expect(records().pop().tests_ran).toBe(6095);
+    run(['run', '--label', 'tests', '--', log('one.out', shard(2, 3336, 18))]);
+    expect(records().pop().tests_ran).toBe(3336);
+    run(['run', '--label', 'tests', '--', log('again.out', shard(2, 9, 0) + shard(2, 3336, 18))]);
+    expect(records().pop().tests_ran).toBe(3336);
+    run(['run', '--label', 'tests', '--', log('rerun.out', shard(1, 2759, 20) + shard(2, 3336, 18) + shard(1, 4, 0))]);
+    expect(records().pop().tests_ran).toBe(4);
+    const big = (i: number) => `bun test v1\n--shard=${i}/2: running 20/40 test files\n` + Array.from({ length: 2000 }, (_, k) => `(pass) case ${k} padded test name for size [0.01ms]`).join('\n') + '\n\n 2000 pass\n 0 fail\nRan 2000 tests across 20 files. [10.00ms]\n';
+    run(['run', '--label', 'tests', '--', log('big.out', big(1) + big(2))]);
+    expect(records().pop().tests_ran).toBe(4000);
+  });
+
   test('an unrecognised runner is unknown: non-blocking, labelled in the detail', () => {
     expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
     expect(records().pop().tests_ran).toBe('unknown');

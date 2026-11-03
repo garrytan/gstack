@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 
-export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data'] as const;
+export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data', 'eval', 'policy'] as const;
 export type RiskClass = (typeof RISK_CLASSES)[number];
 
 /** Metering and charge words (GST-850: gbrain-evals #289 changed a metering proxy and billing clients with none of the older tokens); they also count on a line. */
@@ -22,12 +22,23 @@ export const MONEY_PATH_TOKENS = ['cost', 'costs', 'spend', 'spending', 'budget'
 export const MONEY_PAIRS: readonly (readonly [string, readonly string[]])[] = [
   ['usage', ['token', 'tokens', 'cost', 'costs', 'spend', 'billing', 'price', 'pricing', 'budget']], ['proxy', ['billing', 'bill']], ['client', ['cost', 'costs', 'charge', 'charges', 'billing', 'price', 'pricing', 'spend']],
 ];
+/**
+ * Spend a run reserves, binds, leases or settles against a ledger, a budget or a cap (GST-1129: gstack-evals#170 bound paid spend
+ * with `bindCheck(ledger, …)`): a verb beside a spend word on one changed code line. Prose lines (PROSE_PATH) never count: skill
+ * text says "binds" and "ledger" in passing (#3698 and #3798 would have read as money).
+ */
+const SPEND_BIND = ['reserve', 'reserves', 'reserved', 'reservation', 'reservations', 'bind', 'binds', 'lease', 'leases', 'leased', 'settle', 'settles', 'settled'];
+const SPEND_OF = ['ledger', 'ledgers', 'spend', 'budget', 'budgets', 'usd', 'cost', 'costs', 'credits', 'billing', 'cap', 'caps'];
+export const SPEND_PAIRS: readonly (readonly [string, readonly string[]])[] = [...SPEND_BIND.map(w => [w, SPEND_OF] as const), ['cap', ['spend', 'usd', 'budget', 'ledger']]];
+export const PROSE_PATH = /\.(md|mdx|markdown|txt|rst|adoc|tmpl)$/i;
 /** Identifiers ending in _usd, Usd or cap_usd, any spend_cap spelling, and paid-provider call sites (the providers lib/pricing.ts prices). */
 export const MONEY_LINE = [
   /\b[A-Za-z0-9_]*_usd\b/i, /\b[a-z][A-Za-z0-9]*Usd\b/, /\bspend[_-]?cap\b/i,
   /\bapi\.(?:anthropic|openai|voyageai)\.com\b/, /\bgenerativelanguage\.googleapis\.com\b/, /\bopenrouter\.ai\b/,
   /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
 ];
+/** The MONEY_LINE entries a config file or results script still answers to: a spend cap and a paid-provider call site, never a bare _usd value. */
+export const PAID_MONEY_LINE = MONEY_LINE.slice(2);
 export const AUTH_PATH_TOKENS = ['auth', 'authn', 'authz', 'oauth', 'oauth2', 'jwt', 'session', 'sessions', 'permission', 'permissions', 'role', 'roles'];
 export const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
 export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i;
@@ -70,20 +81,45 @@ export const decodeCharRefs = (s: string) => s.replace(/&#(?:[xX]0*([0-9a-fA-F]+
   return c <= 0x10ffff ? String.fromCodePoint(c) : '';
 });
 export const svgActive = (text: string) => { const d = decodeCharRefs(text); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
+/** Eval scorers, judges and graders (FOUN-32 §4): code that decides a published result is risk class eval, by path. */
+const EVAL_PATH_TOKENS = ['scorer', 'scorers', 'scoring', 'judge', 'judges', 'grader', 'graders', 'grade', 'grading', 'rubric', 'rubrics'];
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 export const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
 ];
 
+/**
+ * Data and config files (HARN-1, harness-evals#231): judged by their path only, so a lease_usd value in a VM record never names money.
+ * A key in a config file still names a secret.
+ */
+export const CONFIG_DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|ya?ml|toml|ini|cfg|conf|env|properties|xml|plist)$/i;
+/**
+ * Analysis scripts that live with their results (docs/benchmarks/.../results/cost-intervals.py): their path tokens and generic
+ * lines name no risk class, but a secret, a spend cap or a paid-provider call in one still does (PAID_MONEY_LINE).
+ */
+export const STATS_SCRIPT = /(^|\/)results\/(?:[^/]+\/)*[^/]+\.(py|r|jl|ipynb)$/i;
+
+/**
+ * Docs that can print a credential (gbrain#8417: `mcp get gbrain` shows a stored bearer token): an Authorization header, a
+ * bearer value, a key-shaped literal, an environment key set to a value, or a get/show command for auth config. Read on the
+ * added lines of docs paths, which matchRisk never sees, and counted as security (FOUN-64 item 4).
+ */
+export const DOC_SECRET_LINE = [
+  /\bAuthorization\s*:\s*\S/i, /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/, /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b/,
+  new RegExp(String.raw`\b${KEY_NAME}\s*[=:]\s*['"]?[^\s'"$<{]{8,}`),
+  /\b(?:mcp|auth|config|credentials?|tokens?|secrets?|keys?|login)\s+(?:get|show|print|view|cat|token)\b/i, /\b(?:get|show|print|cat)\s+(?:\S+[ ./-])?(?:tokens?|auth|credentials?|secrets?|api[_-]?keys?|bearer)\b/i,
+];
+
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
-const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || MONEY_PAIRS.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const pairs = (t: readonly string[], list: typeof MONEY_PAIRS) => list.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || pairs(t, MONEY_PAIRS);
 
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
-  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
-  MONEY_LINE_TOKENS, MONEY_PAIRS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
+  MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS,
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -95,6 +131,8 @@ export interface RiskInput {
   removed?: Record<string, readonly string[]>;
   /** gstack-diff-scope's SCOPE_AUTH: the auth class needs it and an auth token in the path. */
   scopeAuth: boolean;
+  /** The base policy's review.risk_paths matcher: a code path it matches is risk class `policy`. */
+  isRiskPath?: (p: string) => boolean;
 }
 
 /** The risk classes the code paths touch, the first reason per class, in RISK_CLASSES order. Nothing fails closed here: input errors are the caller's. */
@@ -102,16 +140,24 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const why = new Map<RiskClass, string>();
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
-    const t = tokens(p);
+    if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
+    const stats = STATS_SCRIPT.test(p);
+    const t = stats ? [] : tokens(p);
+    const config = CONFIG_DATA_PATH.test(p);
+    const pathOnly = config || stats;
+    const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
     if (namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
+    if (!config && t.some(x => EVAL_PATH_TOKENS.includes(x))) hit('eval', 'eval scorer path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
-      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
+      if (!why.has('money') && pathOnly && PAID_MONEY_LINE.some(r => r.test(line))) hit('money', 'spend cap or paid call: ' + p);
+      if (pathOnly) continue;
+      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }
