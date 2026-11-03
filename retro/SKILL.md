@@ -305,13 +305,13 @@ Also check `RETRO_REF`: if it is not `origin/<default>` (local-only repo, missin
 | `TEST_FILES_TOTAL` / `TEST_FILES_CHANGED` / `REGRESSION_TEST_COMMITS` / `REGRESSION_COMMIT` | Test health: repo-wide test file count, test files changed in window, `test(qa):` / `test(design):` / `test: coverage` commits |
 | `VERSION_RANGE` | First → last VERSION file value in the window (when tracked) |
 | `TEAM_STREAK` / `USER_STREAK` | Consecutive commit days with anchor date (Step 11) |
-| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs |
+| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `REVIEW_BOT_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs |
 | `FRICTION` / `FRICTION_SOURCES` | Friction by skill, top 3 (`questions=absent`: untracked) |
 
 **Optional inputs** (Read each file the script marks `present`):
 
 - `RETRO_CONTEXT: present` → Read the path it prints. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
-- `GREPTILE_HISTORY: present` → Read the path it prints. Filter entries to the retro window by date. Count by type: `fix`, `fp`, `already-fixed`. Signal ratio = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines silently; if no entries fall in the window, skip the Greptile metric row.
+- `REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present` → Read each printed path (column 6: bot; old rows Greptile's). Filter to the window. Per bot, count `fix`, `fp`, `already-fixed`; signal = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines; with none in the window, skip the row.
 - `TODOS_FILE: present` → Read `TODOS.md`. Compute: total open TODOs (exclude the `## Completed` section), P0/P1 count, P2 count, items completed this period (Completed entries dated within the window), items added this period (cross-reference `COMMIT:` lines that touched TODOS.md).
 - `SKILL_USAGE_LOG: present` → Read the path it prints. Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
 - `EUREKA_LOG: present` → Read the path it prints. Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
@@ -342,7 +342,7 @@ Use the analyzed ref in the commit-count label (not always `main`). Test health 
 | Active days | N |
 | Detected sessions | N |
 | Avg raw LOC/session-hour | N |
-| Greptile signal | N% (Y catches, Z FPs) |
+| Bot signal | N% per bot (Y catches, Z FPs) |
 | Test Health | N test files · M changed this period · K regression test commits |
 
 Lead with user-visible features, then commit and logical-SLOC metrics; raw LOC
@@ -580,7 +580,7 @@ Read Step 12's reserved `RETRO_FILE`, then Write it with this schema:
 
 **Always include `recommendations`:** one object per "3 Things to Improve" item, with a one-word lowercase `category` and the item's text verbatim. Write `[]` when there are none; never pad.
 
-**Note:** Only include the `greptile` field if `greptile-history.md` (the path `GREPTILE_HISTORY` printed) exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (`TEST_FILES_TOTAL` > 0). If any has no data, omit the field entirely.
+**Note:** Only include the `greptile` field (other bots: a `review_bots` object keyed by bot) if it has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (`TEST_FILES_TOTAL` > 0). If any has no data, omit the field entirely.
 
 Include test health data in the JSON when test files exist:
 ```json
