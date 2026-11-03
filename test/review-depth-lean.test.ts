@@ -38,6 +38,20 @@ describe('HARN-1 false triggers (harness-evals#231 on 1.93.7.0): data, config an
     for (const p of exe) expect(classifyDiff({ paths: [p], gateTagged: 0, executables: [p] }).class).toBe('code');
     expect(classifyDiff({ paths: ['logs/run.txt', 'docs/r/logs/ready'], gateTagged: 0, executables: [] }).class).toBe('docs');
   });
+  // Value: protects=sealed custody and outside-model prompt egress plan full depth (GST-1177: harness-evals#237, gstack #3921);
+  //   fails_when=scripts/sealed/seal.ts or the #3921 secret-egress lines class light with no risk; seam=matchRisk path and line rules
+  test('sealed custody and code that redacts or ships repo content to an outside model are security', () => {
+    const sec = (p: string, lines: string[] = ['export const x = 1;']) => matchRisk({ codePaths: [p], added: { [p]: lines }, scopeAuth: false }).has('security');
+    expect(sec('scripts/sealed/seal.ts')).toBe(true);
+    expect(sec('lib/eval-custody.ts')).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ["import { redactFindingSpans } from './redact-engine';"])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['  const redacted = (patch: string) => redactFindingSpans(patch) ?? "";'])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['const SECRET_NAME = /(^|\\/)(\\.env[^/]*)$/i;'])).toBe(true);
+    expect(sec('lib/review-x.ts', ["import { runOutsideVoice } from './outside-voice-runner';"])).toBe(true);
+    expect(sec('lib/autoplan-lean.ts', ['const INLINE_DRAFT_BYTES = 64_000;'])).toBe(false);
+    expect(sec('lib/seasonal.ts')).toBe(false);
+    expect(classifyDiff({ paths: ['scripts/sealed/seal.ts'], gateTagged: 0 }).risk).toContain('security');
+  });
   test('a sqlite file is data even when a script names it', () => {
     const c = classifyDiff({ paths: [sqlite, 'scripts/load.py'], gateTagged: 0, perPath: [{ path: sqlite, lines: 0, binary: true }, { path: 'scripts/load.py', lines: 4, binary: false }], consumed: [sqlite] });
     expect([c.class, c.errors.map(e => e.code), c.runtimeLines]).toEqual(['code', [], 4]);

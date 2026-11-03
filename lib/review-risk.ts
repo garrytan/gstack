@@ -51,7 +51,8 @@ export const SECRET_LINE = [
   /\b(?:keychain|keytar|find-generic-password|find-internet-password|secret-tool|git-credential|credential\.helper)\b/i, /\bgh auth token\b/, /(?:^|[\s'"/])\.netrc\b/,
 ];
 
-const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape'];
+/** Sealed custody (harness-evals#237: scripts/sealed/seal.ts) and egress code are trust boundaries too (GST-1177). */
+const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'seal', 'sealed', 'custody', 'egress'];
 /** Coarse, linear-time rules (GST-850 B+): any changed line naming the child_process module, any outbound HTTP client call; quantifiers bounded. */
 export const SECURITY_LINE = [
   /\bshell\s*:\s*true\b/, /\bshell\s*=\s*True\b/, /(?<![.\w$])exec(?:Sync)?\s*\(/, /\b(?:child_process|childProcess|cp)\.exec(?:Sync)?\s*\(/, /\bos\.system\s*\(/,
@@ -67,6 +68,7 @@ export const SECURITY_LINE = [
   /(?<![.\w])eval\s*\(/, /(?:^|[;&|])\s*eval\s+["'$]/, /\bnew\s+Function\s*\(/,
   /\b(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/, /\bBun\.spawn(?:Sync)?\s*\(\s*\[\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/,
   /\brmSync\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s+-(?=[a-z]*r)(?=[a-z]*f)[a-z]*[rf]\b/,
+  /\bredact[A-Za-z]{0,40}\s{0,20}\(/, /(?:\bfrom\s{1,20}|\b(?:require|import)\s{0,20}\(\s{0,20})['"][^'"]{0,300}(?:redact|outside-voice)[^'"]{0,300}['"]/, /\b[A-Z0-9_]{0,60}(?:SECRET|CREDENTIAL)[A-Z0-9_]{0,60}\s{0,20}=\s{0,20}\//,
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */
