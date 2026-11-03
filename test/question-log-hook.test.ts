@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { HOOK_EXIT_RESERVE_MS, HOOK_TIMEOUT_MS, hookChildBudgetMs } from '../hosts/claude/hooks/spawn-bin';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-log-hook');
@@ -393,4 +394,51 @@ describe('PostToolUse hook (crash safety)', () => {
     expect(fs.existsSync(errLog)).toBe(true);
     expect(fs.readFileSync(errLog, 'utf-8')).toContain('stdin parse failed');
   });
+});
+
+// ----------------------------------------------------------------------
+// One budget for every child (Claude Code kills the hook at 5 s)
+// ----------------------------------------------------------------------
+
+describe('PostToolUse hook (budget)', () => {
+  test('every child shares the registered 5 s budget, less the exit reserve', () => {
+    expect(hookChildBudgetMs(1_000, 1_000)).toBe(HOOK_TIMEOUT_MS - HOOK_EXIT_RESERVE_MS);
+    expect(hookChildBudgetMs(1_000, 3_000)).toBe(HOOK_TIMEOUT_MS - HOOK_EXIT_RESERVE_MS - 2_000);
+    expect(hookChildBudgetMs(1_000, 1_000 + HOOK_TIMEOUT_MS)).toBeLessThan(0);
+  });
+
+  test('slow children stop at the hook budget and the skipped questions are logged', () => {
+    const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-slow-bun-'));
+    try {
+      fs.writeFileSync(path.join(fakeBin, 'bun'), `#!/bin/sh\nsleep 1\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 });
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v !== undefined) env[k] = v;
+      }
+      env.GSTACK_STATE_ROOT = stateRoot;
+      delete env.GSTACK_HOME;
+      env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
+      env.PATH = `${fakeBin}${path.delimiter}${env.PATH ?? ''}`;
+      const questions = Array.from({ length: 6 }, (_, i) => ({ question: `Budget question ${i}`, options: ['A', 'B'] }));
+      const res = spawnSync(process.execPath, [path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-log-hook.ts')], {
+        env,
+        input: JSON.stringify({
+          session_id: 'budget',
+          tool_name: 'AskUserQuestion',
+          tool_use_id: 'tu-budget',
+          tool_input: { questions },
+          tool_response: { answers: questions.map(() => ({ option_label: 'A' })) },
+          cwd: ROOT,
+        }),
+        encoding: 'utf-8',
+        cwd: ROOT,
+        timeout: 30_000,
+      });
+      expect(res.status).toBe(0);
+      expect(readLog().length).toBeLessThan(questions.length);
+      expect(fs.readFileSync(path.join(stateRoot, 'hook-errors.log'), 'utf-8')).toContain('budget is spent');
+    } finally {
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

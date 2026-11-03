@@ -35,7 +35,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { runBin } from './spawn-bin';
+import { HOOK_TIMEOUT_MS, hookChildBudgetMs, runBin } from './spawn-bin';
 import { logHookError as sharedLogHookError } from './hook-log';
 import { parseQidMarker } from '../../../scripts/qid-marker';
 
@@ -67,6 +67,7 @@ interface ExtractedQuestion {
 }
 
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
+const HOOK_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 
 function logHookError(msg: string): void {
   sharedLogHookError('question-log-hook', msg);
@@ -238,17 +239,19 @@ function detectSkill(cwd: string | undefined): string {
   return 'unknown';
 }
 
-function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
+function spawnLog(payload: Record<string, unknown>, budgetMs: number, cwd?: string): void {
+  const startedAt = Date.now();
   const res = runBin('gstack-question-log', [JSON.stringify(payload)], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 3000,
+    timeout: budgetMs,
     // Run from the originating tool call's cwd so gstack-slug resolves to
     // the project the user is actually in, not the hook script's location.
     cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
   });
   if (res.status !== 0) {
-    logHookError(`gstack-question-log exited ${res.status}: ${res.stderr || res.stdout}`);
+    const how = res.signal ? ` (${res.signal} after ${Date.now() - startedAt} of ${budgetMs} ms)` : '';
+    logHookError(`gstack-question-log exited ${res.status}${how}: ${res.stderr || res.stdout}`);
   }
 }
 
@@ -309,7 +312,12 @@ async function main(): Promise<void> {
     if (signal_key) payload.signal_key = signal_key;
     if (choice.free_text) payload.free_text = String(choice.free_text);
 
-    spawnLog(payload, stdin.cwd);
+    const budgetMs = hookChildBudgetMs(HOOK_STARTED_AT);
+    if (budgetMs <= 0) {
+      logHookError(`gstack-question-log skipped for questions ${i + 1}-${questions.length}: the hook's ${HOOK_TIMEOUT_MS} ms budget is spent`);
+      break;
+    }
+    spawnLog(payload, budgetMs, stdin.cwd);
   }
 
   process.exit(0);
