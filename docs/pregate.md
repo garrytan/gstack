@@ -1137,6 +1137,13 @@ those, each with its scope and its reason:
   end the outer string (GST-738). The pre-push hook sees only added lines,
   so it scans Python and Dart lines without this exemption and may still warn
   (MEDIUM, non-blocking) on them.
+- The first argument of a lookup call (`get`, `getenv`, `read`, `load`,
+  `loads`, `open`, `pop`, `fetch`) that is a lowercase file name
+  (`files.get("key.json")`) or a snake_case key of two or three words
+  (`resp.json().get("access_token")`) is a name, not a credential (GST-1064).
+  Any other call's literal (`make_password("orange_monkey_pass")`), a later
+  argument or fallback (`os.getenv("SECRET_KEY", "orange_monkey_pass")`) and a
+  kebab passphrase still report.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line
