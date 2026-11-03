@@ -430,21 +430,23 @@ describe('draft capture edges', () => {
     const cwd = repo('rename-envrc', false);
     git(cwd, 'checkout', '-q', 'main');
     fs.writeFileSync(path.join(cwd, '.envrc'), 'dotenv_if_exists marker-zz9-old\n');
-    git(cwd, 'add', '.envrc');
+    fs.writeFileSync(path.join(cwd, '.pgpass'), 'db.example.com:5432:app:bot:marker-zz9-pg\n');
+    git(cwd, 'add', '.envrc', '.pgpass');
     git(cwd, 'commit', '-q', '-m', 'direnv');
     git(cwd, 'checkout', '-q', 'feature');
     git(cwd, 'merge', '-q', 'main');
     git(cwd, 'mv', '.envrc', '.envrc.local');
     fs.appendFileSync(path.join(cwd, '.envrc.local'), 'dotenv_if_exists marker-zz9-new\n');
-    fs.appendFileSync(path.join(cwd, 'lib', 'worker.ts'), 'export const JITTER = 0.1;\n');
+    git(cwd, 'mv', '.pgpass', 'pg.txt');
+    git(cwd, 'mv', 'lib/worker.ts', 'lib/retry.ts');
     const { ps, prompt } = lean('rename-envrc', cwd);
     const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
     for (const text of [diff, prompt]) {
       expect(text).not.toContain('marker-zz9');
-      expect(text).toContain('# draft: .envrc left out (its name looks like a secret)');
-      expect(text).toContain('# draft: .envrc.local left out (its name looks like a secret)');
+      expect(text).toContain('# draft: .envrc -> .envrc.local left out (a rename or copy of a file whose name looks like a secret)');
+      expect(text).toContain('# draft: .pgpass -> pg.txt left out (a rename or copy of a file whose name looks like a secret)');
     }
-    expect(diff).toContain('+export const JITTER = 0.1;');
+    expect(diff).toContain('rename from lib/worker.ts\nrename to lib/retry.ts');
   });
 
   test('a key inside an ordinary file is redacted, untracked or edited in the working tree', () => {

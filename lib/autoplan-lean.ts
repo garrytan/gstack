@@ -75,21 +75,27 @@ export function captureDraft(cwd: string, dir: string, out: string, base?: strin
   const inRun = (f: string) => !runDir.startsWith('..') && !path.isAbsolute(runDir) && (runDir === '' || f === runDir || f.startsWith(`${runDir}/`));
   const failed = (r: ReturnType<typeof git>, what: string, ok = [0]) => r.error || r.status === null || !ok.includes(r.status)
     ? `draft capture failed: ${what} ${r.error ? `errored (${r.error.message})` : `exited ${r.status ?? r.signal}`}${r.stderr?.trim() ? `: ${r.stderr.trim().split('\n')[0]}` : ''}` : undefined;
-  const raw = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
-  const names = git(['diff', '--name-only', '-z', '--no-renames', mergeBase, '--'], root);
+  const raw = ['diff', '--no-color', '--no-ext-diff', '--no-textconv'];
+  const names = git(['diff', '--name-status', '-z', '-M', '-C', mergeBase, '--'], root);
   const others = git(['ls-files', '--others', '--exclude-standard', '-z'], root);
   const listed = failed(names, 'git diff') ?? failed(others, 'git ls-files');
   if (listed) return { base: ref, none: listed };
-  const changed = names.stdout.split('\0').filter(Boolean);
-  const secretTracked = changed.filter(f => SECRET_NAME.test(f));
-  const tracked = git([...raw, mergeBase, '--', '.', ...secretTracked.map(f => `:(exclude,literal)${f}`)], root);
+  const fields = names.stdout.split('\0');
+  const changed: string[] = [];
+  const secretTracked: string[][] = [];
+  for (let i = 0; fields[i];) {
+    const entry = /^[RC]/.test(fields[i++]!) ? [fields[i++]!, fields[i++]!] : [fields[i++]!];
+    changed.push(...entry);
+    if (entry.some(f => SECRET_NAME.test(f))) secretTracked.push(entry);
+  }
+  const tracked = git([...raw, '-M', mergeBase, '--', '.', ...secretTracked.flat().map(f => `:(exclude,literal)${f}`)], root);
   const broken = failed(tracked, 'git diff');
   if (broken) return { base: ref, none: broken };
   const redacted = (patch: string, what: string) => redactFindingSpans(patch) ?? `# draft: ${what} left out (it could not be redacted safely)\n`;
   const untracked = others.stdout.split('\0').filter(f => f && !inRun(f)).sort();
   const parts = [
     ...tracked.stdout.split(/^(?=diff --git )/m).map(p => redacted(p, p.slice(0, p.indexOf('\n')))),
-    ...secretTracked.map(f => `# draft: ${f} left out (its name looks like a secret)\n`),
+    ...secretTracked.map(e => `# draft: ${e.join(' -> ')} left out (${e.length > 1 ? 'a rename or copy of a file whose name looks like a secret' : 'its name looks like a secret'})\n`),
   ];
   for (const f of untracked.slice(0, UNTRACKED_MAX)) {
     if (SECRET_NAME.test(f)) { parts.push(`# draft: untracked ${f} left out (its name looks like a secret)\n`); continue; }
