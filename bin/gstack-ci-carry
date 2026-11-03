@@ -14,10 +14,9 @@
  * carried, 3 still running or no run. Logic: lib/ci-carry.ts; the run checks are lib/run-evidence.ts.
  */
 import { spawnSync } from 'node:child_process';
-import { findCarry, waitForRun } from '../lib/ci-carry';
+import { findCarry, laneMapping, mappingCoverage, waitForRun } from '../lib/ci-carry';
 import { isConfigUnavailable, loadConfigFromBase } from '../lib/pregate/config';
 import { buildRunCheck } from '../lib/pregate/run-check';
-import { runInventory } from '../lib/run-evidence';
 import { wtreeFingerprint } from '../lib/script-invocation';
 import { resolveBaseBranch } from '../lib/ship-policy';
 
@@ -48,8 +47,8 @@ const base = resolveBaseBranch(root, flag('--base'));
 const loaded = loadConfigFromBase(root, base);
 if (isConfigUnavailable(loaded) || loaded.errors.length) { out(`CI_CARRY: none (profiles_unavailable: origin/${base}'s .gstack/pregate.json is unreadable or invalid)`); process.exit(1); }
 const command = flag('--command');
-const mapping = command !== undefined ? loaded.config.ship_lanes_from[command] : undefined;
-if (command !== undefined && !mapping) { out(`CI_CARRY: none (not_mapped: ${JSON.stringify(command)} is not a key of origin/${base}'s ship_lanes_from)`); process.exit(1); }
+const mapping = command !== undefined ? laneMapping(loaded.config.ship_lanes_from, command) : undefined;
+if (command !== undefined && !mapping) { out(`CI_CARRY: none (not_mapped: ${JSON.stringify(command)} is neither a key nor a declared alias in origin/${base}'s ship_lanes_from)`); process.exit(1); }
 if (mapping && !argv.includes('--allow-repo-commands')) usage('--command runs the mapping\'s inventory, a pin-file command: pass --allow-repo-commands');
 const profiles = all('--profile').length ? all('--profile') : mapping ? mapping.profiles : [...new Set(Object.values(loaded.config.ship_lanes_from).flatMap(m => m.profiles))];
 if (!profiles.length) { out(`CI_CARRY: none (no_profile: origin/${base} maps no lane in ship_lanes_from; pass --profile <name>)`); process.exit(1); }
@@ -60,7 +59,7 @@ const tree = git(['rev-parse', 'HEAD^{tree}']);
 
 function find(): number {
   const wtree = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };
-  const v = findCarry(check as Exclude<typeof check, { error: string }>, { profiles, head, tree, wtree, ...(mapping ? { inventory: () => runInventory(mapping.inventory, root) } : {}) });
+  const v = findCarry(check as Exclude<typeof check, { error: string }>, { profiles, head, tree, wtree, ...(mapping ? mappingCoverage(mapping, root) : {}) });
   if (argv.includes('--json')) out(JSON.stringify(v));
   else out(v.ok ? `CI_CARRY: accepted ${v.receipt}` : `CI_CARRY: none (${v.reason}: ${v.detail})`);
   return v.ok ? 0 : 1;

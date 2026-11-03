@@ -62,7 +62,7 @@ export interface RunDeps {
 }
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
-  | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
+  | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
   | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
 export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null }
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
@@ -126,7 +126,7 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
 const fail = (reason: RunRefusal, detail: string): RunVerdict => ({ ok: false, reason, detail });
 /** When a run's newest attempt started. A run vetoes the candidate when it started at or after the second the candidate was created: a red re-run of an older run counts, and re-running the candidate does not hide a failure in between. */
 const started = (r: ApiRun): string => r.run_started_at ?? r.created_at ?? '';
-const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
+export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
 
 /**
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
@@ -157,6 +157,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
       const hits = jobs.filter(j => j.name === name);
       if (hits.length === 0) return fail('job_missing', `${at} has no job named ${name}`);
       if (hits.length > 1) return fail('job_ambiguous', `${at} has ${hits.length} jobs named ${name}`);
+      if (hits[0]!.conclusion === 'skipped') return fail('job_skipped', `${at}'s ${name} job was skipped`);
       if (hits[0]!.conclusion !== 'success') return fail('job_not_success', `${at}'s ${name} job concluded ${hits[0]!.conclusion}`);
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];

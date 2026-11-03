@@ -7,6 +7,7 @@ import * as path from 'node:path';
 
 export interface FakeWorld {
   runs: Array<Record<string, unknown> & { id: number; run_attempt: number; head_sha: string; path: string }>;
+  /** Keyed `<run id>/<attempt>` for one attempt's jobs, else `<run id>` for every attempt. */
   jobs: Record<string, Array<{ name: string; conclusion: string | null; completed_at?: string }>>;
   trees: Record<string, Record<string, unknown>>;
 }
@@ -30,8 +31,8 @@ if (import.meta.main) {
       process.stdout.write(JSON.stringify(run));
     } else if ((m = /\/actions\/workflows\/([^/]+)\/runs$/.exec(route!))) {
       lines(world.runs.filter(r => r.head_sha === q.get('head_sha') && r.path === `.github/workflows/${m![1]}`));
-    } else if ((m = /\/actions\/runs\/(\d+)\/attempts\/\d+\/jobs$/.exec(route!))) {
-      lines(world.jobs[m[1]!] ?? []);
+    } else if ((m = /\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs$/.exec(route!))) {
+      lines(world.jobs[`${m[1]}/${m[2]}`] ?? world.jobs[m[1]!] ?? []);
     } else if ((m = /\/actions\/runs\/(\d+)\/artifacts$/.exec(route!))) {
       lines(world.trees[m[1]!] ? [{ name: q.get('name'), size_in_bytes: 200, expired: false }] : []);
     } else { process.stderr.write(`fake gh: no route for ${p}`); process.exit(1); }

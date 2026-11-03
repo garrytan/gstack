@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fragmentSlug } from './changelog-fragments';
+import { laneMapping, type ShipLaneMapping } from './ci-carry';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
@@ -173,13 +174,13 @@ export function laneConcurrency(mode: string | undefined, cpus = os.availablePar
 
 export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string }
 
-/** The base branch's `ship_lanes_from` entry for each lane whose command is a key, byte for byte (the ledger binds its sha256). */
-export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, { profiles: string[]; inventory: string }> {
+/** The base branch's `ship_lanes_from` entry for each lane whose command is a key or a declared alias, byte for byte (the ledger binds its sha256). */
+export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, ShipLaneMapping> {
   const loaded = loadConfigFromBase(cwd, base);
-  const map = new Map<string, { profiles: string[]; inventory: string }>();
+  const map = new Map<string, ShipLaneMapping>();
   if (isConfigUnavailable(loaded) || loaded.errors.length) return map;
   const from = loaded.config.ship_lanes_from;
-  for (const l of list) if (Object.prototype.hasOwnProperty.call(from, l.command)) map.set(l.label, from[l.command]!);
+  for (const l of list) { const m = laneMapping(from, l.command); if (m) map.set(l.label, m); }
   return map;
 }
 
@@ -189,8 +190,8 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
  */
 export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
   const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
-  const got = / tests_ran=(\d+) log=- source=ci runs=(\S+)/.exec(rec.stderr);
-  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[1]!, log: '-', carried: got[2]! };
+  const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(rec.stderr);
+  if (rec.status === 0 && got) return { label: l.label, exit: 0, testsRan: got[2] ? `${got[1]} (files)` : got[1]!, log: '-', carried: got[3]! };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: /^CARRY_NONE: (.+)$/m.exec(rec.stderr)?.[1] ?? `record_failed: ${firstLine(rec.stderr)}` };
 }
 
@@ -201,7 +202,7 @@ export function carryLane(cwd: string, base: string, l: { label: string; command
  */
 export async function runLanes(cwd: string, list: { label: string; command: string }[], concurrency = Infinity, opts: { base?: string; reuse?: boolean } = {}): Promise<LaneResult[]> {
   const out: LaneResult[] = [];
-  const mapped = opts.base ? mappedLanes(cwd, opts.base, list) : new Map<string, { profiles: string[]; inventory: string }>();
+  const mapped = opts.base ? mappedLanes(cwd, opts.base, list) : new Map<string, ShipLaneMapping>();
   let next = 0;
   const worker = async () => {
     while (next < list.length) {

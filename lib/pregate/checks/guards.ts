@@ -21,6 +21,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { laneMapping } from '../../ci-carry';
 import { matchesAny } from '../../ship-policy';
 import type { Guard } from '../config';
 import { baseInputs, sha256 } from '../context';
@@ -40,7 +41,7 @@ const EVIDENCE = path.resolve(import.meta.dir, '..', '..', '..', 'bin', 'gstack-
 function priorPass(ctx: PregateContext, guard: Guard): { prior?: string; carryNone?: string } {
   const evidence = (args: string[]) => runScriptSync(EVIDENCE, args, { cwd: ctx.repoRoot, env: ctx.env, encoding: 'utf8', timeout: 600_000 });
   let carryNone: string | undefined;
-  if (Object.prototype.hasOwnProperty.call(ctx.config.ship_lanes_from, guard.command)) {
+  if (laneMapping(ctx.config.ship_lanes_from, guard.command)) {
     const ci = evidence(['record-ci', '--label', `guard-${guard.id}`, '--base', ctx.base, '--', guard.command]);
     const runs = / source=ci runs=(\S+)/.exec(String(ci.stderr ?? ''))?.[1];
     if (ci.status === 0 && runs) return { prior: `carried runs=${runs}` };

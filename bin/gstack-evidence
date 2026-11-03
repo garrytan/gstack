@@ -6,7 +6,7 @@
  *   gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>
  *   gstack-evidence record-ci --label <L> --base <base> -- <cmd>
  *   gstack-evidence passed -- <cmd>
- *   gstack-evidence carried [--json]
+ *   gstack-evidence carried [--base <branch>] [--json]
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
  *                         [--max-age <hours>] [--allow-paths <csv>]
  *   gstack-evidence bundle --out <file> [--label <L>]... [--require <csv>] [--selection L=<text>]...
@@ -66,8 +66,11 @@
  * `record-ci` writes the explicit CI-sourced row for a lane CI carried: it
  * finds and verifies the run itself (lib/ci-carry.ts) for a command the base's
  * ship_lanes_from maps, then records source "ci", the runs and profiles, the
- * run's finish time as ts, bound to HEAD's clean tree; `carried` lists those
- * rows at the current tree for the ship receipt.
+ * run's finish time as ts, bound to HEAD's clean tree, and the policy that
+ * mapped it (`origin/<base>@<sha>:…`); `carried` lists those rows at the
+ * current tree for the ship receipt, only when that policy is origin/<the
+ * receipt's base> (GST-1190: a row a run against another base wrote never
+ * counts).
  *
  * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
  * A synced record citing an unsynced log would grade FRESH on a machine where
@@ -91,10 +94,9 @@ import { resultLine } from "../lib/result-codes";
 import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/ship-policy";
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
-import { findCarry } from "../lib/ci-carry";
+import { findCarry, laneMapping, mappingCoverage } from "../lib/ci-carry";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
-import { runInventory } from "../lib/run-evidence";
 
 const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
@@ -123,10 +125,14 @@ interface EvidenceRecord {
   source?: "ci";
   runs?: string[];
   profiles?: string[];
+  /** The CI jobs a jobs-mapped lane carried from (record-ci, GST-1189); tests_ran is then "n/a". */
+  jobs?: string[];
   /** The base policy that mapped a carried lane (record-ci), as `origin/<base>@<sha>:.gstack/pregate.json`. */
   policy?: string;
   /** The runner's own test count (executed for bun/jest/vitest/pytest/rspec; ran with skips included for gstack's shard runner and the remote gate), 0 for ZERO-RUN, or "unknown" when no supported summary was seen. */
-  tests_ran?: number | "unknown";
+  tests_ran?: number | "unknown" | "n/a";
+  /** "files" when a carried narrow lane's tests_ran counts its inventory files the run covered (record-ci), not tests. */
+  tests_unit?: "files";
 }
 
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
@@ -678,16 +684,15 @@ function cmdRecordCi(argv: string[]): number {
   const loaded = loadConfigFromBase(cwd, base);
   if (isConfigUnavailable(loaded)) return none("config_unavailable", loaded.detail);
   if (loaded.errors.length) return none("config_invalid", loaded.errors.map((x) => `${x.path}: ${x.message}`).join("; "));
-  const from = loaded.config.ship_lanes_from;
-  if (!Object.prototype.hasOwnProperty.call(from, command)) return none("not_mapped", `the command is not a key of origin/${base}'s ship_lanes_from`);
-  const m = from[command]!;
+  const m = laneMapping(loaded.config.ship_lanes_from, command);
+  if (!m) return none("not_mapped", `the command is neither a key nor a declared alias in origin/${base}'s ship_lanes_from`);
   const check = buildRunCheck(cwd, null, true, base);
   if ("error" in check) return none("profiles_unavailable", check.error);
   const head = git(["rev-parse", "HEAD"]);
   const tree = git(["rev-parse", "HEAD^{tree}"]);
   if (!head || !tree) return none("no_head", "HEAD is unreadable");
   const wtree = () => { const fp = wtreeFingerprint({ cwd, timeoutMs: 30000 }); return "tree" in fp ? fp.tree : null; };
-  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, inventory: () => runInventory(m.inventory, cwd) });
+  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd) });
   if (!v.ok) return none(v.reason, v.detail);
   let paths: ReturnType<typeof ledgerPath>;
   try {
@@ -700,15 +705,21 @@ function cmdRecordCi(argv: string[]): number {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label,
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}`);
   return 0;
 }
 
-/** `carried`: each label's newest row when it is a CI-sourced row at the current working tree, as the receipt's ci_carried entries. */
+/**
+ * `carried`: each label's newest row when it is a CI-sourced row at the current working tree whose mapping policy is
+ * origin/<base> (the receipt's base; default the resolved base branch), as the receipt's ci_carried entries.
+ */
 function cmdCarried(argv: string[]): number {
+  const at = argv.indexOf("--base");
+  if (at >= 0 && !argv[at + 1]) { console.error("usage: gstack-evidence carried [--base <branch>] [--json]"); return 2; }
+  const policyRef = `origin/${(at >= 0 ? argv[at + 1]! : resolveBaseBranch(git(["rev-parse", "--show-toplevel"]) ?? process.cwd())).replace(/^origin\//, "")}@`;
   let records: EvidenceRecord[] = [];
   try {
     records = readJsonl<EvidenceRecord>(ledgerPath().file);
@@ -718,7 +729,7 @@ function cmdCarried(argv: string[]): number {
   const wtree = currentWtree();
   const latest = new Map<string, EvidenceRecord>();
   for (const r of records) latest.set(r.label, r);
-  const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs))
+  const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs) && typeof r.policy === "string" && r.policy.startsWith(policyRef))
     .flatMap((r) => r.runs!.map((ref) => { const [run, attempt] = ref.split("/").map(Number); return { lane: r.label, run, attempt, tree: r.wtree! }; }));
   if (argv.includes("--json")) console.log(JSON.stringify(carried));
   else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}`);
@@ -783,10 +794,10 @@ function cmdCheck(argv: string[]): number {
       allFresh = false;
       continue;
     }
-    const testsRan = typeof latest.tests_ran === "number" ? latest.tests_ran : "unknown";
+    const testsRan = typeof latest.tests_ran === "number" || latest.tests_ran === "n/a" ? latest.tests_ran : "unknown";
     const changedDuringRun = Array.isArray(latest.wtree_changed) ? latest.wtree_changed.filter((p): p is string => typeof p === "string" && p !== "" && !/[\u0000-\u001f\u007f]/.test(p)).slice(0, 5) : [];
     const ci = latest.source === "ci" && Array.isArray(latest.runs) ? ` source=ci runs=${latest.runs.filter((s) => /^\d+\/\d+$/.test(s)).join(",")}` : "";
-    const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}${ci}`;
+    const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan}${latest.tests_unit === "files" ? " unit=files" : ""} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}${ci}`;
     let verdict: "FRESH" | "STALE" | "ZERO-RUN" = "FRESH";
     let reason = "";
     if (latest.exit !== 0) {

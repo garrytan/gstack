@@ -27,13 +27,14 @@ const runs = (f: ShipFx, name: string) => { const p = path.join(f.root, name); r
 const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 
 /** One run of free.yml at HEAD (id 7 unless named), green with a tree.json naming HEAD's tree, unless overridden. */
-function world(f: ShipFx, over: { run?: Record<string, unknown>; tree?: Record<string, unknown>; others?: Array<Record<string, unknown>>; jobs?: Array<{ name: string; conclusion: string | null }> } = {}): void {
+function world(f: ShipFx, over: { run?: Record<string, unknown>; tree?: Record<string, unknown>; others?: Array<Record<string, unknown>>; jobs?: Array<{ name: string; conclusion: string | null }>; attempts?: Record<string, Array<{ name: string; conclusion: string | null }>> } = {}): void {
   const head = f.git('rev-parse', 'HEAD').stdout.trim();
   const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
   const run = { id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: head, path: '.github/workflows/free.yml', created_at: at(20), run_started_at: at(20), updated_at: at(5), repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' }, ...over.run };
   const w: FakeWorld = {
     runs: [run, ...((over.others ?? []).map(o => ({ ...run, ...o })))] as FakeWorld['runs'],
-    jobs: { 7: (over.jobs ?? [{ name: 'suite', conclusion: 'success' }]).map(j => ({ ...j, completed_at: at(5) })), 9: [{ name: 'suite', conclusion: 'failure', completed_at: at(1) }] },
+    jobs: { 7: (over.jobs ?? [{ name: 'suite', conclusion: 'success' }]).map(j => ({ ...j, completed_at: at(5) })), 9: [{ name: 'suite', conclusion: 'failure', completed_at: at(1) }],
+      ...Object.fromEntries(Object.entries(over.attempts ?? {}).map(([k, js]) => [k, js.map(j => ({ ...j, completed_at: at(5) }))])) },
     trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree, files: ['test/a.test.ts', 'test/b.test.ts'], tests: 12, os: 'Linux', ...over.tree } },
   };
   const file = path.join(f.root, 'world.json');
@@ -51,7 +52,7 @@ describe('Step 5 lanes: CI carry and the tree cache', () => {
     world(f);
     const first = preflight(f);
     expect(first.status).toBe(0);
-    expect(lane(first.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=12');
+    expect(lane(first.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=2 (files)');
     expect(lane(first.stdout, 'unit')).toMatch(/^LANE: unit pass exit=0 tests_ran=2 log=\S+$/);
     expect([runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual([0, 1]);
     const again = preflight(f);
@@ -103,7 +104,7 @@ describe('Step 5 lanes: CI carry and the tree cache', () => {
     expect(ev(['check', '--label', 'free', '--expect-cmd', FREE]).stdout).not.toContain('EVIDENCE: FRESH');
     expect(JSON.parse(ev(['carried', '--json']).stdout)).toEqual([]);
     const ok = ev(['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
-    expect([ok.status, ok.stderr]).toEqual([0, expect.stringContaining('tests_ran=12 log=- source=ci runs=7/1 policy=origin/main@')]);
+    expect([ok.status, ok.stderr]).toEqual([0, expect.stringContaining('tests_ran=2 unit=files log=- source=ci runs=7/1 policy=origin/main@')]);
     const row = JSON.parse(fs.readFileSync(findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl')[0]!, 'utf8').trim().split('\n').at(-1)!);
     expect(row.policy).toMatch(/^origin\/main@[0-9a-f]{12}:\.gstack\/pregate\.json$/);
   });
@@ -151,8 +152,8 @@ describe('finish, push --early and accept (A1)', () => {
     world(f);
     const ok = f.run(RELEASE, ['accept', '--base', 'main', '--lane', `free=${FREE}`, '--wait', '0']);
     expect(ok.stdout).toContain('CI_WAIT: green ci/free run=7/1');
-    expect(lane(ok.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=12');
-    expect(lineOf(ok.stdout, 'EVIDENCE')).toMatch(/^EVIDENCE: FRESH label=free exit=0 tests_ran=12 .* source=ci runs=7\/1$/);
+    expect(lane(ok.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=2 (files)');
+    expect(lineOf(ok.stdout, 'EVIDENCE')).toMatch(/^EVIDENCE: FRESH label=free exit=0 tests_ran=2 unit=files .* source=ci runs=7\/1$/);
     expect(ok.stdout).toContain('CI_CARRY: accepted ci-carry tree=');
     expect(ok.stdout).toContain('NEXT: Step 18');
     expect(ok.status).toBe(0);
@@ -229,5 +230,153 @@ describe('GST-1186: pregate guards carry like lanes (founderstar shape: guards o
     expect(dirty.stdout).toMatch(/CI_CARRY: none guard=check-quick \(dirty_tree/);
     expect(dirty.stdout).not.toContain('reused');
     expect(counts(f)).toEqual([1, 3, 3]);
+  });
+});
+
+describe('GST-1189: a lane carries by named CI jobs instead of an inventory', () => {
+  // Value: protects=a ship_lanes_from entry that declares { profiles, jobs } carries only when every named job succeeded in the newest attempt
+  //   of the verified run at HEAD's tree, and refuses with a named reason otherwise; fails_when=a typecheck-only lane cannot carry (no test
+  //   files to inventory), or carries beside a missing, skipped or older-attempt job, or another tree's run;
+  //   why_new=gbrain run 41564913688 (tree 13570abc): verify and typecheck passed in CI but no inventory could name their files; seam=fake gh
+  const VERIFY = 'bun run verify';
+  const pregateJson = (entry: Record<string, unknown>) => JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [VERIFY]: { profiles: ['ci/free'], ...entry } } }, null, 2) + '\n';
+  const GBRAIN = { ...BASE, '.gstack/pregate.json': pregateJson({ jobs: ['verify', 'typecheck'] }) };
+  const ALL = [{ name: 'suite', conclusion: 'success' }, { name: 'verify', conclusion: 'success' }, { name: 'typecheck', conclusion: 'success' }];
+  const NO_FILES = { files: [], tests: 0 };
+  const gbrain = () => { const f = shipFixture(GBRAIN); fixtures.push(f); return f; };
+  const find = (f: ShipFx) => f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main', '--command', VERIFY, '--allow-repo-commands']);
+
+  test('every named job green at the same tree carries, with no test files; record-ci records the jobs', () => {
+    const f = gbrain();
+    world(f, { jobs: ALL, tree: NO_FILES });
+    const ok = find(f);
+    expect([ok.status, ok.stdout]).toEqual([0, expect.stringMatching(/^CI_CARRY: accepted ci-carry tree=[0-9a-f]{12} jobs=verify,typecheck runs=7\/1 profiles=ci\/free /m)]);
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'verify', '--base', 'main', '--', VERIFY]);
+    expect([rec.status, rec.stderr]).toEqual([0, expect.stringContaining('tests_ran=n/a log=- source=ci runs=7/1')]);
+    const row = JSON.parse(fs.readFileSync(findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl')[0]!, 'utf8').trim().split('\n').at(-1)!);
+    expect([row.jobs, row.tests_ran]).toEqual([['verify', 'typecheck'], 'n/a']);
+  });
+
+  test('a missing job refuses as job_missing', () => {
+    const f = gbrain();
+    world(f, { jobs: ALL.filter(j => j.name !== 'typecheck'), tree: NO_FILES });
+    expect(find(f).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: job_missing)');
+  });
+
+  test('a skipped job refuses as job_skipped', () => {
+    const f = gbrain();
+    world(f, { jobs: ALL.map(j => j.name === 'typecheck' ? { ...j, conclusion: 'skipped' } : j), tree: NO_FILES });
+    const r = find(f);
+    expect([r.status, r.stdout]).toEqual([1, expect.stringContaining('CI_CARRY: none (no_verified_run: ci/free: run 7: job_skipped)')]);
+  });
+
+  test('only the newest attempt counts: a rerun that passed carries, a rerun that skipped the job does not', () => {
+    const f = gbrain();
+    const failedFirst = ALL.map(j => j.name === 'typecheck' ? { ...j, conclusion: 'failure' } : j);
+    world(f, { run: { run_attempt: 2 }, tree: { ...NO_FILES, run_attempt: 2 }, attempts: { '7/1': failedFirst, '7/2': ALL } });
+    expect(find(f).stdout).toMatch(/^CI_CARRY: accepted ci-carry tree=[0-9a-f]{12} jobs=verify,typecheck runs=7\/2 /m);
+    world(f, { run: { run_attempt: 2 }, tree: { ...NO_FILES, run_attempt: 2 }, attempts: { '7/1': ALL, '7/2': ALL.map(j => j.name === 'typecheck' ? { ...j, conclusion: 'skipped' } : j) } });
+    expect(find(f).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: job_skipped)');
+  });
+
+  test('a run that tested another tree refuses as tree_mismatch', () => {
+    const f = gbrain();
+    world(f, { jobs: ALL, tree: { ...NO_FILES, tree: '1'.repeat(40) } });
+    expect(find(f).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch)');
+  });
+
+  test('an entry declares exactly one of inventory or jobs', () => {
+    const both = shipFixture({ ...BASE, '.gstack/pregate.json': pregateJson({ jobs: ['verify'], inventory: 'printf x' }) }); fixtures.push(both);
+    world(both, { jobs: ALL, tree: NO_FILES });
+    expect(find(both).stdout).toContain('CI_CARRY: none (profiles_unavailable');
+    const neither = shipFixture({ ...BASE, '.gstack/pregate.json': pregateJson({}) }); fixtures.push(neither);
+    world(neither, { jobs: ALL, tree: NO_FILES });
+    expect(find(neither).stdout).toContain('CI_CARRY: none (profiles_unavailable');
+  });
+});
+
+describe('GST-1190: aliases, newer-gstack keys, narrow counts, and proving a mapping without carrying it', () => {
+  // Value: protects=a lane carries under an exact alias the base declares (never an implicit env-prefix rewrite); a narrow lane never reports
+  //   the whole run's test count; an unknown key under a project floor above this gstack says to upgrade; --simulate proves a head map while
+  //   writing and clearing nothing; carried never lists a row another base's policy mapped;
+  //   fails_when=an env-prefixed lane reruns beside a green run, a 46-test lane records 9677, a proof run's rows land in the PR's own receipt,
+  //   or a branch's own map carries; why_new=HARN-7 (harness-evals #240), ALPH-14 (alphaclaw #310), GEVA-235 (gstack-evals #180), GGST-15; seam=fake gh
+  const ev = (f: ShipFx, args: string[]) => f.run(path.join(BIN, 'gstack-evidence'), args);
+  const ledger = (f: ShipFx) => fs.existsSync(path.join(f.state, 'projects')) ? findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl') : [];
+  const ALL = [{ name: 'suite', conclusion: 'success' }, { name: 'typecheck', conclusion: 'success' }];
+
+  test('a declared alias carries like its key; an undeclared env prefix does not', () => {
+    const TESTS = 'bun test tests/';
+    const ALIAS = 'env -u ANTHROPIC_API_KEY bun test tests/';
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [TESTS]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\n'", aliases: [ALIAS] } } }) + '\n' }); fixtures.push(f);
+    world(f);
+    const rec = ev(f, ['record-ci', '--label', 'tests', '--base', 'main', '--', ALIAS]);
+    expect([rec.status, rec.stderr]).toEqual([0, expect.stringContaining('tests_ran=1 unit=files log=- source=ci runs=7/1')]);
+    const find = (command: string) => f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main', '--command', command, '--allow-repo-commands']).stdout;
+    expect(find(ALIAS)).toMatch(/^CI_CARRY: accepted ci-carry tree=[0-9a-f]{12} files=1 /m);
+    expect(find('env -i HOME=/tmp bun test tests/')).toContain('CI_CARRY: none (not_mapped');
+  });
+
+  test('an alias that repeats a key is invalid config', () => {
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { a: { profiles: ['ci/free'], jobs: ['suite'] }, b: { profiles: ['ci/free'], jobs: ['suite'], aliases: ['a'] } } }) + '\n' }); fixtures.push(f);
+    world(f);
+    expect(f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main']).stdout).toContain('CI_CARRY: none (profiles_unavailable');
+  });
+
+  test('a carried narrow lane counts its covered inventory files, never the run total (alphaclaw: 46 tests recorded as 9677)', () => {
+    const f = fx();
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'], tests: 9677 } });
+    const rec = ev(f, ['record-ci', '--label', 'guards', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([0, expect.stringContaining('tests_ran=2 unit=files log=- source=ci')]);
+    expect(rec.stderr).not.toContain('9677');
+  });
+
+  test('a jobs-mapped guard carries in the guards stage (harness-evals: bunx tsc --noEmit) and reports n/a', () => {
+    const TSC = 'bunx tsc --noEmit';
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [TSC]: { profiles: ['ci/free'], jobs: ['typecheck'] } }, guards: [{ id: 'typecheck', when: ['src/**'], command: TSC, fix: 'bunx tsc --noEmit' }] }) + '\n' }); fixtures.push(f);
+    world(f, { jobs: ALL, tree: { files: [], tests: 0 } });
+    const g = f.run(path.join(BIN, 'gstack-pregate'), ['--stage', 'guards', '--allow-repo-commands', '--base', 'main']);
+    expect([g.status, g.stdout]).toEqual([0, expect.stringContaining('GUARD: typecheck carried runs=7/1')]);
+    const row = JSON.parse(fs.readFileSync(ledger(f)[0]!, 'utf8').trim().split('\n').at(-1)!);
+    expect([row.tests_ran, row.jobs]).toEqual(['n/a', ['typecheck']]);
+  });
+
+  test('an unknown key under a project floor above this gstack says to upgrade; without the floor it stays the generic error', () => {
+    const conf = JSON.stringify({ future_lanes: {} }) + '\n';
+    const floor = shipFixture({}, { '.gstack/pregate.json': conf, '.gstack/ship-policy.json': JSON.stringify({ min_gstack_version: '99.0.0.0' }) + '\n' }); fixtures.push(floor);
+    const newer = floor.run(path.join(BIN, 'gstack-pregate'), ['validate']);
+    expect(newer.status).not.toBe(0);
+    expect(newer.stderr).toContain('needs gstack >= 99.0.0.0; upgrade');
+    expect(newer.stderr).toContain('(PREGATE_GSTACK_TOO_OLD)');
+    const plain = shipFixture({}, { '.gstack/pregate.json': conf }); fixtures.push(plain);
+    const typo = plain.run(path.join(BIN, 'gstack-pregate'), ['validate']);
+    expect([typo.stderr.includes('(PREGATE_CONFIG_INVALID)'), typo.stderr.includes('needs gstack')]).toEqual([true, false]);
+  });
+
+  test('--simulate proves the branch map: every line says SIMULATION, nothing is written, nothing clears, and head policy never carries', () => {
+    const VERIFY = 'bun run verify';
+    const head = JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [VERIFY]: { profiles: ['ci/free'], jobs: ['typecheck'] } } }) + '\n';
+    const f = shipFixture({ '.github/workflows/free.yml': BASE['.github/workflows/free.yml'] }, { '.gstack/pregate.json': head }); fixtures.push(f);
+    world(f, { jobs: ALL, tree: { files: [], tests: 0 } });
+    const sim = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--policy-from', 'head', '--simulate', '--lane', `verify=${VERIFY}`, '--lane', `unit=${UNIT}`]);
+    const lines = sim.stdout.trim().split('\n');
+    expect(lines.every(l => l.startsWith('SIMULATION: ')), sim.stdout + sim.stderr).toBe(true);
+    expect(sim.stdout).toContain('SIMULATION: LANE: verify would carry run=7/1 tests_ran=n/a');
+    expect(sim.stdout).toContain('SIMULATION: LANE: unit not mapped');
+    expect([ledger(f), runs(f, 'unit-runs'), fs.existsSync(path.join(f.work, '.gstack', 'tmp', 'pregate.json'))]).toEqual([[], 0, false]);
+    expect(JSON.parse(ev(f, ['carried', '--json']).stdout)).toEqual([]);
+    const real = ev(f, ['record-ci', '--label', 'verify', '--base', 'main', '--', VERIFY]);
+    expect([real.status, real.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: not_mapped: /m)]);
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--simulate', '--lane', `verify=${VERIFY}`]).status).toBe(2);
+  });
+
+  test('carried lists only rows the receipt base mapped: a proof run against the PR branch never reaches its receipt', () => {
+    const f = fx();
+    expect(f.git('push', '-q', 'origin', 'feat').status).toBe(0);
+    world(f);
+    expect(ev(f, ['record-ci', '--label', 'free', '--base', 'feat', '--', FREE]).status).toBe(0);
+    expect(JSON.parse(ev(f, ['carried', '--base', 'main', '--json']).stdout)).toEqual([]);
+    expect(JSON.parse(ev(f, ['carried', '--base', 'feat', '--json']).stdout)).toEqual([expect.objectContaining({ lane: 'free', run: 7, attempt: 1 })]);
+    expect(JSON.parse(ev(f, ['carried', '--json']).stdout)).toEqual([]);
   });
 });

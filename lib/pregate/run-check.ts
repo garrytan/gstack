@@ -16,15 +16,16 @@ import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
 import { normalizeRemoteUrl } from '../ship-queue-train-record';
 import { REMOTE_GATE_LANE } from './checks/lanes';
-import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase } from './config';
+import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from './config';
 import type { RunCheck } from './index';
 
 /**
  * `profiled` says whether `lane` may have a run profile: an unreadable base counts as profiled, so a lane is
- * recorded unverified only once the base shows it has none.
+ * recorded unverified only once the base shows it has none. `policy: 'head'` reads the branch's profiles instead, only
+ * for gstack-ship-preflight --simulate, a dry run that records and clears nothing.
  */
-export function buildRunCheck(root: string, lane: string | null, allowRepoCommands: boolean, base = resolveBaseBranch(root)): RunCheck | { error: string; profiled?: boolean } {
-  const loaded = loadConfigFromBase(root, base);
+export function buildRunCheck(root: string, lane: string | null, allowRepoCommands: boolean, base = resolveBaseBranch(root), policy: 'base' | 'head' = 'base'): RunCheck | { error: string; profiled?: boolean } {
+  const loaded = policy === 'head' ? loadConfigFromHead(root) : loadConfigFromBase(root, base);
   if (isConfigUnavailable(loaded)) return { error: `the base branch's ${PREGATE_CONFIG_PATH} is unreadable (${loaded.detail}); run profiles come only from the base`, profiled: true };
   if (loaded.errors.length) return { error: `the base branch's ${PREGATE_CONFIG_PATH} is invalid: ${loaded.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, profiled: true };
   const origin = spawnSync('git', ['config', '--get', 'remote.origin.url'], { cwd: root, encoding: 'utf8', timeout: 30_000 });

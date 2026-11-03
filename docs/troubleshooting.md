@@ -3730,6 +3730,20 @@ the entry is reported as unverified, not `REGEN_STALE`.
 **Fix.** Run the printed install command (`bun install`, or the one matching the
 repository's lockfile), then rerun `gstack-regen check` or the pre-gate.
 
+<a id="pregate-gstack-too-old"></a>
+### `PREGATE_GSTACK_TOO_OLD`
+
+**Meaning.** `.gstack/pregate.json` uses a key this gstack does not know, and
+the same tree's `.gstack/ship-policy.json` sets `min_gstack_version` above this
+gstack. The key belongs to a newer gstack (for example `ship_lanes_from` before
+1.94.0.0), so the line reads `needs gstack >= <version>; upgrade`. The policy
+still refuses, exactly as `PREGATE_CONFIG_INVALID` would.
+
+**Fix.** Upgrade gstack on this machine to at least the version named
+(`bin/gstack-upgrade`, or the session install with `--for <skill>`), then
+rerun. A repo adopting a new key raises `min_gstack_version` first, so older
+gstacks print this instead of a generic invalid-config error.
+
 <a id="pregate-config-invalid"></a>
 ### `PREGATE_CONFIG_INVALID`
 
