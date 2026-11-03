@@ -20,7 +20,7 @@ import { baseInputs, sha256 } from '../context';
 import { classifyCommandEnvironment, classifyEnvironment, environmentLine, environmentResult, launchCause } from '../environment';
 import { launchRuntime } from '../runtime';
 import { checkScratch } from '../run-scratch';
-import { readRange, supervise } from '../supervise';
+import { readRange, STALL_IDLE, supervise } from '../supervise';
 import type { EnvironmentCause } from '../types';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
 
@@ -56,7 +56,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   for (const g of selected) runs.push(await runGuard(ctx, g, runtime.env, dir));
   const lines = [`runtime: ${runtime.label}`];
   for (const r of runs) {
-    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s; process group killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
+    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s${STALL_IDLE}; process group killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
     if (r.exit !== 0) lines.push(...r.tail.map(l => `  ${l}`));
     if (r.environment) lines.push(`  ${r.guard.id} ${environmentLine(r.environment)}`);
   }
