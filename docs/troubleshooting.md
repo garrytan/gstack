@@ -179,7 +179,14 @@ the readiness dashboard and the PR body, and never count it as a pass.
   A reply whose last `Verdict:` line says `not ready` is `findings` and exits
   3 even when readable advisory severities (P2 or P3) were parsed; `FINDINGS:`
   names the highest one. A not-ready reply with no readable severity still
-  prints `FINDINGS: unspecified` and exits 3.
+  prints `FINDINGS: unspecified` and exits 3. Any other last `Verdict:`
+  (`Can't verify`, `blocked`, `revise`, an empty one), or a `ready` one that
+  says something could not be verified, is
+  [`unverified`](#outside-review-unverified-verdict), never `clean`.
+- **Numbered findings.** In a reply with a `Verdict:` line, every numbered
+  item at the start of a line (`1. x`, `1. **Nonblocking — x**`) is a finding.
+  When one has no readable severity, `FINDINGS:` prints `unspecified` instead
+  of `none`; the verdict still comes from the rules above.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
   `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
@@ -379,6 +386,26 @@ bun lib/outside-review-result.ts --verdict execution reply.md
 
 **Expected result.** `VERDICT: findings` or `VERDICT: clean` with a P0-P3
 `FINDINGS:` value, and no `UNPARSED:` line.
+
+<a id="outside-review-unverified-verdict"></a>
+### `... outside review: ran, verdict unverified (the reviewer's own verdict does not say the change is ready (Verdict: ...))` / `REASON: unverified_verdict`
+
+**Meaning.** The reply's last `Verdict:` line is neither `ready` nor
+`not ready`, for example `Verdict: Can't verify (one changed file excluded
+...)`, or it says `ready` but also that something could not be verified. The
+reviewer did not say the review finished and found the change ready, so gstack
+does not count it as `clean`. The quoted verdict is in parentheses.
+
+**What is kept.** The full reply is shown above.
+
+**Fix.** Read the verdict and the reply, and decide; it is not a pass. Fix
+what the verdict names (a file left out of the review, a suite that could not
+run), then re-run the review. To re-check a saved reply, run
+`bun lib/outside-review-result.ts --verdict execution reply.md` from your
+gstack checkout.
+
+**Expected result.** `VERDICT: clean` or `VERDICT: findings` with a last
+`Verdict: ready` or `Verdict: not ready` line.
 
 <a id="codex-model-unusable"></a>
 ### `CODEX_MODE: model_unusable` / `MODEL_UNUSABLE`
