@@ -105,6 +105,31 @@ describe('HARNESS_VERSION guard', () => {
     }
   });
 
+  // Value: protects=a --bump that fails partway (pins written, manifest version not) cannot pass the guard with behavior pooled into the
+  //   old series; fails_when=a pin ahead of the manifest version reads as no drift; seam=writeManifest failing on a real write, then harnessDrift
+  test('a bump that fails partway leaves a pin ahead of the manifest version, and the guard reports it (GST-1084)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-partial-'));
+    try {
+      copyManifest(dir);
+      const live = readManifest(dir);
+      const current = workingHarnessFiles(ROOT, live.patterns);
+      const [first, second] = current.map(entry => entry.file);
+      const blocked = path.join(dir, PINS_DIR, `${second}.json`);
+      const original = fs.readFileSync(blocked, 'utf8');
+      fs.rmSync(blocked);
+      fs.mkdirSync(blocked);
+      expect(() => writeManifest(dir, decide(live, current, 'bump', 'behavior changed in the runner'))).toThrow();
+      fs.rmdirSync(blocked);
+      fs.writeFileSync(blocked, original);
+      const after = readManifest(dir);
+      expect(after.version).toBe(live.version);
+      expect(after.files[first!]!.since).toBe(live.version + 1);
+      expect(harnessDrift(after, current).changed).toEqual([first]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // Value: protects=PRs that record decisions for different harness files merge without a conflict (the one-line-per-file manifest
   //   conflicted on adjacent lines and on the trailing comma); fails_when=two non-behavioral decisions on adjacent pins conflict in a
   //   real merge, or two decisions on one pin merge silently; seam=writeManifest and git merge-tree --write-tree on two branches

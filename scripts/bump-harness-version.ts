@@ -66,11 +66,11 @@ export function workingHarnessFiles(root: string, patterns: readonly string[]): 
   return tracked.map((entry, index) => ({ file: entry.file, blob: blobs[index]! }));
 }
 
-/** Harness files whose blob differs from, is missing from, or no longer matches an entry in the manifest. */
+/** Harness files whose blob differs from, is missing from, or no longer matches an entry in the manifest; a pin ahead of the manifest version (a bump that failed partway) counts as changed. */
 export function harnessDrift(manifest: HarnessManifest, files: TreeEntry[]): Drift {
   const current = new Map(files.map(entry => [entry.file, entry.blob]));
   return {
-    changed: files.filter(entry => manifest.files[entry.file] && manifest.files[entry.file]!.blob !== entry.blob).map(entry => entry.file).sort(),
+    changed: files.filter(entry => manifest.files[entry.file] && (manifest.files[entry.file]!.blob !== entry.blob || manifest.files[entry.file]!.since > manifest.version)).map(entry => entry.file).sort(),
     added: files.filter(entry => !manifest.files[entry.file]).map(entry => entry.file).sort(),
     removed: Object.keys(manifest.files).filter(file => !current.has(file)).sort(),
   };
