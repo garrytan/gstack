@@ -160,6 +160,19 @@ the work's issue.
 Why: a crew thread once created a thread in another project directly. That thread ran
 outside every crew, so no Captain briefed it, tracked it or could archive it.
 
+## Keep issues tidy
+
+Issues show what the crew is really doing, so keep them true:
+
+- Before archiving a thread, close or move to Backlog every issue assigned to it.
+- On each wake, leave every issue you touched accurate: its status, assignee and links.
+- An unassigned Todo that nobody will start goes to Backlog.
+- A daily sweep closes, re-assigns or backlogs any open issue outside Backlog that nobody
+  has touched for 2 days and whose assignee is archived, or idle with no open PR.
+
+The target: the Overview's In progress count is about the number of working threads plus
+the PRs waiting to merge.
+
 ## Plan before build
 
 A lane that builds something plans first. Its first act after the session-start install
