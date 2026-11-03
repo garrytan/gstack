@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 
-export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data'] as const;
+export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data', 'eval', 'policy'] as const;
 export type RiskClass = (typeof RISK_CLASSES)[number];
 
 /** Metering and charge words (GST-850: gbrain-evals #289 changed a metering proxy and billing clients with none of the older tokens); they also count on a line. */
@@ -68,10 +68,31 @@ export const decodeCharRefs = (s: string) => s.replace(/&#(?:[xX]0*([0-9a-fA-F]+
   return c <= 0x10ffff ? String.fromCodePoint(c) : '';
 });
 export const svgActive = (text: string) => { const d = decodeCharRefs(text); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
+/** Eval scorers, judges and graders (FOUN-32 §4): code that decides a published result is risk class eval, by path. */
+const EVAL_PATH_TOKENS = ['scorer', 'scorers', 'scoring', 'judge', 'judges', 'grader', 'graders', 'grade', 'grading', 'rubric', 'rubrics'];
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 export const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
+];
+
+/**
+ * Data and config files (HARN-1, harness-evals#231): judged by their path only, so a lease_usd value in a VM record never names money.
+ * A key in a config file still names a secret.
+ */
+export const CONFIG_DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|ya?ml|toml|ini|cfg|conf|env|properties|xml|plist)$/i;
+/** Analysis scripts that live with their results (docs/benchmarks/.../results/cost-intervals.py): judged by their path, which names no risk class. */
+export const STATS_SCRIPT = /(^|\/)(docs|results|benchmarks?|analysis|notebooks?)\/(?:[^/]+\/)*[^/]+\.(py|r|jl|ipynb)$/i;
+
+/**
+ * Docs that can print a credential (gbrain#8417: `mcp get gbrain` shows a stored bearer token): an Authorization header, a
+ * bearer value, a key-shaped literal, an environment key set to a value, or a get/show command for auth config. Read on the
+ * added lines of docs paths, which matchRisk never sees, and counted as security (FOUN-64 item 4).
+ */
+export const DOC_SECRET_LINE = [
+  /\bAuthorization\s*:\s*\S/i, /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/, /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b/,
+  new RegExp(String.raw`\b${KEY_NAME}\s*[=:]\s*['"]?[^\s'"$<{]{8,}`),
+  /\b(?:mcp|auth|config|credentials?|tokens?|secrets?|keys?|login)\s+(?:get|show|print|view|cat|token)\b/i, /\b(?:get|show|print|cat)\s+(?:\S+[ ./-])?(?:tokens?|auth|credentials?|secrets?|api[_-]?keys?|bearer)\b/i,
 ];
 
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
@@ -79,9 +100,9 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
-  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
+  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -93,6 +114,8 @@ export interface RiskInput {
   removed?: Record<string, readonly string[]>;
   /** gstack-diff-scope's SCOPE_AUTH: the auth class needs it and an auth token in the path. */
   scopeAuth: boolean;
+  /** The base policy's review.risk_paths matcher: a code path it matches is risk class `policy`. */
+  isRiskPath?: (p: string) => boolean;
 }
 
 /** The risk classes the code paths touch, the first reason per class, in RISK_CLASSES order. Nothing fails closed here: input errors are the caller's. */
@@ -100,16 +123,21 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const why = new Map<RiskClass, string>();
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
+    if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
+    if (STATS_SCRIPT.test(p)) continue;
     const t = tokens(p);
+    const config = CONFIG_DATA_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
     if (namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
+    if (!config && t.some(x => EVAL_PATH_TOKENS.includes(x))) hit('eval', 'eval scorer path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
-      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
+      if (config) continue;
+      if (!why.has('money') && (MONEY_LINE.some(r => r.test(line)) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }

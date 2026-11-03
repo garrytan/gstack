@@ -11,6 +11,7 @@
  * persisted before its subagent is created and its path right after, so a resumed program
  * reconciles by deterministic title and never doubles a reader.
  */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
@@ -31,6 +32,8 @@ export interface PassReader {
   classes?: string[]; diff_base?: string;
   /** An audit reader: its prompt is a file the parent wrote from its section; its output is returned, never collected. */
   prompt_file?: string; model?: PassModel;
+  /** The plan's model=cross-family (R65's risk reader or a numbers diff's one reader): the program runs it on the outside voice's model. */
+  cross_family?: boolean;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
   /** With the base policy's review_exclude_paths active: its `:(top,exclude,glob)` items, shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
   policy_exclude?: string; keep?: string[];
@@ -103,6 +106,8 @@ export function buildManifest(o: {
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
       ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(d.keep?.length ? { keep: d.keep } : {}),
       ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(role === 'adversarial-native' && d.classes?.length ? { classes: [...d.classes], diff_base: o.mergeBase ?? o.diffBase } : {}),
+      ...(d.model === 'cross-family' ? { cross_family: true } : d.model && d.model !== 'lane' ? { model: { model_id: d.model } } : {}),
       ...(role === 'red-team' && o.rangeBase ? { diff_base: o.rangeBase } : {}) });
   }
   for (const e of o.extras ?? []) {
@@ -176,14 +181,19 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
-    if (role === 'outside-voice') slots.diff = diffFor(m.diff_base, r);
+    if (role === 'outside-voice') {
+      const diff = diffFor(m.diff_base, r);
+      const diffFile = path.join(briefs, 'outside-voice.diff');
+      fs.writeFileSync(diffFile, diff, { mode: 0o600 });
+      Object.assign(slots, { diff_file: diffFile, diff_bytes: String(Buffer.byteLength(diff)), diff_sha256: createHash('sha256').update(diff).digest('hex') });
+    }
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
       Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
     }
     let targeted = {};
-    if (role === 'targeted') {
+    if (role === 'targeted' || (role === 'adversarial-native' && r.classes?.length)) {
       const checklist = path.join(m.checklist_root, 'review/specialists/targeted.md');
       let brief: string;
       try { brief = fs.readFileSync(checklist, 'utf8'); } catch { throw new BriefError(`cannot read the targeted brief ${checklist}`); }
