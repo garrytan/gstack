@@ -752,6 +752,11 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     expect(start.status).toBe(0);
     return f.run(path.join(BIN, 'gstack-review-log'), [JSON.stringify({ skill: 'review-fix-check', timestamp: '2026-11-02T00:00:00Z', via: 'ship', review_scope: 'frozen', status: 'clean', issues_found: 0, critical: 0, ...row }), '--finish', start.stdout.trim()]);
   };
+  const grant = (f: ShipFx, stopHead: string) => {
+    const a = f.run(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`, '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { GSTACK_APPROVALS_MIRROR: '0' });
+    expect(a.status).toBe(0);
+    return JSON.parse(a.stdout).added[0] as string;
+  };
   const afterFixCheck = () => {
     const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
     const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
@@ -764,15 +769,27 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     const { f, passHead, fixHead, reviewed, post } = afterFixCheck();
     const plain = finish(f, reviewed, post);
     expect([plain.status, plain.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')]).toEqual([3, true]);
+    const id = grant(f, passHead);
     expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
     const r = finish(f, reviewed, post);
-    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)})`);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}, grant ${id})`);
     expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=unknown context=0 fix_checked=2$/);
     expect([r.status, lineOf(r.stdout, 'EVIDENCE')]).toEqual([0, expect.stringMatching(/^EVIDENCE: FRESH label=tests /)]);
     f.write({ 'src/x.ts': 'export const x = 4;\n' }); f.commit('an edit after the fix-check');
     const late = finish(f, reviewed, post);
     expect(lineOf(late.stdout, 'FIX_CHECK')).toStartWith('FIX_CHECK: reviewed test/x.test.ts (');
     expect([late.status, late.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+  });
+
+  test('a clean fix-check row with no recorded review_loop_grant for a stop head in its range is not counted', () => {
+    const { f, passHead, reviewed, post } = afterFixCheck();
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    const ungranted = finish(f, reviewed, post);
+    expect(lineOf(ungranted.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)');
+    expect([ungranted.status, ungranted.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')]).toEqual([3, true]);
+    grant(f, mergeBase(f));
+    const elsewhere = finish(f, reviewed, post);
+    expect([elsewhere.status, lineOf(elsewhere.stdout, 'FIX_CHECK')]).toEqual([3, 'FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)']);
   });
 
   test('a fix-check row that did not finish clean, or names no range base, is not counted', () => {
