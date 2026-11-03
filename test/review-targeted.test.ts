@@ -437,6 +437,9 @@ describe('incidental money signals (GST-961, GST-962)', () => {
     expect(classesOf(input(['wiki/credentials.json'], { consumed: [] }))).toEqual(['secret']);
     expect(classesOf(input(['wiki/keys.json'], { consumed: [], added: { 'wiki/keys.json': ['{"k": "$OPENAI_API_KEY"}'] } }))).toEqual(['secret']);
     expect(classesOf(input(['src/billing/invoice.ts'], { consumed: [] }))).toEqual(['money']);
+    expect(classesOf(input(['prices/us-east.json'], { consumed: [] }))).toEqual(['money']);
+    expect(classesOf(input(['data/rates.json'], { consumed: [], added: { 'data/rates.json': ['{"input_price_usd": 3}'] } }))).toEqual(['money']);
+    expect(classesOf(input([tsv], { consumed: [], added: { [tsv]: ['spend_cap\t500'] } }))).toEqual(['money']);
   });
 
   test('a cost_usd field read or reported names no money; a cap, budget, limit, spend or comparison still does', () => {
@@ -460,6 +463,23 @@ describe('incidental money signals (GST-961, GST-962)', () => {
       '  if (spent > capUsd) throw new Error("over cap");',
       'const client = new Anthropic();',
       'await meter.charge(user, amount);',
+      'if (limit < run?.cost_usd) stop();',
+      'if ((run.cost_usd ?? 0) > limit) stop();',
+      'if (limit <= (row.cost_usd ?? 0)) stop();',
+      'const capped = Math.min(cost_usd, cap);',
+      'if (Number(row.cost_usd) > budget) stop();',
+      'const intent = await stripe.paymentIntents.create({ amount: amount_usd * 100 });',
+      'await refund(user, refund_usd);',
+      'const cost_usd = input_tokens * PRICE_PER_MTOK;',
+      'const check = { attempt, estimate_usd: 0 };',
+      'rows.push({ arm, cost_usd: 0 });',
+      '    return { ...r, reservation_usd: estimateCostUsd({ input: Math.ceil(r.in_tokens / r.calls), output: r.max_out_tokens }, r.model) };',
+      '  const maxEstimate = Math.max(0, ...record.attempts.map(a => a.estimate_usd));',
+      '  const worst = summary.worst_case_usd + workers * maxEstimate;',
+      '    reserve(file, attempt, a.estimate_usd, { label });',
+      '  a.estimate_usd = usd;',
+      '    ship_measure_ask_per_trial_usd) echo "200" ;;',
+      "  trial_reservation_usd: v => (typeof v === 'number' && v > 0 && v <= 100000 ? null : 'x'),",
     ]) expect(at(line), line).toEqual(['money']);
   });
 

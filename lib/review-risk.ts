@@ -22,11 +22,17 @@ export const MONEY_PATH_TOKENS = ['cost', 'costs', 'spend', 'spending', 'budget'
 export const MONEY_PAIRS: readonly (readonly [string, readonly string[]])[] = [
   ['usage', ['token', 'tokens', 'cost', 'costs', 'spend', 'billing', 'price', 'pricing', 'budget']], ['proxy', ['billing', 'bill']], ['client', ['cost', 'costs', 'charge', 'charges', 'billing', 'price', 'pricing', 'spend']],
 ];
-/** Identifiers ending in _usd or Usd: money only beside a word in MONEY_USD_WORDS or in a comparison (usdMoney). */
+/** Identifiers ending in _usd or Usd: money unless the line only reads or reports a cost (usdMoney). */
 export const MONEY_USD = [/\b[A-Za-z0-9_]*_usd\b/i, /\b[a-z][A-Za-z0-9]*Usd\b/];
 const MONEY_USD_ALL = MONEY_USD.map(r => new RegExp(r.source, r.flags + 'g'));
-/** What makes a _usd identifier money (GST-962: reading or reporting gstack-evals#139's per-trial cost_usd is not money code). */
-export const MONEY_USD_WORDS = ['cap', 'caps', 'limit', 'limits', 'max', 'maximum', 'budget', 'budgets', 'ceiling', 'allowance', 'spend', 'spent', 'spending', 'price', 'prices', 'pricing', 'fee', 'fees', 'bill', 'billing', 'paid', 'payment'];
+/** The words a reported cost's name is made of (GST-962: gstack-evals#139's per-trial cost_usd); any other word, a reservation, estimate or amount, keeps the name money. */
+export const REPORTED_COST_WORDS = ['cost', 'costs', 'total', 'totals', 'usd', 'per', 'trial', 'trials', 'item', 'items', 'mean', 'avg', 'average', 'median', 'sum', 'streamed', 'transcript', 'observed', 'actual', 'reported', 'recorded'];
+/** A reported cost is still money on a line naming a cap, limit, budget, price, charge, reservation or estimate. */
+export const MONEY_USD_WORDS = ['cap', 'caps', 'limit', 'limits', 'max', 'maximum', 'min', 'budget', 'budgets', 'ceiling', 'allowance', 'threshold', 'spend', 'spent', 'spending', 'price', 'prices', 'pricing', 'fee', 'fees', 'bill', 'billing', 'paid', 'payment', 'charge', 'refund', 'amount', 'invoice', 'reserve', 'reservation', 'estimate'];
+/** A reported cost compared with `<` or `>` (never an arrow or a shift), or set to a number. */
+export const USD_COMPARE = [/(?<![=\-<>])[<>](?![<>])/, /(?:_usd|Usd)\b["']?\s{0,20}[:=]\s{0,20}-?\d/i];
+/** Docs and results trees: an unread data file there names no money by its path or a reported cost (GST-961). */
+export const RESULTS_TREE = /(^|\/)(?:docs?|wiki|results|reports)\//i;
 /** Any spend_cap spelling and paid-provider call sites (the providers lib/pricing.ts prices). */
 export const PAID_MONEY_LINE = [
   /\bspend[_-]?cap\b/i,
@@ -34,11 +40,12 @@ export const PAID_MONEY_LINE = [
   /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
 ];
 export const MONEY_LINE = [...MONEY_USD, ...PAID_MONEY_LINE];
-/** A _usd identifier whose name says cap, budget, limit, spend or price, or that a `<` or `>` compares; never one an arrow reads. */
-export const usdMoney = (line: string) => MONEY_USD_ALL.some(r => [...line.matchAll(r)].some(m =>
-  tokens(m[0]).some(x => MONEY_USD_WORDS.includes(x))
-  || /^\s{0,20}[<>]/.test(line.slice(m.index + m[0].length, m.index + m[0].length + 21))
-  || /(?<![=-])[<>]=?\s{0,20}(?:[\w$]{1,100}\.){0,10}$/.test(line.slice(Math.max(0, m.index - 300), m.index))));
+/** A _usd or Usd name is money unless every one on the line is a reported cost the line only reads: no cap word, comparison or number set. */
+export const usdMoney = (line: string) => {
+  const names = MONEY_USD_ALL.flatMap(r => [...line.matchAll(r)].map(m => m[0]));
+  if (!names.length) return false;
+  return names.some(n => tokens(n).some(x => !REPORTED_COST_WORDS.includes(x))) || tokens(line).some(x => MONEY_USD_WORDS.includes(x)) || USD_COMPARE.some(r => r.test(line));
+};
 export const AUTH_PATH_TOKENS = ['auth', 'authn', 'authz', 'oauth', 'oauth2', 'jwt', 'session', 'sessions', 'permission', 'permissions', 'role', 'roles'];
 export const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
 export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i;
@@ -93,8 +100,8 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
-  MONEY_LINE_TOKENS, MONEY_PAIRS, MONEY_USD_WORDS,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  MONEY_LINE_TOKENS, MONEY_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
+  patterns: Object.entries({ MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -106,7 +113,7 @@ export interface RiskInput {
   removed?: Record<string, readonly string[]>;
   /** gstack-diff-scope's SCOPE_AUTH: the auth class needs it and an auth token in the path. */
   scopeAuth: boolean;
-  /** Code paths no code reads (an unconsumed data file or drawing): nothing runs them, so neither their name nor their rows name money (GST-961). */
+  /** Code paths no code reads (an unconsumed data file or drawing): under RESULTS_TREE their name and reported costs name no money; a spend cap or paid call in them still does (GST-961). */
   dataPaths?: readonly string[];
 }
 
@@ -118,13 +125,13 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     const t = tokens(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
-    const money = !i.dataPaths?.includes(p);
+    const money = !(i.dataPaths?.includes(p) && RESULTS_TREE.test(p));
     if (money && namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
-      if (money && !why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS))) hit('money', 'money line: ' + p);
+      if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS))))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
