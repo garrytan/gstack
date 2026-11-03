@@ -128,6 +128,26 @@ _session_data() {
   return "$r"
 }
 
+# An auth path holds a token, split the way lib/review-risk.ts tokens() splits
+# paths (camelCase, then every non-alphanumeric run), that contains auth
+# (GST-1065). It fails safe: every such token raises the class except the
+# authorship words below, so author-spec.md, AUTHORS, authority.ts and
+# coauthors.ts do not, while auth.ts, /auth/, nextauthmiddleware.ts,
+# noauthrequired.ts, unauthenticated.ts and HTTPAuthorization.ts do.
+_auth_path() {
+  local s="$1" t r=1
+  while [[ "$s" =~ ^(.*[a-z0-9])([A-Z].*)$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
+  shopt -s nocasematch
+  for t in ${s//[^a-zA-Z0-9]/ }; do
+    case "$t" in
+      author|authors|authored|authoring|authorship|authority|authorities|coauthor|coauthors) ;;
+      *auth*) r=0; break ;;
+    esac
+  done
+  shopt -u nocasematch
+  return "$r"
+}
+
 _print_flags() {
   echo "SCOPE_FRONTEND=$FRONTEND"
   echo "SCOPE_BACKEND=$BACKEND"
@@ -293,9 +313,10 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   # named for sessions (recovered-sessions.jsonl, GST-911) holds rows, not
   # session handling, so it is not auth; session config still is.
   case "$f" in
-    *auth*|*jwt*|*oauth*|*permission*|*role*) m_auth=true ;;
+    *jwt*|*permission*|*role*) m_auth=true ;;
     *session*) _session_data "$f" || m_auth=true ;;
   esac
+  _auth_path "$f" && m_auth=true
 
   # Backend: code that isn't a frontend component/view file. Includes ESM/CJS
   # (.mjs/.cjs) and explicit-module TS (.mts/.cts) — #1810: these matched no
