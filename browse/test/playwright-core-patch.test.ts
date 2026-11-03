@@ -41,6 +41,7 @@ describe('playwright-core windowsHide patch (#2160, #1989)', () => {
     const version = installedPlaywrightCoreVersion();
     const patchPath = path.join(ROOT, 'patches', `playwright-core@${version}.patch`);
     expect(fs.existsSync(patchPath)).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'patches', 'playwright-core@1.62.1.patch'))).toBe(false);
     const patch = fs.readFileSync(patchPath, 'utf-8');
     // Launch spawnOptions site.
     expect(patch).toContain('+    windowsHide: true,');
