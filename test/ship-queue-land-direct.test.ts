@@ -389,16 +389,17 @@ describe('merge: direct | train', () => {
     const root = path.resolve(import.meta.dir, '..');
     const fork = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
     const stamped = bumpVersion(fork, 'patch')!;
-    const templates = ["_KEY_VERSION = '{version}'"];
-    const line = `export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`;
-    const text = fs.readFileSync(path.join(root, 'lib', 'ship-policy.ts'), 'utf8');
-    expect(text).toContain(line);
-    if (MERGE_KEY_VERSION !== fork && MERGE_KEY_VERSION !== stamped) {
-      expect(tentativeMentions(new Map([['lib/ship-policy.ts', new Set([line])]]), fork, stamped, templates)).toEqual([MERGE_KEY_VERSION]);
-      const out = rewriteStamps(text, MERGE_KEY_VERSION, stamped, templates);
-      expect(out.count).toBe(1);
-      expect(out.text).toContain(`export const MERGE_KEY_VERSION = '${stamped}';`);
-    }
+    const tentative = bumpVersion(fork, 'minor')!;
+    const policy = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
+    const templates: string[] = policy.stamp_patterns;
+    expect(policy.stamp_paths).toContain('lib/ship-policy.ts');
+    expect(templates).toContain("_KEY_VERSION = '{version}'");
+    expect(fs.readFileSync(path.join(root, 'lib', 'ship-policy.ts'), 'utf8')).toContain(`export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`);
+    const line = `export const MERGE_KEY_VERSION = '${tentative}';`;
+    expect(tentativeMentions(new Map([['lib/ship-policy.ts', new Set([line])]]), fork, stamped, templates)).toEqual([tentative]);
+    const out = rewriteStamps(line, tentative, stamped, templates);
+    expect(out.count).toBe(1);
+    expect(out.text).toBe(`export const MERGE_KEY_VERSION = '${stamped}';`);
     const errs = (min: string, running: string) => validatePolicy({ merge: 'direct', min_gstack_version: min }, { gstackVersion: running });
     expect(errs(MERGE_KEY_VERSION, MERGE_KEY_VERSION)).toEqual([]);
     const parts = MERGE_KEY_VERSION.split('.').map(Number);
