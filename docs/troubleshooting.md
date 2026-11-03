@@ -2091,8 +2091,8 @@ browse chain 'goto https://example.com | text'
 <a id="browse-chromium-path-failed"></a>
 ### `Chromium at GSTACK_CHROMIUM_PATH=<path> failed to launch: ...`
 
-**Meaning.** Headless browse and make-pdf now use `GSTACK_CHROMIUM_PATH`
-(NixOS, macOS 13). That binary could not start.
+**Meaning.** Headless browse, headed browse, `browse handoff` and make-pdf use
+`GSTACK_CHROMIUM_PATH` (NixOS, macOS 13). That binary could not start.
 
 **Fix.** Point `GSTACK_CHROMIUM_PATH` at a working Chromium, or
 `unset GSTACK_CHROMIUM_PATH` to use gstack's bundled one.
@@ -5709,7 +5709,8 @@ closed PRs.
 verdict is read from the run itself, never from a lane's report: the
 `gate-binding-a<attempt>` artifact evals.yml's report job uploads (verdict,
 reconcile exit, flaky cases) and the `report-verdict-a<attempt>` artifact's
-`collector-outcomes.json` (the panels that failed the lane and the rule-16
+`collector-outcomes.json` (the panels that failed the lane, the report's `✗`
+failure lines, which name rule cases that have no panel, and the rule-16
 flaky lines). A case the binding calls red already failed twice inside the
 run (rule 16 reruns a first failure once), so the red is real. `ready`
 refuses with this code when the head's recorded screen run is red, whichever
