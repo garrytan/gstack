@@ -30,8 +30,10 @@ name: Windows Scoped Tests
 # is in scope (no Windows job ran) and otherwise requires the Windows job, so
 # a skipped run reports success. It is not one of the required checks, but
 # gstack-ship-queue ready and land refuse a head with any failed check, so a
-# red Windows job blocks the pull request it runs on: a change to a curated
-# test file has to pass on Windows.
+# red Windows job blocks the pull request it runs on: in a pull request that
+# touches path, file-name or process code, a changed curated test file has to
+# pass on Windows. A change to path or process code with no changed curated
+# test selects nothing; the nightly suite covers it.
 # gstack-pregate reads a job keyed on a dispatch input as manual, never a PR
 # obligation: this check runs on the pull request itself. A workflow_dispatch
 # run with the files input reruns chosen Windows-safe files on a branch.
@@ -80,7 +82,7 @@ jobs:
             grep -E "$path_re" "$RUNNER_TEMP/changed-files" | sed 's/^/path: /' || true
             grep -E "$code_re" "$RUNNER_TEMP/changed-files" | grep -E "$name_re" | sed 's/^/name: /' || true
             { grep -E "$code_re" "$RUNNER_TEMP/changed-files" || true; } | while IFS= read -r file; do
-              git diff -U0 --no-renames HEAD^1 HEAD -- "$file" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' | grep -m1 -E "$content_re" | sed "s|^|content: $file: |" || true
+              git diff -U0 --no-renames HEAD^1 HEAD -- "$file" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' | grep -m1 -E "$content_re" | awk -v f="$file" '{ print "content: " f ": " $0 }' || true
             done
           } > "$RUNNER_TEMP/windows-scope"
           if [ -s "$RUNNER_TEMP/windows-scope" ]; then

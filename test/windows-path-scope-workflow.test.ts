@@ -191,6 +191,7 @@ describe('Windows Setup E2E runs by install path', () => {
     expect(scope(base, { 'package.json': PKG('1.0.1', '"a": "1.0.1"') })).toBe('true');
     expect(scope(base, { 'package.json': PKG('1.0.1'), setup: '#!/bin/bash\necho changed\n' })).toBe('true');
     expect(scope(base, { 'hosts/claude/hooks/a/b.ts': 'b\n' })).toBe('true');
+    expect(scope({ 'package.json': PKG('1.0.0', '"version": "1.0.0"') }, { 'package.json': PKG('1.0.0', '"version": "1.0.1"') })).toBe('true');
     const dispatched = runStep(setupScopeScript, ROOT, { GITHUB_EVENT_NAME: 'workflow_dispatch' });
     expect([dispatched.status, dispatched.outputs.install]).toEqual([0, 'true']);
   });

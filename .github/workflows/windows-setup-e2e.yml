@@ -124,7 +124,7 @@ jobs:
           fi
           pkg_version_only=true
           if git diff -U0 --no-renames HEAD^1 HEAD -- package.json | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' \
-            | grep -vE '^[+-][[:space:]]*"version":[[:space:]]*"[^"]*",?[[:space:]]*$' > /dev/null; then
+            | grep -vE '^[+-]  "version": "[^"]*",?$' > /dev/null; then
             pkg_version_only=false
           fi
           git diff --name-only --no-renames HEAD^1 HEAD | while IFS= read -r file; do
