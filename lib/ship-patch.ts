@@ -120,37 +120,6 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   return ids[0] === ids[1] ? 'same' : 'context';
 }
 
-/**
- * The base's JSON map file a one-entry pin file ports (GST-1210, #3903 at f0613db8): `rel` is a one-line `*.json` file the
- * branch added (absent at both bases, a regular file at both heads) named `…/<key>.json`, whose whole text at each head is
- * byte for byte the value of entry `<key>` in one JSON map line of a base file `baseMoved` lists: the old value at the
- * reviewed base, the new one at the current base. The branch then holds the base's own edit of that entry and nothing of
- * its own. Exactly one entry of that map may name the file. Null for anything else, so a pin that differs from the base's
- * entry stays a product change.
- */
-export function portedEntry(repoRoot: string, s: PatchSides, rel: string, baseMoved: Iterable<string>): string | null {
-  if (!rel.endsWith('.json')) return null;
-  const blob = (ref: string, p: string) => git(repoRoot, ['show', `${ref}:${p}`]);
-  const regular = (ref: string) => /^100644 blob /.test(git(repoRoot, ['ls-tree', ref, '--', rel]) ?? '');
-  const value = (text: string | null) => (text !== null && /^[^\n]+\n$/.test(text) ? text.slice(0, -1) : null);
-  const before = value(blob(s.reviewed, rel)), after = value(blob(s.current, rel));
-  if (before === null || after === null || before === after || !regular(s.reviewed) || !regular(s.current)) return null;
-  if (blob(s.reviewedBase, rel) !== null || blob(s.currentBase, rel) !== null) return null;
-  const entries = (text: string | null) => new Set((text ?? '').split('\n').map(l => l.trim().replace(/,$/, '')));
-  for (const file of baseMoved) {
-    if (file === rel || !file.endsWith('.json')) continue;
-    const named = [...entries(blob(s.currentBase, file))].flatMap(line => {
-      const m = /^("(?:[^"\\]|\\.)*"): (.*)$/.exec(line);
-      let key: unknown;
-      try { key = m ? JSON.parse(m[1]!) : null; } catch { return []; }
-      return typeof key === 'string' && key && rel.endsWith(`/${key}.json`) ? [{ quoted: m![1]!, value: m![2]! }] : [];
-    });
-    // One entry of the map names the pin file; two (`retry.js` and `lib/retry.js` for `…/lib/retry.js.json`) is no port.
-    if (named.length === 1 && named[0]!.value === after && entries(blob(s.reviewedBase, file)).has(`${named[0]!.quoted}: ${before}`)) return file;
-  }
-  return null;
-}
-
 function hunkTexts(diff: string): string[] {
   return diff.split(/^(?=@@ )/m).slice(1).map(h => h.replace(/^@@ [^@]*@@/, '@@'));
 }

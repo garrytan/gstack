@@ -1,19 +1,17 @@
 /**
- * gstack-ship-receipt carry across a base merge that ports one harness-pin entry (GST-1210, GSTA-202 #3903 at f0613db8):
- * the branch splits the base's JSON map of pins into one file per entry, and a later merge from the base copies the base's
- * edit of one entry into its pin file, byte for byte. That file holds the base's change and nothing of the branch's, so
- * the receipt carries; a pin that differs from the base's entry, or lands in another entry's file, still refuses.
+ * gstack-ship-receipt carry never guesses which base entry a branch-added pin file holds (GST-1210, GSTA-202 #3903 at
+ * f0613db8): the branch splits the base's JSON map of pins into one file per entry, and a pin file that changes after review
+ * is a product change whatever the base did to a same-named entry. Inferring the mapping from names and values let an
+ * unrelated base edit carry an unreviewed change (GSTA-36 ruling A on #3937), so these controls keep every such pin refused.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { extractReceipt } from '../lib/ship-receipt';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
-const receiptIn = (body: string) => extractReceipt(fs.readFileSync(body, 'utf8')).receipt!;
 const carry = (repo: FixtureRepo, body: string) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
 const RETRY = '{"blob":"aaa","since":6,"nonBehavioral":"first pin"}';
 const UTIL = '{"blob":"bbb","since":6}';
@@ -41,20 +39,6 @@ function ported(repo: FixtureRepo, ports: Record<string, string>, maps: [string,
 }
 
 describe('carry across a ported harness-pin entry (GST-1210)', () => {
-  // Value: protects=a branch that splits harness pins into one file per entry keeps its receipt when a base merge ports
-  // the base's repin byte for byte (#3903 at f0613db8 was refused); fails_when=carry reads the ported pin as the branch's
-  // product change; seam=none; no_claim=gh pr edit (--body stands in)
-  test('a pin file equal to the base\'s entry byte for byte carries', () => {
-    const repo = makeFixtureRepo(); repos.push(repo);
-    const { reviewed, body } = ported(repo, { [PIN]: `${RETRY_MAIN}\n` });
-    const head = repo.git('rev-parse', 'HEAD');
-    const out = carry(repo, body);
-    expect(out.err).not.toContain('RECEIPT_CARRY');
-    expect(out.status).toBe(EXIT.ok);
-    expect(out.out).toContain(`CARRY: carried from ${reviewed.slice(0, 12)} to ${head.slice(0, 12)}`);
-    expect(receiptIn(body).carry!.reason).toContain(`base entries ported byte for byte (${PIN})`);
-  }, 90_000);
-
   // Value: protects=fail closed on a pin the branch changed beyond the base's entry (an unreviewed repin);
   // fails_when=any pin file change carries; seam=none; no_claim=gh pr edit
   test('a pin entry that differs from the base\'s still refuses', () => {

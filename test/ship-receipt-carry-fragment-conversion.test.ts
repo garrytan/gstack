@@ -25,7 +25,7 @@ const RETRY4 = "exports.MAX_RETRIES = 4;\nexports.TIMEOUT_MS = 5000;\nexports.re
  * adopts changelog fragments and (`mainScripts`) changes package.json beyond its version. The branch merges main and
  * converts: `converted` is the package.json it keeps (main's by default), plus a fragment and any `extra` files.
  */
-function converted(repo: FixtureRepo, opts: { mainScripts?: Record<string, string>; keep?: (main: string) => string; extra?: Record<string, string> } = {}): { reviewed: string; body: string } {
+function converted(repo: FixtureRepo, opts: { mainScripts?: Record<string, string>; keep?: (main: string) => string; extra?: Record<string, string>; executable?: boolean } = {}): { reviewed: string; body: string } {
   repo.git('checkout', '-q', 'main');
   commit(repo, { VERSION: '1.0.0\n', 'CHANGELOG.md': '# Changelog\n\n## 1.0.0\n- base\n', '.gstack/ship-policy.json': POLICY(false) }, 'main: stamp files');
   repo.git('push', '-q', 'origin', 'main');
@@ -45,6 +45,7 @@ function converted(repo: FixtureRepo, opts: { mainScripts?: Record<string, strin
   write(repo.work, 'package.json', (opts.keep ?? (m => m))(mainPkg));
   write(repo.work, 'changelog.d/four-retries.md', '- four retries\n');
   for (const [rel, text] of Object.entries(opts.extra ?? {})) write(repo.work, rel, text);
+  if (opts.executable) fs.chmodSync(path.join(repo.work, 'package.json'), 0o755);
   repo.git('add', '-A');
   repo.git('commit', '-q', '--no-edit', '-m', 'convert to a changelog fragment');
   return { reviewed, body };
@@ -81,6 +82,17 @@ describe('carry across a changelog-fragment conversion (GST-1210)', () => {
   test('a non-stamp field the branch adds to package.json still refuses', () => {
     const repo = makeFixtureRepo(); repos.push(repo);
     const { body } = converted(repo, { mainScripts: { lint: 'node lint.js' }, keep: m => m.replace('"lint": "node lint.js"', '"lint": "node lint.js",\n    "postinstall": "node evil.js"') });
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(out.err).toContain('package.json');
+  }, 90_000);
+
+  // Value: protects=fail closed on a stamp file whose content is the base's but whose mode the branch flipped (a mode is
+  // not a stamp); fails_when=an unchanged side is read from the object id alone; seam=none; no_claim=gh pr edit
+  test('a package.json back at the base\'s content with a flipped mode still refuses', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { body } = converted(repo, { mainScripts: { lint: 'node lint.js' }, executable: true });
     const out = carry(repo, body);
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
