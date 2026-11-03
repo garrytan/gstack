@@ -254,7 +254,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | the pre-landing review and specialist dispatch (Step 9) | `sections/review-army.md` |
 | exploratory QA before Fix-First (Step 9.2.1) | Use the QA Read directive in `sections/review-army.md` |
 | reusing explicitly skipped shared-code advice (Step 9.3) | `sections/shared-code-reuse.md` |
-| addressing Greptile review comments when a PR exists (Step 10) | `sections/greptile.md` |
+| addressing review bot comments when a PR exists (Step 10) | `sections/greptile.md` |
 | the adversarial review and learnings capture (Step 11) | `sections/adversarial.md` |
 | writing the CHANGELOG entry (Step 13) | `sections/changelog.md` |
 | auditing docs before final commit/verification (Step 14.5), on every ship | `sections/documentation.md` |
@@ -484,7 +484,7 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
 > **STOP.** Before the pre-landing review and specialist dispatch (Step 9), Read `sections/review-army.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before addressing Greptile review comments when a PR exists (Step 10), Read `sections/greptile.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
+> **STOP.** Before addressing review bot comments when a PR exists (Step 10), Read `sections/greptile.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 > **STOP.** Before the adversarial review and learnings capture (Step 11), Read `sections/adversarial.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
@@ -520,7 +520,8 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun flag
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
-`ship: queue_mode stamp-at-merge` replaces items 1–4.
+`VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
+`NEW_VERSION` unset: Step 13 follows its `NEXT:`; Steps 18 and 20 take NO_VERSION's branch.
 
 1. **Classify state** — pure reader, never writes:
    ```bash
@@ -644,19 +645,10 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
    migrations may stand alone. Under 50 lines across fewer than 4 files may be one commit.
 2. Order dependencies first: infrastructure → models/services → controllers/views.
    Each commit works alone (no broken imports or missing code).
-   Group VERSION + CHANGELOG + TODOS.md after the feature commits.
 3. Use `<type>: <summary>` (feat/fix/chore/refactor/docs) and a brief body; fixing a
-   user-named issue adds a `Fixes: #<n>` trailer. Only the final
-   VERSION/CHANGELOG commit gets the release version and co-author trailer. No Git tag:
-
-```bash
-git commit -m "$(cat <<'EOF'
-chore: bump version and changelog (vX.Y.Z.W)
-
-Co-Authored-By: OpenAI Codex <noreply@openai.com>
-EOF
-)"
-```
+   user-named issue adds a `Fixes: #<n>` trailer. Leave VERSION, CHANGELOG/fragment, TODOS.md
+   and the digest uncommitted: Step 16's `finish` commits them last with
+   `--trailer 'Co-Authored-By: OpenAI Codex <noreply@openai.com>'`. Do not add a Git tag.
 
 ---
 
