@@ -52,7 +52,7 @@ per-failure-class breakdown from `test:health`.
   (`caseSeriesIdentitiesV2` in `scripts/eval-trial-series.ts`.)
 - **Harness guard.** `scripts/harness-pins/<path>.json` pins the blob of every
   shared execution-harness file (`scripts/harness-version.json` keeps the version and patterns): `GLOBAL_TOUCHFILES` plus the session runners,
-  the PTY harness, the e2e gate and the LLM judge (36 files). A free test
+  the PTY harness, the e2e gate and the LLM judge (42 files). A free test
   (`test/harness-version.test.ts`) fails when one changes without a decision.
   `bun run scripts/bump-harness-version.ts --bump "<reason>"` raises
   `HARNESS_VERSION` and starts a new series for every case;
