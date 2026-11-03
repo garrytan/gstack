@@ -71,7 +71,7 @@ describe('check-conflict-markers (GST-1190: #3927 kept markers inside a template
   test('the pushed commit is read, not only the working tree; untracked files are not; git display settings change nothing', () => {
     const r = repo();
     r.change({ 'src/a b/ünï.ts': `const s = \`\n${CLOSE} theirs\n\`;\n` });
-    for (const env of [{}, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.noprefix', GIT_CONFIG_VALUE_0: 'true' }, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.mnemonicPrefix', GIT_CONFIG_VALUE_0: 'true' }]) {
+    for (const env of <Record<string, string>[]>[{}, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.noprefix', GIT_CONFIG_VALUE_0: 'true' }, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.mnemonicPrefix', GIT_CONFIG_VALUE_0: 'true' }]) {
       expect(r.run(env).stdout, JSON.stringify(env)).toContain(`CONFLICT_MARKER: src/a b/ünï.ts:2 ${CLOSE}`);
     }
     r.write({ 'src/a b/ünï.ts': 'const s = 1;\n', 'merge.ts.orig': `${OPEN} HEAD\n` });
