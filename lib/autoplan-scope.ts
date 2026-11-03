@@ -65,7 +65,7 @@ export function detectDocsOnly(implementationPlan: string, root: string): DocsOn
 
 export interface ScopeFlags { ui?: boolean; developerTool?: boolean; agentPrimary?: boolean; dx?: boolean; docsOnly?: boolean }
 export const SCOPE_FLAG_TOKENS = ['--ui', '--no-ui', '--no-dx', '--developer-tool', '--agent-primary', '--docs-only'] as const;
-const MARKER_RE = /^<!--\s*gstack-autoplan-scope:(.*?)-->\s*$/;
+export const MARKER_RE = /^<!--\s*gstack-autoplan-scope:(.*?)-->\s*$/;
 
 export function scopeTokens(f: ScopeFlags): string[] {
   return [...(f.ui === true ? ['--ui'] : f.ui === false ? ['--no-ui'] : []), ...(f.dx === false ? ['--no-dx'] : []),

@@ -23,6 +23,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          # Blobless: full history with file contents fetched on demand; the
+          # reads below fail loudly when a fetch fails (.github/scripts/history-read.sh).
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha }}
           # The head's release_tool runs inside the gate (lib/version-gate-train.ts);
           # no token may sit in the checkout it stages. The base fetch below is public.
@@ -49,8 +52,12 @@ jobs:
           set -euo pipefail
           PR_VERSION=$(cat VERSION | tr -d '[:space:]')
           BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$BASE_REF" --quiet || true
-          BASE_VERSION=$(git show "origin/$BASE_REF:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
+          for try in 1 2 3; do
+            git fetch origin "$BASE_REF" --quiet && break
+            if [ "$try" = 3 ]; then echo "::error::git fetch origin $BASE_REF failed 3 times ($(git --version)). Fix: see docs/troubleshooting.md#history-read-failed (HISTORY_READ_FAILED)"; exit 1; fi
+            sleep $((try * 2))
+          done
+          BASE_VERSION=$(bash .version-gate/.github/scripts/history-read.sh "origin/$BASE_REF" VERSION --absent 0.0.0.0 | tr -d '[:space:]')
           {
             echo "pr_version=$PR_VERSION"
             echo "base_version=$BASE_VERSION"

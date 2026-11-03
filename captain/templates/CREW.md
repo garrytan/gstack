@@ -17,6 +17,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
 | `REQUIRED_CHECKS` | `<check names that must be green at a READY head>` |
 | `FULL_GATE_CHECK` | `<the check the train gate publishes>` |
 | `TRAIN_MAX`, `FILL_HOURS` | `<5>`, `<3>` |
+| `WAVE_TRIGGER` | `<6>` (READY PRs over this run `wave plan` and travel as wave PRs of 3–6) |
 | `MERGE_METHOD` | `<squash \| merge>` |
 | `STAMP_FILES` | `<VERSION, package.json, CHANGELOG.md, …>` |
 | `KNOWN_INFRA_FLAKES` | `<named jobs a lane may rerun once per PR, or none>` |
