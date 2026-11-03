@@ -41,6 +41,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<clean|flagged>': { grammar: oneOf('clean', 'flagged'), what: 'semantic review outcome' },
   '<N|null>': { grammar: /^(?:[0-9]+(?:\.[0-9]+)?|null)$/, what: 'health score or null' },
   '<platform>': { grammar: oneOf('github', 'gitlab', 'unknown'), what: 'detected git platform' },
+  '<fix|fp|already-fixed>': { grammar: oneOf('fix', 'fp', 'already-fixed'), what: 'review-bot triage outcome' },
+  '<category>': { grammar: oneOf('race-condition', 'null-check', 'error-handling', 'style', 'type-safety', 'security', 'performance', 'correctness', 'other'), what: 'review-bot finding category (CATEGORIES in lib/review-bots.ts)' },
   '<effort-level>': { grammar: /^[a-z]*$/, what: "the request's /codex --effort level, or empty for none (the probe validates the level)", quoted: true },
 
   // Ids, keys and numbers.
@@ -56,6 +58,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   // /eval-plan (plan E1): the pilot's ledger inputs.
   '<cap-usd>': { grammar: NUMBER, what: 'spend cap in USD' },
   '<total-items>': { grammar: NUM, what: 'items in the full eval run' },
+  '<tap-x>': { grammar: NUM, what: 'viewport x in CSS pixels for the Aside touch recipe' },
+  '<tap-y>': { grammar: NUM, what: 'viewport y in CSS pixels for the Aside touch recipe' },
   '<workers>': { grammar: NUM, what: 'concurrent eval workers' },
   '<attempt-id>': { grammar: ID, what: 'PILOT_ATTEMPT id printed by pilot start' },
   '<usd|unknown>': { grammar: /^(?:[0-9]+(?:\.[0-9]+)?|unknown)$/, what: 'actual cost in USD from the provider usage field, or unknown' },
@@ -114,7 +118,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<reply-file-name>': { grammar: ID, what: 'basename of the mktemp reply file printed by the previous block' },
   '<redact-file-name>': { grammar: ID, what: 'basename of the mktemp draft file printed by the free-text block' },
   '<approach-file-name>': { grammar: ID, what: 'basename of the mktemp approach file printed by the free-text block' },
-  '<greptile-dir>': { grammar: PATH, what: 'mktemp directory printed by the Greptile fetch block' },
+  '<bot-dir>': { grammar: PATH, what: 'REVIEW_BOTS_DIR printed by gstack-review-bots fetch' },
   '<SNAPSHOT_TOOL>': { grammar: QUOTED, what: 'snapshot tool path printed by autoplan', quoted: true },
   '<SOURCE_PLAN>': { grammar: QUOTED, what: 'plan path', quoted: true },
   '<ACTIVE_PLAN>': { grammar: QUOTED, what: 'plan path', quoted: true },
@@ -145,6 +149,8 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<outdir>': { grammar: PATH, what: 'output directory' },
   '<path>': { grammar: PATH, what: 'repository path from discovery' },
   '<plan-path>': { grammar: PATH, what: 'bound plan file path' },
+  '<prereg-path>': { grammar: PATH, what: 'preregistration file path' },
+  '<results-path>': { grammar: PATH, what: 'results table file path' },
   '<sketch-dir>': { grammar: PATH, what: 'sketch directory printed by an earlier block' },
   '<path-to-finalized.html>': { grammar: PATH, what: 'finalized HTML path' },
   '<path-to-page.html>': { grammar: PATH, what: 'saved page HTML path' },

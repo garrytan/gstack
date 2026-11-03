@@ -215,6 +215,7 @@ describeE2E('Shared-code safety and review lifecycle (gate)', () => {
         const instructions = reviewLifecycleInstructions(f);
         const input = path.join(f.root, 'current-advisory.jsonl');
         const { action: _priorAction, ...current } = prior;
+        const sources = Object.fromEntries(current.evidence_paths.map((file: string) => [file, fs.readFileSync(path.join(f.repo, file), 'utf8')]));
         fs.writeFileSync(input, JSON.stringify({ ...current, specialist: 'maintainability' }) + '\n');
         const resumed = seedPathReviewPrerequisites(f);
         const prerequisites = checkPathReviewPrerequisites(f, resumed.input);
@@ -248,6 +249,7 @@ describeE2E('Shared-code safety and review lifecycle (gate)', () => {
               coveredPaths: change === 'unchanged' ? current.evidence_paths
                 : last.findings.find((finding: any) => finding.advisory && finding.action === 'skipped'
                   && finding.fingerprint === current.fingerprint)?.snapshot_covered_paths,
+              sources,
             })).toBe(true);
           } else if (change === 'unchanged' || change === 'filtered') {
             // A true hash comparison cannot substitute for the trusted capture and path checks.

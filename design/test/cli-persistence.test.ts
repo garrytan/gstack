@@ -173,7 +173,7 @@ describe("accounting and exit codes", () => {
   test("missing API key prints JSON and exits 2", () => {
     const r = run(["evolve", "--screenshot", path.join(dir, "none.png"), "--brief", "calmer", "--output", path.join(dir, "e.png")], { OPENAI_API_KEY: "" });
     expect(r.status).toBe(2);
-    expect(r.json.failures[0].reason).toContain("No OpenAI API key found");
+    expect(r.json.failures[0].reason).toContain("No image API key found (OpenAI or Gemini)");
     for (const key of [...RUN_FIELDS, "outputPath", "attempts"]) expect(r.json).toHaveProperty(key);
   });
 });

@@ -9,7 +9,7 @@ import { childEnvironment, executable, git as readGitMetadata, runProcess } from
 const roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))fs.rmSync(root,{recursive:true,force:true});});
 
-const fixtureGit=(repo:string,home:string)=>(...args:string[])=>{const result=spawnSync('/usr/bin/git',['-C',repo,...args],{encoding:'utf8',env:{HOME:home,PATH:'/usr/bin:/bin'},timeout:30_000});if(result.status)throw new Error(result.stderr);return result.stdout;};
+const fixtureGit=(repo:string,home:string)=>(...args:string[])=>{const result=spawnSync('/usr/bin/git',['-C',repo,...args],{encoding:'utf8',env:{HOME:home,PATH:'/usr/bin:/bin'},timeout:30_000});if(result.error||result.status!==0)throw new Error(`fixture git ${args.join(' ')} failed (status ${result.status}, signal ${result.signal}): ${result.error?.message??result.stderr}`);return result.stdout;};
 // Each fixture builds its own repository from Git; nothing is copied from a shared
 // template (Free Tests 40288142343 shard 17: fs.cpSync of the template threw inside
 // its directory walk once and passed on the serial retry). Auto-maintenance is off
@@ -25,7 +25,9 @@ function seedRepo(repo:string,home:string){
   return git;
 }
 // The first /usr/bin/git spawns on a cold macOS runner can eat a test's whole 5 s budget before the code under test runs; pay them once here.
+// Every test below skips on Windows, which has no /usr/bin/git, so the warm-up does too.
 beforeAll(()=>{
+  if(process.platform==='win32')return;
   const warm=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cso-git-hardening-warm-')));
   try{seedRepo(path.join(warm,'repo'),warm);}finally{fs.rmSync(warm,{recursive:true,force:true});}
 },{timeout:30_000});

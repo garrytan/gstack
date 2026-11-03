@@ -17,7 +17,7 @@
  *     finding (drives sterner AUQ wording in the skill) but never promotes a
  *     MEDIUM to HIGH. (TENSION-2-followup.)
  *   - Placeholder suppression is per-matched-span.
- *   - Tool-attributed fences (``` ```codex-review ``` / ``` ```greptile ```)
+ *   - Tool-attributed fences (``` ```codex-review ``` / ``` ```review-bot ``` / ``` ```greptile ```)
  *     degrade credential findings to a non-blocking WARN — UNLESS the span is a
  *     live-format credential the doc-example heuristic can't excuse. No nonce,
  *     no trust exemption (the marker scheme was dropped as theater).
@@ -26,6 +26,7 @@
 import {
   PATTERNS,
   PATTERNS_BY_ID,
+  clearStringSpanCache,
   isPlaceholderSpan,
   type RedactPattern,
   type Tier,
@@ -223,7 +224,7 @@ export function maskPreview(span: string): string {
 
 // ── Tool-attributed fence detection ───────────────────────────────────────────
 
-const TOOL_FENCE_INFO = /^```(codex-review|greptile|eval|codex|tool-output)\b/;
+const TOOL_FENCE_INFO = /^```(codex-review|review-bot|greptile|eval|codex|tool-output)\b/;
 
 /**
  * Returns a sorted list of [start, end) offset ranges (in normalized text) that
@@ -472,6 +473,7 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       }
     }
   }
+  clearStringSpanCache();
 
   // Environment values, by exact value: a credential that is already in the
   // process environment needs no shape to be recognized.
