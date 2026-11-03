@@ -713,6 +713,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const stampOnly: string[] = [];
     const mechanical: string[] = [];
     const mechanicalPaths: string[] = [];
+    const mechanicalContext: string[] = [];
     if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
@@ -756,14 +757,15 @@ function cmdCarry(rest: string[], json: boolean): number {
           const { entries: e } = masked;
           verdict = e.reviewedBase === e.reviewed && e.currentBase === e.current ? 'same' : comparePath(repoRoot, masked.sides, p);
           if (verdict === 'same') { mechanical.push(`${p} ${values.reviewed} → ${values.current}`); mechanicalPaths.push(p); continue; }
+          if (verdict === 'context') mechanicalContext.push(`${p} ${values.reviewed} → ${values.current}`);
         }
         if (verdict === 'changed') changedProduct.push(p);
         else if (verdict === 'context') contextPaths.push(p);
       }
       // A mechanical constant carries only with the goldens proven: the pregate's regen check passed at HEAD and proved
       // every changed path under carry_mechanical.goldens.
-      if (mechanical.length && readPregateFile(flag(rest, '--pregate') ?? '').file?.checks.find(c => c.id === 'regen')?.status !== 'pass') changedProduct.push(`(carry_mechanical: no passing pregate regen check for HEAD; run gstack-pregate and carry with --pregate)`);
-      else if (mechanical.length) for (const c of changed) if (matchesAny(rules.mechanical.goldens, c.path) && !outputs.includes(c.path)) changedProduct.push(`${c.path} (carry_mechanical: a golden the regen check did not prove)`);
+      if ((mechanical.length || mechanicalContext.length) && readPregateFile(flag(rest, '--pregate') ?? '').file?.checks.find(c => c.id === 'regen')?.status !== 'pass') changedProduct.push(`(carry_mechanical: no passing pregate regen check for HEAD; run gstack-pregate and carry with --pregate)`);
+      else if (mechanical.length || mechanicalContext.length) for (const c of changed) if (matchesAny(rules.mechanical.goldens, c.path) && !outputs.includes(c.path)) changedProduct.push(`${c.path} (carry_mechanical: a golden the regen check did not prove)`);
       const left = [...contextPaths, ...stampOnly, ...mechanicalPaths];
       if (!changedProduct.length && !left.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
       else if (!changedProduct.length) {
@@ -776,6 +778,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const stampedRows = changedProduct.length ? [] : stampOnly;
     let scopedReview: string | undefined;
     const packetBody = !changedProduct.length && contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : null;
+    if (packetBody && mechanicalContext.length) packetBody.text = packetBody.text.replace('\n\n', `\n\nDeclared version constants moved (carry_mechanical): ${mechanicalContext.join(', ')}. In those files the +/- lines also differ in the constant's digits, which the regen check covers; read the rest.\n\n`);
     if (packetBody?.over.length) changedProduct.push(...packetBody.over.map(p => `${p} (too large for the scoped review: over ${PACKET_SECTION_CAP} lines in a section)`));
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
