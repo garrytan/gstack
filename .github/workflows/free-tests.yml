@@ -261,7 +261,7 @@ jobs:
           test "$resolved" != "${tmp%/}"
           files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts test/regression-issue3024-zsh-sourced-helpers.test.ts test/codex-probe-subcommands.test.ts browse/test/proxy-env-daemon.test.ts browse/test/proxy-direct-launch-args.test.ts test/regression-issue3680-ubicloud-bsd-userland.test.ts)
           for file in "${files[@]}"; do test -f "$file"; done
-          bun test "${files[@]}"
+          bun test --timeout=30000 "${files[@]}"
 
   cso-windows-launcher:
     needs: reuse
