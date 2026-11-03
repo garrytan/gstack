@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.94.39.0] - 2026-11-03
+
+**A base merge next to a reviewed hunk no longer forces a second full review because of the base's own lines.** On founderstar#515, a base merge put 62 lines of another PR, already merged at base, next to the PR's 76 reviewed and unchanged lines in `tests/ui_shots.gd`. The scoped-review section went past its 200-line limit, so `gstack-ship-release finish` took the behavior route, which a review-loop exception can't accept, and asked for Steps 5 to 11.5 again. #3923 hit the same limit when only one trailing context line changed (GST-1226).
+
+### Fixed
+- **The scoped-review packet counts only the branch's own lines toward its 200-line section limit.** The base's +/- lines, already merged at base, are still shown to the reader but no longer count, in finish and in the receipt carry. A base change over 2,000 lines in one file counts in full again, and a section the branch's own lines push past the limit still takes the full loop. Context-only drift is not carried silently: it still gets the scoped read.
+
+### Tests
+- `test/ship-rereview-triggers.test.ts`: 210 lines another PR merged at base next to the branch's 76 reviewed lines, and a changed trailing context line beside a 221-line base rewrite, both reach the scoped read (both took the behavior route on main). Negative controls: a section the branch's own 230 lines push past the limit, and a 2,100-line base insertion beside the hunk, still take the behavior route.
+
 ## [1.94.38.0] - 2026-11-03
 
 - **A /ship receipt now survives a changelog-fragment conversion (GST-1210).** When a PR moved to a `changelog.d` fragment after review, `VERSION`, `package.json` and `CHANGELOG.md` went back to main's content, and if main had also changed `package.json` beyond its version, `gstack-ship-receipt carry` read that as the branch's change and refused with `RECEIPT_CARRY_PRODUCT_CHANGED` (HARN-1, harness-evals#206). A stamp file the branch changes by no more than a stamp against each head's base now carries as release metadata. A non-stamp `package.json` change, a logic edit, or a stamp file whose entry can't be read still refuses.
