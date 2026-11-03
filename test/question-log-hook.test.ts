@@ -20,6 +20,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { hookChildBudgetMs } from '../hosts/claude/hooks/spawn-bin';
+import { launchSkipReason } from '../hosts/claude/hooks/question-log-hook.ts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-log-hook');
@@ -407,10 +408,17 @@ describe('PostToolUse hook (budget)', () => {
     expect(hookChildBudgetMs(1_000, 6_000)).toBeLessThan(0);
   });
 
+  test('a call launches only with at least 250 ms of budget left', () => {
+    expect(launchSkipReason(4_500)).toBeNull();
+    expect(launchSkipReason(250)).toBeNull();
+    expect(launchSkipReason(249)).toBe("the hook's 5000 ms budget is spent (249 ms left, under the 250 ms a call needs)");
+    expect(launchSkipReason(-40)).toBe("the hook's 5000 ms budget is spent (0 ms left, under the 250 ms a call needs)");
+  });
+
   test('slow children stop at the hook budget and the skipped questions are logged', () => {
     const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-slow-bun-'));
     try {
-      fs.writeFileSync(path.join(fakeBin, 'bun'), `#!/bin/sh\nsleep 1\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 });
+      fs.writeFileSync(path.join(fakeBin, 'bun'), `#!/bin/sh\nsleep 5\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 });
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries(process.env)) {
         if (v !== undefined) env[k] = v;
