@@ -75,8 +75,8 @@ export function captureDraft(cwd: string, dir: string, out: string, base?: strin
   const inRun = (f: string) => !runDir.startsWith('..') && !path.isAbsolute(runDir) && (runDir === '' || f === runDir || f.startsWith(`${runDir}/`));
   const failed = (r: ReturnType<typeof git>, what: string, ok = [0]) => r.error || r.status === null || !ok.includes(r.status)
     ? `draft capture failed: ${what} ${r.error ? `errored (${r.error.message})` : `exited ${r.status ?? r.signal}`}${r.stderr?.trim() ? `: ${r.stderr.trim().split('\n')[0]}` : ''}` : undefined;
-  const raw = ['diff', '--no-color', '--no-ext-diff', '--no-textconv'];
-  const names = git(['diff', '--name-only', '-z', mergeBase, '--'], root);
+  const raw = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
+  const names = git(['diff', '--name-only', '-z', '--no-renames', mergeBase, '--'], root);
   const others = git(['ls-files', '--others', '--exclude-standard', '-z'], root);
   const listed = failed(names, 'git diff') ?? failed(others, 'git ls-files');
   if (listed) return { base: ref, none: listed };
