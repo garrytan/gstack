@@ -10,8 +10,8 @@
 # Usage:
 #   gstack-lease touch [--root <checkout>] [--pid <p> | --from <pid>] [--run <id>]
 #       write <git dir>/gstack-leases/<pid> holding the pid's start identity
-#       and the open run <id> (gstack-skill-start's SESSION_ID); a lease with
-#       no open run (written without --run, or by an older gstack) never idles;
+#       and the open run <id> (gstack-skill-start's SESSION_ID); without --run
+#       it records a hold no release closes; a run or hold counts 120 min;
 #       pid defaults to the harness pid behind this call
 #       (bin/gstack-harness-pid.sh, the same derivation the session marker
 #       uses), or behind --from (a caller whose own parent is short-lived
@@ -254,6 +254,15 @@ reclaim() {
   unlock
   return 1
 }
+# Run entries (GST-1205), lines after the identity: `run <id> <epoch>` per
+# open run, `hold <epoch>` for a holder that opened none, `idle` once every
+# run closed. An entry older than 120 minutes no longer counts.
+# fresh FILE [DROP] — the entries under 120 minutes old, minus the line whose
+# first two fields are DROP ("run <id>" or "hold").
+fresh() { sed -n '2,$p' "$1" 2>/dev/null | awk -v now="$(date +%s)" -v drop="${2:-}" '($1 == "run" && NF == 3 && now - $3 < 7200 && $1 " " $2 != drop) || ($1 == "hold" && NF == 2 && now - $2 < 7200 && $1 != drop)'; }
+# idle FILE — the lease records entries and none of them still counts. A lease
+# with no entries (written without --run, or by an older gstack) is never idle.
+idle() { [ -n "$(sed -n '2,$p' "$1" 2>/dev/null | grep -v '^$')" ] && [ -z "$(fresh "$1")" ]; }
 age_min() { # FILE — minutes since its mtime
   _m=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0)
   echo $(( ( $(date +%s) - _m ) / 60 ))
@@ -270,12 +279,19 @@ case "$VERB" in
       exit 3
     }
     _tmp="$DIR/.$PID.$$"
-    _id=$(identity "$PID") _runs=""
-    [ "$(head -1 "$DIR/$PID" 2>/dev/null)" = "$_id" ] && _runs=$(sed -n '2,$p' "$DIR/$PID" 2>/dev/null | grep '^run ' | grep -vxF "run ${RUN:--}")
+    _id=$(identity "$PID") _keep="" _held=0 _now=$(date +%s)
+    if [ -f "$DIR/$PID" ] && [ "$(head -1 "$DIR/$PID" 2>/dev/null)" = "$_id" ]; then
+      if [ -n "$RUN" ]; then _keep=$(fresh "$DIR/$PID" "run $RUN"); else _keep=$(fresh "$DIR/$PID" hold); fi
+      [ -z "$(sed -n '2,$p' "$DIR/$PID" 2>/dev/null | grep -v '^$')" ] && _held=1
+    fi
     {
       printf '%s\n' "$_id"
-      [ -n "$_runs" ] && printf '%s\n' "$_runs"
-      [ -z "$RUN" ] || printf 'run %s\n' "$RUN"
+      [ -z "$_keep" ] || printf '%s\n' "$_keep"
+      if [ -n "$RUN" ]; then
+        [ "$_held" -eq 1 ] && echo "hold $_now"
+        echo "run $RUN $_now"
+      elif [ -n "$_keep" ]; then echo "hold $_now"
+      fi
     } > "$_tmp" && mv -f "$_tmp" "$DIR/$PID" || { rm -f "$_tmp"; unlock; exit 2; }
     find "$DIR" -maxdepth 1 -mmin +120 -type f ! -name '.lock*' -exec rm -f {} + 2>/dev/null
     for _c in "$DIR"/.lock*.claim.*; do
@@ -292,11 +308,11 @@ case "$VERB" in
     [ -f "$DIR/$PID" ] || exit 0
     lock || exit 3
     f="$DIR/$PID" _tmp="$DIR/.$PID.$$"
-    if grep -qxF "run $RUN" "$f" 2>/dev/null; then
+    if sed -n '2,$p' "$f" | awk -v id="$RUN" '$1 == "run" && $2 == id { found = 1 } END { exit !found }'; then
+      _keep=$(fresh "$f" "run $RUN")
       {
         head -1 "$f"
-        sed -n '2,$p' "$f" | grep -vxF "run $RUN"
-        sed -n '2,$p' "$f" | grep -vxF "run $RUN" | grep -q '^run ' || echo idle
+        if [ -n "$_keep" ]; then printf '%s\n' "$_keep"; else echo idle; fi
       } > "$_tmp" && touch -r "$f" "$_tmp" && mv -f "$_tmp" "$f" || { rm -f "$_tmp"; unlock; exit 2; }
     fi
     unlock
@@ -307,7 +323,7 @@ case "$VERB" in
       p=${f##*/}
       _age=$(age_min "$f")
       _st=$(state "$p" "$(head -1 "$f" 2>/dev/null)" "$_age")
-      [ "$_st" = alive ] && grep -qx idle "$f" 2>/dev/null && _st=idle
+      [ "$_st" = alive ] && idle "$f" && _st=idle
       echo "$p ${_age}m $_st"
     done
     exit 0 ;;
@@ -325,7 +341,7 @@ done
 FOUND=1
 for f in "$DIR"/*; do
   [ -f "$f" ] || continue
-  grep -qx idle "$f" 2>/dev/null && continue
+  idle "$f" && continue
   p=${f##*/}
   _age=$(age_min "$f")
   case "$ANCESTRY" in *" $p "*) [ "$SHARED" -eq 1 ] && [ "$_age" -lt 120 ] && gstack_shared_harness "$p" || continue ;; esac
