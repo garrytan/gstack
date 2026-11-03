@@ -153,7 +153,7 @@ describe('contract-done-means renderer', () => {
       { id: 'adversarial-pass', kind: 'agent_dispatch', match: 'chaos engineer' },
     ],
   }, 'fixture/SKILL.md.tmpl');
-  const out = renderDoneMeans(all);
+  const out = renderDoneMeans(all, true);
 
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
@@ -195,6 +195,15 @@ describe('contract-done-means renderer', () => {
       expect(message).toContain('Fix: edit demo/SKILL.md.tmpl, then bun run gen:skill-docs');
     });
   }
+
+  test('check and waive appear only once bin/gstack-skill-contract ships', () => {
+    const shipped = existsSync(join(ROOT, 'bin', 'gstack-skill-contract'));
+    for (const skill of ['investigate', 'review']) {
+      expect(read(skill + '/SKILL.md').includes('gstack-skill-contract'), skill + '/SKILL.md names gstack-skill-contract while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: bun run gen:skill-docs').toBe(shipped);
+    }
+    if (shipped) expect(existsSync(join(ROOT, 'docs', 'skill-routing-and-contracts.md')), 'docs/skill-routing-and-contracts.md is missing').toBe(true);
+    expect(renderDoneMeans(all, false)).not.toContain('gstack-skill-contract');
+  });
 
   test('a host that suppresses the step an item checks leaves that item out', () => {
     const render = (host: string) => generateContractDoneMeans({ skillName: 'review', tmplPath: join(ROOT, 'review', 'SKILL.md.tmpl'), host, paths: HOST_PATHS[host] } as Parameters<typeof generateContractDoneMeans>[0]);

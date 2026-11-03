@@ -46,8 +46,6 @@ Finish only when each of these exists (contract v1):
 - `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
 - `review-report`: a `Pre-Landing Review` with Gate edits filled in.
 
-`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
-
 ## Shared preamble (load first)
 
 This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.

@@ -113,7 +113,8 @@ function plainWords(item: ContractItem): string {
   }
 }
 
-export function renderDoneMeans(contract: SkillContract): string {
+/** The list; checker names the check and waive commands, which only a tree that ships bin/gstack-skill-contract should mention. */
+export function renderDoneMeans(contract: SkillContract, checker = fs.existsSync(path.join(ROOT, 'bin', 'gstack-skill-contract'))): string {
   if (contract.items.length === 0) return '';
   return [
     '## Done means',
@@ -121,9 +122,8 @@ export function renderDoneMeans(contract: SkillContract): string {
     'Finish only when each of these exists (contract v1):',
     '',
     ...contract.items.map(item => '- ' + code(item.id) + ': ' + plainWords(item) + '.'),
-    '',
-    code('gstack-skill-contract check') + ' reads them from the transcript (docs/skill-routing-and-contracts.md). ' +
-      'For an item that truly does not apply, run ' + code('gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).',
+    ...(checker ? ['', code('gstack-skill-contract check') + ' reads them from the transcript (docs/skill-routing-and-contracts.md). ' +
+      'For an item that truly does not apply, run ' + code('gstack-skill-contract waive <item> --reason "<why>"') + ' (this session only; it counts as a miss).'] : []),
   ].join('\n');
 }
 
