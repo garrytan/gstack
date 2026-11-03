@@ -66,7 +66,9 @@ unless the command says it is a smoke run.
 ## Which copy is read
 
 By default the reviewed copy is read: `git show origin/<base>:.gstack/eval-models.json`
-(`--base`, default origin/HEAD's branch). A branch cannot loosen the rules it
+(`--base`, default origin/HEAD's branch unless it names the checked-out branch,
+its upstream or HEAD's commit, then the PR's base, the remote's live HEAD, `main`
+or `master`). A branch cannot loosen the rules it
 is checked against. When the working-tree copy differs, an
 `EVAL_MODELS_NOTE:` line says so. `--models-from head` lints with the working-tree copy
 instead. Use it for the PR that adds or changes the file; the source label

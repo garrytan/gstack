@@ -146,7 +146,9 @@ record. Another successful fetch alone cannot certify corrupted history.
 
 Outside reviews send your diff, plan or question to a second AI provider. Their
 verdict comes from `lib/outside-review-result.ts`, which prints
-`VERDICT: clean|findings|unverified|unavailable`. A `findings` verdict with a
+`VERDICT: clean|findings|unverified|unavailable`. When given an events file, it
+also prints `OUTSIDE_USAGE:` with the token counters Codex reported, or
+`OUTSIDE_USAGE: unknown` when it reported none. A `findings` verdict with a
 P0 or P1 finding blocks exactly like a native P0/P1. `unverified` and
 `unavailable` are missing coverage: /ship and /review continue, show the gap in
 the readiness dashboard and the PR body, and never count it as a pass.
@@ -3338,10 +3340,13 @@ targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verif
 use this code when the receipt's review_exclude digest (or the
 `--review-exclude <digest>` write was given) is not the digest HEAD has under the
 base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
-names `expected=` (now), `recorded=` (what the review read, `none` when it read
-without exclusion) and `source=` (the base commit). The reviewers read another
-selection than the one the head now has, so a receipt write alone cannot clear
-it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+names `expected=` (now), `recorded=` (the `--review-exclude` argument, or the digest
+the receipt recorded from it; `none` without one) and `source=` (the base commit).
+A mismatch proves only that this argument differs from the selection the head has
+now. Write compares the argument and does not read the review ledger, so the line
+says nothing about what the readers read, and a write that passes the `expected=` digest clears
+the field without a review. Do not do that. Rerun
+`/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
 run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
@@ -3917,14 +3922,14 @@ the lane log, then rerun or split the selection. A tool missing from PATH is
 <a id="pregate-stalled"></a>
 ### `PREGATE_STALLED`
 
-**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log for the stall timeout (default 300 s,
+**Meaning.** A test command the lanes check (or a guard) launched wrote nothing to its log, and its process group used under a tenth of one CPU (Windows: log growth alone), for the stall timeout (default 300 s,
 `stall_timeout_s` in the base branch's `.gstack/pregate.json` or the user-owned file, or
 `--stall-timeout`). pregate killed its process group and names the last test
 file started. The check is incomplete, never pass.
 
 **Fix.** Open the printed log, find the hang in the named file (a blocked
 child, a server that never exits, a synchronous wait), fix it and rerun
-`gstack-pregate --stage tests`. A test that is legitimately quiet for longer
+`gstack-pregate --stage tests`. A test that legitimately waits quietly for longer
 needs a larger `--stall-timeout`; `0` disables the stall kill and leaves only
 `--timeout`. The `--remote` gate never stalls: it is bounded by `--timeout`
 (else `timeout_s`), so a gate that waits on CI needs a timeout long enough for
@@ -5979,7 +5984,10 @@ the reviewed tree but the base moved under it, so the diff a reviewer would see
 is not the reviewed one. For a stacked PR retargeted to the base after its
 parent landed, it means HEAD's product diff against the base is not the range
 reviewed against the parent branch: the parent has not fully landed, or the
-branch changed since. The reviewed verdict does not cover HEAD, so the
+branch changed since. A stacked PR whose receipt was written against the base
+carries from the newest reviewed commit the base already holds
+([ship-policy.md](ship-policy.md#receipt-carry)); it refuses here only when no
+such commit exists or the branch changed since. The reviewed verdict does not cover HEAD, so the
 receipt is not carried. The refusal names the changed product paths, or for a
 retargeted stacked PR the parent branch and the base.
 
@@ -5987,8 +5995,10 @@ retargeted stacked PR the parent branch and the base.
 conflict-only base merge, a test-only change, release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
-landed on the base, or base context next to unchanged hunks after a clean
-scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
+landed on the base, a stamp on the branch's own rows in a stamp file it also
+changed as product (every changed line at a branch-added position, the mode
+unchanged, the base not touching the file), or base context next to unchanged
+hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 

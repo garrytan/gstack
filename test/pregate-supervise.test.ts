@@ -66,6 +66,21 @@ describe('supervise: process group, log file, stall and deadline', () => {
     expect(printing.wall).toBeGreaterThan(1500);
   });
 
+  // Value: protects=a quiet suite that is busy working is not killed as stalled, while a busy run that never ends still hits the deadline
+  //   (GST-1095); fails_when=stall detection looks only at log growth and kills a CPU-busy silent run; why_new=a quiet 9-minute parallel check.sh
+  //   ended PREGATE_STALLED on Founderstar (FOUN-63); seam=none; no_claim=a hung run that keeps burning CPU is caught by the deadline, not the stall timer
+  test('a silent command that keeps using CPU is not stalled; a busy run that never ends still times out at the deadline', async () => {
+    const dir = scratch();
+    const busy = `${process.execPath} -e 'const end = Date.now() + 3500; while (Date.now() < end) {} console.log("done")'`;
+    const quiet = await run(dir, busy, { stallMs: 1500 });
+    expect(quiet.outcome).toBe('exited');
+    expect(quiet.exit).toBe(0);
+    expect(quiet.log).toContain('done');
+    const forever = await run(dir, `${process.execPath} -e 'for (;;) {}'`, { stallMs: 1500, deadline: Date.now() + 4000 });
+    expect(forever.outcome).toBe('timeout');
+    expect(forever.exit).toBeNull();
+  }, 20_000);
+
   test('a group that ignores SIGTERM is SIGKILLed after the grace period', async () => {
     const dir = scratch();
     const r = await run(dir, `trap '' TERM; echo $$ > ${dir}/stubborn.pid; while :; do sleep 0.1; done`, { stallMs: 500, graceMs: 400 });
@@ -193,6 +208,16 @@ describe('gstack-pregate: the test stage never hangs silently', () => {
     expect(lanes(repo)).toMatchObject({ status: 'incomplete', code: 'PREGATE_STALLED' });
     expect(r.out).toMatch(/^tests {6}lanes {5}incomplete .*no test output for 2 s.*\(PREGATE_STALLED\)$/m);
     expect(r.err).toMatch(/^gstack-pregate: lanes stalled — .*; fix: .* \(PREGATE_STALLED; https:\/\/github\.com\/garrytan\/gstack\/blob\/main\/docs\/troubleshooting\.md#pregate-stalled\)$/m);
+  }, 90_000);
+
+  // Value: protects=the FOUN-63 shape end to end: a lane test that is silent past --stall-timeout but busy passes instead of PREGATE_STALLED
+  //   (GST-1095); fails_when=the lanes check kills a CPU-busy quiet test at the stall timeout; why_new=FOUN-63; seam=none; no_claim=none
+  test('a test that is silent past the stall timeout but busy runs to a pass', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    commit(repo, { 'test/busy.test.js': "const test = require('node:test');\ntest('quiet and busy', () => { const end = Date.now() + 5000; while (Date.now() < end) {} });\n" });
+    const r = pregate(repo, ['--stall-timeout', '2']);
+    expect(lanes(repo)).toMatchObject({ status: 'pass' });
+    expect(r.status).toBe(EXIT.ok);
   }, 90_000);
 
   test('a test whose child backgrounds and holds stdout passes promptly instead of waiting out --timeout', () => {

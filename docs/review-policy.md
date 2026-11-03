@@ -174,9 +174,12 @@ applies no edits is its exit too.
 `gstack-review-plan --base <base>` classifies the diff, picks a **depth** and prints
 the reviewers the next step dispatches: `REVIEW_CLASS:`, `REVIEW_DEPTH: <d>
 runtime_lines=<n> rules=<hash> reasons=<…> codes=<…>`, `GATE_SCAN: tagged=<n>|unavailable
-head=<sha>`, one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
+head=<sha>`, `REVIEW_BASE: <ref> <sha12>` (the base the diff was taken against: a bare
+`--base main` reads `origin/main` when it shares history with HEAD, and a local `main` that lags
+it is named on stderr), one `DEPTH_ERROR:` per input that failed closed, one `DISPATCH:` per reviewer
 with its effort and a shell-quoted `DIFF_CMD:` (plus `DIFF_EXCLUDE: <name> none` when it
-reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields.
+reads everything), one `SKIP:` per reviewer left out, and `--json` with the same fields (the
+base as `base`).
 A plan that fails closed to full exits 0; a diff git cannot list exits 1.
 
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
@@ -204,7 +207,7 @@ elements and RDF metadata, CSS made of declarations only (no `@` rule and no
 function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
 `image()`, `element()` and every other CSS load), no backslash escape, every
 `href` a same-file `#` reference or an inline raster image, no event handler and no
-entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded; anything else, a
+entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded. A `<style>` element's text is read as written. Any `&` in it keeps the SVG code, its comments are read as CSS, an opening tag it cannot read as quoted `name="value"` pairs keeps the SVG code, and only ASCII whitespace may come before the `>` of either tag, so no character-reference `</style>`, comment that only an HTML parser ends early, quoted `>` or Unicode space can hide CSS. A non-ASCII character in an element or attribute name, such as a `gé:` prefix, keeps the SVG code too (GST-940); anything else, a
 script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
@@ -252,7 +255,7 @@ line that can run code (a script or `foreignObject` element, an event handler, a
 rules are coarse on purpose and parse no import clause or call arguments;
 `test/review-risk-linear.test.ts` holds each of them under 100 ms on
 200,000-character hostile lines, its anchor followed by a long run of the
-characters it repeats included. `test/review-risk-redos.test.ts` (GST-898) holds every risk pattern, R51's `rm` and `rmSync` rules included, under 100 ms on 100,000-character hostile lines. An `rmSync(` call with more than 500 characters before the first `)` after it counts as security on its own. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
+characters it repeats included. `test/review-risk-redos.test.ts` (GST-898) holds every risk pattern, R51's `rm` and `rmSync` rules included, under 100 ms on 100,000-character hostile lines. An `rmSync(` or `rm(` call (`fs.rm`, `fs.promises.rm` or an imported `rm`) counts as security when `recursive: true` follows within 500 characters, whatever the arguments hold (a `path.join(...)` first argument or a `)` in a comment included) and also when a formatter split a new call across lines, which is read over the file's changed lines joined (GST-942; an edit to one line of an existing split call is read on its own); a call with more than 500 characters before the first `)` after it counts on its own. **data** is user data: a path naming pii, gdpr, ccpa, privacy,
 personal, account, customer, cookie, persistence, storage or database, or a line
 that drops a table or column, deletes rows or bulk-deletes records. Auth scope,
 migrations and deleted code paths were already gate class. `RISK_RULES` hashes
@@ -384,7 +387,7 @@ and matching is token-bounded: `costume` never reads as cost.
 |---|---|
 | money | a path segment naming cost, spend, budget, ledger, billing, price, fee or invoice; or a changed line with an identifier ending in `_usd` or `Usd`, any `spend_cap` spelling, or a call to a paid provider `lib/pricing.ts` prices |
 | gate | a hunk the gate scan tagged: a relaxed threshold, a skipped test, a loosened check |
-| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH` |
+| auth | `SCOPE_AUTH` from `gstack-diff-scope`, on a code path with an auth, session, jwt, permission or role token in its name; a data file named for sessions (`recovered-sessions.jsonl`) outside a config location does not set `SCOPE_AUTH`, and `SCOPE_AUTH` fails safe: any name token containing auth sets it (`auth.ts`, `/auth/`, `oauth`, `useAuth.ts`, `nextauthmiddleware.ts`) except the authorship words `author`, `authors`, `authored`, `authoring`, `authorship`, `authority`, `authorities`, `coauthor` and `coauthors` |
 | secret | a secrets, credentials, keychain or token path, or a changed line that reads a key-named environment variable (`OPENAI_API_KEY`, `GH_TOKEN`) or a credential store |
 
 An input the classifier cannot read (the diff, `gstack-diff-scope`, the gate
@@ -492,6 +495,21 @@ paths the branch touched at `fix_check.head` (narrowed to the record's
 through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes.
+
+A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
+reads the newest `review-fix-check` row from `gstack-review-read`. When it is a
+completed clean read on committed content (freshness `CURRENT` against its own
+tree) whose commit is on the branch, whose `range_base` is a branch commit
+holding the reviewed tree, and for which an approved `review_loop_grant` in
+`gstack-approvals` names a stop head inside `range_base..commit`, each code or test path inside `range_base..commit`
+that is unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
+`FIX_CHECK: reviewed` line, a gate-edited test included. Authored docs keep the
+stage 2.2 recheck, and a path edited after the fix-check still routes by the
+rules above. Any other row prints
+`FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`
+refuses a `review-fix-check` row without boolean `completed` and `converged`,
+before it consumes the start token, because without them the row reads
+`UNVERIFIED` and finish cannot count it.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
@@ -601,22 +619,30 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    second line for the same field starts another: `Severity` sets its label (a label leading the finding stays its floor),
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
    `Blocks: yes` is CRITICAL too, and with no finding above it is one. The native
-   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167) unless collect `--manifest` names this
-   ledger's pass and its plan is the code or docs class with only `runtime=<n>` depth reasons (no `risk:`, `error:`,
-   `history:` or `floor:` reason). On such a plan a native finding's own `Severity` field decides and FIXABLE beside it
-   raises nothing once it also states `Blocks: no`; a native FIXABLE finding without `Blocks: no`, with no `Severity` field,
-   or whose field names only FIXABLE or INVESTIGATE still collects as CRITICAL (GST-987). An unnumbered, unlabeled bullet with no file:line
+   adversarial voice's FIXABLE collects as CRITICAL (normalizer v2, GSTA-167), except that on every class a native
+   finding that states `Blocks: no` and one `Severity` field collects at that field (GST-1031 ruling A); a native FIXABLE
+   finding without `Blocks: no`, with no `Severity` field, or whose field names only FIXABLE or INVESTIGATE still collects
+   as CRITICAL. On a code or docs plan with only `runtime=<n>` depth reasons (collect `--manifest` naming this ledger's
+   pass; GST-987) FIXABLE also raises nothing through a label heading or a leading tag. A numbered finding heading keeps
+   every unlabeled line under it (located or numbered bullets, a bold subheading, a located paragraph) until its
+   `Severity` or `Blocks` line comes, so those fields never split off as a second record (GST-1031). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
-   closing summary is a known phantom: it stays at that label in the judged set, lead judgment can fold it only into a
-   finding at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
+   closing summary is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
+   `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is
+   CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
+   with a reason, which judge records as `dismissed` (GST-1031); otherwise lead judgment can fold it only into a finding
+   at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
-   instruction lives in a reviewer brief that changes only after a no-loss replay. What blocks is unchanged.
+   instruction lives in a reviewer brief that changes only after a no-loss replay. A CRITICAL whose own text writes the
+   field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
+   review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
+   its label counts it again.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
@@ -690,7 +716,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    working directory) and stops when that is another checkout or cannot be read: run /ship in the thread's own checkout.
    A start directory outside any checkout, such as a multi-repo workspace root, holds no tree to review by mistake and
    dispatches. Step 11's voices take the `adversarial-review` start
-   token by default, and a `logStart` list without it stops before anything runs.
+   token by default, and a `logStart` list without it stops before anything runs. Decision 3.5's fix-check pass turns a
+   `review` start into `review-fix-check`, so its row is never a pass (GST-1031).
 
 ## Where this is enforced
 

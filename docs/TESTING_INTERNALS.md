@@ -1696,7 +1696,17 @@ the core skills, drives `/browse` on gstack's own browser, and runs the short
 test list in its last step, where each file's reason sits beside it.
 `test/windows-native-workflows.test.ts` keeps that list Windows-safe and fast.
 
-The curated suite below runs nightly on main and on dispatch, never on a PR.
+Windows checks run by path. `windows-scoped-tests.yml` (Windows Scoped Tests)
+runs on every PR, and when the diff touches path, file-name or process code (the
+filter is described at the top of the workflow), one `windows-latest` job runs
+the PR's changed test files that are in the curated subset below. Its
+`windows-scoped-tests` check passes when nothing is in scope, and a red run
+blocks its PR. `windows-setup-e2e.yml` skips its Windows jobs when the only
+install change is `package.json`'s version line. Both filters are pinned by
+`test/windows-path-scope-workflow.test.ts`. To rerun chosen Windows-safe files on
+a branch, dispatch `windows-scoped-tests.yml` with `-f files='<file> <file>'`.
+
+The full curated suite below runs nightly on main and on dispatch, never on a PR.
 `windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6
 --shard-jobs $WINDOWS_FREE_JOBS`), runs one strict serial shard per
 `windows-latest` job
