@@ -553,6 +553,27 @@ describe('Capy pass program (fake host, real bins)', () => {
     }
   }, 600_000);
 
+  // Value: protects=GST-1104 review finding: an outside voice that ends stopped or failed with a summary that is not a review is recorded unavailable and Step 11 goes on; fails_when=collect's COLLECT_NOT_REVIEWED stops the pass and every rerun stops the same way;
+  //   why_new=GST-1104 /ship review round 2; seam=lib/capy-review-pass.js reader collect; no_claim=what the summary says
+  test('an outside voice that ends stopped with a non-review summary is recorded unavailable, not a stuck pass (GST-1104)', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { stopped: (t: string) => t.endsWith('outside-voice'), keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? 'Stopped before I could read the diff.' : cleanReply(t)), epoch: Date.now() });
+    const base = { base: 'main', out, pass: 'x35p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    let res = '';
+    for (let i = 0; i < 6; i++) {
+      res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+      if (!res.includes('NEXT: poll')) break;
+    }
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
+    expect(res).toContain('"outside_status":"unavailable"');
+    expect(res).toContain('NEXT: judge the voices');
+    const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]);
+    expect(v.stdout).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+  }, 300_000);
+
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
