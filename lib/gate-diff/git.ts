@@ -109,9 +109,8 @@ export function resolveBase(ref: string, cwd: string, head?: string): { ref: str
   if (!isBranchName(ref)) { const sha = direct(); return sha ? { ref, sha } : null; }
   const qualified = resolvesToCommit(`refs/remotes/` + ref, cwd);
   if (qualified) return { ref, sha: qualified };
-  const remotes = remoteNames(cwd);
-  if (remotes.some((remote) => ref.startsWith(remote + '/'))) return null;
   const local = resolvesToCommit(`refs/heads/` + ref, cwd);
+  const remotes = remoteNames(cwd);
   const localRelated = !!local && related(local);
   const twin = (remote: string) => {
     const sha = resolvesToCommit(`refs/remotes/` + remote + '/' + ref, cwd);
