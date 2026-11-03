@@ -83,7 +83,7 @@ describe('Capy Captain flow', () => {
     expect(imp.status, imp.stderr).toBe(0);
     expect(imp.stdout).toMatch(/^APPROVAL_IMPORTED: n=1 skipped=0 /);
     expect(bin('gstack-approvals', ['import', '--autoplan', out, '--by', 'Garry'], env, repo).stdout).toMatch(/^APPROVAL_IMPORTED: n=0 skipped=1 /);
-    const table = bin('gstack-approvals', ['render'], env, repo).stdout;
+    const table = bin('gstack-approvals', ['render', '--full'], env, repo).stdout;
     expect(table).toContain('Approve the plan "Retry backoff for the webhook worker"');
     expect(table).toContain(`“${reply}” (Garry, relayed by agent:GSTA-1) | approved |`);
     expect(fs.readdirSync(path.join(mirror, 'acme-worker')).length).toBe(1);

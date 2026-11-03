@@ -1,1 +1,1 @@
-{"blob":"dd0ca92bcf8493fd5c1e9d399cc3bc74ec70c469","since":6,"nonBehavioral":"FREE_ONLY_PR_FILES gains USING_GBRAIN_WITH_GSTACK.md (a root guide no skill prompt or paid fixture reads); it changes only which PR paths select paid cases, never how a case runs or is judged (GST-1027)"}
+{"blob":"b552b8825d693493decef76b05b976858cab087e","since":6,"nonBehavioral":"test-pr-profile.ts lists .github/workflows/windows-scoped-tests.yml as free-lane only; the workflow runs no paid case, so no case selection or verdict can change"}

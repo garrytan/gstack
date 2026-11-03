@@ -1,0 +1,51 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-skill-route — show how the skill-route hook scores a prompt (GST-1088).
+ *
+ * Usage:
+ *   gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]
+ *
+ * Prints the switch state, the threshold, every candidate skill with its
+ * score and best trigger, the route the hook would take and the exact line it
+ * would inject. Works with the switch off (a dry run): it never injects
+ * anything. Exit 0, or 2 on a usage error. Docs: docs/skill-routing-and-contracts.md.
+ */
+import {
+  ROUTE_THRESHOLD, hintLine, installedSkillsDir, readSkillSwitch, routePrompt, scanInstalledSkills,
+} from '../lib/skill-route';
+
+const USAGE = 'Usage: gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]';
+const args = process.argv.slice(2);
+if (args[0] === '--help' || args[0] === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
+const at = args.indexOf('--explain');
+const prompt = at >= 0 ? args[at + 1] : undefined;
+const tAt = args.indexOf('--threshold');
+const threshold = tAt >= 0 ? Number(args[tAt + 1]) : ROUTE_THRESHOLD;
+if (prompt === undefined || !Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
+  process.stderr.write(`SKILL_ROUTE_USAGE: --explain needs a prompt; --threshold must be in (0, 1]\n${USAGE}\n`);
+  process.exit(2);
+}
+const dir = installedSkillsDir();
+const { skills, problems } = scanInstalledSkills(dir);
+const decision = routePrompt(prompt, skills, threshold);
+const sw = readSkillSwitch('skill_routing');
+const hint = decision.route ? hintLine(decision.route) : null;
+if (args.includes('--json')) {
+  process.stdout.write(`${JSON.stringify({
+    switch: { on: sw.on, source: sw.source }, threshold, skills_dir: dir, skills: skills.length, problems,
+    candidates: decision.candidates, route: decision.route?.skill ?? null, reason: decision.route ? null : decision.reason, hint,
+  }, null, 2)}\n`);
+  process.exit(0);
+}
+const lines = [
+  `switch: skill_routing ${sw.on ? 'on' : 'off'} (${sw.source})${sw.invalid !== undefined ? `, unrecognized value ${JSON.stringify(sw.invalid)}` : ''}`,
+  `threshold: ${threshold}`,
+  `skills: ${skills.length} scanned in ${dir}${problems.length ? ` (${problems.join('; ')})` : ''}`,
+  'candidates:',
+  ...(decision.candidates.length
+    ? decision.candidates.map(c => `  ${c.score.toFixed(2)}  /${c.skill}  "${c.trigger}" (${c.matched} words)`)
+    : ['  (none)']),
+  decision.route ? `route: /${decision.route.skill}` : `route: none (${decision.reason})`,
+  ...(hint ? [`hint: ${hint}`] : []),
+];
+process.stdout.write(`${lines.join('\n')}\n`);
