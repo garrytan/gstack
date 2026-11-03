@@ -21,9 +21,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-lean-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
 const sha256 = (b: string | Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 const OFF_CAPY = { GSTACK_CAPY: '' };
+const GIT_ISOLATED = { GIT_CONFIG_GLOBAL: path.join(TMP, 'empty-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+fs.writeFileSync(GIT_ISOLATED.GIT_CONFIG_GLOBAL, '');
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...GIT_ISOLATED } });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout;
 }
@@ -323,8 +325,9 @@ describe('which runs are lean', () => {
 });
 
 describe('draft capture edges', () => {
+  const isolated = { ...OFF_CAPY, ...GIT_ISOLATED };
   const lean = (name: string, cwd: string, out = path.join(TMP, name, 'run'), base = 'main') => {
-    const r = run(['next', '--kind', 'feature', '--base', base, '--out', out, '--plan', plan(name), '--no-ui'], cwd);
+    const r = run(['next', '--kind', 'feature', '--base', base, '--out', out, '--plan', plan(name), '--no-ui'], cwd, isolated);
     if (r.status !== 0) throw new Error(`${r.stderr}\n${r.stdout}`);
     return { r, ps: readRun(out).phases.eng, prompt: fs.readFileSync(path.join(out, 'eng-native-prompt.md'), 'utf8') };
   };
