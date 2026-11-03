@@ -26,6 +26,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 - `windows-smoke` is the required Windows check on pull requests.
 - The six-shard Windows free suite (the `Windows Free Tests` workflow, `windows-free-tests`) runs nightly on main, or when someone starts it by hand, and never blocks a pull request.
 - A red nightly run gets a fix only when it shows an install, startup or core-workflow break.
+- Windows checks run by path (ship-90-90 plan D, approved 2026-11-03): `Windows Scoped Tests` runs a pull request's changed Windows-safe test files on one Windows job only when it touches path, file-name or process code, and `Windows Setup E2E` runs only when install files change (a version-only `package.json` change doesn't count).
 
 ## What doesn't change
 
