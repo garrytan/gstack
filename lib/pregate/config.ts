@@ -29,8 +29,9 @@
  *                 the pre-push hook and `gstack-pregate sealed`, not by `run`)
  *   price_file    the call-plan data file `gstack-eval-plan price-gate` prices
  *                 a paid gate from (GSTACK_EVAL_CALLS v1; never executed)
- *   stall_timeout_s seconds without test output before the lanes check kills
- *                 the runner's process group (default 300; 0 disables)
+ *   stall_timeout_s seconds without test output or CPU activity before the
+ *                 lanes check kills the runner's process group (default 300;
+ *                 0 disables)
  *   timeout_s     seconds each runner process may take (the unit-file group,
  *                 each serial file, each guard without its own timeout_s, the
  *                 remote gate) when `--timeout` is not passed (default 600)
@@ -352,7 +353,7 @@ export function explainConfig(): string {
     `serial_patterns: test-file globs the lanes check runs one process per file, apart from the unit files (default ${DEFAULT_SERIAL_PATTERNS.join(', ')})`,
     'sealed: { paths, transcripts, answer_markers, seed_patterns, local_paths, allow_paths, case_insensitive, label_keys, identifier_keys, visibility }: sealed or eval output the pre-push hook and `gstack-pregate sealed` refuse to publish to a public destination; allow_paths (base branch only) exempt publishable files from the path globs; label_keys turns on sealed.label_join, which refuses a published record that puts one of those fields next to an identifier (identifier_keys globs, or a hex value) (docs/pregate.md#sealed)',
     'price_file: repo-relative path of the GSTACK_EVAL_CALLS v1 call-plan file `gstack-eval-plan price-gate` prices a paid gate from; never executed (docs/eval-calls.md)',
-    'stall_timeout_s: seconds without test output before the lanes check kills the runner\'s process group and records it incomplete (default 300; 0 disables; --stall-timeout overrides)',
+    'stall_timeout_s: seconds without test output or CPU activity before the lanes check kills the runner\'s process group and records it incomplete (default 300; 0 disables; --stall-timeout overrides)',
     'timeout_s: seconds each runner process may take (the unit-file group, each serial file, each guard without its own timeout_s, and the remote gate\'s deadline) when --timeout is not passed; 1 to 3600, default 600',
     'remote_gate: the repo\'s remote test gate command; under 8 cores the test tier becomes a requires-remote obligation naming it, and gstack-pregate --remote runs it (it must print PREGATE_REMOTE: tree=<tree> tests=<n> failed=<n>) (docs/pregate.md#remote-gate)',
     'run_profiles: name → { workflow, events, jobs, artifact, max_age_hours?, os? }; the GitHub Actions runs gstack-pregate clear --run verifies as evidence on the identical tree (docs/pregate.md#run-evidence)',

@@ -133,7 +133,7 @@ export const QUESTIONS = {
     door_type: 'two-way',
     options: ['fix-now', 'ack-and-ship', 'false-positive'],
     signal_key: 'code-quality-care',
-    description: "Greptile flagged a valid issue — fix, ack and ship, or mark false positive?",
+    description: "A review bot flagged a valid issue — fix, ack and ship, or mark false positive?",
   },
   'ship-greptile-comment-false-positive': {
     id: 'ship-greptile-comment-false-positive',
@@ -141,7 +141,7 @@ export const QUESTIONS = {
     category: 'approval',
     door_type: 'two-way',
     options: ['reply', 'fix-anyway', 'ignore'],
-    description: "Greptile comment looks like a false positive — reply to explain, fix anyway, or ignore silently?",
+    description: "A review bot comment looks like a false positive — reply to explain, fix anyway, or ignore silently?",
   },
   'ship-todos-create': {
     id: 'ship-todos-create',
