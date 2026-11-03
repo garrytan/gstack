@@ -1,7 +1,7 @@
 **/ship now gives full review to edits of the code that hides files from reviewers or picks the diff base, and real review to harness pin edits (GST-972 follow-up).** Both were slipping through with less review than they need.
 
 ### Fixed
-- **Gate paths:** `lib/review-exclude.ts` decides which files reviewers never see, and `lib/default-base.ts` picks the base every diff is cut from. An edit to either was planned as plain code at light depth, with no gate class. Both are now gate paths, so an edit gets full depth: the Red Team, Step 11's adversarial and outside voices, and the targeted reviewer. `review_exclude_paths` also can't hide them from reviewers anymore.
+- **Gate paths:** `lib/review-exclude.ts` decides which files reviewers never see, and `lib/default-base.ts` picks the base every diff is cut from. An edit to either was planned as plain code at light depth, with no gate class. Both are now gate paths, so an edit gets full depth: the Red Team as its own reader, plus Step 11's adversarial and outside voices. `review_exclude_paths` also can't hide them from reviewers anymore.
 - **Harness pins:** files under `scripts/harness-pins/` repeat their harness file's path, so a pin like `scripts/harness-pins/test/helpers/e2e-gate.ts.json` matched the `test/` rule and planned as tests. Since the one-file-per-pin split (#3903), a harness helper edit with its pin got no reviewers at all, where the old shared `scripts/harness-version.json` made it code class. Pins outside `test/` were worse: no code names a pin file, so the unused-data rule planned them as docs. Pins now always classify as code, so the batched reader with the testing and security checklists and Step 11's adversarial pass run on them again.
 
 ### Tests
