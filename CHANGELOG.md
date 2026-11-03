@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.93.40.0] - 2026-11-03
+
+### Fixed
+
+- **/ship and /review exploratory QA no longer write reports into your project (GST-969).** /ship Step 9.2.1 and /review Step 4.7 used to put its QA reports, deadline file and captured evidence in `.gstack/qa-reports/` inside the repository under review. In a project that doesn't ignore `.gstack/`, those files showed up as untracked changes, so they could land in the PR and change the tree the review certified. The new `gstack-qa-evidence report-dir` command creates a fresh run directory under `.gstack/tmp/qa-reports/` and adds `/.gstack/tmp/` to the repository's git exclude file, and both QA steps now use it. It refuses a symlinked `.gstack`, a `.gitignore` rule that un-ignores `.gstack/tmp`, and a directory outside a git repository. /qa keeps its `.gstack/qa-reports` output directory.
+
 ## [1.93.39.0] - 2026-11-03
 
 **/ship on Capy stops an outside voice that hangs and records it as missing, never as converged or as an unavailable Codex CLI (GST-1104).** TRUT-7's /ship run had two outside voices end with no result (gpt-6.1-sol stopped after 20 minutes; grok-4.7 used 16.9M tokens before it was stopped), and its Step 11 row read `outside_provider: codex`, `outside_status: unavailable`, `converged: true`.
