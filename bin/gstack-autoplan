@@ -129,8 +129,8 @@ DRIVER: ${driverFile()}
   export  --out <dir> --public <pub>
           write a machine-path-free copy (recorded roots rewritten, plan.md code kept) with provenance digests; the private
           run is not touched; refused (ARTIFACT_MACHINE_PATH) when a recorded root would remain. The owner's own words never
-          leave: owner_reply, carried words and a human's deferral reason are dropped, quotes of them redacted (OWNER_WORDS:
-          lines), refused (ARTIFACT_OWNER_WORDS) when a quote sits in plan.md code
+          leave: owner_reply, carried words and a human's deferral reason are dropped, quotes and renderings of them
+          redacted (OWNER_WORDS: lines), refused (ARTIFACT_OWNER_WORDS) when one sits in plan.md code
   status  --out <dir> [--json]      export  --out <dir>      release --out <dir> --attempt <id>
   contract                          print lib/coordinator-contract.ts (the block every lane and reviewer prompt inherits word for word)
 

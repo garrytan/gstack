@@ -37,7 +37,7 @@ const gateOf = (out: string) => JSON.parse(fs.readFileSync(path.join(out, 'gate.
 const boundName = (out: string, phase: string, voice: 'native' | 'outside'): string => readRunJson(out).phases[phase][voice].output;
 const digest = (dir: string) => Object.fromEntries(fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile() && e.name !== 'run.lock')
   .map(e => { const f = path.join(e.parentPath, e.name); return [path.relative(dir, f), crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')]; }));
-const allText = (dir: string) => fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isFile()).map(e => fs.readFileSync(path.join(dir, e.name), 'utf8')).join('\n');
+const allText = (dir: string) => fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => fs.readFileSync(path.join(e.parentPath, e.name), 'utf8')).join('\n');
 /** Whitespace, blockquote markers and JSON escapes folded away, so a reflowed or escaped quote still reads as one run of words. */
 const folded = (text: string) => text.replace(/\\[nrt"]/g, ' ').replace(/[\s>]+/g, ' ').toLowerCase();
 
@@ -58,25 +58,41 @@ function phaseWith(out: string, phase: string, prose: { native?: string; outside
   }
 }
 
+interface Bundle { v2?: string; wa?: string; wb?: string; ceo?: { native?: string; outside?: string }; eng?: { native?: string; outside?: string } }
 /** The GEVA bundle: gate 1 answered in two relayed owner replies, revised, re-reviewed (quote, reflowed quote, control), gate 2 carried. */
-function ownerBundle(v2 = V2): { out: string; dir: string } {
+function ownerBundle({ v2 = V2, wa = WA, wb = WB, ceo = { native: QUOTE_A, outside: REFLOW_B }, eng = { native: CONTROL } }: Bundle = {}): { out: string; dir: string } {
   const dir = path.join(r.host.base, `owner${++n}`);
   const out = path.join(dir, 'run');
   expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', '--no-dx']).status).toBe(0);
   phaseVia(r, out, 'ceo', AGREE);
   expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
-  const first = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1b', '--by', 'agent:gstack-minder', '--owner-reply', WA]);
+  const first = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1b', '--by', 'agent:gstack-minder', '--owner-reply', wa]);
   expect(first.stdout, first.stderr).toContain('GATE_PENDING: p1');
-  const second = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'p1b', '--rec-hash', recHash(gateOf(out)), '--by', 'agent:gstack-minder', '--owner-reply', WB]);
+  const second = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'p1b', '--rec-hash', recHash(gateOf(out)), '--by', 'agent:gstack-minder', '--owner-reply', wb]);
   expect(second.status, second.stderr).toBe(0);
   const plan2 = path.join(dir, 'plan-v2.md');
   fs.writeFileSync(plan2, v2);
   expect(r.ap(['revise', '--out', out, '--plan', plan2, '--incorporates', 'uc1']).status).toBe(0);
-  phaseWith(out, 'ceo', { native: QUOTE_A, outside: REFLOW_B });
-  phaseWith(out, 'eng', { native: CONTROL });
+  phaseWith(out, 'ceo', ceo);
+  phaseWith(out, 'eng', eng);
   expect(readRunJson(out).status).toBe('complete');
   const e = r.ap(['export', '--out', out]);
   expect(e.status, e.stderr).toBe(0);
+  return { out, dir };
+}
+
+/** CEO native binds a Critical finding, then a human defers CEO with `reason`; Eng runs clean to the gate. */
+function deferredRun(reason: string, plan = SMALL_PLAN): { out: string; dir: string } {
+  const dir = path.join(r.host.base, `owner${++n}`);
+  const out = path.join(dir, 'run');
+  expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan), '--no-ui', '--no-dx']).status).toBe(0);
+  expect(r.review(path.join(out, 'ceo-native-prompt.md'), { FIXTURE_FINDINGS: JSON.stringify([{ id: 'F1', severity: 'Critical', title: 'Retries can storm the webhook target' }]) }).status).toBe(0);
+  const bind = r.ap(['submit', '--out', out, '--phase', 'ceo', '--voice', 'native', '--result', resultOf(out, 'ceo', 'native'), '--model', 'anthropic/claude-opus-5-5', '--attempt', readRunJson(out).phases.ceo.native.attempt, '--runner', 'host-subagent']);
+  expect(bind.status, bind.stderr).toBe(0);
+  const close = r.ap(['close', '--out', out, '--phase', 'ceo', '--deferred', reason, '--by', 'human']);
+  expect(close.status, close.stderr).toBe(0);
+  expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+  expect(r.ap(['export', '--out', out]).status).toBe(0);
   return { out, dir };
 }
 
@@ -121,7 +137,7 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
 
   test('owner words inside plan.md code are never rewritten: export refuses, names file:line and writes nothing', () => {
     const fenced = V2.replace('## Review record', `The owner's answer, kept for the record:\n\n\`\`\`text\n${WA}\n\`\`\`\n\n## Review record`);
-    const { out, dir } = ownerBundle(fenced);
+    const { out, dir } = ownerBundle({ v2: fenced });
     const pub = path.join(dir, 'public');
     const e = r.ap(['export', '--out', out, '--public', pub]);
     expect(e.status, e.stdout + e.stderr).toBe(3);
@@ -163,5 +179,102 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(fs.readFileSync(path.join(pub, 'ceo-consensus.md'), 'utf8')).toContain(`(${MARK}; by human)`);
     expect(readRunJson(pub).phases.eng.deferred.reason).toBe('budget went to the CEO phase');
     expect(text).toContain('budget went to the CEO phase');
+  });
+
+  test("a human's deferral reason leaves no rendering behind (gate.json why included), and validate catches one added later", () => {
+    const { out, dir } = deferredRun('zebra quokka');
+    expect(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).toContain('closed deferred (zebra quokka) with this finding open');
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    expect(allText(pub)).not.toContain('zebra quokka');
+    expect(fs.readFileSync(path.join(pub, 'gate.json'), 'utf8')).toContain(`ceo closed deferred (${MARK}) with this finding open`);
+    const record = path.join(pub, 'review-record.md');
+    const line = fs.readFileSync(record, 'utf8').split('\n').length;
+    fs.appendFileSync(record, 'ceo closed deferred (zebra quokka) with this finding open\n');
+    const full = artifact(['validate', '--public', pub, '--private', path.join(out, 'run.json')]);
+    expect(full.status).toBe(1);
+    expect(full.stderr).toMatch(new RegExp(`owner words .* at review-record\\.md:${line}\\).*\\(ARTIFACT_OWNER_WORDS\\)$`, 'm'));
+    expect(full.stderr).not.toContain('zebra quokka');
+  });
+
+  test('a reply superseded at the same gate stays in the corpus: the journal keeps it, so a later quote of it is redacted', () => {
+    const early = 'Hold off on jitter until we know how the single proxy host behaves under a storm of retries.';
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', '--no-dx']).status).toBe(0);
+    phaseVia(r, out, 'ceo', AGREE);
+    expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+    expect(r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1b p1c', '--by', 'agent:gstack-minder', '--owner-reply', early]).stdout).toContain('interrogate recorded');
+    const rerun = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'uc1a p1d', '--by', 'agent:gstack-minder', '--owner-reply', WB]);
+    expect(rerun.status, rerun.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8')).not.toContain('single proxy host');
+    expect(fs.readFileSync(path.join(out, 'attempts.jsonl'), 'utf8')).toContain('single proxy host');
+    phaseWith(out, 'ceo', { native: `The owner first said: "${early}"` });
+    phaseWith(out, 'eng');
+    if (readRunJson(out).status === 'gate_pending') expect(r.ap(['answer', '--out', out, '--gate-rev', String(readRunJson(out).gate_rev), '--reply', 'p1a', '--by', 'agent:gstack-minder', '--owner-reply', 'ok']).status).toBe(0);
+    expect(r.ap(['export', '--out', out]).status).toBe(0);
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    expect(folded(allText(pub))).not.toContain('single proxy host');
+    expect(fs.readFileSync(path.join(pub, boundName(out, 'ceo', 'native')), 'utf8')).toContain(`The owner first said: "${MARK}."`);
+  });
+
+  test("a deferral placement never rewrites plan.md code; an exact rendering inside code refuses", () => {
+    const probe = SMALL_PLAN.replace('## Review record', '```js\nconsole.log("deferred: medical appointment");\n```\n\n## Review record');
+    const kept = deferredRun('medical appointment', probe);
+    const pub = path.join(kept.dir, 'public');
+    const e = r.ap(['export', '--out', kept.out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(pub, 'plan.md'), 'utf8')).toContain('console.log("deferred: medical appointment");');
+    const rendered = SMALL_PLAN.replace('## Review record', '```text\nceo closed deferred (medical appointment) with this finding open\n```\n\n## Review record');
+    const refused = deferredRun('medical appointment', rendered);
+    const pub2 = path.join(refused.dir, 'public');
+    const x = r.ap(['export', '--out', refused.out, '--public', pub2]);
+    expect(x.status, x.stdout + x.stderr).toBe(3);
+    expect(x.stderr).toMatch(/plan\.md:\d+: owner words .*\(inside code, which export never rewrites: edit the plan\).*\(ARTIFACT_OWNER_WORDS\)$/m);
+    expect(x.stderr).not.toContain('medical appointment');
+    expect(fs.existsSync(pub2)).toBe(false);
+  });
+
+  test("a human's one-word deferral reason never rewrites an agent's longer reason that starts with it", () => {
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', '--no-dx']).status).toBe(0);
+    expect(r.ap(['close', '--out', out, '--phase', 'ceo', '--deferred', 'budget', '--by', 'human']).status).toBe(0);
+    expect(r.ap(['next', '--out', out]).status).toBe(0);
+    expect(r.ap(['close', '--out', out, '--phase', 'eng', '--deferred', 'budget went to the CEO phase', '--by', 'agent:gstack-minder']).status).toBe(0);
+    expect(r.ap(['export', '--out', out]).status).toBe(0);
+    const pub = path.join(dir, 'public');
+    expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
+    const manifest = readRunJson(pub);
+    expect(manifest.phases.ceo.native.detail).toBe(`deferred: ${MARK}`);
+    expect(manifest.phases.eng.native.detail).toBe('deferred: budget went to the CEO phase');
+    expect(fs.readFileSync(path.join(pub, 'gate.json'), 'utf8')).toContain('eng closed accepted-with-findings at round 1 (budget went to the CEO phase): ');
+    expect(fs.readFileSync(path.join(pub, 'eng-consensus.md'), 'utf8')).toContain('(budget went to the CEO phase; by agent:gstack-minder)');
+  });
+
+  test('words the owner only echoed stay where they were first written; the new words around them are redacted', () => {
+    const PLAN_LINE = 'Persist the attempt count on the job row so a restarted worker resumes the schedule.';
+    const withNew = `${PLAN_LINE.slice(0, -1)}, and cap the retries at five attempts in total.`;
+    const { out, dir } = ownerBundle({ wa: 'Ship the backoff behind a flag first', wb: withNew, ceo: { native: `Relayed: "${withNew}"` }, eng: {} });
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(pub, 'plan.md'))).toEqual(fs.readFileSync(path.join(out, 'plan.md')));
+    expect(fs.readFileSync(path.join(pub, 'plan.md'), 'utf8')).toContain(PLAN_LINE);
+    const titles = (dir: string) => readJsonl(path.join(dir, 'decisions.jsonl')).map(d => d.title);
+    expect(titles(pub)).toEqual(titles(out));
+    expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Relayed: "${PLAN_LINE.slice(0, -1)}, ${MARK}."`);
+    expect(folded(allText(pub))).not.toContain('five attempts in total');
+  });
+
+  test('a reply of 3 or more words is matched whole, however short', () => {
+    const { out, dir } = ownerBundle({ wa: 'Jane Doe vetoed it', ceo: { native: 'Context: Jane Doe vetoed it, per the relay.' }, eng: {} });
+    const pub = path.join(dir, 'public');
+    expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
+    expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Context: ${MARK}, per the relay.`);
+    expect(allText(pub)).not.toContain('Jane Doe');
   });
 });

@@ -1,67 +1,108 @@
 /**
- * GST-1243: the owner-words rule behind `gstack-autoplan export --public` (lib/autoplan-owner-words.ts). Short replies
- * and gate grammar are never scanned for; a quote is WINDOW consecutive words of an owner text (all of it when shorter),
- * matched across line breaks, blockquote markers, case and curly quotes; code export keeps is never rewritten.
+ * GST-1243: the owner-words rule behind `gstack-autoplan export --public` (lib/autoplan-owner-words.ts). Replies of 1-2
+ * words and gate grammar are never scanned for; a reply of 3+ words is a quote wherever it appears whole, and from 8
+ * words any 8 consecutive words are a quote; glued punctuation, entities, zero-width characters, Markdown, wraps and
+ * contractions don't hide one; a quote extends over neighboring reply words; echoes of earlier text stay; gstack's
+ * renderings of a human's deferral reason are matched with their delimiters; code export keeps is never rewritten.
  */
 import { describe, expect, test } from 'bun:test';
-import { MIN_WORDS, OWNER_WORDS_MARK as MARK, WINDOW, dropOwnerFields, ownerSpans, ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { MIN_TOKENS, OWNER_WORDS_MARK as MARK, WINDOW, dropOwnerFields, ownerIndex, ownerSpans, redactOwnerWords } from '../lib/autoplan-owner-words';
 
 const LONG = 'Keep the backoff cap at thirty seconds and log every retry attempt so we can see it.';
-const owners = (...replies: Array<string | { owner_reply: string; owner_reply_parsed: boolean }>) =>
-  ownerWords({ phases: {} } as never, replies.map(r => (typeof r === 'string' ? { owner_reply: r } : r)));
-const quoted = (text: string, ...replies: string[]) => ownerSpans(text, owners(...replies)).map(([s, e]) => text.slice(s, e));
+const quoted = (text: string, ...replies: string[]) => { const o = ownerIndex(replies.map(r => ({ text: r }))); return ownerSpans(text, o).map(([s, e]) => text.slice(s, e)); };
 
 describe('the quote rule', () => {
-  test(`replies under ${MIN_WORDS} words or 20 characters are never scanned for`, () => {
-    const prose = 'Do it. Yes. Garry: do it. Ship it now please, the owner said.';
-    expect(quoted(prose, 'do it', 'yes', 'Garry: do it', 'Ship it now please')).toEqual([]);
-    expect(quoted('a b c d e f', 'a b c d e')).toEqual([]);
+  test(`replies under ${MIN_TOKENS} words are never scanned for; from ${MIN_TOKENS} words a reply is matched whole at word boundaries`, () => {
+    expect(quoted('Do it. Yes. Ship it, the owner said.', 'do it', 'yes', 'ship it')).toEqual([]);
+    expect(quoted('Context: Jane Doe vetoed it, per the relay.', 'Jane Doe vetoed it')).toEqual(['Jane Doe vetoed it']);
+    expect(quoted('Jane Doe vetoed items in March.', 'Jane Doe vetoed it')).toEqual([]);
   });
 
   test('a reply that parsed as gate grammar is the decision code, not scanned for', () => {
-    const o = owners({ owner_reply: 'rec except p2b p3a c4b', owner_reply_parsed: true });
-    expect(ownerSpans('reply: rec except p2b p3a c4b', o)).toEqual([]);
+    expect(ownerSpans('reply: rec except p2b p3a c4b', ownerIndex([{ text: 'rec except p2b p3a c4b', parsed: true }]))).toEqual([]);
     expect(quoted('reply: rec except p2b p3a c4b', 'rec except p2b p3a c4b')).toEqual(['rec except p2b p3a c4b']);
   });
 
-  test(`a reply shorter than ${WINDOW} words matches only whole`, () => {
-    expect(quoted('They said: please drop the Redis cache layer, entirely.', 'Drop the Redis cache layer entirely')).toEqual(['drop the Redis cache layer, entirely']);
+  test(`a reply shorter than ${WINDOW} words matches only whole; any ${WINDOW} consecutive words of a longer one are a quote`, () => {
     expect(quoted('They said: please drop the Redis cache layer.', 'Drop the Redis cache layer entirely')).toEqual([]);
-  });
-
-  test(`any ${WINDOW} consecutive words of a longer reply are a quote; ${WINDOW - 1} are not`, () => {
     expect(quoted('Per the owner, log every retry attempt so we can see it. Fine.', LONG)).toEqual(['log every retry attempt so we can see it']);
     expect(quoted('We will log every retry attempt so we can tell.', LONG)).toEqual([]);
     expect(quoted(`A: ${LONG} B: ${LONG}`, LONG)).toHaveLength(2);
   });
 
-  test('line breaks, blockquote markers, indentation, case and curly quotes do not hide a quote', () => {
-    const text = '> \u201cDon\u2019t ship the backoff\n>   without the flag, EVER\u201d\n';
-    expect(quoted(text, "don't ship the backoff without the flag, ever")).toEqual(['Don\u2019t ship the backoff\n>   without the flag, EVER']);
+  const REPLY = 'take the flag first, I do not want a big bang rollout';
+  test.each([
+    ['an em dash', 'take the flag first\u2014I do not want a big bang rollout'],
+    ['slashes', 'take/the/flag/first/I/do/not/want/a/big/bang/rollout'],
+    ['an ellipsis', 'take the flag first...I do not want a big bang rollout'],
+    ['HTML entities', 'take&nbsp;the&#32;flag&#x20;first, I do not want a big bang rollout'],
+    ['a zero-width character', 'take the fl\u200bag first, I do not want a big bang rollout'],
+    ['Markdown links and emphasis', '[take the flag first](https://x.test/a) I do *not* want a **big bang** rollout'],
+    ['a hyphenated line wrap', 'take the flag first, I do not want a big bang roll-\n> out'],
+    ['JSON glue', '{"evidence":"take the flag first, I do not want a big bang rollout"}'],
+    ['attribute glue', '<q quote="take the flag first, I do not want a big bang rollout">'],
+    ['a label', 'owner:take the flag first, I do not want a big bang rollout'],
+    ['a contraction', "take the flag first, I don't want a big bang rollout"],
+  ])('%s does not hide a quote', (_, text) => {
+    const r = redactOwnerWords(text, ownerIndex([{ text: REPLY }]));
+    expect(r.redacted).toBe(1);
+    for (const word of ['take', 'flag', 'want', 'bang', 'roll']) expect(r.text).not.toContain(word);
+  });
+
+  test('a quote extends over the neighboring words of the same reply, so none is left on either side', () => {
+    const reply = 'Honestly I do not want a big bang rollout on the retry path';
+    expect(quoted('Well honestly, I don\u2019t want a big bang rollout on the retry path!', reply)).toEqual(['honestly, I don\u2019t want a big bang rollout on the retry path']);
+    expect(quoted('> \u201cDon\u2019t ship the backoff\n>   without the flag, EVER\u201d\n', "don't ship the backoff without the flag, ever")).toEqual(['Don\u2019t ship the backoff\n>   without the flag, EVER']);
+  });
+
+  test('words the owner echoed from text recorded before the reply stay; the new words around them are redacted', () => {
+    const line = 'Persist the attempt count on the job row so a restarted worker resumes the schedule.';
+    const reply = `${line.slice(0, -1)}, and cap the retries at five attempts in total.`;
+    const o = ownerIndex([{ text: reply, prior: [`## Implementation plan\n\n${line}`] }]);
+    expect(redactOwnerWords(line, o)).toEqual({ text: line, redacted: 0 });
+    expect(redactOwnerWords(`Relayed: "${reply}"`, o).text).toBe(`Relayed: "${line.slice(0, -1)}, ${MARK}."`);
+    const title = 'Ship the backoff behind a flag first';
+    expect(redactOwnerWords(`${title} [run-1-ceo-native-1]`, ownerIndex([{ text: title, prior: [title] }])).redacted).toBe(0);
   });
 });
 
 describe('redactOwnerWords', () => {
   test('replaces each quote with the marker, keeps the punctuation around it, and leaves other prose byte for byte', () => {
-    const o = owners(LONG);
+    const o = ownerIndex([{ text: LONG }]);
     expect(redactOwnerWords(`The owner: "${LONG}" Noted.`, o)).toEqual({ text: `The owner: "${MARK}." Noted.`, redacted: 1 });
     const control = 'Keep the backoff cap. Log every retry. Thirty seconds is fine.';
     expect(redactOwnerWords(control, o)).toEqual({ text: control, redacted: 0 });
   });
 
-  test('a quote overlapping a kept span (code) is left for the validator to refuse', () => {
-    const text = `\`${LONG}\``;
-    expect(redactOwnerWords(text, owners(LONG), [[0, text.length]])).toEqual({ text, redacted: 0 });
+  test('a quote or placement overlapping a kept span (code) is left for the validator to refuse', () => {
+    const o = ownerIndex([{ text: LONG }], { deferred: [{ text: 'no time' }] });
+    for (const text of [`\`${LONG}\``, 'ceo closed deferred (no time) with this finding open']) {
+      expect(redactOwnerWords(text, o, [[0, text.length]])).toEqual({ text, redacted: 0 });
+      expect(ownerSpans(text, o)).toHaveLength(1);
+    }
   });
 
-  test("gstack's verbatim copies of carried words and a human's deferral reason are replaced whatever their length", () => {
-    const o = ownerWords({ phases: { ceo: { deferred: { reason: 'no time', by: 'human' } } }, carry: { words: 'Garry: do it' } } as never, []);
-    expect(redactOwnerWords('CARRIED: gate_rev=2 <- gate_rev=1 words="Garry: do it" by=agent:x', o).text).toBe(`CARRIED: gate_rev=2 <- gate_rev=1 words=${MARK} by=agent:x`);
-    expect(redactOwnerWords('Deferred ceo at round 1 (owner, by human): no time; 0 open', o).text).toBe(`Deferred ceo at round 1 (owner, by human): ${MARK}; 0 open`);
-    expect(redactOwnerWords('ceo closed accepted-with-findings at round 1 (no time): 0 open', o).text).toBe(`ceo closed accepted-with-findings at round 1 (${MARK}): 0 open`);
-    expect(redactOwnerWords('round 1 (no time; by human); open findings', o).text).toBe(`round 1 (${MARK}; by human); open findings`);
-    expect(redactOwnerWords('deferred: no time', o).text).toBe(`deferred: ${MARK}`);
-    expect(redactOwnerWords('we had no time to spare', o).text).toBe('we had no time to spare');
+  test("gstack's renderings of carried words and a human's deferral reason are replaced whatever their length, delimiters and all", () => {
+    const o = ownerIndex([], { deferred: [{ text: 'no time' }], carried: ['Garry: do it'] });
+    const cases: Array<[string, string]> = [
+      ['CARRIED: gate_rev=2 <- gate_rev=1 words="Garry: do it" by=agent:x', `CARRIED: gate_rev=2 <- gate_rev=1 words=${MARK} by=agent:x`],
+      ['Deferred ceo at round 1 (owner, by human): no time; 0 open finding(s)', `Deferred ceo at round 1 (owner, by human): ${MARK}; 0 open finding(s)`],
+      ['ceo closed accepted-with-findings at round 1 (no time): 0 open', `ceo closed accepted-with-findings at round 1 (${MARK}): 0 open`],
+      ['ceo closed deferred (no time) with this finding open; only you can accept it', `ceo closed deferred (${MARK}) with this finding open; only you can accept it`],
+      ['round 1 (no time; by human); open findings', `round 1 (${MARK}; by human); open findings`],
+      ['deferred: no time', `deferred: ${MARK}`],
+    ];
+    for (const [text, want] of cases) expect(redactOwnerWords(text, o).text).toBe(want);
+    for (const kept of ['deferred: no time to spare', 'eng closed accepted-with-findings at round 1 (no time left): 0 open', '(no time; by agent:x)', 'we had no time to spare']) expect(redactOwnerWords(kept, o).text).toBe(kept);
+  });
+
+  test('every template that renders a deferral reason has a placement (add one to DEFERRAL_RENDERINGS with any new template)', () => {
+    const root = path.resolve(import.meta.dir, '..');
+    const count = Object.fromEntries(fs.readdirSync(path.join(root, 'lib')).filter(f => f.startsWith('autoplan-') && f.endsWith('.ts'))
+      .map(f => [f, (fs.readFileSync(path.join(root, 'lib', f), 'utf8').match(/\$\{(?:o|def|d|ps\.deferred)\.reason\}|JSON\.stringify\(o\.reason\)/g) ?? []).length]).filter(([, n]) => n));
+    expect(count).toEqual({ 'autoplan-gate.ts': 5, 'autoplan-export.ts': 1, 'autoplan-run.ts': 1 });
   });
 });
 

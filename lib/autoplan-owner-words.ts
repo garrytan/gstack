@@ -1,95 +1,158 @@
 /**
  * autoplan-owner-words: the owner's own words a public copy of a run must not
  * carry (GST-1243, GEVA-225). Garry: nothing a person wrote leaves without
- * their click. `ownerWords` collects what the private run recorded in the
- * owner's words: every relayed reply (`owner_reply` on decision rows and on
- * run.json's gate), the words a carried gate reused (run.json `carry.words`),
- * and a reason a human typed when deferring a phase (`close --deferred
- * <reason> --by human`). The gate reply grammar (`reply`, `last_reply`) is
- * the decision code, and `answer_words` are the answering agent's own words,
- * so both stay.
+ * their click.
  *
- * `dropOwnerFields` removes those fields from the export's JSON: `owner_reply`
- * anywhere, `words` on a carry record, and a human deferral's `reason`
- * (replaced by the marker, the field is required). `redactOwnerWords` handles
- * text: first the places gstack copies those words verbatim (the CARRIED line,
- * a deferral's titles and log lines), then quotes anywhere.
+ * What counts. `ownerWords` reads the private run and collects every owner
+ * reply it ever recorded: `owner_reply` on decision rows, on run.json's gate
+ * and on every `answered` journal row (attempts.jsonl keeps replies a later
+ * answer at the same gate replaced), the words a carried gate reused, and a
+ * reason a human gave for `close --deferred <reason> --by human`. A reply that
+ * parsed as gate grammar (`owner_reply_parsed`) is the decision code and is
+ * not scanned for; `reply` and the agent's own `answer_words` stay.
  *
- * The quote rule. Text is cut into words at whitespace (line breaks included);
- * each word is compared without the punctuation and symbols at its edges
- * (quote marks, `>` blockquote markers, list dashes), NFKC-normalized,
- * lowercased, with curly apostrophes read as straight ones. Only an owner text
- * of at least MIN_WORDS words and MIN_CHARS characters is scanned for: shorter
- * replies ("yes", "do it", "rec except p2b") are common words or the gate
- * grammar, so a scan would redact unrelated prose, and the reply field itself
- * is already dropped. A reply that parsed as gate grammar (`owner_reply_parsed`)
- * is the decision code the export keeps, so it is not scanned for either. A quote is a run of WINDOW consecutive words of an owner
- * text (the whole text when it is shorter), wherever it sits and however it
- * is wrapped; overlapping runs merge into one span, which the marker replaces.
+ * Fields. `dropOwnerFields` removes `owner_reply` anywhere, `words` on a
+ * carry record, and replaces a human deferral's `reason` with the marker.
+ *
+ * Placements. gstack renders a human deferral reason and carried words into
+ * fixed strings (DEFERRAL_RENDERINGS below, one per template in
+ * lib/autoplan-gate.ts and lib/autoplan-export.ts; test/autoplan-owner-words
+ * ratchets that list). Each is matched with its own delimiters on both sides,
+ * so a one-word reason never rewrites a longer one that starts with it.
+ *
+ * Quotes. Text is normalized with an offset map back to the original: HTML
+ * entities decoded, zero-width characters dropped, a hyphen-newline wrap
+ * joined, a Markdown link target dropped, and contractions split ("don't"
+ * reads "do not"). Words are runs of Unicode letters, marks and digits with
+ * inner apostrophes; everything else separates them. Words compare NFKC and
+ * lowercased. A reply of 1 or 2 words is not scanned for (codes and grammar;
+ * the reply field itself is dropped). A reply of MIN_TOKENS (3) or more is a
+ * quote wherever it appears whole, at word boundaries; from WINDOW (8) words,
+ * any WINDOW consecutive words of it are a quote too. A quote then extends
+ * over the neighboring words that are also words of that reply, so no owner
+ * word is left on either side. The redaction replaces the original
+ * characters from the first quoted word to the last.
+ *
+ * Echoes. A quoted window (or whole short reply) is not the owner's words when
+ * the same words were already recorded before the reply, in text the owner
+ * didn't write: the plan at each earlier gate, those gates' items, and the
+ * reviewer results bound before it (`prior`). Those words stay; new words
+ * around them are still redacted.
  */
-import type { RunState } from './autoplan-state';
-import type { DecisionRow } from './headless-artifacts';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { readDecisions, readJournal, type RunState } from './autoplan-state';
 
 export const OWNER_WORDS_MARK = '[owner words redacted]';
-export const MIN_WORDS = 5;
-export const MIN_CHARS = 20;
+export const MIN_TOKENS = 3;
 export const WINDOW = 8;
 
-export interface OwnerWords { placements: Array<[string, string]>; windows: Map<number, Set<string>> }
 export type Span = [number, number];
+export interface OwnerSource { text: string; parsed?: boolean; prior?: string[] }
+interface Indexed { keys: string[]; set: Set<string>; prior: string }
+export interface OwnerWords { replies: Indexed[]; placements: RegExp[] }
 
-interface Word { key: string; start: number; end: number }
-function words(text: string): Word[] {
-  const out: Word[] = [];
-  for (const m of text.matchAll(/\S+/g)) {
-    const lead = /^[\p{P}\p{S}]*/u.exec(m[0])![0].length;
-    const core = m[0].slice(lead).replace(/[\p{P}\p{S}]+$/u, '');
-    if (core) out.push({ key: core.normalize('NFKC').replace(/[\u2018\u2019\u02bc]/g, "'").toLowerCase(), start: m.index! + lead, end: m.index! + lead + core.length });
+const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", mdash: '\u2014', ndash: '\u2013', hellip: '\u2026', lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d', shy: '', zwj: '', zwnj: '' };
+const CONTRACTIONS: Record<string, string[]> = { "won't": ['will', 'not'], "can't": ['can', 'not'], "shan't": ['shall', 'not'] };
+const SUFFIXES: Array<[string, string]> = [["n't", 'not'], ["'re", 'are'], ["'ve", 'have'], ["'ll", 'will'], ["'m", 'am']];
+
+const ENTITY = /&(#\d+|#x[0-9a-f]+|[a-z]+);/iy;
+const LINK_TARGET = /\]\([^\s)]*\)/y;
+const WRAP = /-[ \t]*\r?\n[ \t>]*(?=[\p{L}\p{N}])/uy;
+const sticky = (re: RegExp, text: string, at: number) => { re.lastIndex = at; return re.exec(text); };
+
+interface Token { key: string; start: number; end: number }
+/** Words of `text` with their original [start, end) offsets, after the normalization the header describes. */
+export function tokens(text: string): Token[] {
+  let norm = '';
+  const from: number[] = [], to: number[] = [];
+  const push = (s: string, a: number, b: number) => { for (let k = 0; k < s.length; k++) { norm += s[k]; from.push(a); to.push(b); } };
+  for (let i = 0; i < text.length;) {
+    const c = text[i]!;
+    const e = c === '&' ? sticky(ENTITY, text, i) : null;
+    const code = e?.[1]!.startsWith('#') ? (e[1]![1]?.toLowerCase() === 'x' ? parseInt(e[1]!.slice(2), 16) : parseInt(e[1]!.slice(1), 10)) : undefined;
+    const decoded = e ? (code !== undefined ? (code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : undefined) : ENTITIES[e[1]!.toLowerCase()]) : undefined;
+    if (e && decoded !== undefined) { push(decoded, i, i + e[0].length); i += e[0].length; continue; }
+    if (/[\u200b-\u200d\u2060\ufeff\u00ad]/.test(c)) { i++; continue; }
+    const l = c === ']' ? sticky(LINK_TARGET, text, i) : null;
+    if (l) { push(' ', i, i + l[0].length); i += l[0].length; continue; }
+    const w = c === '-' && /[\p{L}\p{N}]/u.test(norm.slice(-1)) ? sticky(WRAP, text, i) : null;
+    if (w) { i += w[0].length; continue; }
+    push(c, i, i + 1);
+    i++;
+  }
+  const out: Token[] = [];
+  for (const m of norm.matchAll(/[\p{L}\p{M}\p{N}]+(?:['\u2019\u02bc][\p{L}\p{M}\p{N}]+)*/gu)) {
+    const start = from[m.index!]!, end = to[m.index! + m[0].length - 1]!;
+    const key = m[0].normalize('NFKC').replace(/[\u2019\u02bc]/g, "'").toLowerCase();
+    const suffix = SUFFIXES.find(([s]) => key.endsWith(s) && key.length > s.length);
+    const parts = CONTRACTIONS[key] ?? (suffix ? [key.slice(0, -suffix[0].length), suffix[1]] : [key]);
+    for (const k of parts) out.push({ key: k, start, end });
   }
   return out;
 }
 
-/** What the private run recorded in the owner's words, and the windows the quote scan looks for. */
-export function ownerWords(state: Pick<RunState, 'phases' | 'gate' | 'carry'>, decisions: Array<Pick<DecisionRow, 'owner_reply' | 'owner_reply_parsed'>>): OwnerWords {
-  const deferred = Object.values(state.phases ?? {}).flatMap(p => (p?.deferred?.by === 'human' && p.deferred.reason ? [p.deferred.reason] : []));
-  const carried = state.carry?.words;
-  const texts = [...new Set([...decisions.map(d => d.owner_reply), (state.gate as { owner_reply?: unknown } | undefined)?.owner_reply, carried, ...deferred]
-    .filter((t): t is string => typeof t === 'string' && t.trim() !== ''))];
-  const placements: Array<[string, string]> = [
-    ...(carried ? [[`words=${JSON.stringify(carried)}`, `words=${OWNER_WORDS_MARK}`] as [string, string]] : []),
-    ...deferred.flatMap(r => [`deferred: ${r}`, `(${r}; by human)`, `(${r}): `, `, by human): ${r};`].map(s => [s, s.replace(r, () => OWNER_WORDS_MARK)] as [string, string])),
-  ];
-  const grammar = new Set(decisions.filter(d => d.owner_reply_parsed).map(d => d.owner_reply));
-  const windows = new Map<number, Set<string>>();
-  for (const t of texts.filter(t => !grammar.has(t))) {
-    const keys = words(t).map(w => w.key);
-    if (keys.length < MIN_WORDS || keys.join(' ').length < MIN_CHARS) continue;
-    const size = Math.min(keys.length, WINDOW);
-    const set = windows.get(size) ?? windows.set(size, new Set()).get(size)!;
-    for (let i = 0; i + size <= keys.length; i++) set.add(keys.slice(i, i + size).join(' '));
-  }
-  return { placements, windows };
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Where gstack renders a human's deferral reason (R): the voice detail, the consensus head, the gate title, a blocker's why, the run log. */
+const DEFERRAL_RENDERINGS = (r: string) => [`^deferred: (${r})$`, `\\((${r}); by human\\)`, `accepted-with-findings at round \\d+ \\((${r})\\): `, `closed deferred \\((${r})\\) with this finding open`, `, by human\\): (${r}); \\d+ open finding`];
+
+/** The scan index for owner replies (1-2 word and grammar replies skipped), deferral reasons and carried words. */
+export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]; carried?: string[] } = {}): OwnerWords {
+  const keysOf = (texts: string[]) => ` ${texts.map(t => tokens(t).map(k => k.key).join(' ')).join(' \u0001 ')} `;
+  const seen = new Set<string>();
+  const indexed = [...replies, ...(o.deferred ?? [])].flatMap(s => {
+    const keys = tokens(s.text).map(t => t.key);
+    if (s.parsed || keys.length < MIN_TOKENS || seen.has(keys.join(' '))) return [];
+    seen.add(keys.join(' '));
+    return [{ keys, set: new Set(keys), prior: keysOf(s.prior ?? []) }];
+  });
+  const placements = [
+    ...(o.deferred ?? []).flatMap(d => DEFERRAL_RENDERINGS(escape(d.text))),
+    ...(o.carried ?? []).map(w => `words=(${escape(JSON.stringify(w))})(?= by=|$)`),
+  ].map(p => new RegExp(p, 'gd'));
+  return { replies: indexed, placements };
 }
 
-/** Every quote of an owner text in `text`, as merged [start, end) spans. */
+/** Every owner-words span in `text` (placements, then quotes less echoes), merged, as original [start, end) offsets. */
 export function ownerSpans(text: string, owner: OwnerWords): Span[] {
-  const ws = words(text);
-  const hits: Span[] = [];
-  for (const [size, set] of owner.windows) {
-    for (let i = 0; i + size <= ws.length; i++) if (set.has(ws.slice(i, i + size).map(w => w.key).join(' '))) hits.push([ws[i]!.start, ws[i + size - 1]!.end]);
+  const spans: Span[] = [];
+  for (const re of owner.placements) for (const m of text.matchAll(re)) spans.push([m.indices![1]![0], m.indices![1]![1]]);
+  if (owner.replies.length) {
+    const ts = tokens(text);
+    const keys = ts.map(t => t.key);
+    for (const r of owner.replies) {
+      const size = Math.min(r.keys.length, WINDOW);
+      const windows = new Set<string>();
+      for (let j = 0; j + size <= r.keys.length; j++) windows.add(r.keys.slice(j, j + size).join(' '));
+      const quoted = new Set<number>(), echo = new Set<number>();
+      for (let i = 0; i + size <= keys.length; i++) {
+        const run = keys.slice(i, i + size).join(' ');
+        if (!windows.has(run)) continue;
+        for (let k = i; k < i + size; k++) (r.prior.includes(` ${run} `) ? echo : quoted).add(k);
+      }
+      for (const k of [...quoted]) {
+        for (let a = k - 1; a >= 0 && r.set.has(keys[a]!) && !echo.has(a) && !quoted.has(a); a--) quoted.add(a);
+        for (let b = k + 1; b < keys.length && r.set.has(keys[b]!) && !echo.has(b) && !quoted.has(b); b++) quoted.add(b);
+      }
+      const marked = [...quoted].filter(k => !echo.has(k)).sort((x, y) => x - y);
+      for (let s = 0; s < marked.length;) {
+        let e = s;
+        while (e + 1 < marked.length && marked[e + 1] === marked[e]! + 1) e++;
+        spans.push([ts[marked[s]!]!.start, ts[marked[e]!]!.end]);
+        s = e + 1;
+      }
+    }
   }
-  hits.sort((a, b) => a[0] - b[0]);
-  return hits.reduce<Span[]>((out, s) => { const last = out[out.length - 1]; if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]); else out.push([...s]); return out; }, []);
+  spans.sort((a, b) => a[0] - b[0]);
+  return spans.reduce<Span[]>((out, s) => { const last = out[out.length - 1]; if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]); else out.push([...s]); return out; }, []);
 }
 
-/** Replace the verbatim placements, then every quote outside `keep` (code export never rewrites), with the marker. */
+/** Replace every owner-words span outside `keep` (code export never rewrites) with the marker. */
 export function redactOwnerWords(text: string, owner: OwnerWords, keep: Span[] = []): { text: string; redacted: number } {
-  let redacted = 0;
+  const spans = ownerSpans(text, owner).filter(([s, e]) => !keep.some(([ks, ke]) => s < ke && e > ks));
   let out = text;
-  for (const [from, to] of owner.placements) { const parts = out.split(from); redacted += parts.length - 1; out = parts.join(to); }
-  const spans = ownerSpans(out, owner).filter(([s, e]) => !keep.some(([ks, ke]) => s < ke && e > ks));
-  for (const [s, e] of spans.reverse()) out = out.slice(0, s) + OWNER_WORDS_MARK + out.slice(e);
-  return { text: out, redacted: redacted + spans.length };
+  for (const [s, e] of [...spans].reverse()) out = out.slice(0, s) + OWNER_WORDS_MARK + out.slice(e);
+  return { text: out, redacted: spans.length };
 }
 
 /** Drop the owner-word fields from a JSON value: `owner_reply`, a carry record's `words`, a human deferral's `reason`. */
@@ -105,4 +168,43 @@ export function dropOwnerFields(value: unknown): { value: unknown; dropped: numb
     return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, walk(x)]));
   };
   return { value: walk(value), dropped };
+}
+
+/** Every owner reply and human deferral reason the private run at `state.out` recorded, each with the text recorded before it. */
+export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'carry'>): OwnerWords {
+  const out = state.out;
+  const journal = readJournal(out);
+  const read = (name: string) => { try { return fs.readFileSync(path.join(out, name), 'utf8'); } catch { return undefined; } };
+  const strings = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
+  const gateText = (rev: number) => {
+    const archived = read(`gate.r${rev}.json`);
+    const current = read('gate.json');
+    const gate = archived ?? (current && JSON.parse(current).gate_rev === rev ? current : undefined);
+    return gate ? strings(JSON.parse(gate).items).join('\n') : '';
+  };
+  const gates = journal.filter(r => r.event === 'gate_written' && typeof r.gate_rev === 'number').map(r => ({ at: String(r.ts), text: [read(`plan-at-gate.r${r.gate_rev}.md`) ?? '', gateText(r.gate_rev)].join('\n') }));
+  const bound = journal.filter(r => r.event === 'submitted' && typeof r.result === 'string').map(r => ({ at: String(r.ts), text: read(path.basename(r.result)) ?? '' }));
+  const prior = (at: string | undefined) => (at ? [...gates, ...bound].filter(x => x.at < at).map(x => x.text) : []);
+
+  const byText = new Map<string, { at?: string; parsed: boolean }>();
+  const note = (text: unknown, at: unknown, parsed: unknown) => {
+    if (typeof text !== 'string' || !text.trim()) return;
+    const was = byText.get(text);
+    const when = typeof at === 'string' ? at : undefined;
+    byText.set(text, { at: was?.at && (!when || was.at < when) ? was.at : when, parsed: !!was?.parsed || parsed === true });
+  };
+  for (const r of journal) note(r.owner_reply, r.ts, r.owner_reply_parsed);
+  for (const d of readDecisions(out)) note(d.owner_reply, d.answered_at, d.owner_reply_parsed);
+  const gate = state.gate as { owner_reply?: unknown; answered_at?: unknown; owner_reply_parsed?: unknown } | undefined;
+  note(gate?.owner_reply, gate?.answered_at, gate?.owner_reply_parsed);
+  note(state.carry?.words, undefined, false);
+
+  const deferred = new Map<string, string | undefined>();
+  for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));
+  for (const p of Object.values(state.phases ?? {})) if (p?.deferred?.by === 'human' && p.deferred.reason && !deferred.has(p.deferred.reason)) deferred.set(p.deferred.reason, p.deferred.at);
+
+  return ownerIndex([...byText].map(([text, r]) => ({ text, parsed: r.parsed, prior: prior(r.at) })), {
+    deferred: [...deferred].map(([text, at]) => ({ text, prior: prior(at) })),
+    carried: state.carry?.words ? [state.carry.words] : [],
+  });
 }

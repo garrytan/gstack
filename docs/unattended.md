@@ -298,27 +298,46 @@ JSON Schema for any of `findings`, `decisions`, `tasks`, `timing`, `run`,
 share. It rewrites the machine paths the run recorded, and it never carries the
 owner's own words: nothing a person wrote leaves without their click (GST-1243).
 
-- **Dropped fields.** `owner_reply` on every decision row and on `run.json`'s
-  gate, the `words` a carried gate reused, and the reason a human typed for
-  `close --deferred --by human` (replaced by `[owner words redacted]`, along with
-  the titles and log lines that repeat it). The decision itself stays: `chosen`,
-  `reply` (the gate grammar), `owner_mode` and `owner_reply_parsed`. An agent's
-  own words (`answer_words`) and an agent's deferral reason stay too.
+- **Whose words.** Every owner reply the private run ever recorded: on
+  decision rows, on `run.json`'s gate, and in the journal (`attempts.jsonl`
+  keeps a reply that a later answer at the same gate replaced), the words a
+  carried gate reused, and the reason a human gave for `close --deferred --by
+  human`. A reply that parsed as gate grammar is the decision code, not owner
+  prose. An agent's own words (`answer_words`) and an agent's deferral reason
+  stay.
+- **Dropped fields.** `owner_reply` anywhere, a carry record's `words`, and a
+  human deferral's `reason` (replaced by `[owner words redacted]`). The
+  decision itself stays: `chosen`, `reply` (the gate grammar), `owner_mode`
+  and `owner_reply_parsed`.
+- **gstack's own renderings.** The human's deferral reason is also replaced
+  where gstack writes it into fixed text: the voice `detail`, the consensus
+  head, the gate item title, a blocker's `why` and the run log; carried words
+  in the `CARRIED:` line too. Each rendering is matched with its delimiters on
+  both sides, so a one-word reason never rewrites a longer one that starts
+  with it.
 - **Redacted quotes.** Every exported file, sealed reviewer results
-  (`*.bound.md`) included, is scanned for quotes of those words. Words are
-  compared without the punctuation at their edges (quote marks, `>` blockquote
-  markers), case-insensitive, with line breaks read as spaces. A quote is any 8
-  consecutive words of an owner reply, or the whole reply when it is shorter.
-  Replies under 5 words or 20 characters ("yes", "do it") and replies that parsed
-  as gate grammar are not scanned for: they are common words or the decision
-  code, and the reply field itself is already dropped. Each quote becomes
-  `[owner words redacted]`; prose with no quote keeps its bytes. One
+  (`*.bound.md`) included, is scanned for quotes. HTML entities are decoded,
+  zero-width characters dropped, a hyphen-newline wrap joined, Markdown link
+  targets skipped and contractions split ("don't" reads "do not"); a word is a
+  run of letters and digits, and everything else (spaces, line breaks, dashes,
+  slashes, quote marks, `>` markers, JSON or attribute glue) separates words.
+  Words compare case-insensitively. A reply of 3 or more words is a quote
+  wherever it appears whole; from 8 words, any 8 consecutive words of it are a
+  quote too. Replies of 1 or 2 words ("yes", "do it") are not scanned for:
+  they are codes or grammar, and the field itself is already dropped. A quote
+  extends over the neighboring words that also belong to that reply, and the
+  marker replaces the original characters from its first word to its last.
+- **Echoes stay.** Words the owner repeated from text recorded before the reply,
+  which he didn't write (the plan at an earlier gate, that gate's items, the
+  reviewer results bound before it), are not his words: they stay, and only the
+  new words around them are redacted. Prose with no quote keeps its bytes. One
   `OWNER_WORDS: <file> dropped=<n> redacted=<m>` line names each changed file.
-- **Refusal.** Export never rewrites code in plan.md, so a quote inside a code
-  span or fence there stops the export with
+- **Refusal.** Export never rewrites code in plan.md, so a quote or rendering
+  inside a code span or fence there stops the export with
   [`ARTIFACT_OWNER_WORDS`](troubleshooting.md#artifact-owner-words), file:line
-  and exit 3, and nothing is written. `gstack-artifact validate --public <pub>
-  --private <dir>/run.json` runs the same scan on an existing copy.
+  and exit 3, and nothing is written. The error never prints the words.
+  `gstack-artifact validate --public <pub> --private <dir>/run.json` runs the
+  same scan, renderings included, on an existing copy.
 
 ## How a parent consumes a run
 

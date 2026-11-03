@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import { repoRoot } from './autoplan-plan-text';
 import { checkpointRoot } from './autoplan-checkpoint';
 import { dropOwnerFields, ownerSpans, ownerWords, redactOwnerWords, type OwnerWords, type Span } from './autoplan-owner-words';
-import { FILES, RunError, readDecisions, type RunState } from './autoplan-state';
+import { FILES, RunError, type RunState } from './autoplan-state';
 import { sha256File, validateRun, type ValidationError } from './headless-artifacts';
 
 export const LOCAL_NOTES = '<local notes (not committed)>';
@@ -110,12 +110,16 @@ function scan(dir: string, roots: RecordedRoot[], owner?: OwnerWords): { errors:
       else if (GENERIC_HOME.test(line)) warnings.push(`WARN: ${rel}:${i + 1} has a home-directory path (${GENERIC_HOME.exec(line)![0]}); check it is not a machine path`);
     });
     if (!owner) continue;
-    const code = rel === 'plan.md' ? codeSpans(text) : [];
-    const plain = /\.jsonl?$/.test(rel) ? text.replace(/\\[nrt"\\/]/g, '  ') : text;
-    for (const [s, e] of ownerSpans(plain, owner)) {
-      const inCode = code.some(([cs, ce]) => s < ce && e > cs);
-      errors.push({ code: 'ARTIFACT_OWNER_WORDS', path: `${rel}:${text.slice(0, s).split('\n').length}`, message: `owner words the private run recorded appear in the public copy${inCode ? ' (inside code, which export never rewrites: edit the plan)' : ''}` });
+    const words = (line: number, inCode = false) => errors.push({ code: 'ARTIFACT_OWNER_WORDS', path: `${rel}:${line}`, message: `owner words the private run recorded appear in the public copy${inCode ? ' (inside code, which export never rewrites: edit the plan)' : ''}` });
+    const lineAt = (at: number) => text.slice(0, Math.max(at, 0)).split('\n').length;
+    const values = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(values) : v && typeof v === 'object' ? Object.values(v).flatMap(values) : []);
+    const json = /\.jsonl?$/.test(rel) ? (() => { try { return rel.endsWith('.jsonl') ? text.split('\n').map(l => (l ? JSON.parse(l) : null)) : [JSON.parse(text)]; } catch { return undefined; } })() : undefined;
+    if (json) {
+      json.forEach((doc, i) => { for (const s of values(doc)) if (ownerSpans(s, owner).length) words(rel.endsWith('.jsonl') ? i + 1 : lineAt(text.indexOf(JSON.stringify(s)))); });
+      continue;
     }
+    const code = rel === 'plan.md' ? codeSpans(text) : [];
+    for (const [s, e] of ownerSpans(text, owner)) words(lineAt(s), code.some(([cs, ce]) => s < ce && e > cs));
   }
   return { errors, warnings };
 }
@@ -141,7 +145,7 @@ export function validatePublic(dir: string, privateRunJson?: string, env: NodeJS
     const priv = JSON.parse(fs.readFileSync(privateRunJson, 'utf8')) as RunState;
     priv.out = path.dirname(path.resolve(privateRunJson));
     roots = recordedRoots(priv, env);
-    owner = ownerWords(priv, readDecisions(priv.out));
+    owner = ownerWords(priv);
     if (prov && prov.private_run !== priv.run) errors.push({ code: 'ARTIFACT_UNBOUND_ID', path: 'run.json.provenance.private_run', message: `${prov.private_run} is not the private run ${priv.run}` });
     for (const [name, d] of Object.entries(prov?.files ?? {})) {
       const listed = name === FILES.run ? sha256File(privateRunJson) : priv.artifacts?.[name]?.sha256;
@@ -164,7 +168,7 @@ export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEn
     if (previous !== state.run) throw new RunError('ARTIFACT_PUBLIC_TARGET_EXISTS', `${target} is not empty and holds no earlier public copy of ${state.run}`, 3);
   }
   const roots = recordedRoots(state, env);
-  const owner = ownerWords(state, readDecisions(out));
+  const owner = ownerWords(state);
   const report: string[] = [];
   /** The public bytes of one file: recorded roots rewritten, owner-word fields dropped, quotes redacted (plan.md code untouched). */
   const publicText = (name: string, file: string, text: string): string => {
