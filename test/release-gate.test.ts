@@ -18,7 +18,7 @@ import {
 } from '../lib/release-gate';
 import { RELEASE_GATE_SCHEDULE_HOURS, releaseGateErrors, type ReleaseGatePolicy } from '../lib/release-gate-policy';
 import { RELEASE_GATE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
-import { NOTES_REF, repoIdentity, type ReleaseRecord } from '../lib/ship-queue-train-record';
+import { NOTES_REF, repoIdentity, type PrefixResult, type ReleaseRecord } from '../lib/ship-queue-train-record';
 import { gitIn } from '../scripts/train-gate';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -325,7 +325,7 @@ describe('release gate: verdict, range and policy units', () => {
     expect(picked).toHaveLength(7);
     expect(new Set(picked).size).toBe(7);
     expect(picked[0]).not.toBe(shas[0]);
-    const t = (rs: string[]) => rs.map((r, i) => ({ sha: shas[i]!, results: r === '?' ? {} : { a: r === 'R' ? 'red' as const : 'green' as const } }));
+    const t = (rs: string[]) => rs.map((r, i): { sha: string; results: Record<string, PrefixResult> } => ({ sha: shas[i]!, results: r === '?' ? {} : { a: r === 'R' ? 'red' : 'green' } }));
     expect(narrow({ good: 'g', bad: 'b' }, t(['G', 'G', 'R']), ['a'])).toEqual({ good: shas[1], bad: shas[2] });
     expect(narrow({ good: 'g', bad: 'b' }, t(['G', 'G']), ['a'])).toEqual({ good: shas[1], bad: 'b' });
     expect(narrow({ good: 'g', bad: 'b' }, t(['R', 'R']), ['a'])).toEqual({ good: 'g', bad: shas[0] });
