@@ -28,7 +28,15 @@ function usage(problem: string, fix: string): Error {
   return new Error(`Usage: ${problem}\nfix: ${fix}`);
 }
 
+/** Chromium maps touch points with the page scale of the last rendered frame; a just-navigated document maps them at the 980px default until it renders. */
+async function renderedFrame(session: TabSession): Promise<void> {
+  await session.getPage().evaluate(() => document.visibilityState === 'hidden'
+    ? undefined
+    : new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 async function dispatch(session: TabSession, type: 'touchStart' | 'touchMove' | 'touchEnd', points: Points): Promise<void> {
+  if (type === 'touchStart') await renderedFrame(session);
   const cdp = await tabCdpSession(session.getPage());
   session.setFingerCancel(() => {
     cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] }).catch(() => {});
