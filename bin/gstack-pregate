@@ -4,7 +4,7 @@
  *
  *   gstack-pregate [run] [--stage preflight|tests|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
- *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--explain] [--json]
+ *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
  *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
  *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
@@ -94,6 +94,9 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   --from-run <id|url>           a Free Tests run on this exact tree, verified against the base branch's run profile for this OS
                                 whose workflow holds a local lane (docs/pregate.md#from-run): the selected test files its tree.json lists count as passed and
                                 are recorded with its receipt; the rest still run. A refused run prints REUSE: refused and runs everything
+  --no-ci-carry                 without --from-run, the tests stage looks up the newest verified CI run at HEAD's clean tree under
+                                those profiles itself and uses it (CI_CARRY: accepted <receipt> or CI_CARRY: none (<reason>);
+                                docs/pregate.md#ci-carry); this flag skips that lookup
   --explain                     print each selected test's provenance and each uncertain mapping
   --json                        one JSON object on stdout; a refusal before any check runs (unavailable base, invalid pin
                                 file, WTREE_UNAVAILABLE) is {ok:false,status:'refused',code,detail,fix,docs} with exit 3,
@@ -112,7 +115,7 @@ function flag(args: string[], name: string): string | undefined { const i = args
 
 /** Flags each verb accepts: `[flags that take a value, bare flags]`. Anything else is usage (exit 2), never a silent default run. */
 const VERB_FLAGS: Record<string, [string[], string[]]> = {
-  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote']],
+  run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote', '--no-ci-carry']],
   verify: [['--out'], ['--json']],
   clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out'], ['--allow-repo-commands']],
   lanes: [[], ['--explain', '--json']],
@@ -179,6 +182,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   }
   const ctx = loaded.ctx;
   if (fromRun !== undefined) ctx.fromRun = { ref: fromRun, check: buildRunCheck(root, null, allow, base) };
+  if (rest.includes('--no-ci-carry')) ctx.ciCarry = false;
   ensureTmpExcluded(root);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
