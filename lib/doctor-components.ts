@@ -189,6 +189,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   'write-skill': CLAUDE_ONLY,
   modernize: CLAUDE_ONLY,
   retro: CLAUDE_ONLY,
+  'runaway-stopper': CLAUDE_ONLY,
   'setup-deploy': CLAUDE_ONLY,
   'setup-gbrain': CLAUDE_ONLY,
   'sync-gbrain': CLAUDE_ONLY,

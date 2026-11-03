@@ -96,8 +96,15 @@ import { skillCensus } from './helpers/skill-census';
  * New-skill ratchet: previous ceiling 1,393 + ceil(118 / 4) = 1,423
  * token-equivalents (5,692 bytes), leaving 10 bytes. Existing descriptions
  * are unchanged.
+ *   ref     runaway-stopper addition on base f8085aa (2026-11-03), GST-1279
+ *   result  pre-addition aggregate 5,682 bytes; runaway-stopper adds 115
+ *           bytes (name plus a trimmed two-sentence description), yielding
+ *           5,797 bytes = 1,450 token-equivalents including the root router alias.
+ * New-skill ratchet: previous ceiling 1,423 + ceil(115 / 4) = 1,452
+ * token-equivalents (5,808 bytes), leaving 11 bytes. Existing descriptions
+ * are unchanged.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_423;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_452;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.

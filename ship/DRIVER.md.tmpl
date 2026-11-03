@@ -30,7 +30,8 @@ section read or fix-check, plus a keep-alive per 200 s waited.
 **Budget: observe.** `gstack-ship-budget start --mode observe` records, never admits: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in that program
 (Capy: `cost.tokens`, `cost.credits`). No check per step, no reservation, no meter-only
-call, no handoff; under `--token-cap` a note past the cap prints `verdict=stop`, the one stop check.
+call, no handoff; under `--token-cap` (80M by default for a subagent run, `BUDGET_DEFAULT_CAP:`) a note past
+the cap prints `verdict=stop`, the one stop check.
 A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 

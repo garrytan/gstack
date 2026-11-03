@@ -522,6 +522,13 @@
       "reason": "safety guard: the off switch for freeze's edit restriction; kept with the guard it releases",
       "seed": "GEVA-2, 2026-11-02: unfreeze: exempt (safety guard (undoes freeze))"
     },
+    "runaway-stopper": {
+      "status": "untested",
+      "plan": "docs/evals/runaway-stopper-prereg.md",
+      "reason": "new skill (GST-1279): its detector is tested offline against real thread readings; whether the skill's actions and prevent defaults cut spend is not measured yet",
+      "owner": "GStack Minder (GSTA-36)",
+      "measure_by": "2026-11-24"
+    },
     "verify": {
       "status": "untested",
       "grandfathered": true,

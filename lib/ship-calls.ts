@@ -12,7 +12,7 @@ export interface CallCount { total: number; decision: number; keepalive: number;
 const STATUS_READS = new Set(['subagent_get', 'subagent_list', 'operation_get', 'operation_list', 'thread_get']);
 export const CACHE_TTL_S = 300;
 
-function isKeepalive(item: TranscriptItem): boolean {
+export function isKeepalive(item: TranscriptItem): boolean {
   if (item.tool === 'wait') return true;
   if (item.tool !== 'execute') return false;
   const calls = (item.calls ?? []).map(c => c.tool ?? '');
