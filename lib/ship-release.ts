@@ -15,6 +15,7 @@ import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { reviewFreshness } from './review-evidence';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
@@ -160,8 +161,12 @@ function commitRelease(cwd: string, release: string[], trailer: string | undefin
   return true;
 }
 
-/** Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts). */
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted', string[]>;
+/**
+ * Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts).
+ * A path the newest completed clean review-fix-check row read (inside its range_base..commit range, the same at range_base as
+ * in the reviewed tree, and unchanged since) counts as fix_checked: a granted fix-check after Step 11 is a review (GST-1130).
+ */
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted' | 'fix_checked', string[]>;
 function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: ReviewLoopException }, r: Report): Routed | null {
   const now = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
   if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return null; }
@@ -181,7 +186,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     sides = { reviewedBase: rb, reviewed, currentBase: cb, current: now };
     touched = new Set([...a, ...b]);
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], accepted: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], accepted: [], fix_checked: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
     by[verdict === 'same' ? 'base' : release.includes(p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
@@ -195,6 +200,24 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     by.behavior.push(...packetBody.over);
     by.context = by.context.filter(p => !packetBody.over.includes(p));
     by.tests = by.tests.filter(p => !packetBody.over.includes(p));
+  }
+  const fixRow = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
+    .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } }).at(-1);
+  const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
+  const onBranch = (c: string) => !!c && git(cwd, ['merge-base', '--is-ancestor', c, 'HEAD']).status === 0;
+  const fixCommit = commitOf(fixRow?.commit_full), fixFrom = commitOf(fixRow?.range_base);
+  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree);
+  const notCounted = !fixRow ? '' : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
+    : fixRow.tree !== fixRow.wtree || !onBranch(fixCommit) ? 'the row was logged on content no branch commit holds'
+    : !onBranch(fixFrom) ? 'the row names no range_base commit on this branch' : '';
+  if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
+  const counted = !!fixRow && !notCounted;
+  if (counted) {
+    const range = touchedPaths(cwd, fixFrom, fixCommit), after = touchedPaths(cwd, fixCommit, now), before = touchedPaths(cwd, reviewed, fixFrom);
+    if (!range || !after || !before) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
+    by.fix_checked = [...by.behavior, ...by.tests, ...by.context, ...by.docs].filter(p => range.has(p) && !after.has(p) && !before.has(p)).sort();
+    for (const k of ['behavior', 'tests', 'context', 'docs'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
+    r.add(`FIX_CHECK: reviewed ${by.fix_checked.length ? short(by.fix_checked) : 'none'} (fix-check at ${fixCommit.slice(0, 12)}, range from ${fixFrom.slice(0, 12)})`);
   }
   const loop = opts.loop;
   if (loop) {
@@ -210,7 +233,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${loop ? ` accepted=${by.accepted.length}` : ''}`);
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}`);
   if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests].sort();

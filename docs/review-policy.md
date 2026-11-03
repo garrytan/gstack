@@ -493,6 +493,19 @@ through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes.
 
+A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
+reads the newest `review-fix-check` row from `gstack-review-read`. When it is a
+completed clean read on committed content (freshness `CURRENT` against its own
+tree) whose `range_base` and commit are on the branch, each path inside
+`range_base..commit` that matched the reviewed tree at `range_base` and is
+unchanged since routes as `fix_checked=` in `ROUTE:` and is listed on a
+`FIX_CHECK: reviewed` line, a gate-edited test included. A path edited after the
+fix-check still routes by the rules above. Any other row prints
+`FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`
+refuses a `review-fix-check` row without boolean `completed` and `converged`,
+before it consumes the start token, because without them the row reads
+`UNVERIFIED` and finish cannot count it.
+
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
 receipt carried across a base merge or a test-only fix
