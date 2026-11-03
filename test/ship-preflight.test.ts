@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { laneConcurrency } from '../lib/ship-bin-common';
 import { lineOf, PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
@@ -105,6 +106,47 @@ describe('gstack-ship-preflight', () => {
     const zero = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', 'tests=printf " 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [5.00ms]\\n"']);
     expect(zero.status).toBe(3);
     expect(lineOf(zero.stdout, 'LANE')).toMatch(/^LANE: tests ZERO-RUN exit=0 tests_ran=0/);
+  });
+
+  // Value: protects=Step 5 can run its lanes one at a time, and each lane keeps its own tests_ran (GST-851: GSTA-2 saw six lanes start within
+  //   60 ms on a 4-core machine on gstack-evals#115); fails_when=--lanes serial lanes overlap, a lane loses its count, or a bad --lanes value runs;
+  //   why_new=runLanes started every lane at once with no serial mode; seam=runLanes; no_claim=how long a lane takes
+  test('--lanes serial runs one lane at a time and keeps each lane\'s count; a bad --lanes value is usage', () => {
+    const f = fx();
+    const log = path.join(f.root, 'lane-order.log');
+    const lane = (n: string) => `${n}=echo start ${n} >> '${log}'; sleep 1; echo end ${n} >> '${log}'; printf " 2 pass\\n 0 fail\\nRan 2 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'serial', '--lane', lane('a'), '--lane', lane('b')]);
+    expect(r.status).toBe(0);
+    const order = fs.readFileSync(log, 'utf8').trim().split('\n');
+    expect(order.length).toBe(4);
+    expect(order.map(l => l.split(' ')[0])).toEqual(['start', 'end', 'start', 'end']);
+    expect(order[1]!.split(' ')[1]).toBe(order[0]!.split(' ')[1]);
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.replace(/ log=\S+$/, ''))).toEqual(['LANE: a pass exit=0 tests_ran=2', 'LANE: b pass exit=0 tests_ran=2']);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: serial (--lanes)');
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'fast', '--lane', LANE]).status).toBe(2);
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE, '--lanes']).status).toBe(2);
+  });
+
+  // Value: protects=parallel lanes report in the order given even when a later lane finishes first, and an unflagged run names the core count
+  //   behind its default (GST-851); fails_when=results come back in finish order or the LANES line drops its reason; why_new=runLanes became a
+  //   worker pool; seam=runLanes, LANES line; no_claim=which default any given machine picks
+  test('--lanes parallel keeps lane order when a later lane finishes first; unflagged LANES names the core count', () => {
+    const f = fx();
+    const lane = (n: string, wait: number) => `${n}=sleep ${wait}; printf " 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'parallel', '--lane', lane('slow', 1), '--lane', lane('fast', 0)]);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: parallel (--lanes)');
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.split(' ')[1])).toEqual(['slow', 'fast']);
+    expect(lineOf(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE]).stdout, 'LANES')).toMatch(/^LANES: (serial|parallel) \(\d+ cores\)$/);
+  });
+
+  // Value: protects=a small machine runs lanes one at a time without a flag, a large one keeps running them together, and the flag overrides
+  //   either way (GST-851); fails_when=a 4-core default runs lanes at once or the flag is ignored; why_new=no default existed; seam=laneConcurrency;
+  //   no_claim=the core count of any CI runner
+  test('lane concurrency: serial on 4 cores or fewer, parallel above, --lanes overrides', () => {
+    expect([laneConcurrency(undefined, 2), laneConcurrency(undefined, 4), laneConcurrency(undefined, 8)]).toEqual([1, 1, Infinity]);
+    expect([laneConcurrency('serial', 64), laneConcurrency('parallel', 2)]).toEqual([1, Infinity]);
+    expect(laneConcurrency('fast', 8)).toBe('--lanes fast is not serial or parallel');
   });
 
   // Value: protects=Step 2's candidates and Step 1.4's carry check are reported for the agent to judge, and an open PR's carry verdict is printed; fails_when=a new bin/ artifact goes unmentioned or the carry check is skipped when a PR is open;

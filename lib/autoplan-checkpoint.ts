@@ -1,7 +1,7 @@
 /**
  * autoplan-checkpoint — an opt-in durable copy of a run directory (next-wave
  * B12). With GSTACK_AUTOPLAN_CHECKPOINT_DIR set, every mutating command that
- * leaves the run at rest (gate_pending, amend_pending, complete, incomplete)
+ * leaves the run at rest (gate_pending, amend_pending, complete, reviewed, incomplete)
  * publishes one immutable generation under `<dir>/<run>/generations/<name>/`:
  * `checkpoint.json` (every file's sha256), the run files under `run/`, the
  * owner's plan file under `plan-input/` when it lives outside the run, and
@@ -34,7 +34,7 @@ import { readConfigKey } from './state-root';
 const MANIFEST = 'checkpoint.json';
 const CURRENT = 'current.json';
 const GENERATIONS = 'generations';
-const AT_REST = ['gate_pending', 'amend_pending', 'complete', 'incomplete'];
+const AT_REST = ['gate_pending', 'amend_pending', 'complete', 'reviewed', 'incomplete'];
 const FOREIGN_LOCK_STALE_MS = 10 * 60_000;
 interface CheckpointManifest {
   schema_version: 1; run: string; status: string; gate_rev: number; revision: number; at: string; host: string; gstack_version?: string;

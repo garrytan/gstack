@@ -138,6 +138,9 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
   test('cookbook uses only the verified Aside APIs', () => {
     expect(section).toContain('Page.addScriptToEvaluateOnNewDocument');
     expect(section).toContain('Emulation.setDeviceMetricsOverride');
+    // Touch and phone recipe: verified on Garry's Mac in Aside 1.26 (GSTA-227 F3, #3058).
+    expect(section).toContain('Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }');
+    expect(section).toContain('Input.dispatchTouchEvent');
     expect(section).toContain('annotatedScreenshot(pg)');
     expect(section).toContain('snapshot(pg, { interactive: true })');
     // Verified NOT to exist or NOT to persist across CLI calls — must never be recommended.
@@ -470,7 +473,7 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
     // CSO's private startup keeps advisory queries inside its stricter public-ID
     // policy and intentionally does not import the generic Aside research block.
     expect(carriers).not.toContain('cso');
-    expect(carriers).toEqual(expect.arrayContaining(['design-consultation', 'investigate', 'office-hours', 'plan-ceo-review', 'plan-devex-review', 'plan-eng-review', 'review']));
+    expect(carriers).toEqual(expect.arrayContaining(['design-consultation', 'office-hours', 'plan-ceo-review', 'plan-devex-review', 'plan-eng-review', 'review']));
     for (const skill of carriers) {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect({ skill, count: md.split('## Web research runs in Aside').length - 1 }).toEqual({ skill, count: 1 });

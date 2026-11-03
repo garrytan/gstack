@@ -17,6 +17,10 @@ type Event = ClaudeParentPublicEvent;
 type Use = NativePublicToolEvent & { order: number };
 /** Claude Code's reply to a Read of an unchanged file it already returned in full. */
 export const DEDUP_REPLY = 'Wasted call — file unchanged since your last Read. Refer to that earlier tool_result instead.';
+/** Claude Code appends exactly this one line to a Bash result when the command's `cd` left the session cwd (#3651). */
+const SHELL_CWD_RESET = /\nShell cwd was reset to [^\n]+$/;
+/** A Bash result's JSON, without that one host footer; anything else must still be strict JSON. */
+export function bashJson(text: string): any { return JSON.parse(text.replace(SHELL_CWD_RESET, '')); }
 /** The longest Read input or Bash command the index keeps; a literal init is far shorter. */
 const INDEX_INPUT_MAX = 4096;
 
@@ -69,11 +73,13 @@ function select(tests: GuardJournalTests, currentToolUseId: string) {
       const replies = (resultsOf.get(init.use.toolUseId) ?? []).flatMap(r => r.events)
         .filter(e => e.kind === 'result' && e.toolUseId === init.use.toolUseId && e.order > init.use.order);
       let reply: unknown;
-      try { reply = replies.length === 1 ? JSON.parse(textResult(replies[0]!) ?? 'null') : undefined; } catch { reply = undefined; }
+      try { reply = replies.length === 1 ? bashJson(textResult(replies[0]!) ?? 'null') : undefined; } catch { reply = undefined; }
+      // A failed or unreadable init binds nothing and is skipped, as invocation() does.
+      if (!object(reply)) continue;
       // A reused:true init keeps the earlier binding, as invocation() does.
       if (object(reply) && reply.reused === true && bound && bound.activePlan === reply.activePlan &&
           bound.restorePath === reply.restorePath) continue;
-      chainStart = init.record; bound = object(reply) ? reply : undefined;
+      chainStart = init.record; bound = reply;
     }
     let start = 0;
     for (let i = chainStart ?? records.length - 1; i >= 0; i--)

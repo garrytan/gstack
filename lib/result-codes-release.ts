@@ -264,6 +264,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
     fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
   },
+  QUEUE_RECEIPT_TARGETED_MISSING: {
+    anchor: 'queue-receipt-targeted-missing',
+    summary: 'the head touches money, gate, auth or secret code that needs the targeted reader, and the PR body’s /ship receipt records no done targeted pass covering every required class (none recorded, failed, not run, or other classes)',
+    fix: 'run /ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
+  },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
     summary: 'GitHub’s refs/pull/<n>/merge is missing or still merges an older head than the PR’s: the PR conflicts with the base (a CHANGELOG-only conflict counts), so a screen dispatched on it would plan no cases and report success',
@@ -303,8 +308,8 @@ export const RELEASE_RESULT_CODES = {
   // Lane D (GSTA-112): the no-policy warning and the environment-cause verdict.
   PREGATE_NO_POLICY: {
     anchor: 'pregate-no-policy',
-    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file) and a touched file maps to no test lane; a warn, with a starter policy printed',
-    fix: 'review the printed starter, write it with `gstack-pregate init`, edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
+    summary: 'the repository has no pregate policy yet (no .gstack/pregate.json on the base branch and no user-owned file), or its policy declares no lanes (no dependencies, empty_lanes, selection or local key), and a touched file maps to no test lane; a warn, with a starter policy printed',
+    fix: 'review the printed starter, write it with `gstack-pregate init` (or add its dependencies to the existing policy), edit the TODO entries, then commit .gstack/pregate.json on the base branch; from then on an unmapped file is PREGATE_NO_LANE',
   },
   PREGATE_ENVIRONMENT: {
     anchor: 'pregate-environment',
@@ -360,6 +365,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'gstack-review-scope could not read the diff it scopes findings against: the base or the range base does not resolve, or the range base is not an ancestor of HEAD',
     fix: 'fetch origin/<base>, check --range-base against the saved pass heads, and start a full pass (--pass 1) when history was rewritten',
   },
+  REVIEW_SCOPE_LEDGER: {
+    anchor: 'review-scope-ledger',
+    summary: 'gstack-review-scope summary could not count the dispatch ledgers: none was named (no --run, --ledger or --no-ledger), --run holds no review-ledger.jsonl, or a ledger, its merged file or its judged set is unreadable or changed since judge',
+    fix: 'pass --run <run dir> (the directory the review passes wrote) or each --ledger <f>; --no-ledger only when no reader ran through gstack-review-dispatch; restore or re-collect a ledger file that moved',
+  },
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
     summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the working tree has uncommitted changes, the receipt head is not an ancestor of HEAD and the receipt records no tree to compare, or the product diff could not be compared',
@@ -383,7 +393,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged',
+    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped fix-check, no /ship)',
   },
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
@@ -418,8 +428,24 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_LAND_LOCKED: {
     anchor: 'queue-land-locked',
-    summary: 'another gstack-ship-queue land holds the repository land lock (refs/notes/gstack-land), so this one would race it for the next version',
-    fix: 'wait for the holder named in the line to finish; if it crashed, gstack-ship-queue land --pr <n> --break-lock (refused while its journal shows a push in flight)',
+    summary: 'another gstack-ship-queue land or train land slot holds the repository land lock (refs/notes/gstack-land), so this one would race it onto main',
+    fix: 'wait for the holder named in the line to finish; if it crashed, rerun with --break-lock (refused while it is mid-push or mid-merge, between train slots less than 10 minutes, and for a live train run without --break-train-lock)',
+  },
+  // #3531: verify --train's slot stamp proof and gstack-restamp's staging of what it writes.
+  QUEUE_TRAIN_UNSTAMPED: {
+    anchor: 'queue-train-unstamped',
+    summary: 'the slot head verify --train would let merge is not stamped above main: its VERSION is not above main\'s, or its CHANGELOG is not headed with that version directly above main\'s top release',
+    fix: 'on the lane, run gstack-restamp --next on the head, commit what restamp staged, push, then rerun gstack-ship-queue verify --pr <n> --train <nonce>',
+  },
+  RESTAMP_NOT_STAGED: {
+    anchor: 'restamp-not-staged',
+    summary: 'gstack-restamp wrote the stamp but could not stage it, so a bare git commit would leave the stamp out',
+    fix: 'clear what blocked git add (an index.lock), then rerun gstack-restamp: the noop rerun stages the files it wrote, or drops the marker when they changed since',
+  },
+  RESTAMP_UNSTAGED_EDITS: {
+    anchor: 'restamp-unstaged-edits',
+    summary: 'a file gstack-restamp would stamp holds unstaged edits of the caller, which staging the stamp would sweep into the stamp commit; nothing was written',
+    fix: 'stage (git add) or stash your own edits to the files named, then rerun gstack-restamp',
   },
   QUEUE_LAND_CONFLICT: {
     anchor: 'queue-land-conflict',

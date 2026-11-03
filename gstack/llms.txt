@@ -105,15 +105,20 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `cookie <name>=<value>`: Set cookie on current page domain
 - `cookie-import <json>`: Import cookies from JSON file
 - `cookie-import-browser [browser] [--domain d] [--profile p] [--all] [--clear-storage] [--verify-auth]`: Copy cookies from chrome, chromium, brave, edge, Windows-only opera, opera-gx, or macOS-only comet or arc.
+- `device [<name> [--landscape] | off | --list]`: Emulate a phone on the current tab only: size, pixel ratio, touch support (pointer: coarse) and user agent from Playwright's devices table (names match case-insensitively).
 - `dialog-accept [text]`: Auto-accept next alert/confirm/prompt.
 - `dialog-dismiss`: Auto-dismiss next dialog
 - `fill <sel> <val>`: Fill input
 - `header <name>:<value>`: Set custom request header (colon-separated, sensitive values auto-redacted)
 - `hover <sel>`: Hover element
+- `pinch <@ref|selector|x y> <scale>`: Two-finger pinch around an element's center or x y: scale above 1 spreads the fingers (zoom in), below 1 brings them together.
 - `press <key>`: Press a Playwright keyboard key against the focused element.
 - `scroll [sel|@ref]`: With a selector, smooth-scrolls the element into view.
 - `select <sel> <val>`: Select dropdown option by value, label, or visible text
 - `style <sel> <prop> <value> | style --undo [N]`: Modify CSS property on element (with undo support)
+- `swipe <@ref|selector|x y> <up|down|left|right> [--distance <px>] [--ms <n>]`: One-finger swipe from an element's center or x y; the finger moves in the given direction (default 300px over 300ms, 10 moves).
+- `tap <@ref|selector|x y> [--hold <ms>]`: Touch and release at an element's center (scrolled into view) or at x y.
+- `touch [down|move <finger 0-9> <x> <y> | up <finger> | cancel]`: Hold, move and lift numbered fingers for multi-finger flows (hold a joystick with finger 0, tap fire with finger 1).
 - `type [--selector <sel>] [--] <text>`: Send keystrokes to the focused element, or to <sel> with --selector (focuses it first).
 - `upload <sel> <file> [file2...]`: Upload file(s)
 - `useragent <string>`: Set user agent

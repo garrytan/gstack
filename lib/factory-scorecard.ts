@@ -25,7 +25,8 @@
  *   flaky events         flake-records-a<n> artifacts of gate runs (paid, one record per case
  *                        that failed once and passed its one rerun) and flake-ledger-* artifacts
  *                        of <free workflow> runs on <base> (free-suite serial retries); the same
- *                        two sources the daily flaky pass reads
+ *                        two sources the daily flaky pass reads; a main push that reused its PR's
+ *                        run (no artifacts, `reuse` job green; reuseChecker) is left out
  *   issues               search/issues created / closed inside the window
  *   releases             releases published inside the window (drafts excluded)
  *
@@ -36,13 +37,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  GH_CLIENT, createdFilter, downloadRunArtifacts, filesUnder, historyFetcher, listWorkflowRuns, readFlakeLedgerDir, unavailableReason,
+  GH_CLIENT, createdFilter, downloadRunArtifacts, filesUnder, historyFetcher, listWorkflowRuns, readFlakeLedgerDir, reuseChecker, unavailableReason,
   type GhClient,
 } from '../scripts/lib/ci-history';
 
 export interface ScorecardSource {
   getJson(apiPath: string): unknown;
-  /** Downloaded, unzipped artifact directories of one run whose names match, keyed by artifact name; one listing per call. */
+  /** Downloaded, unzipped artifact directories of one run whose names match, keyed by artifact name; one listing per call, and `match` sees every name in it. */
   artifactDirs(runId: number, match: (name: string) => boolean): Map<string, string>;
 }
 
@@ -69,7 +70,7 @@ export interface ScorecardOptions {
 export const DEFAULTS = {
   base: 'main', sinceDays: 7, gateWorkflow: 'evals.yml', gateEvent: 'workflow_dispatch', freeWorkflow: 'free-tests.yml',
   trainPrefix: 'train/', readyMarker: 'READY #\\d+|SHIP_RECEIPT:|gstack-ship-receipt',
-  passMarker: '"passes"\\s*:\\s*(\\d+)|\\bpasses=(\\d+)|\\bREVIEW_PASS(?:ES)?[:= ]\\s*(\\d+)', passCap: 3, maxArtifactRuns: 60,
+  passMarker: '"passes"\\s*:\\s*(\\d+)|\\bpasses=(\\d+)|\\bREVIEW_PASS(?:ES)?[:= ]\\s*(\\d+)', passCap: 2, maxArtifactRuns: 60,
 } as const;
 
 export const CREW_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -93,6 +94,8 @@ export interface FreeRetryRun { id: number; conclusion: string | null; retries: 
 export interface Scorecard {
   repo: string; base: string; windowStart: string; windowEnd: string;
   prs: MergedPr[]; gates: GateRun[]; freeRuns: FreeRetryRun[]; artifactRunsRead: number; passCap: number;
+  /** Reused main pushes left out of freeRuns (reuseChecker), and the note naming runs it could not check. */
+  freeRunsSkipped: number; freeRunsNote: string | null;
   /** Gate runs whose artifacts could not be read; they count without cost or flake data. */
   artifactErrors: number;
   issuesOpened: number | null; issuesClosed: number | null; releases: Array<{ tag: string; publishedAt: string }>;
@@ -308,14 +311,29 @@ export function readGateRuns(source: ScorecardSource, o: ScorecardOptions, w: Sc
   return { gates, artifactRunsRead, artifactErrors };
 }
 
-/** Free-suite runs on base in the window and the flaky-pass entries their flake-ledger-* artifacts hold. */
-export function readFreeRetries(source: ScorecardSource, o: ScorecardOptions, w: ScoreWindow): FreeRetryRun[] {
+/**
+ * Free-suite runs on base in the window and the flaky-pass entries their
+ * flake-ledger-* artifacts hold. A read run that reused its pull request's run
+ * (reuseChecker) is left out and counted in freeRunsSkipped; an unreadable run
+ * and a run past maxArtifactRuns are kept, as before.
+ */
+export function readFreeRetries(source: ScorecardSource, o: ScorecardOptions, w: ScoreWindow): Pick<Scorecard, 'freeRuns' | 'freeRunsSkipped' | 'freeRunsNote'> {
   const client: GhClient = { getJson: p => source.getJson(p), downloadZip: () => { throw new Error('not used'); } };
   const runs = listWorkflowRuns(client, o.repo, o.freeWorkflow, { since: w.start, until: w.end, branch: o.base });
-  const retries = (runId: number): number | null => {
-    try { return [...source.artifactDirs(runId, name => name.startsWith('flake-ledger-')).values()].flatMap(readFlakeLedgerDir).length; } catch { return null; }
-  };
-  return runs.map((run, index) => ({ id: run.id, conclusion: run.conclusion, retries: index < o.maxArtifactRuns ? retries(run.id) : 0 }));
+  const reuse = reuseChecker(client, o.repo);
+  const freeRuns: FreeRetryRun[] = [];
+  let freeRunsSkipped = 0;
+  runs.forEach((run, index) => {
+    if (index >= o.maxArtifactRuns) { freeRuns.push({ id: run.id, conclusion: run.conclusion, retries: 0 }); return; }
+    const names: string[] = [];
+    let retries: number | null;
+    try {
+      retries = [...source.artifactDirs(run.id, name => { names.push(name); return name.startsWith('flake-ledger-'); }).values()].flatMap(readFlakeLedgerDir).length;
+    } catch { retries = null; }
+    if (retries !== null && reuse.reused(run, names)) { freeRunsSkipped++; return; }
+    freeRuns.push({ id: run.id, conclusion: run.conclusion, retries });
+  });
+  return { freeRuns, freeRunsSkipped, freeRunsNote: reuse.note() ?? null };
 }
 
 function searchCount(source: ScorecardSource, q: string): number | null {
@@ -340,14 +358,14 @@ export function readReleases(source: ScorecardSource, repo: string, w: ScoreWind
 export function collectScorecard(source: ScorecardSource, o: ScorecardOptions): Scorecard {
   const w = scoreWindow(o);
   const card: Scorecard = { repo: o.repo, base: o.base, windowStart: w.start, windowEnd: w.end,
-    prs: [], gates: [], freeRuns: [], artifactRunsRead: 0, passCap: o.passCap, artifactErrors: 0, issuesOpened: null, issuesClosed: null, releases: [], unavailable: [] };
+    prs: [], gates: [], freeRuns: [], freeRunsSkipped: 0, freeRunsNote: null, artifactRunsRead: 0, passCap: o.passCap, artifactErrors: 0, issuesOpened: null, issuesClosed: null, releases: [], unavailable: [] };
   const guard = (what: string, fn: () => void) => { try { fn(); } catch (e) { card.unavailable.push(`${what}: ${unavailableReason(e)}`); } };
   guard('merged PRs', () => { card.prs = readMergedPrs(source, o, w); });
   guard('gate runs', () => {
     const prCost = new Map(card.prs.filter(p => p.commentCostUsd !== null).map(p => [p.number, p.commentCostUsd!] as const));
     Object.assign(card, readGateRuns(source, o, w, prCost));
   });
-  guard('free retries', () => { card.freeRuns = readFreeRetries(source, o, w); });
+  guard('free retries', () => { Object.assign(card, readFreeRetries(source, o, w)); });
   guard('issues', () => {
     card.issuesOpened = searchCount(source, `repo:${o.repo} is:issue created:${searchRange(w)}`);
     card.issuesClosed = searchCount(source, `repo:${o.repo} is:issue closed:${searchRange(w)}`);
@@ -381,7 +399,7 @@ export const BENCHMARKS: Record<string, string> = {
   merged: 'several merges a day, every day; outside contributions land in the same week',
   lead_time: 'median under 24h, p90 under 3 days (DORA elite: change lead time under a day)',
   ready_to_merge: 'under 2h from READY to merge; every merged PR carries a READY comment',
-  review_passes: 'median 2 passes, none at the cap (a pass that finds nothing new is the exit; what is left at the cap is named in the PR body)',
+  review_passes: 'median 1 pass, few at the cap (a pass that finds nothing blocking is the exit; a PR at the cap ships with what is left named in the PR body)',
   gates: 'green on 95%+ of runs, cancelled near 0, cost known for every run',
   cost_per_merge: 'known, stable or falling week over week',
   red_train: 'under 5% of trains red (each red train costs a bisect and a rebuild)',
@@ -412,7 +430,7 @@ export function scorecardRows(card: Scorecard): ScorecardRow[] {
     return { id, metric, value: failed ? unavailableText(failed) : value(), benchmark: BENCHMARKS[id]!, rule };
   };
   const paidFlakes = () => `${flakes} paid case(s) passed on their one rerun (rerun spend ${usd(flakeUsd)})${card.artifactErrors ? `; artifacts unreadable on ${card.artifactErrors} run(s)` : ''}`;
-  const freeRetries = () => `${retries} free-suite retr${retries === 1 ? 'y' : 'ies'} in ${retryRuns} of ${card.freeRuns.length} runs${unreadableFree ? ` (${unreadableFree} unreadable)` : ''}`;
+  const freeRetries = () => `${retries} free-suite retr${retries === 1 ? 'y' : 'ies'} in ${retryRuns} of ${card.freeRuns.length} runs${unreadableFree ? ` (${unreadableFree} unreadable)` : ''}${card.freeRunsSkipped ? `; ${card.freeRunsSkipped} reused main push(es) left out` : ''}${card.freeRunsNote ? `; ${card.freeRunsNote}` : ''}`;
   return [
     row('merged', 'Merged PRs', 'merged PRs', () => `${card.prs.length} (crew ${crewPrs.length}, outside ${card.prs.length - crewPrs.length})`,
       `merged_at inside the window, base ${card.base}; crew by login list or author_association OWNER/MEMBER/COLLABORATOR`),
@@ -429,7 +447,7 @@ export function scorecardRows(card: Scorecard): ScorecardRow[] {
     row('red_train', 'Red-train rate', 'gate runs', () => `${pct(trains.filter(t => t.outcome === 'red').length, trains.length)} (${trains.filter(t => t.outcome === 'red').length} red of ${trains.length} trains; ${by('red', 'backstop')} red backstop, ${by('red', 'screen')} red screens)`,
       `runs whose head branch starts with the train prefix, cancelled runs excluded; red means the run's conclusion was not success`),
     row('flaky', 'Flaky events', [], () => `${unavailable('gate runs') ? unavailableText('gate runs') : paidFlakes()}; ${unavailable('free retries') ? unavailableText('free retries') : freeRetries()}`,
-      `flake-records artifacts of the newest ${card.artifactRunsRead} gate runs and flake-ledger artifacts of free runs on the base branch`),
+      `flake-records artifacts of the newest ${card.artifactRunsRead} gate runs and flake-ledger artifacts of free runs on the base branch, reused main pushes left out`),
     row('issues', 'Issues opened / closed', 'issues', () => `${card.issuesOpened ?? 'n/a'} / ${card.issuesClosed ?? 'n/a'}`, 'GitHub search: created, closed inside the window'),
     row('releases', 'Releases cut', 'releases', () => `${card.releases.length}${card.releases.length ? ` (${card.releases.map(r => r.tag).join(', ')})` : ''}`, 'releases published inside the window, drafts excluded'),
   ];

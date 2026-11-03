@@ -331,6 +331,43 @@ describe('gstack-developer-profile --derive', () => {
     expect(p.inferred.signal_events).toBe(2);
   });
 
+  test('a signal hint on an unregistered id moves its dimension (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(1);
+    expect(p.inferred.hinted_events).toBe(1);
+    expect(p.inferred.values.scope_appetite).toBeGreaterThan(0.5);
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('(hinted)');
+  });
+
+  test('the same unregistered answer without a hint moves nothing (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-add-caching', question_summary: 'caching?', user_choice: 'expand', session_id: 's1' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('an unknown hint, a choice outside the signal and a registered id ignore the hint (#3442)', () => {
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-a', question_summary: 'a?', user_choice: 'expand', signal_key: 'made-up', session_id: 's1' });
+    logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-b', question_summary: 'b?', user_choice: 'maybe', signal_key: 'scope-appetite', session_id: 's2' });
+    logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', signal_key: 'scope-appetite', session_id: 's3' });
+    runDev('--derive');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.contributing_events.architecture_care).toBe(1);
+    expect(p.inferred.hinted_events).toBe(0);
+  });
+
+  test('hinted rows share the per-day cap (#3442)', () => {
+    for (let i = 0; i < 5; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: `plan-ceo-review-q${i}`, question_summary: 'q?', user_choice: 'expand', signal_key: 'scope-appetite', session_id: `s${i}`, ts: '2026-10-31T12:00:00Z' });
+    }
+    runDev('--derive');
+    expect(runDev('--trace', 'scope_appetite').stdout).toContain('capped to +0.060');
+  });
+
   test('contributing_events is all zero when no answer matches a signal', () => {
     logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'not-a-mapped-option', session_id: 's1' });
     runDev('--derive');
@@ -622,11 +659,121 @@ describe('gstack-developer-profile --check-mismatch', () => {
     expect(r.stdout).toContain('scope_appetite');
     expect(r.stdout).toContain('autonomy');
   });
+
+  const deriveWithOneSignal = () => {
+    logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', session_id: 's0' });
+    for (let i = 1; i < 13; i++) {
+      logQuestion({ skill: 'plan-eng-review', question_id: `adhoc-unregistered-${i}`, question_summary: 'x', user_choice: 'anything', session_id: `s${i}` });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    p.declared = { scope_appetite: 0.9 };
+    fs.writeFileSync(file, JSON.stringify(p));
+  };
+
+  test('a declared dimension with no observed evidence is not flagged (#3436)', () => {
+    deriveWithOneSignal();
+    const r = runDev('--check-mismatch');
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain('scope_appetite: declared');
+    expect(r.stdout).toContain('scope_appetite: no observed evidence');
+  });
+
+  test('--gap leaves out a dimension with no observed evidence (#3436)', () => {
+    deriveWithOneSignal();
+    const out = JSON.parse(runDev('--gap').stdout);
+    expect(out.gap.scope_appetite).toBeUndefined();
+    expect(out.low_evidence).toEqual({ scope_appetite: 0 });
+  });
+
+  test('a dimension with 1 or 2 contributing events reports too little evidence', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    p.declared = { scope_appetite: 0.9 };
+    p.inferred.values.scope_appetite = 0.45;
+    p.inferred.sample_size = 10;
+    p.inferred.contributing_events = { scope_appetite: 2 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    const r = runDev('--check-mismatch');
+    expect(r.stdout).toContain('MISMATCH: none');
+    expect(r.stdout).toContain('scope_appetite: too little evidence (2 of 3 events)');
+    expect(JSON.parse(runDev('--gap').stdout).low_evidence).toEqual({ scope_appetite: 2 });
+  });
+
+  test('a dimension with 3 contributing events is compared', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    p.declared = { scope_appetite: 0.9 };
+    p.inferred.values.scope_appetite = 0.45;
+    p.inferred.sample_size = 10;
+    p.inferred.contributing_events = { scope_appetite: 3 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    expect(runDev('--check-mismatch').stdout).toContain('scope_appetite: declared 0.9 vs inferred 0.45 (gap 0.45)');
+    expect(JSON.parse(runDev('--gap').stdout).gap.scope_appetite).toBeCloseTo(0.45, 2);
+  });
+
+  test('three same-day answers that agree with the declaration are not a mismatch', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode?', user_choice: 'expand', session_id: `s${i}`, ts: '2026-10-20T12:00:00Z' });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.scope_appetite).toBe(3);
+    p.declared = { scope_appetite: 0.9 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    const r = runDev('--check-mismatch');
+    expect(r.stdout).toContain('not enough data');
+    expect(r.stdout).not.toContain('scope_appetite: declared');
+  });
+
+  test('derive stores the gap for a dimension with 3 contributing events', () => {
+    for (let i = 0; i < 3; i++) {
+      logQuestion({ skill: 'plan-eng-review', question_id: 'plan-eng-review-arch-finding', question_summary: 'arch?', user_choice: 'fix-now', session_id: `s${i}`, ts: `2026-10-2${i}T12:00:00Z` });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const p = readProfile() as any;
+    expect(p.inferred.contributing_events.architecture_care).toBe(3);
+    p.declared = { architecture_care: 0.1 };
+    fs.writeFileSync(file, JSON.stringify(p));
+    expect(runDev('--derive').status).toBe(0);
+    expect((readProfile() as any).gap.architecture_care).toBeGreaterThan(0.3);
+  });
+
+  test('derive stores no gap for a dimension without evidence', () => {
+    deriveWithOneSignal();
+    expect(runDev('--derive').status).toBe(0);
+    const p = readProfile() as any;
+    expect(p.gap.scope_appetite).toBeUndefined();
+  });
 });
 
 // -----------------------------------------------------------------------
 // Error handling
 // -----------------------------------------------------------------------
+
+describe('gstack-developer-profile --profile on an unparseable profile (#3763)', () => {
+  test('exits non-zero, prints nothing to stdout, and names the file and the conflict markers', () => {
+    fs.writeFileSync(path.join(tmpHome, 'developer-profile.json'), '{\n<<<<<<< HEAD\n  "sessions": []\n=======\n  "sessions": [1]\n>>>>>>> origin/main\n}\n');
+    const r = runDev('--profile');
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('developer-profile.json is not valid JSON');
+    expect(r.stderr).toContain('git conflict markers');
+  });
+
+  test('a valid profile still prints as before', () => {
+    fs.writeFileSync(path.join(tmpHome, 'developer-profile.json'), '{"sessions":[]}\n');
+    const r = runDev('--profile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('{"sessions":[]}\n');
+  });
+});
 
 describe('gstack-developer-profile errors', () => {
   test('unknown subcommand exits non-zero', () => {
@@ -750,6 +897,155 @@ describe('gstack-developer-profile --log-session (#1671 fix)', () => {
     // Resources still aggregate into RESOURCES_SHOWN.
     expect(r.stdout).toContain('RESOURCES_SHOWN: url1');
   });
+});
+
+// -----------------------------------------------------------------------
+// Concurrent writers (#3437). gstack-question-log starts a background
+// --derive after every append, and a multi-question AskUserQuestion logs
+// several rows at once, so derives overlap each other and /office-hours'
+// --log-session. Each subcommand rewrites the whole profile, so every
+// read-modify-write holds the profile lock and writes a unique temp file.
+// -----------------------------------------------------------------------
+
+async function runDevAsync(...args: string[]): Promise<{ stdout: string; stderr: string; status: number }> {
+  const proc = Bun.spawn([BIN_DEV, ...args], {
+    env: { ...process.env, GSTACK_HOME: tmpHome },
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const timer = setTimeout(() => proc.kill(), 60_000);
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timer);
+  return { stdout, stderr, status };
+}
+
+describe('gstack-developer-profile concurrent writers (#3437)', () => {
+  const lockDir = () => path.join(tmpHome, 'developer-profile.json.lock');
+
+  test('--derive does not write through a fixed temp path', () => {
+    fs.mkdirSync(path.join(tmpHome, 'developer-profile.json.tmp'));
+    const r = runDev('--derive');
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(typeof (readProfile() as { derived_at?: string }).derived_at).toBe('string');
+  });
+
+  test('a held profile lock keeps --derive and --log-session from writing', () => {
+    expect(runDev('--derive').status).toBe(0);
+    const before = fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8');
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), process.pid + '-held\n');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })]]) {
+      const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+      expect(res.status).toBe(5);
+      expect(res.stderr).toContain('developer-profile.json.lock');
+    }
+    expect(fs.readFileSync(path.join(tmpHome, 'developer-profile.json'), 'utf-8')).toBe(before);
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(process.pid + '-held\n');
+  });
+
+  test('a stale lock left by a crashed writer is taken over', () => {
+    fs.mkdirSync(lockDir());
+    const old = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockDir(), old, old);
+    const r = runDev('--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' }));
+    expect(r.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a lock whose holder process is gone is taken over at once', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a lock older than 5 minutes is taken over even when its pid is alive (pid reuse)', () => {
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), process.pid + '-reused\n');
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(lockDir(), old, old);
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.stderr).toBe('');
+    expect(res.status).toBe(0);
+    expect((readProfile() as { sessions: unknown[] }).sessions.length).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false);
+  });
+
+  test('a takeover already in progress is not repeated', () => {
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    fs.mkdirSync(lockDir());
+    fs.writeFileSync(path.join(lockDir(), 'owner'), gone + '-crashed\n');
+    fs.mkdirSync(lockDir() + '.takeover');
+    const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+    const res = spawnSync(BIN_DEV, ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder' })], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+    expect(res.status).toBe(5);
+    expect(fs.readFileSync(path.join(lockDir(), 'owner'), 'utf-8')).toBe(gone + '-crashed\n');
+  });
+
+  test('a takeover that cannot remove the lock still gives up', () => {
+    expect(runDev('--derive').status).toBe(0);
+    fs.mkdirSync(lockDir());
+    const old = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockDir(), old, old);
+    fs.chmodSync(tmpHome, 0o555);
+    try {
+      const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_PROFILE_LOCK_TIMEOUT_MS: '300' };
+      const res = spawnSync(BIN_DEV, ['--derive'], { env, encoding: 'utf-8', cwd: ROOT, timeout: 10_000 });
+      expect(res.signal).toBeNull();
+      expect([0, 5]).toContain(res.status ?? -1);
+    } finally {
+      fs.chmodSync(tmpHome, 0o755);
+    }
+  }, 20_000);
+
+  test('a relative state root does not leave the lock behind', () => {
+    const env = { ...process.env, GSTACK_HOME: 'state' };
+    for (const args of [['--derive'], ['--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'p' })]]) {
+      const res = spawnSync(BIN_DEV, args, { env, encoding: 'utf-8', cwd: tmpHome, timeout: 30_000 });
+      expect(res.stderr).toBe('');
+      expect(res.status).toBe(0);
+    }
+    const p = JSON.parse(fs.readFileSync(path.join(tmpHome, 'state', 'developer-profile.json'), 'utf-8'));
+    expect(p.sessions.length).toBe(1);
+    expect(typeof p.derived_at).toBe('string');
+    expect(fs.existsSync(path.join(tmpHome, 'state', 'developer-profile.json.lock'))).toBe(false);
+  });
+
+  test('overlapping derives and log-sessions keep every session and leave valid JSON', async () => {
+    for (let i = 0; i < 5; i++) {
+      logQuestion({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode', user_choice: 'expand', session_id: 's' + i });
+    }
+    expect(runDev('--derive').status).toBe(0);
+    const rounds = 6;
+    for (let round = 0; round < rounds; round++) {
+      const runs = await Promise.all([
+        ...Array.from({ length: 6 }, () => runDevAsync('--derive')),
+        runDevAsync('--log-session', JSON.stringify({ date: '2026-10-31', mode: 'builder', project_slug: 'round-' + round })),
+      ]);
+      for (const r of runs) {
+        expect(r.stderr).toBe('');
+        expect(r.status).toBe(0);
+      }
+    }
+    const p = readProfile() as { sessions: Array<{ project_slug: string }>; inferred: { sample_size: number } };
+    expect(p.sessions.map((s) => s.project_slug).sort()).toEqual(Array.from({ length: rounds }, (_, i) => 'round-' + i).sort());
+    expect(p.inferred.sample_size).toBe(5);
+    expect(fs.readdirSync(tmpHome).filter((f) => f.startsWith('developer-profile.json.'))).toEqual([]);
+  }, 120_000);
 });
 
 // -----------------------------------------------------------------------
