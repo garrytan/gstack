@@ -83,6 +83,7 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   { file: 'test/stamp-templates.test.ts', reason: 'spawns bin/gstack-tree-receipt through test/helpers/restamp-fixture.ts runBin (shebang via CreateProcess)' },
   { file: 'test/ship-issue-intent.test.ts', reason: 'spawns bin/gstack-issue-links and bin/gstack-ship-receipt through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) with a `gh` shell shim on PATH' },
   { file: 'test/ship-receipt-carry-pregate.test.ts', reason: 'passes a gstack-pregate result to gstack-ship-receipt write and carry; on Windows the fixture\'s Linux lane is a requires-remote obligation, so write refuses the pregate as uncleared and exits 1 (windows-free-shard run 40611810409), like the other --pregate receipt tests' },
+  { file: 'test/ship-receipt-carry-mechanical.test.ts', reason: 'passes a gstack-pregate result to gstack-ship-receipt carry; on Windows the fixture\'s Linux lane is a requires-remote obligation, so the carry refuses the pregate and exits 3 (windows-scoped-shard run 41682190106), like test/ship-receipt-carry-pregate.test.ts' },
   // PR E2: lane ownership and evidence verification run bin/gstack-lane-check and bin/gstack-evidence
   // through test/helpers/restamp-fixture.ts runBin (shebang via CreateProcess); the lib paths are
   // exercised in the same file, so there is no Windows-safe split to keep.

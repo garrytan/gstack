@@ -84,7 +84,7 @@ describe('carry_mechanical: a retaken version constant and proven goldens (GST-1
       pregate(repo);
       const out = carry(repo, body);
       expect(out.status).toBe(EXIT.refused);
-      expect(out.err).toContain('src/game.js');
+      expect(out.err).toContain('src/game.js (carry_mechanical: ');
       expect(headOf(body)).toBe(reviewed);
     }
   }, 360_000);
@@ -123,6 +123,17 @@ describe('carry_mechanical: a retaken version constant and proven goldens (GST-1
     const out = carry(repo, body);
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain('tests/goldens/extra.txt');
+    expect(headOf(body)).toBe(reviewed);
+  }, 120_000);
+
+  // Value: protects=a bump no reviewer saw is not mechanical; fails_when=a reviewed head that never took the constant
+  // carries a fresh bump after a base merge; seam=none; no_claim=-
+  test('a constant the reviewed head never took is not mechanical', () => {
+    const { repo, reviewed, body } = retaken({ reviewedGame: game(41, { score: 'a * 3' }), head: { 'src/game.js': game(43, { score: 'a * 3', bonus: 'a + 2' }), 'tests/goldens/digest.txt': digest(43) } });
+    pregate(repo);
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('the reviewed head did not take the constant');
     expect(headOf(body)).toBe(reviewed);
   }, 120_000);
 

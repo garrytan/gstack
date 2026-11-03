@@ -745,11 +745,12 @@ function cmdCarry(rest: string[], json: boolean): number {
         const constant = verdict === 'changed' ? rules.mechanical.version_constants.find(c => c.path === p) : undefined;
         if (constant) {
           // A version constant the base policy declares (carry_mechanical, GST-1210): only its digits are masked, the
-          // masked sides take the same rule, and HEAD's value must be above the current base's.
+          // masked sides take the same rule, the reviewed head must have taken the constant, and HEAD's value must be above
+          // the current base's.
           const values: Partial<Record<keyof typeof sides, number>> = {};
           const template = Buffer.from(constant.template, 'utf8').toString('latin1');
           const masked = maskedSides(repoRoot, sides, p, (text, side) => { const m = maskConstant(text, template); if (m) values[side] = m.value; return m?.masked ?? null; });
-          const why = typeof masked === 'string' ? masked : values.current! > values.currentBase! ? null : `HEAD's value ${values.current} is not above the base's ${values.currentBase}`;
+          const why = typeof masked === 'string' ? masked : !(values.reviewed! > values.reviewedBase!) ? `the reviewed head did not take the constant (${values.reviewedBase} → ${values.reviewed})` : values.current! > values.currentBase! ? null : `HEAD's value ${values.current} is not above the base's ${values.currentBase}`;
           if (why || typeof masked === 'string') { changedProduct.push(`${p} (carry_mechanical: ${why})`); continue; }
           // Masked equal on both sides: the constant was the branch's only edit to the file at both heads.
           const { entries: e } = masked;
