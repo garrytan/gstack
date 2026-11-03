@@ -54,6 +54,15 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect([...parseAddedLines(diff)]).toEqual([['a.ts', ['one', '++two']], ['b.env', ['three']]]);
   });
 
+  test('a Python call that reads key.json is code; the same key name holding a literal key still fails (GST-1064)', () => {
+    expect(repo({ 'attach.py': 'import json\nkey = json.loads(files.get("key.json", ""))\n' }).secrets().status).toBe('pass');
+    const fake = 'Zx9Q' + 'w8Er7Ty6Ui5Op4As3Df2';
+    const r = repo({ 'attach.py': `key = json.loads(files.get("key.json")) or "${fake}"\n`, '.env': `KEY=${fake}\n` }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines.join('\n')).toContain('attach.py');
+    expect(r.lines.join('\n')).toContain('.env');
+  });
+
   test('a TS object property that reads a credential at runtime is code, not a secret (#3211)', () => {
     const f = repo({ 'app.ts': 'const cfg = {\n  token: credentials.token,\n  apiKey: settings.apiKey,\n};\n' });
     expect(f.secrets().status).toBe('pass');

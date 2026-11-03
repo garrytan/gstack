@@ -40,7 +40,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
-import { verifyFromRun } from '../../run-evidence';
+import { ranFiles, verifyFromRun, type RunProfile } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
 
@@ -533,7 +533,10 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
   const smallMachine = ctx.cores < SMALL_MACHINE_CORES && sel.localTests.length > 0 && (ctx.config.remote_gate || ctx.testBackend !== 'local');
   if (smallMachine) {
     const obligation = remoteObligation(ctx, sel);
-    return { ...base, status: 'requires-remote', remote: [...sel.remote, obligation], lines: [...lines, `requires-remote ${obligation.lane}: ${ctx.cores} cores (under ${SMALL_MACHINE_CORES}); ${sel.localTests.length} local test file(s) recorded for the remote gate, not run here`, `run: ${obligation.command}`], detail: `${sel.localTests.length} local test file(s) recorded as requires-remote ${obligation.lane} (${ctx.cores} cores, under ${SMALL_MACHINE_CORES}); run it, then ${clearHint(obligation.lane)}, or gstack-pregate --remote --spend-cap <usd> --allow-repo-commands` };
+    const route = obligation.lane === REMOTE_GATE_LANE && ctx.config.remote_gate_runs && ctx.ciCarry !== false
+      ? `a verified CI run at this tree clears it: push, then gstack-ci-carry wait --base ${ctx.base} and rerun gstack-pregate --allow-repo-commands (a pull_request run of a branch behind its base tested the merge, another tree: dispatch the workflow on the branch); or opt in to the VM: gstack-pregate --remote --spend-cap <usd> --allow-repo-commands`
+      : `run it, then ${clearHint(obligation.lane)}, or gstack-pregate --remote --spend-cap <usd> --allow-repo-commands`;
+    return { ...base, status: 'requires-remote', remote: [...sel.remote, obligation], lines: [...lines, `requires-remote ${obligation.lane}: ${ctx.cores} cores (under ${SMALL_MACHINE_CORES}); ${sel.localTests.length} local test file(s) recorded for the remote gate, not run here`, `run: ${obligation.command}`], detail: `${sel.localTests.length} local test file(s) recorded as requires-remote ${obligation.lane} (${ctx.cores} cores, under ${SMALL_MACHINE_CORES}); ${route}` };
   }
   if (!ctx.allowRepoCommands) return { ...base, status: 'incomplete', code: 'REPO_COMMANDS_NOT_ALLOWED', detail: `${sel.localTests.length} local test file(s) selected but not run (pass --allow-repo-commands)`, fix: 'rerun with --allow-repo-commands (what /ship passes)' };
   if (sel.localTests.length === 0) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no local lane; ${sel.remote.length} requires-remote obligation(s)` };
@@ -624,6 +627,12 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   return mode === 'no-policy' ? withStarter(ctx, sel, result) : withNoLaneWarning(ctx, sel, result);
 }
 
+/** The base profiles a run may verify under here: this machine's OS, and a workflow that holds a lane this machine runs. */
+export function fromRunProfiles(ctx: PregateContext, profiles: Record<string, RunProfile>): string[] {
+  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
+  return Object.entries(profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
+}
+
 /**
  * `--from-run`: verify the run against the base branch's profiles for this machine's OS whose workflow holds a lane this
  * machine runs (not a platform lane), on exactly this tree; the selected local test files its tree.json lists are the
@@ -631,13 +640,13 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
  */
 function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: string[]; receipt?: string } {
   const { ref, check } = ctx.fromRun!;
-  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
-  const names = 'error' in check ? [] : Object.entries(check.profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
+  const names = 'error' in check ? [] : fromRunProfiles(ctx, check.profiles);
   const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
   if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
-  const ran = new Set(v.evidence.files);
+  const ran = new Set(ranFiles(v.evidence));
   const passed = sel.localTests.filter(t => ran.has(t));
-  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run`, passed, receipt: v.receipt };
+  const skipped = sel.localTests.filter(t => v.evidence.skipped?.includes(t)).length;
+  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run${skipped ? ` (${skipped} skipped every test in the run)` : ''}`, passed, receipt: v.receipt };
 }
 
 /**

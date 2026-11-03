@@ -2,7 +2,7 @@
 name: investigate
 preamble-tier: 2
 version: 1.0.0
-description: Systematic debugging with root cause investigation. (gstack)
+description: "Use when a test fails, code errors or output is wrong: find the root cause, then fix it. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -15,9 +15,29 @@ allowed-tools:
 triggers:
   - debug this
   - fix this bug
+  - test fails
+  - failing test
   - why is this broken
-  - root cause analysis
+  - this doesn't work
+  - build is broken
+  - stack trace
   - investigate this error
+  - root cause analysis
+contract:
+  version: 1
+  items:
+    - id: debug-report
+      kind: report_labels
+      heading: DEBUG REPORT
+      labels:
+        - Symptom
+        - Root cause
+        - Fix
+        - Evidence
+        - Regression test
+        - Status
+    - id: check-after-last-edit
+      kind: check_after_last_edit
 hooks:
   PreToolUse:
     - matcher: "Edit"
@@ -60,6 +80,15 @@ gbrain:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+## Done means
+
+Finish only when each of these exists (contract v1):
+
+- `debug-report`: a `DEBUG REPORT` with Symptom, Root cause, Fix, Evidence, Regression test and Status filled in (`none: <why>` where the skill's own stop rule leaves one empty).
+- `check-after-last-edit`: a test or repro command run after your last edit.
+
+`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
 
 ## Shared preamble (load first)
 

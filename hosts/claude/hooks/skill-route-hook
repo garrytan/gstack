@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Bash shim — Claude Code hooks run `command` strings via /bin/sh, so this
+# wrapper makes the TypeScript hook executable via bun. Settings.json
+# references this file directly (registered by ./setup --skill-routing).
+#
+# FAIL-OPEN: every failure path — bun missing, script crash — still exits 0.
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/skill-route-hook.ts" || true
+exit 0

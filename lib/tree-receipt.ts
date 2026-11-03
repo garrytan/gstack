@@ -78,15 +78,16 @@ export function classifyFiles(repoRoot: string, fileDiffs: FileDiff[], gated: st
 /**
  * Every removed/added pair differs only by stamp rewrites to the new version:
  * the old version, or a tentative one (newer than it) the stamp_paths stage
- * moved (#3512), each in a stamp form (`stampOnlyLine`, bounded by the fork version on the branch's own lines).
+ * moved (#3512), each in a stamp form (`stampOnlyLine`, bounded by the fork version on the branch's own lines, where a
+ * declared placeholder may also move inside a stamp_patterns template, GST-1026).
  */
-function stampOnlyHunks(hunks: FileDiff['hunks'], oldV: string, newV: string, templates: readonly string[], side?: BranchSide): { why: string; line: number } | null {
+function stampOnlyHunks(hunks: FileDiff['hunks'], oldV: string, newV: string, templates: readonly string[], side?: BranchSide, placeholders: readonly string[] = []): { why: string; line: number } | null {
   for (const h of hunks) {
     if (h.removed.length !== h.added.length) return { why: `${h.removed.length} line(s) removed, ${h.added.length} added`, line: h.at };
     for (let i = 0; i < h.removed.length; i++) {
       const r = h.removed[i]!;
       const a = h.added[i]!;
-      if (!stampOnlyLine(r, a, oldV, newV, templates, side)) return { why: `${JSON.stringify(r.trim().slice(0, 60))} -> ${JSON.stringify(a.trim().slice(0, 60))}`, line: h.at + i };
+      if (!stampOnlyLine(r, a, oldV, newV, templates, side, h.removedAt[i], placeholders)) return { why: `${JSON.stringify(r.trim().slice(0, 60))} -> ${JSON.stringify(a.trim().slice(0, 60))}`, line: h.at + i };
     }
   }
   return null;
@@ -130,7 +131,7 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
   const rule = matchesAny(policy.stamp_paths, f.path) ? 'stamp_paths' : matchesAny(policy.release_outputs, f.path) ? 'release_outputs' : matchesAny(policy.stamp_files, f.path) ? 'stamp_files' : null;
   const own = rule ? side?.(f.path) : undefined;
   if (oldV && newV && (oldV !== newV || own) && rule) {
-    const bad = stampOnlyHunks(f.hunks, oldV, newV, policy.stamp_patterns, own);
+    const bad = stampOnlyHunks(f.hunks, oldV, newV, policy.stamp_patterns, own, policy.stamp_placeholders);
     return bad ? changed(rule, bad.why, bad.line) : stamp(rule);
   }
   return changed('other', `${f.hunks.length} hunk(s) outside every stamp rule`);

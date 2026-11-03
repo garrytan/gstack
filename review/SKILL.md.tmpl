@@ -3,10 +3,11 @@ name: review
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Review this PR's diff. Checks it against the base branch for SQL safety, LLM trust
-  boundary violations, conditional side effects, and other structural issues. Use when
-  asked to "review this PR", "code review", "pre-landing review", or "check my diff".
-  Proactively suggest when the user is about to merge or land code changes. (gstack)
+  Use when you review this PR's diff.
+  Checks it for SQL safety, LLM trust boundaries, conditional side effects and
+  bugs that pass CI and break production. Fits "look over my diff", "review my
+  changes", "code review", "check my diff" or "pre-landing review".
+  Proactively suggest before a merge. (gstack)
 codex_default_prompt: "Use $gstack-review to review this diff against its base before it lands: find the bugs that pass CI and break in production, fix the clear ones, and list what remains."
 allowed-tools:
   - Bash
@@ -20,10 +21,28 @@ allowed-tools:
   - WebSearch
 triggers:
   - review this pr
+  - look over my diff
   - code review
   - check my diff
+  - review my changes
   - pre-landing review
+contract:
+  version: 1
+  items:
+    - id: specialists-dispatched
+      kind: selected_specialists_dispatched
+      marker: "Dispatching N specialists:"
+    - id: adversarial-pass
+      kind: agent_dispatch
+      match: Think like an attacker and a chaos engineer
+    - id: review-report
+      kind: report_labels
+      heading: Pre-Landing Review
+      labels:
+        - Gate edits
 ---
+
+{{CONTRACT_DONE_MEANS}}
 
 {{PREAMBLE}}
 
