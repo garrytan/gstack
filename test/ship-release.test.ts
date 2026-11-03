@@ -309,25 +309,34 @@ describe('gstack-ship-release push: branch names', () => {
 });
 
 describe('GST-1031: a non-behavioral harness re-pin after review is release metadata', () => {
-  // Value: protects=a scripts/harness-version.json edit after review that only records changed harness files as non-behavioral at the same
+  // Value: protects=a scripts/harness-pins/<path>.json edit after review that only records changed harness files as non-behavioral at the same
   //   version routes as metadata, so a clean round 2 is not sent back through 5-11.5, while a version bump, a pattern change or an entry
   //   without its reason stays behavior; fails_when=the re-pin stops finish, or a bump or bare re-pin routes as metadata;
   //   why_new=GSTA-150 GST-1027 (icm_01M6ERWWBZ3VWXZY07F2W5ZSFB); seam=route; no_claim=that the recorded reason is true
-  const pin = (version: number, entry: Record<string, unknown>, patterns = ['test/helpers/x.ts']) => JSON.stringify({ version, patterns, files: { 'test/helpers/x.ts': entry } }) + '\n';
-  const finish = (after: string) => {
+  const PIN = 'scripts/harness-pins/test/helpers/x.ts.json';
+  const pin = (version: number, entry: Record<string, unknown>, patterns = ['test/helpers/x.ts']) => ({
+    'scripts/harness-version.json': JSON.stringify({ version, patterns }) + '\n',
+    [PIN]: JSON.stringify(entry) + '\n',
+  });
+  const finish = (after: Record<string, string>) => {
     const f = fx();
-    f.write({ 'scripts/harness-version.json': pin(6, { blob: 'a'.repeat(40), since: 6 }) }); f.commit('pin');
+    f.write(pin(6, { blob: 'a'.repeat(40), since: 6 })); f.commit('pin');
     const reviewed = wtree(f);
     const post = snapshot(f);
-    f.write({ 'scripts/harness-version.json': after }); f.commit('re-pin');
+    f.write(after); f.commit('re-pin');
     return f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]).stdout;
   };
   test('a non-behavioral re-pin is metadata; a bump, a pattern change or an entry without its reason is behavior', () => {
     const repin = finish(pin(6, { blob: 'b'.repeat(40), since: 6, nonBehavioral: 'comment-only edit: no verdict can change' }));
     expect(lineOf(repin, 'ROUTE')).toMatch(/behavior=0 docs=0 metadata=1/);
     expect(repin).not.toContain('STOP: behavior');
-    for (const after of [pin(7, { blob: 'b'.repeat(40), since: 7 }), pin(6, { blob: 'b'.repeat(40), since: 6 }), pin(6, { blob: 'b'.repeat(40), since: 6, nonBehavioral: 'comment-only edit: no verdict can change' }, ['test/helpers/**'])])
-      expect(finish(after)).toContain('STOP: behavior, tests or build inputs changed since review (scripts/harness-version.json)');
+    expect(finish(pin(7, { blob: 'b'.repeat(40), since: 7 }))).toContain(`STOP: behavior, tests or build inputs changed since review (${PIN},scripts/harness-version.json)`);
+    expect(finish(pin(6, { blob: 'b'.repeat(40), since: 6 }))).toContain(`STOP: behavior, tests or build inputs changed since review (${PIN})`);
+    expect(finish(pin(6, { blob: 'b'.repeat(40), since: 6, nonBehavioral: 'comment-only edit: no verdict can change' }, ['test/helpers/**']))).toContain(`STOP: behavior, tests or build inputs changed since review (${PIN},scripts/harness-version.json)`);
+  });
+  test('the manifest regaining a files table is behavior', () => {
+    const f = { 'scripts/harness-version.json': JSON.stringify({ version: 6, patterns: ['test/helpers/x.ts'], files: {} }) + '\n' };
+    expect(finish(f)).toContain('STOP: behavior, tests or build inputs changed since review (scripts/harness-version.json)');
   });
 });
 
@@ -341,5 +350,101 @@ describe('GSTA-167 part 4a: the post-review route stays path-only', () => {
     f.write({ 'wiki/post/data.json': '{"a": 1}\n' }); f.commit('late data');
     const r = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
     expect(r.stdout).toContain('STOP: behavior, tests or build inputs changed since review (wiki/post/data.json)');
+  });
+});
+
+describe('push: the pre-push housekeeping guards (GST-1138)', () => {
+  // Value: protects=push runs gstack-pregate --stage guards before every push and stops on a failing guard with its fix, pushing nothing;
+  //   a pass recorded at HEAD's exact tree is reused instead of rerun; fails_when=a housekeeping red reaches CI, a failed guard still pushes,
+  //   or a guard reruns on a tree it already passed; why_new=gbrain 64 of 93 red heads were housekeeping (FOUN-64), #3908's context-budget red;
+  //   seam=gstack-pregate --stage guards; no_claim=CI's own verdict
+  const policy = (command: string) => JSON.stringify({ guards: [{ id: 'housekeeping', when: ['src/**'], command, fix: 'regenerate the golden' }] }) + '\n';
+  const ready = (f: ShipFx) => { fs.mkdirSync(f.state, { recursive: true }); fs.writeFileSync(path.join(f.state, '.redact-prepush-prompted'), ''); };
+  const pushedHead = (f: ShipFx) => f.git('ls-remote', '--heads', 'origin', 'refs/heads/feat').stdout.trim();
+
+  test('a failing guard stops the push with its fix and nothing is pushed', () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo golden is stale; exit 4') });
+    ready(f);
+    const r = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'GUARDS')).toMatch(/^GUARDS: fail .*housekeeping/);
+    expect(r.stdout).toContain('STOP: the pre-push guards did not pass');
+    expect(r.stdout).toContain('regenerate the golden');
+    expect(pushedHead(f)).toBe('');
+  });
+
+  test('a passing guard pushes; the next push at the same tree reuses the pass instead of rerunning it', () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo ran >> ../guard-runs') });
+    ready(f);
+    const first = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(first.status, first.stdout + first.stderr).toBe(0);
+    expect(lineOf(first.stdout, 'GUARDS')).toMatch(/^GUARDS: pass .*1 guard\(s\) passed: housekeeping/);
+    expect(lineOf(first.stdout, 'PUSH')).toMatch(/^PUSH: pushed /);
+    const again = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(lineOf(again.stdout, 'GUARDS')).toMatch(/^GUARDS: pass \(reused from pregate-guards\.json at tree [0-9a-f]{12}: /);
+    expect(fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8')).toBe('ran\n');
+    f.write({ 'src/c.ts': 'export const c = 3;\n' }); f.commit('more');
+    expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'GUARDS')).not.toContain('reused');
+    expect(fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8')).toBe('ran\nran\n');
+  });
+
+  test('an uncommitted or untracked file the guards saw stops the push: the verdict must describe the pushed tree', () => {
+    const f = fx({ '.gstack/pregate.json': policy('test -f src/needed.ts') });
+    ready(f);
+    f.write({ 'src/needed.ts': 'export const n = 1;\n' });
+    const r = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'GUARDS')).toContain('not certified');
+    expect(r.stdout).toContain('STOP: the working tree differs from HEAD');
+    expect(pushedHead(f)).toBe('');
+  });
+
+  test('a base that exists on origin but is not fetched, a mistyped --base, a dangling origin/HEAD and an unreadable policy stop the push', () => {
+    const f = fx({ '.gstack/pregate.json': policy('exit 4') });
+    ready(f);
+    f.git('update-ref', '-d', 'refs/remotes/origin/main');
+    const unfetched = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(unfetched.status).toBe(3);
+    expect(lineOf(unfetched.stdout, 'GUARDS')).toMatch(/^GUARDS: refused POLICY_SOURCE_UNAVAILABLE/);
+    expect(unfetched.stdout).toContain('STOP: the pre-push guards could not run');
+    f.git('fetch', '-q', 'origin', 'main:refs/remotes/origin/main');
+    const typo = f.run(RELEASE, ['push', '--branch', 'feat', '--base', 'mian']);
+    expect(typo.status).toBe(3);
+    expect(lineOf(typo.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/retired-default');
+    const dangling = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(dangling.status).toBe(3);
+    expect(lineOf(dangling.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+    expect(pushedHead(f)).toBe('');
+    const broken = fx({ '.gstack/pregate.json': '{not json\n' });
+    ready(broken);
+    const refused = broken.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(refused.status).toBe(3);
+    expect(lineOf(refused.stdout, 'GUARDS')).toMatch(/^GUARDS: refused /);
+  });
+
+  test("finish's preflight record is reused only at HEAD's tree with passing regen and guards rows", () => {
+    const f = fx({ '.gstack/pregate.json': policy('echo ran >> ../guard-runs') });
+    ready(f);
+    const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    const record = (at: string, guards: string) => JSON.stringify({ tree: at, checks: [{ id: 'regen', status: 'pass' }, { id: 'guards', status: guards }] });
+    const finishRecord = path.join(f.work, '.git', 'gstack', 'pregate-finish-preflight.json');
+    fs.mkdirSync(path.dirname(finishRecord), { recursive: true });
+    const runs = () => (fs.existsSync(path.join(f.root, 'guard-runs')) ? fs.readFileSync(path.join(f.root, 'guard-runs'), 'utf8') : '');
+    for (const [at, guards] of [[tree, 'fail'], ['0'.repeat(40), 'pass']]) {
+      fs.rmSync(path.join(f.work, '.git', 'gstack', 'pregate-guards.json'), { force: true });
+      fs.writeFileSync(finishRecord, record(at, guards));
+      fs.rmSync(path.join(f.root, 'guard-runs'), { force: true });
+      expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'GUARDS')).not.toContain('reused');
+      expect(runs()).toBe('ran\n');
+      f.git('push', '-q', 'origin', '--delete', 'feat');
+    }
+    fs.rmSync(path.join(f.work, '.git', 'gstack', 'pregate-guards.json'), { force: true });
+    fs.writeFileSync(finishRecord, record(tree, 'pass'));
+    fs.rmSync(path.join(f.root, 'guard-runs'), { force: true });
+    const reused = f.run(RELEASE, ['push', '--branch', 'feat']);
+    expect(lineOf(reused.stdout, 'GUARDS')).toMatch(/^GUARDS: pass \(reused from pregate-finish-preflight\.json at tree /);
+    expect(runs()).toBe('');
+    expect(lineOf(reused.stdout, 'PUSH')).toMatch(/^PUSH: pushed /);
   });
 });

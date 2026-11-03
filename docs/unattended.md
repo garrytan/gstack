@@ -87,7 +87,7 @@ Not every workflow writes this line or a run directory today:
 - **`/ship`** ends with `gstack-ship-receipt result --pr <n>` (or `--body
   .gstack/tmp/ship-receipt.md` after the handoff section), which binds the
   receipt to the branch head, writes the run record and prints
-  `GSTACK_RESULT: skill=ship status=complete run=<dir>`. That line and that
+  `GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>`. That line and that
   record are the machine-readable READY evidence; [What /ship leaves for a
   parent](#ship-evidence) below is the whole contract (the refused and
   incomplete lines, the one publication an unattended run may make, the
@@ -131,7 +131,7 @@ in the PR body (or the handoff file) to HEAD, writes
 `<state root>/ship/runs/<utc>-<head12>/` and prints the terminal line:
 
 ```
-GSTACK_RESULT: skill=ship status=complete run=<dir>
+GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>
 ```
 
 The run directory holds `ship-receipt.md` (the block, copied) and
@@ -255,7 +255,7 @@ When the parent merges the base in or fixes a test after the receipt was
 written, it runs `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`
 instead of another /ship; on `CARRY: would carry` it runs `gstack-pregate` at HEAD
 and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from <old> to <new> (<reason>)` plus the
-`GSTACK_RESULT: skill=ship status=complete run=<dir>` line means the receipt
+`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
 counters are kept, because the reviewed product diff is unchanged or its only
@@ -901,15 +901,19 @@ decision or action, every evidence pointer resolves and shows what the row
 claims, and a fork or abandoned approach that shaped the result but is not
 logged gets a row. The audit corrects the log, never the story: no row is
 edited or removed, an invented or wrong row stays and a new row supersedes it
-with what actually happened. Then a reviewer on a different model family from
-the one that did the work (a Capy subagent on another family, or the outside
-voice) reads the trail and the transcript and flags what the owner should look
-at: decisions with weak or missing evidence, verification claimed without
-proof, choices that look risky in hindsight, gaps a skim would miss. The run's
-final report ends with an `Attention` section that opens with `reviewed by
-<model>` on its own line and lists each flag against its rows; `No flags` is a
-valid body, a missing model line is not. Self-review does not stand in for
-this. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+with what actually happened. On a risk-class PR (the receipt's `review_depth`
+has class `gate` or a `risk` class: security, money, auth, secrets, user
+data), a reviewer on a different model family from the one that did the work
+(a Capy subagent on another family, or the outside voice) then reads the trail
+and the transcript and flags what the owner should look at: decisions with
+weak or missing evidence, verification claimed without proof, choices that
+look risky in hindsight, gaps a skim would miss. Self-review does not stand in
+for that read. Every other PR skips it: the run's own audit is the review. The
+run's final report ends with an `Attention` section that opens with `reviewed
+by <model>` (risk class) or `self-audited` (every other PR) on its own line
+and lists each flag against its rows; `No flags` is a valid body, a missing
+opening line is not. `gstack-ship-queue ready` prints the stub with the right
+opening line for the receipt it bound. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 

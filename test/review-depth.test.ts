@@ -149,7 +149,7 @@ describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; 
 });
 
 /**
- * The GST-967 dispatch-superset no-loss check (crew rule 2026-10-30; replay 'GST-967' in test/review-packets-removed.test.ts).
+ * The GST-967 dispatch-superset no-loss check (crew rule 2026-10-30; replay 'GST-967' in test/fixtures/review-pins/replays/GST-967.json).
  * On a 1,440-case grid (five diffs: light, standard, gate, docs, tests; passes 0-2; last none, full or fix-check; every mix of
  * the four fix flags; Step 11 run or not), main's planReview at 1022f4f (v1.92.81.0) hashes to MAIN_PLANS. The branch's plan,
  * with each voices step read back as main's stop (its reason is the parenthesised tail, no dispatch), hashes to the same value,
