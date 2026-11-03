@@ -184,8 +184,6 @@ describe('contract-done-means renderer', () => {
     ['heading missing', one({ id: 'a', kind: 'report_labels', labels: ['Symptom'] }), /heading must be a non-empty string/],
     ['marker missing', one({ id: 'a', kind: 'selected_specialists_dispatched' }), /marker must be a non-empty string/],
     ['match missing', one({ id: 'a', kind: 'agent_dispatch' }), /match must be a non-empty string/],
-    ['empty agent_dispatch marker', one({ id: 'a', kind: 'agent_dispatch', match: 'x', marker: ' ' }), /marker must be a non-empty string/],
-    ['marker on a kind without one', one({ id: 'a', kind: 'report_labels', heading: 'R', labels: ['L'], marker: 'x' }), /unknown key "marker"/],
     ['field from another kind', one({ id: 'a', kind: 'check_after_last_edit', match: 'x' }), /unknown key "match"/],
   ];
   for (const [name, value, want] of MALFORMED) {

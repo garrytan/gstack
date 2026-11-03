@@ -142,6 +142,17 @@ describe('cut ledger against every host render', () => {
     if (violations.length) throw new Error(`${violations.length} cut ledger violation(s):\n  ${violations.join('\n  ')}`);
   });
 
+  test('a preamble cut never comes back through the shared preamble file, on any host', () => {
+    const leaks: string[] = [];
+    for (const host of ALL_HOST_CONFIGS) for (const cut of ledger.cuts.filter(c => c.preamble_piece)) {
+      const file = host.name === 'claude'
+        ? path.join(ROOT, cut.skill, 'sections', SHARED_PREAMBLE_FILE)
+        : path.join(outDir, host.hostSubdir, 'skills', `gstack-${cut.skill}`, 'sections', SHARED_PREAMBLE_FILE);
+      if (fs.existsSync(file) && fs.readFileSync(file, 'utf-8').includes(cut.match)) leaks.push(`${host.name}: ${cut.id} "${cut.match}" in ${path.relative(outDir, file)}`);
+    }
+    expect(leaks).toEqual([]);
+  });
+
   test('review-only GST-1088 text renders in /review alone, on every host', () => {
     const leaks = Object.entries(renders).filter(([key]) => !key.endsWith('/review'))
       .flatMap(([key, text]) => REVIEW_ONLY.filter(s => text.includes(s)).map(s => `${key}: "${s}"`));
