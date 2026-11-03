@@ -389,8 +389,10 @@ The example above is the full run. The first `next` also takes `--kind`:
   looks like a secret (the whole `.env*` family, `.envrc` included, `*.pem`,
   `*.key`, `*.p12`, `id_rsa` and the other SSH private keys, `.netrc`,
   `.npmrc`, `.pgpass`, `*credentials*`, `*secret*`) is never read, tracked or
-  untracked, and is left out with a note; so is a file renamed or copied from
-  one on the branch. Every other file's patch goes
+  untracked, and is left out with a note; so is either side of a rename or
+  copy git detects in the branch's commits or staged changes. A secret moved
+  without `git add`, copied unchanged, or renamed and heavily edited reaches
+  the draft under its new name, guarded only by the content check. Every other file's patch goes
   through the redact engine (`lib/redact-engine.ts`), so a key in an ordinary
   file reaches the reviewer as `<REDACTED-…>`; a patch it can't redact safely
   is left out with a note. The `DRAFT:` line names the checkout it diffed (`root=`). The prompt inlines the diff in a fence longer than any tilde
