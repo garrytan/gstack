@@ -18,7 +18,9 @@
  * untracked files). It prints a short summary; the JSON file is the record.
  * --exception names the blocked .gstack/tmp/docs-audit.json an owner accepted
  * (Step 14.5 Blocked recovery): the record then carries that exception, so
- * Step 16 can tell an accepted risk from a skipped audit.
+ * Step 16 can tell an accepted risk from a skipped audit. A --base that is HEAD
+ * or already contains it while the branch has commits its real base lacks is
+ * refused (BASE_CONTAINS_HEAD, lib/default-base.ts): it would select nothing.
  *
  * compare re-reads the same state and prints one JSON object: whether HEAD or
  * the index changed, which recorded paths' content changed or disappeared, and
@@ -35,6 +37,8 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { baseContainsHead } from '../lib/default-base';
+import { resultLine } from '../lib/result-codes';
 import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
@@ -135,6 +139,8 @@ function main(argv: string[]): void {
     const mode = one(args, '--mode');
     if (mode !== 'edit' && mode !== 'read-only') throw new Error('--mode must be edit or read-only');
     const base = git(['rev-parse', '--verify', one(args, '--base') + '^{commit}']).trim();
+    const self = baseContainsHead(top, base);
+    if (self) throw new Error(resultLine('snapshot', 'BASE_CONTAINS_HEAD', self));
     const exceptionFile = flag(args, '--exception')[0];
     const exception = exceptionFile === undefined ? undefined : acceptedException(exceptionFile);
     process.chdir(top);
