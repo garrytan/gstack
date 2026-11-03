@@ -26,11 +26,12 @@ import { readLedger, release, reserve, settle, SpendCapExceeded, summarize, type
 export const PREREG_SECTIONS = ['Bars', 'Arms', 'Comparison', 'Decoys', 'Stop rules', 'Held-out exposure'] as const;
 /** `## Comparison`: `stack: loaded` when any arm loads gstack or another skill stack, `stack: none` with a `why:` otherwise. */
 export interface ComparisonCheck { stack: 'loaded' | 'none' | null; why: string | null; errors: string[] }
-/** `## No-gstack arm`, required when `stack: loaded`: one `<model>#no-gstack` Arms line per model, and the inputs, prompt, panel and report it shares with the variants. */
+/** `## No-gstack arm`, required when `stack: loaded`: one `<model>#no-gstack` Arms line per model, the inputs, prompt, panel and report it shares with the variants, and its masking, install and audit lines. */
 export interface NoGstackArmCheck { required: boolean; ok: boolean; arms: string[]; problems: string[] }
 export interface PreregCheck { ok: boolean; present: string[]; missing: string[]; empty: string[]; comparison: ComparisonCheck; no_gstack: NoGstackArmCheck; diagnostics: PreregDiagnostics | null }
 export const NO_GSTACK_LOADOUT = 'no-gstack';
-export const NO_GSTACK_KEYS = ['arms', 'inputs', 'prompt', 'panel', 'report'] as const;
+/** masking, install and audit keep the arm clean (TESTING_INTERNALS.md#no-gstack-arm): an arm that read a gstack skill file is contaminated. */
+export const NO_GSTACK_KEYS = ['arms', 'inputs', 'prompt', 'panel', 'report', 'masking', 'install', 'audit'] as const;
 
 export function preregTemplate(title = 'Eval preregistration'): string {
   return `# ${title}
@@ -45,7 +46,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 <!-- \`stack: loaded\` when any arm loads gstack or another skill stack (review variants, preamble loadouts, skill diets, a model panel under a stack); otherwise \`stack: none\` and a \`why:\` line. -->
 
 ## No-gstack arm
-<!-- Required with \`stack: loaded\`: \`arms:\` one \`<model>#no-gstack\` Arms line per model; \`inputs:\` the same rows and fixture; \`prompt:\` the task only (no SKILL.md, preamble, hooks or installed skills); \`panel:\` the same E2E kind, trials and judge; \`report:\` its row beside the variants. -->
+<!-- Required with \`stack: loaded\`: \`arms:\` one \`<model>#no-gstack\` Arms line per model; \`inputs:\` the same rows and fixture; \`prompt:\` the task only (no SKILL.md, preamble, hooks or installed skills); \`panel:\` the same E2E kind, trials and judge; \`report:\` its row beside the variants; \`masking:\` how the run agent is kept from gstack (an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain before it starts, or a container that sees no Capy drive); \`install:\` no gstack at ~/.local/share/gstack or ~/.claude/skills; \`audit:\` the per-arm drive-read audit (an arm that read a gstack skill file is contaminated and gets zero credit). -->
 
 ## Decoys
 <!-- Inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves. -->
@@ -112,6 +113,7 @@ function checkNoGstackArm(text: string, stack: ComparisonCheck['stack']): NoGsta
   if (!body?.length) return { required: true, ok: false, arms: [], problems: ['missing section'] };
   const kv = keyValues(body);
   const problems = NO_GSTACK_KEYS.filter(k => !kv[k]).map(k => `missing ${k}`);
+  for (const k of ['masking', 'install', 'audit'] as const) if (/^(none|n\/a|no|-)\.?$/i.test(kv[k] ?? '')) problems.push(`${k}: ${kv[k]} is not a plan`);
   const listed = (kv.arms ?? '').split(/[\s,]+/).map(a => a.replace(/^`|`$/g, '')).filter(Boolean);
   const ids = armIdentities(text);
   for (const a of listed) {

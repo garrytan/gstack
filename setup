@@ -53,7 +53,7 @@ Options:
   -q, --quiet       Suppress progress output.
   -h, --help        Show this help and exit.
 
-Claude Code hooks (off by default; docs/skill-routing-and-contracts.md):
+Claude Code hooks (docs/skill-routing-and-contracts.md):
   --skill-routing / --no-skill-routing
                     Name the gstack skill a prompt fits, in one line of
                     context (UserPromptSubmit). Saved as skill_routing.
@@ -4882,32 +4882,42 @@ if [ "$NO_TEAM_MODE" -ne 1 ] && [ "$TL_DECISION" != "no" ] && [ -x "$SETTINGS_HO
 fi
 
 # ─── Skill routing + contract hooks (GST-1088) ───────────────────────────────
-# Two opt-in Claude Code hooks, both OFF by default (docs/skill-routing-and-contracts.md):
+# Two Claude Code hooks (docs/skill-routing-and-contracts.md):
 #   skill_routing   — UserPromptSubmit: one line naming the gstack skill a prompt fits.
 #   skill_contracts — Stop: blocks once when a contract skill ends without its outputs.
 # Gate per hook, mirroring the timeline_stop_hook block above: flag > env
 # (GSTACK_SKILL_ROUTING / GSTACK_SKILL_CONTRACTS) > saved config (skill_routing /
-# skill_contracts) > default off. An explicit flag persists to config; a typo
-# warns and is not persisted; off (or --no-team) removes a live registration.
+# skill_contracts) > the switch's default, SWITCH_DEFAULT in lib/skill-route.ts,
+# read through gstack-skill-route --default (off if that cannot run). An
+# explicit flag persists to config; a typo warns, takes the default and is not
+# persisted; off (or --no-team) removes a live registration.
 # The hooks read the same switch at run time, so `gstack-config set <key> off`
 # takes effect on the next prompt without re-running setup.
 _skill_hook_gate() {
   local key="$1" mode="$2" env_name="$3" event="$4" cmd="$5" source="$6" timeout="$7" what="$8"
-  local decision src out unrecognized=0
+  local decision src out def unrecognized=0
+  def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SKILL_ROUTE_BIN" --default "$key" 2>/dev/null || true)"
+  [ "$def" = "on" ] || def="off"
   if [ -n "$mode" ]; then
     decision="$mode"; src="flag"
   elif [ -n "${!env_name:-}" ]; then
     decision="${!env_name}"; src="env $env_name"
   else
-    decision="$("$GSTACK_CONFIG" get "$key" 2>/dev/null || true)"; src="config $key"
+    decision="$("$GSTACK_CONFIG" get --stored "$key" 2>/dev/null || true)"; src="config $key"
+    if [ "$decision" = "unset" ]; then decision=""; src="default"; fi
+    if [ "$decision" = "unreadable" ]; then
+      log "  WARNING: cannot read $key from config — using 'off' for this run whatever the default; fix config.yaml, then re-run setup"
+      decision="off"
+    fi
   fi
   decision=$(printf '%s' "$decision" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
   case "$decision" in
-    on|yes|y|true|1)          decision="on" ;;
-    off|no|n|false|skip|0|"") decision="off" ;;
+    on|yes|y|true|1)       decision="on" ;;
+    off|no|n|false|skip|0) decision="off" ;;
+    "")                    decision="$def" ;;
     *)
-      log "  WARNING: unrecognized $key value '$decision' (from $src) — using default 'off' for this run, not persisting"
-      decision="off"; unrecognized=1 ;;
+      log "  WARNING: unrecognized $key value '$decision' (from $src) — using default '$def' for this run, not persisting"
+      decision="$def"; unrecognized=1 ;;
   esac
   if [ -n "$mode" ] && [ "$unrecognized" -eq 0 ]; then
     "$GSTACK_CONFIG" set "$key" "$decision" >/dev/null 2>&1 || true
@@ -4929,6 +4939,7 @@ _skill_hook_gate() {
     log "  warning: settings hook update failed: $(printf '%s\n' "$out" | head -1) — run $SETTINGS_HOOK manually"
   fi
 }
+SKILL_ROUTE_BIN="$SOURCE_GSTACK_DIR/bin/gstack-skill-route"
 SKILL_ROUTE_HOOK="$(_hook_command_path hosts/claude/hooks/skill-route-hook || true)"
 SKILL_CONTRACT_HOOK="$(_hook_command_path hosts/claude/hooks/skill-contract-stop-hook || true)"
 _skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPromptSubmit \

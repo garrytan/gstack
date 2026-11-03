@@ -43,7 +43,7 @@ describe('ship source controller', () => {
   test('the review plan drives the repeat, the fix-check binds under its own skill, and Step 11.5 accepts a fix-check or a planned adversarial skip', () => {
     const decide = review.slice(review.indexOf('### Decide whether to repeat Step 9'), review.indexOf('**Required-probe parent gate:**'));
     for (const flag of ['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate', '--critical-found', '--adversarial-ran', '--reviewed-numbers <fp>']) expect(decide).toContain(flag);
-    expect(decide).toContain('its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4.');
+    expect(decide).toContain('its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4, `platform` 4.');
     expect(decide).toContain('`gstack-review-log --start review-fix-check` token');
     expect(decide).toContain('`"skill":"review-fix-check"` with `--finish <token>`');
     expect(compact(read('ship/sections/adversarial.md.tmpl'))).toContain("Step 9's last full-pass plan governs this step");
