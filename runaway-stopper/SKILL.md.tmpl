@@ -38,7 +38,7 @@ const pages = 3; // 1 for an org sweep; empty_wake needs 20+ turns, else it prin
 const max = Math.floor(240 / (pages + 1)); // threads per program, under the 256-call limit
 const cursor = undefined; // the previous program's NEXT_CURSOR, to continue a large sweep
 const dir = "/home/user/.capy/work/runaway/" + crypto.randomUUID();
-const list = await tools.thread.list({ scope: "crew", status: ["working", "waiting", "idle"], limit: max, cursor }); // org sweep: scope "all"
+const list = await tools.thread.list({ scope: "crew", status: ["working", "waiting", "idle"], limit: Math.min(100, max), cursor }); // org sweep: scope "all"
 const codes = [...list.items.map(t => t.code), ...(cursor ? [] : ["this"])].slice(0, max);
 const fetch = async code => {
   let before, events = [], doc;
@@ -51,9 +51,11 @@ const fetch = async code => {
   }
   await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events }) });
 };
-for (let k = 0; k < codes.length; k += 8) await Promise.all(codes.slice(k, k + 8).map(fetch));
+const failed = [];
+for (let k = 0; k < codes.length; k += 8) (await Promise.allSettled(codes.slice(k, k + 8).map(fetch)))
+  .forEach((r, j) => r.status === "rejected" && failed.push(codes[k + j]));
 const scan = await tools.capy.bash({ command: `$HOME/.local/share/gstack/bin/gstack-runaway scan --dir ${dir}; s=$?; rm -rf ${dir}; exit $s`, description: "Scanning" });
-return scan.output + (list.cursor ? "\nNEXT_CURSOR: " + list.cursor : "");
+return scan.output + (failed.length ? "\nFETCH_FAILED: " + failed.join(" ") : "") + (list.cursor ? "\nNEXT_CURSOR: " + list.cursor : "");
 ```
 
 A lane with nested subagents can also write `tools.subagent.list()` to `<code>.subagents.json` in that directory:
@@ -71,10 +73,11 @@ last 40 turns. Review rounds past 2 per PR. Act on each line:
 | `FLAG: LOOK` | A finished subagent past 100M: find why (reused for several runs? full-depth review?) and fix that cause from Step 4. |
 | `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once. |
 | `DEFER:` | The thread is mid-/ship or mid-merge: act on nothing now; scan again when that work finishes. |
-| `RUNAWAY_INPUT:` | That thread's file was unreadable: fetch it again and rerun; never count it as OK. |
+| `RUNAWAY_INPUT:`, `FETCH_FAILED:` | That thread wasn't read: fetch it again and rerun; never count it as OK. |
 
 No `RUNAWAY:` or `SWEEP:` line means the scan failed, never that the crew is clean. `DEFER:` holds a rotation, and
-a stop of a subagent that is itself mid-/ship (its own cap stops it); stopping any other subagent goes ahead.
+a stop of a subagent that is itself, or holds, a /ship mid-run (its own cap stops it); stopping any other subagent
+goes ahead.
 
 ## 2. Stop a subagent
 

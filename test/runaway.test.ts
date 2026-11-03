@@ -71,6 +71,10 @@ describe('gstack-runaway scan', () => {
     expect(run('scan', '--thread', write('defer-rot.json', rot), '--now', NOW).out).toContain('verdict=DEFER');
     const watcher = { ...rot, tasks: [task(6, 'pregate watcher', 1e6, 'waiting')] };
     expect(run('scan', '--thread', write('defer-wait.json', watcher), '--now', NOW).out).toContain('verdict=ROTATE');
+    const waitingShip = { ...doc, tasks: [task(7, 'ship #4001 at abc1234 q7x2', 150e6, 'waiting')] };
+    expect(run('scan', '--thread', write('defer-wship.json', waitingShip), '--now', NOW).out).toContain('verdict=DEFER');
+    const parent = { ...doc, tasks: [{ path: '1', title: 'Implement feature', status: 'working', cost: { tokens: 150e6 } }, { path: '1.1', title: 'ship #4001', status: 'working', cost: { tokens: 10e6 } }] };
+    expect(run('scan', '--thread', write('defer-parent.json', parent), '--now', NOW).out).toContain('verdict=DEFER');
   });
 
   test('active means working, waiting, or a turn in the last 24 hours; an old quiet thread is not rotated', () => {
@@ -198,6 +202,7 @@ describe('gstack-runaway scan', () => {
     expect(run('scan', '--thread', write('ok2.json', FOUN4), '--now', 'yesterday').err).toContain('RUNAWAY_USAGE: --now is not an ISO time');
     expect(run('scan', '--thread', write('ok3.json', FOUN4), '--dir', tmp).err).toContain('RUNAWAY_USAGE: pass exactly one of');
     expect(run('scan', '--dir', path.join(tmp, 'nope')).err).toContain('RUNAWAY_USAGE: no directory');
+    expect(run('scan', '--thread', write('ok4.json', FOUN4), '--event', 'x.json').err).toContain('RUNAWAY_USAGE: unknown argument "--event"');
   });
 });
 
@@ -205,6 +210,8 @@ describe('/runaway-stopper skill', () => {
   const skill = fs.readFileSync(path.resolve(import.meta.dir, '..', 'runaway-stopper', 'SKILL.md.tmpl'), 'utf8');
   test('the fetch program stays under the 256-call limit at every documented page count, pages the list, and cleans up', () => {
     expect(skill).toContain('const max = Math.floor(240 / (pages + 1));');
+    expect(skill).toContain('limit: Math.min(100, max)');
+    expect(skill).toContain('Promise.allSettled');
     for (const pages of [1, 3]) expect(Math.floor(240 / (pages + 1)) * (pages + 1) + 2).toBeLessThan(256);
     expect(skill).toContain('NEXT_CURSOR');
     expect(skill).toContain('rm -rf');

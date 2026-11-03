@@ -1,0 +1,4 @@
+{
+  "bytes": 109,
+  "why": "GST-1279: budget-handoff Meter names the task-row reading for a /ship subagent with GSTACK_SHIP_TASK_TITLE; DRIVER Phase 2 start line gains [--reading-from task]"
+}

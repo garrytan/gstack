@@ -130,8 +130,9 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
   const rounds = reviewRounds(listed);
   if (rounds && rounds.rounds > LIMITS.maxRounds) flags.push({ action: 'WARN', text: 'review_rounds ' + rounds.rounds + ' on #' + rounds.pr + ' > ' + LIMITS.maxRounds });
 
-  const shipping = listed.filter(t => t.status === 'working' && MID_SHIP.test(t.title ?? ''));
-  const stopsShipping = flags.some(f => f.action === 'STOP' && shipping.some(t => f.text.startsWith('subagent ' + pathOf(t) + ' ')));
+  const shipping = listed.filter(t => MID_SHIP.test(t.title ?? '') && (t.status === 'working' || (t.status === 'waiting' && /#\d+/.test(t.title ?? ''))));
+  const stopPaths = listed.filter(t => tok(t) > LIMITS.subagentStop && !TERMINAL.has(t.status ?? '')).map(pathOf);
+  const stopsShipping = stopPaths.some(p => shipping.some(t => pathOf(t) === p || pathOf(t).startsWith(p + '.')));
   const defer = shipping.map(t => pathOf(t) + ' ' + quote(t.title) + ' ' + t.status);
   const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
   const holds = flags.some(f => f.action === 'ROTATE') || stopsShipping;
@@ -192,8 +193,11 @@ export function runawayMain(argv: string[]): number {
   if (cmd === '--help' || cmd === '-h') { console.log(USAGE.join('\n')); return 0; }
   const fail = (msg: string) => { console.error('RUNAWAY_USAGE: ' + msg + '\n' + USAGE.join('\n')); return 2; };
   if (cmd !== 'scan') return fail(cmd ? 'unknown command ' + JSON.stringify(cmd) : 'no command');
+  const known = ['--thread', '--events', '--subagents', '--dir', '--now'];
+  const unknown = rest.find((a, k) => (k % 2 === 0) !== known.includes(a) || (k % 2 === 0 && !a.startsWith('--')));
   const missing = rest.find((a, k) => a.startsWith('--') && (rest[k + 1] === undefined || rest[k + 1]!.startsWith('--')));
   if (missing) return fail(missing + ' needs a value');
+  if (unknown) return fail('unknown argument ' + JSON.stringify(unknown));
   const opt = (name: string) => { const k = rest.indexOf('--' + name); return k >= 0 ? rest[k + 1] : undefined; };
   const now = opt('now') ? Date.parse(opt('now')!) : Date.now();
   if (!Number.isFinite(now)) return fail('--now is not an ISO time');

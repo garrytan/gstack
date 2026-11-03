@@ -134,6 +134,8 @@ describe('meter scope (GST-467)', () => {
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     expect(h.sb(['note', '--run', run, '--step', '6', '--reading', '100000000', '--credits', '150']).code).toBe(0);
     expect(h.sb(['note', '--run', run, '--step', '9', '--reading', '125000000', '--credits', '160']).code).toBe(3);
+    const viaEnv = fresh();
+    expect(viaEnv.sb(['start', '--record', viaEnv.record(), '--mode', 'observe', '--reading', '20000000'], { GSTACK_SHIP_TASK_TITLE: 'ship #1 at abc1234 q7x2' }).out).toContain('BUDGET_DEFAULT_CAP: 100M');
     for (const [args, env] of [[[...sub, '--token-cap', 'none'], {}], [sub, { GSTACK_SHIP_TOKEN_CAP: 'none' }], [[...sub, '--token-cap', '200M'], {}],
       [['--mode', 'observe', '--reading', '1000000000'], {}], [['--reading', '1000000000', '--reading-from', 'task'], {}],
       [['--mode', 'observe', '--reading', '1000000000', '--subagent', '--reading-from', 'this'], {}]] as const) {

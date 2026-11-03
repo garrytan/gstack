@@ -242,7 +242,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
   const scope = str(o, 'meter-scope');
   if (scope !== undefined && scope !== 'self' && scope !== 'tree') throw usageError(`--meter-scope '${scope}' is not self or tree`);
-  const from = str(o, 'reading-from');
+  const from = str(o, 'reading-from') ?? (ctx.env.GSTACK_SHIP_TASK_TITLE ? 'task' : undefined);
   if (from !== undefined && from !== 'this' && from !== 'own' && from !== 'task') throw usageError(`--reading-from '${from}' is not this, own or task`);
   const parentCounter = (o.subagent === true || ctx.env.GSTACK_SHIP_SUBAGENT === '1') && from === 'this';
   if (parentCounter && scope === 'self') throw budgetError('METER_SCOPE_PARENT', 'start --subagent --reading-from this --meter-scope self');
