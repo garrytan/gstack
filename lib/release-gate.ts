@@ -302,16 +302,20 @@ function finishRed(env: GateEnv, c: Context, rec: ReleaseRecord, lines: string[]
   return out('held', rec.sha);
 }
 
-/** Collect a bisect round's prefix records into its results; the cost they report is added to the spend. */
+/**
+ * Collect a bisect round's prefix records into its results. Each case on each prefix adds its reported cost to the spend, or
+ * RELEASE_TRIAL_RESERVATION_USD when the cost is null or the prefix record is missing, so the cap holds across rounds.
+ */
 function collectRound(env: GateEnv, b: ReleaseBisect, round: ReleaseBisectRound, run: Run): void {
   for (const p of round.prefixes) {
     const text = artifactFile(env, run.id, `${RELEASE_BISECT_ARTIFACT}-bisect-${p.sha.slice(0, 12)}`, 'bisect-prefix.json');
     let rec: { kind?: string; nonce?: string; prefix_sha?: string; checked_out_sha?: string; panels?: Array<{ case: string; status: string; red_class: string | null; cost_usd: number | null }> } | null = null;
     try { rec = text ? JSON.parse(text) : null; } catch { rec = null; }
-    if (!rec || rec.kind !== 'train-bisect-prefix' || rec.nonce !== round.nonce || rec.prefix_sha !== p.sha || rec.checked_out_sha !== p.sha || !Array.isArray(rec.panels)) continue;
-    for (const panel of rec.panels) {
-      if (!b.cases.includes(panel.case)) continue;
-      b.spent_usd = Math.round((b.spent_usd + (typeof panel.cost_usd === 'number' ? panel.cost_usd : 0)) * 100) / 100;
+    const valid = rec && rec.kind === 'train-bisect-prefix' && rec.nonce === round.nonce && rec.prefix_sha === p.sha && rec.checked_out_sha === p.sha && Array.isArray(rec.panels);
+    for (const c of b.cases) {
+      const panel = valid ? rec!.panels!.find(x => x.case === c) : undefined;
+      b.spent_usd = Math.round((b.spent_usd + (typeof panel?.cost_usd === 'number' ? panel.cost_usd : RELEASE_TRIAL_RESERVATION_USD)) * 100) / 100;
+      if (!panel) continue;
       if (panel.status === 'PASS') p.results[panel.case] = 'green';
       else if (panel.status === 'FAIL' && panel.red_class === 'VERDICT') p.results[panel.case] = 'red';
     }

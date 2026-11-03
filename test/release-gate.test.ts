@@ -306,6 +306,34 @@ describe('release gate: red, bisect and the hold', () => {
   });
 });
 
+describe('release gate: the bisect cap with unknown costs', () => {
+  // Value: protects=a bisect whose prefix records report cost_usd null (what scripts/train-gate.ts writes today) books
+  // RELEASE_TRIAL_RESERVATION_USD per case and prefix, so a later round sees the spend and the bisect stops capped within its cap; fails_when=null
+  // costs count as $0 and every round reserves the whole cap again (about 4x the cap over MAX_BISECT_ROUNDS); why_new=review finding (targeted
+  // money, l1 fix-check); seam=fake gh; no_claim=real case prices
+  test('null prefix costs are charged at the reservation, and the bisect ends capped within its cap', () => {
+    const f = fixture();
+    const order = [f.base, ...f.c, ...[6, 7, 8, 9, 10, 11, 12].map(i => f.commit('c' + i))];
+    const fake = fakeGh((inputs) => {
+      if (!inputs.prefix_shas) return { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) };
+      const files: Record<string, Record<string, string>> = {};
+      for (const sha of inputs.prefix_shas.split(',')) {
+        const red = order.indexOf(sha) >= 7;
+        files['gstack-release-record-bisect-' + sha.slice(0, 12)] = { 'bisect-prefix.json': JSON.stringify({ schema: 1, kind: 'train-bisect-prefix', nonce: inputs.nonce, prefix_sha: sha, checked_out_sha: sha,
+          panels: [{ case: 'case-a', kind: 'rule', status: red ? 'FAIL' : 'PASS', red_class: red ? 'VERDICT' : null, cost_usd: null }] }) };
+      }
+      return { conclusion: 'success', artifacts: files };
+    });
+    const out = runGate(envFor(f, fake.gh), { gate: { ...GATE, bisect_spend_cap_usd: 4 }, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(out.action, out.lines.join('\n')).toBe('held');
+    const bisect = records(f)[0]!.bisect!;
+    expect(bisect).toMatchObject({ state: 'capped', spent_usd: 3 });
+    expect(bisect.spent_usd).toBeLessThanOrEqual(4);
+    expect(fake.dispatches).toHaveLength(2);
+    expect(fake.dispatches[1]!.inputs.prefix_shas!.split(',')).toHaveLength(2);
+  });
+});
+
 describe('release gate: verdict, range and policy units', () => {
   test('parseReport and classifyRun: verdict reds bisect, other classes keep a red incomplete, success is green, and a contradiction is incomplete', () => {
     const r = parseReport(report('RED', ['case-a  rule  FAIL  VERDICT', 'judge one  judge  FAIL', 'case-z  rule  FAIL  INFRA'])['report-verdict-a1']['report.txt']);
