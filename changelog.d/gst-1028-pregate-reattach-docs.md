@@ -3,7 +3,7 @@
 ### Changed
 - **The create-time line says to rerun first.** `pregate-remote.sh` now prints "rerun the same command to reattach; if the rerun does not reattach to it, or you give up, destroy it with: …".
 - **`docs/pregate.md` explains reattach.** It lists what the run key covers (the tree, the planned files, the commit `origin/HEAD` points at, `UBI_LOCATION`, size, environment, and the runner script and setup it uploads), so a lane knows when a rerun will find the old VM. It also says to destroy the old VM when the rerun creates a new one instead.
-- **The /ship driver says it too.** `ship/DRIVER.md` tells a lane to rerun the same command after a restart. To stay under its 12,288-byte cap, two hints that duplicated other text were cut: "(log it)" and "(pushed or ALREADY_PUSHED)".
+- **The /ship driver says it too.** `ship/DRIVER.md` tells a lane to rerun the same command after a restart, and stays under its 12,288-byte cap.
 
 ### Tests
 - `test/ubicloud-pregate-remote.test.ts` pins the new create-time line, and `test/ship-driver.test.ts` pins the driver's restart line.
