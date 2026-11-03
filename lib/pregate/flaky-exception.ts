@@ -25,9 +25,7 @@ import type { PregateException, PregateFile } from '../headless-artifacts';
 import { parseRunRef, verifyRun, type ApiJob, type ApiRun, type RunArtifactDeps, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
-import { classifyBunTestOutputLine, parseBunFailureResult, stripAnsiLine } from '../../scripts/lib/shard-engine';
 import type { FreeCiPlan, FreeCiResult, FreeShardOutcome } from '../../scripts/test-free-shards';
-import { isPaidTestFile } from '../../test/helpers/paid-test-set';
 import { isConfigUnavailable, loadConfigFromBase } from './config';
 import { buildGraph, testsFor } from './import-graph';
 
@@ -51,12 +49,13 @@ const SHARD_LAYOUTS: Record<string, ShardLayout> = {
   'windows-free-tests.yml': { plan: 'windows-plan', result: 'windows-result-', logs: 'windows-free-test-shard-logs-', shardJob: 'windows-free-shard', aggregate: 'windows-free-tests' },
 };
 /** A test of a security scanner (/cso, secrets, gitleaks, the sealed guard, redaction, OSV): never excepted. */
-const SECURITY_TEST = /(?:^|[-_.])(?:cso|secrets?|gitleaks|sealed|redact|osv)(?=[-_.])/;
+const SECURITY_TEST = /(?:^|[-_.])(?:cso|secrets?|gitleaks|sealed|redact\w*|osv|security|sanitize\w*|injection|inject)(?=[-_.])/;
 const SHA = /^[0-9a-f]{40}$/;
 const LOG_FILE_HEADER = /^(\S.*\.test\.(?:[cm]?[jt]s|tsx|jsx)):$/;
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const short = (s: string | undefined) => (s ?? '').slice(0, 12);
+const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /** The gstack-approvals scope that grants one exception: a digest of every field it binds, cases in sorted order. */
 export function exceptionBinding(e: ExceptionSubject): string {
@@ -109,6 +108,18 @@ export function exceptionProblem(file: PregateFile): string | null {
   }
   const orphan = list.find(e => !remote.some(r => r.lane === e.lane && EXCEPTION_RECEIPT.exec(r.receipt ?? '')?.[1] === e.grant));
   return orphan ? `pregate.json records a flaky exception for ${orphan.lane} (grant ${orphan.grant}) that no receipt uses; clear again` : null;
+}
+
+/** Why `file`'s exceptions cannot stand for this PR head: each binds the PR and head it was granted for, and a same-tree commit or another PR reusing the record never inherits it. */
+export function exceptionConsumerProblem(file: PregateFile, head: string, pr?: string): string | null {
+  const e = (file.exceptions ?? []).find(x => x.head !== head || (pr !== undefined && String(x.pr) !== pr));
+  return e ? `flaky exception grant ${e.grant} is bound to PR #${e.pr} at ${short(e.head)}, not ${pr ? `PR #${pr} at ` : ''}${short(head)}; a new head needs a new run and a new grant` : null;
+}
+
+/** Why red run `id` no longer stands as completed, failed attempt `attempt`; read again once the whole clear is assembled. */
+export function redRunChanged(deps: RunDeps, id: number, attempt: number): string | null {
+  const again = deps.run(id);
+  return again.run_attempt === attempt && again.status === 'completed' && again.conclusion === 'failure' ? null : `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`;
 }
 
 /** verify's ok-line suffix naming each exception. */
@@ -303,6 +314,7 @@ function logProblem(art: FailureDeps, id: number, name: string, n: number, plann
     const stripped = printed.replace(/\\/g, '/').replace(/^(?:\.{1,2}\/)+/, '');
     return planned.includes(stripped) ? stripped : planned.find(p => stripped.endsWith(`/${p}`) || p.endsWith(`/${stripped}`)) ?? stripped;
   };
+  const { classifyBunTestOutputLine, parseBunFailureResult, stripAnsiLine } = require('../../scripts/lib/shard-engine') as typeof import('../../scripts/lib/shard-engine');
   for (const [, text] of logs) {
     let file: string | null = null;
     let recap = false;
@@ -358,6 +370,7 @@ export function flakyDecision(file: PregateFile, lane: string, check: { repo: st
   const notFailed = input.cases.find(c => !failures.includes(c));
   if (notFailed) return invalid(lane, 'case_not_failed', `${notFailed} did not fail in ${label}; its failures are ${failures.join(', ')}`);
   const files = [...new Set(input.cases.map(c => c.slice(0, c.indexOf('::'))))];
+  const { isPaidTestFile } = require('../../test/helpers/paid-test-set') as typeof import('../../test/helpers/paid-test-set');
   const paid = files.find(f => isPaidTestFile(f));
   if (paid) return invalid(lane, 'case_paid', `${paid} is a paid test file; the paid gate covers it, never an exception`);
   const security = files.find(f => SECURITY_TEST.test(path.posix.basename(f)));
@@ -377,9 +390,9 @@ export function flakyDecision(file: PregateFile, lane: string, check: { repo: st
   const subject: ExceptionSubject = { lane, repo: check.repo, pr: input.pr!, head: file.head!, tree: file.tree, runs: runs.evidence.map(e => `${e.run_id}/${e.run_attempt}`), cases: [...input.cases].sort() };
   const binding = exceptionBinding(subject);
   if (!input.grant) {
-    const ask = `Accept flaky ${subject.cases.join(', ')} in run ${subject.runs.join(',')} for PR #${subject.pr} at ${short(subject.head)}? Pregate only; required CI still needs a green run.`.replace(/"/g, "'").slice(0, 300);
+    const ask = `Accept flaky ${subject.cases.join(', ')} in run ${subject.runs.join(',')} for PR #${subject.pr} at ${short(subject.head)}? Pregate only; required CI still needs a green run.`.slice(0, 300);
     return invalid(lane, 'grant_needed', `every failure in ${label} is named (${subject.cases.join(', ')}) and outside the PR's diff and its import closure; the owner must grant the exception`,
-      `ask the owner, record their words with gstack-approvals add --ask "${ask}" --words "<the owner's exact words>" --by "<owner>" --scope "${binding}" --source pregate-flaky-exception, then rerun this clear with --grant <the row id it prints>`);
+      `ask the owner, record their words with gstack-approvals add --ask ${shellQuote(ask)} --words "<the owner's exact words>" --by "<owner>" --scope "${binding}" --source pregate-flaky-exception, then rerun this clear with --grant <the row id it prints>`);
   }
   const row = input.grantRow?.(input.grant) ?? null;
   if (!row) return invalid(lane, 'grant_missing', `no gstack-approvals row ${input.grant} in this branch's record`);

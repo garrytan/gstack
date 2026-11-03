@@ -50,7 +50,7 @@ async function pregateAt(repo: FixtureRepo): Promise<PregateFile> {
 }
 
 interface Shard { files: string[]; failures?: Array<[string | null, string]>; status?: 'passed' | 'failed' | 'timed-out'; unattributed?: number; retry?: { files: string[]; failures: Array<[string, string]> }; log?: string | null }
-interface RunOver { conclusion?: string; jobs?: (jobs: ApiJob[]) => ApiJob[]; missing?: string[]; pull?: { head_sha: string; state: string; head_repo: string | null }; newer?: boolean; attemptAfter?: number }
+interface RunOver { conclusion?: string; jobs?: (jobs: ApiJob[]) => ApiJob[]; missing?: string[]; pull?: { head_sha: string; state: string; head_repo: string | null }; newer?: boolean; attemptAfter?: number; api?: Partial<ApiRun> }
 
 const DEFAULT_SHARDS: Shard[] = [
   { files: ['test/retry.test.js', 'test/a.test.ts'], failures: [['test/retry.test.js', 'retries three times']] },
@@ -98,7 +98,7 @@ function redRun(repo: FixtureRepo, head: string, shards: Shard[] = DEFAULT_SHARD
   let reads = 0;
   const api = (): ApiRun => ({
     id: 400, run_attempt: reads++ > 0 && over.attemptAfter ? over.attemptAfter : 1, status: 'completed', conclusion: over.conclusion ?? (anyFailed ? 'failure' : 'success'), event: 'workflow_dispatch', head_sha: head,
-    path: '.github/workflows/free-tests.yml', created_at: '2026-10-29T10:00:00Z', updated_at: at, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' },
+    path: '.github/workflows/free-tests.yml', created_at: '2026-10-29T10:00:00Z', updated_at: at, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' }, ...over.api,
   });
   const deps: RunDeps = {
     run: id => { if (id !== 400) throw new Error('HTTP 404'); return api(); },
@@ -130,7 +130,7 @@ describe.skipIf(process.platform === 'win32')('clear --flaky-exception: an owner
     const file = await pregateAt(repo);
     const check = redRun(repo, head);
     const asked = clearDecision(file, LANE, { runs: ['400'], evidence: check, flaky: { cases: [FLAKE], pr: 7 } }, repo.work);
-    expect(msg(asked)).toMatch(/^PREGATE_RECEIPT_INVALID: FLAKY_EXCEPTION: refused reason=grant_needed — .*test\/retry\.test\.js::retries three times.*; fix: .*gstack-approvals add --ask ".*" --words "<the owner's exact words>" --by "<owner>" --scope "flaky-exception:[0-9a-f]{64}" --source pregate-flaky-exception/);
+    expect(msg(asked)).toMatch(/^PREGATE_RECEIPT_INVALID: FLAKY_EXCEPTION: refused reason=grant_needed — .*test\/retry\.test\.js::retries three times.*; fix: .*gstack-approvals add --ask '.*' --words "<the owner's exact words>" --by "<owner>" --scope "flaky-exception:[0-9a-f]{64}" --source pregate-flaky-exception/);
     const d = clearDecision(file, LANE, { runs: ['400'], evidence: check, flaky: { cases: [FLAKE], pr: 7, grant: 'a-1', grantRow: grantFor(asked) } }, repo.work);
     if ('refused' in d) throw new Error(d.message);
     expect(d.receipt).toBe(`remote-gate tree=${file.tree.slice(0, 12)} tests=18 exception=a-1 cases=1 runs=400/1 profiles=${PROFILE_NAME} heads=${head.slice(0, 12)} verified=2026-10-29T12:00:00.000Z`);
@@ -195,6 +195,32 @@ describe.skipIf(process.platform === 'win32')('clear --flaky-exception: an owner
     expect(clear(redRun(repo, head, DEFAULT_SHARDS, { conclusion: 'cancelled' }))).toContain('reason=run_not_failure');
     expect(clear(redRun(repo, head, DEFAULT_SHARDS, { newer: true }))).toContain('reason=newer_run');
     expect(clear(redRun(repo, head, DEFAULT_SHARDS, { attemptAfter: 2 }))).toContain('reason=run_changed');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { api: { repository: { full_name: 'other/fx' } } }))).toContain('reason=other_repository');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { api: { head_repository: { full_name: 'fork/fx' } } }))).toContain('reason=fork_run');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { api: { path: '.github/workflows/evals.yml' } }))).toContain('reason=workflow_mismatch');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { api: { event: 'push' } }))).toContain('reason=event_mismatch');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { api: { status: 'in_progress' } }))).toContain('reason=run_in_progress');
+    expect(clear(redRun(repo, head, DEFAULT_SHARDS, { jobs: js => js.map(j => ({ ...j, completed_at: '2026-10-27T10:30:00Z' })) }))).toContain('reason=run_stale');
+  }, 120_000);
+
+  test('a red run that moves while the clear is assembled refuses, and the printed grant command quotes case names for the shell', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const file = await pregateAt(repo);
+    const check = redRun(repo, head);
+    const asked = clearDecision(file, LANE, { runs: ['400'], evidence: check, flaky: { cases: [FLAKE], pr: 7 } }, repo.work);
+    let rerun = false;
+    const run = check.deps.run;
+    const moving: RunCheck = { ...check, deps: { ...check.deps, run: id => (rerun ? { ...run(id), run_attempt: 2, status: 'in_progress' } : run(id)) }, inventory: () => { rerun = true; return ['test/a.test.ts', 'test/b.test.ts'] } };
+    expect(msg(clearDecision(file, LANE, { runs: ['400'], evidence: moving, flaky: { cases: [FLAKE], pr: 7, grant: 'a-1', grantRow: grantFor(asked) } }, repo.work))).toContain('reason=run_changed — run 400 moved to attempt 2 (in_progress)');
+    const name = "times out $(touch pwned) `id` it's";
+    const shard: Shard[] = [{ files: ['test/retry.test.js', 'test/a.test.ts'], failures: [['test/retry.test.js', name]] }, DEFAULT_SHARDS[1]!];
+    const fix = msg(clearDecision(file, LANE, { runs: ['400'], evidence: redRun(repo, head, shard), flaky: { cases: [`test/retry.test.js::${name}`], pr: 7 } }, repo.work));
+    const ask = /--ask ('(?:[^']|'\\'')*') --words/.exec(fix)?.[1];
+    expect(ask).toBeDefined();
+    const echoed = Bun.spawnSync(['bash', '-c', `printf %s ${ask}`], { cwd: repo.work, timeout: 10_000 });
+    expect(echoed.stdout.toString()).toContain(`test/retry.test.js::${name}`);
+    expect(fs.existsSync(path.join(repo.work, 'pwned'))).toBe(false);
   }, 120_000);
 
   test('a retry that passed is a recovered flake; a retry that failed again keeps only its own failures', async () => {
@@ -216,6 +242,8 @@ describe.skipIf(process.platform === 'win32')('clear --flaky-exception: an owner
     expect(one('test/util.test.js', 'adds')).toContain('reason=case_in_closure — test/util.test.js depends on a file the PR changes (lib/util.js)');
     expect(one('test/skill-e2e-flaky.test.ts', 'judge')).toContain('reason=case_paid — test/skill-e2e-flaky.test.ts is a paid test file');
     expect(one('test/cso-docker-policy.test.ts', 'times out')).toContain('reason=case_security — test/cso-docker-policy.test.ts tests a security scan');
+    expect(one('test/ship-template-redaction.test.ts', 'blocks')).toContain('reason=case_security');
+    expect(one('browse/test/content-security.test.ts', 'blocks')).toContain('reason=case_security');
 
     const touched = fixture();
     commit(touched, { 'test/retry.test.js': "const test = require('node:test');\ntest('retries three times', () => {});\n" }, 'touch the flaky test');
@@ -280,5 +308,10 @@ describe.skipIf(process.platform === 'win32')('ready with a flaky exception', ()
     const red = queue({ check_runs: [{ status: 'completed', conclusion: 'failure' }] });
     expect(red.status).toBe(EXIT.refused);
     expect(red.err).toMatch(/CI is not green at .*\(QUEUE_NOT_READY\)/);
+    const other = { ...exception, pr: 2 };
+    fs.writeFileSync(pregate, JSON.stringify({ ...JSON.parse(fs.readFileSync(pregate, 'utf8')), exceptions: [{ ...other, grant: 'a-1', by: 'Garry', words: WORDS, binding: exceptionBinding(other) }] }));
+    const moved = queue({ check_runs: [{ status: 'completed', conclusion: 'success' }] });
+    expect(moved.status).toBe(EXIT.refused);
+    expect(moved.err).toContain('flaky exception grant a-1 is bound to PR #2');
   }, 120_000);
 });

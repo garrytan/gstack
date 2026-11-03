@@ -979,9 +979,11 @@ cases. Record the owner's exact words in that row, then rerun the same clear wit
 - **The files are not the PR's business.** A named file in the PR's diff
   (`case_in_diff`), or one the import graph reaches from any changed path
   (`case_in_closure`, lib/pregate/import-graph.ts with the base branch's
-  `dependencies`), refuses. A paid test file (`case_paid`) and a test of a
-  security scanner (`case_security`: cso, secrets, gitleaks, sealed, redact, osv)
-  are never excepted. Security scans themselves are pregate checks and CI jobs,
+  `dependencies`), refuses. The closure follows imports only: a test that reads a
+  changed doc, template or workflow through the file system is not reached, so
+  required CI stays the check on it. A paid test file (`case_paid`) and a
+  security test (`case_security`: a file name with cso, secrets, gitleaks, sealed,
+  redact or redaction, osv, security, sanitize or inject) are never excepted. Security scans themselves are pregate checks and CI jobs,
   not test cases, so no exception can reach them.
 - **One head, one grant.** The runs must have tested pregate.json's own head and
   tree, with no stamp-only substitution (`head_mismatch`); the PR must be open with
@@ -989,8 +991,12 @@ cases. Record the owner's exact words in that row, then rerun the same clear wit
   (`newer_run`), and the run may not move to another attempt during the check
   (`run_changed`). The grant row must carry this exception's scope
   (`grant_mismatch` otherwise), record `approved` (`grant_not_approved`) and be
-  the owner's words, not an agent's (`grant_not_owner`). A new head needs a new
-  run and a new grant; a grant is never rebound.
+  the owner's words, not an agent's (`grant_not_owner`). That last check reads
+  the row's `by` field, which `gstack-approvals add --by` takes as written, so it
+  only catches a row honestly labeled `agent:`. The record is as trustworthy as
+  whoever writes it, the same as every gstack approval. A new head needs a new
+  run and a new grant; a grant is never rebound: `ready` and the ship receipt
+  refuse an exception granted for another PR or head, even when the tree matches.
 
 pregate.json records the grant under `exceptions` (lane, repository, PR, head,
 tree, runs, cases, grant id, who said it, their words and the binding), and the
