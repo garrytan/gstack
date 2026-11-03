@@ -184,6 +184,8 @@ export interface CarryPlanInput {
   scopedReview?: string;
   /** Stamp files the branch changed as product whose only change since the reviewed head is a stamp on the branch's own rows, the base untouched, and without which the two product patches match (GST-980). */
   stampedRows?: string[];
+  /** Version constants the base policy declares under carry_mechanical whose masked patches match, each as `<path> <reviewed value> → <HEAD value>`, the goldens proven at HEAD (GST-1210). */
+  mechanical?: string[];
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -252,7 +254,7 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * branch's own rows in a stamp file the branch also changed as product (`stampedRows`, GST-980).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
+  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length && !input.mechanical?.length))) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
@@ -261,6 +263,7 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
+  if (input.mechanical?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`mechanical version constant (${input.mechanical.join(', ')})`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');
   if (input.changed.some(c => c.class === 'generated')) reasons.push('regenerated outputs');

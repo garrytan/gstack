@@ -18,7 +18,7 @@ import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { cmpVersion, parseVersion } from './version-source';
-import { placeholderErrors, templateErrors } from './ship-policy-stamps';
+import { carryMechanicalErrors, placeholderErrors, templateErrors, type CarryMechanical } from './ship-policy-stamps';
 export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
@@ -68,6 +68,7 @@ export interface ShipPolicy {
   stamp_patterns: string[];
   /** Placeholders (`TBD`) a restamp may replace with the new version inside a `stamp_patterns` template, on the branch's own lines only. */
   stamp_placeholders: string[];
+  /** A version constant (one whole line of a literal template with one {n} slot) and goldens the carry may treat as mechanical (GST-1210). */ carry_mechanical: CarryMechanical;
   /** The repo's own restamp, run first in the staging worktree with the target version; gstack's version writer is skipped. */
   restamp_command: string | null;
   /** Migration numbering: `{ dir, id }` where `id` is a regex with one capture group over the file name. */
@@ -166,6 +167,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   stamp_files: [],
   stamp_patterns: [],
   stamp_placeholders: [],
+  carry_mechanical: { version_constants: [], goldens: [] },
   restamp_command: null,
   migrations: null,
   gate_command: null,
@@ -199,6 +201,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
   stamp_patterns: 'Literal templates with exactly one {version} slot (at most 16, 128 characters each), for example `"version": "{version}"` or `since: \'{version}\'`; the restamp writer and the tree receipt use them beside (was X), since: X and vX.',
   stamp_placeholders: 'Literal placeholders (at most 16, one line, 32 characters each, never `{version}` or a version), for example `["TBD"]`: a line the branch added that reads a placeholder in a stamp_patterns template (`since: \'TBD\'`) may become that template at the new version, and finish, the receipt carry and the tree receipt read it as a stamp. Empty (default) accepts no placeholder.',
+  carry_mechanical: '{ version_constants: [{ path, template }], goldens } (at most 8 constants, literal paths, one-line templates of at most 128 characters with exactly one {n}): read from the base branch only. gstack-ship-receipt carry masks the digits of the one line at path matching the template, compares the masked file like any other path and carries when HEAD\'s value is above the base\'s, every changed golden is proven by the pregate\'s regen check at HEAD and the rest of the product diff is the reviewed one.',
   restamp_command: 'The repo’s own restamp, run first in gstack-restamp’s staging worktree (a clean checkout of HEAD) with the target version as its argument and in GSTACK_RESTAMP_VERSION; gstack’s version writer is skipped, output confinement still applies. Needs a clean caller tree and --allow-repo-commands.',
   migrations: '{ dir, id }: the migration directory and a regex with one capture group for the number in a file name; `gstack-pregate regate` reports MIGRATION_COLLISION against the base branch and every open PR.',
   gate_command: 'The repo’s full pre-merge gate command. gstack-ship-queue gate-ahead and ready print it for the caller to run (in the background or in CI); gstack never executes it. null when the repo has none.',
@@ -243,6 +246,7 @@ export const BASE_RED_KEY_VERSION = '1.91.374.0';
 /** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.16.0';
+export const CARRY_MECHANICAL_KEY_VERSION = '1.95.0.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
@@ -252,7 +256,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
   base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION,
-  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION,
+  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, carry_mechanical: CARRY_MECHANICAL_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -492,6 +496,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('stamp_files' in obj) listErrors('stamp_files', obj.stamp_files, errors, globError);
   if ('stamp_patterns' in obj) templateErrors(obj.stamp_patterns, errors);
   if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
+  if ('carry_mechanical' in obj) carryMechanicalErrors(obj.carry_mechanical, errors);
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'restamp_command', message: 'must be a non-empty string or null' });

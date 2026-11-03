@@ -21,6 +21,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { EMPTY_PROJECT_CONFIG, scanCandidate } from './gate-diff/index';
 import { parseUnifiedDiff } from './gate-diff/git';
 import { CARRY_TEST_CODE_GLOBS } from './ship-receipt';
@@ -118,6 +120,36 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const map = mapper(b0);
   if (!r0.every((h, i) => sameSpot(h, c0[i]!, map))) return 'changed';
   return ids[0] === ids[1] ? 'same' : 'context';
+}
+
+/**
+ * The four sides with `rel` rewritten by `mask`, each as a tree built in a scratch index from that side's tree (the original
+ * mode kept), so comparePath reads the masked text with its usual rule (carry_mechanical, GST-1210). A reason string when
+ * `rel` is not a regular file at a side, git cannot build a tree, or `mask` refuses a side's text.
+ */
+export function maskedSides(repoRoot: string, s: PatchSides, rel: string, mask: (text: string, side: keyof PatchSides) => string | null): PatchSides | string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-mask-'));
+  const run = (args: string[], input?: string) => {
+    const r = spawnSync('git', ['--literal-pathspecs', ...args], { cwd: repoRoot, encoding: 'utf8', input, timeout: 60_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') } });
+    return r.status === 0 ? r.stdout : null;
+  };
+  try {
+    const out: Partial<PatchSides> = {};
+    for (const side of Object.keys(s) as Array<keyof PatchSides>) {
+      const entry = /^(100644|100755) blob ([0-9a-f]{40,64})\t/.exec(run(['ls-tree', s[side], '--', rel]) ?? '');
+      if (!entry) return `${rel} is not a regular file at ${side} ${s[side].slice(0, 12)}`;
+      const text = run(['cat-file', 'blob', entry[2]!]);
+      const masked = text === null ? null : mask(text, side);
+      if (masked === null) return `${rel} at ${side} ${s[side].slice(0, 12)} does not hold exactly one declared constant line`;
+      const blob = run(['hash-object', '-w', '--stdin'], masked)?.trim();
+      const tree = blob && run(['read-tree', s[side]]) !== null && run(['update-index', '--cacheinfo', `${entry[1]},${blob},${rel}`]) !== null ? run(['write-tree'])?.trim() : undefined;
+      if (!tree) return `git could not build the masked tree of ${rel} at ${side}`;
+      out[side] = tree;
+    }
+    return out as PatchSides;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function hunkTexts(diff: string): string[] {

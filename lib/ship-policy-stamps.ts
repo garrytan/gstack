@@ -4,6 +4,7 @@
  */
 import type { PolicyError } from './ship-policy';
 import { parseVersion } from './version-source';
+export { carryMechanicalErrors, type CarryMechanical } from './ship-carry-mechanical';
 
 const MAX_TEMPLATES = 16;
 const MAX_TEMPLATE = 128;

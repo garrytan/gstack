@@ -49,7 +49,8 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { comparePath, contextPacket, maskedSides, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { maskConstant, type CarryMechanical } from '../lib/ship-carry-mechanical';
 import { deeper, depthBelow, exceptionProblems, parseReviewLoopException, parseReviewTargeted, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -507,13 +508,13 @@ function verifiedOutputs(repoRoot: string, base: string, pregateFile: string | u
   return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
 }
 
-interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[]; placeholders: readonly string[] }
+interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[]; placeholders: readonly string[]; mechanical: CarryMechanical }
 function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
   const load = loadPolicyFromBase(repoRoot, base);
   const policy: ShipPolicy | null = isUnavailable(load) ? null : load.policy;
   const fragments = policy?.changelog_fragments?.dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '');
   const extra = { metadata: [...(policy?.stamp_files ?? []), ...(policy?.stamp_paths ?? []), ...(policy?.release_outputs ?? []), ...(policy?.changelog ? [policy.changelog] : [])], outputs, fragments };
-  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [], placeholders: policy?.stamp_placeholders ?? [] };
+  return { extra, metadata: [...CARRY_METADATA_GLOBS, ...extra.metadata, ...(fragments ? [`${fragments}/*.md`] : []), ...outputs], templates: policy?.stamp_patterns ?? [], placeholders: policy?.stamp_placeholders ?? [], mechanical: policy?.carry_mechanical ?? { version_constants: [], goldens: [] } };
 }
 
 /**
@@ -645,7 +646,8 @@ function cmdCarry(rest: string[], json: boolean): number {
   const baseRef = `origin/${base.replace(/^origin\//, '')}`;
   const headBase = git(['merge-base', baseRef, head], repoRoot);
   if (!headBase) return refused('RECEIPT_CARRY_REFUSED', `cannot resolve the merge base of ${baseRef} (fetch it first)`);
-  const rules = productRules(repoRoot, base, verifiedOutputs(repoRoot, base, flag(rest, '--pregate')));
+  const outputs = verifiedOutputs(repoRoot, base, flag(rest, '--pregate'));
+  const rules = productRules(repoRoot, base, outputs);
   const headTree = git(['rev-parse', `${head}^{tree}`], repoRoot);
   if (!headTree) return refused('RECEIPT_CARRY_REFUSED', `git could not read the tree of HEAD ${head.slice(0, 12)}`);
   const headPatch = productPatchAgainstBase(repoRoot, rules, baseRef, head);
@@ -709,6 +711,8 @@ function cmdCarry(rest: string[], json: boolean): number {
     const changedProduct: string[] = [];
     const contextPaths: string[] = [];
     const stampOnly: string[] = [];
+    const mechanical: string[] = [];
+    const mechanicalPaths: string[] = [];
     if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
@@ -737,11 +741,26 @@ function cmdCarry(rest: string[], json: boolean): number {
           continue;
         }
         if (cls !== 'product') continue;
-        const verdict = comparePath(repoRoot, sides, p);
+        let verdict = comparePath(repoRoot, sides, p);
+        const constant = verdict === 'changed' ? rules.mechanical.version_constants.find(c => c.path === p) : undefined;
+        if (constant) {
+          // A version constant the base policy declares (carry_mechanical, GST-1210): only its digits are masked, the
+          // masked sides take the same rule, and HEAD's value must be above the current base's.
+          const values: Partial<Record<keyof typeof sides, number>> = {};
+          const masked = maskedSides(repoRoot, sides, p, (text, side) => { const m = maskConstant(text, constant.template); if (m) values[side] = m.value; return m?.masked ?? null; });
+          const why = typeof masked === 'string' ? masked : values.current! > values.currentBase! ? null : `HEAD's value ${values.current} is not above the base's ${values.currentBase}`;
+          if (why || typeof masked === 'string') { changedProduct.push(`${p} (carry_mechanical: ${why})`); continue; }
+          verdict = comparePath(repoRoot, masked, p);
+          if (verdict === 'same') { mechanical.push(`${p} ${values.reviewed} → ${values.current}`); mechanicalPaths.push(p); continue; }
+        }
         if (verdict === 'changed') changedProduct.push(p);
         else if (verdict === 'context') contextPaths.push(p);
       }
-      const left = [...contextPaths, ...stampOnly];
+      // A mechanical constant carries only with the goldens proven: the pregate's regen check passed at HEAD and proved
+      // every changed path under carry_mechanical.goldens.
+      if (mechanical.length && readPregateFile(flag(rest, '--pregate') ?? '').file?.checks.find(c => c.id === 'regen')?.status !== 'pass') changedProduct.push(`(carry_mechanical: no passing pregate regen check for HEAD; run gstack-pregate and carry with --pregate)`);
+      else if (mechanical.length) for (const c of changed) if (matchesAny(rules.mechanical.goldens, c.path) && !outputs.includes(c.path)) changedProduct.push(`${c.path} (carry_mechanical: a golden the regen check did not prove)`);
+      const left = [...contextPaths, ...stampOnly, ...mechanicalPaths];
       if (!changedProduct.length && !left.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
       else if (!changedProduct.length) {
         const rest = [...spec.product, ...left.map(p => `:(exclude,literal)${p}`)];
@@ -780,7 +799,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
     const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${rangeBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(mechanical.length && !changedProduct.length ? { mechanical } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
