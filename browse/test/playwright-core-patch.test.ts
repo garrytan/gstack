@@ -1,8 +1,10 @@
 /**
- * #2160/#1989: playwright-core is bun-patched to pass windowsHide at its two
+ * #2160/#1989: playwright-core must pass windowsHide at its two
  * Windows-visible child_process sites — the browser launch spawn (Node
  * defaults windowsHide to FALSE for spawn, so browser children could flash a
- * console window) and the force-kill taskkill spawnSync. This is the repo's
+ * console window) and the force-kill taskkill spawnSync. The launch site is
+ * bun-patched; the taskkill site is upstream since Playwright 1.64 (#3907),
+ * so only the installed-tree check below covers it. This is the repo's
  * first patchedDependencies entry; these static checks pin the three-legged
  * coherence (patch file ↔ package.json ↔ installed tree) so a playwright
  * bump that forgets to re-target the patch fails CI instead of silently
@@ -35,15 +37,13 @@ describe('playwright-core windowsHide patch (#2160, #1989)', () => {
     expect(pkg.patchedDependencies[key]).toBe(`patches/playwright-core@${version}.patch`);
   });
 
-  test('the patch file exists and carries both windowsHide sites', () => {
+  test('the patch file exists and carries the launch windowsHide site', () => {
     const version = installedPlaywrightCoreVersion();
     const patchPath = path.join(ROOT, 'patches', `playwright-core@${version}.patch`);
     expect(fs.existsSync(patchPath)).toBe(true);
     const patch = fs.readFileSync(patchPath, 'utf-8');
     // Launch spawnOptions site.
     expect(patch).toContain('+    windowsHide: true,');
-    // taskkill force-kill site.
-    expect(patch).toContain('shell: true, windowsHide: true');
   });
 
   test('bun.lock is coherent: the lockfile records the patched dependency', () => {
@@ -63,10 +63,10 @@ describe('playwright-core windowsHide patch (#2160, #1989)', () => {
 
 // Windows Free Tests 40656299153 and 41056150287 (cookie-picker-ui, serial retry passed): goto failed with
 // net::ERR_NO_BUFFER_SPACE on 127.0.0.1. Chromium's TcpPortRandomizationWin raises WSAENOBUFS with ports free;
-// microsoft/playwright#43605 disables it in 1.65, and the 1.62.1 patch backports it; drop this block at 1.65.
+// microsoft/playwright#43605 disables it in 1.65, and the 1.64.1 patch backports it; drop this block at 1.65.
 describe('playwright-core TcpPortRandomizationWin backport (microsoft/playwright#43605)', () => {
   test('the patch and the installed tree disable the feature in the --disable-features list', () => {
-    expect(fs.readFileSync(path.join(ROOT, 'patches', 'playwright-core@1.62.1.patch'), 'utf-8')).toContain('+      "TcpPortRandomizationWin"');
+    expect(fs.readFileSync(path.join(ROOT, 'patches', `playwright-core@${installedPlaywrightCoreVersion()}.patch`), 'utf-8')).toContain('+      "TcpPortRandomizationWin"');
     const bundle = fs.readFileSync(path.join(ROOT, 'node_modules', 'playwright-core', 'lib', 'coreBundle.js'), 'utf-8');
     const list = bundle.slice(bundle.indexOf('disabledFeatures = ['), bundle.indexOf('].filter(Boolean);', bundle.indexOf('disabledFeatures = [')));
     expect(list).toContain('"TcpPortRandomizationWin"');
