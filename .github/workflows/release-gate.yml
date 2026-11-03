@@ -55,6 +55,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          filter: blob:none
 
       # Read with git and jq only: without a release_gate block nothing below runs.
       - name: Read the release gate policy (main)
