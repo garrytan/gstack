@@ -192,3 +192,42 @@ describe('gstack-pregate tests stage and gstack-ci-carry', () => {
     expect(cli(['bogus']).status).toBe(2);
   });
 });
+
+describe('GST-1186: pregate guards carry like lanes (founderstar shape: guards only, no lanes)', () => {
+  // Value: protects=a guard whose exact command the base's ship_lanes_from maps is carried from the verified CI run at this tree, and a guard
+  //   whose exact command already passed at this tree in the ledger is reused, so guard-only repos stop rerunning suites CI or /ship already ran;
+  //   fails_when=check-quick reruns beside a green CI run, play-through reruns after a same-tree ledger pass, or a dirty tree still carries;
+  //   why_new=FOUN-74 (founderstar GST-1184): about 6 minutes of guard suites rerun per /ship; seam=gstack-evidence record-ci and passed; no_claim=CI
+  const script = (name: string, tests: number) => `printf x >> ../${name}-runs\nprintf ' ${tests} pass\\n 0 fail\\nRan ${tests} tests across 1 file. [1.00ms]\\n' >&2\n`;
+  const CHECK = 'bash tests/check.sh --quick';
+  const PLAY = 'bash tests/play-through.sh';
+  const guard = (id: string, command: string) => ({ id, when: ['src/**'], command, fix: `rerun ${id}` });
+  const FOUNDERSTAR = {
+    ...BASE,
+    '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [CHECK]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'" } },
+      guards: [guard('check-quick', CHECK), guard('play-through', PLAY), guard('assets', 'bash tests/assets.sh')] }, null, 2) + '\n',
+    'tests/check.sh': script('check', 4), 'tests/play-through.sh': script('play', 2), 'tests/assets.sh': script('assets', 1),
+  };
+  const guards = (f: ShipFx) => f.run(path.join(BIN, 'gstack-pregate'), ['--only', 'guards', '--allow-repo-commands', '--base', 'main']);
+  const counts = (f: ShipFx) => [runs(f, 'check-runs'), runs(f, 'play-runs'), runs(f, 'assets-runs')];
+
+  test('check-quick carries from CI, play-through reuses a same-tree ledger pass, assets runs; a dirty tree carries nothing', () => {
+    const f = shipFixture(FOUNDERSTAR); fixtures.push(f);
+    world(f);
+    const first = guards(f);
+    expect(first.status, first.stdout + first.stderr).toBe(0);
+    expect(first.stdout).toContain('GUARD: check-quick carried runs=7/1');
+    expect(first.stdout).toContain('3 guard(s) passed: check-quick, play-through, assets (1 from an earlier pass at this tree)');
+    expect(counts(f)).toEqual([0, 1, 1]);
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['run', '--label', 'play', '--', PLAY]).status).toBe(0);
+    const second = guards(f);
+    expect(second.status).toBe(0);
+    expect(second.stdout).toMatch(/GUARD: play-through reused label=play source=local ts=\S+/);
+    expect(counts(f)).toEqual([0, 2, 2]);
+    f.write({ 'src/b.ts': 'export const b = 3;\n' });
+    const dirty = guards(f);
+    expect(dirty.stdout).toMatch(/CI_CARRY: none guard=check-quick \(dirty_tree/);
+    expect(dirty.stdout).not.toContain('reused');
+    expect(counts(f)).toEqual([1, 3, 3]);
+  });
+});

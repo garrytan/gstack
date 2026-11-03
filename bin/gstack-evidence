@@ -5,6 +5,7 @@
  *
  *   gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>
  *   gstack-evidence record-ci --label <L> --base <base> -- <cmd>
+ *   gstack-evidence passed -- <cmd>
  *   gstack-evidence carried [--json]
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
  *                         [--max-age <hours>] [--allow-paths <csv>]
@@ -598,6 +599,35 @@ function identityDigest(): string {
   return sha256(JSON.stringify({ bun: version("bun"), node: version("node"), os: process.platform, arch: process.arch, image: process.env.GSTACK_RUNNER_IMAGE || null }));
 }
 
+/** A row that passed with a counted run within the max age: a CI row (record-ci verified its run) or a local run under this machine's identity. */
+function countedPass(r: EvidenceRecord, maxAgeHours: number): boolean {
+  if (r.exit !== 0 || typeof r.tests_ran !== "number" || r.tests_ran <= 0) return false;
+  const age = Date.now() - Date.parse(r.ts);
+  if (!(age >= 0 && age <= maxAgeHours * 3600_000)) return false;
+  return r.source === "ci" || r.identity === identityDigest();
+}
+
+/**
+ * `passed -- <cmd>` (GST-1186, read-only): did this exact command pass at the current working tree under any label? The
+ * newest row for the command hash and tree decides, so a newer failure vetoes; it must be a counted pass (countedPass). Prints
+ * PASSED: label=<L> source=<ci|local> ts=<ts> and exits 0, else NOT_PASSED: <reason> and exits 1. gstack-pregate's guards read it.
+ */
+function cmdPassed(argv: string[]): number {
+  const sep = argv.indexOf("--");
+  const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
+  if (!command || sep !== 0) { console.error("usage: gstack-evidence passed -- <command>"); return 2; }
+  const wtree = currentWtree();
+  if (!wtree) { console.log("NOT_PASSED: no working-tree fingerprint"); return 1; }
+  let records: EvidenceRecord[] = [];
+  try { records = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { records = []; }
+  const cmdSha = sha256(command);
+  const newest = records.findLast((r) => r.cmd_sha256 === cmdSha && r.wtree === wtree);
+  if (!newest) { console.log(`NOT_PASSED: no ledger row for this command at tree ${wtree.slice(0, 12)}`); return 1; }
+  if (!countedPass(newest, 24)) { console.log(`NOT_PASSED: the newest row (label=${newest.label} ts=${newest.ts}) is not a counted pass within 24 h under this runtime`); return 1; }
+  console.log(`PASSED: label=${newest.label} source=${newest.source ?? "local"} ts=${newest.reused_from ?? newest.ts}`);
+  return 0;
+}
+
 /**
  * `run --reuse`: the newest local row for this label, command and working tree decides. A counted pass under the same
  * identity within the max age is copied (original ts kept) and printed as a run would be; anything else runs the command.
@@ -612,10 +642,7 @@ function reused(file: string, label: string, cmdSha: string, maxAgeHours: number
     return false;
   }
   const newest = records.findLast((r) => r.label === label && r.cmd_sha256 === cmdSha && r.wtree === wtree && r.source === undefined);
-  if (!newest || newest.exit !== 0 || typeof newest.tests_ran !== "number" || newest.tests_ran <= 0) return false;
-  const age = Date.now() - Date.parse(newest.ts);
-  if (!(age >= 0 && age <= maxAgeHours * 3600_000)) return false;
-  if (newest.identity !== identityDigest()) return false;
+  if (!newest || !countedPass(newest, maxAgeHours)) return false;
   try {
     appendJsonl(file, { ...newest, reused_from: newest.reused_from ?? newest.ts }, { mode: 0o600 });
   } catch (e: any) {
@@ -912,6 +939,8 @@ try {
     process.exit(await cmdRun(rest));
   } else if (sub === "record-ci") {
     process.exit(cmdRecordCi(rest));
+  } else if (sub === "passed") {
+    process.exit(cmdPassed(rest));
   } else if (sub === "carried") {
     process.exit(cmdCarried(rest));
   } else if (sub === "check") {
@@ -923,7 +952,7 @@ try {
   } else if (sub === "verify") {
     process.exit(cmdVerify(rest));
   } else {
-    console.error("usage: gstack-evidence run|record-ci|carried|check|bundle|ancestor|verify ...");
+    console.error("usage: gstack-evidence run|record-ci|passed|carried|check|bundle|ancestor|verify ...");
     process.exit(2);
   }
 } catch (e: any) {

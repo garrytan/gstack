@@ -1080,6 +1080,34 @@ guard is a *command* with its own fix line. Older gstack refuses unknown keys
 that reads them ships. The worked gbrain configuration is in
 [gbrain worked configs](#gbrain-worked-configs).
 
+<a id="guard-carry"></a>
+### A guard that already passed at this tree does not run again
+
+A guard is skipped as passed when its exact command already passed at this tree
+(GST-1186). Two sources count, checked in this order:
+
+1. **CI.** When the base branch's `ship_lanes_from` maps the guard's exact
+   command, the guard is carried from the verified CI run at HEAD's clean tree,
+   through the same `gstack-evidence record-ci` and `findCarry` path a /ship
+   lane uses ([ci-carry](#ci-carry)). It prints `GUARD: <id> carried
+   runs=<id>/<attempt>`. When no run carries, it prints `CI_CARRY: none
+   guard=<id> (<reason>)` and goes on to the ledger.
+2. **The evidence ledger.** When the newest ledger row for the exact command at
+   this working tree, under any label, is a counted pass (a CI row, or a local
+   run with `tests_ran` above zero under this runtime, within 24 hours), the
+   guard prints `GUARD: <id> reused label=<L> source=<ci|local> ts=<ts>`.
+   `gstack-evidence passed -- <command>` is the same lookup by hand. A newer
+   failure of the command at that tree vetoes an older pass.
+
+Anything else runs the guard as before, with the same timeout, stall rule and
+fix line. This matters for repos whose suites are guards rather than lanes
+(founderstar declares `check-quick`, `play-through` and `assets` as guards),
+which otherwise reran every suite /ship had just carried from CI.
+
+Known limit: `ship_lanes_from` is read from `origin/<base>` only, so the pull
+request that adds a mapping cannot carry from it. Prove it with the dry run in
+[proving a new mapping](#prove-a-mapping) until it lands.
+
 <a id="allowlist"></a>
 ## Allowlist: benign findings the secrets check accepts
 
