@@ -1,0 +1,206 @@
+name: Windows Scoped Tests
+
+# The path-scoped Windows free shard (ship-90-90 plan D). windows-smoke.yml is
+# still the required Windows check on every pull request, and the full
+# curated suite (windows-free-tests.yml) still runs nightly on main. This
+# workflow sits between them: when a pull request touches path, file-name or
+# process code, one windows-latest job runs the test files the pull request
+# changed that are in the curated Windows-safe subset.
+#
+# "Path, file-name or process code" (the windows-scope filter step):
+#   - file names: anything under a bin/ directory (shell entry points and
+#     skill hooks such as freeze/bin/check-freeze.sh, #3758), shell and
+#     PowerShell scripts, hosts/*/hooks, setup, bun.lock, the Windows
+#     curation (scripts/test-free-shards.ts, scripts/lib/windows-curation.ts,
+#     the Windows duration seed, windows-free-tests.yml), and code files whose
+#     names say path, spawn, exec, process, shell, launch, win32, windows,
+#     tmp, temp, symlink, state-root, slug, claude-bin, bun-isolation or
+#     script-invocation;
+#   - added or removed code lines that spawn processes or spell paths:
+#     child_process, spawn/exec calls, Bun.spawn, Bun.$, path.win32 and the
+#     other separator-sensitive path calls, process.platform/execPath, win32,
+#     tmpdir(), /dev/null, /tmp/, symlink, realpath, chmod, cygpath,
+#     USERPROFILE, homedir(), fileURLToPath and .exe. #3829's Windows break was
+#     one such line in a test it added: spawnSync(process.execPath, [...,
+#     '--config=/dev/null']), which native Windows Bun cannot open.
+# test/windows-path-scope-workflow.test.ts proves the filter catches #3758
+# and #3829 and passes over a docs-only and a pure-logic change.
+#
+# The windows-scoped-tests job is the check to read: it passes when nothing
+# is in scope (no Windows job ran) and otherwise requires the Windows job, so
+# a skipped run reports success. It is not one of the required checks, but
+# gstack-ship-queue ready and land refuse a head with any failed check, so a
+# red Windows job blocks the pull request it runs on: in a pull request that
+# touches path, file-name or process code, a changed curated test file has to
+# pass on Windows. A change to path or process code with no changed curated
+# test selects nothing; the nightly suite covers it.
+# gstack-pregate reads a job keyed on a dispatch input as manual, never a PR
+# obligation: this check runs on the pull request itself. A workflow_dispatch
+# run with the files input reruns chosen Windows-safe files on a branch.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Space-separated Windows-safe free test files to run (from bun run test:windows --list)
+        type: string
+        required: true
+
+concurrency:
+  group: windows-scoped-tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# Test-only lane — no token writes.
+permissions:
+  contents: read
+
+jobs:
+  windows-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      files: ${{ steps.select.outputs.files }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: filter
+        name: Does the diff touch path, file-name or process code?
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files"
+          code_re='\.(ts|tsx|js|mjs|cjs|sh|bash|ps1|cmd|bat)$|(^|/)bin/[^/.]+$|(^|/)setup$'
+          path_re='(^|/)bin/|\.(sh|bash|ps1|cmd|bat)$|(^|/)hosts/[^/]+/hooks/|(^|/)setup$|^bun\.lock$|^scripts/test-free-shards\.ts$|^scripts/lib/windows-curation\.ts$|^scripts/free-test-durations-windows\.json$|^\.github/workflows/windows-free-tests\.yml$'
+          name_re='(path|spawn|exec|process|shell|launch|win32|windows|tmp|temp|symlink|state-root|slug|claude-bin|bun-isolation|script-invocation)[^/]*$'
+          content_re='child_process|\b(spawn|spawnSync|execSync|execFile|execFileSync)[[:space:]]*\(|Bun\.(spawn|spawnSync|\$)|\bpath\.(win32|posix|sep|delimiter|relative|isAbsolute|normalize)\b|process\.(platform|execPath)|\bwin32\b|tmpdir\(|/dev/null|/tmp/|symlink|realpath|chmod|cygpath|USERPROFILE|homedir\(|fileURLToPath|\.exe\b'
+          {
+            grep -E "$path_re" "$RUNNER_TEMP/changed-files" | sed 's/^/path: /' || true
+            grep -E "$code_re" "$RUNNER_TEMP/changed-files" | grep -E "$name_re" | sed 's/^/name: /' || true
+            { grep -E "$code_re" "$RUNNER_TEMP/changed-files" || true; } | while IFS= read -r file; do
+              git diff -U0 --no-renames HEAD^1 HEAD -- "$file" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' | grep -m1 -E "$content_re" | awk -v f="$file" '{ print "content: " f ": " $0 }' || true
+            done
+          } > "$RUNNER_TEMP/windows-scope"
+          if [ -s "$RUNNER_TEMP/windows-scope" ]; then
+            echo 'windows=true' >> "$GITHUB_OUTPUT"
+            { echo 'This pull request touches path, file-name or process code:'; echo '~~~'; head -n 40 "$RUNNER_TEMP/windows-scope"; echo '~~~'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'windows=false' >> "$GITHUB_OUTPUT"
+            echo 'This pull request touches no path, file-name or process code, so no Windows job runs. windows-smoke still runs on every pull request.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.filter.outputs.windows == 'true'
+        with:
+          bun-version: 1.4.2
+      - id: select
+        name: Pick the changed test files in the curated Windows-safe subset
+        if: steps.filter.outputs.windows == 'true'
+        run: |
+          set -euo pipefail
+          GITHUB_STEP_SUMMARY=/dev/null bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/curated.json" --shards 1 > /dev/null
+          jq -r '.shards[].files[]' "$RUNNER_TEMP/curated.json" | LC_ALL=C sort -u > "$RUNNER_TEMP/curated"
+          LC_ALL=C sort -u "$RUNNER_TEMP/changed-files" | LC_ALL=C comm -12 - "$RUNNER_TEMP/curated" > "$RUNNER_TEMP/selected"
+          if [ ! -s "$RUNNER_TEMP/selected" ]; then
+            echo 'No changed test file is in the curated Windows-safe subset, so no Windows job runs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          { echo 'files<<GSTACK_SCOPED_FILES'; cat "$RUNNER_TEMP/selected"; echo 'GSTACK_SCOPED_FILES'; } >> "$GITHUB_OUTPUT"
+          { echo "The Windows job runs $(wc -l < "$RUNNER_TEMP/selected" | tr -d ' ') changed Windows-safe test file(s):"; sed 's/^/- /' "$RUNNER_TEMP/selected"; } >> "$GITHUB_STEP_SUMMARY"
+
+  windows-scoped-shard:
+    needs: windows-scope
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.files != '') || needs.windows-scope.outputs.files != '' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.18.0
+
+      # The same inputs as a windows-free-tests.yml shard, with no bun install
+      # cache (a cold install beats restoring it on windows-latest).
+      - name: Configure git identity (required by tests that init temp repos)
+        run: |
+          git config --global user.email "windows-ci@gstack.test"
+          git config --global user.name "Windows CI"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build server-node.mjs (required by Windows browse path)
+        run: bash browse/scripts/build-node-server.sh
+        shell: bash
+
+      - name: Generate host SKILL.md outputs (.agents, .factory)
+        run: bun run gen:skill-docs --host all
+        shell: bash
+
+      - name: Install Chromium for the Node worker smoke
+        run: bunx playwright install chromium
+
+      - name: Run the scoped Windows-safe test files
+        env:
+          FILES: ${{ inputs.files || needs.windows-scope.outputs.files }}
+          GSTACK_FREE_RETRY_FLAKY: '1'
+          GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$FILES" | tr -d '\r' | tr ' ' '\n' | sed '/^$/d' > "$RUNNER_TEMP/windows-scoped-files.txt"
+          bun run scripts/test-free-shards.ts --files-from "$RUNNER_TEMP/windows-scoped-files.txt"
+        shell: bash
+
+      - name: Upload full test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-scoped-test-logs
+          path: |
+            .context/free-test-logs/gstack-free-test-*.log
+            ${{ runner.temp }}/gstack-free-test-*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Upload flake ledger
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: flake-ledger-windows-scoped
+          path: ${{ runner.temp }}/flake-ledger.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
+
+  windows-scoped-tests:
+    needs: [windows-scope, windows-scoped-shard]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Pass when nothing is in scope, else require the Windows job
+        env:
+          SCOPE_RESULT: ${{ needs.windows-scope.result }}
+          SHARD_RESULT: ${{ needs.windows-scoped-shard.result }}
+          FILES: ${{ inputs.files || needs.windows-scope.outputs.files }}
+        run: |
+          set -eu
+          test "$SCOPE_RESULT" = success
+          if [ -z "$FILES" ]; then
+            echo 'Nothing in scope (no changed Windows-safe test file in a pull request that touches path, file-name or process code); passing without a Windows run.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test "$SHARD_RESULT" = success

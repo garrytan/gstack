@@ -29,6 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { PregateFile } from './headless-artifacts';
 import { CHECKS, pregateMirrorPath, readPregateFile, verifyPregate, PREGATE_OUT_REL } from './pregate/index';
+import { exceptionConsumerProblem, flakyExceptionLines } from './pregate/flaky-exception';
 import { ensureTmpExcluded, restamp, versionAtRef } from './restamp';
 import type { ResultCodeName } from './result-codes';
 import { extractReceipt } from './ship-receipt';
@@ -232,6 +233,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   const pregateFile = path.resolve(ctx.repoRoot, o.pregate ?? PREGATE_OUT_REL);
   let pregateLine = `PREGATE: missing (${path.relative(ctx.repoRoot, pregateFile)}; run gstack-pregate run --allow-repo-commands)`;
   let pregateOk = false;
+  let accepted: PregateFile | null = null;
   const treeNow = wtreeFingerprint({ cwd: ctx.repoRoot });
   // The mirror stands in for a record that is missing, unreadable, recorded for another tree, or current but
   // waiting on a remote receipt another checkout holds; a record whose own checks failed or stayed incomplete (the diff's doing
@@ -242,6 +244,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     if (read.file) {
       const v = verifyPregate(ctx.repoRoot, read.file, treeNow);
       pregateOk = v.ok;
+      if (v.ok) accepted = read.file;
       useMirror = !v.ok && v.code !== 'PREGATE_LANE_FAILED' && v.code !== 'PREGATE_INCOMPLETE' && v.code !== 'PREGATE_ENVIRONMENT';
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length}${v.ok ? '' : ` — ${v.message} (${v.code})`}`;
     } else pregateLine = `PREGATE: unreadable (${read.errors[0]?.message ?? 'invalid'})`;
@@ -253,9 +256,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     const v = read?.file && !gap ? verifyPregate(ctx.repoRoot, read.file, treeNow) : null;
     if (read?.file && v?.ok) {
       pregateOk = true;
+      accepted = read.file;
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length} (from the state root's pregate/by-tree/${treeNow.tree.slice(0, 12)}.json, recorded by another checkout)`;
     } else if (gap) pregateLine += `; the state root's mirror for this tree cannot stand in: ${gap}`;
   }
+  const foreign = accepted && exceptionConsumerProblem(accepted, head, o.pr);
+  if (foreign) { pregateOk = false; accepted = null; pregateLine += ` — ${foreign} (PREGATE_REMOTE_UNCLEARED)`; }
   const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
@@ -268,6 +274,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     `ci: ${ci.line}`,
     ...(hint ? [hint] : []),
     pregateLine,
+    ...(accepted ? flakyExceptionLines(accepted) : []),
     gateLine(policy, attempt),
     receipt.line,
     ...(receipt.depthLine ? [receipt.depthLine] : []),
