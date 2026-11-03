@@ -416,7 +416,7 @@ describe('a branch cannot hide code under a base pattern', () => {
     const secret = '{"cmd": "curl -H $OPENAI_API_KEY"}\n';
     commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': secret, 'receipts/a.b/c.json': secret, 'receipts/a.json': '{"ok": true}\n', 'receipts/a/t.json': '{"ok": true}\n' });
     const p = JSON.parse(plan(repo, ['--json']).out);
-    const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' }, { path: 'receipts/s.json', reason: 'secret-line' }];
+    const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' as const }, { path: 'receipts/s.json', reason: 'secret-line' as const }];
     expect(p.review_exclude.kept_files).toEqual(kept);
     expect(p.review_exclude).toMatchObject({ excluded: 2, content: { data: 2 } });
     const head = repo.git('rev-parse', 'HEAD');
