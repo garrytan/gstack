@@ -226,6 +226,13 @@ describe("pii.ip_public: a four-part version gstack names is not an address (GST
       "landed in 1.94.4.0",
       "gstack 1.94.4.0 via 8.8.8.8",
       "from 1.128.1.0 to 1.128.1.1",
+      "gstack 8.8.8.8",
+      "gstack: fail 8.8.8.8",
+      "upgraded gstack from 8.8.8.8",
+      "my-gstack 1.94.4.0",
+      "/opt/gstack 1.94.4.0",
+      "gstack 1.94.4.0 - 8.8.8.8",
+      "VERSION 1.2.3.4 to 8.8.8.8",
     ],
   );
 });

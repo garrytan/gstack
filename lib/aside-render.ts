@@ -535,7 +535,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   const target = pageTarget(spec);
   if (target.kind === 'error') return fail(target.error);
 
-  const deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  let deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const browseEnv = { ...process.env, BROWSE_SESSION: '' };
   const run = async (args: string[]): Promise<string> => {
     const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), browseEnv);
@@ -577,7 +577,9 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
       const ensure = /Executable doesn't exist/.test(message) ? browserEnsureBin(bin) : null;
       if (ensure) {
         log.push('newtab: Chromium is not installed — running gstack-browser-ensure once');
+        const installStart = Date.now();
         const installed = await runProc('bash', [ensure, '--quiet'], 600_000, browseEnv);
+        deadline += Date.now() - installStart;
         const last = installed.stdout.trim().split('\n').at(-1) ?? '';
         log.push(`${ensure} --quiet\n${installed.stdout}${installed.stderr}`.trim());
         if (installed.error || installed.code !== 0) throw new Error(`${message} (gstack-browser-ensure: ${last || installed.error || `exit ${installed.code}`})`);
