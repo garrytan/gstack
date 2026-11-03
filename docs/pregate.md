@@ -85,7 +85,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `serial_patterns` | test-file globs the `lanes` check runs one process per file, apart from the unit files (default `**/*.serial.test.*`) |
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
-| `stall_timeout_s` | seconds a test command may print nothing before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
+| `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
@@ -459,10 +459,17 @@ test-tier command:
   a one-file run (each serial file) reports its file from the launch for any
   runner. Other runners (node --test, vitest, jest, pytest, playwright test, flutter test, dart test, cargo test) get heartbeats
   only. A heartbeat follows each 60 s with no progress line;
-- is killed as **stalled** when its log does not grow for the stall timeout
-  (`--stall-timeout <s>`, else `stall_timeout_s`, else 300; `0` disables): the
-  check is `incomplete` with `PREGATE_STALLED` and names the last file
-  started; the next serial file still runs. The `--remote` gate is exempt: a
+- is killed as **stalled** when its log does not grow and its process group
+  stays under a tenth of one CPU for the stall timeout (`--stall-timeout <s>`, else
+  `stall_timeout_s`, else 300; `0` disables): the check is `incomplete` with
+  `PREGATE_STALLED` and names the last file started; the next serial file
+  still runs. The group counts as busy when its CPU time, sampled each second,
+  grew by at least a tenth of the wall time, so a quiet suite that is working
+  (FOUN-63: a parallel `check.sh` silent for 9 minutes) is not killed, while
+  a hang that waits on nothing is. A hang that keeps burning CPU is left to
+  the timeout. Linux reads `/proc` (exited children's time included once
+  reaped); macOS and other BSDs read `ps -S`; a failed read skips that
+  sample. Windows reads no CPU time here and uses log growth alone. The `--remote` gate is exempt: a
   gate that waits on CI is quiet by design, so only its timeout bounds it, and
   its heartbeats add `; last output: <the gate's last line>`;
 - is killed as **timed out** when that runner process reaches its timeout
