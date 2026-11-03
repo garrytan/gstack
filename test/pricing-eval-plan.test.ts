@@ -41,6 +41,12 @@ describe('lib/pricing', () => {
   test('the default eval-arms tier (smart) is priced out of the box', () => {
     for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) expect(hasPricing(model)).toBe(true);
   });
+
+  test('claude-haiku-5-5, gpt-6-luna and gemini-4-argon are priced (#3640)', () => {
+    for (const model of ['claude-haiku-5-5', 'anthropic/claude-haiku-5-5', 'gpt-6-luna', 'openai/gpt-6-luna', 'gemini-4-argon']) expect(hasPricing(model)).toBe(true);
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'claude-haiku-5-5')).toBe(0.6);
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'gemini-4-argon')).toBe(24);
+  });
 });
 
 describe('preregistration', () => {
@@ -67,6 +73,17 @@ describe('arms', () => {
     const unpriced = resolveArms({ cwd: d, explicit: ['gpt-6-astra', 'made-up-model'] });
     expect(unpriced.errors.map(e => e.code)).toEqual(['EVAL_PRICE_MISSING']);
     expect(renderArms(unpriced, { input: 1000, output: 1000 })).toContain('price=MISSING');
+    const added = resolveArms({ cwd: d, explicit: ['claude-haiku-5-5', 'gpt-6-luna', 'gemini-4-argon'] });
+    expect(added.errors).toEqual([]);
+  });
+
+  test('a policy document naming a newly priced model yields that arm', () => {
+    const d = tmp();
+    const doc = path.join(d, 'MODELS.md');
+    fs.writeFileSync(doc, '- cheap arm: claude-haiku-5-5\n- strong arm: claude-opus-5-5\n');
+    const r = resolveArms({ cwd: d, policyDoc: doc, modelsCli: () => ({ code: 1, stdout: '' }) });
+    expect(r.errors).toEqual([]);
+    expect(r.arms.map(a => a.model).sort()).toEqual(['claude-haiku-5-5', 'claude-opus-5-5']);
   });
 
   test('the eval-arms role is read through the models CLI seam, never the network', () => {

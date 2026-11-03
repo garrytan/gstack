@@ -8,9 +8,10 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { defaultBaseBranch } from './default-base';
 import { classifyDiff } from './review-depth';
 import { audit } from './ship-audit';
-import { bin, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
+import { bin, carryNoneLine, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -23,22 +24,26 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
-RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane,
-then NEXT: lines. STOP: names what the agent must
+RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane
+(a lane the base maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact clean tree:
+LANE: <label> carried run=<id>/<attempt> tests_ran=<n>, else CI_CARRY: none (<reason>) and it runs; any other lane that
+passed at this tree, command and runtime is reused: reused=<original time>), then NEXT: lines. STOP: names what the agent must
 decide or repair; nothing after it ran. Exit codes: 0 ok · 2 usage · 3 STOP`;
 
 const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|package\.json)$/;
 
 function integrate(cwd: string, base: string, r: Report): boolean {
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
-  const remote = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000).stdout)?.[1];
-  const head = remote ?? git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '');
   r.add(`BRANCH: ${branch || '(detached)'} base=${base}`);
-  if (!branch || branch === base || branch === head) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
+  if (!branch || branch === base) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
-  const fetch = git(cwd, ['fetch', 'origin', base], 300_000);
+  const fetch = git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], 300_000);
   if (fetch.status !== 0) { r.stop(`git fetch origin ${base} failed: ${firstLine(fetch.stderr)}; restore access first`); return false; }
+  const remoteHead = git(cwd, ['ls-remote', '--symref', 'origin', 'HEAD'], 60_000);
+  if (remoteHead.status !== 0) { r.stop(`git ls-remote origin HEAD failed: ${firstLine(remoteHead.stderr)}; restore access first`); return false; }
+  const head = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remoteHead.stdout)?.[1] ?? defaultBaseBranch(cwd).branch;
+  if (branch === head) { r.stop(`on the base branch (${branch}): ship from a feature branch`); return false; }
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
@@ -48,6 +53,7 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (!pr) r.add('PR: not checked (origin is a local path, not a hosted remote gh can map; Step 0 uses git-native commands)');
   else if (pr.status !== 0) r.add(`CARRY: not checked (gh pr list failed: ${firstLine(pr.stderr)})`);
   else if (/^\d+$/.test(n)) {
+    if (!prSized(cwd, base, n, r)) return false;
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
     r.add(`PR: #${n}`).add(line);
@@ -67,6 +73,20 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   if (scopeError) r.add(`SCOPE: unknown (gstack-diff-scope origin/${base}: SCOPE_ERROR=${scopeError})`);
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the design lite check; mention /design-review when no design review exists)' : ''}`);
   return merge(cwd, base, r);
+}
+
+/** The diff against origin/<base> must be about the PR's size: far more files (a stale or wrong base, HARN-15's 17,000-file review of main's history) or fewer (a fork's origin ahead of the PR's base, which would leave commits out of the gate scan) stops before any reader runs. Checked only when HEAD is the PR's pushed head. */
+function prSized(cwd: string, base: string, n: string, r: Report): boolean {
+  const view = gh(cwd, ['pr', 'view', n, '--json', 'changedFiles,headRefOid,baseRefName', '--jq', '"\\(.changedFiles) \\(.headRefOid) \\(.baseRefName)"']);
+  const [pr, prHead, prBase] = view.status === 0 ? view.stdout.trim().split(' ') : [];
+  if (!pr || !/^[1-9]\d*$/.test(pr) || prHead !== git(cwd, ['rev-parse', 'HEAD']).stdout.trim()) return true;
+  const local = git(cwd, ['diff', '--name-only', forkPoint(cwd, base), 'HEAD']).stdout.split('\n').filter(Boolean).length;
+  if (local >= Number(pr) && local <= 2 * Number(pr) + 50) return true;
+  const word = /^[A-Za-z0-9._\/-]+$/.test(prBase ?? '') ? prBase! : `'${(prBase ?? '').replace(/'/g, "'\\''")}'`;
+  r.stop(`the diff against origin/${base} lists ${local} files but PR #${n} changes ${pr} (its base is ${word}): ${prBase === base
+    ? `origin is not the PR's base repository (a fork) or its ${base} has moved; fetch the PR's base repository's ${base} into origin/${base}, then rerun`
+    : `origin/${base} is not the PR's base; rerun with --base ${word} after git fetch origin +refs/heads/${word}:refs/remotes/origin/${word}`}`);
+  return false;
 }
 
 const forkPoint = (cwd: string, base: string) => git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim() || `origin/${base}`;
@@ -136,8 +156,9 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
   }
   if (/uncleared/.test(verdict)) r.next('pregate requires-remote: gstack-pregate clear, or --remote --spend-cap <usd> under a user cap, before Step 18');
   r.add(run.line);
-  const results = (await runLanes(cwd, list, run.concurrency)).map(laneLine);
-  for (const l of results) r.add(l.line);
+  const ran = await runLanes(cwd, list, run.concurrency, { base });
+  const results = ran.map(laneLine);
+  for (const [i, l] of results.entries()) { const none = carryNoneLine(ran[i]!); if (none) r.add(none); r.add(l.line); }
   const bad = results.filter(l => !l.ok);
   if (bad.length) { r.stop(`${bad.length} lane(s) failed or ran zero tests: Step 5 triage (read each log; a free-suite shard failure reruns its file list per measure.md); in-branch failures stop the ship`); return; }
   r.next('Step 6: select eval suites for prompt-related changes with the project\'s selector, then Step 7');

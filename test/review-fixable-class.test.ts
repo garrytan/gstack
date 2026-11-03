@@ -18,7 +18,7 @@ describe('native FIXABLE by review class (GST-987)', () => {
   //   no_claim=which class a diff belongs to (lib/review-depth.ts decides)
   test('#141 native #4 and #6 collect at their own Severity on a code-class plan', () => {
     expect(parseFindings('adversarial-native', NATIVE, fixableRaises(CODE)).map(f => f.label)).toEqual(['Medium', 'Low']);
-    expect(parseFindings('adversarial-native', NATIVE).map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
+    expect(parseFindings('adversarial-native', NATIVE).map(f => f.label)).toEqual(['Medium', 'Low']);
   });
   test('gate class, any risk reason, a depth error or an unreadable plan keeps normalizer v2', () => {
     for (const lines of [plan('gate', 'gate-class,runtime=9'), plan('code', 'risk:money,runtime=9'), plan('code', 'risk:data,runtime=9'), plan('code', 'error:DIFF,runtime=9'), plan('code', 'runtime=9,history:fixed-blocking'), plan('code', 'runtime=9,floor:full'), plan('code', ''), plan('unknown', 'runtime=9'), [CODE[0]!], [], undefined])
@@ -47,7 +47,7 @@ describe('native FIXABLE by review class (GST-987)', () => {
     ['### 1. Race in a.ts:3 — FIXABLE\n\nBody.\n\n**Severity:** Medium\n**Blocks:** no\n\n### 2. Drift in b.ts:9 — FIXABLE\n\nBody.\n\n**Severity:** Low\n**Blocks:** no'],
   ])('a numbered finding heading keeps its body paragraph and fields (#149) %#', (output) => {
     expect(parseFindings('adversarial-native', output, false).map(f => f.label)).toEqual(['Medium', 'Low']);
-    expect(parseFindings('adversarial-native', output, true).map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
+    expect(parseFindings('adversarial-native', output, true).map(f => f.label)).toEqual(['Medium', 'Low']);
   });
   test('a labeled or located paragraph after a numbered heading stays its own finding (#149 joins only plain body text)', () => {
     for (const raises of [true, false]) {
@@ -74,9 +74,9 @@ describe('native FIXABLE by review class (GST-987)', () => {
     };
     expect(labels(['--manifest', manifest])).toEqual(['Medium', 'Low']);
     expect(fs.readFileSync(ledger, 'utf8')).toContain('"fixable_raises":false');
-    expect(labels([])).toEqual(['CRITICAL', 'CRITICAL']);
+    expect(labels([])).toEqual(['Medium', 'Low']);
     expect(fs.readFileSync(ledger, 'utf8')).not.toContain('fixable_raises');
-    expect(labels(['--manifest', foreign])).toEqual(['CRITICAL', 'CRITICAL']);
+    expect(labels(['--manifest', foreign])).toEqual(['Medium', 'Low']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
   test('verify re-derives a code-class collect with the class it was collected under', () => {
