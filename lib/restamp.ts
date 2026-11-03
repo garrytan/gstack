@@ -160,7 +160,7 @@ export function correctedOrder(order: readonly string[], mine: string | null, ac
 
 interface Plan {
   policy: ShipPolicy; policyLabel: string; queueMode: QueueMode; oldVersion: string; newVersion: string; versionRel: string;
-  baseVersion: string; branchStamp: string | null; forkVersion: string; baseSha: string; baseRef: string; claims: string; level: Bump; predecessor?: { pr: string; head: string };
+  baseVersion: string; branchStamp: string | null; forkVersion: string; recorded: ReadonlySet<string>; baseSha: string; baseRef: string; claims: string; level: Bump; predecessor?: { pr: string; head: string };
 }
 
 function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: string): Plan {
@@ -214,7 +214,7 @@ function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: stri
   }
   // The branch's own tentative stamp: its VERSION when it moved past base; else nothing (mentions come from the lines it added).
   const branchStamp = oldVersion !== atBase.version ? oldVersion : null;
-  return { policy, policyLabel, queueMode, oldVersion, newVersion, versionRel: atBase.rel, baseVersion: atBase.version, branchStamp, forkVersion: forkVersion(o.repoRoot, baseRef, atBase.version), baseSha: baseSha.out, baseRef, claims, level, predecessor };
+  return { policy, policyLabel, queueMode, oldVersion, newVersion, versionRel: atBase.rel, baseVersion: atBase.version, branchStamp, forkVersion: forkVersion(o.repoRoot, baseRef, atBase.version), recorded: recordedVersions(o.repoRoot, baseRef, atBase.version), baseSha: baseSha.out, baseRef, claims, level, predecessor };
 }
 
 /** The version writer's own files: the version source, the manifest (root or pinned) and the npm lockfiles beside it. */
@@ -337,10 +337,14 @@ function templateMention(template: string): RegExp {
  * added itself, newer than the version at its fork point and not the
  * allocated one. A released version is never newer than the fork point of a
  * branch written against it, and the repo's own version width must match, so
- * a 3-digit dependency pin in a 4-digit repo is never a candidate.
+ * a 3-digit dependency pin in a 4-digit repo is never a candidate. With
+ * `recorded` (recordedVersions), a built-in form newer than the allocated
+ * version counts only when the branch recorded it: no queue handed the branch
+ * `QM v0.1.15` (GST-1245). A `stamp_patterns` slot keeps the fork bound (#3512).
  */
-export function tentativeMentions(added: Map<string, Set<string>>, forkVersion: string, newVersion: string, templates: readonly string[] = []): string[] {
+export function tentativeMentions(added: Map<string, Set<string>>, forkVersion: string, newVersion: string, templates: readonly string[] = [], recorded?: ReadonlySet<string>): string[] {
   const fork = parseVersion(forkVersion);
+  const ceiling = parseVersion(newVersion);
   if (!fork) return [];
   const width = versionWidth(forkVersion);
   const scanners = [...BUILT_IN_MENTIONS, ...templates.map(templateMention)];
@@ -352,6 +356,7 @@ export function tentativeMentions(added: Map<string, Set<string>>, forkVersion: 
           const raw = m.groups!.v!;
           const v = parseVersion(raw);
           if (!v || versionWidth(raw) !== width || raw === newVersion || cmpVersion(v, fork) <= 0) continue;
+          if (recorded && !recorded.has(raw) && BUILT_IN_MENTIONS.includes(re) && (!ceiling || cmpVersion(v, ceiling) > 0)) continue;
           found.add(raw);
         }
       }
@@ -360,10 +365,10 @@ export function tentativeMentions(added: Map<string, Set<string>>, forkVersion: 
   return [...found];
 }
 
-/** The versions one line mentions in a stamp form (the built-in forms and the policy's `stamp_patterns` templates). */
-export function stampMentions(text: string, templates: readonly string[] = []): Set<string> {
+/** The versions one line mentions in a stamp form (the built-in forms unless `builtIn` is false, and the policy's `stamp_patterns` templates). */
+export function stampMentions(text: string, templates: readonly string[] = [], builtIn = true): Set<string> {
   const found = new Set<string>();
-  for (const re of [...BUILT_IN_MENTIONS, ...templates.map(templateMention)]) for (const m of text.matchAll(re)) found.add(m.groups!.v!);
+  for (const re of [...(builtIn ? BUILT_IN_MENTIONS : []), ...templates.map(templateMention)]) for (const m of text.matchAll(re)) found.add(m.groups!.v!);
   return found;
 }
 
@@ -373,6 +378,19 @@ export function forkVersion(repoRoot: string, baseRef: string, fallback: string,
   if (!first) return fallback;
   const v = versionAtRef(repoRoot, `${first}^`);
   return 'version' in v ? v.version : fallback;
+}
+
+/**
+ * The versions the branch itself recorded (GST-1245): its version source at its fork point and at each of its own
+ * first-parent commits (`baseRef..head`), a merge of the base included. Only these are its stamps in a built-in form.
+ */
+export function recordedVersions(repoRoot: string, baseRef: string, fallback: string, head = 'HEAD'): Set<string> {
+  const out = new Set([forkVersion(repoRoot, baseRef, fallback, head)]);
+  for (const c of git(repoRoot, ['rev-list', '--first-parent', `${baseRef}..${head}`]).out.split('\n').filter(Boolean)) {
+    const v = versionAtRef(repoRoot, c);
+    if ('version' in v) out.add(v.version);
+  }
+  return out;
 }
 
 /**
@@ -505,7 +523,8 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
  * `--was`) is rewritten on every line of every stamp file; a tentative one
  * (a mention newer than the fork version, or of the fork version itself: a
  * row written at the version the branch forked from instead of a next one,
- * GST-963) only on lines the branch added.
+ * GST-963) only on lines the branch added; in a built-in form above the new
+ * version, only one the branch recorded (GST-1245): a third party's `vX` stays.
  * With no explicit version the branch's VERSION equals the base's: either it
  * never stamped, or it stamped X and the base reached X on its own (a PR that
  * lost its slot and merged the base). Then a stamp-form mention of the base
@@ -525,7 +544,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
   const baseAdded = branchAddedLines(o.repoRoot, since, files, plan.baseSha);
   const added = branchAddedLines(staging, since, files, undefined, baseAdded);
   const explicit = new Set([...(o.was ? [o.was] : []), ...(plan.branchStamp ? [plan.branchStamp] : [])].filter(v => v !== plan.newVersion));
-  const tentative = new Set(tentativeMentions(new Map([...added].map(([rel, own]) => [rel, own.text])), plan.forkVersion, plan.newVersion, templates).filter(v => !explicit.has(v)));
+  const tentative = new Set(tentativeMentions(new Map([...added].map(([rel, own]) => [rel, own.text])), plan.forkVersion, plan.newVersion, templates, plan.recorded).filter(v => !explicit.has(v)));
   const equalBase = !o.was && !plan.branchStamp && plan.baseVersion !== plan.newVersion ? plan.baseVersion : null;
   if (equalBase) tentative.add(equalBase);
   if (plan.forkVersion !== plan.newVersion && !explicit.has(plan.forkVersion)) tentative.add(plan.forkVersion);
