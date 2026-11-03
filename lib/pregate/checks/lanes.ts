@@ -40,7 +40,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, supervise, type Counter, type Supervised } from '../supervise';
-import { verifyFromRun } from '../../run-evidence';
+import { verifyFromRun, type RunProfile } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
 
@@ -624,6 +624,12 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   return mode === 'no-policy' ? withStarter(ctx, sel, result) : withNoLaneWarning(ctx, sel, result);
 }
 
+/** The base profiles a run may verify under here: this machine's OS, and a workflow that holds a lane this machine runs. */
+export function fromRunProfiles(ctx: PregateContext, profiles: Record<string, RunProfile>): string[] {
+  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
+  return Object.entries(profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
+}
+
 /**
  * `--from-run`: verify the run against the base branch's profiles for this machine's OS whose workflow holds a lane this
  * machine runs (not a platform lane), on exactly this tree; the selected local test files its tree.json lists are the
@@ -631,8 +637,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
  */
 function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: string[]; receipt?: string } {
   const { ref, check } = ctx.fromRun!;
-  const os = ({ linux: 'Linux', darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[ctx.platform];
-  const names = 'error' in check ? [] : Object.entries(check.profiles).filter(([, p]) => p.os === os && ctx.lanes.some(l => l.tier !== 'platform' && l.id.startsWith(`${p.workflow}/`))).map(([n]) => n);
+  const names = 'error' in check ? [] : fromRunProfiles(ctx, check.profiles);
   const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
   if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
   const ran = new Set(v.evidence.files);

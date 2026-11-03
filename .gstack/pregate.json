@@ -22,6 +22,9 @@
     "ci-reuse/free-tests": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux" },
     "ci-reuse/windows-free-tests": { "workflow": "windows-free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["windows-plan", "windows-free-tests"], "artifact": "tested-tree", "os": "Windows" }
   },
+  "ship_lanes_from": {
+    "bun run test": { "profiles": ["ci-reuse/free-tests"], "inventory": "bun --no-env-file --config=/dev/null run scripts/test-free-shards.ts --list | sed -n 's/^  //p'" }
+  },
   "warn": [],
   "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
 }

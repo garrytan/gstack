@@ -90,6 +90,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory }`: the run profiles that together clear `pregate.json/remote_gate`, and the command that prints the remote gate's test files, one per line, which their runs must cover (see [run evidence](#run-evidence)) |
+| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }`: the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and the command listing its test files, which their runs must cover (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -862,6 +863,82 @@ stamp-only substitution). Then:
 as a usage error. It changes nothing in the preflight stage: with `--stage all`
 the preflight checks, the secrets scan included, run as before, and
 `--stage tests` runs no preflight check in that invocation, with or without it.
+
+<a id="ci-carry"></a>
+### CI carry: pregate and /ship use CI's run instead of running again (GSTA-258)
+
+CI is the one full test run. When a verified run already passed at the exact
+tree being tested, pregate's tests stage and /ship's test lanes use it instead
+of running the suite a second time. `lib/ci-carry.ts` `findCarry` decides, and
+it accepts a run only when all of these hold:
+
+- The working tree is HEAD's committed tree (the `gstack-wtree` fingerprint
+  equals `HEAD^{tree}`), read before the lookup and again after it. A dirty
+  tree, an untracked file or an edit made during the lookup never carries.
+- The newest of HEAD's runs (up to 10) under each named profile passes
+  `verifyRun` above: same-repository head (a fork run never counts), the
+  profile's workflow, event and jobs, the newest attempt, no newer red or
+  running run on HEAD, within `max_age_hours`, and a `tree.json` naming HEAD's
+  tree. A `pull_request` run counts only when the pull request already
+  contained its base.
+- Every run executed tests, and with an inventory command, the runs'
+  `tree.json` files cover every file it prints. Each run is read once more
+  afterward (`run_changed`).
+
+Security and advisory scans, the sealed guard, guards and every preflight-stage
+check always run; only test lanes carry.
+
+**The tests stage.** Without `--from-run`, when the base branch declares
+`run_profiles`, `gstack-pregate` looks up the newest verified run at HEAD under
+the profiles `--from-run` would use and applies it as `--from-run` does: the
+selected local files its `tree.json` lists count as passed, and only the rest
+run. On a small machine a selection the run covers records no remote gate
+obligation. It prints `CI_CARRY: accepted <receipt>` or `CI_CARRY: none
+(<reason>)` on stderr; `--no-ci-carry` skips the lookup.
+
+**/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
+`.gstack/pregate.json` maps its exact command (the evidence ledger binds the
+command's sha256; a label alone never carries) to the profiles whose runs carry
+it and the command that lists its test files:
+
+```json
+"ship_lanes_from": {
+  "bun run test": { "profiles": ["ci-reuse/free-tests"], "inventory": "bun --no-env-file --config=/dev/null run scripts/test-free-shards.ts --list | sed -n 's/^  //p'" }
+}
+```
+
+A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
+and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci`:
+`source: "ci"`, its runs and profiles, the run's finish time as `ts`, bound to
+the clean tree), never a fictitious local run. `gstack-evidence check` grades it
+like any row and names `source=ci runs=…`, so `finish`'s FRESH check and the
+24-hour age limit apply to the CI run's own time. A mapped lane that cannot
+carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
+other lane runs through `gstack-evidence run --reuse`: the newest row for its
+label, command and working tree is reused when it passed with a counted run
+under the same runtime (bun and node versions, OS, architecture, runner image)
+within 24 hours; a newer failure on that tree vetoes an older pass, and the
+reused copy keeps the original timestamp. The cache is this machine's ledger
+only; across machines, CI is the trust boundary.
+
+**Finish, push and accept.** `gstack-ship-release finish` commits the release
+metadata, so the stamped tree has no CI run yet. A mapped lane that is not
+already FRESH is deferred (`EVIDENCE: DEFERRED`), and the pregate runs only its
+preflight stage on the stamped tree. `gstack-ship-release push --early` (the
+Phase 2 push that lets CI run beside the review) runs the secrets scan and the
+sealed guard before it pushes. After the final push,
+`gstack-ship-release accept --base <base> --lane …` waits (bounded by `--wait`)
+for the run at the pushed HEAD, stops on a red or still-running run, carries
+each mapped lane from the green run at that exact tree, reuses or runs the rest,
+checks every lane FRESH and reruns the pregate there, whose tests stage carries
+the same run. `gstack-ship-receipt write` records the carried runs as
+`ci_carried: [{ lane, run, attempt, tree }]`, and the `SHIP_RECEIPT:` line names
+them (`ci_carried=<lane>:<run>/<attempt>`).
+
+**`gstack-ci-carry`.** `find [--profile <name>]… [--command <exact lane command>
+--allow-repo-commands]` prints the verdict for HEAD; `wait [--timeout <s>]`
+polls the newest run at HEAD until it completes (run it in the background) and
+prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
 
 <a id="ci-reuse"></a>
 ### Main pushes reuse the merged pull request's run
