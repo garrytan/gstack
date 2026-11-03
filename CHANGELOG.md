@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.94.4.0] - 2026-11-03
+
+- The captain skill, the CREW template, the lane brief, docs/captain.md and the Capy gstack skill now follow R65 instead of telling a lane that every fix needs a one-round, eng-only plan. A bug fix is exempt from plan review (`gstack-autoplan next --kind fix`; the brief's reason is `bug fix (R65)`), and its PR carries a repro on current main or a failing test written first. A feature gets the lean run (`--kind feature`): one reviewer reading the plan and the draft code together. The S1 and audited-problem-list exemptions are unchanged.
+
 ## [1.94.3.0] - 2026-11-03
 
 **`gstack-ship-preflight` no longer trusts a local `origin/HEAD` when origin can't say its default branch.** Preflight fell back to the local `origin/HEAD` whenever `git ls-remote --symref origin HEAD` failed or named no branch. With no local `origin/HEAD`, it went on from the default branch itself and merged the given base into it. When a PR-branch clone's `origin/HEAD` named the feature branch, it refused that branch as "on the base branch". Now a failed `ls-remote` stops with `git ls-remote origin HEAD failed: …; restore access first` before anything merges. A remote HEAD that names no branch (a detached HEAD, or a server that sends no symref) falls back to the shared default-base order in `lib/default-base.ts`, which uses the local `origin/HEAD` only when it doesn't name the checked-out branch, its upstream or HEAD's commit. The default-branch check now runs after the fetch, so a failed fetch still reports the fetch.
