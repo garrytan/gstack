@@ -153,8 +153,9 @@ Every PR you send READY on, and the READY report itself, has:
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does all of this when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
-A token cap in a brief goes to /ship as `--token-cap <n>`; a /ship subagent with none gets 80M. Run each /ship
-in a fresh subagent: never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
+A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
+`ship #<n> at <head7>`, with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief, so it meters its own row and caps at
+100M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

@@ -25,11 +25,12 @@ export interface Task { label?: string; path?: string; title?: string; status?: 
 export interface ThreadDoc {
   code?: string; id?: string; title?: string | null; status?: string; created_at?: string; updated_at?: string;
   cost?: { tokens?: number; credits?: number }; tasks?: Task[]; tasks_total?: number; captain_thread?: unknown; crew?: unknown;
+  events?: Item[];
 }
-export interface Item extends TranscriptItem { input?: { text?: string } | string }
+export interface Item extends TranscriptItem { input?: { text?: string } | string; state?: string }
 export interface Flag { action: 'ROTATE' | 'STOP' | 'LOOK' | 'WARN' | 'REPORT'; text: string }
 export interface Verdict {
-  code: string; verdict: 'OK' | 'WARN' | 'STOP' | 'ROTATE' | 'REPORT' | 'DEFER'; captain: boolean;
+  code: string; verdict: 'OK' | 'LOOK' | 'WARN' | 'STOP' | 'ROTATE' | 'REPORT' | 'DEFER'; captain: boolean;
   own: number; ownBound: 'exact' | 'upper'; total: number; credits: number; ageDays: number; active: boolean;
   empty: { turns: number; empty: number } | null; rounds: ReturnType<typeof reviewRounds>;
   flags: Flag[]; defer: string[];
@@ -45,22 +46,28 @@ const pathOf = (t: Task) => t.path ?? (t.label ?? '').replace(/^Subagent\s+/, ''
 const quote = (s: string | undefined) => JSON.stringify((s ?? '').slice(0, 80));
 
 function reportState(item: Item): string | undefined {
+  if (item.state) return item.state;
   const raw = typeof item.input === 'string' ? item.input : item.input?.text;
   return raw?.match(/\\?"state\\?"\s*:\s*\\?"(final|needs_you|working)/)?.[1];
 }
 
-/** Turns from transcript items: a turn ends at end_turn, wait, or a final/needs_you report. */
+/**
+ * Turns from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
+ * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports.
+ */
 export function emptyWakes(items: readonly Item[]): { turns: number; empty: number } {
-  const tools = items.filter(i => i.source === 'tool' && i.createdAt).sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
+  const sorted = items.filter(i => i.createdAt && i.source !== 'assistant').sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
   const turns: boolean[] = [];
   let acted = false, open = false;
-  for (const i of tools) {
+  const close = () => { if (open) turns.push(!acted); acted = false; open = false; };
+  for (const i of sorted) {
+    if (i.source !== 'tool') { close(); continue; }
     open = true;
     const state = i.tool === 'message_agent' || i.tool === 'message_user' ? reportState(i) : undefined;
-    if (i.tool !== 'end_turn' && !isKeepalive(i)) acted = true;
-    if (i.tool === 'end_turn' || i.tool === 'wait' || state === 'final' || state === 'needs_you') { turns.push(!acted); acted = false; open = false; }
+    if (i.tool !== 'end_turn' && state !== 'working' && !isKeepalive(i)) acted = true;
+    if (i.tool === 'end_turn' || i.tool === 'wait' || state === 'final' || state === 'needs_you') close();
   }
-  if (open) turns.push(!acted);
+  close();
   const window = turns.slice(-LIMITS.emptyWindow);
   return { turns: window.length, empty: window.filter(Boolean).length };
 }
@@ -125,7 +132,7 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
 
   const defer = listed.filter(t => (t.status === 'working' || t.status === 'waiting') && MID_SHIP.test(t.title ?? ''))
     .map(t => pathOf(t) + ' ' + quote(t.title) + ' ' + t.status);
-  const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN'] as const).find(a => flags.some(f => f.action === a));
+  const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
   const acts = flags.some(f => f.action === 'ROTATE' || f.action === 'STOP');
   const verdict: Verdict['verdict'] = acts && defer.length ? 'DEFER' : (worst ?? 'OK');
   return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, rounds, flags, defer };
@@ -143,6 +150,16 @@ export function render(v: Verdict): string[] {
 }
 
 const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+/** The fields assess reads, checked before it runs, so a bad file is named instead of passing as OK. */
+export function inputProblem(doc: unknown): string | null {
+  const d = doc as ThreadDoc | null;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return 'expected a tools.thread.get object';
+  if (typeof d.cost?.tokens !== 'number') return 'field=cost.tokens expected=number';
+  if (!Number.isFinite(Date.parse(d.created_at ?? ''))) return 'field=created_at expected=ISO time';
+  if (d.tasks !== undefined && (!Array.isArray(d.tasks) || d.tasks.some(t => typeof t?.cost?.tokens !== 'number'))) return 'field=tasks[].cost.tokens expected=number';
+  return null;
+}
+
 function itemsOf(x: unknown): Item[] {
   if (Array.isArray(x)) return x;
   const o = x as { items?: Item[]; transcript?: { items?: Item[] } } | null;
@@ -157,7 +174,8 @@ const USAGE = [
   'Review rounds count only subagent titles that name the PR (#N); the rest show as unattributed.',
   'Limits (R70): own > 500M or active > 3d rotate (warn 400M); subagent > 100M stop (LOOK when it already ended);',
   'empty wakes > 25% of the last 40 turns (20+); review rounds > 2 per PR; Captains REPORT, never rotate.',
-  'Exit 0 after a scan, 2 on a usage error.',
+  'A thread file that is not valid JSON or lacks cost.tokens or created_at prints RUNAWAY_INPUT and is skipped.',
+  'Exit 0 after a clean scan, 1 when any input was unreadable, 2 on a usage error.',
 ];
 
 export function runawayMain(argv: string[]): number {
@@ -165,6 +183,8 @@ export function runawayMain(argv: string[]): number {
   if (cmd === '--help' || cmd === '-h') { console.log(USAGE.join('\n')); return 0; }
   const fail = (msg: string) => { console.error('RUNAWAY_USAGE: ' + msg + '\n' + USAGE.join('\n')); return 2; };
   if (cmd !== 'scan') return fail(cmd ? 'unknown command ' + JSON.stringify(cmd) : 'no command');
+  const missing = rest.find((a, k) => a.startsWith('--') && (rest[k + 1] === undefined || rest[k + 1]!.startsWith('--')));
+  if (missing) return fail(missing + ' needs a value');
   const opt = (name: string) => { const k = rest.indexOf('--' + name); return k >= 0 ? rest[k + 1] : undefined; };
   const now = opt('now') ? Date.parse(opt('now')!) : Date.now();
   if (!Number.isFinite(now)) return fail('--now is not an ISO time');
@@ -182,14 +202,29 @@ export function runawayMain(argv: string[]): number {
     }
   }
   for (const s of sets) for (const f of [s.thread, s.events, s.subagents]) if (f && !fs.existsSync(f)) return fail('no file ' + f);
-  const verdicts = sets.map(s => assess(readJson(s.thread), {
-    now, items: s.events ? itemsOf(readJson(s.events)) : undefined, subagents: s.subagents ? readJson(s.subagents) : undefined,
-  })).sort((a, b) => b.own - a.own);
+  const verdicts: Verdict[] = [];
+  let unreadable = 0;
+  for (const s of sets) {
+    let file = s.thread;
+    try {
+      const doc = readJson(s.thread);
+      const problem = inputProblem(doc);
+      if (problem) throw new Error(problem);
+      file = s.events ?? file;
+      const items = s.events ? itemsOf(readJson(s.events)) : (doc as ThreadDoc).events;
+      file = s.subagents ?? file;
+      verdicts.push(assess(doc, { now, items, subagents: s.subagents ? readJson(s.subagents) : undefined }));
+    } catch (e) {
+      unreadable++;
+      console.log('RUNAWAY_INPUT: file=' + file + ' ' + (e instanceof Error ? e.message : String(e)).split('\n')[0] + '; fetch this thread again and rerun');
+    }
+  }
+  verdicts.sort((a, b) => b.own - a.own);
   for (const v of verdicts) console.log(render(v).join('\n'));
   if (dir) {
     const n = (k: Verdict['verdict']) => verdicts.filter(v => v.verdict === k).length;
     console.log('SWEEP: threads=' + verdicts.length + ' rotate=' + n('ROTATE') + ' stop=' + n('STOP') + ' defer=' + n('DEFER')
-      + ' report=' + n('REPORT') + ' warn=' + n('WARN') + ' ok=' + n('OK'));
+      + ' report=' + n('REPORT') + ' warn=' + n('WARN') + ' look=' + n('LOOK') + ' ok=' + n('OK') + ' unreadable=' + unreadable);
   }
-  return 0;
+  return unreadable ? 1 : 0;
 }

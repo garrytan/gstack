@@ -10,7 +10,11 @@ What this thread owns and what "done" looks like for the role (one paragraph).
 | Item | State | Branch / PR / head | Next step |
 |---|---|---|---|
 
-No PR here may be mid-/ship or mid-merge; if one is, the rotation waits.
+No PR here may be mid-/ship or mid-merge; if one is, the rotation waits. The successor subscribes to every open
+PR listed here.
+
+## Subagents still running
+None, or one row each that you chose not to stop: path, title, run directory, what it is waiting on.
 
 ## Rules and numbers in force
 Thresholds, bars, budgets and standing approvals the role works under, each with its source (rule number, file, quote).

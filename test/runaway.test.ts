@@ -1,7 +1,7 @@
 /**
  * gstack-runaway (/runaway-stopper, org rule R70): find runaway threads and subagents from host data,
- * read-only. Fixtures are shaped like tools.thread.get / tools.subagent.list / transcript items;
- * the FOUN-4 numbers are its real 2026-11-03 reading (6.89B total, Subagent 40 at 485M).
+ * read-only. Fixtures are shaped like tools.thread.get / tools.subagent.list / transcript items.
+ * FOUN4 is a 7-row subset of FOUN-4's 325 subagents, with its real 2026-11-03 totals (6.89B, Subagent 40 at 485M).
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -124,7 +124,41 @@ describe('gstack-runaway scan', () => {
     fs.writeFileSync(path.join(d, 'GSTA-1.thread.json'), JSON.stringify({ code: 'GSTA-1', status: 'idle', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 1e6 }, tasks: [] }));
     const r = run('scan', '--dir', d, '--now', NOW);
     expect(r.out.indexOf('thread=FOUN-4')).toBeLessThan(r.out.indexOf('thread=GSTA-1'));
-    expect(r.out).toContain('SWEEP: threads=2 rotate=1 stop=0 defer=0 report=0 warn=0 ok=1');
+    expect(r.out).toContain('SWEEP: threads=2 rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=1 unreadable=0');
+    expect(r.code).toBe(0);
+  });
+
+  test('an unreadable or incomplete thread file is named, skipped and fails the sweep; the rest still scan', () => {
+    const d = path.join(tmp, 'bad');
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4));
+    fs.writeFileSync(path.join(d, 'BAD-1.thread.json'), '{"code": "BAD-1", "cost": ');
+    fs.writeFileSync(path.join(d, 'BAD-2.thread.json'), JSON.stringify({ code: 'BAD-2', status: 'working', tasks: [] }));
+    const r = run('scan', '--dir', d, '--now', NOW);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('thread=FOUN-4 verdict=ROTATE');
+    expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*BAD-1\.thread\.json /);
+    expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*BAD-2\.thread\.json field=cost\.tokens expected=number/);
+    expect(r.out).not.toContain('thread=BAD-2');
+    expect(r.out).toContain('rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=0 unreadable=2');
+  });
+
+  test('a finished subagent past 100M makes the verdict LOOK, not OK', () => {
+    const doc = { code: 'GSTA-245', status: 'idle', created_at: '2026-11-03T10:00:00Z', cost: { tokens: 200e6 }, tasks: [task(1, '/ship #3749', 150e6)] };
+    expect(run('scan', '--thread', write('look.json', doc), '--now', NOW).out).toContain('verdict=LOOK');
+  });
+
+  test('events embedded in the thread file: an inbound message starts a turn, and a "working" report is not action', () => {
+    const at = (m: number) => new Date(Date.parse('2026-11-03T12:00:00Z') + m * 60_000).toISOString();
+    const events: unknown[] = [];
+    for (let k = 0; k < 24; k++) {
+      events.push({ source: 'user', createdAt: at(k * 10) });
+      if (k % 4 === 0) events.push({ source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: at(k * 10 + 1) });
+      else events.push({ source: 'tool', tool: 'message_agent', state: 'working', createdAt: at(k * 10 + 1) });
+    }
+    const doc = { code: 'GSTA-258', status: 'idle', created_at: '2026-11-03T02:00:00Z', cost: { tokens: 50e6 }, tasks: [], events };
+    const r = run('scan', '--thread', write('emb.json', doc), '--now', NOW);
+    expect(r.out).toContain('empty_wake=75%/24');
   });
 
   test('usage errors exit 2 with a named code', () => {
@@ -132,5 +166,23 @@ describe('gstack-runaway scan', () => {
     expect(run('scan', '--thread', path.join(tmp, 'missing.json')).err).toContain('RUNAWAY_USAGE: no file');
     expect(run('frob').err).toContain('RUNAWAY_USAGE: unknown command');
     expect(run('--help').code).toBe(0);
+    expect(run('scan', '--thread', write('ok.json', FOUN4), '--now').err).toContain('RUNAWAY_USAGE: --now needs a value');
+  });
+});
+
+describe('/runaway-stopper skill', () => {
+  const skill = fs.readFileSync(path.resolve(import.meta.dir, '..', 'runaway-stopper', 'SKILL.md.tmpl'), 'utf8');
+  test('the fetch program stays under the 256-call limit at every documented page count, pages the list, and cleans up', () => {
+    expect(skill).toContain('const max = Math.floor(240 / (pages + 1));');
+    for (const pages of [1, 3]) expect(Math.floor(240 / (pages + 1)) * (pages + 1) + 2).toBeLessThan(256);
+    expect(skill).toContain('NEXT_CURSOR');
+    expect(skill).toContain('rm -rf');
+    expect(skill).toContain('calls: i.calls?.map(c => ({ tool: c.tool }))');
+  });
+  test('rotation stops or lists live subagents, the successor subscribes to open PRs, and archiving waits for it', () => {
+    expect(skill).toContain('stop your working and waiting subagents, or list each with its run');
+    expect(skill).toContain('subscribes to each open PR in the handoff');
+    expect(skill).toContain('Archive the old thread once the successor reports its subscriptions');
+    expect(fs.readFileSync(path.resolve(import.meta.dir, '..', 'runaway-stopper', 'templates', 'successor-brief.md'), 'utf8')).toContain('subscribe to every open PR');
   });
 });

@@ -243,13 +243,13 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const scope = str(o, 'meter-scope');
   if (scope !== undefined && scope !== 'self' && scope !== 'tree') throw usageError(`--meter-scope '${scope}' is not self or tree`);
   const from = str(o, 'reading-from');
-  if (from !== undefined && from !== 'this' && from !== 'own') throw usageError(`--reading-from '${from}' is not this or own`);
+  if (from !== undefined && from !== 'this' && from !== 'own' && from !== 'task') throw usageError(`--reading-from '${from}' is not this, own or task`);
   const parentCounter = (o.subagent === true || ctx.env.GSTACK_SHIP_SUBAGENT === '1') && from === 'this';
   if (parentCounter && scope === 'self') throw budgetError('METER_SCOPE_PARENT', 'start --subagent --reading-from this --meter-scope self');
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
-  const defaultCap = rawCap === undefined && mode === 'observe' && parentCounter && tokensOpt(o, 'reading') !== undefined;
+  const defaultCap = rawCap === undefined && mode === 'observe' && from === 'task' && tokensOpt(o, 'reading') !== undefined;
   const cap = defaultCap ? SUBAGENT_DEFAULT_CAP : rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
@@ -289,7 +289,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
-  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent; --token-cap <n> or none to change it)`] : [];
+  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
   return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
 }
 

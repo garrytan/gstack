@@ -1025,15 +1025,17 @@ sets the defaults that keep it from coming back.
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
 - **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
-  PR head (and an 80M default cap on a /ship subagent, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
+  PR head (metering its own row with a 100M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
   thread per automation run.
 
+Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03 (excerpt):
+
 ```
-You:    /runaway-stopper
-Claude: RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B age_days=13.1 active=yes ...
-        FLAG: ROTATE own_tokens 4.04B > 500M (upper bound)
-        FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)
-        SWEEP: threads=3 rotate=3 stop=0 defer=0 report=0 warn=0 ok=0
+RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B credits=2299398 age_days=13.1 active=yes ...
+FLAG: ROTATE own_tokens 4.04B > 500M (upper bound)
+FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)
+RUNAWAY: thread=FOUN-14 verdict=ROTATE own=2.02B(exact) total=2.54B ...
+RUNAWAY: thread=FOUN-71 verdict=ROTATE own=677M(exact) total=953M ...
 ```
 
 ---

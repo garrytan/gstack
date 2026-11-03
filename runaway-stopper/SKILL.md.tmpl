@@ -22,35 +22,42 @@ allowed-tools:
 
 # /runaway-stopper: detect, stop, prevent
 
-Needs Capy's thread and subagent tools. Steps 1 and 2 only read. Stop only your own subagents; only a Captain
-rotates and archives, and only threads in its own crew (R39). An org sweep runs Step 1 everywhere and sends each
-finding to the owning Captain; threads outside every crew are left alone.
+Needs Capy's thread and subagent tools; without them, say so and stop (`gstack-runaway scan` still reads saved
+files). Step 1 only reads. Stop only your own subagents; only a Captain rotates and archives, and only threads in
+its own crew (R39). An org sweep runs Step 1 everywhere and sends each finding to the owning Captain; threads
+outside every crew are left alone. For a crew over ~15 threads or the org sweep, run Step 1 from an automation
+with a fresh thread per run that writes the lines to the Captain's drive, archives itself, and messages the
+Captain only when a ROTATE, STOP or REPORT line appears.
 
 ## 1. Detect
 
-Fetch and scan in one execute program, so nothing large enters your context:
+Fetch and scan in one execute program (`timeout_seconds: 900`), so nothing large enters your context:
 
 ```js
-const dir = "/home/user/.capy/work/runaway/" + new Date(await now()).toISOString().slice(0, 10);
 const pages = 3; // 1 for an org sweep; empty_wake needs 20+ turns, else it prints "unmeasured"
-const list = await tools.thread.list({ scope: "crew", status: ["working", "waiting", "idle"], limit: 100 }); // org sweep: scope "all"
-for (const code of [...list.items.map(t => t.code), "this"]) {
-  let before, items = [], doc;
+const max = Math.floor(240 / (pages + 1)); // threads per program, under the 256-call limit
+const cursor = undefined; // the previous program's NEXT_CURSOR, to continue a large sweep
+const dir = "/home/user/.capy/work/runaway/" + crypto.randomUUID();
+const list = await tools.thread.list({ scope: "crew", status: ["working", "waiting", "idle"], limit: max, cursor }); // org sweep: scope "all"
+const codes = [...list.items.map(t => t.code), ...(cursor ? [] : ["this"])].slice(0, max);
+const fetch = async code => {
+  let before, events = [], doc;
   for (let k = 0; k < pages; k++) {
-    const g = await tools.thread.get({ thread_id: code, transcript: { limit: 100, tools: true, before } });
-    const { transcript, recent, ...rest } = g; doc ??= rest;
-    items.push(...transcript.items.map(i => ({ source: i.source, tool: i.tool, calls: i.calls, createdAt: i.createdAt,
-      input: i.input && { text: String(i.input.text ?? "").slice(0, 300) } })));
+    const { transcript, recent, ...rest } = await tools.thread.get({ thread_id: code, transcript: { limit: 100, tools: true, before } });
+    doc ??= rest;
+    events.push(...transcript.items.map(i => ({ source: i.source, tool: i.tool, createdAt: i.createdAt,
+      calls: i.calls?.map(c => ({ tool: c.tool })), state: String(i.input?.text ?? "").match(/"state\\?"\s*:\s*\\?"(\w+)/)?.[1] })));
     if (!(before = transcript.beforeCursor)) break;
   }
-  await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify(doc) });
-  await tools.capy.write({ path: `${dir}/${doc.code}.events.json`, content: JSON.stringify(items) });
-}
-return (await tools.capy.bash({ command: `~/.claude/skills/gstack/bin/gstack-runaway scan --dir ${dir}`, description: "Scanning" })).output;
+  await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events }) });
+};
+for (let k = 0; k < codes.length; k += 8) await Promise.all(codes.slice(k, k + 8).map(fetch));
+const scan = await tools.capy.bash({ command: `~/.claude/skills/gstack/bin/gstack-runaway scan --dir ${dir}; rm -rf ${dir}`, description: "Scanning" });
+return scan.output + (list.cursor ? "\nNEXT_CURSOR: " + list.cursor : "");
 ```
 
-On a lane with nested subagents, also write `tools.subagent.list()` to `<code>.subagents.json`: it lists the
-whole tree, where thread.get lists direct children only (200 at most, so `own` is then an upper bound).
+A lane with nested subagents can also write `tools.subagent.list()` to `<code>.subagents.json` in that directory:
+it lists the whole tree, where thread.get lists 200 rows at most (`own` is then an upper bound).
 
 Limits (org rule R70): own tokens (total minus subagents) past 500M, or active (working, waiting, or a turn in the
 last 24 hours) past 3 days: rotate, warn at 400M. A subagent past 100M: stop and look. Empty wakes past 25% of the
@@ -64,6 +71,7 @@ last 40 turns. Review rounds past 2 per PR. Act on each line:
 | `FLAG: LOOK` | A finished subagent past 100M: find why (reused for several runs? full-depth review?) and fix that cause from Step 4. |
 | `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once. |
 | `DEFER:` | The thread is mid-/ship or mid-merge: act on nothing now; scan again when that work finishes. |
+| `RUNAWAY_INPUT:` | That thread's file was unreadable: fetch it again and rerun; never count it as OK. |
 
 ## 2. Stop a subagent
 
@@ -74,10 +82,13 @@ PR stays open; a fresh subagent with the run directory picks the work up if it i
 ## 3. Rotate a thread
 
 Rotate only at a clean point: no `DEFER:`, no READY of that thread waiting on you, no merge in flight for its PR.
-1. Tell it: "Rotation (R70). Start nothing new; write handoffs/<code>-rotation.md from gstack's
-   `runaway-stopper/templates/rotation-handoff.md` and reply with its path."
-2. Start the successor in your crew from `runaway-stopper/templates/successor-brief.md` (a lane asks its Captain, R68).
-3. Once the successor reports, archive the old thread: `tools.thread.archive({ threads: ["<code>"] })`.
+1. Tell it: "Rotation (R70). Start nothing new; stop your working and waiting subagents, or list each with its run
+   directory; write handoffs/<code>-rotation.md from gstack's `runaway-stopper/templates/rotation-handoff.md` and
+   reply with its path."
+2. Start the successor in your crew from `runaway-stopper/templates/successor-brief.md` (a lane asks its Captain,
+   R68). Its first act subscribes to each open PR in the handoff (`tools.capy.subscribe`, a pull source), so CI,
+   reviews and merges wake it instead of the old thread.
+3. Archive the old thread once the successor reports its subscriptions: `tools.thread.archive({ threads: ["<code>"] })`.
 
 ## 4. Prevent
 
@@ -89,8 +100,9 @@ Put the lines that apply into every brief you write:
 - **Compact returns.** A program returns only the lines the next step needs; big output goes to a file under
   ~/.capy/work and you read the part you need.
 - **One /ship subagent per PR head.** A rerun or another PR gets a fresh subagent with the run directory path; never
-  message a finished /ship subagent to run another. A /ship subagent gets an 80M cap by default
-  (`BUDGET_DEFAULT_CAP:`); raising it needs the owner's words.
+  message a finished /ship subagent to run another. Title it `ship #<n> at <head7>` and put
+  `GSTACK_SHIP_TASK_TITLE=<title>` in its brief: /ship then meters its own row and caps at 100M by default
+  (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
 - **Two review rounds.** Reader and review rounds stop at 2 per PR (R51), and every reader's title names the PR
   (`#<n>`) so the scan can count them.
 - **Rotate standing roles** at 500M own tokens or 3 days. An automation gets a fresh thread per run that archives
@@ -98,5 +110,5 @@ Put the lines that apply into every brief you write:
 
 ## Report
 
-Paste the `RUNAWAY:`, `FLAG:`, `DEFER:` and `SWEEP:` lines verbatim, then one line per flag: stopped (path),
-rotated (successor code), deferred (until what) or told (thread).
+Paste the `RUNAWAY:`, `FLAG:`, `DEFER:`, `RUNAWAY_INPUT:` and `SWEEP:` lines verbatim, then one line per flag:
+stopped (path), rotated (successor code), deferred (until what) or told (thread).

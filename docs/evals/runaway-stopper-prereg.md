@@ -8,9 +8,11 @@ Does a Captain that runs `/runaway-stopper` on its crew take the right action on
 defer, report), and do the skill's prevent defaults lower own-token growth and empty wakes afterward?
 
 ## Arms
-- **Skill:** a fresh Opus 5.5 session and a fresh GPT-6.1 Sol session (R54), Claude Code preset prompt, with the
-  skill loaded, given a frozen crew snapshot and the brief "check this crew for runaway threads and act".
-- **No gstack (masked):** the same models, inputs and brief, no gstack skill text, drives masked (R40 stopgap).
+- **Skill:** masked Capy subagents on Opus 5.5 and on GPT-6.1 Sol (R54), each given the frozen snapshot files and
+  the brief "check this crew for runaway threads and act", with the skill text loaded and told to start at
+  `gstack-runaway scan --dir`. The Step 1 fetch program is out of the measured scope. Record each arm's system prompt.
+- **No gstack (masked):** the same models, files and brief, no gstack skill text and no `gstack-runaway`, drives
+  masked as CREW.md's no-gstack stopgap describes.
 
 ## Inputs
 Frozen `tools.thread.get` snapshots (thread JSON plus transcript items) from 2026-11-03: FOUN-4, FOUN-14,
