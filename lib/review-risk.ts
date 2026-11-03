@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 
-export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data'] as const;
+export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data', 'eval', 'policy'] as const;
 export type RiskClass = (typeof RISK_CLASSES)[number];
 
 /** Metering and charge words (GST-850: gbrain-evals #289 changed a metering proxy and billing clients with none of the older tokens); they also count on a line. */
@@ -22,6 +22,15 @@ export const MONEY_PATH_TOKENS = ['cost', 'costs', 'spend', 'spending', 'budget'
 export const MONEY_PAIRS: readonly (readonly [string, readonly string[]])[] = [
   ['usage', ['token', 'tokens', 'cost', 'costs', 'spend', 'billing', 'price', 'pricing', 'budget']], ['proxy', ['billing', 'bill']], ['client', ['cost', 'costs', 'charge', 'charges', 'billing', 'price', 'pricing', 'spend']],
 ];
+/**
+ * Spend a run reserves, binds, leases or settles against a ledger, a budget or a cap (GST-1129: gstack-evals#170 bound paid spend
+ * with `bindCheck(ledger, …)`): a verb beside a spend word on one changed code line. Prose lines (PROSE_PATH) never count: skill
+ * text says "binds" and "ledger" in passing (#3698 and #3798 would have read as money).
+ */
+const SPEND_BIND = ['reserve', 'reserves', 'reserved', 'reservation', 'reservations', 'bind', 'binds', 'lease', 'leases', 'leased', 'settle', 'settles', 'settled'];
+const SPEND_OF = ['ledger', 'ledgers', 'spend', 'budget', 'budgets', 'usd', 'cost', 'costs', 'credits', 'billing', 'cap', 'caps'];
+export const SPEND_PAIRS: readonly (readonly [string, readonly string[]])[] = [...SPEND_BIND.map(w => [w, SPEND_OF] as const), ['cap', ['spend', 'usd', 'budget', 'ledger']]];
+export const PROSE_PATH = /\.(md|mdx|markdown|txt|rst|adoc|tmpl)$/i;
 /** Identifiers ending in _usd or Usd: money unless the line only reads or reports a cost (usdMoney). */
 export const MONEY_USD = [/\b[A-Za-z0-9_]*_usd\b/i, /\b[a-z][A-Za-z0-9]*Usd\b/];
 const MONEY_USD_ALL = MONEY_USD.map(r => new RegExp(r.source, r.flags + 'g'));
@@ -40,6 +49,8 @@ export const PAID_MONEY_LINE = [
   /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
 ];
 export const MONEY_LINE = [...MONEY_USD, ...PAID_MONEY_LINE];
+/** A config file's price or rate key (input_price_usd, cost_per_1k_usd): money outside a results tree, where #3920's path-only rule otherwise keeps config values out (GST-961+962). */
+export const PRICE_USD_KEY = /(?:^|[^a-z])(?:price|prices|pricing|rate|rates)_[a-z0-9_]*usd\b|cost_?per|per_?token|per_?1[km]\b/i;
 /** A _usd or Usd name is money unless every one on the line is a reported cost the line only reads: no cap word, comparison or number set. */
 export const usdMoney = (line: string) => {
   const names = MONEY_USD_ALL.flatMap(r => [...line.matchAll(r)].map(m => m[0]));
@@ -88,20 +99,45 @@ export const decodeCharRefs = (s: string) => s.replace(/&#(?:[xX]0*([0-9a-fA-F]+
   return c <= 0x10ffff ? String.fromCodePoint(c) : '';
 });
 export const svgActive = (text: string) => { const d = decodeCharRefs(text); const squeezed = d.replace(/[\s\0-\x1f]+/g, ''); return SVG_ACTIVE.some(r => r.test(d) || r.test(squeezed)); };
+/** Eval scorers, judges and graders (FOUN-32 §4): code that decides a published result is risk class eval, by path. */
+const EVAL_PATH_TOKENS = ['scorer', 'scorers', 'scoring', 'judge', 'judges', 'grader', 'graders', 'grade', 'grading', 'rubric', 'rubrics'];
 const DATA_PATH_TOKENS = ['pii', 'gdpr', 'ccpa', 'privacy', 'personal', 'account', 'accounts', 'customer', 'customers', 'cookie', 'cookies', 'persistence', 'storage', 'database'];
 export const DATA_LINE = [
   /\bDELETE\s+FROM\b/, /\b(?:drop\s+(?:table|column|database|schema)|truncate\s+table)\b/i, /\bdelete\s+from\s+[\w."`]+\s*(?:where\b|;|$|["'`)])/i,
   /\.(?:deleteMany|destroyAll|bulkDelete)\s*\(/, /\b(?:destroy_all|delete_all)\b/,
 ];
 
+/**
+ * Data and config files (HARN-1, harness-evals#231): judged by their path only, so a lease_usd value in a VM record never names money.
+ * A key in a config file still names a secret.
+ */
+export const CONFIG_DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|ya?ml|toml|ini|cfg|conf|env|properties|xml|plist)$/i;
+/**
+ * Analysis scripts that live with their results (docs/benchmarks/.../results/cost-intervals.py): their path tokens and generic
+ * lines name no risk class, but a secret, a spend cap or a paid-provider call in one still does (PAID_MONEY_LINE).
+ */
+export const STATS_SCRIPT = /(^|\/)results\/(?:[^/]+\/)*[^/]+\.(py|r|jl|ipynb)$/i;
+
+/**
+ * Docs that can print a credential (gbrain#8417: `mcp get gbrain` shows a stored bearer token): an Authorization header, a
+ * bearer value, a key-shaped literal, an environment key set to a value, or a get/show command for auth config. Read on the
+ * added lines of docs paths, which matchRisk never sees, and counted as security (FOUN-64 item 4).
+ */
+export const DOC_SECRET_LINE = [
+  /\bAuthorization\s*:\s*\S/i, /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/, /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b/,
+  new RegExp(String.raw`\b${KEY_NAME}\s*[=:]\s*['"]?[^\s'"$<{]{8,}`),
+  /\b(?:mcp|auth|config|credentials?|tokens?|secrets?|keys?|login)\s+(?:get|show|print|view|cat|token)\b/i, /\b(?:get|show|print|cat)\s+(?:\S+[ ./-])?(?:tokens?|auth|credentials?|secrets?|api[_-]?keys?|bearer)\b/i,
+];
+
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
-const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || MONEY_PAIRS.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const pairs = (t: readonly string[], list: typeof MONEY_PAIRS) => list.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
+const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || pairs(t, MONEY_PAIRS);
 
 /** A hash of the patterns that decide the risk classes, not of this file's bytes; lib/review-depth.ts folds it into DEPTH_RULES. */
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
-  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS,
-  MONEY_LINE_TOKENS, MONEY_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
-  patterns: Object.entries({ MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
+  MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -115,6 +151,8 @@ export interface RiskInput {
   scopeAuth: boolean;
   /** Code paths no code reads (an unconsumed data file or drawing): under RESULTS_TREE their name and reported costs name no money; a spend cap or paid call in them still does (GST-961). */
   dataPaths?: readonly string[];
+  /** The base policy's review.risk_paths matcher: a code path it matches is risk class `policy`. */
+  isRiskPath?: (p: string) => boolean;
 }
 
 /** The risk classes the code paths touch, the first reason per class, in RISK_CLASSES order. Nothing fails closed here: input errors are the caller's. */
@@ -122,17 +160,25 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const why = new Map<RiskClass, string>();
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
-    const t = tokens(p);
+    if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
+    const stats = STATS_SCRIPT.test(p);
+    const t = stats ? [] : tokens(p);
+    const config = CONFIG_DATA_PATH.test(p);
+    const pathOnly = config || stats;
+    const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
     const money = !(i.dataPaths?.includes(p) && RESULTS_TREE.test(p));
     if (money && namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
+    if (!config && t.some(x => EVAL_PATH_TOKENS.includes(x))) hit('eval', 'eval scorer path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
-      if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS))))) hit('money', 'money line: ' + p);
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
+      if (!why.has('money') && pathOnly && (PAID_MONEY_LINE.some(r => r.test(line)) || (!RESULTS_TREE.test(p) && MONEY_USD.some(r => r.test(line)) && PRICE_USD_KEY.test(line)))) hit('money', 'spend cap, paid call or price key: ' + p);
+      if (pathOnly) continue;
+      if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }

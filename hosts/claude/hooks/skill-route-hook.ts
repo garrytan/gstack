@@ -2,7 +2,7 @@
 /**
  * skill-route-hook — UserPromptSubmit hook that names the gstack skill a prompt
  * fits (GST-1088, lane A). Off unless skill_routing is on (env
- * GSTACK_SKILL_ROUTING, then config skill_routing; default off).
+ * GSTACK_SKILL_ROUTING, then config skill_routing, then SWITCH_DEFAULT).
  *
  *   stdin (<= 256 KiB, 500 ms) -> switch on? -> JSON object with a prompt?
  *     -> not a /command, not over 8000 chars -> score against installed triggers

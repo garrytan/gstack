@@ -439,6 +439,10 @@ describe('incidental money signals (GST-961, GST-962)', () => {
     expect(classesOf(input(['src/billing/invoice.ts'], { consumed: [] }))).toEqual(['money']);
     expect(classesOf(input(['prices/us-east.json'], { consumed: [] }))).toEqual(['money']);
     expect(classesOf(input(['data/rates.json'], { consumed: [], added: { 'data/rates.json': ['{"input_price_usd": 3}'] } }))).toEqual(['money']);
+    expect(classesOf(input(['config/models.yaml'], { consumed: 'all', added: { 'config/models.yaml': ['  cost_per_1k_usd: 0.3'] } }))).toEqual(['money']);
+    expect(classesOf(input(['evals/config.json'], { consumed: 'all', added: { 'evals/config.json': ['  "output_price_usd": 15,'] } }))).toEqual(['money']);
+    expect(classesOf(input(['docs/b/results/run.json'], { consumed: 'all', added: { 'docs/b/results/run.json': ['  "list_price_usd": 1.2485,'] } }))).toEqual([]);
+    expect(classesOf(input(['evals/config.json'], { consumed: 'all', added: { 'evals/config.json': ['  "lease_usd": 32.9,'] } }))).toEqual([]);
     expect(classesOf(input([tsv], { consumed: [], added: { [tsv]: ['spend_cap\t500'] } }))).toEqual(['money']);
   });
 
