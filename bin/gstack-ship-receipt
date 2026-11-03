@@ -538,7 +538,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
   // A stamp file the branch changed on neither side beyond a stamp against that side's base (back at the base's content
   // after a changelog-fragment conversion, or only its version moved) holds none of the branch's product: whatever else
   // differs between the two heads came from the base (GST-1210).
-  const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => blobAt(a, p) === blobAt(b, p) || classify(p, a, b) === 'metadata');
+  const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => (git(['rev-parse', '--verify', '--quiet', `${a}:${p}`], repoRoot) ?? 'absent') === (git(['rev-parse', '--verify', '--quiet', `${b}:${p}`], repoRoot) ?? 'absent') || classify(p, a, b) === 'metadata');
   const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : classify(p, from, to) }));
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)

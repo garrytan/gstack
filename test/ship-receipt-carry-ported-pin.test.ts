@@ -18,13 +18,13 @@ const carry = (repo: FixtureRepo, body: string) => runBin(repo, 'gstack-ship-rec
 const RETRY = '{"blob":"aaa","since":6,"nonBehavioral":"first pin"}';
 const UTIL = '{"blob":"bbb","since":6}';
 const RETRY_MAIN = '{"blob":"ccc","since":6,"nonBehavioral":"main repinned retry"}';
-const manifest = (retry: string) => `{\n  "version": 6,\n  "files": {\n    "lib/retry.js": ${retry},\n    "lib/util.js": ${UTIL}\n  }\n}\n`;
+const manifest = (retry: string, short?: string) => `{\n  "version": 6,\n  "files": {\n    "lib/retry.js": ${retry},\n    "lib/util.js": ${UTIL}${short ? `,\n    "retry.js": ${short}` : ''}\n  }\n}\n`;
 const PIN = 'scripts/harness-pins/lib/retry.js.json';
 
 /** main holds the pin map; feature splits it into one file per entry beside a product change, /ship receipt there; main repins retry; feature merges main and writes `ports`. */
-function ported(repo: FixtureRepo, ports: Record<string, string>): { reviewed: string; body: string } {
+function ported(repo: FixtureRepo, ports: Record<string, string>, maps: [string, string] = [manifest(RETRY), manifest(RETRY_MAIN)]): { reviewed: string; body: string } {
   repo.git('checkout', '-q', 'main');
-  commit(repo, { 'scripts/harness-version.json': manifest(RETRY) }, 'main: harness pins');
+  commit(repo, { 'scripts/harness-version.json': maps[0] }, 'main: harness pins');
   repo.git('push', '-q', 'origin', 'main');
   repo.git('checkout', '-q', 'feature');
   repo.git('reset', '-q', '--hard', 'origin/main');
@@ -32,7 +32,7 @@ function ported(repo: FixtureRepo, ports: Record<string, string>): { reviewed: s
   const body = path.join(repo.root, 'body.md');
   expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3903', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]).status).toBe(EXIT.ok);
   repo.git('checkout', '-q', 'main');
-  commit(repo, { 'scripts/harness-version.json': manifest(RETRY_MAIN), 'docs/README.md': '# docs after the repin\n' }, 'main: repin retry');
+  commit(repo, { 'scripts/harness-version.json': maps[1], 'docs/README.md': '# docs after the repin\n' }, 'main: repin retry');
   repo.git('push', '-q', 'origin', 'main');
   repo.git('checkout', '-q', 'feature');
   repo.git('merge', '-q', '--no-edit', 'origin/main');
@@ -74,5 +74,15 @@ describe('carry across a ported harness-pin entry (GST-1210)', () => {
     const out = carry(repo, body);
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain('scripts/harness-pins/lib/util.js.json');
+  }, 90_000);
+
+  // Value: protects=fail closed when a shorter key's repin lands in a longer key's pin file (`retry.js` for
+  // `…/lib/retry.js.json`); fails_when=the key is matched as a bare path suffix; seam=none; no_claim=gh pr edit
+  test('a repin of a key that is only a suffix of the pin path still refuses', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { body } = ported(repo, { [PIN]: `${RETRY_MAIN}\n` }, [manifest(RETRY, RETRY), manifest(RETRY, RETRY_MAIN)]);
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain(PIN);
   }, 90_000);
 });

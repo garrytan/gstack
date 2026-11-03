@@ -125,7 +125,8 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
  * branch added (absent at both bases, a regular file at both heads) named `…/<key>.json`, whose whole text at each head is
  * byte for byte the value of entry `<key>` in one JSON map line of a base file `baseMoved` lists: the old value at the
  * reviewed base, the new one at the current base. The branch then holds the base's own edit of that entry and nothing of
- * its own. Null for anything else, so a pin that differs from the base's entry stays a product change.
+ * its own. Exactly one entry of that map may name the file. Null for anything else, so a pin that differs from the base's
+ * entry stays a product change.
  */
 export function portedEntry(repoRoot: string, s: PatchSides, rel: string, baseMoved: Iterable<string>): string | null {
   if (!rel.endsWith('.json')) return null;
@@ -138,14 +139,14 @@ export function portedEntry(repoRoot: string, s: PatchSides, rel: string, baseMo
   const entries = (text: string | null) => new Set((text ?? '').split('\n').map(l => l.trim().replace(/,$/, '')));
   for (const file of baseMoved) {
     if (file === rel || !file.endsWith('.json')) continue;
-    const now = entries(blob(s.currentBase, file));
-    for (const line of now) {
+    const named = [...entries(blob(s.currentBase, file))].flatMap(line => {
       const m = /^("(?:[^"\\]|\\.)*"): (.*)$/.exec(line);
-      if (!m || m[2] !== after) continue;
       let key: unknown;
-      try { key = JSON.parse(m[1]!); } catch { continue; }
-      if (typeof key === 'string' && key && rel.endsWith(`/${key}.json`) && entries(blob(s.reviewedBase, file)).has(`${m[1]}: ${before}`)) return file;
-    }
+      try { key = m ? JSON.parse(m[1]!) : null; } catch { return []; }
+      return typeof key === 'string' && key && rel.endsWith(`/${key}.json`) ? [{ quoted: m![1]!, value: m![2]! }] : [];
+    });
+    // One entry of the map names the pin file; two (`retry.js` and `lib/retry.js` for `…/lib/retry.js.json`) is no port.
+    if (named.length === 1 && named[0]!.value === after && entries(blob(s.reviewedBase, file)).has(`${named[0]!.quoted}: ${before}`)) return file;
   }
   return null;
 }
