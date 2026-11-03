@@ -411,3 +411,63 @@ describe('GST-1190: a file whose every test skipped on CI is not carried', () =>
     expect(stage().stdout + stage().stderr).toMatch(/REUSE: accepted 2 of 2 selected local test file\(s\) from run .*; 0 still run/);
   });
 });
+
+describe('GST-1190: a path-skipped CI job counts only under an unchanged gate', () => {
+  // Value: protects=a lane whose CI job the workflow skipped by path is not owed only when the gate job that decided the skip succeeded and the
+  //   workflow and the gate's scripts are byte-identical to origin/<base>; otherwise the branch controlled the skip and the lane runs here;
+  //   fails_when=a branch edits the workflow or the gate script to skip its own typecheck and the lane still passes; why_new=TRUT-7 (truther #1169); seam=fake gh
+  const TSC = 'bunx tsc --noEmit';
+  const SKIP_PROFILE = { ...PROFILE, jobs: ['suite'], skippable: { jobs: ['typecheck'], gate: 'changes' } };
+  const WORKFLOW = 'name: Free\non: [pull_request, workflow_dispatch]\njobs:\n  changes:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/changes.sh\n  suite:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n  typecheck:\n    needs: changes\n    runs-on: ubuntu-latest\n    steps:\n      - run: bunx tsc --noEmit\n';
+  const SKIP_BASE = {
+    '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': SKIP_PROFILE }, ship_lanes_from: { [TSC]: { profiles: ['ci/free'], jobs: ['typecheck'] } } }) + '\n',
+    '.github/workflows/free.yml': WORKFLOW,
+    'scripts/changes.sh': 'echo "typecheck=false" >> "$GITHUB_OUTPUT"\n',
+  };
+  const JOBS = (gate: string) => [{ name: 'changes', conclusion: gate }, { name: 'suite', conclusion: 'success' }, { name: 'typecheck', conclusion: 'skipped' }];
+  const setup = (feat: Record<string, string> = { 'src/b.ts': 'export const b = 2;\n' }, gate = 'success') => {
+    const f = shipFixture(SKIP_BASE, feat); fixtures.push(f);
+    world(f, { jobs: JOBS(gate), tree: { files: [], tests: 0 } });
+    return f;
+  };
+  const lane = (f: ShipFx) => preflight(f, [`tsc=${TSC}`]);
+
+  test('a skip the unchanged gate decided is not owed', () => {
+    const f = setup();
+    const out = lane(f);
+    expect(out.stdout).toContain('LANE: tsc not owed: CI skipped at this tree (gate job changes, workflow unchanged) run=7/1');
+    const row = JSON.parse(fs.readFileSync(findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl')[0]!, 'utf8').trim().split('\n').at(-1)!);
+    expect([row.tests_ran, row.not_owed]).toEqual(['n/a', 'CI skipped at this tree (gate job changes, workflow unchanged)']);
+  });
+
+  test('a branch that changed the workflow decided its own skip: the lane runs here', () => {
+    const f = setup({ '.github/workflows/free.yml': WORKFLOW + '# skip more\n' });
+    expect(lane(f).stdout).toContain('CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)');
+  });
+
+  test('a branch that changed the gate script decided its own skip: the lane runs here', () => {
+    const f = setup({ 'scripts/changes.sh': 'echo "typecheck=false" >> "$GITHUB_OUTPUT" # always\n' });
+    expect(lane(f).stdout).toContain('CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)');
+  });
+
+  test('a gate job that failed decided nothing: the lane runs here', () => {
+    const f = setup(undefined, 'failure');
+    expect(lane(f).stdout).toContain('CI_CARRY: none label=tsc (no_verified_run: ci/free: run 7: job_skipped)');
+  });
+
+  test('gstack-ci-carry find --policy-from head --simulate checks the branch map, says SIMULATION on every line and writes nothing', () => {
+    const VERIFY = 'bun run verify';
+    const head = JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [VERIFY]: { profiles: ['ci/free'], jobs: ['suite'] } } }) + '\n';
+    const f = shipFixture({ '.github/workflows/free.yml': BASE['.github/workflows/free.yml'] }, { '.gstack/pregate.json': head }); fixtures.push(f);
+    world(f, { tree: { files: [], tests: 0 } });
+    const cli = (args: string[]) => f.run(path.join(BIN, 'gstack-ci-carry'), args);
+    const sim = cli(['find', '--base', 'main', '--policy-from', 'head', '--simulate', '--command', VERIFY, '--allow-repo-commands']);
+    expect(sim.status).toBe(0);
+    expect(sim.stdout.trim().split('\n').every(l => l.startsWith('SIMULATION: '))).toBe(true);
+    expect(sim.stdout).toMatch(/^SIMULATION: CI_CARRY: accepted ci-carry tree=[0-9a-f]{12} jobs=suite /m);
+    expect(fs.existsSync(path.join(f.state, 'projects')) ? findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl') : []).toEqual([]);
+    expect(cli(['find', '--base', 'main', '--command', VERIFY, '--allow-repo-commands']).stdout).toContain('CI_CARRY: none (not_mapped');
+    expect(cli(['find', '--base', 'main', '--simulate']).status).toBe(2);
+    expect(cli(['wait', '--base', 'main', '--policy-from', 'head', '--simulate']).status).toBe(2);
+  });
+});

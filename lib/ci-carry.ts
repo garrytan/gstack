@@ -37,7 +37,7 @@ export type CarryRefused = { ok: false; reason: CarryRefusal; detail: string };
  * the runs' tree.json covers (`unit: 'files'`; tree.json has no per-file test counts yet), with named jobs `n/a`, and only
  * without either (the whole run carried) the runs' test count.
  */
-export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; receipt: string } | CarryRefused;
+export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; notOwed?: string; receipt: string } | CarryRefused;
 
 /** How many of HEAD's runs per workflow are tried, newest first. */
 const CANDIDATES = 10;
@@ -51,7 +51,7 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, head:
   if (!listed.length) return no('no_run', `no ${profile.workflow} run (${profile.events.join(', ')}) on ${head.slice(0, 12)} yet`);
   const refusals: string[] = [];
   for (const run of listed) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: [head], now: src.now });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: [head], now: src.now, unchanged: src.unchanged });
     if (v.ok) return v;
     refusals.push(`run ${run.id}: ${v.reason}`);
   }
@@ -100,7 +100,12 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
   }
   const after = o.wtree();
   if (after !== o.tree) return no('tree_changed', `the working tree changed while the runs were verified (now ${after ? after.slice(0, 12) : 'unreadable'})`);
-  if (jobs.length) return { ok: true, runs, tests: 'n/a', receipt: `ci-carry tree=${o.tree.slice(0, 12)} jobs=${jobs.join(',')} ${runReceiptFields(runs, src.now)}` };
+  if (jobs.length) {
+    const gates = [...new Set(o.profiles.map(n => src.profiles[n]?.skippable?.gate).filter(Boolean))];
+    const allSkipped = runs.every(e => jobs.every(j => e.skipped_jobs?.includes(j)));
+    const notOwed = allSkipped ? `CI skipped at this tree (gate job ${gates.join(', ')}, workflow unchanged)` : undefined;
+    return { ok: true, runs, tests: 'n/a', ...(notOwed ? { notOwed } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} jobs=${jobs.join(',')}${notOwed ? ` not_owed=${gates.join(',')}` : ''} ${runReceiptFields(runs, src.now)}` };
+  }
   if (covered !== undefined) return { ok: true, runs, tests: covered, unit: 'files', receipt: `ci-carry tree=${o.tree.slice(0, 12)} files=${covered} ${runReceiptFields(runs, src.now)}` };
   const tests = runs.reduce((n, e) => n + (e.tests ?? e.files.length), 0);
   return { ok: true, runs, tests, receipt: `ci-carry tree=${o.tree.slice(0, 12)} tests=${tests} ${runReceiptFields(runs, src.now)}` };

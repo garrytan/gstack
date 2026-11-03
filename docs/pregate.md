@@ -88,7 +88,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
 | `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases`: the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
@@ -710,7 +710,16 @@ other gate change. Each profile names the workflow file, the events it
 accepts, every job that must have passed (each exactly once), and the artifact
 holding the run's `tree.json`. `max_age_hours` (1–168, default 24) bounds how
 old the run may be, and `os` (`Linux`, `macOS`, `Windows`) requires
-`tree.json` to record that runner OS. Each workflow uploads `tree.json` from
+`tree.json` to record that runner OS. <a id="skippable"></a>`skippable`
+(`{ jobs, gate, scripts? }`, GST-1190) lets named jobs be skipped by a path
+filter: a skipped job counts only when the `gate` job (the one whose output
+decides the skip) succeeded in the same attempt, and the workflow file plus
+every repo file the gate job runs are byte-identical to `origin/<base>`. Those
+files are the declared `scripts` and every path the gate job's steps name in the
+base copy of the workflow. Otherwise the pull request controlled the skip
+decision, so the job refuses as `job_skipped` and the lane runs here. A lane
+whose every named job was skipped this way prints `LANE: <label> not owed: CI
+skipped at this tree (gate job <name>, workflow unchanged) run=…`. Each workflow uploads `tree.json` from
 its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 `tree` (`git rev-parse HEAD^{tree}` as tested), `files` (every test file the
 run executed), `tests` (the count) and, with `os`, the runner OS or a list of
@@ -1057,18 +1066,23 @@ twice. harness-evals #240's `scripts/ci-tree-json.ts` does it right.
 <a id="prove-a-mapping"></a>**Proving a new mapping.** `ship_lanes_from` is read from `origin/<base>`
 only, so a branch that adds a mapping cannot carry from it, and running
 against `--base <PR branch>` fails (`BASE_CONTAINS_HEAD`). Prove it with the dry
-run instead:
+run instead, once per lane command:
 
 ```bash
-gstack-ship-preflight --tests-only --base main --policy-from head --simulate --lane 'verify=bun run verify'
+gstack-ci-carry find --base main --policy-from head --simulate --command 'bun run verify' --allow-repo-commands
 ```
 
-It reads the branch's own `ship_lanes_from` and `run_profiles`, checks each lane
+It reads the branch's own `ship_lanes_from` and `run_profiles`, checks the lane
 against the verified CI run at this tree exactly as a carry would, and prints
-`SIMULATION:` at the start of every line: `LANE: <label> would carry run=…`,
-`CI_CARRY: none label=<label> (<reason>)` or `not mapped`. It runs no lane and
-no pregate, writes no evidence or ledger row, and clears no obligation. It
-exits 0 when every mapped lane would carry. A branch's own map never carries,
+`SIMULATION:` at the start of every line (`SIMULATION: CI_CARRY: accepted …` or
+`SIMULATION: CI_CARRY: none (<reason>)`). It writes no evidence or ledger row
+and clears no obligation. To check every /ship lane at once, the same dry run
+takes lane flags: `gstack-ship-preflight --tests-only --base main --policy-from
+head --simulate --lane 'verify=bun run verify' …` prints `SIMULATION: LANE:
+<label> would carry run=…`, `SIMULATION: CI_CARRY: none label=<label> (<reason>)`
+or `not mapped` per lane, runs no lane and no pregate, and exits 0 when every
+mapped lane would carry. truther's adoption proved its map this way by hand
+before the dry run existed: run 41585332512 accepted 7 of 7 lanes. A branch's own map never carries,
 even when the base has no policy at all, because the pull request controls both
 the map and the CI that would satisfy it. So the first pull request that adopts
 a mapping pays its full lanes; the carry starts on the pull requests after it

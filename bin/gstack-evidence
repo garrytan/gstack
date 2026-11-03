@@ -133,6 +133,8 @@ interface EvidenceRecord {
   tests_ran?: number | "unknown" | "n/a";
   /** "files" when a carried narrow lane's tests_ran counts its inventory files the run covered (record-ci), not tests. */
   tests_unit?: "files";
+  /** Why a carried lane was not owed at all: every job it names was path-skipped by an unchanged gate (record-ci, GST-1190). */
+  not_owed?: string;
 }
 
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
@@ -705,10 +707,11 @@ function cmdRecordCi(argv: string[]): number {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}),
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
   console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}`);
+  if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
   return 0;
 }
 

@@ -42,7 +42,11 @@ import * as path from 'node:path';
 import { sha256Hex, writeReceipt } from './egress-receipt';
 import { runBashSync } from './script-invocation';
 
-export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
+/**
+ * `skippable` (GST-1190): named jobs the workflow may skip by path; a skip counts only when the `gate` job succeeded and the
+ * workflow plus every repo file the gate job runs (`scripts` and any path its steps name) match origin/<base> byte for byte.
+ */
+export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts?: string[] } }
 export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
@@ -65,12 +69,12 @@ export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | '
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
   | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
 /** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[] }
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[] }
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
 
 const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
-const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os'];
+const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os', 'skippable'];
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
@@ -105,6 +109,14 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
       if (typeof p.artifact !== 'string' || !NAME.test(p.artifact)) errors.push({ path: `${at}.artifact`, message: 'must be the artifact name holding tree.json' });
       if ('max_age_hours' in p && (!Number.isInteger(p.max_age_hours) || (p.max_age_hours as number) < 1 || (p.max_age_hours as number) > 168)) errors.push({ path: `${at}.max_age_hours`, message: 'must be an integer from 1 to 168' });
       if ('os' in p && (typeof p.os !== 'string' || !/^(Linux|macOS|Windows)$/.test(p.os))) errors.push({ path: `${at}.os`, message: 'must be Linux, macOS or Windows' });
+      if ('skippable' in p) {
+        const s = p.skippable as Record<string, unknown> | null;
+        const names = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 32 && v.every(x => typeof x === 'string' && !!x.trim() && x.length <= 128);
+        const repoPath = (x: unknown) => typeof x === 'string' && !!x && !x.startsWith('/') && !x.split('/').includes('..') && !/[\0\r\n]/.test(x);
+        if (!s || typeof s !== 'object' || Array.isArray(s) || Object.keys(s).some(k => !['jobs', 'gate', 'scripts'].includes(k)) || !names(s.jobs) || typeof s.gate !== 'string' || !s.gate.trim()
+          || (s.jobs as string[]).includes(s.gate as string) || ('scripts' in s && (!Array.isArray(s.scripts) || !s.scripts.every(repoPath))))
+          errors.push({ path: `${at}.skippable`, message: 'must be { jobs: [job names], gate: <the job that decides the skip>, scripts?: [repo paths the gate runs] }, the gate not among the jobs' });
+      }
     }
   }
   if (gateRuns !== undefined && gateRuns !== null) {
@@ -133,7 +145,7 @@ export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
  * whose newer runs of the same workflow can veto (the consumer's own head).
  */
-export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; now: Date }): RunVerdict {
+export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; now: Date; unchanged?: (p: RunProfile) => string | null }): RunVerdict {
   const id = parseRunRef(o.runRef, o.repo);
   if (id === null) return fail('run_ref_invalid', `${JSON.stringify(o.runRef)} is not a run id or a run URL on ${o.repo}`);
   const p = o.profile;
@@ -154,11 +166,21 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const maxAge = p.max_age_hours ?? DEFAULT_MAX_AGE_HOURS;
     if (!Number.isFinite(finished)) return fail('api_error', `${at} has no completion time`);
     if (o.now.getTime() - finished > maxAge * 3600_000) return fail('run_stale', `${at} finished ${finishedAt}, more than ${maxAge} h before now`);
+    const skippedJobs: string[] = [];
     for (const name of p.jobs) {
       const hits = jobs.filter(j => j.name === name);
       if (hits.length === 0) return fail('job_missing', `${at} has no job named ${name}`);
       if (hits.length > 1) return fail('job_ambiguous', `${at} has ${hits.length} jobs named ${name}`);
-      if (hits[0]!.conclusion === 'skipped') return fail('job_skipped', `${at}'s ${name} job was skipped`);
+      if (hits[0]!.conclusion === 'skipped') {
+        const skip = p.skippable;
+        if (!skip?.jobs.includes(name)) return fail('job_skipped', `${at}'s ${name} job was skipped`);
+        const gate = jobs.filter(j => j.name === skip.gate);
+        if (gate.length !== 1 || gate[0]!.conclusion !== 'success') return fail('job_skipped', `${at}'s ${name} job was skipped and its gate job ${skip.gate} ${gate.length === 1 ? `concluded ${gate[0]!.conclusion}` : gate.length ? 'is ambiguous' : 'is missing'}`);
+        const changed = o.unchanged ? o.unchanged(p) : 'no base copy of the workflow was compared';
+        if (changed) return fail('job_skipped', `${at}'s ${name} job was skipped, but ${changed}, so this branch decided the skip`);
+        skippedJobs.push(name);
+        continue;
+      }
       if (hits[0]!.conclusion !== 'success') return fail('job_not_success', `${at}'s ${name} job concluded ${hits[0]!.conclusion}`);
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];
@@ -194,7 +216,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const changed = runChanged(deps, id, run.run_attempt);
     if (changed) return fail('run_changed', changed);
     const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped } };
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}) } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
@@ -227,7 +249,8 @@ export function uncoveredFiles(inventory: string[], evidence: RunEvidence[], ski
 }
 
 /** What a run check reads: the repository, the verifier's dependencies, the base branch's profiles and the clock. */
-export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date }
+/** `unchanged` (findCarry only): null when a profile's workflow and gate inputs match the base, else which file differs. */
+export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date; unchanged?: (p: RunProfile) => string | null }
 export type FromRunVerdict = { ok: true; evidence: RunEvidence; receipt: string } | { ok: false; reason: string; detail: string };
 
 /**
