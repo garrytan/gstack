@@ -11,7 +11,8 @@
 #   gstack-lease touch [--root <checkout>] [--pid <p> | --from <pid>] [--run <id>]
 #       write <git dir>/gstack-leases/<pid> holding the pid's start identity
 #       and the open run <id> (gstack-skill-start's SESSION_ID); without --run
-#       it records a hold no release closes; a run or hold counts 120 min;
+#       it records a hold no release closes; a run counts 120 min from its
+#       start and a hold 120 min from its last renewal;
 #       pid defaults to the harness pid behind this call
 #       (bin/gstack-harness-pid.sh, the same derivation the session marker
 #       uses), or behind --from (a caller whose own parent is short-lived
@@ -67,7 +68,7 @@ while [ $# -gt 0 ]; do
 done
 case "$VERB" in
   touch|live|list|release) ;;
-  -h|--help|'') sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help|'') sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-lease: unknown verb '$VERB'" >&2; exit 2 ;;
 esac
 [ -n "$ROOT" ] || ROOT=$(gstack_source_root "$BIN")
@@ -280,7 +281,6 @@ case "$VERB" in
     }
     _tmp="$DIR/.$PID.$$"
     _id=$(identity "$PID") _keep="" _held=0 _now=$(date +%s)
-    [ -n "$_id" ] || _id=$(head -1 "$DIR/$PID" 2>/dev/null)
     if [ -f "$DIR/$PID" ] && [ "$(head -1 "$DIR/$PID" 2>/dev/null)" = "$_id" ]; then
       if [ -n "$RUN" ]; then _keep=$(fresh "$DIR/$PID" "run $RUN"); else _keep=$(fresh "$DIR/$PID" hold); fi
       [ -z "$(sed -n '2,$p' "$DIR/$PID" 2>/dev/null | grep -v '^$')" ] && _held=1
@@ -289,7 +289,7 @@ case "$VERB" in
       printf '%s\n' "$_id"
       [ -z "$_keep" ] || printf '%s\n' "$_keep"
       if [ -n "$RUN" ]; then
-        [ "$_held" -eq 1 ] && echo "hold $_now"
+        [ "$_held" -eq 1 ] && echo "hold $(stat -c %Y "$DIR/$PID" 2>/dev/null || stat -f %m "$DIR/$PID" 2>/dev/null || echo "$_now")"
         echo "run $RUN $_now"
       elif [ -n "$_keep" ]; then echo "hold $_now"
       fi
