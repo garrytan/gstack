@@ -390,6 +390,30 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
   }, 120_000);
 
+  // Value: protects=a branch's .gitattributes cannot get an executable image excluded by making git read it as text, and a
+  //   64-bit universal Mach-O is an executable image; fails_when=only files git reports as binary under the branch's own
+  //   attributes get the magic check, so an ELF named .png under '*.png diff -binary' is excluded as data, or 0xcafebabf
+  //   is not executable magic; why_new=GST-972 item 3 follow-up (#3910, #3902 outside voice); seam=bin/gstack-review-plan and
+  //   reviewExclude in head mode; no_claim=a NUL-free script under a content extension
+  test('a branch .gitattributes that makes git read an ELF as text cannot get it excluded; fat64 Mach-O is native', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'assets/native.png'), Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(24)]));
+    fs.writeFileSync(path.join(repo.work, 'assets/fat64.dat'), Buffer.concat([Buffer.from([0xca, 0xfe, 0xba, 0xbf]), Buffer.alloc(28)]));
+    fs.writeFileSync(path.join(repo.work, 'assets/real.gz'), GZ);
+    commit(repo, { '.gitattributes': '*.png diff -binary\n' });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    const kept = [{ path: 'assets/fat64.dat', reason: 'code' as const }, { path: 'assets/native.png', reason: 'code' as const }];
+    expect(p.review_exclude.kept_files).toEqual(kept);
+    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    expect(x.state === 'active' && x.kept).toEqual(kept);
+    expect(x.state === 'active' && x.record.digest).toBe(p.review_exclude.digest);
+  }, 120_000);
+
   // Value: protects=a NUL byte cannot turn code or a key file into excludable content; fails_when=a NUL-bearing file with a
   //   source extension outside the old CODE_EXT list (.gradle, .sql, .tf, .groovy), a key store (.p12) or an extensionless key
   //   is excluded as binary; why_new=GST-972 item 6 (#3852 targeted gate reader at 61803d9); seam=bin/gstack-review-plan;

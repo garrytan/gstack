@@ -122,14 +122,27 @@ function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<
   return { byPattern, files };
 }
 
-/** Executable image magic: ELF, Mach-O (thin and universal; 0xcafebabe is also a Java class), PE, WebAssembly and a script's #!. */
-const NATIVE_MAGIC = [[0x7f, 0x45, 0x4c, 0x46], [0xfe, 0xed, 0xfa, 0xce], [0xfe, 0xed, 0xfa, 0xcf], [0xce, 0xfa, 0xed, 0xfe], [0xcf, 0xfa, 0xed, 0xfe], [0xca, 0xfe, 0xba, 0xbe], [0x4d, 0x5a], [0x00, 0x61, 0x73, 0x6d], [0x23, 0x21]];
+/** Executable image magic: ELF, Mach-O (thin, universal and 64-bit universal; 0xcafebabe is also a Java class), PE, WebAssembly and a script's #!. */
+const NATIVE_MAGIC = [[0x7f, 0x45, 0x4c, 0x46], [0xfe, 0xed, 0xfa, 0xce], [0xfe, 0xed, 0xfa, 0xcf], [0xce, 0xfa, 0xed, 0xfe], [0xcf, 0xfa, 0xed, 0xfe], [0xca, 0xfe, 0xba, 0xbe], [0xca, 0xfe, 0xba, 0xbf], [0x4d, 0x5a], [0x00, 0x61, 0x73, 0x6d], [0x23, 0x21]];
+
+/**
+ * The matched paths git calls binary by their bytes alone: `git diff --numstat` with attributes read from the empty tree, so
+ * a branch's .gitattributes (`diff`, `-binary`, `text`) cannot make an executable image read as text and skip the
+ * magic check. null when git cannot run it (a git without --attr-source); the caller then reads every matched file's bytes.
+ */
+function bytesBinary(i: ExcludeInput, patterns: readonly string[]): string[] | null {
+  const empty = git(i.root, ['hash-object', '-t', 'tree', '--stdin'], '');
+  if (!empty.ok) return null;
+  const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
+  const r = git(i.root, [`--attr-source=${empty.out.trim()}`, 'diff', '--numstat', '-z', '--no-renames', ...range, '--', ...patterns.map(p => `:(top,glob)${p}`)]);
+  return r.ok ? r.out.split('\0').filter(l => l.startsWith('-\t-\t')).map(l => l.slice(4)) : null;
+}
 const nativeImage = (b: Buffer) => NATIVE_MAGIC.some(m => m.every((x, k) => b[k] === x));
 
 /**
- * The matched paths git calls binary whose bytes hold a NUL in their first 8,000 (git's own test), read from the head blob,
- * the file on a live tree, or the old blob for a deletion. A branch's .gitattributes can make git call a text file binary;
- * only real bytes make it binary content here. A binary file that starts with executable image magic also goes in `native`.
+ * The claimed paths (git calls them binary under the branch's attributes or under none: bytesBinary) whose bytes hold a NUL
+ * in their first 8,000 (git's own test), read from the head blob, the file on a live tree, or the old blob for a deletion.
+ * A branch's .gitattributes can make git call a text file binary; only real bytes make it binary content here. A binary file that starts with executable image magic also goes in `native`.
  */
 function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>, unread: Set<string>, native: Set<string>): Set<string> {
   const out = new Set<string>();
@@ -266,7 +279,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const unread = new Set<string>();
   const native = new Set<string>();
   const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
-  const binary = binaryContent(i, sel.files, new Set(claimed), unread, native);
+  const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
   const text = { ...i, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
   const reasons = new Map<string, KeptReason | null>();
   for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native));
