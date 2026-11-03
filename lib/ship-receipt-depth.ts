@@ -26,7 +26,7 @@ import { reviewExclude, type Exclusion } from './review-exclude';
 import { isUnavailable } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
 import { classifyPath, depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
-import { AUTH_PATH_TOKENS, MONEY_PATH_TOKENS, matchRisk, type RiskClass } from './review-risk';
+import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, MONEY_PATH_TOKENS, matchRisk, type RiskClass } from './review-risk';
 import { platformReviewAt } from './review-platform';
 import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
@@ -381,14 +381,14 @@ export function targetedClassesSince(root: string, from: string, head: string): 
 export function plainDocsSince(root: string, from: string, head: string): boolean {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return false;
   const c = collectCommit(root, from, head);
-  if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs')) return false;
+  if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary)) return false;
   const lines = c.paths.flatMap(p => [...(c.added?.[p] ?? []), ...(c.removed?.[p] ?? [])]);
-  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t)))) return false;
+  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return false;
   return platformFits('docs', c.paths, 0, scanNumbers(c.added ?? {})) && matchRisk({ codePaths: c.paths, added: c.added, removed: c.removed, scopeAuth: true }).size === 0;
 }
 /** Words that make a docs line a money, security, secret or auth claim for plainDocsSince: deliberately broad, since a false hit only reruns the reader. */
 const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'cap', 'caps', 'capped', 'usd', 'dollar', 'dollars', 'paid', 'pay', 'payment', 'payments', 'refund', 'refunds',
-  'secret', 'secrets', 'key', 'keys', 'credential', 'credentials', 'password', 'passwords', 'token', 'tokens', 'security', 'sandbox', 'injection', 'redact', 'redaction', 'sanitize', 'trust', 'consent']);
+  'secret', 'secrets', 'key', 'keys', 'credential', 'credentials', 'password', 'passwords', 'token', 'tokens', 'security', 'sandbox', 'injection', 'trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'csrf', 'xss', 'vulnerability', 'privilege']);
 
 /**
  * receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they
