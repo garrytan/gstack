@@ -98,7 +98,9 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
   name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
-  RECEIPT_INVALID field=review_exclude and nothing is written (rerun the review; write alone cannot clear it); recorded as review_exclude. Carry and the queue compare that digest.
+  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest.
+  The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
+  digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
   --review-targeted <json|@file> ({classes, rules, brief_sha, status, findings, raised_by, head}: gstack-review-dispatch verify
   --targeted-out); recorded as review_targeted bound to the receipt's product_patch_id, and refused (RECEIPT_INVALID) when the
   commit the reader read (head) is not an ancestor or a change since it carries a targeted class (gate scan included). write and carry

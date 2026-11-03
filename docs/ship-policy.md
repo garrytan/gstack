@@ -1287,8 +1287,8 @@ A pattern that matches no changed file is listed as `unmatched=` on the plan lin
 
 **What is excluded, and what is kept.** A matched file is excluded only when it
 is content: a data file (JSON, JSONL, CSV, TSV, images), a docs-class file, a
-`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content even under
-`config/` or in a skill directory; only `policy-dir`, `gate-path`, `executable`, `link`, `gate-tagged`, or a source or script extension (`code`) keep it.
+`.log` file, or a file git reports as binary (`-\t-` in `--numstat`; readers would only see `Binary files differ`) whose bytes hold a NUL in their first 8,000, so a branch's `.gitattributes` cannot make a text file binary content. A binary file is content only under a known content extension (images, fonts, media, documents, compressed archives, `.bin`, `.dat`, and data blobs such as `.parquet`, `.npy` or `.sqlite`) and only when its bytes do not start with an executable image's magic (ELF, Mach-O, PE, WebAssembly, `#!`). Under those rules it is content even under
+`config/` or in a skill directory, and only `policy-dir`, `gate-path`, `executable`, `link` or `gate-tagged` keep it. Every other binary file is `code`: source with a NUL, a native library (`.node`, `.so`, `.dylib`, `.dll`), a compiled executable, a key store, a pickle, or a file with no extension.
 Everything else stays in every reader's diff with one reason code:
 
 | Reason | Kept because |
@@ -1300,8 +1300,8 @@ Everything else stays in every reader's diff with one reason code:
 | `agent-prose` | it is a skill, section, resolver, template or rule file |
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
-| `code` | it is code or a test, not content; a binary file with a source or script extension (`.js`, `.py`, `.sh`, `.wasm`) counts as code |
-| `secret-line` | an added line reads a credential (the targeted pass's secret rule) |
+| `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
+| `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read |
 | `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
@@ -1355,7 +1355,11 @@ and binds. A different digest means the reviewers read another selection:
 write refuses with `RECEIPT_INVALID field=review_exclude`, carry with
 `RECEIPT_CARRY_REFUSED review_exclude changed`, and the queue with
 `RECEIPT_INVALID field=review_exclude expected=<digest> recorded=<digest>`. The
-fix is to rerun the review, never a receipt write alone.
+fix is to rerun the review and write with the digest its `verify` prints. Write
+checks the digest against the base policy, so a stale selection cannot be
+recorded by accident, but it does not read the review ledger: a write given the
+`expected=` digest passes without a review, and only the review run shows that
+the reviewers read that selection.
 
 **Adopting it.** (1) Open a PR on the base that adds the patterns and
 `min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any

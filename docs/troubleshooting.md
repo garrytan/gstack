@@ -3340,8 +3340,10 @@ use this code when the receipt's review_exclude digest (or the
 base policy's [`review_exclude_paths`](ship-policy.md#review-exclude-paths). The line
 names `expected=` (now), `recorded=` (what the review read, `none` when it read
 without exclusion) and `source=` (the base commit). The reviewers read another
-selection than the one the head now has, so a receipt write alone cannot clear
-it: rerun `/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
+selection than the one the head now has. Write checks the digest against the base
+policy only: it does not read the review ledger, so a write that passes the
+`expected=` digest clears the field without a review. Do not do that. Rerun
+`/ship`'s review on the head (`gstack-review-dispatch pass --base <base>`),
 run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
