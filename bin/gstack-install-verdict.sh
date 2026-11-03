@@ -18,7 +18,9 @@
 # and named in the GSTACK_LAUNCH line as GSTACK_INSTALL_VERDICT=<path>. It is
 # the one record the bun shim, lib/pregate/runtime.ts and admission read.
 # Readers fall back to the schema 1 file keyed by the checkout alone,
-# <state root>/install-verdicts/<sha256(checkout realpath)>.json.
+# <state root>/install-verdicts/<sha256(checkout realpath)>.json. An install
+# profile's verdict (for=review-voice) at the keyed path yields to the launched
+# GSTACK_INSTALL_VERDICT, so a reviewer's install never shadows it (GST-1161).
 #
 # Admission (gstack-skill-start, after SESSION_KIND): an unattended session,
 # or an explicit GSTACK_SESSION_KIND=spawned session with GSTACK_CAPY=1,
@@ -129,7 +131,10 @@ gstack_install_admission() {
     src=$(gstack_source_root "$bin") || src=""
     project=$(gstack_install_project "$src")
     file=$(gstack_install_verdict_path "${_GH:-$HOME/.gstack}" "$src" "$project")
-    [ -f "$file" ] || [ -z "${GSTACK_INSTALL_VERDICT:-}" ] || file="$GSTACK_INSTALL_VERDICT"
+    case "$(gstack_install_verdict_field "$file" schema_version 2>/dev/null)" in
+      1|2) if gstack_doctor_install_profile "$(gstack_install_verdict_field "$file" for)" && [ -f "${GSTACK_INSTALL_VERDICT:-}" ]; then file="$GSTACK_INSTALL_VERDICT"; fi ;;
+    esac
+    [ -f "$file" ] || [ ! -f "${GSTACK_INSTALL_VERDICT:-}" ] || file="$GSTACK_INSTALL_VERDICT"
     [ -f "$file" ] || file=$(gstack_install_verdict_legacy_path "${_GH:-$HOME/.gstack}" "$src")
     code=INSTALL_UNVERIFIED
     fix="run the Capy skill installer (scripts/install.sh --for $skill) on this machine, then launch with the GSTACK_LAUNCH line it prints"

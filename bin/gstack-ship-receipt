@@ -40,6 +40,7 @@ import { versionAtRef } from '../lib/restamp';
 import { branchSides, stampOnlyLine, type BranchSide } from '../lib/stamp-only';
 import { runScriptSync } from '../lib/script-invocation';
 import { readPregateFile, verifyPregate } from '../lib/pregate/index';
+import { exceptionConsumerProblem } from '../lib/pregate/flaky-exception';
 import { isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, runningGstackVersion, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
 import { approvalForReceipt } from '../lib/approval-citations';
 import {
@@ -472,15 +473,18 @@ function gitVersionBelow(repoRoot: string, minimum: string): string | null {
   return major > minMajor || (major === minMajor && minor >= minMinor) ? null : m[0];
 }
 
-type PregateField = { pregate: string; requires_remote?: string[] };
+type PregateField = { pregate: string; requires_remote?: string[]; flaky_exception?: ShipReceipt['flaky_exception'] };
 /** A pregate result file → the receipt's pregate field, verified current for this checkout's tree (shared by write and carry). */
 function pregateFieldFor(repoRoot: string, file: string, head: string): { ok: true; field: PregateField } | { ok: false; errors: Array<{ code: string; message: string }> } {
   const read = readPregateFile(file);
   if (!read.file) return { ok: false, errors: read.errors.map(e => ({ code: e.code, message: `${e.message} at ${e.path}` })) };
   const v = verifyPregate(repoRoot, read.file);
   if (!v.ok) return { ok: false, errors: [{ code: v.code!, message: v.message ?? 'pregate is not current' }] };
+  const foreign = exceptionConsumerProblem(read.file, head);
+  if (foreign) return { ok: false, errors: [{ code: 'PREGATE_REMOTE_UNCLEARED', message: foreign }] };
   const remote = read.file.requires_remote ?? [];
-  return { ok: true, field: { pregate: `${read.file.verdict ?? 'pass'} @${read.file.tree.slice(0, 12)} (${read.file.checks.length} checks, current for ${head.slice(0, 12)})`, requires_remote: remote.length ? remote.map(r => `${r.lane}: ${r.receipt}`) : undefined } };
+  const exceptions = read.file.exceptions ?? [];
+  return { ok: true, field: { pregate: `${read.file.verdict ?? 'pass'} @${read.file.tree.slice(0, 12)} (${read.file.checks.length} checks, current for ${head.slice(0, 12)})`, requires_remote: remote.length ? remote.map(r => `${r.lane}: ${r.receipt}`) : undefined, flaky_exception: exceptions.length ? exceptions.map(e => ({ lane: e.lane, runs: e.runs, cases: e.cases, grant: e.grant, by: e.by })) : undefined } };
 }
 
 /**
