@@ -20,34 +20,19 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { classifyPath } from './review-depth';
+import { classifyPath, unconsumedData, type ClassInput } from './review-depth';
+import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_LINE_TOKENS, MONEY_PAIRS, MONEY_PATH_TOKENS, MONEY_USD_WORDS, PROSE_PATH, REPORTED_COST_WORDS, RESULTS_TREE, SECRET_LINE, SECRET_PATH, SPEND_PAIRS, USD_COMPARE, matchRisk } from './review-risk';
 
 export const TARGETED_CLASSES = ['money', 'gate', 'auth', 'secret'] as const;
 export type TargetedClass = (typeof TARGETED_CLASSES)[number];
 
-const MONEY_PATH_TOKENS = ['cost', 'costs', 'spend', 'spending', 'budget', 'budgets', 'ledger', 'billing', 'price', 'prices', 'pricing', 'fee', 'fees', 'invoice', 'invoices'];
-/** Identifiers ending in _usd, Usd or cap_usd, any spend_cap spelling, and paid-provider call sites (the providers lib/pricing.ts prices). */
-const MONEY_LINE = [
-  /\b[A-Za-z0-9_]*_usd\b/i, /\b[a-z][A-Za-z0-9]*Usd\b/, /\bspend[_-]?cap\b/i,
-  /\bapi\.(?:anthropic|openai|voyageai)\.com\b/, /\bgenerativelanguage\.googleapis\.com\b/, /\bopenrouter\.ai\b/,
-  /\bnew\s+(?:Anthropic|OpenAI|AnthropicBedrock|AnthropicVertex)\s*\(/, /\.(?:messages|chat\.completions|responses|embeddings)\.create\s*\(/,
-];
-const AUTH_PATH_TOKENS = ['auth', 'authn', 'authz', 'oauth', 'oauth2', 'jwt', 'session', 'sessions', 'permission', 'permissions', 'role', 'roles'];
-const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
-const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i;
-/** An environment name whose underscore-separated segments include a key word: OPENAI_API_KEY, GH_TOKEN; never MAX_TOKENS. */
-const KEY_NAME = String.raw`(?:[A-Z0-9]+_)*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS?)(?:_[A-Z0-9]+)*\b`;
-const SECRET_LINE = [
-  new RegExp(String.raw`\b(?:process\.env|Bun\.env|import\.meta\.env)(?:\.|\[\s*['"\x60])${KEY_NAME}`),
-  new RegExp(String.raw`\b(?:os\.environ(?:\.get\(|\[)|os\.getenv\(|ENV(?:\.fetch\(|\[))\s*['"]${KEY_NAME}`),
-  new RegExp(String.raw`\$\{?${KEY_NAME}`),
-  /\b(?:keychain|keytar|find-generic-password|find-internet-password|secret-tool|git-credential|credential\.helper)\b/i, /\bgh auth token\b/, /(?:^|[\s'"/])\.netrc\b/,
-];
+/** Whether one added or deleted line reads a credential (SECRET_LINE): lib/review-exclude.ts keeps a matched file that has one. */
+export const secretLine = (line: string) => SECRET_LINE.some(r => r.test(line));
 
 /** A hash of the patterns that decide the classes, not of this file's bytes: a comment edit keeps it, a pattern edit changes it. */
 export const TARGETED_RULES = createHash('sha256').update(JSON.stringify({
-  TARGETED_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME,
-  patterns: Object.entries({ MONEY_LINE, SECRET_LINE, SECRET_PATH: [SECRET_PATH] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  TARGETED_CLASSES, MONEY_PATH_TOKENS, MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME,
+  patterns: Object.entries({ MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], SECRET_LINE, SECRET_PATH: [SECRET_PATH], PROSE_PATH: [PROSE_PATH] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 export interface TargetedInput {
@@ -62,10 +47,11 @@ export interface TargetedInput {
   root?: string | readonly string[];
   /** Collector failures (a diff git could not list). */
   errors?: readonly { code: string; input: string }[];
+  /** The collector's consumer scan and drawings (ClassInput): a data file no code reads names no money. */
+  consumed?: ClassInput['consumed'];
+  drawings?: ClassInput['drawings'];
 }
 export interface TargetedResult { classes: TargetedClass[]; reasons: string[]; errors: string[]; rules: string }
-
-const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
 /** The classes a diff touches, in TARGETED_CLASSES order, with one reason per class; any input error returns all four. */
 export function targetedClasses(i: TargetedInput): TargetedResult {
@@ -77,18 +63,8 @@ export function targetedClasses(i: TargetedInput): TargetedResult {
   if (code.length && i.gateTagged === null) errors.push('gate scan unavailable');
   if (errors.length) return { classes: [...TARGETED_CLASSES], reasons: errors.map(e => `fail-closed: ${e}`), errors, rules: TARGETED_RULES };
   const why = new Map<TargetedClass, string>();
-  const hit = (c: TargetedClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
-  if ((i.gateTagged ?? 0) > 0) hit('gate', `gate scan tagged ${i.gateTagged} hunk(s)`);
-  for (const p of code) {
-    const t = tokens(p);
-    if (s!.SCOPE_AUTH === 'true' && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', `auth path: ${p}`);
-    if (SECRET_PATH.test(p)) hit('secret', `secret path: ${p}`);
-    if (t.some(x => MONEY_PATH_TOKENS.includes(x))) hit('money', `money path: ${p}`);
-    for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
-      if (!why.has('money') && MONEY_LINE.some(r => r.test(line))) hit('money', `money line: ${p}`);
-      if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', `secret line: ${p}`);
-    }
-  }
+  if ((i.gateTagged ?? 0) > 0) why.set('gate', `gate scan tagged ${i.gateTagged} hunk(s)`);
+  for (const [c, reason] of matchRisk({ codePaths: code, dataPaths: code.filter(p => unconsumedData(i, p)), added: i.added, removed: i.removed, scopeAuth: s!.SCOPE_AUTH === 'true' })) if ((TARGETED_CLASSES as readonly string[]).includes(c)) why.set(c as TargetedClass, reason);
   const classes = TARGETED_CLASSES.filter(c => why.has(c));
   return { classes, reasons: classes.map(c => why.get(c)!), errors: [], rules: TARGETED_RULES };
 }
@@ -110,6 +86,12 @@ export function targetedPatchId(root: string, mergeBase: string): string {
   const diff = git(['diff', '--no-color', '--no-ext-diff', mergeBase, 'HEAD']);
   if (diff.status !== 0 || !diff.stdout.trim()) return 'none';
   return git(['patch-id', '--verbatim'], diff.stdout).stdout?.trim().split(/\s+/)[0] || 'none';
+}
+
+/** What a targeted render records: the patch the reader reads and the commit it sits on, which receipt write binds to its product patch. */
+export function targetedRead(root: string, mergeBase: string): { patch_id: string; head: string | null } {
+  const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
+  return { patch_id: targetedPatchId(root, mergeBase), head: head || null };
 }
 
 /** A class list as printed and recorded: comma-joined, or `none`. */

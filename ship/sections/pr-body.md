@@ -125,9 +125,9 @@ unavailable results as passing.>
 ## Eval Results
 <If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
 
-## Greptile Review
-<Step 10 complete: list comments with [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED], or "No Greptile comments." for a successful empty fetch.>
-<Step 10 unavailable: include `Greptile triage: UNAVAILABLE (dispatch failed)` and the actual reason.>
+## Review bot comments
+<Step 10 complete: list comments with their bot and [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED], or "No review bot comments." for a successful empty fetch.>
+<Step 10 unavailable: include `Review bot triage: UNAVAILABLE (dispatch failed)` and the actual reason.>
 <Step 10 no_pr: omit this section.>
 
 ## Scope Drift
@@ -180,8 +180,8 @@ the receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>
 
 The PR body is world-readable on a public repo. `gstack-post` scans the exact title
 and body bytes it sends and passes them to `gh`/`glab` as arguments, so there is no
-separate scan here. Wrap any Codex / Greptile / eval output sections in
-tool-attributed fences (` ```codex-review ` / ` ```greptile `) so the scanner
+separate scan here. Wrap any Codex / review bot / eval output sections in
+tool-attributed fences (` ```codex-review ` / ` ```review-bot `) so the scanner
 WARN-degrades the example credentials those tools quote instead of blocking the PR
 (a live-format credential inside the fence still blocks).
 
@@ -220,8 +220,9 @@ per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
 
 ```bash
 rm -f .gstack/tmp/review-loop.json
-~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --out .gstack/tmp/review-loop.json &&
-~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json --body "$PR_BODY_FILE"
+NS=$(~/.claude/skills/gstack/bin/gstack-no-stop list | sed -n 's/^NO_STOP_FILE: //p'); [ -s "$NS" ] || NS=
+~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json &&
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json $([ -s .gstack/tmp/targeted.json ] && echo --review-targeted @.gstack/tmp/targeted.json) ${NS:+--no-stop "@$NS"} --body "$PR_BODY_FILE"
 ```
 
 A Step 5 red-base pause adds `--base-red <pause file>` (a conditional receipt the queue
@@ -231,9 +232,13 @@ or a body missing the exception line, is `DOCS_AUDIT_BLOCKED` with nothing writt
 When the owner accepted a stop after a fix-check edit, add
 `--review-loop-exception @<file>` (`{accepted_by, date, via, reason, fix_check: {head, findings}}`)
 and put its printed `Review-loop exception:` line in the body; never a prose line under `REVIEW_LOOP:`.
+When `gstack-review-dispatch verify` printed `REVIEW_EXCLUDE_RECORD: digest=<d>`, add `--review-exclude <d>`;
+a digest that no longer matches HEAD is `RECEIPT_INVALID field=review_exclude`: rerun the review, not the write.
 
 The summary reads this branch's review log for the invocation's passes (its
-`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). The `&&`
+`REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). Here every
+finding reaches a row through Step 9.4; a run whose readers were collected by
+`gstack-review-dispatch` (ship/DRIVER.md) passes `--run <run dir>` instead. The `&&`
 matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `write`
 record a stale or empty loop file.
 

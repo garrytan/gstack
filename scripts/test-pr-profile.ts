@@ -237,6 +237,7 @@ export const PAID_WORKFLOW_FILES = [
 export const FREE_ONLY_PR_FILES = [
   'scripts/test-free-shards.ts',
   'scripts/lib/free-home-guard.ts', // Imported only by the free shard runner.
+  'scripts/lib/shard-jobs.ts', // Free runner's --ci-run --jobs sub-shards; ship-measure loads it through test-free-shards.ts, so its touchfiles list it.
   'test/helpers/auq-parallel-worker.ts',
   'test/helpers/stored-zip.ts', // Read only by the free test-health report tests.
   'scripts/free-test-durations.json',
@@ -244,6 +245,7 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
   'capy/skill/**', // The vendored Capy skill (Drive bootstrapper): run by Capy agents, read by no paid case; test/capy-skill-wrapper.test.ts covers it.
+  'USING_GBRAIN_WITH_GSTACK.md', // The /setup-gbrain guide: README, docs/gbrain-quick-tour.md and free tests read it; no skill prompt or paid fixture does (GST-1027).
   'captain/templates/**', // The /captain crew templates (CREW.md, merge-ask.md, slot-call.md, …): copied into a Captain's drive by people and Captains, read by no paid case; free test/captain-skill.test.ts covers them (#3499).
   'tsconfig.test.json', // Read only by `tsc -p tsconfig.test.json` (typecheck:test); Bun's runtime reads tsconfig.json.
   '.gitignore', // Changes which untracked files git reports, never tracked content a case reads.
@@ -286,6 +288,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/test-health.yml',
   '.github/workflows/eval-sweep.yml', // The weekly off-ship sweep on main; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/evals-main-backstop.yml', // The merge-train backstop on main: it dispatches evals.yml after a push to main; no PR-gate case reads it, and it never gates a PR.
+  '.github/workflows/release-gate.yml', // The 8-hour release gate on main: it dispatches evals.yml on main's head; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/weekly-release.yml', // The Monday release cut (tag, stable, GitHub Release): reads check runs on main; no paid case reads it, and it never gates a PR.
   'scripts/release-cut.ts', // The release cut's logic, run only by weekly-release.yml; covered by the free test/release-cut.test.ts.
   '.github/actionlint.yaml', // Runner labels for actionlint only.
@@ -293,7 +296,9 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/version-gate.yml',
   '.github/workflows/windows-free-tests.yml',
   '.github/workflows/windows-pregate-e2e.yml',
+  '.github/workflows/windows-scoped-tests.yml',
   '.github/workflows/windows-setup-e2e.yml',
+  '.github/workflows/windows-smoke.yml',
 ] as const;
 
 /**

@@ -1,0 +1,156 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-no-stop — record one of the five no-stop defaults and go on (GSTA-258 K1, docs/review-policy.md#no-stop).
+ *
+ *   gstack-no-stop record --class <class> --reason <text> --evidence <ref> [--range-base <sha>] [--json]
+ *   gstack-no-stop import --from <autoplan run>/no-stop.json [--json]
+ *   gstack-no-stop list [--json]
+ *
+ * `record` checks the stop against its class (lib/no-stop.ts) and, when it qualifies, appends
+ * {class, reason, evidence} to the branch's ledger (NO_STOP_FILE:, which /ship passes to
+ * `gstack-ship-receipt write --no-stop @<file>`). A scoped-fix-check also records the standing grant in
+ * the approval record and prints GRANT: <id> for `gstack-review-plan --grant`. Anything that does not
+ * qualify prints `NO_STOP: refused` and exits 3: that stop still goes to the owner.
+ */
+import { spawnSync } from 'node:child_process';
+import * as path from 'node:path';
+import { appendRows, buildRow, locate, readRecord } from '../lib/approval-record';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { appendLedger, checkNoStop, ledgerPath, readLedger } from '../lib/no-stop';
+import { runScriptSync } from '../lib/script-invocation';
+
+const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/review-policy.md#no-stop)
+
+  record --class <class> --reason <text> --evidence <run id, commit or file> [--range-base <sha>] [--json]
+      NO_STOP: <class> recorded: go on. NO_STOP: refused (exit 3): the stop stands. Anything else still stops.
+      scoped-fix-check     round 2 stops on a docs-only or timeout-only fix (--range-base round 2's PASS_HEAD):
+                           run the one fix-check its NEXT: names with the printed GRANT:
+      test-timeout-fix     a fix that only raises a test's timeout (--range-base the commit before it): its gate
+                           finding takes the printed GATE_DISPOSITION: kept reason instead of open
+      pregate-flake-rerun  one rerun of a failed pregate case at the same tree (rule 16): green is flaky, red is real
+      stamp-only-carry     carry refused a head whose change is a version stamp (--range-base the receipt head,
+                           --base origin/<base>): take the carry's RECHECK: route instead of Steps 2-16
+      autoplan-regate      gstack-autoplan records it; import --from <run>/no-stop.json adds it here
+      Step 19's receipt write adds --no-stop @<NO_STOP_FILE> when list shows records.
+      --range-base: the commit the fix or change is measured from (round 2's PASS_HEAD for scoped-fix-check, which must be
+      the newest review-log pass row's commit,
+      the commit before the fix for test-timeout-fix, the receipt head for stamp-only-carry); required for those three
+      --base <ref> (stamp-only-carry): compare HEAD with the receipt head merged into <ref> (base side on conflict),
+      so a base merge plus a stamp qualifies and a product conflict resolution does not
+  import --from <file> [--json]   add an autoplan run's no-stop.json records to the branch's ledger
+  list [--json]   the branch's ledger and its path
+
+${exitTableHelp()}`;
+
+const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const git = (args: string[]) => spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+const NEEDS_RANGE = ['scoped-fix-check', 'test-timeout-fix', 'stamp-only-carry'];
+const K1_BY = 'gstack no-stop default (K1)';
+const AUTOPLAN_EVIDENCE = /^autoplan:\S+@gate_rev=\d+$/;
+
+/** The commit the newest full or scoped pass reviewed (its review-log row's commit_full): round 2's PASS_HEAD. */
+function lastPassHead(): string | null {
+  const r = runScriptSync(path.join(import.meta.dir, 'gstack-review-read'), [], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const rows = (r.stdout ?? '').split('---CONFIG---')[0]!.split('\n').flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
+  const pass = rows.filter(x => x.skill === 'review' && typeof x.commit_full === 'string').at(-1);
+  return pass ? pass.commit_full : null;
+}
+
+function grant(head: string, detail: string, ledger: string): string | { error: string } {
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
+  const loc = locate({ cwd: process.cwd(), env: process.env, branch });
+  if ('code' in loc) return { error: loc.message };
+  const row = buildRow({
+    ask: `No-stop default: one scoped fix-check past R51's cap (review_loop_grant ${head})`,
+    words: `K1 no-stop default, docs/review-policy.md#no-stop: ${detail}`,
+    by: K1_BY, scope: `review_loop_grant ${head}`, outcome: 'approved', source: `no-stop:${ledger.split('/').pop()}`,
+  }, branch);
+  if ('code' in row) return { error: row.message };
+  const added = appendRows(loc, [row]);
+  return 'code' in added ? { error: added.message } : row.id;
+}
+
+function record(args: string[], json: boolean): number {
+  const cls = flag(args, '--class') ?? '';
+  const commit = (ref: string | undefined) => { if (!ref) return undefined; const r = git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]); return r.status === 0 ? r.stdout.trim() : null; };
+  const rangeBase = commit(flag(args, '--range-base'));
+  const base = cls === 'stamp-only-carry' ? commit(flag(args, '--base')) : undefined;
+  if (rangeBase === null || base === null) { process.stderr.write(`gstack-no-stop record: --range-base and --base must name commits\n`); return EXIT.usage; }
+  if (!cls) { process.stderr.write(`gstack-no-stop record: --class is required\n${HELP}\n`); return EXIT.usage; }
+  if (NEEDS_RANGE.includes(cls) && !rangeBase) { process.stderr.write(`gstack-no-stop record: --class ${cls} needs --range-base <sha>\n`); return EXIT.usage; }
+  const file = ledgerPath(process.cwd());
+  if (!file) { process.stderr.write('gstack-no-stop record: not inside a git checkout\n'); return EXIT.fail; }
+  if (cls === 'scoped-fix-check') {
+    const pass = lastPassHead();
+    if (!pass || pass !== rangeBase) {
+      process.stderr.write(`NO_STOP: refused ${cls} (--range-base ${rangeBase} is not the commit the last review pass read (${pass ? pass.slice(0, 12) : 'no review-log row'}), so the checked range would not be the range the fix-check covers); stop for the owner\n`);
+      return EXIT.refused;
+    }
+    const loc = locate({ cwd: process.cwd(), env: process.env, branch: git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() });
+    if (!readLedger(file).some(r => r.class === cls) && !('code' in loc) && readRecord(loc).rows.some(r => r.by === K1_BY)) {
+      process.stderr.write(`NO_STOP: refused ${cls} (the approval record already holds this branch's K1 grant, from this or another checkout; a second goes to the owner); stop for the owner\n`);
+      return EXIT.refused;
+    }
+  }
+  let diff: string | undefined;
+  if (rangeBase) {
+    let from = rangeBase;
+    if (base) {
+      const merged = git(['merge-tree', '--write-tree', '-X', 'ours', base, rangeBase]);
+      if (merged.status !== 0) { process.stderr.write(`NO_STOP: refused ${cls} (git merge-tree ${base} ${rangeBase} failed: ${merged.stderr.trim() || 'conflict'}); stop for the owner\n`); return EXIT.refused; }
+      from = merged.stdout.split('\n')[0]!.trim();
+    }
+    const d = git(['diff', '--no-color', '--no-ext-diff', '--no-renames', from, 'HEAD']);
+    if (d.status !== 0) { process.stderr.write(`gstack-no-stop record: git diff ${rangeBase} HEAD failed: ${d.stderr.trim()}\n`); return EXIT.fail; }
+    diff = d.stdout;
+  }
+  const v = checkNoStop({ cls, reason: flag(args, '--reason') ?? '', evidence: flag(args, '--evidence') ?? '', prior: readLedger(file), diff, root: process.cwd() });
+  if (!v.ok) {
+    process.stderr.write(`NO_STOP: refused ${cls} (${v.reason}); stop for the owner\n`);
+    if (json) process.stdout.write(JSON.stringify({ ok: false, class: cls, reason: v.reason }) + '\n');
+    return EXIT.refused;
+  }
+  const lines = [`NO_STOP: ${cls} recorded (${v.detail})`, `NO_STOP_FILE: ${file}`];
+  let grantId: string | undefined;
+  if (cls === 'scoped-fix-check') {
+    const head = git(['rev-parse', 'HEAD']).stdout.trim();
+    const g = grant(head, v.detail, file);
+    if (typeof g !== 'string') { process.stderr.write(`gstack-no-stop record: the grant was not recorded (${g.error}); stop for the owner\n`); return EXIT.fail; }
+    grantId = g;
+    lines.push(`GRANT: ${g}`, `NEXT: gstack-review-plan --grant ${g} --range-base ${rangeBase} (one scoped fix-check; a blocking finding there goes to the owner)`);
+  }
+  if (cls === 'test-timeout-fix') lines.push(`GATE_DISPOSITION: kept reason="no-stop test-timeout-fix: ${v.record.reason}"`);
+  appendLedger(file, v.record);
+  process.stdout.write(json ? JSON.stringify({ ok: true, record: v.record, detail: v.detail, file, ...(grantId ? { grant: grantId } : {}) }) + '\n' : lines.join('\n') + '\n');
+  return EXIT.ok;
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...args] = argv;
+  const json = args.includes('--json');
+  if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  if (cmd === 'record') return record(args, json);
+  if (cmd === 'import') {
+    const src = flag(args, '--from');
+    const file = ledgerPath(process.cwd());
+    if (!src || !file) { process.stderr.write(`gstack-no-stop import: ${src ? 'not inside a git checkout' : '--from <file> is required'}\n`); return EXIT.usage; }
+    const have = readLedger(file);
+    const rows = readLedger(src);
+    const eligible = rows.filter(r => r.class === 'autoplan-regate' && r.reason && AUTOPLAN_EVIDENCE.test(r.evidence ?? ''));
+    const fresh = eligible.filter(r => !have.some(h => JSON.stringify(h) === JSON.stringify(r)));
+    for (const r of fresh) appendLedger(file, r);
+    const skipped = rows.length - eligible.length;
+    process.stdout.write(json ? JSON.stringify({ file, imported: fresh.length, skipped }) + '\n' : [`NO_STOP: imported ${fresh.length} record(s) from ${src}`, ...(skipped ? [`NO_STOP: skipped ${skipped} record(s): import takes only autoplan-regate records with autoplan:<run>@gate_rev=N evidence; record the other classes with gstack-no-stop record`] : []), `NO_STOP_FILE: ${file}`].join('\n') + '\n');
+    return EXIT.ok;
+  }
+  if (cmd === 'list') {
+    const file = ledgerPath(process.cwd());
+    const rows = readLedger(file);
+    process.stdout.write(json ? JSON.stringify({ file, records: rows }) + '\n' : [...rows.map(r => `NO_STOP: ${r.class} ${r.reason} (${r.evidence})`), `NO_STOP_FILE: ${file ?? 'none (not a git checkout)'}`].join('\n') + '\n');
+    return EXIT.ok;
+  }
+  process.stderr.write(`gstack-no-stop: unknown command ${cmd}\n${HELP}\n`);
+  return EXIT.usage;
+}
+
+process.exit(main(process.argv.slice(2)));

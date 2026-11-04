@@ -54,6 +54,15 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect([...parseAddedLines(diff)]).toEqual([['a.ts', ['one', '++two']], ['b.env', ['three']]]);
   });
 
+  test('a Python call that reads key.json is code; the same key name holding a literal key still fails (GST-1064)', () => {
+    expect(repo({ 'attach.py': 'import json\nkey = json.loads(files.get("key.json", ""))\n' }).secrets().status).toBe('pass');
+    const fake = 'Zx9Q' + 'w8Er7Ty6Ui5Op4As3Df2';
+    const r = repo({ 'attach.py': `key = json.loads(files.get("key.json")) or "${fake}"\n`, '.env': `KEY=${fake}\n` }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines.join('\n')).toContain('attach.py');
+    expect(r.lines.join('\n')).toContain('.env');
+  });
+
   test('a TS object property that reads a credential at runtime is code, not a secret (#3211)', () => {
     const f = repo({ 'app.ts': 'const cfg = {\n  token: credentials.token,\n  apiKey: settings.apiKey,\n};\n' });
     expect(f.secrets().status).toBe('pass');
@@ -99,7 +108,7 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
-  test('a Python file whose working copy no longer holds the diff\'s added lines is scanned by its added lines (#3630)', () => {
+  test('a Python file whose working copy no longer holds the diff\'s added lines is scanned as git diffed it (#3630, GST-738)', () => {
     const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
     const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n' } });
     try {
@@ -107,7 +116,31 @@ describe('pregate secrets: source context and diff integrity', () => {
       fx.git('update-index', '--assume-unchanged', 'app.py');
       fs.writeFileSync(path.join(fx.work, 'app.py'), 'x = 1\ny = 2\n');
       const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
-      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py, added line 1')) }).toEqual({ status: 'fail', kv: true });
+      expect({ status: check.status, kv: (check.lines as string[]).some((l) => l.includes('env.kv') && l.includes('app.py, line 2')) }).toEqual({ status: 'fail', kv: true });
+    } finally { cleanup(fx); }
+  });
+
+  // Value: protects=the Python/Dart exemption reads the text git diffed, never a working copy that differs from it; fails_when=a committed credential inside a """ block passes because the working copy's other lines were edited under assume-unchanged;
+  //   why_new=GST-738: the added lines matched, so the edited delimiters around them were trusted; seam=git diff; no_claim=a file edited after the scan
+  test('a committed credential in a Python string still fails when the working copy rewrites the lines around it (GST-738)', () => {
+    const token = 'Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJx';
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\nCONFIG = """\n"""\n' } });
+    try {
+      commit(fx, { 'app.py': `x = 1\nCONFIG = """\npassword: ${token}\n"""\n` });
+      fx.git('update-index', '--assume-unchanged', 'app.py');
+      fs.writeFileSync(path.join(fx.work, 'app.py'), `x = 1\nCONFIG = 1  #\npassword: ${token}\n#\n`);
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect({ status: check.status, kv: ((check.lines ?? []) as string[]).some((l) => l.includes('env.kv') && l.includes('app.py')) }).toEqual({ status: 'fail', kv: true });
+    } finally { cleanup(fx); }
+  });
+
+  test('diff.suppressBlankEmpty does not shift the diffed Python text (GST-738)', () => {
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'app.py': 'x = 1\n\ny = 2\n' } });
+    try {
+      commit(fx, { 'app.py': 'x = 1\n\ny = 2\nrows = {\n    "password": session.password,\n}\n' });
+      fx.git('config', 'diff.suppressBlankEmpty', 'true');
+      const check = JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      expect(check.status).toBe('pass');
     } finally { cleanup(fx); }
   });
 

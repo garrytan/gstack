@@ -13,6 +13,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultBaseBranch, type DefaultBase } from '../default-base';
 import type { CommitInfo, FileDiff, FileStatus, Hunk, Unsupported } from './types';
 
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -63,20 +64,19 @@ function remoteNames(cwd: string): string[] {
 }
 
 /**
- * The remote's HEAD target → `main` → `master` (the gstack-diff-scope chain),
- * as a ref name; the remotes are walked in resolveBase's order, so the default
- * and the fix line come from the same remote.
+ * The default base (lib/default-base.ts, the gstack-diff-scope chain) as a ref
+ * name: a remote's HEAD target as `<remote>/<branch>` unless it names the
+ * checked-out branch, the PR's base, `main`, `master`; the remotes are walked
+ * in resolveBase's order, so the default and the fix line come from the same
+ * remote. With no remote naming one, a local main or master, else `main`.
+ * `skipped` when a remote HEAD named the checked-out branch and nothing past it
+ * resolved: the caller fails closed instead of diffing the branch against itself.
  */
-export function defaultBase(cwd: string): string {
-  const remotes = remoteNames(cwd);
-  for (const remote of remotes) {
-    const head = gitText(['symbolic-ref', '-q', `refs/remotes/${remote}/HEAD`], cwd);
-    if (head) return head.replace(/^refs\/remotes\//, '');
-  }
-  for (const name of ['main', 'master']) {
-    if (resolvesToCommit(name, cwd) || remotes.some((remote) => resolvesToCommit(`${remote}/${name}`, cwd))) return name;
-  }
-  return 'main';
+export function defaultBase(cwd: string): { ref: string } | { skipped: NonNullable<DefaultBase['skipped']> } {
+  const found = defaultBaseBranch(cwd, remoteNames(cwd));
+  if (found.branch) return { ref: found.remote ? `${found.remote}/${found.branch}` : found.branch };
+  if (found.skipped) return { skipped: found.skipped };
+  return { ref: ['main', 'master'].find((name) => resolvesToCommit(name, cwd)) ?? 'main' };
 }
 
 export function isShallow(cwd: string): boolean {
@@ -85,24 +85,77 @@ export function isShallow(cwd: string): boolean {
 
 /**
  * The base as a ref that resolves here and, when `head` is given, shares
- * history with it: the ref itself, else its remote-tracking branch
- * (`origin/main` for `main`). A clone that checked out only the feature
- * branch has no local `main`, and the merge-base against `origin/main` is the
- * same commit; a stale local `main` that shares no history with HEAD (a
- * fetched-over clone) yields to the twin too, so the fix line's fetch into the
- * tracking ref is a fix and not a loop.
+ * history with it. A bare branch name resolves to origin's tracking branch
+ * (`refs/remotes/origin/main` for `main`), the base /ship merges against and
+ * the one review-collect's collectLive and review-dispatch read: a stale local
+ * `main` behind it would scan upstream commits the branch only inherited
+ * (#3650, GST-883), so a local branch that differs says how: `behind` it,
+ * `ahead` of it (commits the branch would land unscanned) or `diverged` (GST-462).
+ * Without a related origin twin the related local branch wins over any other
+ * remote, so a fork's branch cannot replace it; it is `fallback` when origin
+ * lacks the branch or shares no history with HEAD (named as `unrelatedRemote`),
+ * and plain with no origin. Another remote's tracking branch is used only when
+ * no related local branch exists. A clone that checked out only the feature
+ * branch has no local `main` (`missing`); a local `main` that shares no
+ * history with HEAD is `unrelated`, so the fix line's fetch into the tracking
+ * ref is a fix and not a loop. Branches are read by their full names
+ * (`refs/heads/`, `refs/remotes/`), so a tag named `main` or `origin/main`
+ * cannot stand in for them, and a remote-qualified name (`upstream/main`) is
+ * taken as given.
  */
-export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' } | null {
+export function resolveBase(ref: string, cwd: string, head?: string): { ref: string; sha: string; local?: 'missing' | 'unrelated' | 'behind' | 'ahead' | 'diverged' | 'fallback'; unrelatedRemote?: string } | null {
   const related = (sha: string) => !head || mergeBase(sha, head, cwd) !== null;
-  const direct = resolvesToCommit(ref, cwd);
-  if (direct && related(direct)) return { ref, sha: direct };
-  if (!isBranchName(ref)) return direct ? { ref, sha: direct } : null;
-  for (const remote of remoteNames(cwd)) {
-    const tracking = `${remote}/${ref}`;
-    const sha = resolvesToCommit(tracking, cwd);
-    if (sha && related(sha)) return { ref: tracking, sha, local: direct ? 'unrelated' : 'missing' };
+  const direct = () => resolvesToCommit(ref, cwd);
+  if (!isBranchName(ref)) { const sha = direct(); return sha ? { ref, sha } : null; }
+  const qualified = resolvesToCommit(`refs/remotes/` + ref, cwd);
+  if (qualified) return { ref, sha: qualified };
+  const local = resolvesToCommit(`refs/heads/` + ref, cwd);
+  const remotes = remoteNames(cwd);
+  const localRelated = !!local && related(local);
+  const twin = (remote: string) => {
+    const sha = resolvesToCommit(`refs/remotes/` + remote + '/' + ref, cwd);
+    if (!sha || !related(sha)) return null;
+    const tracking = remote + '/' + ref;
+    if (sha === local) return { ref: tracking, sha };
+    if (!local || !localRelated) return { ref: tracking, sha, local: !local ? 'missing' as const : 'unrelated' as const };
+    const fork = mergeBase(local, sha, cwd);
+    return { ref: tracking, sha, local: fork === local ? 'behind' as const : fork === sha ? 'ahead' as const : 'diverged' as const };
+  };
+  const hasOrigin = remotes.includes('origin');
+  const origin = hasOrigin ? twin('origin') : null;
+  if (origin) return origin;
+  const originRef = resolvesToCommit(`refs/remotes/origin/` + ref, cwd);
+  const fallback = hasOrigin ? { local: 'fallback' as const, ...(originRef ? { unrelatedRemote: 'origin/' + ref } : {}) } : {};
+  if (localRelated) return { ref, sha: local!, ...fallback };
+  for (const remote of remotes) {
+    if (remote === 'origin') continue;
+    const other = twin(remote);
+    if (other) return other;
   }
-  return direct ? { ref, sha: direct } : null;
+  if (local) return { ref, sha: local, ...(remotes.length ? { local: 'fallback' as const, ...(originRef ? { unrelatedRemote: 'origin/' + ref } : {}) } : {}) };
+  const sha = direct();
+  return sha ? { ref, sha } : null;
+}
+
+export type ResolvedBase = NonNullable<ReturnType<typeof resolveBase>>;
+
+/** Why resolveBase read another ref than the name given (`local main is behind origin/main; base is origin/main`); null when the name stood as given. */
+export function baseNote(name: string, base: ResolvedBase): string | null {
+  if (base.local === 'fallback') return `${base.unrelatedRemote ? `${base.unrelatedRemote} shares no history with HEAD` : `no remote-tracking branch for ${name}`}; base is the local ${name}, which may lag its remote`;
+  if (!base.local) return null;
+  return `${{ unrelated: `local ${name} shares no history with HEAD`, missing: `no local branch ${name}`, behind: `local ${name} is behind ${base.ref}`, ahead: `local ${name} is ahead of ${base.ref}`, diverged: `local ${name} has diverged from ${base.ref}` }[base.local]}; base is ${base.ref}`;
+}
+
+/**
+ * A --base argument as the commit a review or ship bin reads (GST-1036): resolveBase against HEAD, so a bare `main`
+ * reads origin/main over a stale local main, with the note on stderr as `<bin>: <note>` when it read another ref than
+ * the name. An unresolvable name comes back as given, so the caller's own git error still names it.
+ */
+export function baseArg(bin: string, name: string, cwd: string): string {
+  const base = resolveBase(name, cwd, 'HEAD');
+  const note = base && baseNote(name, base);
+  if (note) process.stderr.write(`${bin}: ${note}\n`);
+  return base?.sha ?? name;
 }
 
 /** A word for a printed shell line: as is when it is plain, single-quoted otherwise (ref names may hold `;`, `$`, `(`, `{1,2}`). */

@@ -27,6 +27,13 @@
  * gbrain_local_status. Key order may differ from the bash version's `jq -n`
  * output — downstream parsers must not depend on key order (none currently do).
  *
+ * Flags:
+ *   --is-ok   exit 0 iff the local engine is usable (see below).
+ *   --doctor  run `gbrain doctor --json --scope=brain` and print
+ *             {brain_ok, status, brain_failures, skill_failures, report,
+ *             error?};
+ *             exit 0 iff brain_ok. Skill checks never decide brain_ok (#3790).
+ *
  * Env:
  *   GSTACK_HOME      — override ~/.gstack for state lookups (used by tests).
  *   HOME             — effective user home (drives ~/.gbrain/config.json path).
@@ -44,7 +51,8 @@ import {
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
-import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
+import { gbrainConfigDir, isTransactionModePooler, spawnGbrain } from "../lib/gbrain-exec";
+import { classifyGbrainMcpEntry, classifyGbrainMcpListLine, type GbrainMcpEntry } from "../lib/gbrain-mcp-locality";
 import { resolveStateRoot } from "../lib/state-root";
 
 const STATE_DIR = resolveStateRoot();
@@ -118,21 +126,66 @@ function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
   return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
 }
 
-// --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
+// --- gbrain doctor health, judged from brain checks only (#3790) ---
 //
-// Uses --fast to avoid hanging on a dead DB. Per the local-status classifier
-// (which probes DB directly via `gbrain sources list`), gbrain_doctor_ok is a
-// coarse health summary, not engine-reachability — that's gbrain_local_status.
+// gbrain doctor's skill checks (category "skill": resolver_health,
+// skill_conformance, ...) grade whatever skills dir gbrain auto-detects, which
+// can be another agent's workspace such as ~/.openclaw/workspace. They say
+// nothing about the brain, so they never decide health here. `--scope=brain`
+// (gbrain v0.41.20+) skips that group; older gbrain ignores the flag, so
+// failed checks tagged "skill" are dropped as well. gbrain's status is
+// "healthy"/"warnings"/"unhealthy"; "ok" is kept for older reports. doctor
+// exits 1 when any check fails, so stdout is read whatever the exit code.
+interface DoctorVerdict {
+  brain_ok: boolean;
+  status: string | null;
+  brain_failures: string[];
+  skill_failures: string[];
+  report: unknown;
+  error?: string;
+}
+
+function runDoctor(extraArgs: string[], timeoutMs: number): DoctorVerdict {
+  let r: ReturnType<typeof spawnGbrain>;
+  try {
+    r = spawnGbrain(["doctor", "--json", ...extraArgs, "--scope=brain"], {
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch (e) {
+    const error = `gbrain doctor could not start: ${e instanceof Error ? e.message : String(e)}`;
+    return { brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null, error };
+  }
+  let report: { status?: string; checks?: { name?: string; status?: string; category?: string }[] } | null = null;
+  try {
+    report = JSON.parse(r.stdout || "null");
+  } catch {}
+  if (!report || typeof report !== "object") {
+    const cause = r.error ? r.error.message : r.signal ? `killed by ${r.signal}` : `exit ${r.status}`;
+    const error = `gbrain doctor printed no JSON report (${cause})`;
+    return { brain_ok: false, status: null, brain_failures: [], skill_failures: [], report: null, error };
+  }
+  const failed = (Array.isArray(report.checks) ? report.checks : []).filter((c) => c?.status === "fail");
+  const skill_failures = failed.filter((c) => c.category === "skill").map((c) => c.name ?? "unnamed");
+  const brain_failures = failed.filter((c) => c.category !== "skill").map((c) => c.name ?? "unnamed");
+  const status = report.status ?? null;
+  const statusOk = status === "healthy" || status === "ok" || status === "warnings";
+  return {
+    brain_ok: brain_failures.length === 0 && (statusOk || (status === "unhealthy" && skill_failures.length > 0)),
+    status,
+    brain_failures,
+    skill_failures,
+    report,
+  };
+}
+
+// Uses --fast to avoid hanging on a dead DB. --fast skips every DB check, so
+// gbrain_doctor_ok only says doctor ran and its filesystem checks passed; it
+// proves nothing about the brain's data. Step 5 runs the full --doctor gate.
+// Engine reachability is gbrain_local_status (it probes `gbrain sources list`).
 function detectDoctor(onPath: boolean): boolean {
   if (!onPath) return false;
-  const out = tryExec("gbrain", ["doctor", "--json", "--fast"], 3_000);
-  if (!out) return false;
-  try {
-    const parsed = JSON.parse(out) as { status?: string };
-    return parsed.status === "ok" || parsed.status === "warnings";
-  } catch {
-    return false;
-  }
+  return runDoctor(["--fast"], 3_000).brain_ok;
 }
 
 // --- artifacts sync mode ---
@@ -154,7 +207,19 @@ function detectBrainGit(): boolean {
 //   1. `claude mcp get gbrain --json` — public CLI surface, structured output
 //   2. `claude mcp list` text-grep    — older claude versions without --json
 //   3. `~/.claude.json` jq read       — last resort if `claude` isn't on PATH
-function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
+//
+// #3539: an HTTP entry on a loopback host whose local gbrain config has an
+// engine and no remote_mcp marker is a resident `gbrain serve --http` of this
+// machine's own brain. It reports "local-stdio" (the local-engine mode every
+// consumer already understands: memory ingest imports, sync-gbrain skips the
+// remote trust-policy question) rather than a new value.
+type McpMode = "local-stdio" | "remote-http";
+function classify(entry: GbrainMcpEntry): McpMode | null {
+  const c = classifyGbrainMcpEntry(entry);
+  return c === "remote" ? "remote-http" : c === "local" ? "local-stdio" : null;
+}
+
+function detectMcpMode(): McpMode | "none" {
   const claudeOnPath = tryExec("sh", ["-c", "command -v claude"], 1_000) !== null;
   if (claudeOnPath) {
     // Tier 1: `claude mcp get gbrain --json`
@@ -167,11 +232,8 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
           command?: string;
           url?: string;
         };
-        const mtype = parsed.type || parsed.transport || "";
-        if (mtype === "http" || mtype === "sse") return "remote-http";
-        if (mtype === "stdio") return "local-stdio";
-        if (parsed.url) return "remote-http";
-        if (parsed.command) return "local-stdio";
+        const c = classify(parsed);
+        if (c) return c;
       } catch {
         // fall through
       }
@@ -179,34 +241,28 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
     // Tier 2: `claude mcp list` text-grep. Name-pattern generalized (#2051):
     // a gbrain server registered as e.g. "gbrain-remote" or "gbrain_work"
     // still counts. Anchored to the gbrain token so unrelated servers can't
-    // false-positive.
+    // false-positive. The exact `gbrain:` line wins over a variant, the same
+    // order as tier 3 (and memory-ingest, which reads mcpServers.gbrain):
+    // {gbrain-a: loopback, gbrain: remote} is remote-http.
     const list = tryExec("claude", ["mcp", "list"], 3_000);
     if (list) {
-      const line = list.split("\n").find((l) => /^gbrain([-_][\w-]*)?:/.test(l));
+      const lines = list.split("\n");
+      const line =
+        lines.find((l) => l.startsWith("gbrain:")) ?? lines.find((l) => /^gbrain[-_][\w-]*:/.test(l));
       if (line) {
-        if (/\b(http|HTTP)\b/.test(line)) return "remote-http";
-        return "local-stdio";
+        // The list line carries the URL for HTTP and SSE servers
+        // ("gbrain: http://127.0.0.1:3131/mcp (HTTP) - ✓ Connected"), so the
+        // loopback rule (#3539) applies here too. The whole URL token is
+        // classified, never cut at ")"; an HTTP or SSE line without a usable
+        // URL keeps the old remote-http answer.
+        return classifyGbrainMcpListLine(line) === "local" ? "local-stdio" : "remote-http";
       }
     }
   }
   // Tier 3: read ~/.claude.json directly
-  interface McpServerEntry {
-    type?: string;
-    transport?: string;
-    command?: string;
-    url?: string;
-  }
   const cj = tryReadJSON(CLAUDE_JSON) as
-    | { mcpServers?: Record<string, McpServerEntry> }
+    | { mcpServers?: Record<string, GbrainMcpEntry> }
     | null;
-  const classify = (entry: McpServerEntry): "local-stdio" | "remote-http" | null => {
-    const mtype = entry.type || entry.transport || "";
-    if (mtype === "url" || mtype === "http" || mtype === "sse") return "remote-http";
-    if (mtype === "stdio") return "local-stdio";
-    if (entry.url) return "remote-http";
-    if (entry.command) return "local-stdio";
-    return null;
-  };
   const servers = cj?.mcpServers || {};
   const exact = servers["gbrain"];
   if (exact) {
@@ -311,4 +367,13 @@ if (process.argv.includes("--is-ok")) {
   );
 }
 
-main();
+// --doctor: the full brain-health gate /setup-gbrain Step 5 runs. Prints the
+// DoctorVerdict as JSON and exits 0 iff brain_ok. exitCode, not process.exit:
+// exit() cuts off a large report still draining into a pipe.
+if (process.argv.includes("--doctor")) {
+  const verdict = runDoctor([], 300_000);
+  process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
+  process.exitCode = verdict.brain_ok ? 0 : 1;
+} else {
+  main();
+}

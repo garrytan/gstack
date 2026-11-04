@@ -256,3 +256,22 @@ describe('CI Node.js installs match the image and are verified (#3354)', () => {
     expect(unpack).toBeGreaterThan(verify);
   });
 });
+
+// Value: protects=the eval image ships an ffmpeg that runs /design-motion's checks and exports;
+//   fails_when=Dockerfile.ci stops installing ffmpeg or stops failing the build on a missing filter or encoder;
+//   why_new=the marathon design-motion-showcase case ran 0/3 on an image without ffmpeg (#3687); seam=none;
+//   no_claim=reads the Dockerfile only; the image build runs the check itself
+describe('ci image ffmpeg for the design-motion evals (#3687)', () => {
+  const lines = logicalLines(fs.readFileSync(DOCKERFILE, 'utf-8')).filter((line) => !/^\s*#/.test(line));
+
+  test('apt installs ffmpeg, which the marathon design-motion-showcase case needs', () => {
+    expect(lines.some((line) => /apt-get install\b[^&|;]*\sffmpeg\b/.test(line))).toBe(true);
+  });
+
+  test('the build fails when that ffmpeg cannot run the motion checks and exports', () => {
+    const verify = lines.find((line) => /\bffmpeg\b.*-filters/.test(line)) ?? '';
+    for (const need of ['ffprobe', 'psnr', 'gblur', 'palettegen', 'paletteuse', 'signalstats', 'tile', 'libx264', 'gif']) {
+      expect(verify, `Dockerfile.ci must check ffmpeg for ${need}`).toContain(need);
+    }
+  });
+});

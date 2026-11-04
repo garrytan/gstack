@@ -10,7 +10,8 @@ import { isPaidTestFile } from '../../test/helpers/paid-test-set';
 import { PERIODIC_CI_EXCLUDE } from '../../test/helpers/periodic-exclude-data';
 import { FILE_RETRY_BUDGETS } from '../../test/helpers/eval-budgets';
 import { OVERLAY_MIN_FILE_WALL_MS } from '../../test/helpers/overlay-case-policy';
-import { packageChangeOnlyVersion, prProfileFileCases, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
+import { PR_PROFILE_MAPS, packageChangeOnlyVersion, prProfileFileCases, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
+import { derivedDependencies } from '../pr-dependencies';
 import { detectBaseBranch, getChangedFiles, selectTests, E2E_TOUCHFILES, E2E_TIERS, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from '../../test/helpers/touchfiles';
 import { caseTestNamePattern, fileCaseRegistration, shardCaseId, shardFile, shardTrial } from './paid-cases';
 import { DEFAULT_MAX_FILES_PER_SHARD, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_WITHIN_SHARD_CONCURRENCY, PAID_TIERS, ROOT, isOverlayTestFile,
@@ -249,8 +250,10 @@ export function computePaidCaseSelection(options: {
     : selectTests(selectionFiles, table, GLOBAL_TOUCHFILES, { baseRef, cwd: rootDir }).selected;
   const selection = { e2e: select(E2E_TOUCHFILES), judges: select(LLM_JUDGE_TOUCHFILES) };
   if (options.profile === 'full') return { selection, reason: all ? 'run-all' : 'diff' };
+  // The changed files are paths in the checkout under review, which can be newer than the tree this selector runs from.
+  const readSource = (file: string) => { try { return fs.readFileSync(path.join(rootDir, file), 'utf8'); } catch { return ''; } };
   const coverage = selectPrProfile({ selectedE2E: selection.e2e, selectedJudges: selection.judges, changedFiles: effectiveFiles, sourceAliases,
-    screenPolicy: env.EVALS_SCREEN_POLICY === 'narrow' ? 'narrow' : 'broad' });
+    derived: derivedDependencies(PR_PROFILE_MAPS, rootDir), readSource, screenPolicy: env.EVALS_SCREEN_POLICY === 'narrow' ? 'narrow' : 'broad' });
   if (coverage.needsFullValidation) {
     throw new Error(`PR profile requires full validation: ${coverage.missingCoverage.join(', ')}. Use --profile full and the relevant periodic cases.`);
   }

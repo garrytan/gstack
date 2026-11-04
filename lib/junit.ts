@@ -137,6 +137,14 @@ function excerptOf(node: XmlNode | undefined): string[] {
 
 export const testId = (file: string, project: string, path: string[]) => `${file}::${project}::${path.join(' > ')}`;
 
+/** The parts of a test id, or null when it is not `<file>::<project>::<title>`. */
+export function parseTestId(id: string): { file: string; project: string; title: string } | null {
+  const i = id.indexOf('::');
+  const j = i < 0 ? -1 : id.indexOf('::', i + 2);
+  if (i <= 0 || j < 0 || j + 2 >= id.length) return null;
+  return { file: id.slice(0, i), project: id.slice(i + 2, j), title: id.slice(j + 2) };
+}
+
 function readCase(tc: XmlNode, runner: JunitRunner): Omit<JunitTest, 'id' | 'executions'> & { hidden: boolean } {
   const suite = tc.parent!;
   let file: string, project = '', path: string[];

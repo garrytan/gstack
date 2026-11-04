@@ -41,5 +41,26 @@
         }
       ]
     }
+  },
+  "bulletFreeDescriptions41470212877": {
+    "source": "E2E Evals 41470212877 (train gate at 86bb621f), paid-slice-6-a1, observation.json pendingQuestion",
+    "cliVersion": "2.1.292",
+    "toolUseId": "toolu_01MsiErLVUJGvMQ5DFQf7j2T",
+    "note": "The native question carries the Pros / cons bullets in its text and drops every ✅/❌ bullet from the option descriptions; the declared menu otherwise matches byte for byte.",
+    "question": {
+      "question": "D3 — Want outside design voices before the detailed review?\nProject/branch/task: plan-design-review of review-input.md (User Dashboard) on main.\nELI10: Before I walk the 7 passes, I can get second opinions. Codex scores the plan against hard design rules and litmus checks; a separate Claude subagent does a fresh completeness read without seeing my review. Disagreements get surfaced in the relevant pass.\nStakes if we pick wrong: skipping means findings rest on one reviewer; running adds a few minutes and may only get one voice.\nRecommendation: B because mockups were unavailable and the plan's gaps are clear enough that one rigorous pass will catch them — this is close to a taste call.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Yes, run outside design voices\n  ✅ Codex hard-rule + litmus scorecard plus an independent Claude completeness read.\n  ✅ Disagreements surface with both perspectives in the relevant pass.\n  ❌ Adds a few minutes; Codex may be missing here, in which case only the Claude voice runs and it's tagged single-model.\nB) No, proceed without (recommended)\n  ✅ Straight into the 7 passes with the approved mockup as anchor.\n  ✅ Fewest steps to a fixed plan.\n  ❌ Findings rest on one reviewer; no cross-model check on slop risk or hierarchy.\nNet: a cross-model check versus the fastest path into the passes.",
+      "header": "Voices",
+      "options": [
+        {
+          "label": "Yes, run outside design voices",
+          "description": "Codex hard-rule + litmus scorecard plus an independent Claude completeness read. Disagreements surface with both perspectives in the relevant pass. Adds a few minutes; Codex may be missing here, in which case only the Claude voice runs and it's tagged single-model."
+        },
+        {
+          "label": "No, proceed without (recommended)",
+          "description": "Straight into the 7 passes with the approved mockup as anchor. Fewest steps to a fixed plan. Findings rest on one reviewer; no cross-model check on slop risk or hierarchy."
+        }
+      ],
+      "multiSelect": false
+    }
   }
 }

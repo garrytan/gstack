@@ -8,7 +8,7 @@ GSTACK_DOCTOR_COMPONENTS="claude codex patch codex-cli browse-bundle browser cso
 GSTACK_DOCTOR_CORE="runtime pins state-root privacy cores revision floor wrapper"
 GSTACK_DOCTOR_HOSTS="claude codex"
 GSTACK_DOCTOR_OPTIONAL="codex-cli cso"
-GSTACK_DOCTOR_SKILLS="autoplan plan-ceo-review plan-eng-review plan-design-review plan-devex-review plan-tune office-hours spec review ship investigate codex cso browse qa qa-only design-review design-consultation design-html design-motion devex-review scrape skillify canary benchmark make-pdf diagram pair-agent open-gstack-browser setup-browser-cookies connect-chrome land-and-deploy benchmark-models captain careful claude-code context-restore context-save design-shotgun deslop-shared-libs document-generate document-release eval-plan freeze gstack-upgrade guard health ios-clean ios-design-review ios-fix ios-qa ios-sync landing-report learn write-skill modernize retro setup-deploy setup-gbrain sync-gbrain test-audit ubicloud unfreeze verify review-voice"
+GSTACK_DOCTOR_SKILLS="autoplan plan-ceo-review plan-eng-review plan-design-review plan-devex-review plan-tune office-hours spec review ship investigate codex cso browse qa qa-only design-review design-consultation design-html design-motion devex-review scrape skillify canary benchmark make-pdf diagram pair-agent open-gstack-browser setup-browser-cookies connect-chrome land-and-deploy benchmark-models captain careful claude-code context-restore context-save design-shotgun deslop-shared-libs document-generate document-release eval-plan freeze gstack-upgrade guard health ios-clean ios-design-review ios-fix ios-qa ios-sync landing-report learn write-skill modernize retro runaway-stopper setup-deploy setup-gbrain sync-gbrain test-audit ubicloud unfreeze verify review-voice"
 GSTACK_BROWSER_LAZY_REASON="lazy; gstack-browser-ensure installs on first use"
 GSTACK_DOCTOR_HELPERS="gstack-pregate gstack-plan-reality gstack-artifact gstack-autoplan"
 GSTACK_DOCTOR_NOT_NEEDED="none"
@@ -69,7 +69,7 @@ gstack_doctor_skill_requires() {
     codex) printf '%s' 'claude codex patch codex-cli' ;;
     cso) printf '%s' 'claude cso' ;;
     browse|qa|qa-only|design-review|design-consultation|design-html|design-motion|devex-review|scrape|skillify|canary|benchmark|make-pdf|diagram|pair-agent|open-gstack-browser|setup-browser-cookies|connect-chrome|land-and-deploy) printf '%s' 'claude codex patch browse-bundle browser' ;;
-    benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|verify) printf '%s' 'claude' ;;
+    benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|runaway-stopper|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|verify) printf '%s' 'claude' ;;
     review-voice) printf '%s' 'helpers' ;;
     *) return 1 ;;
   esac
@@ -82,7 +82,7 @@ gstack_doctor_skill_optional() {
     codex) printf '%s' '' ;;
     cso) printf '%s' '' ;;
     browse|qa|qa-only|design-review|design-consultation|design-html|design-motion|devex-review|scrape|skillify|canary|benchmark|make-pdf|diagram|pair-agent|open-gstack-browser|setup-browser-cookies|connect-chrome|land-and-deploy) printf '%s' 'codex-cli' ;;
-    benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|verify) printf '%s' '' ;;
+    benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|runaway-stopper|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|verify) printf '%s' '' ;;
     review-voice) printf '%s' '' ;;
     *) return 1 ;;
   esac
@@ -233,7 +233,6 @@ gstack_result_anchor() {
     BUN_RESOLUTION_DRIFT) printf '%s' 'bun-resolution-drift' ;;
     BUN_INSTALL_VERSION_INVALID) printf '%s' 'bun-install-version-invalid' ;;
     INSTALL_UNVERIFIED) printf '%s' 'install-unverified' ;;
-    BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
     BUN_VERSION_UNREADABLE) printf '%s' 'bun-version-unreadable' ;;
     BASH_UNAVAILABLE) printf '%s' 'bash-unavailable' ;;
     IOS_LAUNCH_ENV_INVALID) printf '%s' 'ios-launch-env-invalid' ;;
@@ -259,6 +258,7 @@ gstack_result_anchor() {
     DX_CAPTURE_REDACTION_FAILED) printf '%s' 'dx-capture-redaction-failed' ;;
     DX_CAPTURE_INTERNAL) printf '%s' 'dx-capture-internal' ;;
     POLICY_GSTACK_TOO_OLD) printf '%s' 'policy-gstack-too-old' ;;
+    PREGATE_GSTACK_TOO_OLD) printf '%s' 'pregate-gstack-too-old' ;;
     QUEUE_NOT_READY) printf '%s' 'queue-not-ready' ;;
     QUEUE_PROOF_MISSING) printf '%s' 'queue-proof-missing' ;;
     QUEUE_STAMP_NOT_STAMP_ONLY) printf '%s' 'queue-stamp-not-stamp-only' ;;
@@ -306,8 +306,10 @@ gstack_result_anchor() {
     BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;
     BASE_RED_PAUSE_EXPIRED) printf '%s' 'base-red-pause-expired' ;;
     BASE_RED_WAIT_TIMEOUT) printf '%s' 'base-red-wait-timeout' ;;
+    BASE_CONTAINS_HEAD) printf '%s' 'base-contains-head' ;;
     QUEUE_RECEIPT_DEPTH_RAISED) printf '%s' 'queue-receipt-depth-raised' ;;
     QUEUE_RECEIPT_EXCEPTION_INVALID) printf '%s' 'queue-receipt-exception-invalid' ;;
+    QUEUE_RECEIPT_TARGETED_MISSING) printf '%s' 'queue-receipt-targeted-missing' ;;
     QUEUE_SCREEN_STALE_REF) printf '%s' 'queue-screen-stale-ref' ;;
     QUEUE_SCREEN_NOT_RUN) printf '%s' 'queue-screen-not-run' ;;
     QUEUE_TRAIN_STACK_RED) printf '%s' 'queue-train-stack-red' ;;
@@ -326,6 +328,7 @@ gstack_result_anchor() {
     REGEN_DEPS_MISSING) printf '%s' 'regen-deps-missing' ;;
     REVIEW_SCOPE_INPUT) printf '%s' 'review-scope-input' ;;
     REVIEW_SCOPE_RANGE) printf '%s' 'review-scope-range' ;;
+    REVIEW_SCOPE_LEDGER) printf '%s' 'review-scope-ledger' ;;
     RECEIPT_CARRY_REFUSED) printf '%s' 'receipt-carry-refused' ;;
     PROSE_LINT_FOUND) printf '%s' 'prose-lint-found' ;;
     REVIEW_LOOP_EXCEPTION_INVALID) printf '%s' 'review-loop-exception-invalid' ;;
@@ -338,12 +341,23 @@ gstack_result_anchor() {
     RECEIPT_GIT_TOO_OLD) printf '%s' 'receipt-git-too-old' ;;
     CHANGELOG_FRAGMENT_INVALID) printf '%s' 'changelog-fragment-invalid' ;;
     QUEUE_LAND_LOCKED) printf '%s' 'queue-land-locked' ;;
+    QUEUE_TRAIN_UNSTAMPED) printf '%s' 'queue-train-unstamped' ;;
+    RESTAMP_NOT_STAGED) printf '%s' 'restamp-not-staged' ;;
+    RESTAMP_UNSTAGED_EDITS) printf '%s' 'restamp-unstaged-edits' ;;
     QUEUE_LAND_CONFLICT) printf '%s' 'queue-land-conflict' ;;
     QUEUE_LAND_DRIFT) printf '%s' 'queue-land-drift' ;;
     QUEUE_LAND_BASE_BUSY) printf '%s' 'queue-land-base-busy' ;;
+    QUEUE_LAND_STAMPED) printf '%s' 'queue-land-stamped' ;;
+    QUEUE_LAND_PIN_MOVED) printf '%s' 'queue-land-pin-moved' ;;
+    QUEUE_LAND_CHECKS) printf '%s' 'queue-land-checks' ;;
+    QUEUE_LAND_NOT_CLEAN) printf '%s' 'queue-land-not-clean' ;;
+    QUEUE_LAND_UNVERIFIED) printf '%s' 'queue-land-unverified' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
+    REVIEW_DIFF_TOO_LARGE) printf '%s' 'review-diff-too-large' ;;
+    REVIEW_DIFF_UNREADABLE) printf '%s' 'review-diff-unreadable' ;;
+    REVIEW_EXCLUDE_REFERENCE) printf '%s' 'review-exclude-reference' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
@@ -361,6 +375,7 @@ gstack_result_anchor() {
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
+    METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
     BUDGET_READING_REJECTED) printf '%s' 'budget-reading-rejected' ;;
     BUDGET_METER_UNAVAILABLE) printf '%s' 'budget-meter-unavailable' ;;
     BUDGET_LEDGER_INVALID) printf '%s' 'budget-ledger-invalid' ;;
@@ -374,6 +389,22 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
+    CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
+    CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
+    SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
+    BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
+    BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
+    BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;
+    BROWSE_SESSION_TAB_RESET) printf '%s' 'browse-session-tab-reset' ;;
+    BROWSE_SESSION_LIMIT) printf '%s' 'browse-session-limit' ;;
+    BROWSE_DEVICE_UNKNOWN) printf '%s' 'browse-device-unknown' ;;
+    BROWSE_DEVICE_CDP_FAILED) printf '%s' 'browse-device-cdp-failed' ;;
+    BROWSE_TOUCH_NO_DEVICE) printf '%s' 'browse-touch-no-device' ;;
+    GSTACK_CLEAN_USAGE) printf '%s' 'gstack-clean-usage' ;;
+    GSTACK_CLEAN_TARGET_REFUSED) printf '%s' 'gstack-clean-target-refused' ;;
+    GSTACK_CLEAN_PARTIAL) printf '%s' 'gstack-clean-partial' ;;
+    GSTACK_CLEAN_INTERNAL) printf '%s' 'gstack-clean-internal' ;;
     *) return 1 ;;
   esac
 }
