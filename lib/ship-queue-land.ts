@@ -325,6 +325,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   if ('message' in loaded) return fail([], loaded, run);
   const policy = loaded.policy;
   if (o.repair) return repair(ctx, policy, readJson<LandJournal>(file), file, run);
+  if (policy.merge === 'direct') return fail([], { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, where land never stamps', fix: `gstack-ship-queue land --pr ${o.pr} --pin <the READY's head sha>` }, run);
   const info = prInfo(ctx, o.pr);
   if ('code' in info) return fail([], info, run);
   if (info.isCrossRepository) return fail([], { code: 'QUEUE_TRAIN_UNTRUSTED', message: `#${o.pr} is a fork head; land stamps and pushes only crew branches` }, run);
