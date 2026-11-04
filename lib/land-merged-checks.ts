@@ -26,6 +26,8 @@ export interface LandPolicy {
 
 const MAX_CHECKS = 16, MAX_COMMAND = 512, CHECK_TIMEOUT_MS = 900_000;
 const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'];
+/** No hook or fsmonitor from the repository's config or the merged tree runs in the git calls around the checks. */
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
 
 export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line.';
 
@@ -56,24 +58,27 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
   try {
     const who = { GIT_AUTHOR_NAME: 'gstack land', GIT_AUTHOR_EMAIL: 'land@gstack.invalid', GIT_COMMITTER_NAME: 'gstack land', GIT_COMMITTER_EMAIL: 'land@gstack.invalid' };
     const commit = git(root, ['commit-tree', tree, '-p', base, '-p', pin, '-m', 'gstack land: merged-tree check'], { ...process.env, ...who });
-    const add = commit.ok ? git(root, ['worktree', 'add', '-q', '--detach', dir, commit.out]) : commit;
+    const add = commit.ok ? git(root, [...NO_HOOKS, 'worktree', 'add', '-q', '--detach', dir, commit.out], env) : commit;
     if (!add.ok) return { ok: false, conflict: false, tree, detail: `cannot build the merged tree ${tree.slice(0, 12)}: ${add.err.split('\n')[0]}` };
     const deps = path.join(root, 'node_modules');
     if (fs.existsSync(deps) && !fs.existsSync(path.join(dir, 'node_modules'))) fs.symlinkSync(deps, path.join(dir, 'node_modules'));
     for (const cmd of checks) {
       const group = process.platform !== 'win32';
-      const opts = { cwd: dir, env, encoding: 'utf8' as const, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, detached: group };
+      const log = path.join(scratch, 'check.log');
+      const fd = fs.openSync(log, 'w');
+      const opts = { cwd: dir, env, stdio: ['ignore', fd, fd] as ['ignore', number, number], timeout: timeoutMs, detached: group };
       const r = spawnSync('sh', ['-c', cmd], opts);
+      fs.closeSync(fd);
       if (group && r.pid) try { process.kill(-r.pid, 'SIGKILL'); } catch {}
       if (r.status === 0 && !r.error) continue;
-      const tail = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.trim().split('\n').slice(-6).join('\n');
+      const tail = fs.readFileSync(log, 'utf8').trim().split('\n').slice(-6).join('\n');
       return { ok: false, conflict: false, tree, detail: `\`${cmd}\` ${r.error ? `did not finish (${r.error.message})` : `exited ${r.status ?? r.signal}`} on the merged tree ${tree.slice(0, 12)}${tail ? `:\n${tail}` : ''}` };
     }
-    const changed = git(dir, ['status', '--porcelain', '--untracked-files=no']);
+    const changed = git(dir, [...NO_HOOKS, 'status', '--porcelain', '--untracked-files=no'], env);
     if (!changed.ok || changed.out) return { ok: false, conflict: false, tree, detail: `the checks changed tracked files on the merged tree ${tree.slice(0, 12)}, so it was not the tree they passed: ${changed.out.split('\n').slice(0, 6).join(', ') || changed.err}` };
     return { ok: true, tree };
   } finally {
-    git(root, ['worktree', 'remove', '--force', dir]);
+    git(root, [...NO_HOOKS, 'worktree', 'remove', '--force', dir], env);
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 }

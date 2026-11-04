@@ -2043,8 +2043,9 @@ in), runs each `land.merged_checks` command there in order, and prints
 commands are repo commands: the merged tree's `package.json` decides what
 `bun run` does, so the PR controls them. Land runs them only with
 `--allow-repo-commands`, with `PATH` and the locale as the whole environment
-and a throwaway `HOME`, so no token reaches them through the environment, and
-kills a command's whole process group when it times out. It doesn't sandbox
+and a throwaway `HOME`, so no token reaches them through the environment,
+runs git around them with hooks and fsmonitor off, and kills a command's whole
+process group when it ends or times out. It doesn't sandbox
 the filesystem: a command can still write the checkout's `.git` (the worktree
 shares it) and the linked `node_modules`, so pass the flag only for a base
 policy and PRs you trust to run. A list such

@@ -91,7 +91,7 @@ export interface ShipPolicy {
   /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
   release_gate: ReleaseGatePolicy | null;
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
-  /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null refuses a stale base. */ land: LandPolicy | null;
+  /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */

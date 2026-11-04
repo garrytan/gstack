@@ -538,13 +538,21 @@ describe('merge: direct | train', () => {
     expect(errs({ merge: 'direct' })).toContain('introduced in gstack ' + MERGE_KEY_VERSION);
   });
 
-  test('runMergedChecks: HEAD is the merged commit; a check that times out (even one exiting 0 on SIGTERM) or that rewrites a tracked file fails', () => {
+  test('runMergedChecks: HEAD is the merged commit, no hook from the merged tree runs, a passing check that leaves a child behind passes at once; a check that times out (even one exiting 0 on SIGTERM) or that rewrites a tracked file fails', () => {
     const fx = setup(CHECKED);
+    const hookMark = path.join(fx.repo.root, 'hook-ran');
     const pin = openPr(fx, '86');
     const moved = moveMain(fx, 'other.txt', 'other\n');
+    fs.mkdirSync(path.join(fx.repo.work, '.hooks'));
+    fs.writeFileSync(path.join(fx.repo.work, '.hooks', 'post-checkout'), `#!/bin/sh\ntouch ${hookMark}\n`, { mode: 0o755 });
+    fx.repo.git('config', 'core.hooksPath', '.hooks');
     const run = (checks: string[], ms?: number) => runMergedChecks(fx.repo.work, moved, pin, checks, ms);
     const head = run(['git show HEAD:pr-86.txt && git show HEAD:other.txt && test "$(git rev-parse HEAD^1)" = ' + moved]);
     expect(head.ok).toBe(true);
+    expect(fs.existsSync(hookMark)).toBe(false);
+    const started = Date.now();
+    expect(run(['sleep 30 & exit 0'], 20_000).ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
     const slow = run(["trap 'exit 0' TERM; sleep 5; exit 1"], 500);
     expect(slow.ok).toBe(false);
     if (!slow.ok) expect(slow.detail).toContain('did not finish');
