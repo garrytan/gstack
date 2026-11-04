@@ -59,8 +59,8 @@ const TRAIN = { gate_workflow: 'evals.yml', record_artifact: 'gstack-train-recor
 describe('release-gate.yml', () => {
   // Value: protects=the schedule fires every RELEASE_GATE_SCHEDULE_HOURS (the cadence floor the policy validates), one gate at a time, only from the
   // default branch, with contents and actions write but no checks write, and runs the bin without --sha (main's head from the remote, so an open gate on an older commit
-  // is finished first) with its outputs wired, and a held or failed verdict leaves the job green (only a crash fails it, so main's head never carries a
-  // failed native check release-cut would read as red); the policy step
+  // is finished first) with its outputs wired, and a held or failed verdict on a gated commit leaves the job green (so main's head never carries a
+  // failed native check release-cut would read as red; the exit is exercised below); the policy step
   // uses git and jq only and is inert without a release_gate block; fails_when=the cron and the cadence drift apart, two gates overlap, the job that
   // runs repository code can write check runs, or an inert policy reaches bun; why_new=new workflow; seam=none; no_claim=GitHub's cron jitter
   test('schedule, concurrency, permissions and the gate step', () => {
@@ -84,9 +84,36 @@ describe('release-gate.yml', () => {
     expect(gate.run).toContain('./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes');
     expect(gate.run).not.toContain('--sha');
     expect(gate.run).toContain("|| rc=$?");
-    expect(gate.run).toContain(`if [ "$rc" != 0 ] && ! grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT"; then exit "$rc"; fi`);
+    expect(gate.run).toContain(`if [ "$rc" != 0 ] && ! { grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT" && grep -qE '^sha=[0-9a-f]{40}$' "$GITHUB_OUTPUT"; }; then exit "$rc"; fi`);
     expect(gate.run).toContain('--outputs "$GITHUB_OUTPUT"');
     expect(job.outputs).toEqual({ action: '${{ steps.gate.outputs.action }}', sha: '${{ steps.gate.outputs.sha }}', check: '${{ steps.gate.outputs.check }}' });
+  });
+
+  // Value: protects=the gate step's exit: a held or failed verdict on a gated commit leaves the job green (release-check publishes its check run), but a
+  // failed verdict with no commit (a refused policy, unreadable notes, an unresolved branch) or no recorded action fails the job, since no check run
+  // follows it; fails_when=a sha-less failure leaves the job green while the backstop stands down (GST-1263); why_new=reader note on #3917;
+  // seam=a stub bin in place of bin/gstack-release-gate; no_claim=a live scheduled run
+  test('the gate step fails the job when the bin fails without a gated commit', () => {
+    const gate = release.jobs['release-gate']!.steps.find(s => s.id === 'gate')!;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-gate-step-'));
+    scratch.push(dir);
+    const sha = 'a'.repeat(40);
+    const exit = (written: string, code: number) => {
+      const stub = path.join(dir, 'stub');
+      fs.writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s' '${written}' >> "$GITHUB_OUTPUT"\nexit ${code}\n`, { mode: 0o755 });
+      const out = path.join(dir, 'out');
+      fs.writeFileSync(out, '');
+      const r = spawnSync('bash', ['-e', '-c', gate.run!.replace('./bin/gstack-release-gate', stub)], {
+        cwd: dir, encoding: 'utf8', timeout: 30_000,
+        env: { ...process.env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: path.join(dir, 'summary'), GITHUB_REPOSITORY: 'o/r', DRY_RUN: '', IGNORE_CADENCE: '' },
+      });
+      return r.status;
+    };
+    expect(exit(`action=gated\nsha=${sha}\ncheck=main-backstop\n`, 0)).toBe(0);
+    expect(exit(`action=held\nsha=${sha}\ncheck=main-backstop\n`, 1)).toBe(0);
+    expect(exit(`action=failed\nsha=${sha}\ncheck=main-backstop\n`, 1)).toBe(0);
+    expect(exit('action=failed\nsha=\ncheck=\n', 1)).toBe(1);
+    expect(exit('', 1)).toBe(1);
   });
 
   // Value: protects=the gated commit's check run (what release-cut reads) comes from a job with checks: write and no checkout or action, only for a

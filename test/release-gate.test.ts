@@ -174,6 +174,18 @@ describe('release gate: run', () => {
     expect(activeHold(records(f), () => true)).toBeNull();
   });
 
+  // Value: protects=a successful gate run whose report-verdict artifact is missing records INCOMPLETE, prints no green line and publishes no gated
+  // action, so a lost artifact never reads as a green main; fails_when=run success alone records GREEN (GST-1263); why_new=reader note on #3917;
+  // seam=fake gh; no_claim=a real artifact upload failure
+  test('a successful run with no report artifact is incomplete, never gated', () => {
+    const f = fixture();
+    const fake = fakeGh(() => ({ conclusion: 'success', artifacts: {} }));
+    const out = runGate(envFor(f, fake.gh), { gate: GATE, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(out.action, out.lines.join('\n')).toBe('failed');
+    expect(out.lines.some(l => l.startsWith('RELEASE: green'))).toBe(false);
+    expect(records(f)[0]).toMatchObject({ sha: f.c[4], verdict: 'INCOMPLETE' });
+  });
+
   // Value: protects=a gate run still going at the budget stays PENDING with its run, and the next run finishes that verdict on the old commit before
   // gating main's new head, so a red verdict still records RED and holds release-cut after main moved; the new head is gated on the run after;
   // fails_when=main moving orphans a PENDING record and its red verdict never becomes a hold; why_new=review finding (red-team, l1-p1); seam=fake gh;
@@ -344,6 +356,13 @@ describe('release gate: verdict, range and policy units', () => {
     expect(classifyRun({ status: 'completed', conclusion: 'success' }, { ...r, verdict: 'GREEN' }).verdict).toBe('GREEN');
     expect(classifyRun({ status: 'completed', conclusion: 'success' }, r).verdict).toBe('INCOMPLETE');
     expect(classifyRun({ status: 'in_progress', conclusion: null }, null).verdict).toBe('PENDING');
+  });
+
+  // Value: protects=green needs the run's success and a report that says GREEN; a missing or verdict-less report on a successful run is INCOMPLETE;
+  // fails_when=a lost or truncated report-verdict artifact records GREEN (GST-1263); why_new=reader note on #3917; seam=none; no_claim=report-verdict's writer
+  test('classifyRun: a successful run without a GREEN report is incomplete', () => {
+    expect(classifyRun({ status: 'completed', conclusion: 'success' }, null)).toMatchObject({ verdict: 'INCOMPLETE', detail: 'the run concluded success but its report artifact is missing' });
+    expect(classifyRun({ status: 'completed', conclusion: 'success' }, { verdict: 'NONE', red: [], other: [], cost: null }).verdict).toBe('INCOMPLETE');
   });
 
   test('planPrefixes spreads at most MAX_PREFIXES over the interior; narrow moves good and bad and refuses a non-monotone or missing result', () => {

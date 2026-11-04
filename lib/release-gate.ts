@@ -114,8 +114,8 @@ export function parseReport(text: string): ReportFacts {
 export function classifyRun(run: Pick<Run, 'status' | 'conclusion'>, report: ReportFacts | null): { verdict: ReleaseRecord['verdict']; red: string[]; detail: string } {
   if (run.status !== 'completed') return { verdict: 'PENDING', red: [], detail: `run is ${run.status}` };
   if (run.conclusion === 'success') {
-    if (report?.verdict === 'RED') return { verdict: 'INCOMPLETE', red: [], detail: 'the run concluded success but its report says RED' };
-    return { verdict: 'GREEN', red: [], detail: report ? 'run and report green' : 'run concluded success (no report artifact)' };
+    if (report?.verdict === 'GREEN') return { verdict: 'GREEN', red: [], detail: 'run and report green' };
+    return { verdict: 'INCOMPLETE', red: [], detail: report ? `the run concluded success but its report says ${report.verdict}` : 'the run concluded success but its report artifact is missing' };
   }
   if (report?.verdict === 'RED' && report.red.length) {
     return { verdict: 'RED', red: report.red, detail: `${report.red.length} red case(s)${report.other.length ? `; also not green: ${report.other.join(', ')}` : ''}` };
