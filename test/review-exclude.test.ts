@@ -431,7 +431,7 @@ describe('a branch cannot hide code under a base pattern', () => {
     for (const [rel, bytes] of Object.entries({ ...kept, ...content })) fs.writeFileSync(path.join(repo.work, rel), bytes);
     commit(repo, {});
     const p = JSON.parse(plan(repo, ['--json']).out);
-    expect(p.review_exclude.kept_files).toEqual(Object.keys(kept).map(f => ({ path: f, reason: 'code' })));
+    expect(p.review_exclude.kept_files).toEqual(Object.keys(kept).map(f => ({ path: f, reason: /id_ed25519|\.p12$/.test(f) ? 'gate-path' : 'code' })));
     expect(p.review_exclude).toMatchObject({ excluded: 2, content: { binary: 2 } });
   }, 120_000);
 

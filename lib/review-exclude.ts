@@ -24,6 +24,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
+import { secretPath } from './review-risk';
 import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -223,7 +224,7 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
   if (isAgentProse(p)) return 'agent-prose';
   if (isDataConfig(p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
-  if ((i.added[p] ?? []).some(secretLine)) return 'secret-line';
+  if ((i.added[p] ?? []).some(secretLine) || secretPath(p, i.added[p] ?? [])) return 'secret-line';
   return null;
 }
 
