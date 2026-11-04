@@ -1,0 +1,8 @@
+**`gstack-ship-queue land --pin` no longer lands a PR whose base moved after its CI (GST-1316).** Under `merge: direct`, land checked the PR's own green checks, but those ran on the PR before newer commits reached main. #3886 was green on its own, landed onto a newer main, and pushed `ship/DRIVER.md` to 12,329 bytes against its 12,288-byte cap, so Free Tests on main went red.
+
+### Fixed
+- **`gstack-ship-queue land --pin`:** refuses with the new `QUEUE_LAND_STALE_BASE` when the pin's merge base with `origin/main` is not main's tip, so the checks at the pin always ran on the exact tree that lands. The fix it prints: merge main into the branch, wait for the required checks at the new head, run /ship and `ready` there, then land the new pin. Nothing merges on a refusal; `--dry-run` reports it too.
+- **Docs:** `docs/ship-policy.md#land-direct` lists the new check and drops "no base merge and no extra CI round". The release section now says a release may not delete a release output, and that a rerun after GitHub merged a release fetches the pin, then reads its parent, with an unreadable parent refused as `QUEUE_NOT_READY`. `docs/troubleshooting.md#queue-land-stale-base` and the `docs/captain.md` refusal table cover the new code.
+
+### Tests
+- `test/ship-queue-land-direct.test.ts`: a PR whose base moved after its pin is refused with `QUEUE_LAND_STALE_BASE` (also under `--dry-run`) and main stays put; once the branch merges main and is shipped and READY at the new head, it lands and main's tree equals that head's tree. This replaces the test that expected the stale-base PR to land as it was.

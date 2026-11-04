@@ -350,6 +350,7 @@ gstack_result_anchor() {
     QUEUE_LAND_STAMPED) printf '%s' 'queue-land-stamped' ;;
     QUEUE_LAND_PIN_MOVED) printf '%s' 'queue-land-pin-moved' ;;
     QUEUE_LAND_CHECKS) printf '%s' 'queue-land-checks' ;;
+    QUEUE_LAND_STALE_BASE) printf '%s' 'queue-land-stale-base' ;;
     QUEUE_LAND_NOT_CLEAN) printf '%s' 'queue-land-not-clean' ;;
     QUEUE_LAND_UNVERIFIED) printf '%s' 'queue-land-unverified' ;;
     RELEASE_STAMP_EMPTY) printf '%s' 'release-stamp-empty' ;;

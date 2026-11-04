@@ -2002,9 +2002,10 @@ tree, taking no lock and pushing nothing.
 
 Under `"merge": "direct"` in the base policy, the Captain merges one READY PR
 at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
-is the head the READY names. There's no train, no stamp commit, no base merge
-and no extra CI round. GitHub's required checks plus `--match-head-commit`
-stay the gate. Versions aren't set per PR: a PR carries only its
+is the head the READY names. There's no train and no stamp commit. GitHub's
+required checks plus `--match-head-commit` stay the gate, so the pin must
+already hold the tip of `origin/main`: then the checks at the pin ran on the
+exact tree that lands. Versions aren't set per PR: a PR carries only its
 `changelog.d` fragment, VERSION stays where it is, and the
 [release PR](#release-stamp) stamps the version and folds the fragments. Land
 refuses, and merges nothing, unless all of these hold (a `release/<version>`
@@ -2021,12 +2022,15 @@ release-file rows):
 | no freeze is active and no land lock is held | `QUEUE_TRAIN_FROZEN`, `QUEUE_LAND_LOCKED` |
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
+| the pin's merge base with `origin/main` is its tip | [`QUEUE_LAND_STALE_BASE`](troubleshooting.md#queue-land-stale-base) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
 
 Release outputs (the agents digest) are checked by the Version Gate, which must
 be green at the pin: it accepts an output only when it equals what the release
-tool generates at the merge base's VERSION. If the base moved and GitHub still
-reports the PR clean, land merges it as it is. Then it runs `gh pr merge
+tool generates at the merge base's VERSION. If the base moved, land refuses
+even when GitHub reports the PR clean: a green PR merged onto newer commits can
+still break main (#3886 pushed ship/DRIVER.md past its size cap that way), so
+the lane merges main and CI runs again. Then it runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
 reads the merge commit, and checks that its tree is the pin merged onto the
 merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
@@ -2065,9 +2069,12 @@ ships under a version its fragment missed): every fragment there folded and
 none added, the version equal to the base's plus their bump, every
 other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
 changed release output equal to what the release tool generates at the new
-version. Anything more is
+version. A release may not delete a release output. Anything more is
 [`RELEASE_STAMP_INVALID`](troubleshooting.md#release-stamp-invalid), and
-nothing merges. The Version Gate (`Check VERSION is not stale vs queue`)
+nothing merges. A rerun after GitHub merged the release fetches the pin first,
+then reads the pin's parent, the main commit it was stamped on, and checks that
+the release merged onto it; a parent it can't read is `QUEUE_NOT_READY`, never
+a pass. The Version Gate (`Check VERSION is not stale vs queue`)
 applies the same test, so a release head passes it while any other PR that
 changes VERSION still fails it. Once the release PR lands, the next stable cut
 tags `v<version>` ([releases.md](releases.md)).

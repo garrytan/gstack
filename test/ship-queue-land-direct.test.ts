@@ -131,18 +131,33 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(notes[0]).toMatchObject({ kind: 'land', pr: '7', pin, merge_sha: main, base_sha: base });
   }, 90_000);
 
-  test('the base moved and the PR still merges clean: it lands as it is, on the new base, with no restamp or extra CI round', () => {
+  test('GST-1316: the base moved after the pin\'s CI, so its green checks never saw the tree that would land; land refuses with QUEUE_LAND_STALE_BASE, then lands once the branch holds main', () => {
     const fx = setup();
-    const pin = openPr(fx, '8');
+    const pin = openPr(fx, '8', { edit: w => fs.writeFileSync(path.join(w, 'budget.md'), 'pr line\n') });
     const moved = moveMain(fx, 'other.txt', 'other\n');
     const r = land(fx, '8', pin);
-    expect(r.err).toBe('');
-    expect(r.status).toBe(EXIT.ok);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_STALE_BASE)');
+    expect(r.err).toContain(moved.slice(0, 12));
+    expect(r.err).toContain('git merge origin/main');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(remote(fx, 'main')).toBe(moved);
+    expect(land(fx, '8', pin, ['--dry-run']).err).toContain('(QUEUE_LAND_STALE_BASE)');
+
+    fx.repo.git('checkout', '-q', '-B', 'pr-8', pin);
+    fx.repo.git('merge', '-q', '--no-edit', 'origin/main');
+    fx.repo.git('push', '-q', 'origin', 'HEAD:refs/heads/pr-8');
+    const merged = fx.repo.git('rev-parse', 'HEAD');
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    fx.write(d => { d.prs['8'].body = shippedBody('8', merged); });
+    markReady(fx, '8', merged);
+    const again = land(fx, '8', merged);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
     const main = remote(fx, 'main');
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
-    expect(show(fx, main + ':other.txt')).toBe('other');
+    expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(fx.repo.git('rev-parse', merged + '^{tree}'));
     expect(show(fx, main + ':pr-8.txt')).toBe('8');
-    expect(fx.repo.git('rev-parse', 'origin/pr-8')).toBe(pin);
   }, 90_000);
 
   test('a rerun after GitHub merged the PR goes straight to the tree check and lands', () => {

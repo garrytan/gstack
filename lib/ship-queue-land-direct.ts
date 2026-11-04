@@ -1,8 +1,9 @@
 /**
  * ship-queue-land-direct — B1's merge step, behind `gstack-ship-queue land --pr <n> --pin <sha>` under the base
- * policy's merge: direct (docs/ship-policy.md#land-direct). The PR merges at its own green head: no train, no stamp
- * commit, no base merge and no extra CI round. It refuses unless the /ship receipt and the READY note are bound to the
- * pin, the pin is the PR's head, the diff leaves VERSION, the manifest version and the CHANGELOG at its merge base
+ * policy's merge: direct (docs/ship-policy.md#land-direct). The PR merges at its own green head: no train and no stamp
+ * commit. It refuses unless the /ship receipt and the READY note are bound to the pin, the pin is the PR's head, the
+ * pin's merge base is the base tip (so the checks at the pin ran on the tree that lands, GST-1316), the diff leaves
+ * VERSION, the manifest version and the CHANGELOG at its merge base
  * (versions are set at release), every check at the pin is green with none pending and each required check present,
  * and GitHub reports the PR mergeable and clean. Then gh pr merge --squash --match-head-commit <pin>, a check that the
  * merge commit's tree is the pin merged onto that commit's parent, and a land note on refs/notes/gstack-trains. A rerun
@@ -132,6 +133,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const passed = new Set([...ci.checks.filter(c => c.conclusion === 'success').map(c => c.name), ...ci.contexts.filter(c => c.state === 'success').map(c => c.name)]);
   const missing = (policy.changelog_fragments?.required_checks ?? []).filter(n => !passed.has(n));
   if (missing.length) return fail(lines, { code: 'QUEUE_LAND_CHECKS', message: `required check(s) ${missing.join(', ')} did not pass at the pin ${o.pin.slice(0, 12)}`, fix: `dispatch them on the branch (gh workflow run <workflow> --ref ${info.headRefName}) and rerun land once they pass` });
+  if (mergeBase !== tip) return fail(lines, { code: 'QUEUE_LAND_STALE_BASE', message: `origin/${ctx.base} moved to ${tip.slice(0, 12)} since the pin's merge base ${mergeBase.slice(0, 12)}, so the checks at the pin never ran on the tree that would land`, fix: `merge the base into the branch (git merge origin/${ctx.base}), push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready --pr ${o.pr} there, then land the new pin` });
   if (info.mergeable !== 'MERGEABLE' || info.mergeStateStatus !== 'CLEAN') return fail(lines, { code: 'QUEUE_LAND_NOT_CLEAN', message: `GitHub reports #${o.pr} mergeable=${info.mergeable ?? 'unknown'} mergeStateStatus=${info.mergeStateStatus ?? 'unknown'}`, fix: info.mergeable === 'CONFLICTING' ? `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` : 'UNKNOWN means GitHub is still computing: rerun land in a minute; BLOCKED or BEHIND names the branch rule to meet first' });
   if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --squash --match-head-commit ${o.pin})`] };
 
