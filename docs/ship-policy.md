@@ -2096,8 +2096,9 @@ trains. So the repair goes through land:
    the PR. The freeze stays active. Without an active freeze, `--repair`
    refuses with `QUEUE_NOT_READY`; a land without `--repair` stays refused.
 2. A second `--repair` at another pin is refused while the admitted repair
-   has merged on GitHub (or GitHub can't say). One that never merged, such as a
-   land refused after the record was written, gives way to the next. A repair
+   has merged on GitHub at its recorded pin (or GitHub can't say). One that
+   never merged there, such as a land refused after the record was written or
+   a PR merged by hand at another head, gives way to the next. A repair
    train's slot (`train` set) is never taken.
 3. The backstop on the repair's main clears the freeze only on evidence: its
    gate is green on a commit at or after the freeze's main (by ancestry) that
@@ -2109,15 +2110,19 @@ trains. So the repair goes through land:
    gate doesn't clear it either.
 4. A red gate keeps the freeze and rewrites its reason with the new run
    ([`BACKSTOP: red, and the queue is already frozen`](troubleshooting.md#backstop-red-frozen)).
-   When that main contains the admitted repair's merge, the repair is spent: the
-   slot is freed for the next `--repair`. Both steps re-read the notes ref after
+   When that main contains the admitted repair's merge and the gate concluded
+   `failure`, the repair is spent: the slot is freed for the next `--repair`. A
+   gate that never judged it (no run, cancelled, past the deadline) keeps the
+   slot and says so in the reason. Both steps re-read the notes ref after
    the gate finishes, so a repair recorded while an earlier commit's gate ran
    is kept, and a freeze the notes fetch can't confirm is never rewritten.
 
 A tooling fix merged by hand while frozen (`gh pr merge --squash
 --match-head-commit`) clears nothing: its backstop, green or red, finds no
-admitted repair. Train freezes keep their own path: `train build --repair`,
-cleared by that train's verify.
+admitted repair. Under `merge: train`, train freezes keep their own path:
+`train build --repair`, cleared by that train's verify. A train freeze left
+over from before the switch to `merge: direct` takes `land --pin --repair` like
+a backstop freeze.
 
 <a id="release-stamp"></a>
 ### Versions at release: the release PR (`merge: direct`)

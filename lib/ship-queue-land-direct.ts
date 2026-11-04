@@ -36,7 +36,7 @@ function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
 
 /**
  * Whether `land --pin --repair` may record #pr@pin as the freeze's one repair (docs/ship-policy.md#direct-freeze): null
- * admits. A repair already recorded at another pin gives way only once GitHub reports it did not merge; one that merged
+ * admits. A repair already recorded at another pin gives way once GitHub reports it did not merge at that pin; one that merged there
  * holds the slot until the main backstop clears the freeze or a red backstop on a main containing it frees the slot.
  */
 function repairRefusal(ctx: QueueContext, freeze: FreezeRecord | null, pr: string, pin: string): QueueFailure | null {
@@ -47,7 +47,7 @@ function repairRefusal(ctx: QueueContext, freeze: FreezeRecord | null, pr: strin
   if (held.train) return { code: 'QUEUE_TRAIN_FROZEN', message: `repair train ${held.train} holds the freeze (${freeze.reason})`, fix: 'land the repair through that train; its verify clears the freeze' };
   const other = view(ctx, held.pr);
   if ('code' in other) return { code: 'QUEUE_TRAIN_FROZEN', message: `${admitted}, and whether it merged cannot be read: ${other.message}`, fix: `rerun land once gh pr view ${held.pr} answers` };
-  if (other.state === 'MERGED') return { code: 'QUEUE_TRAIN_FROZEN', message: `${admitted}, which merged; the queue stays frozen until the main backstop is green on a main that contains it, and a red backstop there frees the slot for the next repair`, fix: 'wait for the main backstop run on that merge (docs/ship-policy.md#direct-freeze)' };
+  if (other.state === 'MERGED' && other.headRefOid === held.head) return { code: 'QUEUE_TRAIN_FROZEN', message: `${admitted}, which merged; the queue stays frozen until the main backstop is green on a main that contains it, and a red backstop there frees the slot for the next repair`, fix: 'wait for the main backstop run on that merge (docs/ship-policy.md#direct-freeze)' };
   return null;
 }
 

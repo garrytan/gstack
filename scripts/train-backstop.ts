@@ -205,19 +205,22 @@ function clearOnGreen(o: BackstopOptions, c: { git: Git; repoKey: string; run: R
 
 /** Write the freeze record (local state, then refs/notes/gstack-trains) unless a freeze is already active. */
 function freeze(o: BackstopOptions, c: { gh: GhRunner; git: Git; repoKey: string; nonce: string; run: Run | null }, lines: string[]): { action: BackstopAction; lines: string[] } {
-  const fetched = fetchNotes(o.repoRoot);
-  const active = noteRecords<FreezeRecord>(c.git, 'freeze', c.repoKey).find(f => !f.cleared_at);
-  if (active && !fetched.ok) { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands (${fetched.detail}, so it is not rewritten)`); return { action: 'frozen', lines }; }
-  if (active && active.train !== 'backstop') { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands`); return { action: 'frozen', lines }; }
   const red = c.run?.status === 'completed' ? redCases(c.gh, o.repo, c.run) : [];
   const runText = c.run ? `run ${c.run.id} (${c.run.status}/${c.run.conclusion ?? '-'})` : 'no run';
   const cases = red.length ? red.map(r => `${r.id} (inputs ${r.inputs.slice(0, 4).join(', ') || 'none declared'})`).join('; ') : 'no red case recorded';
+  const fetched = fetchNotes(o.repoRoot);
+  const active = noteRecords<FreezeRecord>(c.git, 'freeze', c.repoKey).find(f => !f.cleared_at);
+  if (active && !fetched.ok) { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands (${fetched.detail}, so it is not rewritten)`); return { action: 'frozen', lines }; }
+  if (active && active.train !== 'backstop' && active.repair?.train !== null) { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands`); return { action: 'frozen', lines }; }
   if (active) {
     const repair = repairIn(o, c.git, c.repoKey, active);
-    const spent = typeof repair === 'string' ? '' : `; repair #${active.repair!.pr} did not turn main green, so its admission is spent: land the next repair with land --pin --repair`;
+    const judged = c.run?.status === 'completed' && c.run.conclusion === 'failure';
+    const verdict = typeof repair === 'string' ? '' : judged
+      ? `; repair #${active.repair!.pr} did not turn main green, so its admission is spent: land the next repair with land --pin --repair`
+      : `; repair #${active.repair!.pr} was not judged (${runText}), so its admission stands: rerun the backstop on this main`;
     const issue = (active as { issue?: string | null }).issue;
-    active.reason = `backstop red on main ${o.sha.slice(0, 12)}: ${cases}; ${runText}${spent}; frozen since main ${active.main.sha.slice(0, 12)}; fix: land the revert or fix-forward${issue ? ` (${issue})` : ''}`;
-    if (spent) active.repair = null;
+    active.reason = `backstop red on main ${o.sha.slice(0, 12)}: ${cases}; ${runText}${verdict}; frozen since main ${active.main.sha.slice(0, 12)}; fix: land the revert or fix-forward${issue ? ` (${issue})` : ''}`;
+    if (verdict && judged) active.repair = null;
     active.updated_at = nowIso();
     const pushed = persist(o.repoRoot, [active]);
     lines.push(`BACKSTOP: red, and the queue is already frozen; the freeze stands with its reason updated: ${active.reason}`, `BACKSTOP: freeze record ${pushed.detail}`);
