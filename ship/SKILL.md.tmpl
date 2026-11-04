@@ -140,8 +140,8 @@ act on each `STOP:` and `NEXT:` line.
 
 4. **Carry check.** An open PR prints `PR: #<n>` and its `gstack-ship-receipt carry --pr <n> --base <base> --dry-run` line.
    `CARRY: would carry` (base merge committed, same product patch-id): skip review and Step 14.5,
-   fix what it broke (CHANGELOG, size caps), commit, run `gstack-pregate --allow-repo-commands`,
-   push (`gstack-ship-release push --branch <branch-name>`), then carry without
+   fix what it broke (CHANGELOG, size caps), commit, `gstack-ship-release push --branch <branch-name>
+   --early`, `gstack-ci-carry wait --base <base>`, run `gstack-pregate --allow-repo-commands`, then carry without
    `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and ends
    the run with its `GSTACK_RESULT:` line. A failed check, HEAD moving after pregate, `current`, or `refused` with no
    `NEXT: carry route` re-runs Steps 2–16. Steps 17–21 then publish.
@@ -395,7 +395,7 @@ files and CI. Pass each to `finish` as `--build`. If none exists, record not app
 the inspected sources. A missing prerequisite or failed build stops shipping:
 report **Build failed or prerequisite missing**, with the command, error and needed
 repair. Never invent a substitute command.
-**If blocked:** repair it and repeat stage 1; at stage 2 a content repair is behavior.
+**If blocked:** repair it, repeat stage 1, then continue to stage 2: a content repair is behavior there.
 
 ### 2. Choose the change route
 
@@ -459,8 +459,7 @@ rerun. Cite the original command, result, timestamp and log; never resample. Man
 ~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<tests>' --label vitest --expect-cmd '<vitest>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
 ```
 
-`--allow-paths` exempts only release metadata (a `package.json` version-only edit; scripts,
-dependencies and runtime configuration need live tests). Docs, TODO edits, new/generated tests and fixes
+`--allow-paths` exempts only release metadata (in `package.json`, only a version edit). Docs, TODO edits, new/generated tests and fixes
 make evidence STALE even without a new code review.
 
 | Receipt result | Next action |
