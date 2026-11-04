@@ -1,2 +1,0 @@
-### Fixed
-- **The lean `/autoplan` reviewer sees the committed draft on a PR-branch checkout** (GST-1241). Draft capture took `origin/HEAD` as its base, and a Capy machine started on a PR branch points `origin/HEAD` at that branch, so the reviewer got `DRAFT: none (no code changes against origin/<branch>)`. It now resolves the base through `lib/default-base.ts`, the same resolver `bin/gstack-diff-scope` uses, which skips an `origin/HEAD` naming the checked-out branch and falls back to the PR base, the remote's live HEAD, then `origin/main`.

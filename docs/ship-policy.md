@@ -60,9 +60,11 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
 | `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
+| `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
+| `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version. `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
@@ -1188,7 +1190,8 @@ repair is trimming the file, never raising the cap in the same PR.
 **`review_depth` and `gstack_version`.** `write` records the gstack that
 wrote the receipt and the review depth at the checked-out head
 ([review-policy.md#review-depth](review-policy.md#review-depth)):
-`{ depth, class, runtime_lines, rules, base, registry, gate_scan: { tagged, head }, reasons }`,
+`{ depth, class, runtime_lines, rules, base, registry, gate_scan: { tagged, head }, reasons, risk, mode }`
+(`mode` is lean, panel or platform; `declared` and `detected` appear with `write --declare-risk`, and the platform depth adds `platform_review`, see [review-policy.md](review-policy.md#review-depth)),
 computed from git objects for the range against `origin/<base>`
 (`gstack-diff-scope <base> --head <sha>` for the scope signals), with the gate
 scan run on that head. `--head` must be the checked-out HEAD
@@ -1510,6 +1513,7 @@ receipt when the base moves:
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
 | a stacked PR whose receipt was written against the base, after its parent landed and the base was merged in, HEAD's product diff exactly the reviewed range from the parent's head | carries (reason `stack parent <sha12> landed`); base context next to the child's hunks is `RECEIPT_CARRY_SCOPED_REVIEW` |
 | a stamp on the branch's own rows in a stamp file the branch also changed as product: every changed line at a branch-added position, the file's mode unchanged, the base not touching it, the rest of the product diff unchanged | carries (reason `a stamp on the branch's own rows (<file>)`) |
+| a stamp file the branch changes, against each head's base, by no more than a stamp (back at the base's content after a changelog-fragment conversion, or only its version field moved), whatever else the base changed in it | carries (reason `release metadata`, GST-1210) |
 
 **Stacked PRs (#3570).** A child PR's receipt is written against its parent
 branch, so its `base` names that branch and its `product_patch_id` is the
@@ -1615,6 +1619,13 @@ base context next to the branch's unchanged hunks, which is
 [`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
 until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
+A `RECEIPT_CARRY_PRODUCT_CHANGED` on linear history against the reviewed base
+whose range-diff, plus the diff of the changed product paths, is at most 400
+lines and 64 KB, with no binary path, no moved base context and a receipt that
+records its review depth, also prints `RECHECK: eligible … packet=<file>`: one reader on that
+packet and `carry --recheck <record.json>` rebind the receipt instead of a
+full second /ship, unless HEAD needs a deeper review depth or another risk
+class ([scoped re-check](troubleshooting.md#receipt-carry-recheck), J1).
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
 and `product_patch_id` (its product patch against the base), and every carry
@@ -1888,6 +1899,42 @@ command:
 
 `--dry-run` merges and stamps in a scratch worktree and prints the version and
 tree, taking no lock and pushing nothing.
+
+<a id="land-direct"></a>
+### `land --pin`: merge at the PR's own green head (`merge: direct`)
+
+Under `"merge": "direct"` in the base policy, the Captain merges one READY PR
+at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
+is the head the READY names. There's no train, no stamp commit, no base merge
+and no extra CI round. GitHub's required checks plus `--match-head-commit`
+stay the gate. Versions aren't set per PR: a PR carries only its
+`changelog.d` fragment, VERSION stays where it is, and the release stamps the
+version and folds the fragments. Land refuses, and merges nothing, unless all
+of these hold:
+
+| Check | Refusal |
+|---|---|
+| the base policy sets `merge: direct` | `QUEUE_NOT_READY` |
+| the PR is open, on the base, from this repository | `QUEUE_NOT_READY`, `QUEUE_TRAIN_UNTRUSTED` |
+| the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
+| the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
+| a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
+| no freeze is active and no land lock is held | `QUEUE_TRAIN_FROZEN`, `QUEUE_LAND_LOCKED` |
+| VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
+| every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
+| GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
+
+Release outputs (the agents digest) are checked by the Version Gate, which must
+be green at the pin: it accepts an output only when it equals what the release
+tool generates at the merge base's VERSION. If the base moved and GitHub still
+reports the PR clean, land merges it as it is. Then it runs `gh pr merge
+--squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
+reads the merge commit, and checks that its tree is the pin merged onto the
+merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
+if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
+after GitHub merged goes straight to the tree check. `--dry-run` runs every
+check and merges nothing. Under `merge: direct`, `train build` refuses and
+names this command.
 
 <a id="migrating-to-fragments"></a>
 ### Migrating to fragments
