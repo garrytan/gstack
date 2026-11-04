@@ -41,7 +41,7 @@ export const forbidSpecs = (r: Pick<EffectiveReaders, 'forbid_paths'>) => r.forb
 
 export type ReadersLoad = { state: 'ok'; readers: EffectiveReaders; source: string } | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID'; lines: string[] };
 
-/** The readers policy a pass applies: the base's, plus entries the head adds. An unreadable or invalid base refuses; an invalid head adds nothing. */
+/** The readers policy a pass applies: the base's, plus forbid_fetch entries the head adds. An unreadable or invalid base refuses; an invalid head adds nothing. */
 export function loadReaders(root: string, baseSha: string, ref: string, headSha?: string): ReadersLoad {
   const base = loadPolicyAt(root, baseSha, ref);
   if (isUnavailable(base)) return { state: 'refused', code: 'POLICY_SOURCE_UNAVAILABLE', lines: [`READERS: refused: the base policy is unreadable (${base.detail}); a pass never runs without knowing what its readers may not fetch; fix: git fetch origin ${base.base}, then rerun (POLICY_SOURCE_UNAVAILABLE)`] };
@@ -180,6 +180,12 @@ const field = (input: unknown, keys: string[], code: RegExp): string[] => {
   return [...keys.map(k => o[k]).filter((v): v is string => typeof v === 'string'), ...(typeof o.code === 'string' ? [...o.code.matchAll(code)].map(m => m[2]!) : [])];
 };
 
+/** Whether a repo-relative path falls under a forbid_paths glob the way git reads one: the path itself or any directory above it matches. */
+export function forbiddenPath(globs: readonly InstanceType<typeof Bun.Glob>[], rel: string): boolean {
+  const parts = rel.replace(/\/+$/, '').split('/');
+  return parts.some((_, i) => { const p = parts.slice(0, i + 1).join('/'); return globs.some(g => g.match(p) || g.match(p + '/x')); });
+}
+
 /** Scan a reader's tool calls against the default rule and the pass's readers policy; `root` is the checkout under review. */
 export function scanEvents(events: readonly ToolEvent[], r: Pick<EffectiveReaders, 'forbid_fetch' | 'forbid_paths'>, root: string): FetchHit[] {
   const globs = r.forbid_paths.map(p => new Bun.Glob(p.replace(/\/+$/, '')));
@@ -188,8 +194,7 @@ export function scanEvents(events: readonly ToolEvent[], r: Pick<EffectiveReader
     const clean = unquote(p);
     const rel = path.isAbsolute(clean) ? path.relative(root, clean) : clean.replace(/^\.\//, '');
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
-    const norm = rel.replace(/\/+$/, '');
-    return globs.some(g => g.match(norm) || g.match(norm + '/x'));
+    return forbiddenPath(globs, rel);
   };
   const hits: FetchHit[] = [];
   for (const e of events) {

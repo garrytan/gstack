@@ -35,7 +35,7 @@ import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
 import { platformReviewAt } from '../lib/review-platform';
 import { loadPolicyAt } from '../lib/ship-policy-at';
-import { forbidSpecs, loadReaders, readersLine } from '../lib/review-fetch';
+import { forbidSpecs, forbiddenPath, loadReaders, readersLine } from '../lib/review-fetch';
 import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-readers';
 import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
@@ -223,7 +223,7 @@ function main(): number {
   for (const d of plan.dispatches) {
     if (d.role === 'fix-check') continue;
     d.exclude.push(...forbidSpecs(readers).filter(s => !d.exclude.includes(s)));
-    if (d.keep && forbidden.length) d.keep = d.keep.filter(k => !forbidden.some(g => g.match(k.replace(/^:\(top,literal\)/, ''))));
+    if (d.keep && forbidden.length) d.keep = d.keep.filter(k => !forbiddenPath(forbidden, k.replace(/^:\(top,literal\)/, '')));
   }
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {

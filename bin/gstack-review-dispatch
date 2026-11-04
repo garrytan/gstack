@@ -173,13 +173,14 @@ function render(): number {
 }
 
 /**
- * The readers policy at the base's commit plus what HEAD adds; with no resolvable base, the default rule. A base that cannot be
- * read or is invalid refuses. Without --base the base is origin/HEAD's branch as recorded locally (no network lookup).
+ * The readers policy at the base's commit plus what HEAD adds; with no --base and no origin/HEAD, the default rule. A --base that
+ * resolves to no commit, or a base policy that cannot be read or is invalid, refuses. Without --base the base is origin/HEAD's branch as recorded locally (no network lookup).
  */
 function readersAt(root: string, baseFlag: string | undefined): EffectiveReaders {
   const base = baseFlag?.trim().replace(/^origin\//, '') || git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])?.trim().replace(/^origin\//, '');
   if (!base) return effectiveReaders(READERS_POLICY_DEFAULT, null);
   const ref = [`origin/${base}`, base].find(r => git(['rev-parse', '--verify', '--quiet', `${r}^{commit}`]));
+  if (!ref && baseFlag?.trim()) throw new BriefError(`READERS: refused: --base ${baseFlag} resolves to no commit here, so the base policy's readers key cannot be read; fix: git fetch origin ${base}, then rerun (POLICY_SOURCE_UNAVAILABLE)`);
   if (!ref) return effectiveReaders(READERS_POLICY_DEFAULT, null);
   const load = loadReaders(root, git(['rev-parse', `${ref}^{commit}`])!.trim(), ref, git(['rev-parse', 'HEAD'])?.trim());
   if (load.state === 'refused') throw new BriefError(load.lines.join('; '));

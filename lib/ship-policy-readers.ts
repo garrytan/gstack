@@ -4,7 +4,8 @@
  * `forbid_fetch` names hosts (`huggingface.co`) or repositories (`github.com/owner/repo`) no reader may reach, web
  * page reads included; `forbid_paths` are git glob pathspecs no reader may open, cut out of every reader's diff;
  * `brief_note` is one line every reader's brief carries (a custody note). The base branch's policy governs: the
- * head may add forbid entries, never remove one, and its brief_note is ignored. Kept beside lib/ship-policy.ts,
+ * head may add forbid_fetch entries, never remove one; its forbid_paths and brief_note are ignored, because a path
+ * the head adds would cut the branch's own code out of its review and its text would reach every brief. Kept beside lib/ship-policy.ts,
  * which stays under the module-size ratchet and must not be imported from here.
  */
 import { createHash } from 'node:crypto';
@@ -22,7 +23,7 @@ export function readersPolicy(p: { readers?: Partial<ReadersPolicy> | null } | n
 const CREDENTIAL = /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|xox[abprs]-|-----BEGIN|eyJ[A-Za-z0-9_-]{20,}\.)/;
 
 /** What `gstack-ship-policy init --explain` prints for the key. */
-export const READERS_EXPLANATION = '{ forbid_fetch?, forbid_paths?, brief_note? }: what /ship\'s readers may not reach beyond the fetch rule every brief carries (no clone, fetch or download of another repository, dataset or archive). forbid_fetch: hosts (`huggingface.co`) or `host/owner/repo` (`github.com/owner/repo`) no reader may reach, web page reads included; forbid_paths: git glob pathspecs no reader may open, cut out of every reader\'s diff; brief_note: one line (at most 400 characters) every brief carries, for example a custody note. Read from the base branch; the head may add forbid entries, never remove one, and its brief_note is ignored (docs/ship-policy.md#readers).';
+export const READERS_EXPLANATION = '{ forbid_fetch?, forbid_paths?, brief_note? }: what /ship\'s readers may not reach beyond the fetch rule every brief carries (no clone, fetch or download of another repository, dataset or archive). forbid_fetch: hosts (`huggingface.co`) or `host/owner/repo` (`github.com/owner/repo`) no reader may reach, web page reads included; forbid_paths: git glob pathspecs no reader may open, cut out of every reader\'s diff; brief_note: one line (at most 400 characters) every brief carries, for example a custody note. Read from the base branch; the head may add forbid_fetch entries, never remove one, and its forbid_paths and brief_note are ignored (docs/ship-policy.md#readers).';
 
 /** forbid_paths: git glob pathspecs checked as review_exclude_paths are (`contained` is lib/ship-policy.ts's containedRelative). */
 function pathErrors(value: unknown, out: Array<{ code: 'POLICY_INVALID'; path: string; message: string }>, contained: (p: string) => string | null): void {
@@ -56,13 +57,13 @@ export function readersErrors(value: unknown, out: Array<{ code: 'POLICY_INVALID
   }
 }
 
-/** What a pass applies: the base's lists plus any entry the head adds (a branch can tighten, never loosen); the note comes from the base only. */
+/** What a pass applies: the base's lists plus any forbid_fetch entry the head adds (a branch can tighten, never loosen); forbid_paths and the note come from the base only. */
 export interface EffectiveReaders extends ReadersPolicy { digest: string; base_entries: number; head_added: string[] }
 export function effectiveReaders(base: ReadersPolicy, head: ReadersPolicy | null): EffectiveReaders {
   const union = (a: string[], b: string[] | undefined) => [...a, ...(b ?? []).filter(x => !a.includes(x))];
   const forbid_fetch = union(base.forbid_fetch, head?.forbid_fetch);
-  const forbid_paths = union(base.forbid_paths, head?.forbid_paths);
-  const head_added = [...forbid_fetch.slice(base.forbid_fetch.length), ...forbid_paths.slice(base.forbid_paths.length)];
+  const forbid_paths = [...base.forbid_paths];
+  const head_added = forbid_fetch.slice(base.forbid_fetch.length);
   const policy = { forbid_fetch, forbid_paths, brief_note: base.brief_note };
   return { ...policy, digest: createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0, 12), base_entries: base.forbid_fetch.length + base.forbid_paths.length, head_added };
 }
