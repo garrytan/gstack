@@ -2,10 +2,25 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closePacketReadAfterNotice, dispatchEventRewriter, dispatchPromptDelta, dispatchToken, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
+import { closePacketReadAfterNotice, dispatchEventRewriter, dispatchPromptDelta, dispatchToken, guardRunNeedsJournal, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 import { codeOf, guardFixture } from './helpers/autoplan-guard-fixture';
 
 const base = '/home/runner/.cache/gstack-paid-shard-x/tmp/ap-guard-pty-y';
+
+// Main backstop 41817566885 (b244e6d1, paid-slice-1-a1, green on the in-run rerun): four allows, the first unverified
+// (journal_lag, payload path), so the run failed its verified-allow assertion without printing the journal.
+test('an unverified allow prints the journal before cleanup; four verified allows with no card do not', () => {
+  const verified = { decision: 'allow', disposition: 'allow', code: null, path: 'payload', claude_code_version: '2.1.292' };
+  const captured = [{ ...verified, disposition: 'unverified', code: 'journal_lag' }, verified, verified, verified];
+  expect(guardRunNeedsJournal(captured, 0)).toBe(true);
+  expect(guardRunNeedsJournal([verified, verified, verified, verified], 0)).toBe(false);
+  expect(guardRunNeedsJournal([verified, verified, verified, verified], 1)).toBe(true);
+  expect(guardRunNeedsJournal([verified, verified, verified], 0)).toBe(true);
+  expect(guardRunNeedsJournal([verified, verified, verified, { ...verified, decision: 'deny', disposition: 'deny' }], 0)).toBe(true);
+  expect(guardRunNeedsJournal([verified, verified, { ...verified, disposition: 'fallback' }, verified], 0)).toBe(true);
+  const live = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-autoplan-guard-pty.test.ts'), 'utf8');
+  expect(live).toContain('if (guardRunNeedsJournal(log, prompts.length))');
+});
 
 test('the close-packet check accepts a Read in the notice turn and rejects one made before the notice', () => {
   // PR gate 39069171159 (b789898, pass): the CEO reviewer's notice started the turn that read the close packet.
