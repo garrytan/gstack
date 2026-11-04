@@ -27,6 +27,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures in your Aside browser. |
 | [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
 | [`/ubicloud`](#ubicloud) | **Remote Runner** | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs with a reaper, quota preflight, a hang watchdog and one committed verify per repository. |
+| [`/runaway-stopper`](#runaway-stopper) | **Spend Warden** | Find runaway Capy threads and subagents, stop or rotate them at a clean point, and set the defaults that keep them from coming back. |
 | [`/cso`](#cso) | **Chief Security Officer** | Supported security findings with explicit coverage. Static assessment remains available without catalog profiles; contained runtime/scanner execution requires matching qualified profiles. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
 | [`/document-release`](#document-release) | **Technical Writer** | Audit relevant docs on every ship before final verification; standalone runs can also update docs after a PR exists. Catches stale READMEs and reports unresolved gaps. |
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
@@ -1002,6 +1003,39 @@ Claude: Benchmarking 5 pages (5 runs each)...
         /settings   load: 0.8s  LCP: 0.6s  CLS: 0.00  resources: 18 (420KB)
 
         Baseline saved. Run again after changes to compare.
+```
+
+---
+
+## `/runaway-stopper`
+
+This is my **Spend Warden**.
+
+A long-lived agent thread re-reads its whole history on every step, so its cost grows with every wake, even
+the ones that end with nothing to say. One Founderstar thread used 6.9B tokens in 13 days, about 4B of it its
+own context, and one of its /ship subagents reached 485M because it was reused for five /ship runs.
+`/runaway-stopper` finds that pattern from the host's own thread data, stops it where stopping is safe, and
+sets the defaults that keep it from coming back.
+
+- **Detect.** One program fetches each crew thread (`tools.thread.get`, with its transcript) to files, then
+  `gstack-runaway scan --dir <dir>` prints a `RUNAWAY:` line per thread and a `FLAG:` line per limit crossed:
+  own tokens past 500M or active past 3 days (rotate), a subagent past 100M (stop), empty wakes past 25% of the
+  last 40 turns, and review rounds past 2 per PR. Captains are reported, never rotated.
+- **Stop.** A live subagent past 100M is stopped with its reason. A thread is rotated at a clean point through
+  a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain. A thread
+  mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
+- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
+  PR head (metering its own row with a 100M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
+  thread per automation run.
+
+Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03 (excerpt):
+
+```
+RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B credits=2299398 age_days=13.1 active=yes ...
+FLAG: ROTATE own_tokens 4.04B > 500M (upper bound)
+FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)
+RUNAWAY: thread=FOUN-14 verdict=ROTATE own=2.02B(exact) total=2.54B ...
+RUNAWAY: thread=FOUN-71 verdict=ROTATE own=677M(exact) total=953M ...
 ```
 
 ---

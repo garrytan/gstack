@@ -1,0 +1,6 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+// gstack-runaway — read-only runaway thread and subagent detector (/runaway-stopper).
+// All behavior lives in lib/runaway.ts; this is the CLI shim.
+import { runawayMain } from '../lib/runaway';
+
+process.exit(runawayMain(process.argv.slice(2)));

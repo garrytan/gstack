@@ -44,6 +44,12 @@ export const MAX_CHAIN_DEPTH = 3;
 /** Segment boundaries (before Step 9, before Step 12) and the last step each segment runs: Steps 7-8 stay with the parent, so the review child reads only what dispatch needs. */
 export const SEGMENTS: Record<string, string> = { '1': '22', '9': '11.5', '12': '22' };
 export const DEFAULT_TAIL = 2_000_000;
+/**
+ * The cap an observe-mode /ship subagent metering its own task row (--reading-from task) gets when it names none:
+ * R70's 100M stop-and-look line. Single-run /ship subagent rows on 2026-11-03 (GSTA crew and FOUN-4/14/71, n=9):
+ * p50 64M, p90 92M; the one past 100M (485M) was a subagent reused for five runs.
+ */
+export const SUBAGENT_DEFAULT_CAP = 100_000_000;
 const DIFF_REVIEW_STEP: Record<string, string> = { review: '9', 'review-fix-check': '9', 'design-review-lite': '9', 'adversarial-review': '11', 'codex-review': '11' };
 
 export type MeterKind = 'capy' | 'claude' | 'estimate';
