@@ -1,0 +1,139 @@
+{
+ "source": "garrytan/gbrain-evals#289 (merge 513de26d): changed lines of its code-class paths, read as text via gh pr diff",
+ "paths": [
+  "CHANGELOG.md",
+  "docs/benchmarks/cat40-hard/accepted-drift.json",
+  "docs/benchmarks/cat40-hard/calibration.md",
+  "docs/usage-receipt.md",
+  "eval/runner/cat40/loop.ts",
+  "eval/runner/harness-metering-proxy.ts",
+  "eval/runner/providers/openai-compatible.ts",
+  "eval/runner/q1/cell.ts",
+  "eval/runner/systems/baselines.ts",
+  "eval/workload-suites/bench-infra.ts",
+  "scripts/particle-canary.ts",
+  "test/eval/cat40-particle-loop.test.ts",
+  "test/eval/file-agent.test.ts",
+  "test/eval/harness-metering-proxy.test.ts",
+  "test/eval/memory-qa-particle.test.ts",
+  "test/eval/openai-compatible.test.ts",
+  "test/eval/particle-canary.test.ts",
+  "test/eval/q1-cell.test.ts",
+  "test/eval/workload-particle.test.ts"
+ ],
+ "added": {
+  "eval/runner/cat40/loop.ts": [
+   "/** A provider's non-2xx answer, after backoff for retryable statuses, or a particle 2xx without a message (its 2xx status). */",
+   "   * Particle runs only: the run ended on a turn that timed out, lost its connection after it went out, or was answered",
+   "   * 2xx without a message (`compatMayHaveBilled`). Particle may have billed that turn, so a caller never runs the",
+   "   * question again.",
+   " * recorded, and a 2xx that is not JSON or has no `choices[0].message` is recorded and thrown as a ProviderError with",
+   " * its 2xx status, never sent again, because the provider answered it and may have billed it (issue #280). A `compat`",
+   " * request is sent with `compatDeadlineMs` instead of Bun's 300-second fetch timeout, and a 504 (a gateway's or the lease",
+   "      const answered = new ProviderError(res.status, `${compat} answered ${res.status} ${parsed ? 'without choices[0].message' : 'with a body that is not JSON'}: ${text.slice(0, 300)}`);",
+   "      onAttempt?.({ status: 'error', response: json, error: answered.message, ms: Date.now() - t, retry_after_ms: null });",
+   "      throw answered;"
+  ],
+  "eval/runner/harness-metering-proxy.ts": [
+   " * A particle request that failed after it went out (the upstream deadline",
+   " * passed, the connection reset or closed, or the response body failed to",
+   " * read) is answered 504 `mpw_proxy_upstream_lost`, which no particle client",
+   " * sends again, because Particle may have billed it. Any other upstream",
+   " * failure, such as a refused connection, is a 502",
+   " * `mpw_proxy_upstream_unreachable` that a client may send again (issue #282).",
+   " *",
+   "import { carriesKeyInCleartext, COMPAT_PROVIDERS, compatConnectionLost } from './providers/openai-compatible.ts';",
+   "      const lost = provider === 'particle' && ((error as Error).name === 'TimeoutError' || compatConnectionLost(error));",
+   "      const message = `metering proxy ${lost ? 'lost the request it sent to' : 'could not reach'} ${provider}: ${(error as Error).message}`;",
+   "      return finish(lost ? errorResponse(504, 'mpw_proxy_upstream_lost', message) : errorResponse(502, 'mpw_proxy_upstream_unreachable', message), { ...settle(null, 0, message), error: message });",
+   "        return finish(provider === 'particle' ? errorResponse(504, 'mpw_proxy_upstream_lost', message) : errorResponse(502, 'mpw_proxy_upstream_unreachable', message), { ...settle(null, upstream.status, message), error: message });"
+  ],
+  "eval/runner/providers/openai-compatible.ts": [
+   "/** A non-2xx answer that is not a budget stop, or a 2xx answer without a usable `choices[0].message` (`compatSend`). */",
+   " * A request the provider may have billed: it timed out (`compatTimedOut`), its connection was lost after it went out",
+   " * (`compatConnectionLost`), or it was answered 2xx without a usable `choices[0].message` (an error carrying that 2xx",
+   " * status, issue #280). A caller never sends it again, with or without a metering proxy in front.",
+   "  const status = (e as { status?: unknown } | null)?.status;",
+   "  return compatTimedOut(e) || compatConnectionLost(e) || (typeof status === 'number' && status >= 200 && status < 300);",
+   " * decides any retry. A 2xx answer without `choices[0].message`, or whose body is not JSON, is an error carrying its 2xx",
+   " * status and the usage it reported, never an empty answer, and it is not retryable: the provider answered, so it may",
+   " * have billed it (`compatMayHaveBilled`, issue #280). `timeoutMs` (300 s unless given) is the only deadline: Bun's own",
+   " * 300-second fetch timeout is off, so a longer deadline holds.",
+   "  catch { throw new CompatHttpError({ provider: req.provider, status: res.status, kind: 'server', retryable: false, retryAfterMs: null, body: `response body is not JSON: ${text.slice(0, 200)}` }); }",
+   "  if (!Array.isArray(choices) || !choices[0]?.message) throw new CompatHttpError({ provider: req.provider, status: res.status, kind: 'server', retryable: false, retryAfterMs: null, body: `response has no choices[0].message: ${text.slice(0, 200)}` }, parsed.usage);"
+  ],
+  "eval/runner/q1/cell.ts": [
+   "    /** `final`: a try that must not be sent again (an OpenAI-compatible request that timed out, lost its connection or was answered 2xx without a message, which the provider may have billed). */"
+  ],
+  "eval/runner/systems/baselines.ts": [
+   "  /** The last request timed out, lost its connection after it went out or was answered 2xx without a message; Particle may have billed it, so the cell never sends it again. */",
+   " * (`compatDeadlineMs`), and one that times out, loses its connection after it went out or is answered 2xx without a",
+   " * message (`compatMayHaveBilled`) is a `reader_error` that is never sent again, because Particle may have billed it. Each attempt is recorded, the failed ones with null response"
+  ],
+  "eval/workload-suites/bench-infra.ts": [
+   "import { COMPAT_PROVIDERS, CompatHttpError, ParticleCreditExhausted, compatMayHaveBilled, compatRequest, compatSend, type CompatRequest, type CompatResponse } from '../runner/providers/openai-compatible.ts';",
+   " * not Bun's 300-second fetch timeout. A request Particle may have billed (`compatMayHaveBilled`: it timed out, lost its",
+   " * connection after it went out, was answered 504, which the harness proxy sends when its upstream request failed after",
+   " * it went out, or was answered 2xx without a message) is never sent again (issue #282).",
+   "      const retry = !compatMayHaveBilled(error) && (http ? http.retryable && attempt < 5 : !budget && attempt < 4);"
+  ],
+  "scripts/particle-canary.ts": [
+   "import { CompatHttpError, assertMetered, compatBaseUrl, compatMayHaveBilled, compatRequest, compatSend, isLoopbackUrl, type CanarySampling, type CompatLogprob, type CompatRequest } from '../eval/runner/providers/openai-compatible.ts';",
+   "/**",
+   " * Send the canary once per prompt (up to 3 attempts on a 429 or 5xx, honoring a capped Retry-After). A request Particle",
+   " * may have billed (`compatMayHaveBilled`: a 504, or a 2xx without a message) is never sent again (issue #282). A budget",
+   " * stop ends it after its receipt.",
+   " */",
+   "        if (!(e instanceof CompatHttpError && e.retryable) || compatMayHaveBilled(e) || attempt === ATTEMPTS - 1) break;"
+  ]
+ },
+ "removed": {
+  "eval/runner/cat40/loop.ts": [
+   "/** A provider's non-2xx answer, after backoff for retryable statuses. */",
+   "   * Particle runs only: the run ended on a turn that timed out, or lost its connection after it went out",
+   "   * (`compatMayHaveBilled`). Particle may have billed that turn, so a caller never runs the question again.",
+   " * recorded, and a 2xx that is not JSON or has no `choices[0].message` is retried as a server error. A `compat` request",
+   " * is sent with `compatDeadlineMs` instead of Bun's 300-second fetch timeout, and a 504 (a gateway's or the lease",
+   "      last = new ProviderError(502, `${compat} answered ${res.status} ${parsed ? 'without choices[0].message' : 'with a body that is not JSON'}: ${text.slice(0, 300)}`);",
+   "      onAttempt?.({ status: 'error', response: json, error: last.message, ms: Date.now() - t, retry_after_ms: null });",
+   "      if (attempt < 5) await new Promise(r => setTimeout(r, Math.min(60_000, 2000 * 2 ** attempt) + Math.random() * 1000));",
+   "      continue;"
+  ],
+  "eval/runner/harness-metering-proxy.ts": [
+   "import { carriesKeyInCleartext, COMPAT_PROVIDERS } from './providers/openai-compatible.ts';",
+   "      const message = `metering proxy could not reach ${provider}: ${(error as Error).message}`;",
+   "      return finish(errorResponse(502, 'mpw_proxy_upstream_unreachable', message), { ...settle(null, 0, message), error: message });",
+   "        return finish(errorResponse(502, 'mpw_proxy_upstream_unreachable', message), { ...settle(null, upstream.status, message), error: message });"
+  ],
+  "eval/runner/providers/openai-compatible.ts": [
+   "/** A non-2xx answer that is not a budget stop. */",
+   " * A request the provider may have billed: it timed out (`compatTimedOut`) or its connection was lost after it went out",
+   " * (`compatConnectionLost`). A caller never sends it again, with or without a metering proxy in front.",
+   "  return compatTimedOut(e) || compatConnectionLost(e);",
+   " * decides any retry. A 2xx answer without `choices[0].message` is a server error carrying the usage it reported,",
+   " * never an empty answer. `timeoutMs` (300 s unless given) is the only deadline: Bun's own 300-second fetch timeout is",
+   " * off, so a longer deadline holds.",
+   "  catch { throw new CompatHttpError({ provider: req.provider, status: res.status, kind: 'server', retryable: true, retryAfterMs: null, body: `response body is not JSON: ${text.slice(0, 200)}` }); }",
+   "  if (!Array.isArray(choices) || !choices[0]?.message) throw new CompatHttpError({ provider: req.provider, status: res.status, kind: 'server', retryable: true, retryAfterMs: null, body: `response has no choices[0].message: ${text.slice(0, 200)}` }, parsed.usage);"
+  ],
+  "eval/runner/q1/cell.ts": [
+   "    /** `final`: a try that must not be sent again (an OpenAI-compatible request that timed out or lost its connection, which the provider may have billed). */"
+  ],
+  "eval/runner/systems/baselines.ts": [
+   "  /** The last request timed out or lost its connection after it went out; Particle may have billed it, so the cell never sends it again. */",
+   " * (`compatDeadlineMs`), and one that times out or loses its connection after it",
+   " * went out (`compatMayHaveBilled`) is a `reader_error` that is never sent again, because Particle may have billed it. Each attempt is recorded, the failed ones with null response"
+  ],
+  "eval/workload-suites/bench-infra.ts": [
+   "import { COMPAT_PROVIDERS, CompatHttpError, ParticleCreditExhausted, compatRequest, compatSend, type CompatRequest, type CompatResponse } from '../runner/providers/openai-compatible.ts';",
+   " * not Bun's 300-second fetch timeout, and a request that times out is never sent again.",
+   "      const timedOut = error.name === 'TimeoutError' || error.name === 'AbortError';",
+   "      const retry = http ? http.retryable && attempt < 5 : !budget && !timedOut && attempt < 4;"
+  ],
+  "scripts/particle-canary.ts": [
+   "import { CompatHttpError, assertMetered, compatBaseUrl, compatRequest, compatSend, isLoopbackUrl, type CanarySampling, type CompatLogprob, type CompatRequest } from '../eval/runner/providers/openai-compatible.ts';",
+   "/** Send the canary once per prompt (up to 3 attempts on a 429 or 5xx, honoring a capped Retry-After). A budget stop ends it after its receipt. */",
+   "        if (!(e instanceof CompatHttpError && e.retryable) || attempt === ATTEMPTS - 1) break;"
+  ]
+ }
+}

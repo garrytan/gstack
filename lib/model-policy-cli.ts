@@ -298,7 +298,7 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   const providerArg = options['--provider'];
   const provider = parseProvider(providerArg);
   if (command === 'resolve') {
-    if (role !== 'plan-review' && role !== 'implementation' && role !== 'eval-arms' && role !== 'agent') return usage(role === undefined ? 'resolve needs --role plan-review|implementation|eval-arms|agent' : `unknown role '${role}': use plan-review, implementation, eval-arms or agent`, json);
+    if (role !== 'plan-review' && role !== 'implementation' && role !== 'eval-arms' && role !== 'agent') return usage(role === undefined ? 'resolve needs --role plan-review|implementation|eval-arms|agent' : role === 'outside-voice' ? "unknown role 'outside-voice': the outside voice follows the harness, not the model policy (docs/model-policy.md#your-model-preference); use plan-review, implementation, eval-arms or agent" : `unknown role '${role}': use plan-review, implementation, eval-arms or agent`, json);
     if (role === 'agent') {
       if (providerArg !== undefined) return usage('resolve --role agent takes no --provider; the preference names its provider', json);
       return agentResult(env, platform, options['--request'], json);

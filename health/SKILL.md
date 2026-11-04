@@ -54,9 +54,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -115,45 +115,22 @@ When the user types `/health`, run this skill.
 
 ## Step 1: Detect Health Stack
 
-Read CLAUDE.md and look for a `## Health Stack` section. If found, parse the tools
-listed there and skip auto-detection.
-
-If no `## Health Stack` section exists, auto-detect available tools:
+Detect the tools with gstack's detector:
 
 ```bash
-# Type checker
-[ -f tsconfig.json ] && echo "TYPECHECK: tsc --noEmit"
-
-# Linter
-[ -f biome.json ] || [ -f biome.jsonc ] && echo "LINT: biome check ."
-setopt +o nomatch 2>/dev/null || true
-ls eslint.config.* .eslintrc.* .eslintrc 2>/dev/null | head -1 | xargs -I{} echo "LINT: eslint ."
-[ -f .pylintrc ] || [ -f pyproject.toml ] && grep -q "pylint\|ruff" pyproject.toml 2>/dev/null && echo "LINT: ruff check ."
-
-# Test runner
-[ -f package.json ] && grep -q '"test"' package.json 2>/dev/null && echo "TEST: $(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)" 2>/dev/null)"
-[ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "TEST: pytest"
-[ -f Cargo.toml ] && echo "TEST: cargo test"
-[ -f go.mod ] && echo "TEST: go test ./..."
-
-# Dead code
-command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
-[ -f package.json ] && grep -q '"knip"' package.json 2>/dev/null && echo "DEADCODE: npx knip"
-
-# Shell linting
-command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
-
-# GBrain presence — only report as a dimension if gbrain is actually
-# set up; otherwise skip so machines without gbrain aren't penalized.
-if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
-  echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
-fi
+C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" detect --for health
 ```
+
+It reads files and PATH only and runs nothing. A `## Health Stack` section in
+CLAUDE.md wins: its rows come back as they are, and auto-detection is skipped.
+Each `DIMENSION <name> <command>  (<source>)` line is a tool to run in Step 2.
+`DIMENSION <name> none  (<reason>)` means that category is unavailable: record it
+as `SKIPPED` with the reason. A `gbrain` command keeps its `timeout 5s`.
 
 Use Glob to search for shell scripts:
 - `**/*.sh` (shell scripts in the repo)
 
-After auto-detection, present the detected tools via AskUserQuestion:
+After auto-detection (no line's source is `CLAUDE.md Health Stack`), present the detected tools via AskUserQuestion:
 
 "I detected these health check tools for this project:
 

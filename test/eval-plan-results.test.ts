@@ -29,6 +29,9 @@ inputs: the same rows
 prompt: the task only
 panel: rule, 3 trials, same judge
 report: results.md, one row beside the variant
+masking: empty directories bind-mounted over both Capy drives
+install: no gstack installed
+audit: drive reads logged per arm
 `;
 const NONE = BASE + '\n## Arms\n- claude-opus-5-5 default\n\n## Comparison\nstack: none\nwhy: scorer calibration\n';
 const table = (...rows: string[]) => ['| arm | passed | cost |', '|---|---|---|', ...rows].join('\n') + '\n';

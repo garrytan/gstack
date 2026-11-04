@@ -165,6 +165,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
 | `/ubicloud` | **Remote Runner** | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: owner- and TTL-named VMs with a reaper, quota preflight, a hang watchdog, and one committed verify per repository. |
+| `/runaway-stopper` | **Spend Warden** | Find runaway agent threads and subagents on Capy (own context past 500M tokens, active past 3 days, a subagent past 100M, empty wakes, endless review rounds), stop them at a clean point, rotate threads through a handoff, and set the defaults that keep them from coming back. `gstack-runaway scan` reads the host's own thread data and never acts. |
 | `/eval-plan` | **Eval Planner** | Preregister a paid eval before the first priced call: bars, arms, decoys and stop rules, a $0 stub-model dry run over the real inputs, and a three-item priced pilot whose extrapolation and spend table gate the approval. |
 | `/document-release` | **Technical Writer** | Audit changed behavior against project docs on every ship, before final verification and publication. Also runs standalone. Shows updated, reviewed/current or blocked docs and any remaining gaps. |
 | `/document-generate` | **Documentation Author** | Generate missing docs from scratch using the Diataxis framework. Researches the codebase first, then writes reference / how-to / tutorial / explanation docs that actually match the code. Invokable standalone or chained from `/document-release` when the coverage map finds gaps. Learn more: [tutorial](docs/tutorial-document-generate.md) • [how-to](docs/howto-document-a-shipped-feature.md) • [why Diataxis](docs/explanation-diataxis-in-gstack.md). |
@@ -226,6 +227,8 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 
 ## Platform notes
 
+macOS and Linux get full support. Windows and Gemini models get minimal support: install and the core skills work, and nothing more is promised. See [support tiers](docs/support-tiers.md).
+
 **macOS:** everything runs. With the [Aside](https://aside.com) browser (macOS 15+) open and signed in, the browser skills, `/make-pdf` and `/diagram` use it and your real sessions; otherwise they use the bundled browser `./setup` builds. gstack never installs Aside.
 
 **Linux:** everything runs on the bundled browser; Aside is macOS-only, so the readiness probe says `NEEDS_ASIDE: Linux` once and the skills use gstack's own Chromium. If Chromium installs but cannot launch because the host blocks unprivileged user namespaces (Ubuntu 24.04+ AppArmor default), set `GSTACK_CHROMIUM_NO_SANDBOX=1`.
@@ -242,7 +245,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 
 | Doc | What it covers |
 |-----|---------------|
-| [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes Greptile integration) |
+| [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes review-bot triage for Greptile, CodeRabbit and other bots) |
 | [The recommended harness](docs/recommended-harness.md) | gstack + Capy from zero to the first merged train: install, the Captain and its Drive, trains, the daily flaky pass, the twice-weekly release, the factory scorecard, what is Capy-specific, known Capy limits |
 | [gstack + Capy: the software factory](capy/README.md) | What we built with Capy Captains and gstack, how the pieces fit, the measured before/after, tips, and how Garry uses it |
 | [Why gstack](docs/why-gstack.md) | The story, the productivity numbers and their caveats, Karpathy's failure modes, parallel sprints |

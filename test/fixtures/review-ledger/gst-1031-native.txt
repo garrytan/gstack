@@ -1,0 +1,34 @@
+I reviewed the range base..HEAD, one commit that changes four files. I read every non-test file in full.
+
+## Findings
+
+**1. The family check refuses two models in one call even when no task is judged (check.ts:165-169). FIXABLE.**
+The family check runs whether or not the run uses a judge. Elsewhere the judge is used only when `judged` is true.
+
+Before this commit the call passed. Now every judge stops with E_POLICY:
+- the default judge clashes with the second model;
+- the other judges clash with the first model.
+
+So the two models can no longer run in one call, even though the judge would never be called. It fails closed with a clear message, and two calls work around it.
+Fix: `else if (judged && sameFamily.length)`, plus a test with an unjudged set.
+Severity: Medium. Blocks: no.
+
+**2. max_price now uses the long-prompt rates for every call, short prompts included (prices.ts:75, set at proxy.ts:513). FIXABLE, with part to INVESTIGATE.**
+`routing` sets max_price from the price row alone, whatever the prompt length.
+
+Today the only endpoints are standard, fast and ultrafast.
+
+Two more problems:
+- The commit assumes the router checks max_price against long-tier rates.
+- The new doc comment gives the wrong reason.
+
+Fix: build max_price per request.
+Severity: Low. Blocks: no.
+
+**3. The docs' third-family judge barely exists (docs/eval.md:125, policy.ts:125-129). INVESTIGATE.**
+Only weak judges have price rows, so in practice the remedy is two calls.
+
+Also, call.ts still picks the default judge by provider, not by family.
+Severity: Low. Blocks: no.
+
+Recommendation: Fix the unconditional family check at check.ts:169, because gating it on `judged` is a one-line change.

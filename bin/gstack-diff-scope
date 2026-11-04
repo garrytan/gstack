@@ -5,6 +5,9 @@
 # Or:    gstack-diff-scope <base> --head <sha> → the committed range <base>...<sha> only
 #        (no working tree, no untracked files): what a receipt writer and the
 #        merge queue compute for one commit, from any checkout (GSTA-147).
+# Or:    gstack-diff-scope <base> --head <sha> --merged → the same for a head GitHub
+#        already merged into the base (land resuming a true merge): the empty range
+#        is the answer, so the base-contains-head refusal below does not apply.
 #
 # Output contract (#2526 — all-false must be distinguishable from "we could
 # not look" and from "nothing matched"):
@@ -15,7 +18,11 @@
 #            trips loudly instead of silently disabling reviewers)
 #   exit 2  base ref unresolvable             → all false + SCOPE_ERROR=no_base
 #           (shallow CI checkout / missing fetch — a green here would mean
-#            "we could not look")
+#            "we could not look"; also no default base when origin/HEAD
+#            names the checked-out branch and nothing past it resolves)
+#   exit 2  base is HEAD or contains it       → all false + SCOPE_ERROR=base_contains_head
+#           (the branch has commits its real base lacks, so it would be
+#            compared with itself, GST-774; the reason as a comment line)
 # Every line is shell-safe for `source <(...)` consumers: assignments or
 # `#`-comments only.
 #
@@ -26,16 +33,71 @@
 set -euo pipefail
 
 # Detect the repo's default branch when no arg is given (#703-class
-# platform-agnostic rule): origin/HEAD -> origin/main -> origin/master -> main.
-_default_base() {
-  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' && return
-  git rev-parse --verify -q origin/main >/dev/null 2>&1 && { echo "main"; return; }
-  git rev-parse --verify -q origin/master >/dev/null 2>&1 && { echo "master"; return; }
-  echo "main"
-}
-BASE="${1:-$(_default_base)}"
+# platform-agnostic rule, lib/default-base.ts): origin/HEAD unless it names the
+# checked-out branch, its upstream or HEAD's commit (a PR flow's clone can point
+# it at the PR branch, GST-511, GST-774) -> the PR's base (gh, 5 s) -> the
+# remote's live HEAD (ls-remote, 5 s) -> origin/main -> origin/master -> main.
+# An origin/HEAD skipped that way with nothing past it resolving leaves BASE
+# empty, and that fails closed; so does a default-base.ts that cannot run.
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+_default_base_ts() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/lib/default-base.ts" "$@"; }
+NO_DEFAULT=""
+BASE="${1:-}"
+if [ -z "$BASE" ]; then
+  _rc=0
+  _found=$(_default_base_ts default 2>/dev/null) || _rc=$?
+  case "$_rc" in
+    0) BASE="$_found" ;;
+    1) BASE="main" ;;
+    3) NO_DEFAULT="$_found" ;;
+    *) NO_DEFAULT="lib/default-base.ts could not run (exit $_rc); pass the base explicitly" ;;
+  esac
+fi
 HEAD_REF=""
+MERGED_HEAD=false
 if [ "${2:-}" = "--head" ]; then HEAD_REF="${3:-}"; fi
+if [ -n "$HEAD_REF" ] && [ "${4:-}" = "--merged" ]; then MERGED_HEAD=true; fi
+# A bare branch name reads origin's tracking branch, by its full ref, when that
+# shares history with HEAD: /ship merges against origin/<base>, and a linked
+# worktree or a Capy clone never moves the local branch, so a stale one widens
+# the scope (#3650). A remote-qualified name is taken as given.
+_NOT_BRANCH='^[0-9a-f]{7,64}$|[~^]|@\{|^[A-Z_]*HEAD$|^refs/'
+_QUALIFIED=false
+case "$BASE" in origin/*) _QUALIFIED=true ;; esac
+for _remote in $(git remote 2>/dev/null); do
+  case "$BASE" in "$_remote"/*) _QUALIFIED=true ;; esac
+done
+if [[ ! "$BASE" =~ $_NOT_BRANCH ]] && [ "$_QUALIFIED" = false ] \
+  && git rev-parse --verify -q "refs/remotes/origin/${BASE}^{commit}" >/dev/null 2>&1 \
+  && git merge-base "refs/remotes/origin/${BASE}" "${HEAD_REF:-HEAD}" >/dev/null 2>&1; then
+  BASE="refs/remotes/origin/${BASE}"
+fi
+
+# The base as a commit (GST-884, mirroring lib/gate-diff/git.ts resolveBase from
+# GST-883): a branch name reads refs/remotes/<base> (origin/main as given), then
+# refs/remotes/origin/<base> that shares history with the head, then refs/heads/<base>
+# that does, then another remote's twin that does, then refs/heads/<base> as it is,
+# all by full ref name and in resolveBase's order, so a stale local main never widens
+# the scope and a tag named main or origin/main cannot stand in for the branch.
+# A sha, a relative ref (HEAD~1, main^2, @{u}) or a full refs/ name resolves as
+# given. Prints nothing when nothing resolves.
+_is_branch_name() {
+  case "$1" in refs/*|*~*|*^*|*@\{*|HEAD|*_HEAD) return 1 ;; esac
+  [[ ! "$1" =~ ^[0-9a-f]{7,64}$ ]]
+}
+_commit() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
+_resolve_base() {
+  local ref="$1" head="$2" sha loc remote
+  if ! _is_branch_name "$ref"; then _commit "$ref"; return; fi
+  sha=$(_commit "refs/remotes/$ref") && { echo "$sha"; return; }
+  loc=$(_commit "refs/heads/$ref")
+  for remote in $(git remote 2>/dev/null | grep -x origin) ${loc:+:local} $(git remote 2>/dev/null | grep -vx origin); do
+    if [ "$remote" = :local ]; then sha=$loc; else sha=$(_commit "refs/remotes/$remote/$ref") || continue; fi
+    git merge-base "$sha" "$head" >/dev/null 2>&1 && { echo "$sha"; return; }
+  done
+  [ -n "$loc" ] && { echo "$loc"; return; }
+  _commit "$ref"
+}
 
 FRONTEND=false
 BACKEND=false
@@ -53,6 +115,39 @@ AUTH=false
 # the root-anchored globs alone (#3335).
 TEST_PATH_RE='(^|/)(tests?|spec|__tests__)/|(^|/)tests?\.py$|(^|/)test_[^/]+\.py$|_test\.(go|py|rb|ts|js|exs|dart)$|\.(test|spec)\.[jt]sx?$|_spec\.rb$|Test\.(java|kt)$'
 
+# Data files (lib/review-depth.ts DATA_PATH) outside the config locations its
+# DATA_CONFIG and agent-prose rules keep code: .github/, config/, dotfiles,
+# *.config.*, .gstack/. Case-insensitive, as DATA_PATH is.
+DATA_FILE_RE='\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$'
+DATA_CONFIG_RE='(^|/)\.github/|(^|/)config/|(^|/)\.[^/]+$|(^|/)[^/]+\.config\.[^/]+$|^\.gstack/'
+_session_data() {
+  local r=1
+  shopt -s nocasematch
+  if [[ "$1" =~ $DATA_FILE_RE ]] && [[ ! "$1" =~ $DATA_CONFIG_RE ]]; then r=0; fi
+  shopt -u nocasematch
+  return "$r"
+}
+
+# An auth path holds a token, split the way lib/review-risk.ts tokens() splits
+# paths (camelCase, then every non-alphanumeric run), that contains auth
+# (GST-1065). It fails safe: every such token raises the class except the
+# authorship words below, so author-spec.md, AUTHORS, authority.ts and
+# coauthors.ts do not, while auth.ts, /auth/, nextauthmiddleware.ts,
+# noauthrequired.ts, unauthenticated.ts and HTTPAuthorization.ts do.
+_auth_path() {
+  local s="$1" t r=1
+  while [[ "$s" =~ ^(.*[a-z0-9])([A-Z].*)$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
+  shopt -s nocasematch
+  for t in ${s//[^a-zA-Z0-9]/ }; do
+    case "$t" in
+      author|authors|authored|authoring|authorship|authority|authorities|coauthor|coauthors) ;;
+      *auth*) r=0; break ;;
+    esac
+  done
+  shopt -u nocasematch
+  return "$r"
+}
+
 _print_flags() {
   echo "SCOPE_FRONTEND=$FRONTEND"
   echo "SCOPE_BACKEND=$BACKEND"
@@ -65,14 +160,38 @@ _print_flags() {
   echo "SCOPE_AUTH=$AUTH"
 }
 
+if [ -z "$BASE" ]; then
+  _print_flags
+  echo "SCOPE_ERROR=no_base"
+  echo "# ${NO_DEFAULT}"
+  exit 2
+fi
+
 # Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
 # `git diff` return an empty list — all-false with exit 0, a green that means
-# "we could not look". Distinguish it before diffing.
-if ! git rev-parse --verify -q "${BASE}^{commit}" >/dev/null 2>&1; then
+# "we could not look". Distinguish it before diffing. A branch name that does
+# not resolve here reads its origin twin (_resolve_base; a PR checkout has no local main).
+BASE_SHA=$(_resolve_base "$BASE" "${HEAD_REF:-HEAD}" || true)
+if [ -z "$BASE_SHA" ]; then
   _print_flags
   echo "SCOPE_ERROR=no_base"
   echo "# base ref '${BASE}' is not resolvable — shallow checkout or missing fetch. Run: git fetch origin ${BASE}"
   exit 2
+fi
+
+# A base that is the head or already contains it reads the branch against
+# itself, all false with exit 0 (GST-774). lib/default-base.ts decides whether
+# that is the base branch itself or a fresh branch (today's output) or a
+# refusal; it is asked only when git says the base contains the head.
+if [ "$MERGED_HEAD" = false ] && git merge-base --is-ancestor "${HEAD_REF:-HEAD}" "${BASE_SHA}" >/dev/null 2>&1; then
+  _rc=0
+  _why=$(_default_base_ts check "$BASE" "${HEAD_REF:-HEAD}" gstack-diff-scope 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    _print_flags
+    echo "SCOPE_ERROR=base_contains_head"
+    echo "# ${_why:-lib/default-base.ts could not check the base (exit $_rc) (BASE_CONTAINS_HEAD)}"
+    exit 2
+  fi
 fi
 
 # Changed files, NUL-delimited (#2526 minor: `git diff --name-only` octal-quotes
@@ -91,16 +210,16 @@ if [ -n "$HEAD_REF" ] || [ "${2:-}" = "--head" ]; then
     echo "# --head '${HEAD_REF}' is not a commit in this repository"
     exit 2
   fi
-  if ! git merge-base "${BASE}" "${HEAD_REF}" >/dev/null 2>&1; then
+  if ! git merge-base "${BASE_SHA}" "${HEAD_REF}" >/dev/null 2>&1; then
     _print_flags
     echo "SCOPE_ERROR=no_merge_base"
     echo "# '${BASE}' and '${HEAD_REF}' share no merge base"
     exit 2
   fi
-  _collect < <(git diff -z "${BASE}...${HEAD_REF}" --name-only 2>/dev/null)
+  _collect < <(git diff -z "${BASE_SHA}...${HEAD_REF}" --name-only 2>/dev/null)
 else
 # Committed diff vs base (merge-base form; two-dot fallback when no merge base).
-_collect < <(git diff -z "${BASE}...HEAD" --name-only 2>/dev/null || git diff -z "${BASE}" --name-only 2>/dev/null || true)
+_collect < <(git diff -z "${BASE_SHA}...HEAD" --name-only 2>/dev/null || git diff -z "${BASE_SHA}" --name-only 2>/dev/null || true)
 # Working-tree changes (staged + unstaged). `git diff HEAD` fails on a repo
 # with no commits; tolerated.
 _collect < <(git diff -z HEAD --name-only 2>/dev/null || true)
@@ -190,10 +309,14 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     *.graphql|*.gql|openapi.*|swagger.*) m_api=true ;;
   esac
 
-  # Auth: authentication, authorization, sessions, permissions
+  # Auth: authentication, authorization, sessions, permissions. A data file
+  # named for sessions (recovered-sessions.jsonl, GST-911) holds rows, not
+  # session handling, so it is not auth; session config still is.
   case "$f" in
-    *auth*|*session*|*jwt*|*oauth*|*permission*|*role*) m_auth=true ;;
+    *jwt*|*permission*|*role*) m_auth=true ;;
+    *session*) _session_data "$f" || m_auth=true ;;
   esac
+  _auth_path "$f" && m_auth=true
 
   # Backend: code that isn't a frontend component/view file. Includes ESM/CJS
   # (.mjs/.cjs) and explicit-module TS (.mts/.cts) — #1810: these matched no

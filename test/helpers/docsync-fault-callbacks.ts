@@ -6,6 +6,9 @@
 import * as path from 'node:path';
 import { DOCS_CHECKPOINT_MARKER } from './docsync-fault-actor';
 
+export const CALLBACK_TEST_MS = 30_000;
+export const callbackBudgetMs = (count: number): number => (count + 1) * CALLBACK_TEST_MS;
+
 export function docsFaultCallbackScript(root: string): string {
   return `
 import { expect, mock, test } from 'bun:test';
@@ -20,8 +23,9 @@ const observers = { ...await import(observerModule) };
 const { CAPTURE_MS, CAPTURE_LONG_MS } = await import(path.join(root, 'test/helpers/eval-budgets.ts'));
 const { parseDocsCompletion } = await import(path.join(root, 'test/helpers/docsync-contract.ts'));
 const { docsActorSeeded, DOCS_SEEDED_AUDIT_ID } = await import(path.join(root, 'test/helpers/docsync-fault-actor.ts'));
+const CALLBACK_TEST_MS = ${CALLBACK_TEST_MS};
 const callbacks = new Map();
-let fixture, control = '', launches = 0, recorded, legacyReaudit = false;
+let fixture, control = '', launches = 0, recorded, legacyReaudit = false, bodyStartedAt = 0;
 let returnedResult: SkillTestResult | undefined;
 let consumers: string[] = [];
 function expectResult(result: SkillTestResult) {
@@ -43,7 +47,7 @@ mock.module(observerModule, () => ({ ...observers,
 mock.module(path.join(root, 'test/helpers/e2e-gate.ts'), () => ({ describeE2ETier: () => (_name, body) => body() }));
 mock.module(path.join(root, 'test/helpers/e2e-helpers.ts'), () => ({
   runId: 'free-docsync-faults', describeIfSelected: (_name, _names, body) => body(),
-  testConcurrentIfSelected: (name, body, budget) => callbacks.set(name, { body, budget }),
+  testConcurrentIfSelected: (name, body, budget) => callbacks.set(name, { body: () => { bodyStartedAt = Date.now(); return body(); }, budget }),
   createEvalCollector: () => ({}), finalizeEvalCollector() {},
   logCost(_name, result) {
     expectResult(result);
@@ -61,8 +65,10 @@ mock.module(path.join(root, 'test/helpers/session-runner.ts'), () => ({ async ru
   const legacy = options.testName === 'ship-docsync-failure';
   const scenario = legacy ? 'legacy-completion' : options.testName.slice('ship-docsync-'.length);
   expect(options.maxTurns).toBe(legacy ? 30 : 24);
-  expect(options.timeout).toBeGreaterThan((legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 20_000);
-  expect(options.timeout).toBeLessThanOrEqual((legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 15_000);
+  const remaining = (legacy ? CAPTURE_LONG_MS : CAPTURE_MS) - 15_000;
+  // gstack-timing-ok: runShipDocsFault derives the timeout from elapsed time, so the bound measures the same elapsed time
+  expect(options.timeout).toBeGreaterThanOrEqual(remaining - (Date.now() - bodyStartedAt));
+  expect(options.timeout).toBeLessThanOrEqual(remaining);
   expect(options.tools).toEqual(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']);
   expect(options.allowedTools).toEqual(options.tools);
   expect(options.prompt).toContain('BOUNDED_CALLBACK_USED');
@@ -342,7 +348,7 @@ for (const name of names) test(name + ' consumes actual adapter results', async 
   expect(recorded).toEqual({ passed: true });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 test('ship-docsync-failure accepts its remaining changed-input audit and preserves raw output in Markdown', async () => {
   control = '';
   legacyReaudit = true;
@@ -353,7 +359,7 @@ test('ship-docsync-failure accepts its remaining changed-input audit and preserv
   expect(recorded).toEqual({ passed: true });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 for (const [name, mutation] of [
   ['ship-docsync-failure', 'false-current'], ['ship-docsync-failure', 'invalid-publication'],
   ['ship-docsync-failure', 'restore-partial'], ['ship-docsync-failure', 'user-content'],
@@ -381,6 +387,6 @@ for (const [name, mutation] of [
   expect(recorded).toEqual({ passed: false });
   expect(consumers).toEqual(['logCost', 'recordE2E']);
   expect(fs.existsSync(fixture.home)).toBe(false);
-});
+}, CALLBACK_TEST_MS);
 `;
 }

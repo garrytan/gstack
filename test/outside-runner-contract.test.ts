@@ -112,6 +112,12 @@ describe('host-subagent runner', () => {
     expect(meta.output_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(meta.verdict.verdict).toBe('clean');
   });
+  test('prints the shared FINDINGS label: a numbered finding with no P-tag is unspecified, never none (#3925)', () => {
+    const result = path.join(ROOT, 'test', 'fixtures', 'outside-review-severity', 'codex-3925', 'nonblocking-numbered.txt');
+    const r = run(['run', '--runner', 'host-subagent', '--gate', 'structured', '--prompt', promptFile, '--out', path.join(TMP, 'host-3925.md'), '--result', result, '--model', 'openai/gpt-6-astra', '--native-model', 'claude-opus-4-7'], cleanEnv(emptyBin));
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('VERDICT: unverified\nFINDINGS: unspecified\n');
+  });
   test('without --result or --model it is unavailable (exit 3, OUTSIDE_RUNNER_UNAVAILABLE)', () => {
     const r = run(['run', '--runner', 'host-subagent', '--prompt', promptFile, '--out', path.join(TMP, 'no.md'), '--model', 'gpt-5.4'], cleanEnv(emptyBin));
     expect(r.status).toBe(3);
@@ -238,5 +244,48 @@ describe('api runner (supplied-input review)', () => {
     const nokey = run(['run', '--runner', 'api', '--prompt', promptFile, '--out', path.join(TMP, 'api-out', 'nokey.md'), '--model', 'gpt-5.4'], cleanEnv(emptyBin));
     expect(nokey.status).toBe(3);
     expect(nokey.stderr).toMatch(/OPENAI_API_KEY is not set.*\(OUTSIDE_RUNNER_UNAVAILABLE\)$/m);
+  });
+});
+
+describe('api runner output limits (GBRA-223 claim 6)', () => {
+  let server: ReturnType<typeof Bun.serve>;
+  const bodies: Array<{ url: string; body: any }> = [];
+  beforeAll(() => {
+    server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url);
+        const body = await req.json();
+        bodies.push({ url: url.pathname, body });
+        const cut = String(body.model).includes('cut');
+        if (url.pathname === '/v1/messages') return Response.json({ model: body.model, stop_reason: cut ? 'max_tokens' : 'end_turn', content: [{ type: 'text', text: cut ? 'INPUT: ceo abc\n\nA long review cut off mid-sent' : REVIEW }], usage: { input_tokens: 10, output_tokens: body.max_tokens } });
+        return Response.json({ model: body.model, choices: [{ finish_reason: cut ? 'length' : 'stop', message: { content: cut ? 'INPUT: ceo abc\n\nA long review cut off' : REVIEW } }], usage: { prompt_tokens: 10, completion_tokens: 50 } });
+      },
+    });
+  });
+  afterAll(() => server.stop(true));
+  const anthropic = () => ({ ...cleanEnv(emptyBin), ANTHROPIC_API_KEY: 'ak-test', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}` });
+  const openai = () => ({ ...cleanEnv(emptyBin), OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: `http://127.0.0.1:${server.port}/v1` });
+  const out = (name: string) => path.join(TMP, 'limits', name);
+
+  test('anthropic asks for 16384 output tokens by default and --max-tokens sets it; openai sends max_completion_tokens only when set', async () => {
+    expect((await runAsync(['run', '--runner', 'api', '--prompt', promptFile, '--out', out('a1.md'), '--model', 'claude-opus-5-5'], anthropic())).status).toBe(0);
+    expect((await runAsync(['run', '--runner', 'api', '--prompt', promptFile, '--out', out('a2.md'), '--model', 'claude-opus-5-5', '--max-tokens', '4000'], anthropic())).status).toBe(0);
+    expect(bodies.filter(b => b.url === '/v1/messages').map(b => b.body.max_tokens)).toEqual([16384, 4000]);
+    expect((await runAsync(['run', '--runner', 'api', '--prompt', promptFile, '--out', out('o1.md'), '--model', 'gpt-6-astra'], openai())).status).toBe(0);
+    expect((await runAsync(['run', '--runner', 'api', '--prompt', promptFile, '--out', out('o2.md'), '--model', 'gpt-6-astra', '--max-tokens', '4000'], openai())).status).toBe(0);
+    expect(bodies.filter(b => b.url === '/v1/chat/completions').map(b => b.body.max_completion_tokens ?? null)).toEqual([null, 4000]);
+  });
+
+  test('a response stopped at the output limit is truncated (exit 1), never a completed or missing-markers review', async () => {
+    for (const [model, env, tokens] of [['claude-cut', anthropic(), '16384'], ['gpt-cut', openai(), '50']] as const) {
+      const file = out(`${model}.md`);
+      const r = await runAsync(['run', '--runner', 'api', '--prompt', promptFile, '--out', file, '--model', model], env);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/api unavailable \(truncated\): .*output limit/);
+      const meta = JSON.parse(fs.readFileSync(`${file}.meta.json`, 'utf8'));
+      expect(meta).toMatchObject({ status: 'unavailable', reason: 'truncated' });
+      expect(meta.detail).toContain(tokens);
+    }
   });
 });

@@ -1,0 +1,4 @@
+{
+  "bytes": 349,
+  "why": "GSTA-258 L5 (K1): the no-stop pointer in Step 5, the --no-stop receipt flag in Step 19's write (NS set on its own line so a path with spaces survives), and the driver's gstack-no-stop exception"
+}

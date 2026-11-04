@@ -356,8 +356,14 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
  * (`bun run eval:pass-rates --run 37235771700`), and redacting it breaks that
  * command. Only the position decides: a run/job flag (`--run 37235771700`,
  * `--job=111534615007`), a `gh run view|watch|rerun|download|cancel`
- * argument, an `actions/runs/<id>` or `/job/<id>` URL segment, or a
- * `run_id` / `job_id` key. An 11-digit id (every GitHub Actions run id since
+ * argument, an `actions/runs/<id>` or `/job/<id>` URL segment (with or
+ * without a host: `actions/runs/` at the line start or after whitespace,
+ * `/`, `(`, `[`, `<` or a quote, so `sales-actions/runs/<n>` is not one),
+ * a `run_id` / `job_id` key, or any 11- or 12-digit id of a
+ * `runs=<id>/<attempt>[,<id>/<attempt>…]` list (`run=` too), the receipt a
+ * CI carry or run clear prints (lib/run-evidence.ts runReceiptFields); the
+ * `/<attempt>` of one to three digits after every id is what tells that list
+ * from a number (GST-1227). An 11-digit id (every GitHub Actions run id since
  * 2025) also counts right after a run word on the same line, the way a ship
  * receipt, a READY block or an approval record names one (`screen 40477638211
  * GREEN`, `gate=40323989742`, `rerun passed 40287239206`, `run #19368712345`);
@@ -369,7 +375,8 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
  * else still report.
  */
 const CI_ID_POSITION_BEFORE =
-  /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|\/actions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
+  /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|(?:^|[\s\/(\[<"'])actions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
+const CI_RUN_LIST = /(?<![\w-])runs?=\d{11,12}\/\d{1,3}(?:,\d{11,12}\/\d{1,3})*(?![\w\/])/gi;
 /** A run word with an optional ':' '#' '=' right before an 11-digit token; shared with gstack-post's chained-id allowlist. */
 export const CI_RUN_WORD_BEFORE = /\b(?:runs?|screens?|gates?|backstop|bisect|rerun|dispatch(?:ed)?|failed|passed)\s*[:#=]?\s*$/i;
 export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean {
@@ -378,7 +385,11 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
   const { start } = spanBounds(match);
   const lineStart = input.lastIndexOf("\n", start - 1) + 1;
   const before = input.slice(Math.max(lineStart, start - 80), start);
-  return CI_ID_POSITION_BEFORE.test(before) || (span.length === 11 && CI_RUN_WORD_BEFORE.test(before));
+  if (CI_ID_POSITION_BEFORE.test(before) || (span.length === 11 && CI_RUN_WORD_BEFORE.test(before))) return true;
+  const lineEnd = input.indexOf("\n", start);
+  const line = input.slice(lineStart, lineEnd < 0 ? input.length : lineEnd);
+  const at = start - lineStart;
+  return [...line.matchAll(CI_RUN_LIST)].some(m => m.index! < at && at + span.length <= m.index! + m[0].length);
 }
 
 /**
@@ -395,12 +406,30 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
 const VERSION_DECLARATION_BEFORE =
   /(?:\b[Vv]ersion|\bVERSION|[a-z0-9_]Version|[_-][Vv]ersion|_VERSION)["'\]]?(?:[ \t]*[:=(>][ \t]*|[ \t]+)["']?$/;
 const CHANGELOG_HEADING_BEFORE = /^#{1,6}[ \t]+\[$/;
-export function isDeclaredVersion(match: RegExpExecArray): boolean {
-  const input = match.input ?? "";
-  const { start, end } = spanBounds(match);
+/**
+ * gstack names its own release right before the quad: `gstack 1.94.4.0`, `upgraded gstack from 1.93.14.0`, and the
+ * install check's trailer `gstack: ok 1.94.4.0 for=ship` or `gstack: fail claude,codex (1.93.37.0)`, which every lane
+ * report and PR body quotes (GST-1204). Only a quad shaped like a gstack release (major 0-2) counts, so `gstack 8.8.8.8`,
+ * `my-gstack 1.94.4.0`, `gstack-proxy 1.128.1.0` or `gstack talks to 8.8.8.8` still report.
+ */
+const GSTACK_RELEASE = /^[0-2]\./;
+const GSTACK_NAMED_BEFORE = /(?<![\w./-])gstack(?:[ \t]*:[ \t]*(?:ok|fail)(?:[ \t]+[a-z0-9_,-]+)?[ \t]+\(?|[ \t]+(?:from[ \t]+)?)$/;
+/** The second end of a range (`X to Y`, `X-Y`) whose first end is a declared version with the same major. */
+const RANGE_END_BEFORE = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[ \t]*(?:to|through|-|\u2013)[ \t]*$/;
+function declaredAt(input: string, start: number, end: number, range: boolean): boolean {
   const lineStart = input.lastIndexOf("\n", start - 1) + 1;
-  if (VERSION_DECLARATION_BEFORE.test(input.slice(Math.max(lineStart, start - 48), start))) return true;
-  return CHANGELOG_HEADING_BEFORE.test(input.slice(lineStart, start)) && input[end] === "]";
+  const before = input.slice(Math.max(lineStart, start - 48), start);
+  const span = input.slice(start, end);
+  if (VERSION_DECLARATION_BEFORE.test(before) || (GSTACK_NAMED_BEFORE.test(before) && GSTACK_RELEASE.test(span))) return true;
+  if (CHANGELOG_HEADING_BEFORE.test(input.slice(lineStart, start)) && input[end] === "]") return true;
+  const first = range ? RANGE_END_BEFORE.exec(before) : null;
+  if (!first || first[1]!.split(".")[0] !== span.split(".")[0]) return false;
+  const firstStart = start - before.length + first.index;
+  return declaredAt(input, firstStart, firstStart + first[1]!.length, false);
+}
+export function isDeclaredVersion(match: RegExpExecArray): boolean {
+  const { start, end } = spanBounds(match);
+  return declaredAt(match.input ?? "", start, end, true);
 }
 
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
@@ -661,13 +690,27 @@ const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
 }
+/**
+ * GST-1064: the first argument of a lookup call (`get`, `getenv`, `read`,
+ * `load`, `loads`, `open`, `pop`, `fetch`) that is a lowercase file name
+ * (`files.get("key.json")`) or a snake_case key of two or three words
+ * (`resp.json().get("access_token")`) names what the call reads. Eight distinct
+ * letters already reach 3.0 bits, so entropy alone cannot tell it from a
+ * secret. Any other callee (`make_password("orange_monkey_pass")`), a grouping
+ * paren, a later argument or a fallback (`os.getenv("X", "orange_monkey_pass")`)
+ * is a value and is still checked, and so is a first argument with a digit, an
+ * uppercase letter, kebab words or four or more snake_case words.
+ */
+const LOOKUP_ARGUMENT =
+  /(?<![\w$])(get|getenv|read|load|loads|open|pop|fetch)\([ \t]*(["'])(?:[a-z]+(?:_[a-z]+){1,2}|[a-z]+(?:[_-][a-z]+)*\.(?:json|ya?ml|toml|ini|cfg|conf|env|pem|crt|cer|key|txt|csv|xml|cookie))\2/g;
 function isCallExpression(span: string, match: RegExpExecArray): boolean {
   if (!CALL_SHAPED_VALUE.test(span)) return false;
   const { start } = spanBounds(match);
   if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
   const call = match.input.slice(start + span.indexOf("(")).split("\n", 1)[0];
   if (!call.includes(")") && call.trim() !== "(") return false;
-  return !carriesSecretLiteral(call);
+  const line = match.input.slice(start).split("\n", 1)[0];
+  return !carriesSecretLiteral(line.replace(LOOKUP_ARGUMENT, "$1("));
 }
 
 /**
@@ -694,7 +737,8 @@ const CODE_NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:<[\w$.,\s
  * text) records every string's content span: a `'''`/`"""` block, or a
  * `'`/`"` string that ends at its line unless a backslash continues it.
  * Comments are skipped (`#` in Python; `//` and nested `/* *\/` in Dart), so a
- * delimiter inside one opens nothing; a backslash escapes the next character, except in a Dart raw
+ * delimiter inside one opens nothing, and a Dart block comment's own span is
+ * recorded too: a `password:` line in it is text, not code (GST-738); a backslash escapes the next character, except in a Dart raw
  * string (`r'''…'''`). The exemption needs the
  * whole file to see a block's opener: pregate passes Dart and Python files
  * whole, and the pre-push hook, which scans added lines alone, passes them
@@ -708,34 +752,133 @@ export function clearStringSpanCache(): void {
   stringSpansCache = null;
 }
 
-function stringSpans(text: string, lang: "py" | "dart"): Array<[number, number]> {
+/** The index after the comment at `i`: a line comment ends at its newline, a Dart block comment at its matching `*\/` (they nest). */
+function commentEnd(text: string, i: number, lang: "py" | "dart"): number {
+  if (lang === "py" || !text.startsWith("/*", i)) {
+    const eol = text.indexOf("\n", i);
+    return eol < 0 ? text.length : eol;
+  }
+  let depth = 1;
+  let j = i + 2;
+  while (j < text.length && depth > 0) {
+    if (text.startsWith("/*", j)) { depth += 1; j += 2; }
+    else if (text.startsWith("*/", j)) { depth -= 1; j += 2; }
+    else j += 1;
+  }
+  return j;
+}
+
+const MAX_INTERPOLATION_DEPTH = 256;
+
+type Spans = Array<[number, number]>;
+
+/**
+ * The index after a Dart `${…}` expression starting at `j`. Its code is not
+ * text; its strings and block comments add their own spans.
+ */
+function dartExpressionEnd(text: string, j: number, depth: number, spans: Spans): number {
+  if (depth > MAX_INTERPOLATION_DEPTH) return text.length;
+  for (let open = 1; j < text.length && open > 0; ) {
+    const d = text[j]!;
+    if (text.startsWith("//", j)) { j = commentEnd(text, j, "dart"); continue; }
+    if (text.startsWith("/*", j)) { const end = commentEnd(text, j, "dart"); spans.push([j, end]); j = end; continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "dart", depth, spans); continue; }
+    if (d === "{") open += 1;
+    else if (d === "}") open -= 1;
+    j += 1;
+  }
+  return Math.min(j, text.length);
+}
+
+/**
+ * The index after a Python replacement field whose expression starts at `j`.
+ * The expression is code: its `#` comments are skipped and its strings add
+ * their own spans. A `:` or `!` outside its brackets starts the conversion and
+ * format spec, which is text apart from nested `{…}` fields (`{n:#x}`, `{n:'>10}`).
+ */
+function pythonFieldEnd(text: string, j: number, depth: number, spans: Spans): number {
+  const n = text.length;
+  if (depth > MAX_INTERPOLATION_DEPTH) return n;
+  let nest = 0;
+  while (j < n) {
+    const d = text[j]!;
+    if (d === "#") { j = commentEnd(text, j, "py"); continue; }
+    if (d === '"' || d === "'") { j = stringAt(text, j, "py", depth, spans); continue; }
+    if (d === "}" && nest === 0) return j + 1;
+    if (nest === 0 && (d === ":" || (d === "!" && text[j + 1] !== "="))) {
+      let from = j + 1;
+      for (j += 1; j < n && text[j] !== "}"; ) {
+        if (text[j] !== "{") { j += 1; continue; }
+        if (from < j) spans.push([from, j]);
+        j = pythonFieldEnd(text, j + 1, depth + 1, spans);
+        from = j;
+      }
+      if (from < Math.min(j, n)) spans.push([from, Math.min(j, n)]);
+      return Math.min(j + 1, n);
+    }
+    if ("([{".includes(d)) nest += 1;
+    else if (")]}".includes(d)) nest = Math.max(0, nest - 1);
+    j += 1;
+  }
+  return n;
+}
+
+/**
+ * Adds the text spans of the string whose quote is at `i` and returns the index
+ * after its closing delimiter. An interpolated expression (`{…}` in a Python
+ * f- or t-string, `${…}` in a non-raw Dart string) is code: it is skipped
+ * whole, with its nested strings as their own spans, so a quote inside it never
+ * ends the outer string (GST-738). An expression left open, or nested past
+ * MAX_INTERPOLATION_DEPTH, is text to the end of the file. In a Python f-string
+ * `\{` still opens a field.
+ */
+function stringAt(text: string, i: number, lang: "py" | "dart", depth: number, spans: Spans): number {
+  const n = text.length;
+  const c = text[i]!;
+  const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+  const multiline = close.length === 3;
+  let k = i;
+  while (k > 0 && /[A-Za-z]/.test(text[k - 1]!)) k -= 1;
+  const prefix = k === 0 || !/[\w$]/.test(text[k - 1]!) ? text.slice(k, i) : "";
+  const raw = lang === "dart" && prefix === "r";
+  const interpolated = lang === "dart" ? !raw : /^(?:[rR]?[fFtT]|[fFtT][rR])$/.test(prefix);
+  let j = i + close.length;
+  let from = j;
+  while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) {
+    if (!raw && text[j] === "\\") { j += lang === "py" && interpolated && text[j + 1] === "{" ? 1 : 2; continue; }
+    if (!interpolated) { j += 1; continue; }
+    if (lang === "py" && text.startsWith("{{", j)) { j += 2; continue; }
+    if (lang === "py" ? text[j] !== "{" : !text.startsWith("${", j)) { j += 1; continue; }
+    if (from < j) spans.push([from, j]);
+    const field = j;
+    const mark = spans.length;
+    j = lang === "py" ? pythonFieldEnd(text, j + 1, depth + 1, spans) : dartExpressionEnd(text, j + 2, depth + 1, spans);
+    if (j >= n) { spans.length = mark; from = field; break; }
+    from = j;
+  }
+  const end = Math.min(j, n);
+  if (from < end) spans.push([from, end]);
+  return end + close.length;
+}
+
+function stringSpans(text: string, lang: "py" | "dart"): Spans {
   if (stringSpansCache?.text === text && stringSpansCache.lang === lang) return stringSpansCache.spans;
-  const spans: Array<[number, number]> = [];
+  const spans: Spans = [];
   const n = text.length;
   for (let i = 0; i < n; ) {
     const c = text[i]!;
     if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
-      const eol = text.indexOf("\n", i);
-      i = eol < 0 ? n : eol;
+      i = commentEnd(text, i, lang);
       continue;
     }
     if (lang === "dart" && text.startsWith("/*", i)) {
-      let depth = 1;
-      for (i += 2; i < n && depth > 0; ) {
-        if (text.startsWith("/*", i)) { depth += 1; i += 2; }
-        else if (text.startsWith("*/", i)) { depth -= 1; i += 2; }
-        else i += 1;
-      }
+      const end = commentEnd(text, i, lang);
+      spans.push([i, end]);
+      i = end;
       continue;
     }
     if (c !== '"' && c !== "'") { i += 1; continue; }
-    const close = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
-    const multiline = close.length === 3;
-    const raw = lang === "dart" && text[i - 1] === "r" && !/[\w$]/.test(text[i - 2] ?? "");
-    let j = i + close.length;
-    while (j < n && !text.startsWith(close, j) && (multiline || text[j] !== "\n")) j += !raw && text[j] === "\\" ? 2 : 1;
-    spans.push([i + close.length, Math.min(j, n)]);
-    i = j + close.length;
+    i = stringAt(text, i, lang, 0, spans);
   }
   stringSpansCache = { text, lang, spans };
   return spans;
