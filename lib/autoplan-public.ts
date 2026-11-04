@@ -170,18 +170,18 @@ export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEn
   const roots = recordedRoots(state, env);
   const owner = ownerWords(state);
   const report: string[] = [];
-  /** The public bytes of one file: owner-word fields dropped and quotes redacted on the original bytes, then recorded roots rewritten (plan.md code untouched). */
+  /** The public bytes of one file: owner-word fields dropped, quotes redacted on the original bytes, recorded roots rewritten, then quotes redacted again on the rewritten bytes the validator reads (plan.md code untouched). */
   const publicText = (name: string, file: string, text: string): string => {
     let dropped = 0, redacted = 0;
     const redact = (t: string, keep?: Span[]) => { const r = redactOwnerWords(t, owner, keep); redacted += r.redacted; return r.text; };
     const strings = (x: unknown): unknown => (typeof x === 'string' ? redact(x) : Array.isArray(x) ? x.map(strings)
       : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, strings(y)])) : x);
-    const json = (v: unknown) => { const d = dropOwnerFields(v); dropped += d.dropped; return rewriteJson(strings(d.value), roots); };
+    const json = (v: unknown) => { const d = dropOwnerFields(v); dropped += d.dropped; return strings(rewriteJson(strings(d.value), roots)); };
     let body: string;
     if (file.endsWith('.json')) body = JSON.stringify(json(JSON.parse(text)), null, 2) + '\n';
     else if (file.endsWith('.jsonl')) body = text.split('\n').map(line => (line ? JSON.stringify(json(JSON.parse(line))) : line)).join('\n');
-    else if (name === 'plan.md') body = rewriteProse(redact(text, codeSpans(text)), roots);
-    else body = rewriteRoots(redact(text), roots);
+    else if (name === 'plan.md') { const prose = rewriteProse(redact(text, codeSpans(text)), roots); body = redact(prose, codeSpans(prose)); }
+    else body = redact(rewriteRoots(redact(text), roots));
     if (dropped || redacted) report.push(`OWNER_WORDS: ${file} dropped=${dropped} redacted=${redacted}`);
     return body;
   };

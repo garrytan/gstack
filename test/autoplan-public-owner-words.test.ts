@@ -11,6 +11,8 @@ import { spawnSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { exportPublic } from '../lib/autoplan-public';
+import { readState } from '../lib/autoplan-state';
 import { recHash } from '../lib/gate-list';
 import { ROOT, SMALL_PLAN, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan } from './helpers/autoplan-capy';
@@ -163,6 +165,20 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
     expect(allText(pub)).not.toContain('acquisition-merger-notes');
     expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Owner: ${MARK}`);
+  });
+
+  test('a reply that names a repo-relative path is redacted where the record holds the absolute worktree path', () => {
+    const repo = path.join(r.host.base, `owner${n + 1}`);
+    const wa = 'please also update run/notes-merger.md tests';
+    const { out, dir } = ownerBundle({ wa, ceo: { native: `Decision: please also update ${path.join(repo, 'run', 'notes-merger.md')} tests` }, eng: {} });
+    expect(dir).toBe(repo);
+    fs.mkdirSync(path.join(repo, '.git'));
+    const state = readState(out);
+    state.plan_input = path.join(repo, 'plans', 'plan.md');
+    const pub = path.join(dir, 'public');
+    exportPublic(state, pub);
+    expect(allText(pub)).not.toContain('notes-merger');
+    expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Decision: ${MARK}`);
   });
 
   test('validate --public --private fails with file:line on owner words left in a public copy', () => {
