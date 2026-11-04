@@ -17,7 +17,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE = path.join(import.meta.dir, 'fixtures', 'review-fetch', 'pr362-reader-events.jsonl');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
-const NONE = { forbid_fetch: [], forbid_paths: [] };
+const NONE: { forbid_fetch: string[]; forbid_paths: string[] } = { forbid_fetch: [], forbid_paths: [] };
 const bash = (command: string): ToolEvent => ({ tool: 'capy.bash', input: { command } });
 const rules = (events: ToolEvent[], r = NONE) => scanEvents(events, r, '/work/repo').map(h => [h.rule, h.severity, h.target]);
 
