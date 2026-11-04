@@ -96,6 +96,11 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     expect(labels('I found nothing CRITICAL. Here is what I checked:\n- **Auth:** the token check at auth.ts:9 is CRITICAL and missing.')).toEqual(['INFORMATIONAL', 'CRITICAL']);
     expect(labels('No FIXABLE findings.', 'adversarial-native')).toEqual(['CRITICAL']);
     expect(labels('Apart from the SQL injection in db.ts:40, I found\nnothing CRITICAL.')).toEqual(['CRITICAL']);
+    for (const wrap of ['Apart from the SQL injection in db.ts:40 —\nnothing CRITICAL.\nRecommendation: request changes because the SQL injection exposes the database',
+      'Apart from the SQL injection in db.ts:40\nI found nothing CRITICAL.', 'Apart from the SQL injection in `db.ts:40`\nnothing CRITICAL.', 'The guard was removed (see auth)\nno CRITICAL issue.',
+      'Apart from the SQL injection in db.ts:40, the rest is fine.\nI found nothing CRITICAL.', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.'])
+      expect([wrap, labels(wrap).at(-1)]).toEqual([wrap, 'CRITICAL']);
+    expect(labels('The rest of the diff is fine.\nI found nothing CRITICAL.')).toEqual([]);
     expect(labels('The webhook check is gone and I found\nno CRITICAL issues.')).toEqual(['CRITICAL']);
     expect(labels('I found nothing CRITICAL and two high issues.')).toEqual(['CRITICAL']);
     expect(labels('## Summary\nI found nothing CRITICAL.')).toEqual([]);
