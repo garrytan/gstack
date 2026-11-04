@@ -177,7 +177,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/native-auq-devex-clipped-elided-sep21.json': ['test/auq-native-capture.test.ts'],
   'test/fixtures/native-auq-margin-elided-sep21.json': ['test/auq-native-capture.test.ts'],
   'test/fixtures/native-auq-packet-clipped-elided-sep21.json': ['test/auq-native-capture.test.ts'],
-  'test/fixtures/outside-review-severity/**': ['test/outside-review-severity.test.ts'],
+  'test/fixtures/outside-review-severity/**': ['test/outside-review-severity.test.ts', 'test/outside-review-unparsed-severity.test.ts'],
   'test/fixtures/outside-voice-failure-prose-allowlist.json': ['test/outside-voice-failure-policy.test.ts'],
   'test/fixtures/overlay-v4-replay-37198445662.json': ['test/overlay-measurement.test.ts'],
   'test/fixtures/paid-report-census/**': ['test/paid-report-census.test.ts', 'test/paid-shards.test.ts'],
