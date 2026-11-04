@@ -50,10 +50,12 @@ function havePin(root: string, pr: string, pin: string, branch?: string): boolea
 }
 
 /** The merge commit's tree is the pin merged onto the merge commit's first parent: GitHub merged exactly the pin. A read that fails is "cannot verify", never a mismatch. */
-function verifyMerge(ctx: QueueContext, root: string, pr: string, pin: string, merge: string, lines: string[], run: string, now: Date, stampedOn?: string): StepOutput {
+function verifyMerge(ctx: QueueContext, root: string, pr: string, pin: string, merge: string, lines: string[], run: string, now: Date, stamped?: string | 'pin-parent'): StepOutput {
   const cannot = (why: string): StepOutput => ({ ok: false, run, lines, failure: { code: 'QUEUE_NOT_READY', message: `#${pr} merged as ${merge.slice(0, 12)}, but land cannot verify it: ${why}`, fix: `fix the read named, then rerun gstack-ship-queue land --pr ${pr} --pin ${pin}; it goes straight to the tree check` } });
   if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return cannot(`git fetch origin ${ctx.base} failed`);
   if (!havePin(root, pr, pin)) return cannot(`the pin ${pin.slice(0, 12)} is not in this clone and refs/pull/${pr}/head did not fetch it`);
+  const stampedOn = stamped === 'pin-parent' ? git(root, ['rev-parse', '--verify', '-q', `${pin}^1^{commit}`]).out : stamped;
+  if (stampedOn !== undefined && !isSha(stampedOn)) return cannot(`cannot read the parent of the release pin ${pin.slice(0, 12)}, the ${ctx.base} commit it was stamped on`);
   if (!git(root, ['merge-base', '--is-ancestor', merge, `origin/${ctx.base}`]).ok) return { ok: false, run, lines, failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `the merge commit ${merge.slice(0, 12)} is not on origin/${ctx.base}` } };
   const parent = git(root, ['rev-parse', `${merge}^1`]).out;
   if (stampedOn && parent !== stampedOn) return { ok: false, run, lines, failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `the release merged as ${merge.slice(0, 12)} onto ${parent.slice(0, 12)}, not onto ${stampedOn.slice(0, 12)} it was stamped on: a PR landed in between and ships under this version while its fragment waits for the next release`, fix: 'tell the Captain; the next release folds that fragment, so note the PR in its release notes' } };
@@ -87,7 +89,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.baseRefName && info.baseRefName !== ctx.base) return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}`, fix: `retarget it to ${ctx.base}, or land its parent first` });
   if (info.state === 'MERGED' && info.headRefOid === o.pin && isSha(info.mergeCommit?.oid)) {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
-    return verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? git(root, ['rev-parse', `${o.pin}^1`]).out : undefined);
+    return verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined);
   }
   if (info.state !== 'OPEN') return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} is ${info.state}` });
   if (info.headRefOid !== o.pin) return fail(lines, { code: 'QUEUE_LAND_PIN_MOVED', message: `#${o.pr}'s head is ${info.headRefOid.slice(0, 12)}, not the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs /ship and gstack-ship-queue ready --pr ${o.pr} at the new head and reports READY with it` });

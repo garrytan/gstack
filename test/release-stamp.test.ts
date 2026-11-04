@@ -97,7 +97,7 @@ describe('classifyRelease and the Version Gate', () => {
     ['the release output is hand-edited', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.3.0.0\nedited\n'), 'generated/digest.md'],
     ['package.json keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'package.json'), fs.readFileSync(path.join(w, 'package.json'), 'utf8').replace('"version": "1.3.0"', '"version": "1.2.3"')), 'package.json'],
     ['the CHANGELOG heading names another version', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('## [1.3.0.0]', '## [9.0.0.0]')), 'CHANGELOG.md'],
-    ['a folded entry moves under an older release', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('- a change\n\n', '').replace('- base release', '- base release\n\n- a change')), 'CHANGELOG.md'],
+    ['two released sections swap their entries', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('- base release\n', '\0').replace('- older\n', '- base release\n').replace('\0', '- older\n')), 'rewrites the released section(s) 1.2.3.0'],
     ['the release output is deleted', (w: string) => fs.rmSync(path.join(w, 'generated', 'digest.md')), 'generated/digest.md'],
     ['the release output keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.2.3.0\nbody\n'), 'generated/digest.md'],
     ['the version is not base + the fragments\' bump', (w: string) => fs.writeFileSync(path.join(w, 'VERSION'), '1.4.0.0\n'), 'is 1.3.0.0'],
@@ -137,6 +137,22 @@ describe('gstack-release-stamp open', () => {
     expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: repo.git('rev-parse', 'origin/main'), head: r.head! }).ok).toBe(true);
     expect(repo.git('branch', '--show-current')).toBe('elsewhere');
     expect(repo.git('worktree', 'list').split('\n')).toHaveLength(1);
+  });
+
+  test('a fork PR on release/<version> is never reused: open lists same-repo heads only and opens its own PR', () => {
+    const repo = landed();
+    const calls: string[][] = [];
+    const fork = [{ url: 'https://github.com/fork/r/pull/9', isCrossRepository: true }];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => {
+      calls.push(args);
+      if (args[1] !== 'list') return { ok: true, out: 'https://github.com/o/r/pull/43\n', err: '' };
+      const jq = args[args.indexOf('--jq') + 1] ?? '';
+      return { ok: true, out: jq.includes('select(.isCrossRepository | not)') ? '' : fork[0]!.url + '\n', err: '' };
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.pr).toBe('43');
+    expect(calls.map(a => a[1])).toEqual(['list', 'create']);
   });
 
   test('a checkout with node_modules commits only the stamp, and opening again at the same base replaces the release branch', () => {

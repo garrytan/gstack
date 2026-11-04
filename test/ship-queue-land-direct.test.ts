@@ -476,6 +476,26 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
     expect(remote(fx, 'main')).toBe(base);
   }, 120_000);
 
+  test('a rerun after the release merged, from a fresh clone without the pin, fetches it and lands against the main it was stamped on', () => {
+    const fx = setup();
+    const { pin, base } = release(fx);
+    expect(land(fx, '50', pin).status).toBe(EXIT.ok);
+    const branch = fx.read().prs['50'].headRefName as string;
+    const g = (...a: string[]) => fx.repo.git('--git-dir', fx.repo.origin, ...a);
+    g('update-ref', 'refs/pull/50/head', pin);
+    fx.write(d => { d.prs['50'].headRefOid = pin; });
+    g('update-ref', '-d', 'refs/heads/' + branch);
+    const fresh = fx.repo.root + '/fresh';
+    fx.repo.git('clone', '-q', '--no-local', '--single-branch', '--branch', 'main', fx.repo.origin, fresh);
+    expect(spawnCheck(fresh, pin)).toBe(false);
+    const r = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '50', '--pin', pin, '--base', 'main'], fx.env, fresh);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('already merged');
+    expect(r.out).toMatch(/^LANDED: .* equals the pin merged onto /m);
+    expect(r.out).toContain(base);
+  }, 120_000);
+
   test('a release head stamped on an older main is refused: PRs that landed since would ship under its version', () => {
     const fx = setup();
     const { pin } = release(fx);
