@@ -184,14 +184,16 @@ UBI_TTL_HOURS=3 $U run --setup scripts/ubicloud/bootstrap.sh -- 'make test'
 ```
 
 `run` creates the VM (`-s SIZE`, default `standard-16`; `-l LOCATION`, default
-`eu-central-h1`), streams the checkout (tracked files, untracked files that
-are not ignored, and `.git`, so uncommitted edits are tested), runs the
+`eu-central-h1`), streams the checkout (tracked and non-ignored untracked
+files, and `.git`, so uncommitted edits are tested; a subdirectory skips
+`.git`), runs the
 bootstrap once, runs the command in a login shell with `umask 022`, copies
 `--pull REMOTE_GLOB:LOCAL_DIR` artifacts back and destroys the VM. It exits
 with the command's status. `--env K=V` passes a literal; `--pass NAME` forwards
-a local variable's value without printing it (never `UBICLOUD_*`: the runner's
-own credentials stay on this machine); `--keep` skips teardown for debugging,
-and then `$U down <name>` is yours to run.
+a variable you exported, as it was when the runner started, without printing it
+(never `UBICLOUD_*`, `UBI_RECOVERY_KEY` or `UBI_SINK`: the runner's own
+credentials, recovery secret and sink URL stay on this machine); `--keep`
+skips teardown for debugging, and then `$U down <name>` is yours to run.
 
 ---
 
@@ -277,7 +279,8 @@ is visible: a `standard-16` run is billed from create to confirmed teardown.
 2. `$U records` and `$U list --mine`, then `$U down` anything of yours that no
    rerun will reattach to.
 3. After a machine swap nothing reattaches; tier checkpoints on a Drive
-   (`UBI_CHECKPOINT_DIR`) still count.
+   (`UBI_CHECKPOINT_DIR`) still count; with `UBI_RECOVERY_DIR`, `$U recover`
+   rebuilds VM state here once the old machine is dead.
 4. A background log with no exit sentinel and no VM is an interrupted run, not
    a pass; rerun it.
 5. Measure before/after pairs on the same size and location, never one side

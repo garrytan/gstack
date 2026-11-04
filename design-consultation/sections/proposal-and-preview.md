@@ -567,7 +567,7 @@ components:
 ## Motion
 
 - **Approach:** [minimal-functional / intentional / expressive]
-- **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
+- **Easing:** enter(ease-out) exit(ease-out) move(ease-in-out)
 - **Duration:** micro(50-100ms) short(150-250ms) medium(250-400ms) long(400-700ms)
 - **The one authored moment:** [what it is]
 

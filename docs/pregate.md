@@ -651,8 +651,21 @@ the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
 prints the VM's name and the exact
-`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it if the
-run is killed before its teardown line. The whole script is parsed before it
+`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it.
+
+A run killed before its teardown line leaves its VM running. A machine restart
+kills a background pregate this way. Don't destroy the VM first: rerun the same
+`gstack-pregate` command before anything it depends on changes. The run key
+covers the tree, the planned file set, the commit `origin/HEAD` points at (a
+`git fetch` that moves it counts), `UBI_LOCATION`, the size, the environment,
+and the runner script and setup it uploads. When the rerun prints `reattaching to VM <name>` with
+the name from the create line, it finishes the run on that VM and bills from
+the VM's original create. When it creates a new VM instead (the key changed,
+or the restart came before the runner recorded the VM), destroy the old one
+with the `down` line from its create line. Use the same line when you give up
+on the run. A reattach whose billed minutes leave the cap no room
+refuses (`PREGATE_REMOTE_CAP_SPENT`) and prints both choices: destroy the VM,
+or rerun with a higher `--spend-cap`. The whole script is parsed before it
 runs, so editing it during a run changes nothing. `--timeout 2700` gives a
 whole-tier run room inside the 45-minute wall:
 
@@ -1402,8 +1415,22 @@ being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
 command above yourself before `git push`.
 
 gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
-`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens` and
-`doc-caps`. Generated SKILL.md freshness is the `regen` check's job. Other
+`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens`,
+`doc-caps` and `conflict-markers`. Generated SKILL.md freshness is the `regen`
+check's job. `conflict-markers` runs `scripts/check-conflict-markers.ts` on a
+change to code, templates or config, and reads every line the branch adds
+against its merge base with `origin/main`, both in the committed HEAD (what the
+push publishes) and in the working tree's tracked files. A line starting with
+`<<<<<<<` or `>>>>>>>` (then a space or the line end), or a line that is exactly
+`=======`, stops the push, even inside a template literal the parser accepts.
+In Markdown (`.md`, `.mdx`, `.markdown`, `.md.tmpl`) it skips fences whose info
+string is empty, `text`, `txt`, `plaintext`, `diff` or `console`, the fences a
+doc uses to show git output, and counts `=======` only between a `<<<<<<<` and
+its close, so such a code block and a heading underline both pass; a conflict
+inside a `bash` or `ts` fence is still refused. A fixture that shows markers on
+purpose puts a line that is only `gstack-conflict-markers: fixture` (a comment
+leader such as `#` or `//` is fine) in its first five lines; the phrase
+anywhere else exempts nothing. Other
 repos add their own `guards` the same way; the key needs no newer gstack than
 the one that already reads `guards`.
 

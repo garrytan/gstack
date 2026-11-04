@@ -4,7 +4,7 @@
  *
  * Usage (run inside the repository):
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
- *                                  --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
+ *                                  --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
  *   gstack-docs-candidate [snapshot|compare] --help
@@ -15,7 +15,10 @@
  * selected path, docs path and dirty/untracked path. Without --select, the
  * selected paths are the committed, staged, unstaged and untracked paths.
  * --docs takes files or directories (directories expand to their tracked and
- * untracked files). It prints a short summary; the JSON file is the record.
+ * untracked files): repeat the flag, or give a comma-separated list (each entry
+ * trimmed). A value that names an existing file or directory is one path, commas
+ * and spaces included; any other value holding whitespace is refused, because a
+ * space-separated list cannot be told from a path with a space. It prints a short summary; the JSON file is the record.
  * --exception names the blocked .gstack/tmp/docs-audit.json an owner accepted
  * (Step 14.5 Blocked recovery): the record then carries that exception, so
  * Step 16 can tell an accepted risk from a skipped audit. A --base that is HEAD
@@ -72,6 +75,22 @@ function expand(listed: string[], paths: string[]): string[] {
   return [...out].sort();
 }
 
+/** --docs values as paths: a value naming an existing file or directory is one path; any other splits on commas, and an entry with whitespace or a value with no entry is refused. */
+function docsPaths(listed: string[], values: string[]): string[] {
+  const exists = (p: string) => {
+    const rel = p.replace(/^\.\//, '').replace(/\/+$/, '');
+    return fs.existsSync(rel) || listed.some(f => f === rel || f.startsWith(rel + '/'));
+  };
+  return values.flatMap(v => {
+    const paths = exists(v) ? [v] : v.split(',').map(p => p.trim()).filter(Boolean);
+    if (!paths.length) throw new Error(`--docs ${JSON.stringify(v)} names no path: give a file or directory, repeat --docs for each path, or separate paths with commas`);
+    return paths;
+  }).map(p => {
+    if (/\s/.test(p) && !exists(p)) throw new Error(`--docs ${JSON.stringify(p)} names no file or directory and holds whitespace: repeat --docs for each path, or separate paths with commas`);
+    return p;
+  });
+}
+
 /** Git blob ids of working-tree content, computed in-process (any path bytes, nothing written); null when absent. */
 function hashes(paths: string[]): Record<string, string | null> {
   const out: Record<string, string | null> = {};
@@ -99,7 +118,7 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
-const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>]... [--exception <docs-audit.json>]
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
 
@@ -149,7 +168,7 @@ function main(argv: string[]): void {
     const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
     const selected = flag(args, '--select').length ? expand(listed, flag(args, '--select'))
       : [...new Set([...now.committed, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
-    const docs = expand(listed, flag(args, '--docs'));
+    const docs = expand(listed, docsPaths(listed, flag(args, '--docs')));
     const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
     const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
     fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
