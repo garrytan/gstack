@@ -272,7 +272,8 @@ Two edge cases are handled on purpose:
   hotfix was cut below it) stays where it is until stable passes it. The
   updater never moves a checkout backwards. A depth-1 clone cannot see that an
   older release is its ancestor, so the VERSIONs decide: main stamps a higher
-  version at every merge and stable is always a main commit.
+  version at every merge (under `merge: direct`, at every release PR) and stable is
+  always a main commit.
 
 The local branch stays `main` either way. A stable install is a `main`
 checkout parked at the last released commit, which is why fast-forward-only
@@ -281,7 +282,8 @@ still holds and nothing about version stamping changed.
 ## Cutting a release by hand (hotfixes)
 
 A hotfix is an ordinary PR: it merges to main through a train and gets its
-version like any other change. To put it on stable before the next scheduled
+version like any other change (under `merge: direct`, from the next [release
+PR](ship-policy.md#release-stamp), which has to land before the cut). To put it on stable before the next scheduled
 cut, run the workflow by hand with the merge commit's SHA, once the 72-hour
 floor allows it (a security or regression fix uses its input instead):
 
