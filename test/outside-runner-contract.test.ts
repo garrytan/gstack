@@ -112,6 +112,12 @@ describe('host-subagent runner', () => {
     expect(meta.output_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(meta.verdict.verdict).toBe('clean');
   });
+  test('prints the shared FINDINGS label: a numbered finding with no P-tag is unspecified, never none (#3925)', () => {
+    const result = path.join(ROOT, 'test', 'fixtures', 'outside-review-severity', 'codex-3925', 'nonblocking-numbered.txt');
+    const r = run(['run', '--runner', 'host-subagent', '--gate', 'structured', '--prompt', promptFile, '--out', path.join(TMP, 'host-3925.md'), '--result', result, '--model', 'openai/gpt-6-astra', '--native-model', 'claude-opus-4-7'], cleanEnv(emptyBin));
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('VERDICT: unverified\nFINDINGS: unspecified\n');
+  });
   test('without --result or --model it is unavailable (exit 3, OUTSIDE_RUNNER_UNAVAILABLE)', () => {
     const r = run(['run', '--runner', 'host-subagent', '--prompt', promptFile, '--out', path.join(TMP, 'no.md'), '--model', 'gpt-5.4'], cleanEnv(emptyBin));
     expect(r.status).toBe(3);
