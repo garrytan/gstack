@@ -1442,11 +1442,31 @@ cmd_down() {
 # options at the first operand and resolves -T names after a -C, so no single
 # tar command line works on both it and GNU tar (#3680). COPYFILE_DISABLE=1
 # keeps Apple's tar from adding ._* AppleDouble entries for files with
-# extended attributes, which the VM would see as untracked files.
+# extended attributes, which the VM would see as untracked files. A
+# subdirectory of a work tree ships the same file set without a .git: git's
+# local transport fetches only from a repository's root, and the whole
+# repository's .git would show the VM every file outside the subdirectory as
+# deleted (GST-935). A subdirectory git lists no files under (one the parent
+# ignores) is refused rather than shipped empty: cmd_run keys the run on the
+# local files and skips the tree check for a subdirectory, so an empty upload
+# would pass on content that never ran.
 cmd_pack() {
   local src tmp gitdir branch head entry
   src=$(cd "${1:-.}" && pwd)
-  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -n "$(git -C "$src" rev-parse --show-prefix)" ]; then
+    [ -n "$(git -C "$src" ls-files -co --exclude-standard | head -n 1)" ] \
+      || die "pack: git lists no files under $src (ignored by its checkout, or empty); nothing to ship"
+    (
+      cd "$src"
+      export COPYFILE_DISABLE=1
+      git ls-files -z -co --exclude-standard \
+        | while IFS= read -r -d '' f; do
+            if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; fi
+          done \
+        | tar --null -T - -cf - \
+        | gzip -c
+    )
+  elif git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     head=$(git -C "$src" rev-parse --verify -q HEAD) || die "pack: $src has no commits; the VM needs a HEAD to fingerprint"
     branch=$(git -C "$src" symbolic-ref -q --short HEAD || true)
     tmp=$(mktemp -d)
@@ -1767,8 +1787,10 @@ cmd_run() {
       for n in ${passes[@]+"${passes[@]}"}; do inherited "$n"; printf 'export %s=%q\n' "$n" "$PASS_VALUE"; done; } \
       | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
     cmd_sync "$name" "$src" "$dest"
-    # A subdirectory of a checkout uploads the whole .git with only its own
-    # files, so its tree is compared VM to VM (tiers) but not to this side.
+    # A subdirectory of a checkout ships without a .git, and its local tree
+    # (a scratch repository, blind to the parent's ignore rules) can count
+    # files pack leaves out, so it is compared VM to VM (tiers) but not to
+    # this side.
     if [ -z "$(git -C "$src" rev-parse --show-prefix 2>/dev/null)" ]; then
       vmt=$(vm_tree "$name" "$qdest") || vmt=unavailable
       if [ "$vmt" != "$TREE" ]; then
