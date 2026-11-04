@@ -324,13 +324,10 @@ changes are explicitly deferred, not counted as PR passes. Weekly/manual runs of
 runs the broad gate. This deliberately moves some defect detection later.
 
 `scripts/eval-input-cache.ts` accepts only complete, clean, first-attempt passes
-with matching before/after inputs. The audited workflow-judge adapter hashes the
-actual expanded prompt, source/fixture/rubric/runner closure, installed SDK,
-model parameters and runtime. Missing/unknown inputs force execution. Receipts
+with matching before/after inputs. Missing/unknown inputs force execution. Receipts
 are scoped to the same repository and PR, expire after 24 hours, and contain
-public scores and provenance rather than prompts or secrets. Of the 17 cases
-using `runWorkflowJudge`, 16 are eligible; the cookie workflow's custom input
-does not match the cache adapter and stays fresh, as do the other 11 quality cases.
+public scores and provenance rather than prompts or secrets. The quality judges in
+`test/skill-llm-eval.test.ts` never reuse a receipt and always run fresh.
 CI supplies the scoped cache/runtime configuration; local runs are fresh by
 default. Cached scores must
 pass current assertions; reused records retain their original source and time
@@ -455,7 +452,7 @@ and the kind fixes its trials before the run:
   non-JSON, a malformed field) fails the panel and is never resampled; a
   refusal counts as an unscored panel only when every sample refused.
   `callJudge`'s 429 backoff happens before any model output and is transport,
-  not a verdict retry. The workflow-judge cache stores whole panels only.
+  not a verdict retry.
   The `rule` case auq-matrix uses the same panel inside its one execution: each
   skill's single native capture has its recommendation substance scored by 3
   judge samples, gated on their median against the unchanged minimum of 4, and a
@@ -840,11 +837,8 @@ cleanup. No per-case budget grows. Overlay wrappers
 have a 1,830-second minimum shard wall and run without Bun retries; see the
 [overlay contract](OVERLAY_BENCHMARK_CONTRACT.md) for their unchanged work budget.
 
-The quality file reserves its whole-file wall (3,170 seconds) for every case run
-once, plus cleanup. Each still has 120 seconds of model work. Its 17 workflow
-judges own their deadline and abort signal, with five seconds for terminal
-recording inside a ten-second Bun grace; the other 11 retain their existing
-120-second Bun timeout. Late responses cannot create records or cache passes.
+The quality file reserves its whole-file wall (480 seconds) for every case run
+once, plus cleanup. Each of its three judges has a 120-second Bun timeout.
 When a judge's abort signal cancels its request, `callJudge`
 (`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
 stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
@@ -1444,7 +1438,7 @@ once and reused from there. It prints:
 Screening figures are labelled `screen-provisional`: the rule's preamble
 detector is a line-commonality heuristic, not T2's hunk classifier, so they
 stay heuristic until T2 lands. A `package.json` change that only moves the
-version is neither selected nor a canary trigger, and all 24 judges always run.
+version is neither selected nor a canary trigger, and all 3 judges always run.
 The selectors are this checkout's, so an old merge is replayed against today's
 maps. A shallow checkout says which `git fetch --shallow-since` to run. Logic:
 `lib/gate-cost.ts`; tests: `test/gate-cost.test.ts`.
@@ -1470,11 +1464,9 @@ integration tests, the Aside contract pins, and the render-wrapper pins.
 `bun run test:pr` runs the selected short live behaviors and quality judges.
 It reports deferred broad coverage; unknown dependencies restore the full gate,
 and an unmapped prompt without registered coverage blocks planning. Full free
-acceptance and required PR checks must pass before publishing. CI can reuse the
-16 workflow-judge passes for 24 hours when their complete consumed inputs and
-runtime match; records preserve original provenance. The cookie workflow's custom
-input, the other 11 judge cases, dynamic agent tests, and local runs without
-scoped cache configuration stay fresh.
+acceptance and required PR checks must pass before publishing. The quality
+judges, dynamic agent tests, and local runs without scoped cache configuration
+stay fresh.
 Scheduled/manual full coverage and `test:release` always run fresh.
 See [testing policy](../CONTRIBUTING.md#test-tiers) for commands and measured targets.
 Anything that needs Aside

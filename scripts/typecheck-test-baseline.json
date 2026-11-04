@@ -120,7 +120,6 @@
     "test/claude-code-runner.test.ts\tTS7006\tParameter 'callback' implicitly has an 'any' type.": 1,
     "test/claude-code-runner.test.ts\tTS7006\tParameter 'delay' implicitly has an 'any' type.": 1,
     "test/claude-code-runner.test.ts\tTS7019\tRest parameter 'args' implicitly has an 'any[]' type.": 1,
-    "test/cookie-workflow-manual-review.test.ts\tTS2769\tNo overload matches this call. The last overload gave the following error. Argument of type 'ManualJudgeReview | undefined' is not assignable to parameter of type 'ManualJudgeReview | null'. Type 'undefined' is not assignable to type 'ManualJudgeReview | null'.": 1,
     "test/cso-eval.test.ts\tTS2345\tArgument of type '(command: string, args: readonly string[] | undefined, options: any) => string' is not assignable to parameter of type '{ (file: string): NonSharedBuffer; (file: string, options: ExecFileSyncOptionsWithStringEncoding): string; (file: string, options: ExecFileSyncOptionsWithBufferEncoding): NonSharedBuffer; (file: string, options?: ExecFileSyncOptions | undefined): string | NonSharedBuffer; (file: string, args: readonly string[]): Non...'. Target signature provides too few arguments. Expected 3 or more, but got 1.": 1,
     "test/cso-eval.test.ts\tTS2790\tThe operand of a 'delete' operator must be optional.": 1,
     "test/cso-eval.test.ts\tTS7005\tVariable 'receipts' implicitly has an 'any[]' type.": 1,

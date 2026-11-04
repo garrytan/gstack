@@ -17,14 +17,17 @@
  * With the base policy's review_exclude_paths active (lib/review-exclude.ts) every role but fix-check also takes
  * policy_exclude (the `:(top,exclude,glob)` items, which the fixture-handling command of the security specialist, the
  * Red Team and the native adversarial pass gets), keep (the kept files' `:(top,literal)` items) and disclosure (the one
- * line naming what was left out). Unset, every brief renders byte for byte as before.
+ * line naming what was left out). Unset, every brief renders byte for byte as before. The base policy's readers.forbid_paths
+ * (lib/review-fetch.ts) arrive the same way as policy_exclude items, without a disclosure.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
+import { fetchParagraph } from './review-fetch';
 import { parseClassList, targetedBrief } from './review-targeted';
+import type { ReadersPolicy } from './ship-policy-readers';
 
 export const BRIEF_ROLES = ['specialist', 'specialist-batched', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted'] as const;
 export type BriefRole = typeof BRIEF_ROLES[number];
@@ -203,14 +206,15 @@ export function workspaceStep(dir: string): string {
 }
 
 /**
- * The closing paragraph every dispatched brief carries (GST-482): a reader on a shared machine starts in that machine's working
- * directory, and every command runs in a fresh shell, so the brief names the checkout under review and asks again for the
- * fingerprint workspaceStep opens with. The section's render sits between the two, byte for byte what renderBrief returns.
+ * The closing paragraphs every dispatched brief carries: the fetch rule and the readers policy (GST-1322, lib/review-fetch.ts),
+ * then the workspace (GST-482): a reader on a shared machine starts in that machine's working directory, and every command runs
+ * in a fresh shell, so the brief names the checkout under review and asks again for the fingerprint workspaceStep opens with.
+ * The section's render sits between workspaceStep and these, byte for byte what renderBrief returns.
  */
-export function workspaceParagraph(dir: string): string {
-  return `Workspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+export function workspaceParagraph(dir: string, readers?: ReadersPolicy): string {
+  return `${fetchParagraph(readers)}\n\nWorkspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
 }
-export const withWorkspace = (text: string, dir: string) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir)}`;
+export const withWorkspace = (text: string, dir: string, readers?: ReadersPolicy) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir, readers)}`;
 /** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
 export function checkoutRoot(): string {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });

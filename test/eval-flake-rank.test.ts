@@ -48,10 +48,10 @@ describe('eval-flake-rank aggregate', () => {
     const display = spawnSync(process.execPath, [path.resolve(import.meta.dir, '../scripts/eval-flake-rank.ts'), '--dir', dir],
       { encoding: 'utf8', timeout: 10_000 });
     expect(display.status, display.stderr).toBe(0);
-    // pass-rates view: the prior automated pass is the one scored pre-policy
-    // trial; the manual acceptance is counted in its own column, never scored.
+    // pass-rates view: the retired cookie judge is no longer a registered case,
+    // so its historical records are listed as unattributed, never guessed into a series.
     expect(display.stdout).toContain('pre-policy          manual  case');
-    expect(display.stdout).toMatch(new RegExp(`1/1 \\[[^\\]]+\\]\\s+1  ${manual.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`));
+    expect(display.stdout).toContain(`unattributed records (1, never guessed): ${manual.name}`);
     fs.writeFileSync(path.join(dir, 'invalid-retry.json'), run([
       { ...ordinary, attempt: 1 }, { ...manual, attempt: 2 },
     ]));

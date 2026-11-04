@@ -20,6 +20,7 @@ import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import { runMergedChecks } from '../lib/land-merged-checks';
 import { readLock, writeLock } from '../lib/ship-queue-land-lock';
+import { flakyGit } from './helpers/flaky-git';
 import { runBackstop } from '../scripts/train-backstop';
 import { readTrainNotes } from '../scripts/release-cut';
 import { gitIn } from '../scripts/train-gate';
@@ -289,6 +290,66 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     const dry = land(fx, '89', other, ['--dry-run']);
     expect(dry.out).toContain('DRY-RUN: nothing verified');
   }, 120_000);
+
+  describe('GST-1344: a lock push GitHub applied but answered with an HTTP 502', () => {
+    const lockAt = (fx: Fx) => JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'));
+    const flaky = (fx: Fx) => { const g = flakyGit(fx.repo.root); return { g, run: (pr: string, pin: string, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', pr, '--pin', pin, '--base', 'main', ...extra], { ...fx.env, ...g.env, PATH: `${g.dir}:${fx.env.PATH}` }) }; };
+
+    test('the merging push lands but reports failure while lock fetches fail: land reads origin, sees its own commit, merges and releases', () => {
+      const fx = setup();
+      const { g, run } = flaky(fx);
+      const pin = openPr(fx, '95');
+      g.pushLandsThenFails(2);
+      g.fetchFails(true);
+      const r = run('95', pin);
+      expect(r.err).toBe('');
+      expect(r.status).toBe(EXIT.ok);
+      expect(r.out).toContain('MERGED: #95 as ');
+      expect(fx.read().lockAtMerge).toMatchObject({ pr: '95', phase: 'merging', journal: 'land-pin:' + pin });
+      expect(lockAt(fx)).toMatchObject({ released: true });
+    }, 120_000);
+
+    test('origin cannot be read after the push either: the run refuses, and the rerun takes its lease from origin (ls-remote) while fetches still fail, then merges and releases', () => {
+      const fx = setup();
+      const { g, run } = flaky(fx);
+      const pin = openPr(fx, '96');
+      g.pushLandsThenFails(2);
+      g.fetchFails(true);
+      g.lsRemoteFails(99);
+      const first = run('96', pin);
+      expect(first.status).toBe(EXIT.refused);
+      expect(first.err).toContain('(QUEUE_NOT_READY)');
+      expect(first.err).not.toContain('the lock there is unchanged');
+      expect(fx.read().prs['96'].state).toBe('OPEN');
+      expect(lockAt(fx)).toMatchObject({ pr: '96', phase: 'merging', journal: 'land-pin:' + pin });
+      g.reset();
+      g.fetchFails(true);
+      const again = run('96', pin);
+      expect(again.err).toBe('');
+      expect(again.status).toBe(EXIT.ok);
+      expect(again.out).toContain('MERGED: #96 as ');
+      expect(lockAt(fx)).toMatchObject({ released: true });
+    }, 120_000);
+
+    test('never left in merging: the merging push lands and origin stays unreadable through the lock read, the post-push check and the re-read (three ls-remotes), so the run refuses, yet its release re-reads origin, finds its own lock and releases it; a rerun lands', () => {
+      const fx = setup();
+      const { g, run } = flaky(fx);
+      const pin = openPr(fx, '97');
+      g.pushLandsThenFails(2);
+      g.lsRemoteFails(3);
+      g.fetchFails(true);
+      const first = run('97', pin);
+      expect(first.status).toBe(EXIT.refused);
+      expect(first.err).toContain('(QUEUE_NOT_READY)');
+      expect(first.out).not.toContain('LOCK: warn');
+      expect(fx.read().prs['97'].state).toBe('OPEN');
+      expect(lockAt(fx)).toMatchObject({ released: true });
+      g.reset();
+      const again = run('97', pin);
+      expect(again.err).toBe('');
+      expect(again.out).toContain('MERGED: #97 as ');
+    }, 120_000);
+  });
 
   test('main moved during the merge with land.merged_checks: they run on the landed tree; a rerun without --allow-repo-commands refuses with REPO_COMMANDS_NOT_ALLOWED and runs nothing', () => {
     const fx = setup(CHECKED);
@@ -620,11 +681,11 @@ describe('merge: direct | train', () => {
     const tentative = bumpVersion(fork, 'minor')!;
     const policy = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
     const templates: string[] = policy.stamp_patterns;
-    expect(policy.stamp_paths).toContain('lib/ship-policy.ts');
+    expect(policy.stamp_paths).toContain('lib/ship-policy-keys.ts');
     expect(templates).toContain("_KEY_VERSION = '{version}'");
-    expect(fs.readFileSync(path.join(root, 'lib', 'ship-policy.ts'), 'utf8')).toContain(`export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`);
+    expect(fs.readFileSync(path.join(root, 'lib', 'ship-policy-keys.ts'), 'utf8')).toContain(`export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`);
     const line = `export const MERGE_KEY_VERSION = '${tentative}';`;
-    expect(tentativeMentions(new Map([['lib/ship-policy.ts', new Set([line])]]), fork, stamped, templates)).toEqual([tentative]);
+    expect(tentativeMentions(new Map([['lib/ship-policy-keys.ts', new Set([line])]]), fork, stamped, templates)).toEqual([tentative]);
     const out = rewriteStamps(line, tentative, stamped, templates);
     expect(out.count).toBe(1);
     expect(out.text).toBe(`export const MERGE_KEY_VERSION = '${stamped}';`);

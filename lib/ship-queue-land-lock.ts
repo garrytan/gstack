@@ -2,7 +2,9 @@
  * The repository land lock (docs/ship-policy.md#land, #3599): one ref, refs/notes/gstack-land, whose commit
  * holds lock.json, shared by `gstack-ship-queue land` (owner `{ pr }`) and `train land` (owner
  * `{ train, slot, pr }`), so a standalone land and a train slot never both publish onto one main. Every write
- * is an exact lease on the sha read, so two writers racing one sha leave one winner. A lock is resumed only by
+ * is an exact lease on the sha read, so two writers racing one sha leave one winner. A push that reports failure is
+ * checked against origin's ref (GitHub can apply a push and still answer HTTP 502, GST-1344), and a read whose fetch
+ * fails takes origin's sha from ls-remote when this clone already holds that commit. A lock is resumed only by
  * the same owner kind, identity and journal; anything else is a takeover the caller allows (a drift repair, a
  * train's next slot, the admitted repair train) or a --break-lock under the staleness, mid-push, drift, freeze
  * and live-train rules.
@@ -24,11 +26,19 @@ export const lockLabel = (lock: LandLock): string => (lock.train ? `train ${lock
 export const ownsLock = (lock: LandLock, owner: LockOwner, journal: string): boolean =>
   lock.pr === owner.pr && (lock.train ?? null) === (owner.train ?? null) && (lock.slot ?? null) === (owner.slot ?? null) && lock.journal === journal;
 
+/** The sha origin's lock ref holds: '' when origin has none, null when origin cannot be read. */
+function originSha(root: string, remote: string): string | null {
+  const listed = git(root, ['ls-remote', remote, LAND_LOCK_REF]);
+  if (!listed.ok) return null;
+  return listed.out.split('\n').map(l => l.split('\t')).find(([, ref]) => ref === LAND_LOCK_REF)?.[0] ?? '';
+}
+
 export function readLock(root: string, remote = 'origin'): LockRead {
   const fetched = git(root, ['fetch', '-q', remote, `+${LAND_LOCK_REF}:${LAND_LOCK_REF}`]);
   if (!fetched.ok) {
-    const listed = git(root, ['ls-remote', remote, LAND_LOCK_REF]);
-    if (listed.ok && !listed.out.trim()) git(root, ['update-ref', '-d', LAND_LOCK_REF]);
+    const at = originSha(root, remote);
+    if (at === '') git(root, ['update-ref', '-d', LAND_LOCK_REF]);
+    else if (at && git(root, ['cat-file', '-e', `${at}^{commit}`]).ok) git(root, ['update-ref', LAND_LOCK_REF, at]);
   }
   const sha = git(root, ['rev-parse', '--verify', '--quiet', LAND_LOCK_REF]).out;
   if (!sha) return { state: 'absent', sha: '' };
@@ -41,15 +51,18 @@ export function readLock(root: string, remote = 'origin'): LockRead {
   return { state: 'held', sha, lock: value as LandLock };
 }
 
-export function writeLock(root: string, expected: string, value: LandLock | Released, remote = 'origin'): { ok: boolean; sha: string } {
+/** Push the lock under the lease. On a failed push, `origin` is the sha origin's ref now holds ('' none, null unreadable); a push origin applied anyway is a success. */
+export function writeLock(root: string, expected: string, value: LandLock | Released, remote = 'origin'): { ok: boolean; sha: string; origin?: string | null } {
   const blob = git(root, ['hash-object', '-w', '--stdin'], undefined, JSON.stringify(value, null, 2) + '\n').out;
   const tree = git(root, ['mktree'], undefined, `100644 blob ${blob}\tlock.json\n`).out;
   const message = 'released' in value ? `land lock released by ${value.by}` : `land lock ${value.train ? `train ${value.train} slot ${value.slot} ` : ''}#${value.pr} ${value.phase}`;
   const commit = git(root, ['commit-tree', tree, ...(expected ? ['-p', expected] : []), '-m', message]).out;
-  if (![blob, tree, commit].every(isSha)) return { ok: false, sha: '' };
+  if (![blob, tree, commit].every(isSha)) return { ok: false, sha: '', origin: expected };
   const push = git(root, ['push', '-q', `--force-with-lease=${LAND_LOCK_REF}:${expected}`, remote, `${commit}:${LAND_LOCK_REF}`]);
-  if (push.ok) git(root, ['update-ref', LAND_LOCK_REF, commit]);
-  return { ok: push.ok, sha: commit };
+  const origin = push.ok ? commit : originSha(root, remote);
+  if (origin !== commit) return { ok: false, sha: commit, origin };
+  git(root, ['update-ref', LAND_LOCK_REF, commit]);
+  return { ok: true, sha: commit };
 }
 
 export interface HeldLandLock {
@@ -114,11 +127,20 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
   }
   const startedAt = own?.started_at ?? o.now().toISOString();
   const always = o.extra?.(own) ?? {};
+  const write = (value: LandLock | Released) => {
+    const w = writeLock(o.root, sha, value, remote);
+    if (w.ok || w.origin === sha) return w;
+    const seen = readLock(o.root, remote);
+    if (seen.state !== 'held' || seen.sha === sha || !ownsLock(seen.lock, o.owner, o.journal) || seen.lock.holder !== o.holder) return w;
+    sha = seen.sha;
+    return writeLock(o.root, sha, value, remote);
+  };
   const set = (phase: LandLockPhase, extra: Partial<LandLock> = {}): QueueFailure | null => {
     const next: LandLock = { pr: o.owner.pr, ...(o.owner.train ? { train: o.owner.train, slot: o.owner.slot } : {}), holder: o.holder, started_at: startedAt, phase, journal: o.journal, phase_at: o.now().toISOString(), ...always, ...extra };
-    const w = writeLock(o.root, sha, next, remote);
+    const w = write(next);
     if (!w.ok) {
-      return readLock(o.root, remote).sha === sha
+      if (w.origin === null) return { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and ${remote}'s lock could not be read, so this run cannot tell whether the push landed`, fix: 'rerun the same command once origin answers; it resumes this run\'s own lock' };
+      return w.origin === sha
         ? { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and the lock there is unchanged; nothing was pushed` }
         : { code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' };
     }
@@ -131,7 +153,7 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
     get lock() { return current!; },
     resumed: own,
     set,
-    release: () => writeLock(o.root, sha, { released: true, by: o.holder, at: o.now().toISOString() }, remote).ok,
+    release: () => write({ released: true, by: o.holder, at: o.now().toISOString() }).ok,
   };
   return { held, lines };
 }

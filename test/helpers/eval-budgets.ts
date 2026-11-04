@@ -99,9 +99,8 @@ export const FILE_RETRY_BUDGETS = [
     { file: 'test/skill-e2e-qa-callers.test.ts', attemptMs: 5 * (CAPTURE_MS + 15_000), caseMs: CAPTURE_MS + 15_000 },
     { file: 'test/skill-e2e-shared-libs-paths.test.ts', attemptMs: 3 * CAPTURE_LONG_MS, caseMs: CAPTURE_LONG_MS },
     { file: 'test/skill-e2e-ship-docsync.test.ts', attemptMs: 4 * CAPTURE_LONG_MS + 8 * CAPTURE_MS, caseMs: CAPTURE_LONG_MS },
-    // Seventeen workflow judges include their 10s recording grace; the other
-    // seven judges retain 120s. Supervise all 24.
-    { file: 'test/skill-llm-eval.test.ts', attemptMs: 17 * (JUDGE_MS + 10_000) + 7 * JUDGE_MS, caseMs: JUDGE_MS + 10_000 },
+    // Three judges retain 120s each. Supervise all three.
+    { file: 'test/skill-llm-eval.test.ts', attemptMs: 3 * JUDGE_MS, caseMs: JUDGE_MS },
     { file: 'test/skill-e2e-auq-matrix.test.ts', attemptMs: 6 * CAPTURE_MS, caseMs: CAPTURE_MS },
     { file: 'test/skill-e2e-plan-format.test.ts', attemptMs: 4 * (CAPTURE_MS + 10_000), caseMs: CAPTURE_MS + 10_000 },
     { file: 'test/skill-e2e-auto-decide-preserved.test.ts', attemptMs: PTY_MS, caseMs: PTY_MS },
