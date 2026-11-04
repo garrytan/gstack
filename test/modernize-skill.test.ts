@@ -40,6 +40,7 @@ describe('/modernize skill', () => {
     expect(flat).toContain('You never close a PR.');
     expect(flat).toContain('Without explicit permission in this session, the PR stays open.');
     expect(flat).toContain('The PR stays open until someone with the authority says so.');
+    expect(flat).toContain('You never comment on the PR. A closing note or a thank-you to its author is a draft in your report for the person to post.');
     expect(skill).not.toMatch(/gh pr close/);
   });
 
