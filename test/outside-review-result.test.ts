@@ -31,6 +31,30 @@ function cli(args: string[]) {
 const RECOMMEND = 'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.';
 const UNTAGGED = 'Recommendation: fix the guard because changed.ts loses data.';
 
+// Markdown headings must not hide a completed recommendation or erase a blocking finding.
+describe('Markdown recommendation headings', () => {
+  test('accepts an advisory review with a heading and preserves its severity', () => {
+    const text = 'Severity: Low. A future caller may need a guard.\n\n## Recommendation\n\nShip as-is because current callers already enforce the invariant.';
+    const result = classifyOutsideReview({ text, gate: 'review' });
+    expect(result.verdict).toBe('clean');
+    expect(result.findings.highest).toBe('P3');
+  });
+
+  test('keeps a blocker under the same formatting', () => {
+    const text = 'Severity: High. The write drops rows.\n\n## Recommendation\n\nFix the write because it loses data.';
+    expect(classifyOutsideReview({ text, gate: 'review' }).verdict).toBe('findings');
+  });
+
+  test('does not accept missing rationale, an empty section or a fenced example', () => {
+    for (const tail of ['## Recommendation', '## Recommendation\n\nShip as-is.',
+      '```text\n## Recommendation\n\nShip as-is because this is an example.\n```']) {
+      const result = classifyOutsideReview({ text: `Severity: Low. Advisory.\n\n${tail}`, gate: 'review' });
+      expect(result.verdict).toBe('unavailable');
+      expect(result.reason).toBe('missing_markers');
+    }
+  });
+});
+
 describe('classifyOutsideReview: separate execution, findings and verdict', () => {
   const cases: Array<[string, { text: string; gate: OutsideGate; stderr?: string; exit?: number }, string, string | null, string | undefined]> = [
     ['clean review', { text: RECOMMEND, gate: 'review' }, 'clean', null, undefined],

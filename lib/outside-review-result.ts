@@ -191,6 +191,11 @@ function plainReview(text: string): string {
   return text.split(/\r?\n/).map(line => line.replace(/^[\t ]*(?:#{1,6}[\t ]+|[-+*][\t ]+)?/, '').replace(/[*_`]/g, '')).join('\n');
 }
 
+/** A Markdown section heading and its following prose carry the same recommendation marker. */
+function recommendationHeading(text: string): string {
+  return text.replace(/^[\t ]*#{1,6}[\t ]+Recommendation:?[\t ]*\r?\n(?:[\t ]*\r?\n)*([^\s#>*+\-][^\r\n]*)/gim, 'Recommendation: $1');
+}
+
 /**
  * Code quotes text, so a severity inside a fence or an inline code span is not
  * a label. An inline span holding only a severity token in label position
@@ -256,10 +261,9 @@ function verdictNotReady(plain: string): boolean {
 }
 
 export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewClassification {
-  const plain = plainReview(input.text);
   const reviewed = input.gate !== 'proposal';
-  const code = withoutCode(input.text), plainCode = plainReview(code);
-  const read = withoutCode(input.text, true), plainRead = plainReview(read);
+  const code = recommendationHeading(withoutCode(input.text)), plainCode = plainReview(code);
+  const read = recommendationHeading(withoutCode(input.text, true)), plainRead = plainReview(read);
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
@@ -277,7 +281,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
     const score = Number(scores[0]![1]);
     return { ...result(score >= 7 ? 'clean' : 'findings'), score };
   }
-  if ((input.gate === 'review' || input.gate === 'proposal') && !/^Recommendation:[\t ]*[^\r\n]+\bbecause\b[\t ]*\S[^\r\n]+$/im.test(plain)) {
+  if ((input.gate === 'review' || input.gate === 'proposal') && ![plainReview(input.text), plainCode].some(text => /^Recommendation:[\t ]*[^\r\n]+\bbecause\b[\t ]*\S[^\r\n]+$/im.test(text))) {
     return result('unavailable', 'missing_markers', 'missing review completion recommendation');
   }
   if (!reviewed) return result(blocking ? 'findings' : 'clean');
