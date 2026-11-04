@@ -171,7 +171,7 @@ unpushed head is `QUEUE_RECEIPT_STALE` to the queue.
 
 The receipt's `review_loop` object, written from `gstack-review-scope summary
 --since <REVIEW_SINCE>`, is the loop's machine-readable outcome: `passes`
-(Step 9 full passes this ship ran, 1 or 2; up to 3 under `review_scope: all`),
+(Step 9 full passes this ship ran, 1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`),
 `blocking_found` (every blocker the readers found, rows and dispatch ledgers
 both, [review-policy.md](review-policy.md#what-the-receipt-records)), `deferred`
 (blocking findings in unchanged code filed as issues, Step 11's late defers
@@ -253,8 +253,11 @@ missing voice never reads as converged or as an unavailable Codex CLI.
 
 When the parent merges the base in or fixes a test after the receipt was
 written, it runs `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`
-instead of another /ship; on `CARRY: would carry` it runs `gstack-pregate` at HEAD
-and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from <old> to <new> (<reason>)` plus the
+instead of another /ship; on `CARRY: would carry` it commits any fix, pushes with
+`gstack-ship-release push --branch <branch-name> --early`, waits with
+`gstack-ci-carry wait --base <base>`, runs `gstack-pregate --allow-repo-commands`
+at HEAD and reruns carry with `--pregate .gstack/tmp/pregate.json` (/ship Step 1's
+order). `CARRY: carried from <old> to <new> (<reason>)` plus the
 `GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`

@@ -533,7 +533,7 @@ puts in the receipt:
 
 | Field | Meaning |
 |---|---|
-| `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: all`) |
+| `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`) |
 | `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
 | `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
 | `review_loop.unbound` | what could not bind (GST-1168), each printed as `REVIEW_SCOPE_UNBOUND: <what>: <why>`: a row with no start token and no readable time, a `pN` ledger with no review row of pass N, a row finding's `ledger_id` no ledger collected, a `Review-Finding` trailer naming nothing; absent when 0 |
@@ -609,7 +609,7 @@ difference passed a scoped review.
 | Value | Pass 1 | Blocking finding in unchanged code | Pass 2+ | Cap |
 |---|---|---|---|---|
 | `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
-| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
+| `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 3 fix cycles (Step 9.4 runs the review plan's two-round cap only under `frozen`) |
 | `all` | everything | fixed in this PR | the whole diff, every finding | 3 fix cycles |
 
 `diff-plus-blocking` is the fallback for a repository where deferred issues pile
