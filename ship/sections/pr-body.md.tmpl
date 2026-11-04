@@ -260,7 +260,7 @@ reads the title back. Then resolve the draft state from Step 9's gate findings:
    under Step 17's recorded human authorisation (option B there); the body already
    carries the `Gate edits: N open` banner. Without that record, STOP here and report.
 
-Print the existing URL and continue to Step 20; do not run the create command below.
+Print the existing URL and continue to Step 20; skip the create command below.
 
 **No open PR/MR:** add `--draft` when any gate finding is `open` (a later agent never
 infers approval from the PR existing; the human marks it ready after dispositioning
@@ -281,17 +281,17 @@ Branch on the exit code of either block:
   finding (sterner on public repos, no batch acknowledge). PII offers auto-redact:
   write `~/.claude/skills/gstack/bin/gstack-redact --from-file "$PR_BODY_FILE" --auto-redact <ids>`
   output back into the body file and rerun the block, which scans again. Only when the
-  user accepts the findings as they are, rerun the same block with
+  user accepts the findings unchanged, rerun the same block with
   `--confirm <confirm-token>` added to the command that printed it; any edit needs a new token.
 - **64** with stderr saying the current body holds a title `more than once`: nothing was
   posted. STOP and report the duplicated titles; never rerun with `--replace` yourself,
   since a human picks which copy stays (docs/troubleshooting.md#gstack-post-pr-body-merge).
-- **3** `gh`/`glab` failed, or any other **64** (no usable remote or CLI): print the error, the
-  branch name, the remote URL and the block for posting by hand. Do not stop — the code
-  is pushed — but never report a PR that was not created. With open gate findings,
+- **3** `gh`/`glab` failed, or any other **64** (no usable remote or CLI): print the error, branch,
+  remote URL and the block to post by hand. Do not stop — the code is pushed — but never
+  report a PR that was not created; Step 22 ends `status=refused`. With open gate findings,
   also say the gate edits were not disclosed and leave the Step 16 open-items report
   in the invocation record; never report the disclosure as done.
-- Any other exit is an error that blocks publication until its cause is fixed.
+- Any other exit errors: it blocks publication until its cause is fixed.
 
 **Output the PR/MR URL** — then proceed to Step 20.
 
