@@ -21,17 +21,35 @@ import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './
 import { git, type QueueFailure } from './ship-queue-gate';
 import { acquireLandLock, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from './ship-queue-land-lock';
 import * as os from 'node:os';
-import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
+import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from './ship-queue-train-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
 
 interface DirectPr { state: string; baseRefName?: string; headRefName: string; headRefOid: string; isCrossRepository: boolean; body: string; mergeable?: string; mergeStateStatus?: string; mergeCommit?: { oid: string } | null }
-export interface DirectOptions { pr: string; pin: string; dryRun?: boolean; allowRepoCommands?: boolean; breakLock?: boolean; now?: () => Date }
+export interface DirectOptions { pr: string; pin: string; dryRun?: boolean; allowRepoCommands?: boolean; breakLock?: boolean; repair?: boolean; now?: () => Date }
 
 const isSha = (s: string | undefined) => /^[0-9a-f]{40,64}$/.test(s ?? '');
 
 function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
   const r = ctx.gh(['pr', 'view', pr, '--json', 'state,baseRefName,headRefName,headRefOid,isCrossRepository,body,mergeable,mergeStateStatus,mergeCommit']);
   try { return JSON.parse(r.out) as DirectPr; } catch { return { code: 'QUEUE_NOT_READY', message: `gh pr view ${pr} failed: ${(r.err ?? r.out).trim().slice(0, 160)}` }; }
+}
+
+/**
+ * Whether `land --pin --repair` may record #pr@pin as the freeze's one repair (docs/ship-policy.md#direct-freeze): null
+ * admits. A repair already recorded at another pin gives way once GitHub reports it did not merge at that pin; one that merged there
+ * holds the slot until the main backstop clears the freeze or a red backstop on a main containing it frees the slot.
+ */
+function repairRefusal(ctx: QueueContext, freeze: FreezeRecord | null, pr: string, pin: string): QueueFailure | null {
+  if (!freeze) return { code: 'QUEUE_NOT_READY', message: 'no freeze is active; --repair lands only the one repair PR a freeze admits', fix: `land it without --repair: gstack-ship-queue land --pr ${pr} --pin ${pin}` };
+  if (freeze.train !== 'backstop') return { code: 'QUEUE_TRAIN_FROZEN', message: `train ${freeze.train} froze the queue (${freeze.reason}); land --pin --repair admits a repair only into a main backstop freeze`, fix: 'land the repair through train build --repair under merge: train; its verify clears the freeze' };
+  const held = freeze.repair;
+  if (!held || (held.pr === pr && held.head === pin && !held.train)) return null;
+  const admitted = `the freeze admitted repair #${held.pr}@${held.head.slice(0, 12)}`;
+  if (held.train) return { code: 'QUEUE_TRAIN_FROZEN', message: `repair train ${held.train} holds the freeze (${freeze.reason})`, fix: 'land the repair through that train; its verify clears the freeze' };
+  const other = view(ctx, held.pr);
+  if ('code' in other) return { code: 'QUEUE_TRAIN_FROZEN', message: `${admitted}, and whether it merged cannot be read: ${other.message}`, fix: `rerun land once gh pr view ${held.pr} answers` };
+  if (other.state === 'MERGED' && other.headRefOid === held.head) return { code: 'QUEUE_TRAIN_FROZEN', message: `${admitted}, which merged; the queue stays frozen until the main backstop is green on a main that contains it, and a red backstop there frees the slot for the next repair`, fix: 'wait for the main backstop run on that merge (docs/ship-policy.md#direct-freeze)' };
+  return null;
 }
 
 /** Release files the pin changed since its merge base: the version file, the manifest version and the CHANGELOG; an unreadable version is an error, never a pass. */
@@ -145,7 +163,9 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if (!loadReady(keys, o.pr, o.pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY note for #${o.pr} at the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs gstack-ship-queue ready --pr ${o.pr} --no-screen at the pin` });
   }
   const freeze = activeFreeze(keys);
-  if (freeze) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})` });
+  if (freeze && !o.repair) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})`, fix: 'only the one repair PR lands: gstack-ship-queue land --pr <repair-pr> --pin <sha> --repair; the freeze clears when the main backstop is green on a main that contains it (docs/ship-policy.md#direct-freeze)' });
+  const refused = !o.repair ? null : release ? { code: 'QUEUE_TRAIN_FROZEN' as const, message: `${info.headRefName} is a release PR, which never repairs main`, fix: 'land the revert or fix-forward with --repair; release once the backstop clears the freeze' } : repairRefusal(ctx, freeze, o.pr, o.pin);
+  if (refused) return fail(lines, refused);
   const lock = o.dryRun ? readLock(root, remote) : null;
   if (lock?.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });
 
@@ -194,6 +214,19 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
       }
     }
     if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --squash --match-head-commit ${o.pin})`] };
+    if (o.repair) {
+      if (!rebuildFromNotes(root, remote).fetched) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch refs/notes/gstack-trains under the land lock, so the freeze's repair slot cannot be read; nothing merged`, fix: 'fix the fetch, then rerun land' });
+      const frozen = activeFreeze(keys);
+      const taken = repairRefusal(ctx, frozen, o.pr, o.pin);
+      if (taken) return fail(lines, taken);
+      if (frozen!.repair?.pr !== o.pr || frozen!.repair.head !== o.pin) {
+        frozen!.repair = { pr: o.pr, head: o.pin, train: null };
+        frozen!.updated_at = now().toISOString();
+        const saved = persist(root, [frozen!], { remote });
+        if (!saved.pushed) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot record #${o.pr} as the freeze's repair: ${saved.detail}; nothing merged`, fix: 'fix the notes push, then rerun land' });
+      }
+      lines.push(`REPAIR: #${o.pr}@${o.pin.slice(0, 12)} admitted under the land lock; the freeze stays active until the main backstop is green on a main that contains this merge`);
+    }
 
     const method = policy.history === 'merge-only' ? '--merge' : '--squash';
     const lost = held!.set('merging');

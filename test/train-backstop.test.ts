@@ -167,6 +167,19 @@ describe("backstop: a train's merges are covered by the train's own green record
     expect(dispatches()).toEqual([]);
   });
 
+  test('while a freeze is active, a covering green-train record does not stand in for the gate (GST-1354)', () => {
+    const fx = trainFixture();
+    const { gh, dispatches } = fakeGh(fx, { gate: 'success' });
+    const main = squashMerge(fx.repo, 1);
+    const at = new Date().toISOString();
+    persist(fx.repo.work, [{ schema: 1, kind: 'freeze', repo_key: repoIdentity(fx.repo.work).key, train: 'backstop', merged: [], unmerged: [], main: { sha: fx.main0, tree: fx.repo.git('rev-parse', fx.main0 + '^{tree}') },
+      reason: 'backstop red', backstop: { nonce: 'gate.backstop-x', run: 1, state: 'completed/failure' }, repair: null, created_at: at, cleared_at: null, cleared_by: null, updated_at: at } as any]);
+    const out = backstop(fx, main, gh);
+    expect(out.action, out.lines.join('\n')).toBe('gated');
+    expect(out.lines).toContain('BACKSTOP: the queue is frozen, so only a gate on main can clear it; no green-train record stands in');
+    expect(dispatches()).toHaveLength(1);
+  });
+
   test('a superseded push hands main to the newer push without a gh call', () => {
     const fx = trainFixture();
     const first = squashMerge(fx.repo, 1);

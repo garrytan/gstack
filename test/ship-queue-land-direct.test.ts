@@ -20,6 +20,11 @@ import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import { runMergedChecks } from '../lib/land-merged-checks';
 import { readLock, writeLock } from '../lib/ship-queue-land-lock';
+import { runBackstop } from '../scripts/train-backstop';
+import { readTrainNotes } from '../scripts/release-cut';
+import { gitIn } from '../scripts/train-gate';
+import type { GhRunner } from '../scripts/recover-receipts';
+import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -728,4 +733,226 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
     expect(r.err).toContain('moved to ' + moved.slice(0, 12));
     expect(remote(fx, 'main')).toBe(moved);
   }, 120_000);
+});
+
+/** A backstop freeze on origin's notes (what scripts/train-backstop.ts writes on a red gate), written from another state root. */
+function freezeMain(fx: Fx, over: Record<string, unknown> = {}): string {
+  const main = remote(fx, 'main');
+  const prior = process.env.GSTACK_STATE_ROOT;
+  process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'freeze-state');
+  try {
+    const at = new Date().toISOString();
+    persist(fx.repo.work, [{ schema: 1, kind: 'freeze', repo_key: repoIdentity(fx.repo.work).key, train: 'backstop', merged: [], unmerged: [], main: { sha: main, tree: fx.repo.git('rev-parse', main + '^{tree}') },
+      reason: `backstop red on main ${main.slice(0, 12)}: no red case recorded; run 41817566885 (completed/failure)`, backstop: { nonce: 'gate.backstop-x', run: 41817566885, state: 'completed/failure' },
+      repair: null, created_at: at, cleared_at: null, cleared_by: null, updated_at: at, ...over } as any]);
+  } finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+  return main;
+}
+const originRecords = (fx: Fx, kind: string): any[] => {
+  const notes = (...a: string[]) => fx.repo.git('--git-dir', fx.repo.origin, 'notes', '--ref=refs/notes/gstack-trains', ...a);
+  let list = '';
+  try { list = notes('list'); } catch { return []; }
+  return list.split('\n').filter(Boolean).map(l => JSON.parse(notes('show', l.split(' ')[1]!))).filter(r => r.kind === kind);
+};
+const freezeOf = (fx: Fx) => { const all = originRecords(fx, 'freeze'); expect(all).toHaveLength(1); return all[0]; };
+
+/**
+ * scripts/train-backstop.ts on main's head from its own clone (the CI runner's checkout) with a scripted gh: no green
+ * train covers it, and the gate run concludes as asked; `during` runs while the gate runs (a land meanwhile).
+ */
+function backstopOn(fx: Fx, gate: 'success' | 'failure' | 'cancelled', run: number, during?: () => void) {
+  const sha = remote(fx, 'main');
+  const runner = path.join(fx.repo.root, 'runner');
+  const rg = (...a: string[]) => { const r = spawnSync('git', ['-C', runner, ...a], { encoding: 'utf8', timeout: 30_000 }); if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`); };
+  if (!fs.existsSync(runner)) { const c = spawnSync('git', ['clone', '-q', fx.repo.origin, runner], { encoding: 'utf8', timeout: 30_000 }); if (c.status !== 0) throw new Error(c.stderr); }
+  rg('fetch', '-q', 'origin');
+  rg('checkout', '-q', '--detach', sha);
+  let dispatched = '';
+  const ok = (body: unknown) => ({ status: 0, stdout: typeof body === 'string' ? body : JSON.stringify(body), stderr: '' });
+  const gh: GhRunner = (args) => {
+    const joined = args.join(' ');
+    if (args[0] === 'api' && joined.includes('/actions/workflows/') && joined.includes('status=success')) return ok({ workflow_runs: [] });
+    if (args[0] === 'workflow' && args[1] === 'run') { dispatched = args.find(a => a.startsWith('nonce='))!.slice('nonce='.length); return ok(''); }
+    if (args[0] === 'api' && joined.includes('/actions/workflows/')) return ok({ workflow_runs: dispatched ? [{ id: run, status: 'queued', conclusion: null, head_sha: sha, display_title: `E2E Evals [eval-bg ${dispatched}]` }] : [] });
+    if (args[0] === 'api' && joined.endsWith(`actions/runs/${run}`)) { during?.(); during = undefined; return ok({ id: run, status: 'completed', conclusion: gate, head_sha: sha, html_url: `https://example.invalid/runs/${run}` }); }
+    if (args[0] === 'run' && args[1] === 'download') { const dir = args[args.indexOf('-D') + 1]!; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'trial-outcomes.jsonl'), JSON.stringify({ case: 'red-case', attempt: 1, outcome: 'failed' }) + '\n'); return ok(''); }
+    if (args[0] === 'issue' && args[1] === 'create') return ok('https://github.com/fixture/repo/issues/3992\n');
+    return { status: 1, stdout: '', stderr: `unexpected gh ${joined}` };
+  };
+  const prior = process.env.GSTACK_STATE_ROOT;
+  process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'backstop-state');
+  try { return { sha, ...runBackstop({ repo: 'fixture/repo', branch: 'main', sha, repoRoot: runner, gh, sleep: () => {}, pollMs: 1, random: 'abc123' }) }; }
+  finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+}
+/** gstack's own shape: merge: direct with the train block still set, so the backstop gates every push to main. */
+const DIRECT_TRAIN = { ...POLICY, train: TRAIN_BLOCK };
+
+describe('land --pin --repair: the one way through a backstop freeze under merge: direct (GST-1354)', () => {
+  test('a freeze refuses a plain land and names --repair; --repair with no freeze refuses; nothing merges', () => {
+    const fx = setup();
+    const pin8 = openPr(fx, '8');
+    const early = land(fx, '8', pin8, ['--repair']);
+    expect(early.status).toBe(EXIT.refused);
+    expect(early.err).toContain('no freeze is active');
+    expect(early.err).toContain('(QUEUE_NOT_READY)');
+    freezeMain(fx);
+    const pin7 = openPr(fx, '7');
+    const plain = land(fx, '7', pin7);
+    expect(plain.status).toBe(EXIT.refused);
+    expect(plain.err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(plain.err).toContain(`land --pr <repair-pr> --pin <sha> --repair`);
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(freezeOf(fx)).toMatchObject({ repair: null, cleared_at: null });
+  }, 90_000);
+
+  test('--repair admits exactly one PR: the normal pin checks run first, the repair is recorded under the land lock, it lands, and the freeze stays active; a second repair and a plain land stay refused', () => {
+    const fx = setup();
+    freezeMain(fx);
+    const pin7 = openPr(fx, '7');
+    const pin8 = openPr(fx, '8');
+    fx.write(d => { d.checks[pin7] = { 'free-tests': 'failure', 'Check VERSION is not stale vs queue': 'success' }; });
+    const red = land(fx, '7', pin7, ['--repair']);
+    expect(red.err).toContain('(QUEUE_LAND_CHECKS)');
+    expect(freezeOf(fx).repair).toBeNull();
+    fx.write(d => { delete d.checks[pin7]; });
+    const r = land(fx, '7', pin7, ['--repair']);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain(`REPAIR: #7@${pin7.slice(0, 12)} admitted under the land lock`);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+    expect(fx.read().lockAtMerge).toMatchObject({ pr: '7', journal: 'land-pin:' + pin7 });
+    expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: { pr: '7', head: pin7, train: null }, cleared_at: null, cleared_by: null });
+    expect(landNotes(fx)).toEqual([expect.objectContaining({ pr: '7', pin: pin7, merge_sha: remote(fx, 'main') })]);
+    const second = land(fx, '8', pin8, ['--repair']);
+    expect(second.err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(second.err).toContain(`repair #7@${pin7.slice(0, 12)}`);
+    expect(land(fx, '8', pin8).err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+  }, 120_000);
+
+  test('a recorded repair that never merged at its pin gives way to the next --repair; a repair train holding the freeze does not', () => {
+    const fx = setup();
+    const stale = 'a'.repeat(40);
+    fx.write(d => { d.prs['5'] = { state: 'MERGED', baseRefName: 'main', headRefName: 'pr-5', headRefOid: 'c'.repeat(40), isCrossRepository: false, body: '' }; });
+    freezeMain(fx, { repair: { pr: '5', head: stale, train: null } });
+    const pin7 = openPr(fx, '7');
+    const r = land(fx, '7', pin7, ['--repair']);
+    expect(r.err).toBe('');
+    expect(freezeOf(fx).repair).toEqual({ pr: '7', head: pin7, train: null });
+    const fy = setup();
+    freezeMain(fy, { repair: { pr: '5', head: stale, train: 'gate.train-x' } });
+    const pin9 = openPr(fy, '9');
+    const t = land(fy, '9', pin9, ['--repair']);
+    expect(t.err).toContain('repair train gate.train-x');
+    expect(t.err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(fy.read().mergeArgs).toBeUndefined();
+  }, 120_000);
+
+  test("the Captain's sequence: red backstop freezes; a hand merge's backstop, green or red, clears nothing; land --pin --repair lands the repair; the green backstop on that main clears the freeze, and release-cut and land run again", () => {
+    const fx = setup(DIRECT_TRAIN);
+    const red0 = backstopOn(fx, 'failure', 41817566885);
+    expect(red0.action).toBe('frozen');
+    const m0 = red0.sha;
+    expect(freezeOf(fx)).toMatchObject({ train: 'backstop', main: { sha: m0 }, cleared_at: null, repair: null });
+    expect(readTrainNotes(gitIn(fx.repo.work)).freeze).toContain('queue frozen since train backstop');
+    moveMain(fx, 'tooling-fix.txt', 'the hand-merged tooling fix\n');
+    const green1 = backstopOn(fx, 'success', 41817566887);
+    expect(green1.action).toBe('gated');
+    expect(green1.lines.join('\n')).toContain('the freeze stands: no repair was admitted');
+    expect(freezeOf(fx)).toMatchObject({ main: { sha: m0 }, cleared_at: null, repair: null });
+    const pin = openPr(fx, '3996');
+    let landed: ReturnType<typeof land> | undefined;
+    const red1 = backstopOn(fx, 'failure', 41817566886, () => { landed = land(fx, '3996', pin, ['--repair']); });
+    expect(landed!.err).toBe('');
+    expect(landed!.status).toBe(EXIT.ok);
+    expect(red1.action).toBe('frozen');
+    expect(red1.lines.join('\n')).toContain('the freeze stands with its reason updated');
+    expect(freezeOf(fx)).toMatchObject({ main: { sha: m0 }, cleared_at: null, repair: { pr: '3996', head: pin, train: null } });
+    expect(freezeOf(fx).reason).toContain(`backstop red on main ${red1.sha.slice(0, 12)}`);
+    expect(freezeOf(fx).reason).not.toContain('did not turn main green');
+    const green2 = backstopOn(fx, 'success', 41817566888);
+    expect(green2.action).toBe('gated');
+    const cleared = freezeOf(fx);
+    expect(cleared.cleared_by).toBe(`repair #3996; backstop 41817566888 green on ${green2.sha}`);
+    expect(Date.parse(cleared.cleared_at)).not.toBeNaN();
+    expect(green2.lines).toContain(`BACKSTOP: freeze cleared (${cleared.cleared_by})`);
+    expect(readTrainNotes(gitIn(fx.repo.work)).freeze).toBeNull();
+    const pin11 = openPr(fx, '11');
+    const after = land(fx, '11', pin11);
+    expect(after.err).toBe('');
+    expect(after.status).toBe(EXIT.ok);
+    expect(land(fx, '11', pin11, ['--repair']).status).toBe(EXIT.ok);
+  }, 180_000);
+
+  test('a red backstop on a main that contains the repair keeps the freeze, updates its reason and frees the slot for the next repair, whose green backstop clears it; a cancelled gate judges nothing and keeps the slot', () => {
+    const fx = setup(DIRECT_TRAIN);
+    expect(backstopOn(fx, 'failure', 501).action).toBe('frozen');
+    const pin7 = openPr(fx, '7');
+    expect(land(fx, '7', pin7, ['--repair']).status).toBe(EXIT.ok);
+    const unjudged = backstopOn(fx, 'cancelled', 5015);
+    expect(unjudged.action).toBe('frozen');
+    expect(freezeOf(fx)).toMatchObject({ cleared_at: null, repair: { pr: '7', head: pin7, train: null } });
+    expect(freezeOf(fx).reason).toContain('repair #7 was not judged');
+    const red = backstopOn(fx, 'failure', 502);
+    expect(red.action).toBe('frozen');
+    const kept = freezeOf(fx);
+    expect(kept).toMatchObject({ cleared_at: null, repair: null });
+    expect(kept.reason).toContain(`backstop red on main ${red.sha.slice(0, 12)}`);
+    expect(kept.reason).toContain('repair #7 did not turn main green');
+    const pin8 = openPr(fx, '8');
+    expect(land(fx, '8', pin8, ['--repair']).status).toBe(EXIT.ok);
+    const green = backstopOn(fx, 'success', 503);
+    expect(freezeOf(fx).cleared_by).toBe(`repair #8; backstop 503 green on ${green.sha}`);
+  }, 180_000);
+
+  test('no clear without the evidence: a green gate on a main that is not at or after the freeze main, or with the repair\'s land note missing, leaves the freeze active; a train freeze takes no land repair and no backstop clear', () => {
+    const fx = setup(DIRECT_TRAIN);
+    const orphan = fx.repo.git('commit-tree', fx.repo.git('rev-parse', 'origin/main^{tree}'), '-m', 'a main this history never had');
+    freezeMain(fx, { main: { sha: orphan, tree: fx.repo.git('rev-parse', orphan + '^{tree}') } });
+    const pin7 = openPr(fx, '7');
+    expect(land(fx, '7', pin7, ['--repair']).status).toBe(EXIT.ok);
+    const green = backstopOn(fx, 'success', 601);
+    expect(green.action).toBe('gated');
+    expect(green.lines.join('\n')).toContain(`is not at or after the freeze main ${orphan.slice(0, 12)}`);
+    expect(freezeOf(fx).cleared_at).toBeNull();
+    const fy = setup(DIRECT_TRAIN);
+    freezeMain(fy, { repair: { pr: '9', head: 'b'.repeat(40), train: null } });
+    moveMain(fy, 'hand.txt', 'merged without land\n');
+    const g2 = backstopOn(fy, 'success', 602);
+    expect(g2.lines.join('\n')).toContain('repair #9 has no land note');
+    expect(g2.lines.join('\n')).toContain('gate this main again with gh run rerun <this backstop run> -R fixture/repo');
+    expect(freezeOf(fy).cleared_at).toBeNull();
+    const fz = setup(DIRECT_TRAIN);
+    freezeMain(fz, { train: 'gate.train-old', backstop: null });
+    const pin3 = openPr(fz, '3');
+    const t3 = land(fz, '3', pin3, ['--repair']);
+    expect(t3.err).toContain('admits a repair only into a main backstop freeze');
+    expect(t3.err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(fz.read().mergeArgs).toBeUndefined();
+    moveMain(fz, 'hand.txt', 'merged without land\n');
+    const g3 = backstopOn(fz, 'success', 604);
+    expect(g3.lines.join('\n')).toContain("train gate.train-old froze the queue, and its repair train's verify clears it");
+    expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', cleared_at: null });
+  }, 180_000);
+});
+
+describe('the backstop rewrites a freeze by compare-and-swap (GST-1354)', () => {
+  test("a runner whose local notes hold a stale copy of the freeze never overwrites the repair land recorded on origin", () => {
+    const fx = setup(DIRECT_TRAIN);
+    expect(backstopOn(fx, 'failure', 701).action).toBe('frozen');
+    const stale = freezeOf(fx);
+    const runner = path.join(fx.repo.root, 'runner');
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'backstop-state');
+    try { persist(runner, [{ ...stale, reason: 'a stale local rewrite', updated_at: new Date(Date.now() + 60_000).toISOString() }], { push: false }); }
+    finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    const pin = openPr(fx, '7');
+    expect(land(fx, '7', pin, ['--repair']).status).toBe(EXIT.ok);
+    const red = backstopOn(fx, 'cancelled', 702);
+    expect(red.action).toBe('frozen');
+    expect(freezeOf(fx)).toMatchObject({ repair: { pr: '7', head: pin, train: null }, cleared_at: null });
+    expect(freezeOf(fx).reason).toContain('repair #7 was not judged');
+    const green = backstopOn(fx, 'success', 703);
+    expect(freezeOf(fx).cleared_by).toBe(`repair #7; backstop 703 green on ${green.sha}`);
+  }, 180_000);
 });
