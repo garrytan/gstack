@@ -465,6 +465,17 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
     expect(remote(fx, 'main')).toBe(base);
   }, 120_000);
 
+  test('a release head on a branch naming another version is refused with RELEASE_STAMP_INVALID', () => {
+    const fx = setup();
+    const { pin, base } = release(fx);
+    fx.repo.git('push', '-q', 'origin', pin + ':refs/heads/release/9.9.9.9');
+    fx.write(d => { d.prs['50'].headRefName = 'release/9.9.9.9'; });
+    const r = land(fx, '50', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('not the version its branch names');
+    expect(remote(fx, 'main')).toBe(base);
+  }, 120_000);
+
   test('a release head stamped on an older main is refused: PRs that landed since would ship under its version', () => {
     const fx = setup();
     const { pin } = release(fx);

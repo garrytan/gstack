@@ -71,7 +71,7 @@ export function classifyRelease(o: { repoRoot: string; policy: ShipPolicy; merge
     const [before, after] = [sections(o.mergeBase).filter(s => !s.unreleased).map(s => s.version), sections(o.head).map(s => s.unreleased ? 'Unreleased' : s.version)];
     if (after[0] !== now.version || after.slice(1).join(' ') !== before.join(' ')) return no(`${o.policy.changelog} must add one [${now.version}] heading on top of the released headings it had (${after.slice(0, 3).join(', ')} …)`);
   }
-  const outputs = o.policy.release_tool ? git(o.repoRoot, ['ls-tree', '-r', '--name-only', o.head]).out.split('\n').filter(f => f && matchesAny(o.policy.release_outputs, f)) : residual.map(f => f.path);
+  const outputs = !o.policy.release_tool ? residual.map(f => f.path) : [...new Set([...residual.map(f => f.path), ...git(o.repoRoot, ['ls-tree', '-r', '--name-only', o.head]).out.split('\n').filter(f => f && matchesAny(o.policy.release_outputs, f))])];
   if (outputs.length) {
     if (!o.policy.release_tool) return no(`${outputs.join(', ')} changed and the policy names no release_tool to regenerate them`);
     const regen = regeneratedAtBase({ repoRoot: o.repoRoot, head: o.head, baseVersion: now.version, tool: o.policy.release_tool, outputs });

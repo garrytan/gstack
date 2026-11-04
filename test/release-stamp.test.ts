@@ -89,6 +89,7 @@ describe('classifyRelease and the Version Gate', () => {
     ['the release output is hand-edited', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.3.0.0\nedited\n'), 'generated/digest.md'],
     ['package.json keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'package.json'), fs.readFileSync(path.join(w, 'package.json'), 'utf8').replace('"version": "1.3.0"', '"version": "1.2.3"')), 'package.json'],
     ['the CHANGELOG heading names another version', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('## [1.3.0.0]', '## [9.0.0.0]')), 'CHANGELOG.md'],
+    ['the release output is deleted', (w: string) => fs.rmSync(path.join(w, 'generated', 'digest.md')), 'generated/digest.md'],
     ['the release output keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.2.3.0\nbody\n'), 'generated/digest.md'],
     ['the version is not base + the fragments\' bump', (w: string) => fs.writeFileSync(path.join(w, 'VERSION'), '1.4.0.0\n'), 'is 1.3.0.0'],
   ])('refuse a release head where %s', (_name, tamper, named) => {

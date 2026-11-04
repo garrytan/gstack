@@ -50,12 +50,13 @@ function havePin(root: string, pr: string, pin: string, branch?: string): boolea
 }
 
 /** The merge commit's tree is the pin merged onto the merge commit's first parent: GitHub merged exactly the pin. A read that fails is "cannot verify", never a mismatch. */
-function verifyMerge(ctx: QueueContext, root: string, pr: string, pin: string, merge: string, lines: string[], run: string, now: Date): StepOutput {
+function verifyMerge(ctx: QueueContext, root: string, pr: string, pin: string, merge: string, lines: string[], run: string, now: Date, stampedOn?: string): StepOutput {
   const cannot = (why: string): StepOutput => ({ ok: false, run, lines, failure: { code: 'QUEUE_NOT_READY', message: `#${pr} merged as ${merge.slice(0, 12)}, but land cannot verify it: ${why}`, fix: `fix the read named, then rerun gstack-ship-queue land --pr ${pr} --pin ${pin}; it goes straight to the tree check` } });
   if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return cannot(`git fetch origin ${ctx.base} failed`);
   if (!havePin(root, pr, pin)) return cannot(`the pin ${pin.slice(0, 12)} is not in this clone and refs/pull/${pr}/head did not fetch it`);
   if (!git(root, ['merge-base', '--is-ancestor', merge, `origin/${ctx.base}`]).ok) return { ok: false, run, lines, failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `the merge commit ${merge.slice(0, 12)} is not on origin/${ctx.base}` } };
   const parent = git(root, ['rev-parse', `${merge}^1`]).out;
+  if (stampedOn && parent !== stampedOn) return { ok: false, run, lines, failure: { code: 'QUEUE_LAND_UNVERIFIED', message: `the release merged as ${merge.slice(0, 12)} onto ${parent.slice(0, 12)}, not onto ${stampedOn.slice(0, 12)} it was stamped on: a PR landed in between and ships under this version while its fragment waits for the next release`, fix: 'tell the Captain; the next release folds that fragment, so note the PR in its release notes' } };
   const tree = git(root, ['rev-parse', `${merge}^{tree}`]).out;
   const mt = git(root, ['merge-tree', '--write-tree', parent, pin]);
   const expected = mt.out.split('\n')[0] ?? '';
@@ -142,5 +143,5 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   }
   if (!isSha(merge) && m.ok) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge accepted #${o.pr}, but GitHub does not show it merged yet; nothing is verified`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} in a minute; once GitHub shows the merge it goes straight to the tree check` });
   if (!isSha(merge)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200) || 'the PR is not merged'}`, fix: `read the refusal; rerun land --pr ${o.pr} --pin ${o.pin} once it is fixed` });
-  return verifyMerge(ctx, root, o.pr, o.pin, merge!, lines, run, now());
+  return verifyMerge(ctx, root, o.pr, o.pin, merge!, lines, run, now(), release ? mergeBase : undefined);
 }
