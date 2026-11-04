@@ -4991,13 +4991,16 @@ uses it while a slot cannot merge yet: checks on the stamp commit are not
 green, a name in `changelog_fragments.required_checks` is missing or not green
 there, the PR's base is no longer the train's base, the stamp push failed while
 the branch still read the pin, `gh pr merge` refused, or the merge is not yet
-visible on main.
+visible on main. `land` also uses it when a land lock push to origin failed and
+origin's lock ref could not be read to tell whether the push landed.
 
 **Fix.** Commit and push, wait for CI on that head, rerun
 `gstack-pregate run --allow-repo-commands` when the tree changed, then rerun
 `gstack-ship-queue ready --pr <n>`. The block it prints before refusing shows
 which line is not yet true. For `train land`, do what `NEXT:` says, then rerun
-the same `train land` command; it adopts its own journaled stamp commit.
+the same `train land` command; it adopts its own journaled stamp commit. For an
+unreadable land lock, rerun the same `land` command once origin answers; it
+resumes its own lock.
 
 <a id="queue-proof-missing"></a>
 ### `QUEUE_PROOF_MISSING`
@@ -5139,6 +5142,10 @@ released by the verify that clears the freeze
 ([QUEUE_TRAIN_FROZEN](#queue-train-frozen)). If that release push failed, the
 next `land` or `train land` takes the lock over once the freeze record it fetches
 shows the freeze cleared after the lock was written; `--break-lock` never does.
+
+A lock push that GitHub applied but answered with an error (an HTTP 502) is
+checked against origin's ref and counts as written, so a rerun resumes this
+run's own lock without `--break-lock`.
 
 <a id="queue-train-unstamped"></a>
 ### `QUEUE_TRAIN_UNSTAMPED`
