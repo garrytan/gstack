@@ -138,7 +138,7 @@ for SESSION_FILE in "${SESSION_FILES[@]}"; do
       const text = String(e.payload?.message || "");
       if (!text) continue;
       // Detect D-numbered brief or marker. Markers are sufficient on their own.
-      const markerMatch = text.match(/<gstack-qid:([a-z0-9-]{1,64})>/i);
+      const markerMatch = text.match(/<gstack-qid:([a-z0-9-]{1,64})(?:;signal=([a-z0-9-]{1,64}))?>/i);
       const dMatch = text.match(/^D\d+[\.\d]*\s*[—\-]\s*(.+?)$/m);
       if (!markerMatch && !dMatch) continue;
 
@@ -199,6 +199,7 @@ for SESSION_FILE in "${SESSION_FILES[@]}"; do
         options_count: options.length || 1,
         user_choice: userChoice.slice(0, 64),
         ...(recommended ? { recommended: recommended.slice(0, 64) } : {}),
+        ...(markerMatch?.[2] ? { signal_key: markerMatch[2].toLowerCase() } : {}),
         source,
         session_id: sessionId,
         // Use ts_nanos+ts shape from the event itself if available; else null.

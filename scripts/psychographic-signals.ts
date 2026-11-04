@@ -307,26 +307,39 @@ export function resolveOptionKey(question_id: string, choice: string): string | 
 }
 
 /**
- * Apply a user choice for a question to the running dimension totals.
- *
- * @param dims - running total of dimension nudges (mutated)
- * @param signal_key - from the question registry entry
- * @param user_choice - the option key the user selected
- * @returns list of dimension deltas applied (empty if no mapping)
+ * Map a choice on an unregistered question to an option key of its hinted
+ * signal (#3442). Only the exact key or the key's own words count, never
+ * OPTION_LABEL_CUES: a signal's keys mix several questions' options, so a
+ * cue such as "accept" could map a "yes" to the opposite delta. The longest
+ * matching key wins; a tie or no match returns undefined.
  */
-export function applySignal(
-  dims: Record<Dimension, number>,
-  signal_key: string,
-  user_choice: string,
-): DimensionDelta[] {
-  const subMap = SIGNAL_MAP[signal_key];
-  if (!subMap) return [];
-  const deltas = subMap[user_choice];
-  if (!deltas) return [];
-  for (const { dim, delta } of deltas) {
-    dims[dim] = (dims[dim] ?? 0) + delta;
+export function resolveHintedOptionKey(signal_key: string, choice: string): string | undefined {
+  if (!Object.hasOwn(SIGNAL_MAP, signal_key)) return undefined;
+  const keys = Object.keys(SIGNAL_MAP[signal_key]!);
+  if (keys.includes(choice)) return choice;
+  const label = normalizeOptionLabel(choice);
+  if (!label) return undefined;
+  let best: string | undefined;
+  let bestWords = 0;
+  let tie = false;
+  for (const key of keys) {
+    const words = key.replace(/-/g, ' ');
+    if (label !== words && !label.startsWith(words + ' ')) continue;
+    const n = words.split(' ').length;
+    if (n > bestWords) {
+      best = key;
+      bestWords = n;
+      tie = false;
+    } else if (n === bestWords) {
+      tie = true;
+    }
   }
-  return deltas;
+  return tie ? undefined : best;
+}
+
+/** One line per signal key with its option keys, as `--signal-keys` prints it. */
+export function signalKeyLines(): string[] {
+  return Object.entries(SIGNAL_MAP).map(([key, byChoice]) => `${key}: ${Object.keys(byChoice).join(' | ')}`);
 }
 
 /**
@@ -351,17 +364,6 @@ export function validateRegistrySignalKeys(): {
     if (!registrySignalKeys.has(k)) extra.push(k);
   }
   return { missing, extra };
-}
-
-/** Empty dimension totals — starting point for derivation. */
-export function newDimensionTotals(): Record<Dimension, number> {
-  return {
-    scope_appetite: 0,
-    risk_tolerance: 0,
-    detail_preference: 0,
-    autonomy: 0,
-    architecture_care: 0,
-  };
 }
 
 /** Sigmoid clamp: map accumulated delta total to [0, 1]. */

@@ -52,9 +52,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -102,7 +102,7 @@ telemetry — it never blocks the workflow.
 A full suite or verify that takes an hour on a 4-core sandbox takes minutes on a
 `standard-16` VM, and a VM that outlives its run costs the whole project its
 shared vCPU quota. This skill is one runner with the discipline built in: every
-VM carries its owner and a TTL in its name, any later run reaps expired VMs, the
+VM carries its owner and a TTL in its name, its owner's next run reaps it once expired, the
 create is refused before the quota fills, a silent remote command is killed with
 its last output instead of hanging, and a repository's verify is one committed
 definition rather than a wrapper per lane.
@@ -143,12 +143,12 @@ $U usage          # VMs and vCPUs per owner: who holds the shared quota
 ```
 
 A VM in `records` but absent from `list` is already gone: `$U down <name>`
-forgets it. A VM in the project under another owner is theirs; leave it (its
-TTL will reap it). Every `up` runs `$U reap` first, destroying any VM whose
-`-t<hours>` TTL ended more than ten minutes ago, whichever owner made it, and
-this owner's own `ubirun-<UBI_OWNER>-*` names with no TTL once they are
-`UBI_LEGACY_HOURS` old (default 4). Another owner's TTL-less VM, an untagged
-one and names outside the `ubirun-` prefix are never reaped.
+forgets it. A VM in the project under another owner is theirs; leave it.
+Every `up` runs `$U reap` first, destroying only this owner's
+`ubirun-<UBI_OWNER>-*` VMs whose `-t<hours>` TTL ended more than ten minutes
+ago, and those with no TTL once they are `UBI_LEGACY_HOURS` old (default 4).
+Another owner's VM, expired or not, an untagged one and names outside the
+`ubirun-` prefix are never reaped.
 
 Quota: with `UBI_QUOTA_VCPUS=<project ceiling>` exported (or after one refusal,
 whose maximum the runner remembers), `up` adds the size's vCPUs to the project's
@@ -171,7 +171,7 @@ background operation leaves its VM until the reaper. So:
   `### gstack-detach EXIT=<code> ###` sentinel.
 - Set `UBI_TTL_HOURS` above the longest plausible run (default 3; 1-999) and
   name the expected duration in the thread before launching anything over an
-  hour. A run that outlives its TTL is reaped by the next `up` anywhere.
+  hour. A run that outlives its TTL is reaped by its owner's next `up` or `reap`.
 
 The runner prints `<name> carries a <n>h TTL ...; if this process dies first:
 <self> down <name>` right after the VM is ready; quote that line in your report
@@ -184,14 +184,16 @@ UBI_TTL_HOURS=3 $U run --setup scripts/ubicloud/bootstrap.sh -- 'make test'
 ```
 
 `run` creates the VM (`-s SIZE`, default `standard-16`; `-l LOCATION`, default
-`eu-central-h1`), streams the checkout (tracked files, untracked files that
-are not ignored, and `.git`, so uncommitted edits are tested), runs the
+`eu-central-h1`), streams the checkout (tracked and non-ignored untracked
+files, and `.git`, so uncommitted edits are tested; a subdirectory skips
+`.git`), runs the
 bootstrap once, runs the command in a login shell with `umask 022`, copies
 `--pull REMOTE_GLOB:LOCAL_DIR` artifacts back and destroys the VM. It exits
 with the command's status. `--env K=V` passes a literal; `--pass NAME` forwards
-a local variable's value without printing it (never `UBICLOUD_*`: the runner's
-own credentials stay on this machine); `--keep` skips teardown for debugging,
-and then `$U down <name>` is yours to run.
+a variable you exported, as it was when the runner started, without printing it
+(never `UBICLOUD_*`, `UBI_RECOVERY_KEY` or `UBI_SINK`: the runner's own
+credentials, recovery secret and sink URL stay on this machine); `--keep`
+skips teardown for debugging, and then `$U down <name>` is yours to run.
 
 ---
 
@@ -277,7 +279,8 @@ is visible: a `standard-16` run is billed from create to confirmed teardown.
 2. `$U records` and `$U list --mine`, then `$U down` anything of yours that no
    rerun will reattach to.
 3. After a machine swap nothing reattaches; tier checkpoints on a Drive
-   (`UBI_CHECKPOINT_DIR`) still count.
+   (`UBI_CHECKPOINT_DIR`) still count; with `UBI_RECOVERY_DIR`, `$U recover`
+   rebuilds VM state here once the old machine is dead.
 4. A background log with no exit sentinel and no VM is an interrupted run, not
    a pass; rerun it.
 5. Measure before/after pairs on the same size and location, never one side

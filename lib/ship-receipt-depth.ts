@@ -13,15 +13,22 @@
  * The queue recomputes the depth the head needs from git objects
  * (lib/review-collect.ts) and refuses a receipt below it.
  * `review_targeted`: the targeted pass on money, gate, auth and secret code
- * (lib/review-targeted.ts), which the queue reports beside the depth and does
- * not refuse on yet (GST-257 PR 1). Kept beside
+ * (lib/review-targeted.ts); the queue reports it beside the depth and refuses
+ * a head whose required classes the pass did not cover (GST-966). Kept beside
  * lib/ship-receipt.ts so that module stays under the size ratchet.
  */
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { baseContainsHead } from './default-base';
 import type { ShipReceipt } from './headless-artifacts';
 import { collectCommit } from './review-collect';
-import { depthOfCommitInput, gateScanNeeded, type Depth } from './review-depth';
+import { reviewExclude, type Exclusion } from './review-exclude';
+import { isUnavailable } from './ship-policy';
+import { loadPolicyAt } from './ship-policy-at';
+import { classifyPath, depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
+import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, MONEY_PATH_TOKENS, matchRisk, type RiskClass } from './review-risk';
+import { platformReviewAt } from './review-platform';
+import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
 import { runScriptSync } from './script-invocation';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
@@ -29,7 +36,7 @@ import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 export type ReviewLoopException = NonNullable<ShipReceipt['review_loop_exception']>;
-const RANK: Record<Depth, number> = { light: 0, standard: 1, full: 2 };
+const RANK: Record<Depth | 'platform', number> = { platform: -1, light: 0, standard: 1, full: 2 };
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(v);
 const sha = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
 const BIN_DIR = path.join(import.meta.dir, '..', 'bin');
@@ -40,14 +47,41 @@ function git(root: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
 }
 
-/** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue. */
-function scopeOfRange(root: string, binDir: string, base: string, head: string): Record<string, string> {
-  const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+/** A base as a commit; origin/<branch> reads refs/remotes/origin/<branch> by its full name, so a tag named origin/main cannot stand in for it (GST-884). */
+const baseCommit = (root: string, ref: string) => git(root, ['rev-parse', '--verify', '--quiet', `${/^origin\//.test(ref) ? `refs/remotes/${ref}` : ref}^{commit}`]);
+/** gstack-diff-scope on the committed range `base`...`head` (`--head`): the same signals at write, carry and the queue; `merged` (`--merged`) for a head GitHub already merged into the base. */
+function scopeOfRange(root: string, binDir: string, base: string, head: string, merged = false): Record<string, string> {
+  const sr = runScriptSync(path.join(binDir, 'gstack-diff-scope'), [base, '--head', head, ...(merged ? ['--merged'] : [])], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
   const scope: Record<string, string> = {};
   for (const l of (sr.stdout ?? '').split('\n')) { const m = /^(SCOPE_[A-Z_]+)=(.*)$/.exec(l); if (m) scope[m[1]!] = m[2]!; }
   if (sr.status !== 0 && !scope.SCOPE_ERROR) scope.SCOPE_ERROR = `exit ${sr.status}`;
   return scope;
 }
+
+export type ReceiptExclude = NonNullable<ShipReceipt['review_exclude']>;
+
+/** The receipt's copy of an active exclusion: counts and hashes, plus the gate-tagged kept paths the queue cannot recompute. */
+export function receiptExclude(x: Exclusion): ReceiptExclude | undefined {
+  if (x.state !== 'active') return undefined;
+  const { source, patterns, applied, excluded, excluded_bytes, kept, gate_tagged, patterns_sha256, list_sha256, digest } = x.record;
+  return { source, patterns, applied, excluded, excluded_bytes, kept, gate_tagged, patterns_sha256, list_sha256, digest };
+}
+
+/** The exclusion for the committed range `baseSha`...`head` (collectCommit's), with the gate-tagged paths the caller knows. */
+function exclusionAt(root: string, ref: string, baseSha: string | null, head: string, c: ReturnType<typeof collectCommit>, gateTagged: ReadonlySet<string> | null, context: string): Exclusion {
+  if (!baseSha || !c.mergeBase) return { state: 'none' };
+  return reviewExclude({ root, baseSha, ref, mergeBase: c.mergeBase, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged, context });
+}
+
+/** The base policy's review_exclude_paths and review key (lib/ship-policy-review.ts), defaults when it cannot be read. */
+function basePolicy(root: string, ref: string, sha: string | null): { declares: boolean; review: ReviewPolicy } {
+  const l = sha ? loadPolicyAt(root, sha, ref) : null;
+  const p = l && !isUnavailable(l) ? l.policy : null;
+  return { declares: !!p && p.review_exclude_paths.length > 0, review: reviewPolicy(p) };
+}
+const riskPathsOf = (r: ReviewPolicy) => (r.risk_paths.length ? { riskPaths: r.risk_paths } : {});
+/** The mode the plan ran for this depth under the base policy's review.panel (lib/review-depth.ts planReview). */
+const modeFor = (depth: Depth, r: ReviewPolicy): 'lean' | 'panel' => (r.panel === 'all' || (r.panel === 'risk' && depth !== 'light') ? 'panel' : 'lean');
 
 /**
  * The depth record for `head`: the range from git objects (collectCommit) and
@@ -57,33 +91,83 @@ function scopeOfRange(root: string, binDir: string, base: string, head: string):
  * unavailable and the depth fails closed to full.
  */
 export function receiptDepthAtHead(repoRoot: string, base: string, binDir: string, head: string): ReceiptDepth {
-  const branch = base.replace(/^origin\//, '');
-  const baseSha = git(repoRoot, ['rev-parse', '--verify', '--quiet', `origin/${branch}^{commit}`]);
-  const baseRev = baseSha.ok ? baseSha.out : branch;
-  const c = collectCommit(repoRoot, baseRev, head);
-  const scope = scopeOfRange(repoRoot, binDir, baseRev, head);
-  let tagged: number | null = 0;
-  if (gateScanNeeded(c.paths, c.root)) {
-    const atHead = git(repoRoot, ['rev-parse', 'HEAD']).out === head && git(repoRoot, ['diff', '--quiet', 'HEAD', '--']).ok;
-    const g = atHead ? runScriptSync(path.join(binDir, 'gstack-gate-diff'), [baseRev], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }) : null;
-    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g?.stdout ?? '');
-    tagged = g?.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
-  }
-  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged });
-  return { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12) };
+  return receiptReviewAtHead(repoRoot, base, binDir, head).depth;
 }
 
-export const depthBelow = (have: Depth, need: Depth) => RANK[have] < RANK[need];
-export const deeper = (a: Depth, b: Depth): Depth => (RANK[a] >= RANK[b] ? a : b);
+/**
+ * receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508).
+ * `declared` (write --declare-risk, GST-1129) joins the detected risk classes and only raises; the record then keeps both lists.
+ */
+export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string, declared: readonly RiskClass[] = []): { depth: ReceiptDepth; exclude: Exclusion } {
+  const branch = base.replace(/^origin\//, '');
+  const baseSha = baseCommit(repoRoot, `origin/${branch}`);
+  const baseRev = baseSha.ok ? baseSha.out : branch;
+  const ref = baseSha.ok ? `origin/${branch}` : branch;
+  const sha = baseSha.ok ? baseSha.out : (git(repoRoot, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`]).out || null);
+  const c = collectCommit(repoRoot, baseRev, head);
+  const scope = scopeOfRange(repoRoot, binDir, baseRev, head);
+  const { declares, review } = basePolicy(repoRoot, ref, sha);
+  let tagged: number | null = 0;
+  let paths: Set<string> | null = declares ? new Set() : null;
+  if (declares || gateScanNeeded(c.paths, c.root)) {
+    const atHead = git(repoRoot, ['rev-parse', 'HEAD']).out === head && git(repoRoot, ['diff', '--quiet', 'HEAD', '--']).ok;
+    const g = atHead ? runScriptSync(path.join(binDir, 'gstack-gate-diff'), [baseRev, ...(declares ? ['--format', 'jsonl'] : [])], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 }) : null;
+    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g?.stdout ?? '');
+    tagged = g?.status === 0 && m ? m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0) : null;
+    paths = declares && tagged !== null ? taggedPaths(g?.stdout ?? '') : null;
+  }
+  const exclude = exclusionAt(repoRoot, ref, sha, head, c, paths, 'gstack-ship-receipt');
+  const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), declared, ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
+  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review), ...(d.declared.length ? { declared: d.declared, detected: d.detected } : {}) }, exclude };
+}
 
-/** `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the fix-check it followed. */
+/**
+ * `write --platform-review <id>` (design C6, FOUN-63): the receipt says honestly that no /ship reader ran because the platform
+ * review read this head. Allowed only under the base policy's review.platform on, on a light docs or tests diff with no numeric,
+ * results or prereg claims, with capy-ai[bot]'s review <id> on the PR at this exact head.
+ */
+export function platformReceiptDepth(repoRoot: string, base: string, depth: ReceiptDepth, head: string, id: string, pr?: string): { ok: true; depth: ReceiptDepth } | { ok: false; message: string } {
+  const branch = base.replace(/^origin\//, '');
+  const baseSha = baseCommit(repoRoot, `origin/${branch}`);
+  const { review } = basePolicy(repoRoot, baseSha.ok ? `origin/${branch}` : branch, baseSha.ok ? baseSha.out : null);
+  if (review.platform !== 'on') return { ok: false, message: `--platform-review needs review.platform on in ${branch}'s .gstack/ship-policy.json; with platform review off at least one /ship reader runs` };
+  const c = collectCommit(repoRoot, depth.base, head);
+  if (depth.depth !== 'light' || !platformFits(depth.class, c.paths, depth.runtime_lines, scanNumbers(c.added))) return { ok: false, message: `head ${head.slice(0, 12)} needs ${depth.depth} review (${depth.class} class, ${depth.runtime_lines} runtime lines): the platform depth covers only docs or tests diffs with no numeric, results or prereg claims` };
+  const found = platformReviewAt(repoRoot, head, { pr, id });
+  if (!found.ok) return { ok: false, message: `--platform-review ${id}: ${found.reason}` };
+  return { ok: true, depth: { ...depth, depth: 'platform', mode: 'platform', platform_review: found.review } };
+}
+
+/** The paths of the hunks a `gstack-gate-diff --format jsonl` run tagged. */
+export function taggedPaths(jsonl: string): Set<string> {
+  return new Set(jsonl.split('\n').slice(1).flatMap(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return h.path && h.tags?.length ? [h.path] : []; } catch { return []; } }));
+}
+
+export const depthBelow = (have: Depth | 'platform', need: Depth | 'platform') => RANK[have] < RANK[need];
+export const deeper = <D extends Depth | 'platform'>(a: D, b: D): D => (RANK[a] >= RANK[b] ? a : b);
+
+/**
+ * `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the stop it accepts:
+ * the fix-check it followed (`fix_check`), or the second full pass that left a finding open (`second_pass`, the deferred
+ * finding ids; TRUT-7).
+ */
 export function parseReviewLoopException(value: unknown): { ok: true; exception: ReviewLoopException } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } }');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } | second_pass: { head, deferred: [<finding id>] } }');
   const v = value as Record<string, unknown>;
-  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
+  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check', 'second_pass'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
   for (const key of ['accepted_by', 'date', 'via', 'reason']) if (!text(v[key])) return bad(`review_loop_exception.${key} must be a non-empty one-line string`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date as string)) return bad('review_loop_exception.date must be YYYY-MM-DD');
+  if ((v.fix_check === undefined) === (v.second_pass === undefined)) return bad('review_loop_exception names exactly one of fix_check or second_pass: the stop it accepts');
+  const accepted = { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim() };
+  if (v.second_pass !== undefined) {
+    const s = v.second_pass as Record<string, unknown> | null;
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return bad('review_loop_exception.second_pass must be { head, deferred: [<finding id>] }');
+    for (const key of Object.keys(s)) if (!['head', 'deferred'].includes(key)) return bad(`review_loop_exception.second_pass: unknown key ${JSON.stringify(key)}`);
+    if (!sha(s.head)) return bad('review_loop_exception.second_pass.head must be the full commit the second full pass reviewed');
+    if (!Array.isArray(s.deferred) || !s.deferred.length || !s.deferred.every(text)) return bad('review_loop_exception.second_pass.deferred must name the open finding the owner accepted by id');
+    return { ok: true, exception: { ...accepted, second_pass: { head: s.head, deferred: (s.deferred as string[]).slice(0, 20).map(d => d.trim()) } } };
+  }
   const f = v.fix_check as Record<string, unknown> | null;
   if (!f || typeof f !== 'object' || Array.isArray(f)) return bad('review_loop_exception.fix_check must be { head, findings[, files] }');
   for (const key of Object.keys(f)) if (!['head', 'findings', 'files'].includes(key)) return bad(`review_loop_exception.fix_check: unknown key ${JSON.stringify(key)}`);
@@ -91,12 +175,22 @@ export function parseReviewLoopException(value: unknown): { ok: true; exception:
   if (typeof f.findings !== 'number' || !Number.isInteger(f.findings) || f.findings < 0) return bad('review_loop_exception.fix_check.findings must be an integer >= 0 (what the fix-check reported)');
   if (f.files !== undefined && (!Array.isArray(f.files) || !f.files.every(text))) return bad('review_loop_exception.fix_check.files must be a list of paths');
   const files = (f.files as string[] | undefined)?.slice(0, 50);
-  return { ok: true, exception: { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim(), fix_check: { head: f.head, findings: f.findings, ...(files?.length ? { files } : {}) } } };
+  return { ok: true, exception: { ...accepted, fix_check: { head: f.head, findings: f.findings, ...(files?.length ? { files } : {}) } } };
+}
+
+/** The commit the accepted stop reviewed: the fix-check's head or the second full pass's. */
+export const exceptionHead = (e: ReviewLoopException) => (e.fix_check ?? e.second_pass)!.head;
+
+/** Whether the review loop shows the stop the exception accepts: a fix-check ran, or two full passes left a finding deferred. */
+export function exceptionLoopProblem(e: ReviewLoopException, loop: ShipReceipt['review_loop']): string | null {
+  if (e.fix_check) return loop?.fix_checks ? null : 'needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check';
+  return (loop?.passes ?? 0) >= 2 && (loop?.deferred ?? 0) >= 1 ? null : 'second_pass needs --review-loop with passes >= 2 and deferred >= 1: the stop it accepts follows the second full pass with a finding left open';
 }
 
 /** The line the PR body must carry, word for word, while the exception stands. */
 export function reviewLoopExceptionLine(e: ReviewLoopException): string {
-  return `Review-loop exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason} (fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'})`;
+  const stop = e.fix_check ? `fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'}` : `second full pass at ${e.second_pass!.head.slice(0, 12)}, deferred ${e.second_pass!.deferred.join(', ')}`;
+  return `Review-loop exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason} (${stop})`;
 }
 
 const carries = (body: string, line: string) => body.split(/\r?\n/).some(l => l.trim() === line);
@@ -117,8 +211,9 @@ export function exceptionProblems(body: string, r: ShipReceipt, isAncestor?: (co
     const e = parseReviewLoopException(r.review_loop_exception);
     if (!e.ok) out.push(e.message);
     else {
-      if (!r.review_loop?.fix_checks) out.push('review_loop_exception needs review_loop.fix_checks >= 1 (the stop it accepts follows a fix-check)');
-      if (isAncestor && !isAncestor(e.exception.fix_check.head)) out.push(`review_loop_exception.fix_check.head ${e.exception.fix_check.head.slice(0, 12)} is not the receipt head or an ancestor of it`);
+      const loopProblem = exceptionLoopProblem(e.exception, r.review_loop);
+      if (loopProblem) out.push(`review_loop_exception ${loopProblem.replace('--review-loop', 'review_loop')}`);
+      if (isAncestor && !isAncestor(exceptionHead(e.exception))) out.push(`review_loop_exception's head ${exceptionHead(e.exception).slice(0, 12)} is not the receipt head or an ancestor of it`);
       const line = reviewLoopExceptionLine(e.exception);
       if (!carries(body, line)) out.push(`the body does not carry the review-loop exception line verbatim: ${JSON.stringify(line)}`);
     }
@@ -128,37 +223,73 @@ export function exceptionProblems(body: string, r: ShipReceipt, isAncestor?: (co
 
 export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
 
-/** `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here. */
-export function parseReviewTargeted(value: unknown, productPatchId: string): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
+/**
+ * `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here.
+ * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules. The
+ * record binds only on an equal product patch, or with `plainDocs` across a change after the read that is plain docs
+ * (plainDocsSince, GST-1195), and with `classesSince` also only when nothing changed after the read carries a targeted class (a
+ * test change the gate scan tags is gate class though the product patch leaves tests out), so a record never vouches for work it
+ * did not read (GST-986).
+ */
+export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null, plainDocs?: (read: string) => boolean): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by }');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by, head }');
   const v = value as Record<string, unknown>;
-  for (const key of Object.keys(v)) if (!['classes', 'rules', 'brief_sha', 'status', 'findings', 'raised_by'].includes(key)) return bad(`review_targeted: unknown key ${JSON.stringify(key)}${key === 'product_patch_id' ? ' (write binds the pass to the receipt\'s product_patch_id)' : ''}`);
+  for (const key of Object.keys(v)) if (!['classes', 'rules', 'brief_sha', 'status', 'findings', 'raised_by', 'head'].includes(key)) return bad(`review_targeted: unknown key ${JSON.stringify(key)}${key === 'product_patch_id' ? ' (write binds the pass to the receipt\'s product_patch_id)' : ''}`);
   if (!Array.isArray(v.classes) || !v.classes.every(c => (TARGETED_CLASSES as readonly unknown[]).includes(c))) return bad(`review_targeted.classes must list ${TARGETED_CLASSES.join(', ')}`);
   if (!text(v.rules) || !text(v.raised_by)) return bad('review_targeted.rules and raised_by must be non-empty one-line strings');
   if (typeof v.brief_sha !== 'string' || !/^[0-9a-f]{64}$/.test(v.brief_sha)) return bad('review_targeted.brief_sha must be the sha256 of review/specialists/targeted.md');
   if (!['done', 'failed', 'not-run'].includes(v.status as string)) return bad('review_targeted.status must be done, failed or not-run');
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
+  if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
+  const read = productPatchOf(v.head);
+  if ((read !== productPatchId && !plainDocs?.(v.head)) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only a docs change with no numeric, results, prereg, eval, money or security claim carries the record), so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
 
-/** The queue's report-only line: the classes the head needs against the classes a done targeted pass covered; never a refusal (GST-257 PR 1). */
-export function receiptTargetedLine(required: readonly TargetedClass[], r: ShipReceipt): string {
-  const rt = r.review_targeted;
-  const covered: readonly string[] = rt?.status === 'done' ? rt.classes : [];
-  const ok = required.every(c => covered.includes(c));
-  return `REVIEW_TARGETED: required=${classList(required)} receipt=${rt ? classList(covered) : 'legacy'} verdict=${ok ? 'ok' : 'missing'}`;
-}
-
 export interface DepthVerdict { ok: boolean; line: string; message?: string }
 
+/**
+ * The classes the head needs against the classes a done targeted pass covered; a required class left uncovered (no pass,
+ * a failed or unrun pass, or a pass on other classes) is refused (GST-966). A receipt with neither gstack_version nor
+ * review_depth predates targeted receipts, as receiptDepthVerdict treats it, and is accepted as legacy.
+ */
+export function receiptTargetedVerdict(required: readonly TargetedClass[], r: ShipReceipt): DepthVerdict {
+  const rt = r.review_targeted;
+  const covered: readonly string[] = rt?.status === 'done' ? rt.classes : [];
+  const missing = required.filter(c => !covered.includes(c));
+  const verdict = !missing.length ? 'ok' : rt?.status === 'failed' ? 'failed' : 'missing';
+  const line = `REVIEW_TARGETED: required=${classList(required)} receipt=${rt ? classList(covered) : 'legacy'} verdict=${verdict}`;
+  if (!missing.length) return { ok: true, line };
+  if (!rt && !r.review_depth && !r.gstack_version) return { ok: true, line: `${line} (legacy receipt, written before receipts recorded review_targeted; accepted)` };
+  const why = !rt ? 'records no targeted pass' : rt.status === 'failed' ? 'records that its targeted pass failed' : rt.status === 'not-run' ? 'records that its targeted pass did not run' : `covers ${classList(covered)} only`;
+  return { ok: false, line, message: `the head requires the targeted reader on ${missing.join(', ')}, but the receipt ${why}` };
+}
+
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
-interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string> }
-function headInputs(root: string, baseRef: string, head: string): HeadInputs {
-  const baseSha = git(root, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`]);
+interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string>; x: Exclusion }
+function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt, merged = false): HeadInputs {
+  const baseSha = baseCommit(root, baseRef);
   const baseRev = baseSha.ok ? baseSha.out : baseRef;
-  return { baseSha, c: collectCommit(root, baseRev, head), scope: scopeOfRange(root, BIN_DIR, baseRev, head) };
+  const c = collectCommit(root, baseRev, head);
+  const tagged = r && boundScan(r, head) !== null ? new Set(r.review_exclude?.gate_tagged ?? []) : null;
+  return { baseSha, c, scope: scopeOfRange(root, BIN_DIR, baseRev, head, merged), x: exclusionAt(root, baseRef, baseSha.ok ? baseSha.out : null, head, c, tagged, 'gstack-ship-queue') };
+}
+
+/**
+ * The queue's exclusion check: the digest the receipt recorded (none when absent) against the one `head` has under the current
+ * base policy. Only the digest counts (the policy's patterns and the excluded list), so a base merge or a moved base that leaves
+ * both unchanged binds; a changed selection needs the review rerun (write checks the same digest and does not read the
+ * review ledger).
+ */
+export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
+  const expected = x.state === 'active' ? x.record.digest : 'none';
+  const recorded = r.review_exclude?.digest ?? 'none';
+  if (expected === recorded) return null;
+  const source = x.state === 'active' ? x.record.source : r.review_exclude?.source ?? base;
+  const h = head.slice(0, 12);
+  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
 }
 /** The receipt's recorded gate scan when it names this head; otherwise null (unavailable). */
 const boundScan = (r: ShipReceipt, head: string): number | null => {
@@ -176,33 +307,98 @@ const boundScan = (r: ShipReceipt, head: string): number | null => {
 export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceipt, head: string, at?: HeadInputs): DepthVerdict {
   const rd = r.review_depth;
   if (!rd && !r.gstack_version) return { ok: true, line: 'REVIEW_DEPTH: legacy receipt (written before receipts recorded review_depth); accepted' };
-  const { baseSha, c, scope } = at ?? headInputs(root, baseRef, head);
+  const { baseSha, c, scope, x } = at ?? headInputs(root, baseRef, head, r);
   const tagged = boundScan(r, head);
   const scanBound = tagged !== null;
-  const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged });
+  const { review } = basePolicy(root, baseRef, baseSha.ok ? baseSha.out : null);
+  const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), ...(x.state === 'active' ? { excluded: x.excluded } : {}) });
   const have = rd?.depth;
   const inputs = `base@${short(baseSha.ok ? baseSha.out : null)},registry@${short(c.registry.sha)},gate_scan@${scanBound ? short(rd!.gate_scan.head) : 'missing'}`;
-  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs}`;
+  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
+  if (have === 'platform') {
+    const pr = rd!.platform_review;
+    const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));
+    const ok = review.platform === 'on' && fits && !!pr && pr.head === head.toLowerCase();
+    if (ok) return { ok: true, line: `${line} platform_review=${pr!.id}@${pr!.head.slice(0, 12)}` };
+    return { ok: false, line, message: `the receipt records the platform depth, but ${review.platform !== 'on' ? `the base policy has review.platform ${review.platform}` : !fits ? `head ${head.slice(0, 12)} needs ${need.depth} review of a diff the platform depth does not cover` : `its platform review is not at head ${head.slice(0, 12)}`}; the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
+  }
   if (have && !depthBelow(have, need.depth)) return { ok: true, line };
   const why = have ? `was reviewed at ${have} depth` : 'records no review_depth though its writer records one';
   const errs = need.errors.map(e => `${e.code} (${e.input})`).join('; ');
   return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
 }
 
-/** bindReceipt plus the owner exceptions and the review depth: what READY and train build accept; the targeted line is reported, never refused on. */
-export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[]):
+/** bindReceipt plus the owner exceptions, the review depth and the targeted pass: what READY, train build and land accept. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed, except for a PR GitHub already merged (`merged`: land resuming after a merge-only true merge), whose depth then reads the range with diff-scope's `--merged` and whose exclusion digest is not recomputed over that emptied range. */
+export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[], merged = false):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
-  | { ok: false; code: ReceiptBindingCode | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID'; message: string; line: string; depthLine?: string; targetedLine?: string } {
+  | { ok: false; code: ReceiptBindingCode | 'BASE_CONTAINS_HEAD' | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID' | 'RECEIPT_INVALID' | 'QUEUE_RECEIPT_TARGETED_MISSING' | Extract<Exclusion, { state: 'refused' }>['code']; message: string; line: string; depthLine?: string; targetedLine?: string } {
   const b = bindReceipt(body, pr, accepted);
   if (!b.ok) return b;
+  const self = merged ? null : baseContainsHead(root, baseRef, b.head);
+  if (self) return { ok: false, code: 'BASE_CONTAINS_HEAD', message: self, line: b.line };
   const ancestor = (commit: string) => b.receipt.carry?.ancestry === 'rewritten' || git(root, ['merge-base', '--is-ancestor', commit, b.head]).ok;
   const problems = exceptionProblems(body, b.receipt, ancestor);
   if (problems.length) return { ok: false, code: 'QUEUE_RECEIPT_EXCEPTION_INVALID', message: `the receipt's owner exception does not stand: ${problems.join('; ')}`, line: b.line };
-  const at = headInputs(root, baseRef, b.head);
+  const at = headInputs(root, baseRef, b.head, b.receipt, merged);
+  if (at.x.state === 'refused') return { ok: false, code: at.x.code, message: at.x.lines.join('; '), line: b.line };
+  const mismatch = merged ? null : excludeMismatch(at.x, b.receipt, b.head, baseRef);
+  if (mismatch) return { ok: false, code: 'RECEIPT_INVALID', message: mismatch, line: b.line };
   const d = receiptDepthVerdict(root, baseRef, b.receipt, b.head, at);
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
-  const targetedLine = receiptTargetedLine(targetedClasses({ ...at.c, scope: at.scope, gateTagged }).classes, b.receipt);
-  if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine };
-  return { ...b, depthLine: d.line, targetedLine };
+  const x = at.x.state === 'active' ? at.x.excluded : null;
+  const without = <T,>(rec: Record<string, T>) => (x ? Object.fromEntries(Object.entries(rec).filter(([p]) => !x.has(p))) : rec);
+  const t = receiptTargetedVerdict(targetedClasses({ ...at.c, ...(x ? { paths: at.c.paths.filter(p => !x.has(p)), added: without(at.c.added), removed: without(at.c.removed) } : {}), scope: at.scope, gateTagged }).classes, b.receipt);
+  if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine: t.line };
+  if (!t.ok) return { ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', message: `${t.message}; the receipt is unchanged; run /ship on ${b.head.slice(0, 12)}`, line: b.line, depthLine: d.line, targetedLine: t.line };
+  return { ...b, depthLine: d.line, targetedLine: t.line };
 }
 
+/**
+ * The targeted classes of what changed from `from` to the checked-out `head`, with gstack-gate-diff run over that range whenever
+ * a non-docs path changed (a test edit that skips a case is gate class); null when `from` is not an ancestor of `head`, the gate
+ * scan did not run, or a class input is unreadable.
+ */
+export function targetedClassesSince(root: string, from: string, head: string): readonly TargetedClass[] | null {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
+  const at = headInputs(root, from, head, undefined, true);
+  let gateTagged: number | null = 0;
+  if (gateScanNeeded(at.c.paths, at.c.root)) {
+    const g = runScriptSync(path.join(BIN_DIR, 'gstack-gate-diff'), [from], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
+    if (g.status !== 0 || !m) return null;
+    gateTagged = m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0);
+  }
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  return t.errors.length ? null : t.classes;
+}
+
+/**
+ * Whether what changed from `from` to the checked-out `head` is plain docs, which a targeted record carries across (GST-1195):
+ * every path docs class, R65's claim rule (platformFits: no numeric claim, no results, prereg or eval path), and no money,
+ * security, secret or auth wording in the changed lines (the risk matchers plus DOCS_CLAIM_WORDS, since the matchers spare prose).
+ * False when `from` is not an ancestor or the diff is unreadable.
+ */
+export function plainDocsSince(root: string, from: string, head: string): boolean {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return false;
+  const c = collectCommit(root, from, head);
+  if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary)) return false;
+  const lines = c.paths.flatMap(p => [...(c.added?.[p] ?? []), ...(c.removed?.[p] ?? [])]);
+  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return false;
+  return platformFits('docs', c.paths, 0, scanNumbers(c.added ?? {})) && matchRisk({ codePaths: c.paths, added: c.added, removed: c.removed, scopeAuth: true }).size === 0;
+}
+/** Words that make a docs line a money, security, secret or auth claim for plainDocsSince: deliberately broad, since a false hit only reruns the reader. */
+const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'cap', 'caps', 'capped', 'usd', 'dollar', 'dollars', 'paid', 'pay', 'payment', 'payments', 'refund', 'refunds',
+  'secret', 'secrets', 'key', 'keys', 'credential', 'credentials', 'password', 'passwords', 'token', 'tokens', 'security', 'sandbox', 'injection', 'trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'csrf', 'xss', 'vulnerability', 'privilege']);
+
+/**
+ * receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they
+ * publish (#3854). Classes that failed closed on an input this checkout cannot read (no origin base, no gate scan) are reported,
+ * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
+ */
+export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
+  const at = headInputs(root, baseRef, head);
+  const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  const v = receiptTargetedVerdict(t.classes, r);
+  return v.ok || !t.errors.length ? v : { ok: true, line: `${v.line} (unchecked: ${t.errors.join('; ')}; the queue decides at ready)` };
+}

@@ -1,9 +1,10 @@
 {
   "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1",
-  "runner": "bun test {files}",
+  "runner": "bun test --timeout=30000 {files}",
   "remote_gate": "bash scripts/ubicloud/pregate-remote.sh",
   "dependencies": {
     ".github/workflows/**": ["test/pregate-selection.test.ts", "test/free-tests-workflow-wiring.test.ts"],
+    "patches/**": ["browse/test/playwright-core-patch.test.ts"],
     "scripts/gen-ship-goldens.ts": ["test/host-config.test.ts"],
     "bun.lock": [],
     ".gitignore": [],
@@ -16,9 +17,30 @@
     "supabase/**": []
   },
   "selection": {
-    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list",
-    "windows-free-tests.yml/windows-free-shard": "bun run scripts/test-free-shards.ts --windows-only --list"
+    "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list"
+  },
+  "run_profiles": {
+    "ci-reuse/free-tests": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux" },
+    "ci-reuse/windows-free-tests": { "workflow": "windows-free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["windows-plan", "windows-free-tests"], "artifact": "tested-tree", "os": "Windows" }
+  },
+  "remote_gate_runs": {
+    "profiles": ["ci-reuse/free-tests"],
+    "inventory": "bun --no-env-file --config=/dev/null run scripts/test-free-shards.ts --list | sed -n 's/^  //p'",
+    "skipped": "bun --no-env-file --config=/dev/null -e 'import { isPaidTestFile } from \"./test/helpers/paid-test-set.ts\"; import * as fs from \"node:fs\"; for (const f of fs.readFileSync(process.env.PREGATE_FILES_FILE, \"utf8\").split(/\\r?\\n/)) if (f && isPaidTestFile(f)) console.log(f);'"
+  },
+  "ship_lanes_from": {
+    "bun run test": { "profiles": ["ci-reuse/free-tests"], "inventory": "bun --no-env-file --config=/dev/null run scripts/test-free-shards.ts --list | sed -n 's/^  //p'", "per_file": "bun --no-env-file test --timeout=30000 {files}" }
   },
   "warn": [],
+  "guards": [
+    { "id": "typecheck", "when": ["**/*.ts", "tsconfig.json", "package.json", "bun.lock"], "command": "bun run typecheck", "fix": "fix the type errors bun run typecheck prints" },
+    { "id": "skill-size", "when": ["SKILL.md", "*/SKILL.md", "*/sections/*.md", "SKILL.md.tmpl", "*/SKILL.md.tmpl", "*/sections/*.tmpl", "*/sections/manifest.json", "*/templates/*.tmpl", "hosts/**", "model-overlays/**", "scripts/gen-skill-docs.ts", "scripts/resolvers/**", "test/skill-md-size-guard.test.ts", "test/skill-size-budget.test.ts", "test/catalog-budget.test.ts", "test/fixtures/skill-md-size-allowlist.json", "test/fixtures/parity-baseline-*.json", "test/helpers/skill-census.ts", "test/helpers/skill-startup.ts"], "command": "bun test test/skill-md-size-guard.test.ts test/skill-size-budget.test.ts test/catalog-budget.test.ts", "fix": "shorten the skill text the failure names; move a pin only when the growth is wanted, with the reason in the PR body" },
+    { "id": "parity-suite", "when": ["SKILL.md", "*/SKILL.md", "*/sections/*.md", "SKILL.md.tmpl", "*/SKILL.md.tmpl", "*/sections/*.tmpl", "*/sections/manifest.json", "*/templates/*.tmpl", "hosts/**", "model-overlays/**", "scripts/gen-skill-docs.ts", "scripts/resolvers/**", "test/parity-suite.test.ts", "test/fixtures/parity-baseline-*.json", "test/helpers/parity-harness.ts"], "command": "bun test test/parity-suite.test.ts", "fix": "restore the missing phrase or heading, or shorten the skill back under its size ratio" },
+    { "id": "context-budget", "when": ["SKILL.md", "*/SKILL.md", "*/sections/*.md", "SKILL.md.tmpl", "*/SKILL.md.tmpl", "*/sections/*.tmpl", "*/sections/manifest.json", "*/templates/*.tmpl", "hosts/**", "model-overlays/**", "scripts/gen-skill-docs.ts", "scripts/resolvers/**", "test/context-budget-ratchet.test.ts", "test/fixtures/context-budget*.json"], "command": "bun test test/context-budget-ratchet.test.ts", "fix": "shorten the skill under its token ceiling, or lower the ceiling when the skill shrank" },
+    { "id": "module-size", "when": ["lib/**/*.ts", "bin/**", "scripts/**/*.ts", "browse/src/**/*.ts", "test/helpers/**/*.ts", "test/module-size-ratchet.test.ts", "test/fixtures/module-size-ratchet.json"], "command": "bun test test/module-size-ratchet.test.ts", "fix": "split the module or function the failure names; it may not grow past its recorded size" },
+    { "id": "goldens", "when": ["SKILL.md", "*/SKILL.md", "*/sections/*.md", "SKILL.md.tmpl", "*/SKILL.md.tmpl", "*/sections/*.tmpl", "*/sections/manifest.json", "*/templates/*.tmpl", "hosts/**", "model-overlays/**", "scripts/gen-skill-docs.ts", "scripts/resolvers/**", "ship/**", "scripts/gen-ship-goldens.ts", "test/host-config.test.ts", "test/fixtures/golden/**"], "command": "bun test test/host-config.test.ts", "fix": "when the render change is intended, run bun scripts/gen-ship-goldens.ts and commit the updated goldens" },
+    { "id": "doc-caps", "when": ["CLAUDE.md", "test/claude-md-size.test.ts"], "command": "bun test test/claude-md-size.test.ts", "fix": "move contributor-only detail from CLAUDE.md into docs/ and leave a one-line pointer" },
+    { "id": "conflict-markers", "when": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.tmpl", "bin/**"], "command": "bun scripts/check-conflict-markers.ts", "fix": "finish the merge in each file it names, delete the marker lines and commit; a fixture that shows markers on purpose declares itself as docs/pregate.md describes" }
+  ],
   "strays": { "allow": ["modules/loadouts.json", "modules/loadouts.schema.json"] }
 }

@@ -1,0 +1,47 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-release-stamp — versions at release under merge: direct (docs/ship-policy.md#release-stamp).
+ *
+ *   gstack-release-stamp open [--base <branch>] [--dry-run]
+ *
+ * Stamps a fresh worktree of origin/<base> with gstack-restamp --release (VERSION, package.json version, every
+ * changelog.d fragment folded into the CHANGELOG, release outputs, stamp_paths), commits it on release/<version>,
+ * pushes that branch and opens the release PR. The Captain lands it with gstack-ship-queue land --pr <n> --pin <head>;
+ * the stable cut then tags v<version>. Runs the base policy's release_tool. Logic: lib/release-stamp.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import { EXIT, exitTableHelp, formatResult } from '../lib/headless-artifacts';
+import { openRelease } from '../lib/release-stamp';
+import { RESULT_CODES } from '../lib/result-codes';
+import { resolveBaseBranch } from '../lib/ship-policy';
+
+const HELP = `gstack-release-stamp — open the release PR that stamps versions under merge: direct (docs/ship-policy.md#release-stamp)
+
+  open                 stamp origin/<base> (gstack-restamp --release), push release/<version>, open its PR
+  --base <branch>      base branch (default: origin/HEAD, else main)
+  --dry-run            stamp in a throwaway worktree and print the diff; push and open nothing
+
+Prints RELEASE: <old> -> <new>, the stage table, PUSHED:, RELEASE_PR: and NEXT: (the land --pin command), then
+GSTACK_RESULT: skill=release-stamp status=complete|refused|incomplete.
+${exitTableHelp()}`;
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
+  if (argv[0] !== 'open') { process.stderr.write(`gstack-release-stamp: the only command is open\n${HELP}\n`); return EXIT.usage; }
+  const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  if (root.status !== 0) { process.stderr.write('gstack-release-stamp: not inside a git repository\n'); return EXIT.usage; }
+  const repoRoot = root.stdout.trim();
+  const i = argv.indexOf('--base');
+  const r = openRelease({ repoRoot, base: resolveBaseBranch(repoRoot, i >= 0 ? argv[i + 1] : undefined), dryRun: argv.includes('--dry-run') });
+  for (const line of r.lines) process.stdout.write(line + (line.endsWith('\n') ? '' : '\n'));
+  if (!r.ok) {
+    process.stderr.write(`gstack-release-stamp: ${r.message}; fix: ${RESULT_CODES[r.code].fix} (${r.code})\n`);
+    const refused = r.code !== 'RESTAMP_CONFLICT';
+    process.stdout.write(formatResult('release-stamp', refused ? 'refused' : 'incomplete', '-') + '\n');
+    return refused ? EXIT.refused : EXIT.fail;
+  }
+  process.stdout.write(formatResult('release-stamp', 'complete', r.url ?? r.branch) + '\n');
+  return EXIT.ok;
+}
+
+process.exitCode = main(process.argv.slice(2));

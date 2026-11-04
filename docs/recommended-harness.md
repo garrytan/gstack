@@ -139,7 +139,9 @@ harness-generic; only the thread and the PR tool are Capy.
    default branch.
 4. **Run `/ship` unattended** with the `GSTACK_LAUNCH` assignments
    exported: it runs the pregate (on a machine under 8 cores the test tier
-   needs `gstack-pregate --stage tests --remote`, about $0.06 on a Ubicloud VM
+   clears from a verified CI run at the pushed tree when the base declares
+   `remote_gate_runs` ([CI carry](pregate.md#ci-carry)); otherwise it needs
+   `gstack-pregate --stage tests --remote`, about $0.06 on a Ubicloud VM
    or free locally for small selections), both reviews, the gate-integrity
    list, the docs audit, and writes the ship receipt into the PR body
    (`gstack-ship-receipt write --pr <n>`). With `queue_mode:
@@ -263,7 +265,7 @@ line whose input could not be read says `unavailable (<reason>)` rather than 0.
 gstack-factory-scorecard --repo owner/name --since-days 7 \
   [--crew login,login] [--gate-workflow evals.yml] [--free-workflow free-tests.yml] \
   [--train-prefix train/] [--ready-marker 'READY #\d+|SHIP_RECEIPT:'] [--pass-marker '"passes": (\d+)|passes=(\d+)'] \
-  [--pass-cap 3] [--out-dir .context/factory-scorecard] [--now <iso>]
+  [--pass-cap 2] [--out-dir .context/factory-scorecard] [--now <iso>]
 ```
 
 `--repo` defaults to the origin remote's owner/name on github.com (or
@@ -280,11 +282,11 @@ measured later does not count anything that happened after that week.
 | Merged PRs | `merged_at` in the window, base = default branch; crew by `--crew` logins, else author association OWNER/MEMBER/COLLABORATOR | several merges a day, every day; outside contributions land in the same week |
 | Lead time, created → merged | PR `created_at` to `merged_at`, median and p90 | median under 24h, p90 under 3 days (DORA "elite" change lead time is under a day) |
 | Lead time, READY → merged | first PR comment matching `--ready-marker` at or before `merged_at`; PRs with no such comment are left out and counted | under 2h; every merged PR carries a READY comment |
-| Review passes per PR | the largest count `--pass-marker` captures in the PR body (the ship receipt's `"passes": N` once /ship writes it) or a PR comment (`passes=N`, `REVIEW_PASSES: N`), median and p90, plus how many PRs sat at `--pass-cap` (3: pass 1 reviews the whole diff, later passes only the delta, a pass that finds nothing new is the exit) | median 2 passes; none at the cap |
+| Review passes per PR | the largest count `--pass-marker` captures in the PR body (the ship receipt's `"passes": N` once /ship writes it) or a PR comment (`passes=N`, `REVIEW_PASSES: N`), median and p90, plus how many PRs reached `--pass-cap` (2, the [review policy](review-policy.md)'s cap of two rounds, a fix-check included: pass 1 reviews the whole diff, pass 2 only the range since, and a pass that finds nothing blocking is the exit) | median 1 pass; few at the cap |
 | Gate runs green / red / cancelled | completed runs of the gate workflow (`workflow_dispatch` by default; `--gate-event any`); cost from the run's `report-verdict-a*` artifact (`collector-outcomes.json` `.verdict.costUsd`), else the `**$N** rule/judge cost` or `cost=$N` line of the PR's verdict comment | green on 95%+ of runs, cancelled near 0, cost known for every run |
 | Known gate cost per merged PR | known cost / merged PRs; unknown-cost runs make it a floor | known, stable or falling week over week |
 | Red-train rate | runs whose head branch starts with `--train-prefix`, cancelled excluded; red = conclusion other than success; red backstops and screens shown beside it | under 5% (each red train is a bisect plus a rebuild, about two gates) |
-| Flaky events | `flake-records-a*` records of the newest gate runs (count, known rerun spend) and `flake-ledger-*` entries of free runs on the default branch; a run whose artifacts cannot be read is counted and named, never scored 0 | 0 repeat cases; under 1 flaky case per 10 gates; free retries under 1% of runs |
+| Flaky events | `flake-records-a*` records of the newest gate runs (count, known rerun spend) and `flake-ledger-*` entries of free runs on the default branch; a run whose artifacts cannot be read is counted and named, never scored 0, and a main push that reused its pull request's run (no artifacts, `reuse` job green) is left out and named | 0 repeat cases; under 1 flaky case per 10 gates; free retries under 1% of runs |
 | Issues opened / closed | GitHub search, created and closed in the window | closed ≥ opened; nothing severe older than a week |
 | Releases cut | releases published in the window, drafts excluded | at least one tagged release a week, on schedule |
 

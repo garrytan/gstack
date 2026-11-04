@@ -22,13 +22,15 @@ import {
 import { resultLine } from '../lib/result-codes';
 import { resolveStateRoot } from '../lib/state-root';
 import { validatePublic } from '../lib/autoplan-public';
+import { validateShadow } from '../lib/autoplan-shadow-reader';
 
 const HELP = `gstack-artifact — the unattended artifact contract (docs/unattended.md)
 
   validate <run.json> [--json]                      run-directory completion check
   validate --public <dir> [--private <run.json>]   a public run copy (gstack-autoplan export --public): provenance digests;
                                                     with --private (on the exporting machine) any recorded root fails
-                                                    (ARTIFACT_MACHINE_PATH, file:line); home-path patterns WARN
+                                                    (ARTIFACT_MACHINE_PATH, file:line), and so does a quote of the
+                                                    owner's words (ARTIFACT_OWNER_WORDS); home-path patterns WARN
   validate <file> --as <name> [--run <id>] [--json] one artifact against its schema
   schema <name> | --list                            JSON Schema for ${ARTIFACT_NAMES.join(', ')}
   ack <run.json> --consumer <id> [--json]           set run.json.consumed_by (idempotent) and log the ack
@@ -70,7 +72,7 @@ function main(argv: string[]): number {
     else {
       printErrors(result.errors);
       for (const w of result.warnings) process.stderr.write(w + '\n');
-      process.stdout.write(result.valid ? `ARTIFACT_VALID: public run=${result.run} warnings=${result.warnings.length}${flag(rest, '--private') ? '' : ' (recorded roots unchecked: pass --private <run.json> on the exporting machine)'}\n` : `ARTIFACT_INVALID: ${result.errors.length} error(s)\n`);
+      process.stdout.write(result.valid ? `ARTIFACT_VALID: public run=${result.run} warnings=${result.warnings.length}${flag(rest, '--private') ? '' : ' (recorded roots unchecked: pass --private <run.json> on the exporting machine; it also checks for the owner\'s words)'}\n` : `ARTIFACT_INVALID: ${result.errors.length} error(s)\n`);
     }
     return result.valid ? EXIT.ok : EXIT.fail;
   }
@@ -86,7 +88,9 @@ function main(argv: string[]): number {
       else { printErrors(errors); process.stdout.write(errors.length ? `ARTIFACT_INVALID: ${errors.length} error(s)\n` : `ARTIFACT_VALID: ${as} ${path.basename(file)}\n`); }
       return errors.length ? EXIT.fail : EXIT.ok;
     }
-    const result = validateRun(file);
+    const run = validateRun(file);
+    const shadow = validateShadow(run.runDir);
+    const result = { ...run, valid: run.valid && shadow.length === 0, errors: [...run.errors, ...shadow] };
     if (json) {
       process.stdout.write(JSON.stringify({ valid: result.valid, run: result.manifest?.run ?? null, status: result.manifest?.status ?? null, run_dir: result.runDir, attested: result.attested ?? 0, errors: result.errors }) + '\n');
     } else {

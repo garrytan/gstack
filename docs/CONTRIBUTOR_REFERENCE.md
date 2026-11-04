@@ -20,7 +20,7 @@ cuts to the coverage audit, review army, or voice directive have real quality co
 
 A second, harder ceiling guards the DISCOVERY surface: `test/catalog-budget.test.ts`
 caps the aggregate frontmatter `name` + `description` across all skills at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,423 today; each new skill ratchets it)
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,452 today; each new skill ratchets it)
 token-equivalents (260-byte per-skill sub-cap), counted through the shared census
 in `test/helpers/skill-census.ts`. This one is enforced, not a warning — every
 host loads the full catalog every session, so growth here taxes every
@@ -131,8 +131,8 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
   → glab → unknown(=public-strict). Public repos get STERNER per-finding
   confirmation (no batch-acknowledge, no silent-proceed); MEDIUM is never
   auto-promoted to HIGH.
-- **Tool-attributed fences:** wrap Codex/Greptile/eval output in ` ```codex-review `
-  / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
+- **Tool-attributed fences:** wrap Codex/review-bot/Greptile/eval output in ` ```codex-review `
+  / ` ```review-bot ` / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
   instead of blocking. A live-format credential inside the fence still blocks.
 - **Config keys:** `redact_repo_visibility` (public|private|unknown, local-only
   override for repos gh/glab can't read), `redact_prepush_hook` (true|false).

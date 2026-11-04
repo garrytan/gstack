@@ -1,0 +1,84 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-ci-carry — CI as the one full test run (GSTA-258; docs/pregate.md#ci-carry).
+ *
+ *   gstack-ci-carry find [--base <branch>] [--profile <name>]... [--command <exact lane command> --allow-repo-commands] [--json]
+ *                        [--policy-from head --simulate]
+ *   gstack-ci-carry wait [--base <branch>] [--profile <name>] [--timeout <s>] [--interval <s>]
+ *
+ * find: the newest verified run of each profile (default: every profile the base branch's
+ * ship_lanes_from names) at HEAD's clean tree. With --command, the base branch's mapping for that exact lane
+ * command supplies the profiles and the inventory the runs must cover (a pin-file command, so it needs
+ * --allow-repo-commands). Prints CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1).
+ * wait: polls the newest run of the profile's workflow at HEAD until it completes (default timeout 1800 s),
+ * prints CI_WAIT: green|red|running|none, and on green runs find. Exit 0 green and carried, 1 red or not
+ * carried, 3 still running or no run. Logic: lib/ci-carry.ts; the run checks are lib/run-evidence.ts.
+ */
+import { spawnSync } from 'node:child_process';
+import { findCarry, laneMapping, mappingCoverage, waitForRun } from '../lib/ci-carry';
+import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from '../lib/pregate/config';
+import { buildRunCheck } from '../lib/pregate/run-check';
+import { wtreeFingerprint } from '../lib/script-invocation';
+import { resolveBaseBranch } from '../lib/ship-policy';
+
+const HELP = `gstack-ci-carry — use a verified CI run at HEAD's exact tree instead of running the suite again (docs/pregate.md#ci-carry)
+
+  find [--base <branch>] [--profile <name>]... [--command <exact lane command> --allow-repo-commands] [--json]
+      CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1)
+      --policy-from head --simulate: the same check under the branch's own map and profiles, every line starting
+      SIMULATION:; a dry run that proves a new mapping before it lands (find never writes evidence; nothing clears)
+  wait [--base <branch>] [--profile <name>] [--timeout <s>] [--interval <s>]
+      poll the newest run at HEAD (default 1800 s, every 20 s): CI_WAIT: green|red|running|none, then find on green;
+      exit 0 carried, 1 red or not carried, 3 still running or no run
+
+Profiles and ship_lanes_from come from origin/<base>'s .gstack/pregate.json only (a simulation reads the branch's). Only a clean, committed tree
+carries; fork runs, stale runs, a newer red or running run on HEAD and a tree.json that misses an inventory
+file never do. Exit 2 is usage.`;
+
+const argv = process.argv.slice(2);
+const cmd = argv[0];
+const all = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] !== undefined ? [argv[i + 1]!] : []));
+const flag = (n: string) => all(n).at(-1);
+const simulate = argv.includes('--simulate');
+const out = (s: string) => process.stdout.write(`${simulate ? 'SIMULATION: ' : ''}${s}\n`);
+const usage = (m: string) => { process.stderr.write(`gstack-ci-carry: ${m}\n`); process.exit(2); };
+if (!cmd || argv.includes('--help') || argv.includes('-h')) { out(HELP); process.exit(cmd ? 0 : 2); }
+if (cmd !== 'find' && cmd !== 'wait') usage(`unknown command ${cmd}; run gstack-ci-carry --help`);
+const policyFrom = flag('--policy-from') ?? 'base';
+if (policyFrom !== 'base' && policyFrom !== 'head') usage('--policy-from needs base or head');
+if (simulate !== (policyFrom === 'head') || (simulate && cmd !== 'find')) usage('find --policy-from head --simulate go together: a branch\'s own map is only ever simulated, never carried');
+const git = (args: string[]) => { const r = spawnSync('git', args, { encoding: 'utf8', timeout: 30_000 }); return r.status === 0 ? r.stdout.trim() : ''; };
+const root = git(['rev-parse', '--show-toplevel']);
+if (!root) usage('not inside a git repository');
+const base = resolveBaseBranch(root, flag('--base'));
+const loaded = simulate ? loadConfigFromHead(root) : loadConfigFromBase(root, base);
+if (simulate) out(`policy ${isConfigUnavailable(loaded) ? 'unavailable' : loaded.label}; a dry run: nothing is written and nothing clears (a carry reads origin/${base}'s map only)`);
+if (isConfigUnavailable(loaded) || loaded.errors.length) { out(`CI_CARRY: none (profiles_unavailable: ${simulate ? 'the branch\'s' : `origin/${base}'s`} .gstack/pregate.json is unreadable or invalid)`); process.exit(1); }
+const command = flag('--command');
+const mapping = command !== undefined ? laneMapping(loaded.config.ship_lanes_from, command) : undefined;
+if (command !== undefined && !mapping) { out(`CI_CARRY: none (not_mapped: ${JSON.stringify(command)} is neither a key nor a declared alias in origin/${base}'s ship_lanes_from)`); process.exit(1); }
+if (mapping && !argv.includes('--allow-repo-commands')) usage('--command runs the mapping\'s inventory, a pin-file command: pass --allow-repo-commands');
+const profiles = all('--profile').length ? all('--profile') : mapping ? mapping.profiles : [...new Set(Object.values(loaded.config.ship_lanes_from).flatMap(m => m.profiles))];
+if (!profiles.length) { out(`CI_CARRY: none (no_profile: origin/${base} maps no lane in ship_lanes_from; pass --profile <name>)`); process.exit(1); }
+const check = buildRunCheck(root, null, argv.includes('--allow-repo-commands'), base, simulate ? 'head' : 'base');
+if ('error' in check) { out(`CI_CARRY: none (profiles_unavailable: ${check.error})`); process.exit(1); }
+const head = git(['rev-parse', 'HEAD']);
+const tree = git(['rev-parse', 'HEAD^{tree}']);
+
+function find(): number {
+  const wtree = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };
+  const v = findCarry(check as Exclude<typeof check, { error: string }>, { profiles, head, tree, wtree, ...(mapping ? mappingCoverage(mapping, root) : {}) });
+  if (argv.includes('--json')) out(JSON.stringify(v));
+  else out(v.ok ? `CI_CARRY: accepted ${v.receipt}` : `CI_CARRY: none (${v.reason}: ${v.detail})`);
+  return v.ok ? 0 : 1;
+}
+
+if (cmd === 'find') process.exit(find());
+const timeout = Number(flag('--timeout') ?? '1800');
+const interval = Number(flag('--interval') ?? '20');
+if (!(timeout >= 0 && timeout <= 21_600) || !(interval >= 1 && interval <= 600)) usage('--timeout is 0-21600 seconds and --interval 1-600');
+const profile = check.profiles[profiles[0]!];
+if (!profile) usage(`${profiles[0]} is not a run_profiles name on origin/${base}`);
+const w = await waitForRun(check.deps, { workflow: profile!.workflow, events: profile!.events, head, timeoutMs: timeout * 1000, intervalMs: interval * 1000, sleep: ms => Bun.sleep(ms), clock: Date.now });
+out(`CI_WAIT: ${w.state} ${profiles[0]} ${'run' in w ? `run=${w.run.id}/${w.run.run_attempt}${w.state === 'red' ? ` failing=${w.failing.join(',') || '-'}` : ''}` : w.reason}`);
+process.exit(w.state === 'green' ? find() : w.state === 'red' ? 1 : 3);

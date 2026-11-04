@@ -29,9 +29,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { PregateFile } from './headless-artifacts';
 import { CHECKS, pregateMirrorPath, readPregateFile, verifyPregate, PREGATE_OUT_REL } from './pregate/index';
+import { exceptionConsumerProblem, flakyExceptionLines } from './pregate/flaky-exception';
 import { ensureTmpExcluded, restamp, versionAtRef } from './restamp';
 import type { ResultCodeName } from './result-codes';
-import { extractReceipt } from './ship-receipt';
+import { extractReceipt, readyTailLines } from './ship-receipt';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { isUnavailable, loadPolicyFromBase, type LoadedPolicy } from './ship-policy';
 import {
@@ -66,7 +67,7 @@ export function receiptDigest(r: TreeReceipt): string {
 }
 
 function treeReceipt(ctx: QueueContext, policy: LoadedPolicy, gated: string, current: string): TreeReceipt | QueueFailure {
-  const r = buildReceipt({ repoRoot: ctx.repoRoot, gated, current, policy: policy.policy, policyLabel: policy.source.label });
+  const r = buildReceipt({ repoRoot: ctx.repoRoot, gated, current, policy: policy.policy, policyLabel: policy.source.label, baseRef: `${ctx.remote ?? 'origin'}/${ctx.base}` });
   return 'error' in r ? { code: 'QUEUE_PROOF_MISSING', message: r.error } : r;
 }
 
@@ -175,7 +176,7 @@ function conflictHint(mergeable: unknown, ci: { green: boolean; none: boolean },
   if (mergeable !== 'CONFLICTING') return null;
   const ref = branch && /^[\w.][\w./-]*$/.test(branch) ? `--ref ${branch}` : '--ref <branch>';
   if (ci.none && fork) return `ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${head.slice(0, 12)}) and its head is on a fork, so the free workflows cannot be dispatched here; the coordinator decides (advisory)`;
-  if (ci.none) return `ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${head.slice(0, 12)}); dispatch the free workflows on the branch (gh workflow run free-tests.yml ${ref} && gh workflow run windows-free-tests.yml ${ref}), clear the pregate lanes with their run URLs (gstack-pregate clear --remote <lane> --run-url <run>), then rerun ready (advisory)`;
+  if (ci.none) return `ci-hint: PR conflicts with the base (no merge ref, so pull_request CI did not run on ${head.slice(0, 12)}); dispatch the free workflows on the branch (gh workflow run free-tests.yml ${ref} && gh workflow run windows-smoke.yml ${ref}), clear each lane pregate names with a run of that lane's own workflow (gstack-pregate clear --remote <workflow.yml/job> --run-url <that workflow's run>; a run of another workflow is refused), then rerun ready (advisory)`;
   if (ci.green) return `ci-hint: PR conflicts with the base (no merge ref); the runs at ${head.slice(0, 12)} were not pull_request runs (dispatched on the branch, or push-triggered), and they count (advisory)`;
   return null;
 }
@@ -226,12 +227,13 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (info.headRefOid !== head) return fail({ code: 'QUEUE_NOT_READY', message: `HEAD ${head.slice(0, 12)} is not PR #${o.pr}'s pushed head ${info.headRefOid.slice(0, 12)}` }, [], run);
   const atHead = versionAtRef(ctx.repoRoot, head);
   const baseSha = git(ctx.repoRoot, ['rev-parse', `origin/${ctx.base}`]).out;
-  const atBase = versionAtRef(ctx.repoRoot, baseSha);
-  const version = 'version' in atHead && 'version' in atBase && atHead.version !== atBase.version ? atHead.version : 'unstamped';
+  const atFork = versionAtRef(ctx.repoRoot, git(ctx.repoRoot, ['merge-base', baseSha, head]).out || baseSha);
+  const version = 'version' in atHead && 'version' in atFork && atHead.version !== atFork.version ? atHead.version : 'unstamped';
   const ci = ciAtHead(ctx, head);
   const pregateFile = path.resolve(ctx.repoRoot, o.pregate ?? PREGATE_OUT_REL);
   let pregateLine = `PREGATE: missing (${path.relative(ctx.repoRoot, pregateFile)}; run gstack-pregate run --allow-repo-commands)`;
   let pregateOk = false;
+  let accepted: PregateFile | null = null;
   const treeNow = wtreeFingerprint({ cwd: ctx.repoRoot });
   // The mirror stands in for a record that is missing, unreadable, recorded for another tree, or current but
   // waiting on a remote receipt another checkout holds; a record whose own checks failed or stayed incomplete (the diff's doing
@@ -242,6 +244,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     if (read.file) {
       const v = verifyPregate(ctx.repoRoot, read.file, treeNow);
       pregateOk = v.ok;
+      if (v.ok) accepted = read.file;
       useMirror = !v.ok && v.code !== 'PREGATE_LANE_FAILED' && v.code !== 'PREGATE_INCOMPLETE' && v.code !== 'PREGATE_ENVIRONMENT';
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length}${v.ok ? '' : ` — ${v.message} (${v.code})`}`;
     } else pregateLine = `PREGATE: unreadable (${read.errors[0]?.message ?? 'invalid'})`;
@@ -253,9 +256,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     const v = read?.file && !gap ? verifyPregate(ctx.repoRoot, read.file, treeNow) : null;
     if (read?.file && v?.ok) {
       pregateOk = true;
+      accepted = read.file;
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length} (from the state root's pregate/by-tree/${treeNow.tree.slice(0, 12)}.json, recorded by another checkout)`;
     } else if (gap) pregateLine += `; the state root's mirror for this tree cannot stand in: ${gap}`;
   }
+  const foreign = accepted && exceptionConsumerProblem(accepted, head, o.pr);
+  if (foreign) { pregateOk = false; accepted = null; pregateLine += ` — ${foreign} (PREGATE_REMOTE_UNCLEARED)`; }
   const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
@@ -268,10 +274,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     `ci: ${ci.line}`,
     ...(hint ? [hint] : []),
     pregateLine,
+    ...(accepted ? flakyExceptionLines(accepted) : []),
     gateLine(policy, attempt),
     receipt.line,
     ...(receipt.depthLine ? [receipt.depthLine] : []),
     ...(receipt.targetedLine ? [receipt.targetedLine] : []),
+    ...readyTailLines(receipt.ok ? receipt.receipt : undefined),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);

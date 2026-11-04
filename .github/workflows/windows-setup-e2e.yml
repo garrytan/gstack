@@ -32,6 +32,13 @@ name: Windows Setup E2E
 # Separate from windows-free-tests.yml because that one runs a curated
 # unit-test subset; this one exercises the install path itself.
 #
+# Runs by path (ship-90-90 plan D): the paths below are the install files
+# this workflow runs or ./setup sources or runs. The windows-scope job then
+# drops a pull request whose only install change is package.json's version
+# line, which is what the merge-train stamp commit puts on every PR head.
+# windows-scope's list must match the paths list (pinned by
+# test/windows-path-scope-workflow.test.ts).
+#
 # Runner: GitHub-hosted free windows-latest, two parallel jobs. ~10-25 min.
 
 on:
@@ -39,6 +46,7 @@ on:
     branches: [main]
     paths:
       - 'package.json'
+      - 'bun.lock'
       - 'scripts/build.sh'
       - 'scripts/build-cso.sh'
       - 'scripts/build-cso-windows.ps1'
@@ -64,6 +72,18 @@ on:
       - 'bin/gstack-claude-root.sh'
       - 'bin/gstack-browser-ensure'
       - 'bin/gstack-path-spelling.sh'
+      - 'bin/gstack-config'
+      - 'bin/gstack-patch-names'
+      - 'bin/gstack-state-root.sh'
+      - 'bin/gstack-skill-name.sh'
+      - 'bin/gstack-install-registry.sh'
+      - 'bin/gstack-render-claude.sh'
+      - 'bin/gstack-host-renders.sh'
+      - 'bin/gstack-migrate-claude-code'
+      - 'bin/gstack-settings-hook'
+      - 'bin/gstack-relink'
+      - 'bin/gstack-harness'
+      - 'scripts/preflight-codex-overlap.ts'
       - 'lib/path-spelling.ts'
       - 'hosts/claude/hooks/**'
       - 'gstack-upgrade/**'
@@ -81,7 +101,94 @@ permissions:
   contents: read
 
 jobs:
+  windows-scope:
+    # The paths filter above starts this workflow; this job decides whether
+    # the Windows jobs run. A workflow_dispatch run always runs them.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      install: ${{ steps.scope.outputs.install }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: scope
+        name: Run unless the only install change is package.json's version line
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo 'install=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pkg_version_only=true
+          if git diff -U0 --no-renames HEAD^1 HEAD -- package.json | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' \
+            | grep -vE '^[+-]  "version": "[^"]*",?$' > /dev/null; then
+            pkg_version_only=false
+          fi
+          git diff --name-only --no-renames HEAD^1 HEAD | while IFS= read -r file; do
+            if [ "$file" = package.json ] && [ "$pkg_version_only" = true ]; then continue; fi
+            while IFS= read -r glob; do
+              # shellcheck disable=SC2254
+              case "$file" in ${glob//\*\*/*}) echo "$file"; break ;; esac
+            done <<'PATHS'
+          package.json
+          bun.lock
+          scripts/build.sh
+          scripts/build-cso.sh
+          scripts/build-cso-windows.ps1
+          scripts/write-version-files.sh
+          setup
+          setup.ps1
+          test/setup-ps1.test.ts
+          docs/troubleshooting.md
+          browse/src/cli.ts
+          browse/src/find-browse.ts
+          browse/src/server.ts
+          browse/src/meta-commands.ts
+          browse/scripts/build-node-server.sh
+          design/src/cli.ts
+          make-pdf/src/cli.ts
+          bin/gstack-global-discover.ts
+          bin/gstack-paths
+          bin/gstack-doctor
+          bin/gstack-launch-probe.sh
+          bin/gstack-hook-check
+          bin/gstack-session-update
+          bin/gstack-ff-update
+          bin/gstack-claude-root.sh
+          bin/gstack-browser-ensure
+          bin/gstack-path-spelling.sh
+          bin/gstack-config
+          bin/gstack-patch-names
+          bin/gstack-state-root.sh
+          bin/gstack-skill-name.sh
+          bin/gstack-install-registry.sh
+          bin/gstack-render-claude.sh
+          bin/gstack-host-renders.sh
+          bin/gstack-migrate-claude-code
+          bin/gstack-settings-hook
+          bin/gstack-relink
+          bin/gstack-harness
+          scripts/preflight-codex-overlap.ts
+          lib/path-spelling.ts
+          hosts/claude/hooks/**
+          gstack-upgrade/**
+          .github/workflows/windows-setup-e2e.yml
+          PATHS
+          done > "$RUNNER_TEMP/install-files"
+          if [ -s "$RUNNER_TEMP/install-files" ]; then
+            echo 'install=true' >> "$GITHUB_OUTPUT"
+            { echo 'Install files changed, so the Windows jobs run:'; sed 's/^/- /' "$RUNNER_TEMP/install-files"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'install=false' >> "$GITHUB_OUTPUT"
+            echo "The only install change is package.json's version line (the merge-train stamp), so the Windows jobs do not run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   windows-setup:
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
     runs-on: windows-latest
     timeout-minutes: 35
 
@@ -92,16 +199,8 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      # Same lockfile-keyed install cache as windows-free-tests.yml (install
-      # was 45s of a 64s job, all network).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.bun/install/cache
-          key: windows-bun-${{ hashFiles('bun.lock') }}
-          # A lockfile bump starts from the previous cache instead of cold
-          # (restore alone costs ~43s; without this a bump pays it for nothing).
-          restore-keys: |
-            windows-bun-
+      # No bun install cache, as in windows-free-tests.yml: a cold install is
+      # faster on windows-latest than restoring the ~450 MB cache entry.
 
       - name: Configure git identity
         run: |
@@ -385,6 +484,8 @@ jobs:
     # docs/troubleshooting.md, against the runner's real ~/.claude install
     # path ($HOME in PowerShell). GSTACK_E2E_POWERSHELL and
     # GSTACK_E2E_UPDATER_PATH_PREFIX exist only to run these steps off Windows.
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
     runs-on: windows-latest
     timeout-minutes: 50
     env:

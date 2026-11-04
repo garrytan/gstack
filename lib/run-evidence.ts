@@ -22,7 +22,10 @@
  *   not hide a failure in between); it finished within the profile's
  *   max_age_hours (default 24); its runner OS matches when the profile names
  *   one; and a second read of the run still shows the same successful attempt
- *   (run_changed otherwise).
+ *   (run_changed otherwise). A pull_request run tested GitHub's merge commit,
+ *   not its head, so it counts only when its tree.json names that head and a
+ *   merge commit (sha) whose tree git computes equal to the head's tree: the
+ *   head already contained its base, so the merge tested the head tree.
  *
  * Profiles are the base branch's `.gstack/pregate.json` `run_profiles`, so a
  * pull request can tighten them but never relax them. The workflow a run
@@ -39,15 +42,26 @@ import * as path from 'node:path';
 import { sha256Hex, writeReceipt } from './egress-receipt';
 import { runBashSync } from './script-invocation';
 
-export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string }
-export interface RemoteGateRuns { profiles: string[]; inventory: string }
+/**
+ * `skippable` (GST-1190): named jobs the workflow may skip by path; a skip counts only in a pull_request run whose `gate` job
+ * succeeded, with the workflow, the declared `scripts` and any path the gate's steps name matching origin/<base> byte for byte.
+ */
+export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts: string[] } }
+export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
-  repository?: { full_name: string } | null; head_repository?: { full_name: string } | null;
+  repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
-export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; os?: unknown; files?: unknown; tests?: unknown }
+export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
+
+/** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
+export interface RunArtifactDeps {
+  /** Every file of the run's one unexpired artifact `name`, path → text; throws when it is missing, ambiguous or too large. */
+  artifactFiles(id: number, name: string): Record<string, string>;
+  pull(n: number): { head_sha: string; state: string; head_repo: string | null };
+}
 
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
 export interface RunDeps {
@@ -59,17 +73,22 @@ export interface RunDeps {
 }
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
-  | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
-  | 'artifact_reused' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null }
-export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string };
+  | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
+  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
+/** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[] }
+/** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
+export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string };
 
 const SHA = /^[0-9a-f]{40}$/;
-const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os'];
+const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
+const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os', 'skippable'];
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+/** Shard logs are the whole test stream, so a red run's reader allows more than a tree.json. */
+const MAX_LOG_ARTIFACT_BYTES = 64 * 1024 * 1024;
 
 /** A numeric run id, or a run URL on this repository (`…/actions/runs/<id>[/attempts/<n>][/job/<j>]`). */
 export function parseRunRef(ref: string, repo: string): number | null {
@@ -96,38 +115,47 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
         const v = p[k];
         if (!Array.isArray(v) || v.length === 0 || v.length > 32 || v.some(s => typeof s !== 'string' || !s.trim())) errors.push({ path: `${at}.${k}`, message: 'must be a non-empty array of up to 32 names' });
       }
-      if (Array.isArray(p.events) && p.events.some(e => e !== 'push' && e !== 'workflow_dispatch')) errors.push({ path: `${at}.events`, message: 'events are push or workflow_dispatch (a pull_request run tests the merge commit, not the head tree)' });
+      if (Array.isArray(p.events) && p.events.some(e => !RUN_EVENTS.includes(e))) errors.push({ path: `${at}.events`, message: 'events are push, workflow_dispatch or pull_request (a pull_request run counts only when its merge commit\'s tree is its head\'s tree)' });
       if (typeof p.artifact !== 'string' || !NAME.test(p.artifact)) errors.push({ path: `${at}.artifact`, message: 'must be the artifact name holding tree.json' });
       if ('max_age_hours' in p && (!Number.isInteger(p.max_age_hours) || (p.max_age_hours as number) < 1 || (p.max_age_hours as number) > 168)) errors.push({ path: `${at}.max_age_hours`, message: 'must be an integer from 1 to 168' });
       if ('os' in p && (typeof p.os !== 'string' || !/^(Linux|macOS|Windows)$/.test(p.os))) errors.push({ path: `${at}.os`, message: 'must be Linux, macOS or Windows' });
+      if ('skippable' in p) {
+        const s = p.skippable as Record<string, unknown> | null;
+        const names = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 32 && v.every(x => typeof x === 'string' && !!x.trim() && x.length <= 128);
+        const repoPath = (x: unknown) => typeof x === 'string' && !!x && !x.startsWith('/') && !x.split('/').includes('..') && !/[\0\r\n]/.test(x);
+        if (!s || typeof s !== 'object' || Array.isArray(s) || Object.keys(s).some(k => !['jobs', 'gate', 'scripts'].includes(k)) || !names(s.jobs) || typeof s.gate !== 'string' || !s.gate.trim()
+          || (s.jobs as string[]).includes(s.gate as string) || !Array.isArray(s.scripts) || !s.scripts.length || !s.scripts.every(repoPath))
+          errors.push({ path: `${at}.skippable`, message: 'must be { jobs: [job names], gate: <the job that decides the skip>, scripts: [every repo file the gate reads] }, the gate not among the jobs' });
+      }
     }
   }
   if (gateRuns !== undefined && gateRuns !== null) {
     const g = gateRuns as Record<string, unknown>;
-    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command }' });
+    if (!g || typeof g !== 'object' || Array.isArray(g)) errors.push({ path: 'remote_gate_runs', message: 'must be { profiles: [names], inventory: command, skipped?: command }' });
     else {
-      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory' });
+      for (const k of Object.keys(g)) if (k !== 'profiles' && k !== 'inventory' && k !== 'skipped') errors.push({ path: `remote_gate_runs.${k}`, message: 'unknown key; valid keys: profiles, inventory, skipped' });
       if (!Array.isArray(g.profiles) || g.profiles.length === 0 || g.profiles.some(p => typeof p !== 'string')) errors.push({ path: 'remote_gate_runs.profiles', message: 'must be a non-empty array of run_profiles names' });
       else {
         for (const p of g.profiles as string[]) if (!names.has(p)) errors.push({ path: 'remote_gate_runs.profiles', message: `${JSON.stringify(p)} is not a run_profiles name` });
         if (new Set(g.profiles).size !== g.profiles.length) errors.push({ path: 'remote_gate_runs.profiles', message: 'names each profile once' });
       }
       if (typeof g.inventory !== 'string' || !g.inventory.trim() || g.inventory.length > 512 || /[\0\r\n]/.test(g.inventory)) errors.push({ path: 'remote_gate_runs.inventory', message: 'must be one command line under 512 characters that prints the remote gate\'s test files, one per line' });
+      if ('skipped' in g && (typeof g.skipped !== 'string' || !g.skipped.trim() || g.skipped.length > 512 || /[\0\r\n]/.test(g.skipped))) errors.push({ path: 'remote_gate_runs.skipped', message: 'must be one command line under 512 characters that prints which selected test files (PREGATE_FILES_FILE) the remote gate itself does not run, one per line' });
     }
   }
   return errors;
 }
 
-const fail = (reason: RunRefusal, detail: string): RunVerdict => ({ ok: false, reason, detail });
+const fail = (reason: RunRefusal, detail: string, fix?: string): RunVerdict => ({ ok: false, reason, detail, ...(fix ? { fix } : {}) });
 /** When a run's newest attempt started. A run vetoes the candidate when it started at or after the second the candidate was created: a red re-run of an older run counts, and re-running the candidate does not hide a failure in between. */
 const started = (r: ApiRun): string => r.run_started_at ?? r.created_at ?? '';
-const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
+export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
 
 /**
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
  * whose newer runs of the same workflow can veto (the consumer's own head).
  */
-export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; now: Date }): RunVerdict {
+export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; ignoreRun?: number; now: Date; unchanged?: (p: RunProfile) => string | null }): RunVerdict {
   const id = parseRunRef(o.runRef, o.repo);
   if (id === null) return fail('run_ref_invalid', `${JSON.stringify(o.runRef)} is not a run id or a run URL on ${o.repo}`);
   const p = o.profile;
@@ -148,15 +176,27 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const maxAge = p.max_age_hours ?? DEFAULT_MAX_AGE_HOURS;
     if (!Number.isFinite(finished)) return fail('api_error', `${at} has no completion time`);
     if (o.now.getTime() - finished > maxAge * 3600_000) return fail('run_stale', `${at} finished ${finishedAt}, more than ${maxAge} h before now`);
+    const skippedJobs: string[] = [];
     for (const name of p.jobs) {
       const hits = jobs.filter(j => j.name === name);
       if (hits.length === 0) return fail('job_missing', `${at} has no job named ${name}`);
       if (hits.length > 1) return fail('job_ambiguous', `${at} has ${hits.length} jobs named ${name}`);
+      if (hits[0]!.conclusion === 'skipped') {
+        const skip = p.skippable;
+        if (!skip?.jobs.includes(name)) return fail('job_skipped', `${at}'s ${name} job was skipped`);
+        if (run.event !== 'pull_request') return fail('job_skipped', `${at}'s ${name} job was skipped in a ${run.event} run; only a pull_request run's gate diffs against the PR base, so only its skip counts`);
+        const gate = jobs.filter(j => j.name === skip.gate);
+        if (gate.length !== 1 || gate[0]!.conclusion !== 'success') return fail('job_skipped', `${at}'s ${name} job was skipped and its gate job ${skip.gate} ${gate.length === 1 ? `concluded ${gate[0]!.conclusion}` : gate.length ? 'is ambiguous' : 'is missing'}`);
+        const changed = o.unchanged ? o.unchanged(p) : 'no base copy of the workflow was compared';
+        if (changed) return fail('job_skipped', `${at}'s ${name} job was skipped, but ${changed}, so this branch decided the skip`);
+        skippedJobs.push(name);
+        continue;
+      }
       if (hits[0]!.conclusion !== 'success') return fail('job_not_success', `${at}'s ${name} job concluded ${hits[0]!.conclusion}`);
     }
     const heads = [...new Set([run.head_sha, ...(o.vetoHeads ?? []).filter(h => SHA.test(h))])];
     for (const head of heads) {
-      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
+      const newer = deps.runsForHead(p.workflow, head).filter(r => !(r.id === id && r.run_attempt === run.run_attempt) && r.id !== o.ignoreRun && started(r) >= (run.created_at ?? '') && !(r.status === 'completed' && r.conclusion === 'success'));
       if (newer.length) return fail('newer_run_vetoes', `newer run ${newer[0]!.id} of ${p.workflow} on ${head.slice(0, 12)} is ${newer[0]!.status === 'completed' ? newer[0]!.conclusion : newer[0]!.status}`);
     }
     let rec: TreeRecord;
@@ -164,20 +204,36 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
-    const recHeads = rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
+    if (rec.sizing_experiment !== undefined) return fail('sizing_experiment', `${at} was a runner-sizing experiment (a dispatch that overrode the runner, shards or sub-shards); it is never a Free Tests result`);
+    const pr = run.event === 'pull_request';
+    const recHeads = pr ? [['head_sha', rec.head_sha, run.head_sha] as const] : rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
     const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, run.run_attempt], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);
     if (wrong.length) return fail('artifact_mismatch', `${at}'s ${p.artifact} records ${wrong.map(([k, got, want]) => `${k} ${String(got)} (expected ${want})`).join(', ')}`);
     const headTree = deps.commitTree(run.head_sha);
     if (!headTree) return fail('api_error', `git cannot read the tree of ${run.head_sha}`);
-    if (rec.tree !== headTree) return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
-    if (p.os && rec.os !== p.os) return fail('os_mismatch', `${at} ran on ${String(rec.os ?? 'an unrecorded OS')}; ${o.profileName} requires ${p.os}`);
+    const baseMoved = `gh workflow run ${p.workflow} --ref ${run.head_branch || '<branch>'}, then gstack-ci-carry wait`;
+    if (rec.tree !== headTree) {
+      const testedMerge = pr && typeof rec.sha === 'string' && SHA.test(rec.sha) && deps.commitTree(rec.sha) === rec.tree;
+      if (testedMerge) return fail('tree_mismatch', `${at} tested merge commit ${(rec.sha as string).slice(0, 12)} (tree ${String(rec.tree)}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
+      return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+    }
+    if (pr) {
+      if (typeof rec.sha !== 'string' || !SHA.test(rec.sha)) return fail('artifact_mismatch', `${at}'s ${p.artifact} names no merge commit (sha) for its pull_request run`);
+      const mergeTree = deps.commitTree(rec.sha);
+      if (!mergeTree) return fail('api_error', `git cannot read the tree of merge commit ${rec.sha}`);
+      if (mergeTree !== headTree) return fail('tree_mismatch', `${at} tested merge commit ${rec.sha.slice(0, 12)} (tree ${mergeTree}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
+    }
+    const oses = Array.isArray(rec.os) ? rec.os : [rec.os];
+    if (p.os && !oses.includes(p.os)) return fail('os_mismatch', `${at} ran on ${oses.filter(Boolean).map(String).join(', ') || 'an unrecorded OS'}; ${o.profileName} requires ${p.os}`);
     if (rec.files !== undefined && (!Array.isArray(rec.files) || rec.files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} files is not a list of paths`);
     if (rec.tests !== undefined && (!Number.isInteger(rec.tests) || (rec.tests as number) < 0)) return fail('artifact_mismatch', `${at}'s ${p.artifact} tests is not a non-negative integer`);
+    if (rec.skipped_files !== undefined && (!Array.isArray(rec.skipped_files) || rec.skipped_files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} skipped_files is not a list of paths`);
     const files = ((rec.files ?? []) as string[]).map(normalPath);
     const tests = rec.tests === undefined ? null : (rec.tests as number);
     const changed = runChanged(deps, id, run.run_attempt);
     if (changed) return fail('run_changed', changed);
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests } };
+    const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}) } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
@@ -189,17 +245,48 @@ export function runChanged(deps: RunDeps, id: number, attempt: number): string |
   return again.run_attempt === attempt && again.status === 'completed' && again.conclusion === 'success' ? null : `run ${id} moved to attempt ${again.run_attempt} (${again.status === 'completed' ? again.conclusion : again.status}) while it was being verified`;
 }
 
-/** The remote gate's inventory: `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
-export function runInventory(command: string, cwd: string): string[] | { error: string } {
-  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+/** The remote gate's inventory (or skipped list, with PREGATE_FILES_FILE in `env`): `command`'s non-empty output lines under pipefail, so a pipeline whose producer fails refuses instead of listing part of the gate. */
+export function runInventory(command: string, cwd: string, env?: Record<string, string>): string[] | { error: string } {
+  const r = runBashSync(`set -o pipefail\n${command}`, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024, ...(env && { env: { ...process.env, ...env } }) });
   if (r.status !== 0 || r.error) return { error: `${command} exited ${r.status ?? r.error}: ${(r.stderr ?? '').trim().slice(0, 200)}` };
   return [...new Set(r.stdout.split('\n').map(l => l.trim()).filter(Boolean))];
 }
 
 /** The files in `inventory` that no verified run's tree.json lists. */
-export function uncoveredFiles(inventory: string[], evidence: RunEvidence[]): string[] {
-  const ran = new Set(evidence.flatMap(e => e.files.map(normalPath)));
+/** A run's files minus the ones whose every test skipped there (GST-1190): only those ran anything. Older tree.json: all files. */
+export const ranFiles = (e: RunEvidence): string[] => { const skipped = new Set(e.skipped ?? []); return e.files.map(normalPath).filter(f => !skipped.has(f)); };
+
+/**
+ * The inventory files no run covers. `skipped: 'uncovered'` (a carry, which drops tests on a machine where they might run)
+ * also counts a file every test of which skipped in the run; `'covered'` (the remote gate, a Linux runner like CI) does not.
+ */
+export function uncoveredFiles(inventory: string[], evidence: RunEvidence[], skipped: 'uncovered' | 'covered' = 'covered'): string[] {
+  const ran = new Set(evidence.flatMap(e => (skipped === 'uncovered' ? ranFiles(e) : e.files.map(normalPath))));
   return inventory.filter(f => !ran.has(normalPath(f)));
+}
+
+/** What a run check reads: the repository, the verifier's dependencies, the base branch's profiles and the clock. */
+/** `unchanged` (findCarry only): null when a profile's workflow and gate inputs match the base, else which file differs. */
+export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date; unchanged?: (p: RunProfile) => string | null }
+export type FromRunVerdict = { ok: true; evidence: RunEvidence; receipt: string } | { ok: false; reason: string; detail: string };
+
+/**
+ * `gstack-pregate --stage tests --from-run <run>`: the run as evidence for `tree` under the first profile in `names`
+ * it verifies against (the base branch's profiles for this machine's OS whose workflow holds a local lane), with `head` as a further veto
+ * head. The run must have tested exactly this tree (no stamp-only substitution) and list the files it ran.
+ */
+export function verifyFromRun(src: RunSource, ref: string, names: string[], tree: string, head: string): FromRunVerdict {
+  if (!names.length) return { ok: false, reason: 'no_profile', detail: 'the base branch declares no run_profiles entry for this machine\'s OS whose workflow holds a lane this machine runs (gstack\'s ci-reuse/free-tests, for example)' };
+  const refusals: Array<{ reason: string; detail: string }> = [];
+  for (const name of names) {
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: ref, profileName: name, profile: src.profiles[name]!, vetoHeads: SHA.test(head) ? [head] : [], now: src.now });
+    if (!v.ok) { refusals.push({ reason: v.reason, detail: `${name}: ${v.detail}` }); continue; }
+    const e = v.evidence;
+    if (e.tree !== tree) return { ok: false, reason: 'tree_mismatch', detail: `run ${e.run_id} tested tree ${e.tree.slice(0, 12)}, not this tree ${tree.slice(0, 12)}` };
+    if (!e.files.length || e.tests === 0) return { ok: false, reason: 'no_tests', detail: `run ${e.run_id}'s tree.json ${e.files.length ? `records 0 tests for ${e.files.length} file(s)` : 'lists no test files'}` };
+    return { ok: true, evidence: e, receipt: `run tree=${tree.slice(0, 12)} tests=${e.tests ?? e.files.length} ${runReceiptFields([e], src.now)}` };
+  }
+  return refusals.length === 1 ? { ok: false, ...refusals[0]! } : { ok: false, reason: 'no_verified_run', detail: refusals.map(r => `${r.detail} (${r.reason})`).join(' | ') };
 }
 
 /** The receipt suffix a run clear records: runs, profiles and the verification time, read back by `parseRunReceipt`. */
@@ -215,7 +302,7 @@ export function parseRunReceipt(receipt: string): { runs: string[]; profiles: st
 }
 
 /** Egress receipts for the reads below (fail-open, like contributor-mode): only this repository's name, run ids and a commit sha leave the machine. */
-const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'user ran gstack-pregate clear --run (or --run-url on a profiled lane); reads its own repository\'s Actions runs and fetches a run head by sha' });
+const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'a run verification the user or the repository\'s own workflow started (gstack-pregate clear --run or --from-run, the main-push reuse job); reads its own repository\'s Actions runs and fetches a run head by sha' });
 const receiptFailed = (err: unknown) => process.stderr.write(`[run-evidence] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`);
 
 function gh(args: string[], timeoutMs = 60_000): string {
@@ -224,6 +311,9 @@ function gh(args: string[], timeoutMs = 60_000): string {
   if (r.status !== 0 || r.error) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || String(r.error ?? '')).trim().slice(0, 300)}`);
   return r.stdout;
 }
+
+/** One `gh api` read on this repository's own data, receipted like every read here. */
+export function ghApiJson<T>(apiPath: string): T { return JSON.parse(gh(['api', apiPath])) as T; }
 
 /** The gh- and git-backed dependencies for `repo`, reading trees in `repoRoot` (fetching a missing head from origin once). */
 export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
@@ -256,6 +346,40 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
       }
       const tree = (r.stdout ?? '').trim();
       return r.status === 0 && /^[0-9a-f]{40,64}$/.test(tree) ? tree : null;
+    },
+  };
+}
+
+/** The gh-backed artifact and pull request reads for `repo` (lib/pregate/flaky-exception.ts): one unexpired artifact by name, every regular file in it under a byte cap. */
+export function ghArtifactDeps(repo: string): RunArtifactDeps {
+  const all = <T>(p: string, key: string): T[] => gh(['api', '--paginate', p, '--jq', `.${key}[]`]).split('\n').filter(Boolean).map(l => JSON.parse(l) as T);
+  return {
+    artifactFiles: (id, name) => {
+      const listed = all<{ name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
+      if (listed.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
+      if (!(listed[0]!.size_in_bytes <= MAX_LOG_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${listed[0]!.size_in_bytes} bytes, over ${MAX_LOG_ARTIFACT_BYTES}`);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-run-evidence-'));
+      try {
+        gh(['run', 'download', String(id), '--repo', repo, '--name', name, '--dir', dir], 300_000);
+        const out: Record<string, string> = {};
+        let bytes = 0;
+        const walk = (rel: string) => {
+          for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+            const child = rel ? `${rel}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) { walk(child); continue; }
+            if (!entry.isFile()) continue;
+            bytes += fs.statSync(path.join(dir, child)).size;
+            if (bytes > MAX_LOG_ARTIFACT_BYTES) throw new Error(`artifact ${name} unpacks to more than ${MAX_LOG_ARTIFACT_BYTES} bytes`);
+            out[child] = fs.readFileSync(path.join(dir, child), 'utf8');
+          }
+        };
+        walk('');
+        return out;
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    },
+    pull: n => {
+      const p = JSON.parse(gh(['api', `repos/${repo}/pulls/${n}`])) as { state: string; head: { sha: string; repo: { full_name: string } | null } };
+      return { head_sha: p.head.sha, state: p.state, head_repo: p.head.repo?.full_name ?? null };
     },
   };
 }

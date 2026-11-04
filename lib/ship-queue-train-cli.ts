@@ -36,7 +36,7 @@ export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...]
   train status [--train <nonce>]           never spends: rebuild records from refs/notes/gstack-trains, reconcile
                                            unconfirmed dispatches by nonce
   train verdict --train <nonce>            read the gate run and its record: GREEN, RED, INCOMPLETE or PENDING
-  train land --train <nonce> --pr <n> [--no-wait] [--timeout <min>]
+  train land --train <nonce> --pr <n> [--no-wait] [--timeout <min>] [--break-lock [--break-train-lock]]
                                            publish slot n's prefix (stamped S_i, else gated T_i): update mode commits its tree on
                                            [pin, main], pushes under the pin's lease, waits for checks and merges; direct mode
                                            (trains with gates, no strict protection, a green pin) runs gh pr merge
@@ -156,7 +156,7 @@ export async function trainMain(ctx: QueueContext, args: string[]): Promise<numb
     if (!pr || !/^\d+$/.test(pr)) return usage('train land needs --pr <number>');
     const timeout = positive(flag(rest, '--timeout'), 60);
     if (Number.isNaN(timeout)) return usage('--timeout needs minutes');
-    return guarded('train land', async () => (await import('./ship-queue-train-land')).trainLand(ctx, { train: nonce, pr, noWait: rest.includes('--no-wait'), timeoutMin: timeout }));
+    return guarded('train land', async () => (await import('./ship-queue-train-land')).trainLand(ctx, { train: nonce, pr, noWait: rest.includes('--no-wait'), timeoutMin: timeout, breakLock: rest.includes('--break-lock'), breakTrainLock: rest.includes('--break-train-lock') }));
   }
   if (sub === 'rebuild') return guarded('train rebuild', () => trainRebuild(ctx, { train: nonce, infra: rest.includes('--infra') }));
   if (sub === 'bisect') {
@@ -174,7 +174,7 @@ export async function readyMain(ctx: QueueContext, args: string[], base: { pr: s
   if (args.includes('--broad') && !screen) return usage('--broad selects the screen policy; it needs --screen');
   const dispatchCi = flag(args, '--dispatch-ci');
   const workflows = dispatchCi === undefined ? [] : dispatchCi.split(',').map(s => s.trim()).filter(Boolean);
-  if (dispatchCi !== undefined && (!workflows.length || workflows.some(w => !/^[\w.-]+\.ya?ml$/.test(w)))) return usage('--dispatch-ci names workflow files under .github/workflows, comma-separated (free-tests.yml,windows-free-tests.yml)');
+  if (dispatchCi !== undefined && (!workflows.length || workflows.some(w => !/^[\w.-]+\.ya?ml$/.test(w)))) return usage('--dispatch-ci names workflow files under .github/workflows, comma-separated (free-tests.yml,windows-smoke.yml)');
   const timeoutSec = positive(flag(args, '--timeout'), 2700);
   if (!Number.isFinite(timeoutSec)) return usage('--timeout needs a positive number of seconds');
   const fixer = flag(args, '--fixer');
