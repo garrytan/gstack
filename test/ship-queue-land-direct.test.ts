@@ -840,7 +840,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(r.err).toBe('');
     expect(freezeOf(fx).repair).toEqual({ pr: '7', head: pin7, train: null });
     const fy = setup();
-    freezeMain(fy, { train: 'gate.train-x', repair: { pr: '5', head: stale, train: 'gate.train-x' } });
+    freezeMain(fy, { repair: { pr: '5', head: stale, train: 'gate.train-x' } });
     const pin9 = openPr(fy, '9');
     const t = land(fy, '9', pin9, ['--repair']);
     expect(t.err).toContain('repair train gate.train-x');
@@ -905,7 +905,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(freezeOf(fx).cleared_by).toBe(`repair #8; backstop 503 green on ${green.sha}`);
   }, 180_000);
 
-  test('no clear without the evidence: a green gate on a main that is not at or after the freeze main, or with the repair\'s land note missing, leaves the freeze active; a leftover train freeze frees a spent land repair too and clears on its successor\'s green', () => {
+  test('no clear without the evidence: a green gate on a main that is not at or after the freeze main, or with the repair\'s land note missing, leaves the freeze active; a train freeze takes no land repair and no backstop clear', () => {
     const fx = setup(DIRECT_TRAIN);
     const orphan = fx.repo.git('commit-tree', fx.repo.git('rev-parse', 'origin/main^{tree}'), '-m', 'a main this history never had');
     freezeMain(fx, { main: { sha: orphan, tree: fx.repo.git('rev-parse', orphan + '^{tree}') } });
@@ -925,13 +925,34 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     const fz = setup(DIRECT_TRAIN);
     freezeMain(fz, { train: 'gate.train-old', backstop: null });
     const pin3 = openPr(fz, '3');
-    expect(land(fz, '3', pin3, ['--repair']).status).toBe(EXIT.ok);
-    expect(backstopOn(fz, 'failure', 603).action).toBe('frozen');
-    expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', repair: null, cleared_at: null });
-    expect(freezeOf(fz).reason).toContain('repair #3 did not turn main green');
-    const pin4 = openPr(fz, '4');
-    expect(land(fz, '4', pin4, ['--repair']).status).toBe(EXIT.ok);
+    const t3 = land(fz, '3', pin3, ['--repair']);
+    expect(t3.err).toContain('admits a repair only into a main backstop freeze');
+    expect(t3.err).toContain('(QUEUE_TRAIN_FROZEN)');
+    expect(fz.read().mergeArgs).toBeUndefined();
+    moveMain(fz, 'hand.txt', 'merged without land\n');
     const g3 = backstopOn(fz, 'success', 604);
-    expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', cleared_by: `repair #4; backstop 604 green on ${g3.sha}` });
+    expect(g3.lines.join('\n')).toContain("train gate.train-old froze the queue, and its repair train's verify clears it");
+    expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', cleared_at: null });
+  }, 180_000);
+});
+
+describe('the backstop rewrites a freeze by compare-and-swap (GST-1354)', () => {
+  test("a runner whose local notes hold a stale copy of the freeze never overwrites the repair land recorded on origin", () => {
+    const fx = setup(DIRECT_TRAIN);
+    expect(backstopOn(fx, 'failure', 701).action).toBe('frozen');
+    const stale = freezeOf(fx);
+    const runner = path.join(fx.repo.root, 'runner');
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'backstop-state');
+    try { persist(runner, [{ ...stale, reason: 'a stale local rewrite', updated_at: new Date(Date.now() + 60_000).toISOString() }], { push: false }); }
+    finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    const pin = openPr(fx, '7');
+    expect(land(fx, '7', pin, ['--repair']).status).toBe(EXIT.ok);
+    const red = backstopOn(fx, 'cancelled', 702);
+    expect(red.action).toBe('frozen');
+    expect(freezeOf(fx)).toMatchObject({ repair: { pr: '7', head: pin, train: null }, cleared_at: null });
+    expect(freezeOf(fx).reason).toContain('repair #7 was not judged');
+    const green = backstopOn(fx, 'success', 703);
+    expect(freezeOf(fx).cleared_by).toBe(`repair #7; backstop 703 green on ${green.sha}`);
   }, 180_000);
 });

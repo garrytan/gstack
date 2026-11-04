@@ -16,7 +16,7 @@ import { resolveStateRoot } from './state-root';
 
 export const TRAIN_SCHEMA = 1;
 export const NOTES_REF = 'refs/notes/gstack-trains';
-const NOTES_REMOTE_REF = 'refs/notes/gstack-trains-origin';
+export const NOTES_REMOTE_REF = 'refs/notes/gstack-trains-origin';
 
 export type TrainState =
   | 'built' | 'pushed' | 'free-pending' | 'free-red' | 'free-green' | 'dispatch-unknown' | 'dispatch-absent' | 'gate-pending'

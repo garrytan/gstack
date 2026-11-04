@@ -41,6 +41,7 @@ function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
  */
 function repairRefusal(ctx: QueueContext, freeze: FreezeRecord | null, pr: string, pin: string): QueueFailure | null {
   if (!freeze) return { code: 'QUEUE_NOT_READY', message: 'no freeze is active; --repair lands only the one repair PR a freeze admits', fix: `land it without --repair: gstack-ship-queue land --pr ${pr} --pin ${pin}` };
+  if (freeze.train !== 'backstop') return { code: 'QUEUE_TRAIN_FROZEN', message: `train ${freeze.train} froze the queue (${freeze.reason}); land --pin --repair admits a repair only into a main backstop freeze`, fix: 'land the repair through train build --repair under merge: train; its verify clears the freeze' };
   const held = freeze.repair;
   if (!held || (held.pr === pr && held.head === pin && !held.train)) return null;
   const admitted = `the freeze admitted repair #${held.pr}@${held.head.slice(0, 12)}`;
@@ -163,7 +164,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   }
   const freeze = activeFreeze(keys);
   if (freeze && !o.repair) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})`, fix: 'only the one repair PR lands: gstack-ship-queue land --pr <repair-pr> --pin <sha> --repair; the freeze clears when the main backstop is green on a main that contains it (docs/ship-policy.md#direct-freeze)' });
-  const refused = o.repair ? repairRefusal(ctx, freeze, o.pr, o.pin) : null;
+  const refused = !o.repair ? null : release ? { code: 'QUEUE_TRAIN_FROZEN' as const, message: `${info.headRefName} is a release PR, which never repairs main`, fix: 'land the revert or fix-forward with --repair; release once the backstop clears the freeze' } : repairRefusal(ctx, freeze, o.pr, o.pin);
   if (refused) return fail(lines, refused);
   const lock = o.dryRun ? readLock(root, remote) : null;
   if (lock?.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });

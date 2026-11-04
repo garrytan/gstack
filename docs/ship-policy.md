@@ -2095,6 +2095,9 @@ trains. So the repair goes through land:
    freeze, prints `REPAIR: #<n>@<sha> admitted under the land lock`, and lands
    the PR. The freeze stays active. Without an active freeze, `--repair`
    refuses with `QUEUE_NOT_READY`; a land without `--repair` stays refused.
+   A train's freeze and a `release/<version>` head are refused with
+   `QUEUE_TRAIN_FROZEN`: only a backstop freeze takes a land repair, and a
+   release never repairs main.
 2. A second `--repair` at another pin is refused while the admitted repair
    has merged on GitHub at its recorded pin (or GitHub can't say). One that
    never merged there, such as a land refused after the record was written or
@@ -2102,12 +2105,13 @@ trains. So the repair goes through land:
    train's slot (`train` set) is never taken.
 3. The backstop on the repair's main clears the freeze only on evidence: its
    gate is green on a commit at or after the freeze's main (by ancestry) that
-   contains the merge the repair's `land` note names. It writes `cleared_at`
+   contains the merge the repair's `land` note names, and main is still that
+   commit. While a freeze is active, a green-train record never stands in for
+   the gate. It writes `cleared_at`
    and `cleared_by: "repair #<n>; backstop <run> green on <sha>"` and prints
    `BACKSTOP: freeze cleared (…)`. A green gate without that evidence prints
    [`BACKSTOP: green, but the freeze stands: <why>`](troubleshooting.md#backstop-freeze-stands).
-   No green gate, no clear; a train's green record that covers main without a
-   gate doesn't clear it either.
+   No green gate, no clear.
 4. A red gate keeps the freeze and rewrites its reason with the new run
    ([`BACKSTOP: red, and the queue is already frozen`](troubleshooting.md#backstop-red-frozen)).
    When that main contains the admitted repair's merge and the gate concluded
@@ -2115,16 +2119,16 @@ trains. So the repair goes through land:
    gate that never judged it (no run, cancelled, past the deadline) keeps the
    slot and says so in the reason. Main doesn't move while frozen, so both
    lines name `gh run rerun <backstop run id>` to gate the same commit again
-   once the cause is fixed. Both steps re-read the notes ref after
-   the gate finishes, so a repair recorded while an earlier commit's gate ran
-   is kept, and a freeze the notes fetch can't confirm is never rewritten.
+   once the cause is fixed. Both steps rewrite the freeze by compare-and-swap
+   after the gate finishes: they start from origin's notes, push without
+   merging, and start over when the push is rejected. So a repair recorded
+   while a gate ran is never overwritten, and a freeze the notes fetch can't
+   read is never rewritten (`failed`).
 
 A tooling fix merged by hand while frozen (`gh pr merge --squash
 --match-head-commit`) clears nothing: its backstop, green or red, finds no
-admitted repair. Under `merge: train`, train freezes keep their own path:
-`train build --repair`, cleared by that train's verify. A train freeze left
-over from before the switch to `merge: direct` takes `land --pin --repair` like
-a backstop freeze.
+admitted repair. Train freezes keep their own path: `train build --repair`,
+cleared by that train's verify.
 
 <a id="release-stamp"></a>
 ### Versions at release: the release PR (`merge: direct`)

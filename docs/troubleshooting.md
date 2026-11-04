@@ -5656,8 +5656,9 @@ way. See
 **Meaning.** The main backstop gated main green, but the active freeze
 lacks the evidence to clear: no repair was admitted, the admitted repair has no
 `land` note (it was merged outside `land --pin --repair`), main doesn't contain
-that merge, or main isn't at or after the freeze's main. A repair train's
-freeze clears through its verify instead.
+that merge, main isn't at or after the freeze's main, or main moved past the
+gated commit (that push's backstop judges it). A train's freeze clears through
+its repair train's verify instead.
 
 **Fix.** Land the repair with `gstack-ship-queue land --pr <n> --pin <sha>
 --repair`. A repair that merged at its recorded pin but has no `land` note (the
