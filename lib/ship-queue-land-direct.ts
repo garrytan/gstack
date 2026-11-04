@@ -6,10 +6,10 @@
  * (versions are set at release), every check at the pin is green with none pending and each required check present,
  * and GitHub reports the PR mergeable and clean. When the base moved past the pin's merge base, the checks at the pin
  * never saw the tree that would land (GST-1316), so land builds the pin merged onto the base tip and runs the base
- * policy's land.merged_checks there (lib/land-merged-checks.ts), refusing on a conflict, a failure or no list. Then gh pr
- * merge --squash --match-head-commit <pin>, a check that the merge commit's tree is the pin merged onto that commit's
- * parent (its merged checks rerun when that parent is not the base land checked), and a land note on
- * refs/notes/gstack-trains. A rerun after GitHub merged goes straight to the tree check.
+ * policy's land.merged_checks there (lib/land-merged-checks.ts), refusing on a conflict or a failure; with no list it
+ * prints a STALE_BASE: warn line and lands. Then gh pr merge --squash --match-head-commit <pin>, a check that the merge
+ * commit's tree is the pin merged onto that commit's parent (its merged checks rerun when that parent is neither the
+ * base land checked nor in the pin), and a land note on refs/notes/gstack-trains. A rerun after GitHub merged goes straight to the tree check.
  */
 import { runMergedChecks } from './land-merged-checks';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
@@ -146,12 +146,12 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const checks = policy.land?.merged_checks ?? [];
   if (mergeBase !== tip) {
     const moved = `origin/${ctx.base} moved to ${tip.slice(0, 12)} since the pin's merge base ${mergeBase.slice(0, 12)}, so the checks at the pin never ran on the tree that would land`;
-    const remerge = `merge the base into the branch (git merge origin/${ctx.base}), push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready --pr ${o.pr} there, then land the new pin`;
-    if (!checks.length) return fail(lines, { code: 'QUEUE_LAND_STALE_BASE', message: `${moved}, and the base policy lists no land.merged_checks to run on it`, fix: `${remerge}; or list land.merged_checks in the base's .gstack/ship-policy.json` });
-    const mc = runMergedChecks(root, tip, o.pin, checks);
-    if (!mc.ok && mc.conflict) return fail(lines, { code: 'QUEUE_LAND_NOT_CLEAN', message: `${moved}: ${mc.detail}`, fix: `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` });
-    if (!mc.ok) return fail(lines, { code: 'QUEUE_LAND_MERGED_CHECKS', message: `${moved}; on the pin merged onto it, ${mc.detail}`, fix: `${remerge}, after fixing what the failing check names on the merged tree` });
-    lines.push(`MERGED_CHECKS: pass tree=${mc.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
+    if (!checks.length) lines.push(`STALE_BASE: warn ${moved}; no land.merged_checks configured, so land merges it untested`);
+    else {
+      const mc = runMergedChecks(root, tip, o.pin, checks);
+      if (!mc.ok) return fail(lines, mc.conflict ? { code: 'QUEUE_LAND_NOT_CLEAN', message: `${moved}: ${mc.detail}`, fix: `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` } : { code: 'QUEUE_LAND_MERGED_CHECKS', message: `${moved}; on the pin merged onto it, ${mc.detail}`, fix: `merge the base into the branch (git merge origin/${ctx.base}), fix what the failing check names, push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready --pr ${o.pr} there, then land the new pin` });
+      lines.push(`MERGED_CHECKS: pass tree=${mc.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
+    }
   }
   if (info.mergeable !== 'MERGEABLE' || info.mergeStateStatus !== 'CLEAN') return fail(lines, { code: 'QUEUE_LAND_NOT_CLEAN', message: `GitHub reports #${o.pr} mergeable=${info.mergeable ?? 'unknown'} mergeStateStatus=${info.mergeStateStatus ?? 'unknown'}`, fix: info.mergeable === 'CONFLICTING' ? `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` : 'UNKNOWN means GitHub is still computing: rerun land in a minute; BLOCKED or BEHIND names the branch rule to meet first' });
   if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --squash --match-head-commit ${o.pin})`] };

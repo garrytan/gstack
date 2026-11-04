@@ -488,14 +488,9 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a check at the pin is red or pending, or a required check never ran there',
     fix: 'wait for pending checks (gstack-pr-wait <n> --until green), fix a red one at a new head, or dispatch a missing required workflow on the branch; then rerun land',
   },
-  QUEUE_LAND_STALE_BASE: {
-    anchor: 'queue-land-stale-base',
-    summary: 'the base branch moved since the pin\'s merge base and the base policy lists no land.merged_checks, so nothing can test the tree that would land (GST-1316: a stale-base PR pushed a budgeted file past its cap on main)',
-    fix: 'list land.merged_checks in the base policy, or merge the base into the branch, push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready there, then land the new pin',
-  },
   QUEUE_LAND_MERGED_CHECKS: {
     anchor: 'queue-land-merged-checks',
-    summary: 'the base moved past the pin\'s merge base, and a land.merged_checks command failed on the pin merged onto the base tip; nothing merged',
+    summary: 'the base moved past the pin\'s merge base, and a land.merged_checks command failed on the pin merged onto the base tip (GST-1316: a stale-base PR pushed a budgeted file past its cap on main); nothing merged',
     fix: 'merge the base into the branch, fix what the failing command names, push, wait for the required checks, run /ship and gstack-ship-queue ready at the new head, then land it',
   },
   QUEUE_LAND_NOT_CLEAN: {

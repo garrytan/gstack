@@ -5241,21 +5241,6 @@ ran there. Nothing was merged.
 the lane fixes it at a new head (a flaky case gets its one rerun under rule
 16). Missing: dispatch that workflow on the branch, then rerun land.
 
-<a id="queue-land-stale-base"></a>
-### `QUEUE_LAND_STALE_BASE`
-
-**Meaning.** `origin/main` moved since the pin's merge base, so the checks
-at the pin never ran on the tree that would land, and the base policy lists no
-`land.merged_checks` to run on it. A PR that is green on its own can still
-break main once merged onto newer commits (#3886 pushed ship/DRIVER.md past
-its size cap that way). Nothing was merged.
-
-**Fix.** List `land.merged_checks` in the base's `.gstack/ship-policy.json`
-([land-direct](ship-policy.md#land-direct)) so land tests the merged tree. Or
-the lane merges `origin/main` into the branch, pushes, waits for the required
-checks at the new head, runs /ship and `ready` there, and sends a new READY;
-land that pin.
-
 <a id="queue-land-merged-checks"></a>
 ### `QUEUE_LAND_MERGED_CHECKS`
 

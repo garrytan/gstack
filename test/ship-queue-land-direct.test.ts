@@ -17,6 +17,7 @@ import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
+import { runMergedChecks } from '../lib/land-merged-checks';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -163,16 +164,20 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(again.out).toContain(`MERGED_CHECKS: pass tree=${want} base=${moved} (after the merge`);
   }, 90_000);
 
-  test('QUEUE_LAND_STALE_BASE: the base moved and the base policy lists no land.merged_checks, so nothing tests the merged tree and nothing merges', () => {
+  test('no land key: a stale base lands untested as before, with a STALE_BASE: warn line naming the missing land.merged_checks', () => {
     const fx = setup();
     const pin = openPr(fx, '84');
     const moved = moveMain(fx, 'other.txt', 'other\n');
     const r = land(fx, '84', pin);
-    expect(r.status).not.toBe(EXIT.ok);
-    expect(r.err).toContain('(QUEUE_LAND_STALE_BASE)');
-    expect(r.err).toContain('land.merged_checks');
-    expect(fx.read().mergeArgs).toBeUndefined();
-    expect(remote(fx, 'main')).toBe(moved);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain(`STALE_BASE: warn origin/main moved to ${moved.slice(0, 12)}`);
+    expect(r.out).toContain('no land.merged_checks configured');
+    expect(r.out).not.toContain('MERGED_CHECKS:');
+    const main = remote(fx, 'main');
+    expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
+    expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(fx.repo.git('merge-tree', '--write-tree', moved, pin));
+    expect(landNotes(fx)).toHaveLength(1);
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
@@ -441,6 +446,22 @@ describe('merge: direct | train', () => {
     expect(errs({ merge: 'sideways', min_gstack_version: MERGE_KEY_VERSION })).toContain('merge: must be one of direct | train');
     expect(errs({ merge: 'direct' })).toContain('introduced in gstack ' + MERGE_KEY_VERSION);
   });
+
+  test('runMergedChecks: HEAD is the merged commit; a check that times out (even one exiting 0 on SIGTERM) or that rewrites a tracked file fails', () => {
+    const fx = setup(CHECKED);
+    const pin = openPr(fx, '86');
+    const moved = moveMain(fx, 'other.txt', 'other\n');
+    const run = (checks: string[], ms?: number) => runMergedChecks(fx.repo.work, moved, pin, checks, ms);
+    const head = run(['git show HEAD:pr-86.txt && git show HEAD:other.txt && test "$(git rev-parse HEAD^1)" = ' + moved]);
+    expect(head.ok).toBe(true);
+    const slow = run(["trap 'exit 0' TERM; sleep 5; exit 1"], 500);
+    expect(slow.ok).toBe(false);
+    if (!slow.ok) expect(slow.detail).toContain('did not finish');
+    const rewrite = run(['echo fixed > pr-86.txt', 'test "$(cat pr-86.txt)" = fixed']);
+    expect(rewrite.ok).toBe(false);
+    if (!rewrite.ok) expect(rewrite.detail).toContain('changed tracked files');
+    expect(fx.repo.git('worktree', 'list').split('\n')).toHaveLength(1);
+  }, 90_000);
 
   test('land.merged_checks validates its commands and needs min_gstack_version', () => {
     const errs = (o: Record<string, unknown>) => validatePolicy(o).map(e => e.path + ': ' + e.message).join('\n');
