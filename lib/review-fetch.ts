@@ -36,8 +36,11 @@ export function fetchParagraph(r: Pick<EffectiveReaders, 'forbid_fetch' | 'forbi
   return lines.join(' ');
 }
 
-/** `:(top,exclude,glob)` pathspecs for forbid_paths: added to every reader's diff and never kept back. */
-export const forbidSpecs = (r: Pick<EffectiveReaders, 'forbid_paths'>) => r.forbid_paths.map(p => ':(top,exclude,glob)' + p);
+/**
+ * `:(top,exclude,glob)` pathspecs for forbid_paths: added to every reader's diff and never kept back. Each pattern also excludes
+ * `<pattern>/**`, because git's glob `*` stops at a slash: `sealed/*` alone would leave `sealed/d/x` in the diff (forbiddenPath agrees).
+ */
+export const forbidSpecs = (r: Pick<EffectiveReaders, 'forbid_paths'>) => r.forbid_paths.flatMap(p => { const q = p.replace(/\/+$/, ''); return q.endsWith('/**') ? [':(top,exclude,glob)' + q] : [':(top,exclude,glob)' + q, ':(top,exclude,glob)' + q + '/**']; });
 
 export type ReadersLoad = { state: 'ok'; readers: EffectiveReaders; source: string } | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID'; lines: string[] };
 

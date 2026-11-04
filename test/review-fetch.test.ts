@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FETCH_RULES, auditVerdict, fetchParagraph, forbiddenBy, forbiddenPath, loadReaders, networkTarget, scanEvents, type ToolEvent } from '../lib/review-fetch';
+import { FETCH_RULES, auditVerdict, fetchParagraph, forbidSpecs, forbiddenBy, forbiddenPath, loadReaders, networkTarget, scanEvents, type ToolEvent } from '../lib/review-fetch';
 import { workspaceParagraph } from '../lib/review-brief';
 import { READERS_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-readers';
@@ -163,6 +163,19 @@ describe('readers policy', () => {
     const u = run(['--events', FIXTURE, '--base', 'no-such-branch']);
     expect(u.status).toBe(1);
     expect(u.stderr).toContain('POLICY_SOURCE_UNAVAILABLE');
+  });
+  // Value: protects=git's diff exclusion covers exactly what the scanner and keep filter call forbidden, so a wildcard pattern keeps nested sealed files out of every reader's diff; fails_when=forbidSpecs emits only '<p>', whose glob * stops at a slash, so sealed/d/x.bin stays in the diff under 'sealed/*';
+  //   why_new=GST-1322 /ship review pass 2 red-team#1 (CRITICAL); seam=none; no_claim=patterns git cannot express
+  test('the diff exclusion and forbiddenPath agree on nested files under a wildcard pattern', () => {
+    const r = repo(null);
+    for (const f of ['sealed/top.jsonl', 'sealed/d/x.bin', 'src/keep.ts']) { fs.mkdirSync(path.dirname(path.join(r.dir, f)), { recursive: true }); fs.writeFileSync(path.join(r.dir, f), 'x\n'); }
+    spawnSync('git', ['add', '.'], { cwd: r.dir }); spawnSync('git', ['commit', '-qm', 'nested'], { cwd: r.dir });
+    for (const pattern of ['sealed/*', 'sealed', 'sealed/', 'sealed/**']) {
+      const names = spawnSync('git', ['diff', '--name-only', r.base, '--', '.', ...forbidSpecs({ forbid_paths: [pattern] })], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim().split('\n');
+      expect([pattern, names.filter(n => n.startsWith('sealed/'))]).toEqual([pattern, []]);
+      expect(names).toContain('src/keep.ts');
+      expect(names.filter(n => forbiddenPath([new Bun.Glob(pattern.replace(/\/+$/, ''))], n))).toEqual([]);
+    }
   });
   test('no policy file is the default rule; an invalid base policy refuses', () => {
     const none = repo(null);
