@@ -241,6 +241,7 @@ const BASELINE = [
   'test/test-free-shards-capture.test.ts',
   'test/timeline.test.ts',
   'test/ubicloud-runner-reattach.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
+  'test/ubicloud-runner-recovery.test.ts', // GST-1220: recovery bundle and results sink; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
   'test/ubicloud-runner-tiers.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
   'test/workflow-judge-cache.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/workflow-judge-input.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)

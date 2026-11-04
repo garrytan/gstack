@@ -54,6 +54,20 @@ describe('routeDispatch: every run keeps its mode, and train inputs are validate
     expect((route({ ...screen, trainPolicy: false }) as { error: string }).error).toContain('needs a train block');
   });
 
+  // Value: protects=the release gate's bisect (lib/release-gate.ts) routes on its own release-gate/<id> ref under a release_gate policy, names its own
+  // prefix artifact, keeps every train bisect check (nonce, head, cases, prefixes), and is refused without the policy or on any other ref;
+  // fails_when=a release bisect needs a train block (it stops working once trains go), a release-gate/ ref routes without a release_gate policy, or a
+  // train/ bisect starts accepting the release policy alone; why_new=the bisect test below covers train/<nonce> only; seam=none; no_claim=a live run
+  test('a release bisect runs on release-gate/<id> under a release_gate policy, with the train checks and its own artifact', () => {
+    const bisect = { nonce: bisectNonce, refName: 'release-gate/abc123-aaaaaaaaaaaa', expectedSha: A, cases: 'case-a', prefixShas: B, releasePolicy: true };
+    expect(route(bisect)).toEqual({ mode: 'bisect', cases: ['case-a'], prefixes: [B], artifact: 'gstack-release-record' });
+    expect((route({ ...bisect, releasePolicy: false, trainPolicy: true }) as { error: string }).error).toContain('needs a release_gate block');
+    expect((route({ ...bisect, prefixShas: C }) as { error: string }).error).toContain('is not an ancestor');
+    expect((route({ ...bisect, expectedSha: B }) as { error: string }).error).toContain('is not the train head');
+    expect((route({ ...bisect, refName: 'train/t1', trainPolicy: false }) as { error: string }).error).toContain('needs a train block');
+    expect((route({ ...bisect, refName: 'main' }) as { error: string }).error).toContain('runs on train/<nonce>');
+  });
+
   test('a bisect needs a bisect nonce on train/<nonce>, the train head, plan case ids and ancestor prefixes', () => {
     const bisect = { nonce: bisectNonce, refName: 'train/t1', expectedSha: A, cases: 'case-a, review/SKILL.md workflow', prefixShas: `${A},${B}`, trainPolicy: true };
     expect(route(bisect)).toEqual({ mode: 'bisect', cases: ['case-a', 'review/SKILL.md workflow'], prefixes: [A, B] });

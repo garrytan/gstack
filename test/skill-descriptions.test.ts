@@ -121,7 +121,7 @@ describe('contract blocks (frozen v1 schema)', () => {
 
     test(skill + ': the body carries the Done-means placeholder and the render carries the list', () => {
       expect(body(tmpl).includes('{{CONTRACT_DONE_MEANS}}'), tmpl + ': a contract block needs {{CONTRACT_DONE_MEANS}} at the top of the body. ' + fix(skill)).toBe(true);
-      expect(read(skill + '/SKILL.md').includes(renderDoneMeans(contract)), skill + '/SKILL.md: the Done-means list is stale. ' + fix(skill)).toBe(true);
+      expect(read(skill + '/SKILL.md').includes(renderDoneMeans(contract, HOST_PATHS.claude.binDir)), skill + '/SKILL.md: the Done-means list is stale. ' + fix(skill)).toBe(true);
     });
 
     test(skill + ': every contract marker appears in the skill text', () => {
@@ -153,7 +153,7 @@ describe('contract-done-means renderer', () => {
       { id: 'adversarial-pass', kind: 'agent_dispatch', match: 'chaos engineer' },
     ],
   }, 'fixture/SKILL.md.tmpl');
-  const out = renderDoneMeans(all, true);
+  const out = renderDoneMeans(all, HOST_PATHS.claude.binDir, true);
 
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
@@ -164,8 +164,8 @@ describe('contract-done-means renderer', () => {
   });
 
   test('points to check and waive in the routing-and-contracts doc, never the off switch', () => {
-    expect(out).toContain(BT + 'gstack-skill-contract check' + BT);
-    expect(out).toContain(BT + 'gstack-skill-contract waive <item> --reason "<why>"' + BT);
+    expect(out).toContain(BT + HOST_PATHS.claude.binDir + '/gstack-skill-contract check' + BT);
+    expect(out).toContain(BT + HOST_PATHS.claude.binDir + '/gstack-skill-contract waive <item> --reason "<why>"' + BT);
     expect(out).toContain('docs/skill-routing-and-contracts.md');
     expect(out).not.toContain('skill_contracts');
   });
@@ -203,7 +203,20 @@ describe('contract-done-means renderer', () => {
       expect(read(skill + '/SKILL.md').includes('gstack-skill-contract'), skill + '/SKILL.md names gstack-skill-contract while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: bun run gen:skill-docs').toBe(shipped);
     }
     if (shipped) expect(existsSync(join(ROOT, 'docs', 'skill-routing-and-contracts.md')), 'docs/skill-routing-and-contracts.md is missing').toBe(true);
-    expect(renderDoneMeans(all, false)).not.toContain('gstack-skill-contract');
+    expect(renderDoneMeans(all, HOST_PATHS.claude.binDir, false)).not.toContain('gstack-skill-contract');
+  });
+
+  test('check and waive run the checker through the host-resolved bin path, like every other gstack bin', () => {
+    for (const skill of ['investigate', 'review']) {
+      for (const [host, paths] of Object.entries(HOST_PATHS)) {
+        const out = generateContractDoneMeans({ skillName: skill, tmplPath: join(ROOT, skill, 'SKILL.md.tmpl'), host, paths } as unknown as Parameters<typeof generateContractDoneMeans>[0]);
+        for (const command of ['check', 'waive']) {
+          expect(out, skill + ' on ' + host + ': the Done-means list must run ' + paths.binDir + '/gstack-skill-contract ' + command + '. Fix: render ctx.paths.binDir in scripts/resolvers/contract-done-means.ts, then bun run gen:skill-docs').toContain(paths.binDir + '/gstack-skill-contract ' + command);
+        }
+        expect(out.match(/\u0060gstack-skill-contract /g), skill + ' on ' + host + ': a bare gstack-skill-contract is not on PATH in a standard install').toBeNull();
+      }
+      expect(read(skill + '/SKILL.md')).toContain(HOST_PATHS.claude.binDir + '/gstack-skill-contract waive');
+    }
   });
 
   test('a host that suppresses, or a loadout that excludes, the step an item checks leaves that item out', () => {
@@ -213,7 +226,7 @@ describe('contract-done-means renderer', () => {
     expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);
-    expect(renderDoneMeans({ version: 1, items: [] })).toBe('');
+    expect(renderDoneMeans({ version: 1, items: [] }, HOST_PATHS.claude.binDir)).toBe('');
   });
 
   test('a placeholder with no contract block fails the render', () => {

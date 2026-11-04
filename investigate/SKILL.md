@@ -88,7 +88,7 @@ Finish only when each of these exists (contract v1):
 - `debug-report`: a `DEBUG REPORT` with Symptom, Root cause, Fix, Evidence, Regression test and Status filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 - `check-after-last-edit`: a test or repro command run after your last edit.
 
-`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
+`~/.claude/skills/gstack/bin/gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `~/.claude/skills/gstack/bin/gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
 
 ## Shared preamble (load first)
 

@@ -540,6 +540,69 @@ describe('land: one pass, base, lock and history', () => {
     expect(remote(fx, 'pr-11')).toBe(head);
   }, 90_000);
 
+  // Value: protects=a PR that writes a third-party version into a stamp_files line lands it byte for byte, while its own
+  //   fork-version token still moves (GST-1245, HARN-7: harness-evals#235's "QM v0.1.15" landed as "QM v0.0.115");
+  //   fails_when=land's restamp reads any vX newer than the fork point on a PR line as the PR's stamp; why_new=no land
+  //   case put a version in a stamp file; seam=lib/restamp.ts rewriteStampPaths via buildStamp; no_claim=none beyond protects
+  test('a foreign version on a PR-added stamp_files line lands byte for byte; the PR\'s own fork-version token moves (GST-1245)', () => {
+    const fx = setup({ ...POLICY, stamp_files: ['VERSION', 'package.json', 'package-lock.json', 'CHANGELOG.md', 'README.md'] });
+    const qm = 'QM v2.1.15.0 grades every run.\nPin QM v2.1.15.0 in CI.\nUpgrade notes for QM v2.1.15.0 are below.\n';
+    openPr(fx, '235', { edit: work => fs.writeFileSync(path.join(work, 'README.md'), qm + 'Written at fixture v1.2.3.0 by this PR.\n') });
+    const r = land(fx, ['--pr', '235']);
+    expect(r.err).toBe('');
+    const stamp = remote(fx, 'pr-235');
+    expect(show(fx, stamp + ':VERSION')).toBe('1.2.4.0');
+    expect(show(fx, stamp + ':README.md')).toBe(qm + 'Written at fixture v1.2.4.0 by this PR.');
+  }, 90_000);
+
+  // Value: protects=a stamp reset back to the reviewed pin restamps instead of resuming a journal whose stamp commit the
+  //   branch no longer holds (GST-1245, HARN-7: "resuming at stamped", then QUEUE_TRAIN_MOVED until the journal was removed
+  //   by hand); fails_when=land keeps the journal because the pin is one of the heads it names; why_new=every resume case
+  //   keeps the stamp commit on the branch; seam=lib/ship-queue-land.ts land; no_claim=the lock: own-lock resume already
+  //   matches on PR and journal path, and this case asserts it needs no --break-lock
+  test.each([['pushed'], ['stamped']])('a stamp reset to the pin at phase %s discards the journal and restamps, with no --break-lock (GST-1245)', phase => {
+    const fx = setup();
+    const base = remote(fx, 'main');
+    const pin = openPr(fx, '14');
+    expect(land(fx, ['--pr', '14']).status).toBe(EXIT.ok);
+    const first = remote(fx, 'pr-14');
+    const file = path.join(fx.repo.work, '.gstack', 'tmp', 'ship-queue', 'land', '14.json');
+    const journal = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect([journal.phase, journal.stamp_commit, journal.last_pushed_head]).toEqual(['pushed', first, first]);
+    // phase stamped: a restamp built its commit and stopped before the push (the state HARN-7's rerun resumed at).
+    if (phase === 'stamped') fs.writeFileSync(file, JSON.stringify({ ...journal, phase: 'stamped' }));
+    fx.repo.git('push', '-q', '-f', 'origin', pin + ':refs/heads/pr-14');
+    const again = land(fx, ['--pr', '14']);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).not.toContain('resuming at');
+    expect(again.out).toContain(`JOURNAL: #14's head is the reviewed pin ${pin.slice(0, 12)}, not the stamp commit ${first.slice(0, 12)} (phase ${phase}); discarding the journal and restamping`);
+    expect(again.out).not.toContain('LOCK: broke');
+    expect(again.out).toContain('PUSHED: ');
+    const restamped = remote(fx, 'pr-14');
+    expect(fx.repo.git('rev-list', '--parents', '-n', '1', restamped).split(' ').slice(1)).toEqual([pin, base]);
+    expect(land(fx, ['--pr', '14']).out).toContain('MERGED: #14');
+  }, 90_000);
+
+  // Value: protects=a stamp land built but never pushed still resumes and pushes that commit: the branch never moved,
+  //   so nothing is discarded (GST-1245 review); fails_when=the reset check fires on any journal whose head is the pin;
+  //   why_new=the reset cases above all pushed a stamp first; seam=lib/ship-queue-land.ts land; no_claim=none beyond protects
+  test('a stamp built but never pushed resumes at stamped and pushes that commit, discarding nothing (GST-1245)', () => {
+    const fx = setup();
+    const pin = openPr(fx, '15');
+    expect(land(fx, ['--pr', '15']).status).toBe(EXIT.ok);
+    const first = remote(fx, 'pr-15');
+    const file = path.join(fx.repo.work, '.gstack', 'tmp', 'ship-queue', 'land', '15.json');
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), phase: 'stamped', last_pushed_head: null }));
+    fx.repo.git('push', '-q', '-f', 'origin', pin + ':refs/heads/pr-15');
+    const again = land(fx, ['--pr', '15']);
+    expect(again.err).toBe('');
+    expect(again.out).toContain('(resuming at stamped)');
+    expect(again.out).not.toContain('JOURNAL:');
+    expect(again.out).toContain(`PUSHED: ${first}`);
+    expect(remote(fx, 'pr-15')).toBe(first);
+  }, 90_000);
+
   // Value: protects=a lost local journal resumes from the stamp commit's pin; fails_when=the stamp commit is treated as the pin and the receipt refuses; why_new=resume cases keep the journal; seam=none; no_claim=none beyond protects
   test('with the local journal gone, a head that is land\'s stamp commit resumes from its pin', () => {
     const fx = setup();

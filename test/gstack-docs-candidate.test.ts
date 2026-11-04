@@ -92,6 +92,33 @@ describe('gstack-docs-candidate', () => {
     expect(fs.existsSync(path.join(dir, 'inside.json'))).toBe(false);
   });
 
+  // Value: protects=--docs takes a comma-separated list as well as repeated flags, a path that exists is taken whole even with a space or a comma in it, and a space-separated list is refused instead of recorded as one missing path; fails_when=--docs "a, b" records one path "a, b" (gstack-evals#191 /ship), a single path or an existing spaced path stops working, or "a b" is silently recorded;
+  //   why_new=each --docs value was one path; seam=gstack-docs-candidate snapshot; no_claim=--select, which still takes one path per flag
+  test('--docs splits a comma-separated list; an existing path is taken whole; a space-separated list is refused', () => {
+    const { dir, root, record } = repo();
+    fs.writeFileSync(path.join(dir, 'my notes.md'), 'n\n');
+    fs.writeFileSync(path.join(dir, 'a,b.md'), 'c\n');
+    const docs = (...values: string[]) => {
+      const r = run(dir, 'snapshot', '--out', record, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', ...values.flatMap(v => ['--docs', v]));
+      expect(r.status, r.stderr).toBe(0);
+      return JSON.parse(fs.readFileSync(record, 'utf8')).docs;
+    };
+    expect(docs('handbook')).toEqual(['handbook/guide.md']);
+    expect(docs('handbook, app.ts')).toEqual(['app.ts', 'handbook/guide.md']);
+    expect(docs('handbook,app.ts,', 'my notes.md')).toEqual(['app.ts', 'handbook/guide.md', 'my notes.md']);
+    expect(docs('a,b.md')).toEqual(['a,b.md']);
+    fs.rmSync(record);
+    const spaced = run(dir, 'snapshot', '--out', record, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'handbook app.ts');
+    expect([spaced.status, spaced.stderr.trim()]).toEqual([1, 'gstack-docs-candidate: --docs "handbook app.ts" names no file or directory and holds whitespace: repeat --docs for each path, or separate paths with commas']);
+    expect(fs.existsSync(record)).toBe(false);
+    for (const empty of ['', ' ', ',']) {
+      const r = run(dir, 'snapshot', '--out', record, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', empty);
+      expect([r.status, r.stderr.trim()]).toEqual([1, `gstack-docs-candidate: --docs ${JSON.stringify(empty)} names no path: give a file or directory, repeat --docs for each path, or separate paths with commas`]);
+      expect(fs.existsSync(record)).toBe(false);
+    }
+    expect(fs.readdirSync(root)).toEqual(['repo']);
+  });
+
   test('--help prints the usage it names in its errors', () => {
     const { dir } = repo();
     const help = run(dir, '--help');

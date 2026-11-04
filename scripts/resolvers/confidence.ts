@@ -49,7 +49,7 @@ Example:
 \`[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation\`
 
 **Calibration learning:** If the user confirms a reported finding scored < 7 is
-real, log the corrected pattern as a learning.`;
+real, log it per Operational Self-Improvement.`;
 
   const result = `## Confidence Calibration
 
