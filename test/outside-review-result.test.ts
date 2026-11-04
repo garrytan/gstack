@@ -31,6 +31,47 @@ function cli(args: string[]) {
 const RECOMMEND = 'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.';
 const UNTAGGED = 'Recommendation: fix the guard because changed.ts loses data.';
 
+// A model may write the completion recommendation as a Markdown section instead of an inline line (#3980).
+describe('a ## Recommendation heading carries the completion recommendation (#3980)', () => {
+  const review = (tail: string, head = 'Severity: Low. A future caller may need a guard.') =>
+    classifyOutsideReview({ text: `${head}\n\n${tail}`, gate: 'review' });
+
+  test('an advisory review with a heading is clean and keeps its severity', () => {
+    const result = review('## Recommendation\n\nShip as-is because current callers already enforce the invariant.');
+    expect(result.verdict).toBe('clean');
+    expect(result.findings.highest).toBe('P3');
+    expect(review('## Recommendation\n\n**Ship as-is** because current callers already enforce the invariant.').verdict).toBe('clean');
+  });
+
+  test('a blocker under the heading still blocks', () => {
+    const result = review('## Recommendation\n\nFix the write because it loses data.', 'Severity: High. The write drops rows.');
+    expect(result.verdict).toBe('findings');
+    expect(result.findings.highest).toBe('P1');
+  });
+
+  test('a no-findings rationale under the heading concludes the review', () => {
+    const result = classifyOutsideReview({ text: '### Recommendation:\nApprove because no issues were found.', gate: 'proposal' });
+    expect(result.verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: '## Recommendation\n\nApprove because I found no issues.', gate: 'review' }).verdict).toBe('clean');
+  });
+
+  test('the inline form still works', () => {
+    const result = review('Recommendation: Ship as-is because current callers already enforce the invariant.');
+    expect(result.verdict).toBe('clean');
+    expect(result.findings.highest).toBe('P3');
+  });
+
+  test('a reply with no recommendation, an empty section, no rationale or a fenced example is still missing', () => {
+    for (const tail of ['No recommendation here.', '## Recommendation', '## Recommendation\n\nShip as-is.',
+      '## Recommendation\n\n- Ship as-is because callers enforce it.',
+      '```text\n## Recommendation\n\nShip as-is because this is an example.\n```']) {
+      const result = review(tail);
+      expect(result.verdict).toBe('unavailable');
+      expect(result.reason).toBe('missing_markers');
+    }
+  });
+});
+
 describe('classifyOutsideReview: separate execution, findings and verdict', () => {
   const cases: Array<[string, { text: string; gate: OutsideGate; stderr?: string; exit?: number }, string, string | null, string | undefined]> = [
     ['clean review', { text: RECOMMEND, gate: 'review' }, 'clean', null, undefined],
