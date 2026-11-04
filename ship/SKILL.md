@@ -517,7 +517,7 @@ Item 3 needs `BUMP_LEVEL`: reuse this invocation's saved level. Else FRESH
 chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
 
 **One call:** `~/.claude/skills/gstack/bin/gstack-ship-release version --base <base> [--bump <BUMP_LEVEL>] --why '<WHY>'`
-runs items 1 and 3–5; each decision left to you is a `STOP:` naming its rerun flag
+runs items 1 and 3–5; item commands serve only a `STOP:`, which names its rerun flag
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
 `VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
@@ -653,12 +653,12 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-Run stages 1–5 in order; recovery notes below name where to resume. Content
+Stages run in order; 1–4's commands are only `STOP:` recoveries. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
 
 **One call for stages 1–4:** `~/.claude/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
-makes Step 15's item-3 commit and runs stages 1–4 and the pregate; each `STOP:` is a recovery
+makes Step 15's item-3 commit, runs stages 1–4 and the pregate; each `STOP:` is a recovery
 below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 
 ### 1. Finish writers and prepare outputs

@@ -50,7 +50,7 @@ export type OutsideRole = 'plan-review';
 export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBehavior: 'skip-all' | 'codex-only' | 'opt-in'; nativeReview?: boolean; role?: OutsideRole }): string {
   const v = outsideVoiceFor(ctx);
   if (v.id === 'codex' && (opts.disabledBehavior === 'codex-only' || (opts.disabledBehavior === 'skip-all' && !opts.role))) {
-    let preflight = outsideVoiceLabels(ctx, codexPreflight({ disabledBehavior: opts.disabledBehavior, nativeReview: opts.nativeReview, role: !!opts.role }))
+    let preflight = outsideVoiceLabels(ctx, codexPreflight({ disabledBehavior: opts.disabledBehavior, nativeReview: opts.nativeReview, role: !!opts.role, planGoverned: ctx.skillName === 'ship' && opts.disabledBehavior === 'codex-only' }))
       .replace('```bash\n', `\`\`\`bash\n${runtimeRootPrelude(ctx)}\n`);
     if (['plan-eng-review', 'plan-ceo-review'].includes(ctx.skillName)) {
       preflight = preflight.replace("follow the workflow's native-review instructions below",

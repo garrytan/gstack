@@ -305,7 +305,7 @@ Branch on the exit code of either block:
   since a human picks which copy stays (docs/troubleshooting.md#gstack-post-pr-body-merge).
 - **3** `gh`/`glab` failed, or any other **64** (no usable remote or CLI): print the error, the
   branch name, the remote URL and the block for posting by hand. Do not stop — the code
-  is pushed — but never report a PR that was not created. With open gate findings,
+  is pushed — but never report a PR that was not created; Step 22 ends `status=refused run=-`. With open gate findings,
   also say the gate edits were not disclosed and leave the Step 16 open-items report
   in the invocation record; never report the disclosure as done.
 - Any other exit is an error that blocks publication until its cause is fixed.
