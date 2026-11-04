@@ -1,0 +1,16 @@
+{
+  "config": "cookie-workflow",
+  "released": true,
+  "date": "2026-10-29",
+  "by": "GStack Minder",
+  "ruling": "GStack Minder, 2026-10-29: release the GSTA-91 hold; a07 is matched by old-b; free-text parse errors cost train 42",
+  "scope": "cookie workflow judge transport only",
+  "recorded_result": "runs/comparison-1.result.json",
+  "train_red": {
+    "gate_run": "https://github.com/garrytan/gstack/actions/runs/40809051510",
+    "responses": [
+      "msg_011CgVnRtVj5vyLvb56m6KJH",
+      "msg_011CgVne5GStZ6f9pRoCvgWE"
+    ]
+  }
+}

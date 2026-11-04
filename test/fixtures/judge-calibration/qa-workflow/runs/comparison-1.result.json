@@ -1,0 +1,98 @@
+{
+  "config": "qa-workflow",
+  "model": "claude-fable-5-1",
+  "request_hash": {
+    "old": "c00326001bb0e5511ead24b7568cfeafc3a9ae4fe4a4f94a1ed5e556fae12497",
+    "new": "07ca93d3097140d5f7b4b0dcffff84f2eb20e5ddc4de92fe7693e6e1a011da81"
+  },
+  "complete": true,
+  "stopped": null,
+  "calls": 216,
+  "cost_usd": 18.9415,
+  "errors": {
+    "old": {
+      "refusal": 0,
+      "truncation": 0,
+      "parse": 0,
+      "schema": 0,
+      "transport": 0,
+      "samples": 144,
+      "rate": 0
+    },
+    "new": {
+      "refusal": 0,
+      "truncation": 0,
+      "parse": 0,
+      "schema": 0,
+      "transport": 0,
+      "samples": 72,
+      "rate": 0
+    }
+  },
+  "latency_p95_ms": {
+    "old": 26754,
+    "new": 27693
+  },
+  "all": {
+    "items": 24,
+    "old_flips": {
+      "flips": 2,
+      "compared": 24
+    },
+    "new_flips": {
+      "flips": 4,
+      "compared": 24
+    },
+    "agreement": {
+      "old-a": 17,
+      "old-b": 17,
+      "new": 17
+    },
+    "false_passes": {
+      "old-a": [],
+      "old-b": [],
+      "new": [
+        "a06"
+      ]
+    },
+    "new_false_passes": [
+      "a06"
+    ]
+  },
+  "heldout": {
+    "items": 8,
+    "old_flips": {
+      "flips": 1,
+      "compared": 8
+    },
+    "new_flips": {
+      "flips": 1,
+      "compared": 8
+    },
+    "agreement": {
+      "old-a": 5,
+      "old-b": 6,
+      "new": 6
+    },
+    "false_passes": {
+      "old-a": [],
+      "old-b": [],
+      "new": []
+    },
+    "new_false_passes": []
+  },
+  "landing": {
+    "lands": false,
+    "reasons": [
+      "new flips 4/24 > old flips 2/24 + 1",
+      "new false passes: a06"
+    ],
+    "strict_no_flip_increase": false
+  },
+  "prose_step_triggered": {
+    "triggered": true,
+    "reasons": [
+      "a landing condition failed"
+    ]
+  }
+}

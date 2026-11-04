@@ -1,0 +1,132 @@
+The material below is a bundle of source-file excerpts, with each original file and line range labeled.
+SKILL.md is the entry point; the labeled ranges identify which excerpts are supplied.
+
+--- BEGIN FILE "landing-report/SKILL.md" (lines 363-488; entrypoint) ---
+## Step 1: Detect platform and base branch
+
+Use the current PR's base branch, else the repository's default branch, else `main`.
+
+```bash
+BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || \
+              gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || \
+              echo main)
+echo "Base branch: $BASE_BRANCH"
+```
+
+---
+
+## Step 2: Read current state
+
+```bash
+CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
+git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+BASE_VERSION=$(git show "origin/$BASE_BRANCH:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "$CURRENT_VERSION")
+echo "origin/$BASE_BRANCH VERSION: $BASE_VERSION"
+echo "branch HEAD VERSION: $CURRENT_VERSION"
+```
+
+---
+
+## Step 3: Query the queue
+
+Call the util once per bump level (micro, patch, minor, major) so the user sees
+what each level would claim.
+
+```bash
+for LEVEL in micro patch minor major; do
+  bun run ~/.claude/skills/gstack/bin/gstack-next-version \
+    --base "$BASE_BRANCH" \
+    --bump "$LEVEL" \
+    --current-version "$BASE_VERSION" \
+    > "/tmp/landing-$LEVEL.json" 2>/dev/null || echo '{"offline":true}' > "/tmp/landing-$LEVEL.json"
+done
+```
+
+---
+
+## Step 4: Render the dashboard
+
+Build a single table output. Use the `patch`-level JSON as canonical for
+queue + siblings (they're identical across bump levels; only `.version`
+differs).
+
+Use `jq` to extract:
+- `.host` — github | gitlab | unknown
+- `.offline` — did the query fail?
+- `.claimed` — array of {pr, branch, version, url}
+- `.siblings` — all sibling worktrees found
+- `.active_siblings` — subset that's likely about to ship
+
+Render in this exact format:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║                     GSTACK LANDING REPORT                        ║
+╠══════════════════════════════════════════════════════════════════╣
+║ Repo:    <owner/repo>                                            ║
+║ Base:    <base> @ v<base-version>                                ║
+║ Host:    <github|gitlab|unknown>                                 ║
+║ Status:  <ONLINE|OFFLINE: queue-awareness unavailable>           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Open PRs claiming versions on <base>:
+  #1152  alpha-branch         → v1.7.0.0
+  #1153  beta-branch          → v1.7.0.0  ⚠ collision with #1152
+  #1151  gamma-branch         → v1.6.5.0
+
+Sibling Conductor worktrees (<workspace_root>):
+  path                        branch                 VERSION      last commit   PR
+  ──────────────────────────────────────────────────────────────────────────────────
+  ../tokyo-v2                 feat/dashboard         v1.7.1.0    3h ago         none  ★ active
+  ../melbourne                feat/review            v1.6.0.0    12d ago        none
+  ../osaka                    feat/payments          v1.8.0.0    5h ago         #1155
+
+★ active = has VERSION ahead of base AND last commit < 24h AND no open PR.
+  These are the ones likely to ship soon.
+
+If you ran /ship right now, you'd claim:
+  micro bump:  v1.6.3.1   (queue-advance: none)
+  patch bump:  v1.7.1.0   (bumped past claimed 1.7.0.0)
+  minor bump:  v1.8.0.0   (bumped past claimed 1.7.0.0)
+  major bump:  v2.0.0.0   (no major collisions)
+```
+
+For offline / unknown-host output, print a shorter block:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║                     GSTACK LANDING REPORT                        ║
+╠══════════════════════════════════════════════════════════════════╣
+║ Status:  OFFLINE — queue-awareness unavailable                   ║
+║ Reason:  <offline reason from warnings>                          ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Fallback: local VERSION bumps still work, but collisions cannot be detected.
+```
+
+---
+
+## Step 5: Suggest next action
+
+After rendering the table, suggest ONE of:
+
+1. **If there are collisions in the queue** (two open PRs claim the same version):
+   "⚠ Two open PRs collide on v<X>. Whoever merges second will either overwrite
+   the first's CHANGELOG entry or land a duplicate. Consider asking one author
+   to rerun /ship to pick up the next free slot."
+
+2. **If an active sibling outranks the user's branch version:**
+   "Sibling worktree <path> has v<X> committed <N>h ago and hasn't PR'd yet.
+   If that work ships first, your branch will need to rebump at land time."
+
+3. **If everything looks clean:**
+   "Queue is clean. Next /ship will claim a slot without conflict."
+
+---
+
+## Plan Mode
+
+PLAN MODE EXCEPTION — ALWAYS RUN. This skill is entirely read-only: no file
+writes, no git mutations, no network state changes. Safe to run in plan mode.
+
+--- END FILE "landing-report/SKILL.md" ---

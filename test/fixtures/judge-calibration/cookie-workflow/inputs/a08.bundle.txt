@@ -1,0 +1,119 @@
+SKILL.md is the entry point. BROWSER.md supplies the exact referenced cookie section, not an additional execution step.
+
+--- BEGIN FILE "setup-browser-cookies/SKILL.md" (lines 146-206; entrypoint) ---
+# Setup Browser Cookies
+
+## 1. Check for Aside
+
+Use this checkout as the gstack root if it contains `BROWSER.md` and `browse/SKILL.md`; otherwise use the installed root containing `bin/gstack-skill-start`, never a generated host stub. Read that root's `browse/SKILL.md` **BROWSER SETUP** section and run its Aside probe.
+
+- **Aside probe prints `READY`:** no import is needed, because Aside already has the user's signed-in sessions. Tell the user to use Aside, or to sign in there, and end this skill.
+- **Any other result:** continue with gstack's own headless browser (`$B`).
+
+## 2. Get every decision from the user first
+
+Ask these together, before running any `$B` command. Never guess an answer or treat the default Comet browser as consent.
+
+1. **Source browser and profile.** `--profile` takes the profile's directory (`Default`, `Profile 2`), not its display name. A profile that cannot be read is unknown, not empty.
+2. **Domains to import,** and the **target**: one page on a chosen domain that the session should open, by URL.
+3. **Sign-in verification (`--verify-auth`)?** Default no. It reloads the target and reports **verified** only after a successful same-origin response with exactly one visible element, found by a CSS selector, whose whitespace-normalized text equals the expected identity. If yes, the user supplies the selector and the expected identity privately.
+4. **Clear stale storage (`--clear-storage`)?** Default no; needs explicit approval. Chromium only. It clears localStorage for the target's origin (shared by that origin's tabs) and sessionStorage for the target tab, and nothing else; other browser engines reject the reset but still import. A failed reset may already have cleared some storage and is not rolled back.
+5. **Every cookie in the profile (`--all`)?** Default no; needs explicit consent. It cannot be combined with a domain or with clearing storage.
+
+Use the picker when any of answers 1-2 is still open; it asks for them. Use direct import when the user has named the browser, the profile directory and the domains.
+
+## 3. Prepare gstack's browser
+
+1. If the user wants verification, have them set `GSTACK_COOKIE_AUTH_SELECTOR` and `GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY` privately in the shell that runs `$B`. Never invent the values.
+2. Follow `browse/SKILL.md`'s **Browser fallback** section to find `$B`, building it if the check prints `NEEDS_SETUP`.
+3. Run `$B status`. If it reports `Mode: cdp`, `$B` is attached to the user's real browser and already has its sessions: tell the user no import is needed and end this skill.
+4. Open the target URL from answer 2 and leave that tab alone until the import finishes:
+
+```bash
+$B goto "<url>"
+```
+
+## 4. Import
+
+Picker (the user confirms the browser, profile and domains there, ticks verification if they asked for it, then tells you when done; the link works once, for five minutes, so rerun the command if it expires):
+
+```bash
+$B cookie-import-browser
+```
+
+Direct import: run `$B cookie-import-browser` with the chosen browser name, one `--domain` per run and `--profile` set to the profile directory (not its display name); add `--verify-auth` or `--clear-storage` only if the user said yes in step 2.
+
+If the import rejects because verification settings are missing, nothing changed: tell the user which variable is missing and return to step 3. Read that same root's `BROWSER.md`, **Choosing a source and checking sign-in**, for other errors and receipt failure reasons; it has the error tables, examples, profile labels, supported sources and platform setup.
+
+## 5. Report honestly
+
+Report from the import receipt, not from raw `$B cookies`, as three lines:
+
+- `Imported: <count> (<imported|partial|empty|failed>, as the receipt says) from <browser> for <domains>`
+- `Storage reset: <done|failed|not requested>`
+- `Sign-in: <verified|not verified|not checked>`
+
+**Not checked** means verification was not requested; **not verified** means it ran and failed; **verified** needs the identity match. Cookie counts, zero imports and HTTP 200 never prove sign-in. Imported cookies apply to the whole browser context, not one tab.
+
+Never request or publish cookie values, passwords, identity or profile text, session details, or raw errors in public logs.
+
+## Platform boundaries
+
+Dia is macOS-only. Keychain approval is the user's choice. Database retries are bounded; permission denial needs user action, not repeated prompts.
+
+Windows supports DPAPI-compatible cookies, not all App-Bound Encryption; native extraction stays disabled pending qualification. Closing Chrome cannot bypass Chrome 136+ default-directory protection, including numbered profiles. No TCP fallback or real-profile copies. Offer headed manual sign-in only with a display available.
+
+--- END FILE "setup-browser-cookies/SKILL.md" ---
+
+--- BEGIN FILE "BROWSER.md" (lines 569-617; section) ---
+#### Choosing a source and checking sign-in
+
+Select the source browser and account/profile explicitly. The picker recognizes Chrome, Chromium, Brave, Edge, Windows-only Opera and Opera GX, and macOS-only Comet, Arc, and Dia. It shows current profile names from `Local State`, falling back to Preferences and then the directory name, with directory labels to distinguish duplicate names. `--profile` takes that directory (`Default`, `Profile 2`), not its display name. Without it, only a sole relevant profile is selected; ambiguity or unreadable profiles require a choice. The omitted-browser default remains `comet` for CLI compatibility, not as a recommendation. The picker opening link is one-use and expires after five minutes.
+
+For direct import, first navigate to a page matching `--domain`. Example after choosing Chrome's `Profile 2`:
+
+```bash
+$B goto https://example.com
+$B cookie-import-browser chrome --domain example.com --profile "Profile 2"
+```
+
+**Windows: Opera and Opera GX.** On Windows, Chrome, Edge and Brave increasingly store App-Bound Encryption cookies that gstack cannot decrypt; Opera and Opera GX still use DPAPI-protected cookies that it can. In Git Bash, with `$B` set as in the quick start above (the Windows build is `browse/dist/browse.exe`):
+
+```bash
+SITE=app.example.com
+DOMAIN=example.com
+$B goto "https://$SITE"
+$B cookie-import-browser opera-gx --domain "$DOMAIN" --profile Default   # or: opera
+$B reload                                                               # view the page; only --verify-auth proves sign-in
+```
+
+Run `$B cookie-import-browser` with no flags to see which browsers were detected. `--profile` can be omitted when only one profile has cookies for the domain. If the receipt reports App-Bound Encryption, run `$B handoff`, sign in to the intended account in the window that opens, then `$B resume` (needs a display).
+
+**Receipt failure reasons** (printed after the message as `Failure reasons: key=count`):
+
+| Key | Meaning | Next step |
+|---|---|---|
+| `unsupported_encryption` | App-Bound Encryption (v20) cookies gstack cannot decrypt | `$B handoff`, sign in, `$B resume` |
+| `decryption_failed` | The cookie could not be decrypted with the browser's key | Close the source browser and retry; otherwise sign in manually |
+| `native_unrecovered` | Windows native extraction ran but could not recover these cookies | Sign in manually with `$B handoff` |
+
+**Import errors:**
+
+| Code | Meaning | Next step |
+|---|---|---|
+| `not_installed` | No supported cookie database for that browser or profile; the message lists every path checked and, off-platform, which OS supports the browser | Pick a browser listed as available on this OS, or pass an existing `--profile` |
+| `profile_required` | Several profiles qualify, none has cookies for the domain, or a profile could not be read | Retry with `--profile "<dir>"` as the message suggests, or run `$B cookie-import-browser <browser>` to use the picker |
+| `native_unsupported_browser` | Internal guard; not expected in normal use | Sign in manually with `$B handoff` |
+
+The picker shows receipt messages verbatim; detailed `not_installed` and `profile_required` explanations appear in CLI output.
+
+`--all` explicitly selects every non-expired cookie in the chosen source profile; it cannot accompany `--domain` or `--clear-storage`. Cookies are applied to the captured browser context, not isolated to a tab. The receipt distinguishes imported, partial, empty, and failed results, plus separate storage-reset and authentication outcomes. Cookies copied with authentication `not_requested` means **not checked**, not logged in. Zero imports, cookie counts, and HTTP 200 alone never prove sign-in.
+
+`--verify-auth` (also an explicit picker checkbox) reloads the captured target. Configure `GSTACK_COOKIE_AUTH_SELECTOR` and `GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY` privately in the **daemon environment before startup**; setting them only on a later CLI call does not reconfigure an existing daemon. Missing configuration rejects before mutation. Verification requires a successful same-origin response and exactly one visible element whose whitespace-normalized text equals the expected identity. A wrong account, login redirect, missing assertion, or changed target is not verified. Do not paste cookie values, passwords, profile/account labels, or expected identity into public logs; report only sanitized outcomes.
+
+Storage stays intact by default. With explicit approval on a Chromium target, `--clear-storage` clears localStorage for the captured origin (exact scheme, host, and port, shared across that origin's tabs in the context) and sessionStorage for the target tab before applying cookies. Reset runs in an isolated world with a native monotonic deadline, so the site's scripts cannot forge its timeout clock. Other target engines reject reset; ordinary imports and authentication checks remain available. It does not clear other origins, other tabs' sessionStorage, IndexedDB, or service workers. Keep the target open and unchanged. A failed reset may have cleared some storage; a later cookie-application failure does not undo it.
+
+**Platform limits:** macOS imports may request Keychain approval; Linux `v11` cookies may require libsecret, while `v10` uses Chromium's fallback key. The Windows Node server needs Node.js 22.13 or newer with built-in SQLite enabled for cookie database reads. DPAPI-compatible cookies remain supported, but native App-Bound Encryption extraction is disabled until the browser/runtime passes qualification. Opera and Opera GX are Windows-only and read from `%APPDATA%\Opera Software\Opera Stable` or `Opera GX Stable`, in `Default` or `Profile N` directories; legacy root-level layouts, Opera side profiles and portable or relocated installs are not detected. Opera has no native extraction, so its App-Bound cookies (if any) need manual sign-in. Chrome 136+ blocks remote debugging of its default user-data directory, including numbered profiles, over both pipe and TCP; closing Chrome does not remove that protection. There is no TCP fallback or real-profile-copy workaround. If import cannot recover the session, sign in manually in gstack's headed browser when a display is available.
+
+
+--- END FILE "BROWSER.md" ---

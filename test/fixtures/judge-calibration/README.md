@@ -23,8 +23,10 @@ false passes, error rates, p95 latency, landing decision and the UC3 prose-step
 trigger. `manifest.json` prices every planned call before dispatch.
 
 The `qa-workflow`, `qa-health-rubric`, `workflow-default` and `cookie-workflow`
-configurations and their corpora were removed with the skill-text clarity judges
-(GST-1371, 2026-11-04). Their rows below, and their entries in `manifest.json`, are the
+configurations were removed with the skill-text clarity judges (GST-1371,
+2026-11-04). Their corpus directories no longer serve any configuration and are
+deleted in a follow-up (the deletion alone is larger than the /ship review
+ceiling). Their rows below, and their entries in `manifest.json`, are the
 historical record of the comparison.
 
 ## Comparison (1) results (2026-10-03, `claude-fable-5-1`, unless the row says otherwise)

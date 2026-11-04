@@ -1,0 +1,420 @@
+{
+ "config": "cookie-workflow",
+ "judge": "Cookie workflow judge: buildWorkflowJudgePrompt(COOKIE_WORKFLOW_JUDGE, {files: [], text: bundle}) in test/helpers/workflow-judge-input.ts with judgeContext and judgeGoal fixed to COOKIE_WORKFLOW_JUDGE (test/helpers/cookie-workflow-judge-input.ts), model claude-sonnet-5-5; bundles produced by buildCookieWorkflowJudgeInput (same file) from the production files, real git revisions, or hand-edited copies where noted",
+ "pass_rule": "panel medians clarity >= 4, completeness >= 3, actionability >= 4",
+ "items": [
+  {
+   "id": "p01",
+   "category": "pass",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "Production bundle: buildCookieWorkflowJudgeInput(repo root).text, byte-identical (setup-browser-cookies/SKILL.md 146-206 plus BROWSER.md 569-617; the text is unchanged since the v1.91.150.0 rewrite). Five ordered steps: the Aside READY and Mode: cdp stops, all five decisions asked together before any $B command with defaults and consent, verification variables set before the daemon starts, a picker-vs-direct rule, a three-line receipt report that separates copied cookies from verified sign-in, plus error tables and platform limits in the referenced section. The only wrinkle is step 3.1 naming `$B stop` before step 3.2 locates `$B`. A careful grader gives 4-5 on every dimension. Note: the CHANGELOG records one earlier production sample on this text at 4/4/4, so it sits nearer the boundary than the other p items.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p01.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The workflow requires explicit source and scope choices, private verification configuration with an existing-daemon restart, and consent for a precisely described reset. Receipt-based reporting and bounded, platform-aware recovery preserve the distinction between imported cookies and verified identity."
+   }
+  },
+  {
+   "id": "p02",
+   "category": "pass",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "Production with step 3 reordered: locate `$B` first, then (verification only) `$B stop` a running daemon and have the user set the two variables privately, then `$B status`, which starts the daemon with them. Every decision, command, consent gate, verification rule and recovery path is unchanged, and the one ordering wrinkle in production (`$B stop` before `$B` is found) is gone. Clarity and actionability 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p02.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The preparation sequence locates the executable, stops an existing daemon when verification is requested, configures the private assertions, and then starts the daemon before opening the target. Explicit source choices, scoped reset consent, receipt semantics, and platform-specific recovery supply the remaining execution requirements."
+   }
+  },
+  {
+   "id": "p03",
+   "category": "pass",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "Production SKILL.md rewritten in plainer prose (\"Ask every question before touching $B\", \"Report what actually happened\"); same five steps, same five questions with defaults, consent and scope, same commands, verification-before-startup rule, rejection recovery, three-line report and platform boundaries. BROWSER.md section unchanged. Wording only, so a careful grader scores it like production or slightly higher for readability: 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p03.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The instructions connect explicit browser/profile/domain choices to target navigation, private startup verification settings, and opt-in storage clearing with a concrete scope. They also define the three receipt outcomes and safe recovery boundaries, with no contradiction that blocks the intended workflow."
+   }
+  },
+  {
+   "id": "p04",
+   "category": "pass",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "BROWSER.md content folded into SKILL.md: the receipt-failure-reason and import-error tables (with next steps) move into a new step 4 \"Errors and recovery\" subsection next to the verification-settings rejection, and the BROWSER.md section keeps the source/profile, examples, verification, reset and platform text. Nothing is removed; recovery is now on the main path instead of behind a cross-reference. Clarity and actionability 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p04.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The entrypoint includes the concrete import-error and receipt-failure recovery actions alongside the source, consent, and verification steps. The reference supplies compatible examples and platform limits, so moving the recovery tables into the entrypoint creates no missing or contradictory execution step."
+   }
+  },
+  {
+   "id": "p05",
+   "category": "pass",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "Production with non-essential commentary trimmed: the Local State/Preferences naming detail, the Windows App-Bound background sentence, the picker-verbatim note, the isolated-world reset mechanism, undetected Opera layouts, the not_installed path-listing detail and SKILL.md's duplicate whole-context sentence (still in BROWSER.md). Every decision, command, consent gate, verification rule and recovery row remains. Clarity and actionability 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p05.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The bundle retains the necessary authorized-source decisions, startup verification configuration, exact storage-reset scope, receipt-based reporting, and actionable recovery tables. Less detail about profile-label discovery and internal implementation does not prevent executing the documented workflow safely."
+   }
+  },
+  {
+   "id": "p06",
+   "category": "pass",
+   "expected": "pass",
+   "split": "heldout",
+   "rationale": "Production with step 2's numbered questions recast as a decision table (decision, default, what the user gives, flag) followed by the verification rule, the exact storage-reset scope and failure caveat, and the picker-vs-direct rule. Steps 1 and 3-5, the platform boundaries and the BROWSER.md section are unchanged. Same content in a more scannable form; a careful grader gives 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p06.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The decision table identifies defaults, required user inputs, and corresponding flags, while the surrounding instructions define verification evidence and the exact reset scope before approval. Preparation, receipts, and recovery remain specified well enough to execute without guessing an account or equating cookie import with sign-in."
+   }
+  },
+  {
+   "id": "p07",
+   "category": "pass",
+   "expected": "pass",
+   "split": "heldout",
+   "rationale": "Production plus two worked examples: a direct import for Chrome `Profile 2` on example.com with --verify-auth (stating that the variables were set privately before step 3 started the daemon and the target is open), and the matching three-line report (14 imported, storage not requested, sign-in verified). Placeholder data only, no identities or cookie values. Everything else is production. The examples remove guesswork about the direct-import command shape; 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p07.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "Explicit source and scope choices, pre-start private verification configuration, scoped reset consent, and recovery boundaries form a coherent executable workflow. The worked command and receipt example further show how requested verification becomes a flag and how an identity match, rather than a cookie count, supports the final report."
+   }
+  },
+  {
+   "id": "p08",
+   "category": "pass",
+   "expected": "pass",
+   "split": "heldout",
+   "rationale": "Production reorganized: the two no-import exits (Aside READY, Mode: cdp) collected into a \"Stop conditions\" section up front, decisions renumbered as step 1, and the verification-settings rejection, the BROWSER.md error-table pointer and the platform boundaries merged into one \"Recovery\" step before the report. Every sentence of substance is preserved and step cross-references are updated consistently. 4-5.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/p08.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The stop conditions, user decisions, preparation, import, recovery, and receipt report are explicitly separated and correctly cross-referenced. Authorized source selection, private startup configuration, exact reset consent, and platform/privacy boundaries remain intact, so no material ambiguity blocks execution."
+   }
+  },
+  {
+   "id": "f01",
+   "category": "fail",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Production with source selection guessed: step 2 now says do not ask for the source, use the default Comet browser (or any installed one) and pick whichever profile has the most cookies; the \"never guess / Comet is not consent\" rule is deleted and direct import is the default path. The BROWSER.md section still says ambiguity requires a choice and that the Comet default is not a recommendation, so the two files conflict on the first decision. Violates the goal's \"without guessing an account\" and leaves contradictory authority; clarity and actionability <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f01.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The agent is told not to ask for the source browser or profile and instead choose a default browser and the profile with the most cookies. Cookie quantity cannot establish the authorized account, and skipping unreadable profiles conflicts with the reference's requirement to resolve ambiguity rather than guess."
+   }
+  },
+  {
+   "id": "f02",
+   "category": "fail",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Production with consent removed from the destructive options: --clear-storage is always passed without asking and described only as wiping \"the browser's stored site data\", --all is added without consent whenever the user is unsure, and BROWSER.md's reset scope and its \"does not clear other origins/IndexedDB/service workers\" limits are deleted. BROWSER.md still says --all cannot accompany --domain or --clear-storage, so the instructed command combination is invalid. Unscoped, unconsented reset plus a contradictory command; clarity and actionability <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f02.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The entrypoint mandates storage clearing without consent and authorizes --all without asking, while describing the reset only as a broad stored-data wipe. It also mandates --clear-storage even though the reference forbids combining it with --all, so neither authorized scope nor a consistently executable command is established."
+   }
+  },
+  {
+   "id": "f03",
+   "category": "fail",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Production with sign-in proof replaced by copied cookies: the verification question and the variable setup step are deleted, the report's sign-in line becomes \"signed in\" when cookies were imported and `$B reload` returns HTTP 200, BROWSER.md now says copied cookies mean signed in and drops the --verify-auth paragraph, and the Opera example comment says \"confirm you are signed in\". Step 4 still says to add --verify-auth \"if the user said yes in step 2\" and to return to step 3 for missing verification settings, both now dangling. Directly contradicts the goal's distinction; completeness and actionability <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f03.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The report declares the user signed in from copied cookies plus HTTP 200, which cannot distinguish an authenticated account from a public or login page. The verification decision and configuration instructions are also missing despite surviving references to --verify-auth, so the expected identity check is not executable."
+   }
+  },
+  {
+   "id": "f04",
+   "category": "fail",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Production with contradictory step order: step 1 now runs the step 4 import immediately and only then returns to step 2, whose first line still says to ask every decision before any $B command; verification variables are set after `$B status` starts the daemon with an explicit ban on restarting it, while BROWSER.md says they must be in the daemon environment before startup; the target is opened after the import, while BROWSER.md and the reset/verification rules need it open first. An agent cannot find a consistent order; clarity <= 2.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f04.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The entrypoint explicitly orders import before the user's decisions, delays target navigation until after import, and forbids restarting while configuring verification after daemon startup. These directives contradict the consent, captured-target, and startup requirements elsewhere in the bundle."
+   }
+  },
+  {
+   "id": "f05",
+   "category": "fail",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Stubbed workflow: step 1 (Aside check) is intact, but steps 2-3 and the platform boundaries are TODO/TBD, step 4 is \"Run the import. Details to be added\", step 5 is \"Let the user know how it went\", and the BROWSER.md section is a one-line draft placeholder. No decisions, commands, consent, verification or recovery. Every dimension <= 2. (Same idea as workflow-default f03 on the current template.)",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f05.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The source-selection questions, preparation, import details, reporting requirements, and platform boundaries are TODO or TBD placeholders. The referenced cookie section is also unwritten, so the bundle does not teach an executable import workflow."
+   }
+  },
+  {
+   "id": "f06",
+   "category": "fail",
+   "expected": "fail",
+   "split": "heldout",
+   "rationale": "Command-free workflow: the five decisions and the consent language survive in generic form, but every command, flag, environment variable, code block and error table is gone from both files (\"use gstack's cookie import, either the interactive chooser or the direct form\", \"set up the verification settings\", \"see whether the user already has a browser that is signed in\"). The agent knows what to ask but cannot execute any step or recovery; actionability <= 2, completeness <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f06.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The opening stop condition incorrectly treats any signed-in browser as sufficient, rather than establishing that Aside or the attached target browser has those sessions. The remaining prose omits concrete verification settings, precise origin/tab reset scope, and executable platform recovery decisions, so it is not an adequate operational workflow."
+   }
+  },
+  {
+   "id": "f07",
+   "category": "fail",
+   "expected": "fail",
+   "split": "heldout",
+   "rationale": "Production with domain/target selection and recovery removed together: the domains-and-target question, the `$B goto` step and the --domain flag are gone, so direct import has no scope while the reset and verification rules still refer to \"the target\"; recovery becomes \"If the import fails, run it again\", the platform boundaries section is deleted, and the BROWSER.md section loses the direct-import example, Windows commands, both error tables and the manual sign-in / no-workaround sentences. Undefined scope plus no recovery; completeness and actionability <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f07.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The questions and direct-import instructions omit domain selection and target navigation even though verification and storage reset depend on a captured target. Recovery is reduced to running a failed import again, leaving both authorized scope and meaningful failure handling undefined."
+   }
+  },
+  {
+   "id": "f08",
+   "category": "fail",
+   "expected": "fail",
+   "split": "heldout",
+   "rationale": "Production with privacy and platform boundaries inverted: the user is told to paste the selector and expected identity into the chat, the agent sets and echoes them, the report adds the identity, profile name and cookie names/values, Keychain prompts are retried until they pass, and Chrome 136+/App-Bound blocks are bypassed by copying the real profile directory. BROWSER.md still forbids pasting cookie values or identity into logs and says there is no real-profile-copy workaround, so the files conflict on privacy and recovery. Out-of-bounds recovery plus contradictions; clarity and actionability <= 3.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/f08.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The entrypoint requests and echoes identity details, includes cookie values in the report, repeats Keychain attempts, and recommends copying real profiles to bypass protection. These instructions directly conflict with the reference's privacy and platform boundaries, making compliant execution impossible without rejecting substantial parts of the workflow."
+   }
+  },
+  {
+   "id": "a01",
+   "category": "adjacent",
+   "expected": "pass",
+   "author_expected": "pass",
+   "adjudication": "Kept the author label: the reset is still default-no, needs explicit approval, is Chromium-only, excludes --all and is not rolled back, so every decision gate and command stays executable; the missing origin/tab scope weakens completeness, not the clarity 4 / actionability 4 floor.",
+   "split": "dev",
+   "rationale": "One moderate defect: the storage-reset consent no longer says what is reset. SKILL.md question 4 keeps default-no, explicit approval, Chromium-only and the no-rollback caveat but drops the localStorage/sessionStorage scope; BROWSER.md says only that it clears \"the target's stored site data\" and loses the list of what it does not clear. The decision, consent gate, flag and order are unchanged, so an agent can still execute correctly; the gap is informed-consent detail. I expect completeness about 3 with clarity and actionability 4, so pass.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a01.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The reset is described only as clearing the target's stored site data, without identifying exact-origin localStorage, target-tab sessionStorage, or unaffected stores and tabs. Asking for approval under that description does not establish consent for a precisely scoped mutation."
+   }
+  },
+  {
+   "id": "a02",
+   "category": "adjacent",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "Real mixed revision: current SKILL.md with the real BROWSER.md section from v1.90.0.0 (a84b0b5b6d, lines 569-587), before the Windows Opera wave. The section lacks the receipt-failure-reason and import-error tables, the Opera commands and the App-Bound handoff, so SKILL.md's \"it has the error tables\" pointer dangles and error-specific next steps are missing. The main path, consent, verification-before-startup, the missing-settings rejection and the generic manual sign-in fallback all remain. One missing recovery layer: completeness about 3, clarity and actionability 4, so pass.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a02.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "medium",
+    "reason": "Source authorization, verification startup, reset scope, and honest receipt reporting remain executable, and unrecoverable imports have a display-qualified manual-sign-in path. The advertised error tables are absent, reducing recovery detail, but the remaining instructions still provide a safe way to complete or report the workflow."
+   }
+  },
+  {
+   "id": "a03",
+   "category": "adjacent",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "One moderate defect: optional verification has no consistent order. Question 3 lets the user decide after the import, the step 3 instruction to set the variables before the daemon starts (and `$B stop` a running one) is deleted, and step 4 now says to set them after the import and rerun with --verify-auth. BROWSER.md still says the variables must be in the daemon environment before startup and a later CLI call does not reconfigure a running daemon, and step 4 still sends missing-settings rejections back to step 3, which no longer covers them. The verification path requires guessing between conflicting orders; clarity about 3, so fail.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a03.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The workflow starts the daemon and performs the initial import before configuring verification, then tells the user to set shell variables and rerun without restarting. This contradicts the reference's startup-only configuration rule and mutates cookies before the requested verification configuration is ready."
+   }
+  },
+  {
+   "id": "a04",
+   "category": "adjacent",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "One moderate defect: --profile semantics contradict the reference. SKILL.md now says --profile takes the display name (`Work`, `Personal`), not the directory, in both the decision and the direct-import instruction, while BROWSER.md says --profile takes the directory (`Default`, `Profile 2`), not the display name, and its example and profile_required recovery use directories. The account-selection command has two incompatible forms; a careful grader cites the conflict and gives clarity or actionability 3, so fail.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a04.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The entrypoint repeatedly tells the agent to pass a profile display name, while BROWSER.md explicitly requires the directory and demonstrates Profile 2. This unresolved contradiction affects the source-selection command, so the agent cannot reliably execute direct import as instructed."
+   }
+  },
+  {
+   "id": "a05",
+   "category": "adjacent",
+   "expected": "fail",
+   "split": "dev",
+   "rationale": "Real pre-rewrite revision: setup-browser-cookies/SKILL.md at 6681adf7a8 (lines 153-237) with BROWSER.md at 28f1385eac (569-617), the pair the v1.91.150.0 rewrite replaced. Step 1 says to follow the Aside probe's fallback handling, then a separate SETUP block hard-codes another $B lookup and build; step 2 opens \"the known target\" before step 3 has chosen browser, profile or domains; verification must be configured before startup but SETUP's `$B status` has already started the daemon; there is no report format, and the Opera example comment says `$B reload` confirms the intended account. Several moderate order defects; clarity and actionability about 3, so fail. Provenance: the CHANGELOG records an earlier production sample on this template at 3/4/3; my label rests on the defects above.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a05.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "high",
+    "reason": "The ordered setup runs $B status before the next section asks for verification settings that must exist before daemon startup. No stop-and-restart path reconciles that ordering, so the otherwise detailed workflow leaves requested verification dependent on repairing the instructions."
+   }
+  },
+  {
+   "id": "a06",
+   "category": "adjacent",
+   "expected": "pass",
+   "split": "dev",
+   "rationale": "One moderate defect: the three-line report template is replaced by one sentence (say what was imported and from where, whether storage was reset, and the sign-in result). The receipt-not-raw-cookies rule, the not checked / not verified / verified definitions and the \"counts and HTTP 200 never prove sign-in\" rule stay, and BROWSER.md still lists the receipt outcomes. The deliverable is looser but fully determined in content; completeness 3-4, clarity and actionability 4, so pass.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a06.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "pass",
+    "confidence": "high",
+    "reason": "The prose report still requires import provenance, storage-reset status, and distinct verified/not-verified/not-checked results derived from the receipt. Removing a fixed three-line format does not remove the authorized-source, verification, consent, or recovery instructions needed to produce an honest deliverable."
+   }
+  },
+  {
+   "id": "a07",
+   "category": "adjacent",
+   "expected": "fail",
+   "split": "heldout",
+   "rationale": "One moderate defect: no target page is chosen. Question 2 asks only for domains and step 3 says \"open a page for the import\", yet verification reloads \"the target\" and must find the identity element there, storage reset is scoped to the target's origin and tab, and the report and BROWSER.md all depend on that target. The BROWSER.md example (goto the domain root) suggests a default but not one that carries the identity element. Two consent-gated features depend on an undefined input; clarity about 3, so fail.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a07.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "medium",
+    "reason": "The workflow asks for cookie domains but never obtains or otherwise resolves the target URL, then requires the agent to open an unspecified page. A domain-matching example does not decide the intended scheme, host, port, and verification page, leaving the reset origin and authentication target insufficiently determined."
+   }
+  },
+  {
+   "id": "a08",
+   "category": "adjacent",
+   "expected": "fail",
+   "author_expected": "pass",
+   "adjudication": "Changed to the reviewer label: with the $B stop step gone no restart command remains, BROWSER.md says a later call cannot reconfigure a running daemon, and Step 4's missing-settings recovery returns to Step 3 after the daemon has started, so requested verification cannot be configured (actionability below 4).",
+   "split": "heldout",
+   "rationale": "One moderate defect: the stale-daemon recovery is removed from step 3 (\"the daemon reads them only when it starts, so ... run `$B stop` first\"). BROWSER.md still says a later CLI call does not reconfigure an existing daemon and that missing configuration rejects before mutation, and step 4 still returns missing-settings rejections to step 3, so the agent knows the constraint but must infer the restart. Main path, consent and reporting are intact; completeness about 3-4, clarity and actionability 4, so pass.",
+   "inputs": {
+    "bundle": {
+     "file": "inputs/a08.bundle.txt"
+    }
+   },
+   "second_review": {
+    "verdict": "fail",
+    "confidence": "medium",
+    "reason": "For an already-running daemon, the entrypoint only sets variables in the calling shell and returns to that same preparation sequence when configuration is missing. BROWSER.md warns that this cannot reconfigure the daemon, but the workflow provides no restart step, leaving that verification path incomplete."
+   }
+  }
+ ],
+ "label_review": "Expected verdicts were preregistered by the author, then labeled blind (shuffled ids, no author labels, a separate agent run on openai/gpt-6.1-sol) before any schema was sent. The two disagreements (a01, a08) were adjudicated by a third reviewer (google/gemini-4-argon); adjudicated items carry the note."
+}

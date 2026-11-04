@@ -1,0 +1,109 @@
+{
+  "config": "cookie-workflow",
+  "model": "claude-sonnet-5-5",
+  "request_hash": {
+    "old": "364a2ea4aca3403216ff26da8c1670fda7c29eaa6cd4031ecad9f42d92cf714e",
+    "new": "a2fc989f0b60008b7ad9f3cb6a529c94391e52f1db46860ecd91be14c49b6113"
+  },
+  "complete": true,
+  "stopped": null,
+  "calls": 216,
+  "cost_usd": 2.8132,
+  "errors": {
+    "old": {
+      "refusal": 0,
+      "truncation": 0,
+      "parse": 2,
+      "schema": 0,
+      "transport": 0,
+      "samples": 144,
+      "rate": 0.013888888888888888
+    },
+    "new": {
+      "refusal": 0,
+      "truncation": 0,
+      "parse": 0,
+      "schema": 0,
+      "transport": 0,
+      "samples": 72,
+      "rate": 0
+    }
+  },
+  "latency_p95_ms": {
+    "old": 13617,
+    "new": 9610
+  },
+  "all": {
+    "items": 24,
+    "old_flips": {
+      "flips": 1,
+      "compared": 22
+    },
+    "new_flips": {
+      "flips": 1,
+      "compared": 23
+    },
+    "agreement": {
+      "old-a": 22,
+      "old-b": 22,
+      "new": 23
+    },
+    "false_passes": {
+      "old-a": [
+        "a08"
+      ],
+      "old-b": [
+        "a07"
+      ],
+      "new": [
+        "a07"
+      ]
+    },
+    "new_false_passes": [
+      "a07"
+    ]
+  },
+  "heldout": {
+    "items": 8,
+    "old_flips": {
+      "flips": 1,
+      "compared": 7
+    },
+    "new_flips": {
+      "flips": 1,
+      "compared": 7
+    },
+    "agreement": {
+      "old-a": 6,
+      "old-b": 7,
+      "new": 7
+    },
+    "false_passes": {
+      "old-a": [
+        "a08"
+      ],
+      "old-b": [
+        "a07"
+      ],
+      "new": [
+        "a07"
+      ]
+    },
+    "new_false_passes": [
+      "a07"
+    ]
+  },
+  "landing": {
+    "lands": false,
+    "reasons": [
+      "new false passes: a07"
+    ],
+    "strict_no_flip_increase": true
+  },
+  "prose_step_triggered": {
+    "triggered": true,
+    "reasons": [
+      "a landing condition failed"
+    ]
+  }
+}

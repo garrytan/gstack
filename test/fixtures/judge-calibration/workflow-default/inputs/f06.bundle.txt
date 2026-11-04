@@ -1,0 +1,86 @@
+The material below is a bundle of source-file excerpts, with each original file and line range labeled.
+SKILL.md is the entry point; the labeled ranges identify which excerpts are supplied.
+
+--- BEGIN FILE "investigate/SKILL.md" (lines 391-682; entrypoint) ---
+# Systematic Debugging
+
+## Iron Law
+
+**FIX OBVIOUS BUGS IMMEDIATELY.** Only investigate when the quick fix does not work.
+
+---
+
+
+
+## Phase 1: Root Cause Investigation
+
+Gather context before forming any hypothesis.
+
+1. **Collect symptoms:** Read the error messages, stack traces, and reproduction steps. If the user hasn't provided enough context, ask ONE question at a time via AskUserQuestion.
+
+2. **Read the code:** Trace the code path from the symptom back to potential causes. Use Grep to find all references, Read to understand the logic.
+
+3. **Check recent changes:**
+   ```bash
+   git log --oneline -20 -- <affected-files>
+   ```
+   Was this working before? What changed? A regression means the root cause is in the diff.
+
+4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding.
+
+5. **Check investigation history:** Search prior learnings for investigations on the same files. Recurring bugs in the same area are an architectural smell. If prior investigations exist, note patterns and check if the root cause was structural.
+
+## Phase 2: Pattern Analysis
+
+Consider whether the bug resembles something you have seen before.
+
+---
+
+## Phase 3: Hypothesis Testing
+
+Before writing ANY fix, verify your hypothesis.
+
+1. **Confirm the hypothesis:** Add a temporary log statement, assertion, or debug output at the suspected root cause. Run the reproduction. Does the evidence match?
+
+2. **If the hypothesis is wrong:** Before forming the next hypothesis, consider searching for the error through Aside, as in Phase 2. **Sanitize first** — strip hostnames, IPs, file paths, SQL fragments, customer identifiers, and any internal/proprietary data from the error message. Search only the generic error type and framework context: "{component} {sanitized error type} {framework version}". If the error message is too specific to sanitize safely, skip the search. If the Aside check did not print `READY`, use the WebSearch tool when the host provides it; with neither, skip and proceed. Then return to Phase 1. Gather more evidence. Do not guess.
+
+**Red flags** — if you see any of these, slow down:
+- "Quick fix for now" — there is no "for now." Fix it right or escalate.
+- Proposing a fix before tracing data flow — you're guessing.
+- Each fix reveals a new problem elsewhere — wrong layer, not wrong code.
+
+---
+
+## Phase 4: Implementation
+
+Once root cause is confirmed:
+
+1. **Fix the root cause, not the symptom.** The smallest change that eliminates the actual problem.
+
+2. **Minimal diff:** Fewest files touched, fewest lines changed. Resist the urge to refactor adjacent code.
+
+3. **Write a regression test** that:
+   - **Fails** without the fix (proves the test is meaningful)
+   - **Passes** with the fix (proves the fix works)
+
+4. **Run the full test suite.** Paste the output. No regressions allowed.
+
+5. **If the fix touches >5 files:** Use AskUserQuestion to flag the blast radius:
+   ```
+   This fix touches N files. That's a large blast radius for a bug fix.
+   A) Proceed — the root cause genuinely spans these files
+   B) Split — fix the critical path now, defer the rest
+   C) Rethink — maybe there's a more targeted approach
+   ```
+
+---
+
+## Phase 5: Verification & Report
+
+**Fresh verification:** Reproduce the original bug scenario and confirm it's fixed. This is not optional.
+
+Run the test suite and paste the output.
+
+Summarize what you did for the user.
+
+--- END FILE "investigate/SKILL.md" ---

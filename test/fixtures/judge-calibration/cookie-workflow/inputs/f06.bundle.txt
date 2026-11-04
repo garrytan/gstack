@@ -1,0 +1,56 @@
+SKILL.md is the entry point. BROWSER.md supplies the exact referenced cookie section, not an additional execution step.
+
+--- BEGIN FILE "setup-browser-cookies/SKILL.md" (lines 146-178; entrypoint) ---
+# Setup Browser Cookies
+
+## 1. Check for Aside
+
+First see whether the user already has a browser that is signed in. If so, no import is needed; tell the user and stop.
+
+## 2. Get every decision from the user first
+
+Ask the user, before you start:
+
+1. Which browser and which profile to copy from. Do not guess.
+2. Which sites to import, and which page to open.
+3. Whether to check sign-in afterwards. Default no.
+4. Whether to clear stale storage. Default no; needs explicit approval. It only clears storage for that site.
+5. Whether to copy every cookie. Default no; needs explicit consent.
+
+## 3. Prepare gstack's browser
+
+Get gstack's browser running. If the user wants sign-in checking, have them set up the verification settings privately first. Open the page from step 2.
+
+## 4. Import
+
+Use gstack's cookie import, either the interactive chooser or the direct form with the chosen browser, profile and site. Turn on sign-in checking or storage clearing only if the user agreed. If something goes wrong, see `BROWSER.md`, **Choosing a source and checking sign-in**.
+
+## 5. Report honestly
+
+Tell the user how many cookies were imported, whether storage was reset, and whether sign-in was verified, not verified or not checked. Cookie counts never prove sign-in.
+
+Never publish cookie values, passwords or identity details.
+
+## Platform boundaries
+
+Some browsers only work on some platforms. If the import cannot recover the session, the user can sign in manually.
+
+--- END FILE "setup-browser-cookies/SKILL.md" ---
+
+--- BEGIN FILE "BROWSER.md" (lines 569-582; section) ---
+#### Choosing a source and checking sign-in
+
+Select the source browser and account/profile explicitly. Several Chromium-based browsers are supported, some only on one operating system. Profiles are identified by their directory rather than their display name. If more than one profile could apply, ask the user.
+
+For direct import, first open a page on the site you are importing for.
+
+If the import fails, the receipt explains why. When cookies cannot be read, sign in manually.
+
+Copied cookies do not by themselves mean the user is signed in. Sign-in checking compares an element on the page with the identity the user expects; configure it before the browser starts.
+
+Storage stays intact by default. With explicit approval, storage clearing removes local and session storage for the target site before cookies are applied. It is not undone if it fails partway.
+
+**Platform limits:** some platforms need extra approval or libraries before cookies can be read, and some newer browser encryption cannot be read at all. There is no workaround that copies the user's real profile.
+
+
+--- END FILE "BROWSER.md" ---

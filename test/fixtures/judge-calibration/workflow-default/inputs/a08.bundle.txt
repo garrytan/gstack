@@ -1,0 +1,75 @@
+The material below is a bundle of source-file excerpts, with each original file and line range labeled.
+SKILL.md is the entry point; the labeled ranges identify which excerpts are supplied.
+
+--- BEGIN FILE "landing-report/SKILL.md" (lines 363-488; entrypoint) ---
+## Step 1: Detect platform and base branch
+
+Use the current PR's base branch, else the repository's default branch, else `main`.
+
+```bash
+BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || \
+              gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || \
+              echo main)
+echo "Base branch: $BASE_BRANCH"
+```
+
+---
+
+## Step 2: Read current state
+
+```bash
+CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
+git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+BASE_VERSION=$(git show "origin/$BASE_BRANCH:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "$CURRENT_VERSION")
+echo "origin/$BASE_BRANCH VERSION: $BASE_VERSION"
+echo "branch HEAD VERSION: $CURRENT_VERSION"
+```
+
+---
+
+## Step 3: Query the queue
+
+Call the util once per bump level (micro, patch, minor, major) so the user sees
+what each level would claim.
+
+```bash
+for LEVEL in micro patch minor major; do
+  bun run ~/.claude/skills/gstack/bin/gstack-next-version \
+    --base "$BASE_BRANCH" \
+    --bump "$LEVEL" \
+    --current-version "$BASE_VERSION" \
+    > "/tmp/landing-$LEVEL.json" 2>/dev/null || echo '{"offline":true}' > "/tmp/landing-$LEVEL.json"
+done
+```
+
+---
+
+## Step 4: Render the dashboard
+
+Build a single table output. Use the `patch`-level JSON as canonical for
+queue + siblings (they're identical across bump levels; only `.version`
+differs).
+
+Use `jq` to extract:
+- `.host` — github | gitlab | unknown
+- `.offline` — did the query fail?
+- `.claimed` — array of {pr, branch, version, url}
+- `.siblings` — all sibling worktrees found
+- `.active_siblings` — subset that's likely about to ship
+
+Render a dashboard from these fields.
+
+---
+
+## Step 5: Suggest next action
+
+After rendering, suggest a sensible next action.
+
+---
+
+## Plan Mode
+
+PLAN MODE EXCEPTION — ALWAYS RUN. This skill is entirely read-only: no file
+writes, no git mutations, no network state changes. Safe to run in plan mode.
+
+--- END FILE "landing-report/SKILL.md" ---

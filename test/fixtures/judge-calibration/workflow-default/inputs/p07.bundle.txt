@@ -1,0 +1,213 @@
+The material below is a bundle of source-file excerpts, with each original file and line range labeled.
+SKILL.md is the entry point; the labeled ranges identify which excerpts are supplied.
+
+--- BEGIN FILE "context-restore/SKILL.md" (lines 352-558; entrypoint) ---
+# /context-restore — Restore Saved Working Context
+
+You are a **Staff Engineer reading a colleague's meticulous session notes** to
+pick up exactly where they left off. Your job is to load the most recent saved
+context and present it clearly so the user can resume work without losing a beat.
+
+**HARD GATE:** Do NOT implement code changes. This skill only reads saved
+context files and presents the summary.
+
+**Default: prefer the most recent checkpoint saved on the CURRENT branch; if
+this branch has none, fall back to the most recent across ALL branches.** The
+fallback is for Conductor workspace handoff — a context saved on one branch can
+be resumed from another. The current-branch preference exists because every
+worktree of a repo shares one checkpoints directory (same origin-derived slug),
+so without it `/context-restore` in one worktree could silently load a sibling
+worktree's newer checkpoint.
+
+**Do NOT hard-filter the candidate set to the current branch** — other-branch
+checkpoints stay in the set as a fallback. They are just ordered *after* the
+current branch's own, so a current-branch save is never shadowed by a newer
+sibling-worktree save. (`/context-save list` is the flow that hard-scopes to one
+branch.)
+
+---
+
+## Detect command
+
+Parse the user's input:
+
+- `/context-restore` → load the most recent saved context (current branch first, then any branch)
+- `/context-restore <title-fragment-or-number>` → load a specific saved context
+- `/context-restore list` → tell the user "Use `/context-save list` — listing
+  lives on the save side" and exit. No mode detection here.
+
+---
+
+## Restore flow
+
+### Step 1: Find saved contexts
+
+```bash
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) && mkdir -p "$GSTACK_STATE_ROOT/projects/$SLUG" && echo "PROJECT_DIR: $GSTACK_STATE_ROOT/projects/$SLUG"
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
+# Project identity: canonical remote (root only when there is no remote).
+PROJECT_REMOTE=$(~/.claude/skills/gstack/bin/gstack-slug --get PROJECT_REMOTE 2>/dev/null) || true
+PROJECT_ROOT=$(~/.claude/skills/gstack/bin/gstack-slug --get PROJECT_ROOT 2>/dev/null) || true
+LEGACY_SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get LEGACY_SLUG 2>/dev/null) || true
+echo "PROJECT_IDENTITY: ${PROJECT_REMOTE:-${PROJECT_ROOT:-unknown}}"
+echo "PROJECT_ROOT: ${PROJECT_ROOT:-unknown}"
+if [ -n "${LEGACY_SLUG:-}" ] && [ -d "$GSTACK_STATE_ROOT/projects/$LEGACY_SLUG/checkpoints" ]; then
+  LEGACY_N=$(find "$GSTACK_STATE_ROOT/projects/$LEGACY_SLUG/checkpoints" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$LEGACY_N" -gt 0 ]; then
+    echo "LEGACY_BUCKET: projects/$LEGACY_SLUG holds $LEGACY_N earlier checkpoint(s) from the bucket this project shared with other nested-group repos; review and copy with: ~/.claude/skills/gstack/bin/gstack-slug --adopt-legacy"
+  fi
+fi
+if [ ! -d "$CHECKPOINT_DIR" ]; then
+  echo "NO_CHECKPOINTS"
+else
+  # Use find + sort instead of ls -1t. Two reasons:
+  # 1. Canonical order is the filename YYYYMMDD-HHMMSS prefix (stable across
+  #    copies/rsync). Filesystem mtime drifts and is not authoritative.
+  # 2. On macOS, `find ... | xargs ls -1t` with zero results falls back to
+  #    listing cwd. `sort -r` on empty input cleanly returns nothing.
+  # Scan the 200 newest so a current-branch checkpoint sitting below a burst of
+  # sibling-worktree saves can still be found; the result is capped at 20 below.
+  ALL=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -200)
+  if [ -z "$ALL" ]; then
+    echo "NO_CHECKPOINTS"
+  else
+    # Order current-branch checkpoints first, other branches after. A git branch
+    # is checked out in at most one worktree, and all worktrees of a repo share
+    # one checkpoints dir (same origin-derived slug), so without this preference
+    # `/context-restore` in worktree A could load worktree B's newer checkpoint.
+    # Cross-branch resume (Conductor handoff) is preserved as the fallback: when
+    # the current branch has no checkpoint, the full newest-first set is used.
+    # CURRENT_BRANCH may be pre-set (tests); otherwise resolve it from git.
+    : "${CURRENT_BRANCH:=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)}"
+    SAME=""; OTHER=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
+      if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
+        SAME="${SAME}${f}
+"
+      else
+        OTHER="${OTHER}${f}
+"
+      fi
+    done <<EOF
+$ALL
+EOF
+    # Identity check (#3003): only checkpoints stamped with THIS project's
+    # identity are candidates for "latest". Unstamped (older) checkpoints are
+    # trusted unless the directory demonstrably holds another project's files.
+    CLASSIFIED=$(printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' \
+      | ~/.claude/skills/gstack/bin/gstack-slug --classify-checkpoints 2>/dev/null)
+    if [ -z "$CLASSIFIED" ]; then
+      echo "IDENTITY_CHECK_FAILED"
+      printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' | head -20 | sed 's/^/UNVERIFIED /'
+    else
+      FOREIGN_N=$(printf '%s\n' "$CLASSIFIED" | grep -c '^foreign' || true)
+      # Cap at 20: a user with 10k saved files shouldn't blow the context window.
+      FILES=$(printf '%s\n' "$CLASSIFIED" | awk -F '\t' -v f="$FOREIGN_N" \
+        '$(1) == "match" || $(1) == "match-root" || ($(1) == "unstamped" && f == 0) { print $(2) }' | head -20)
+      if [ -n "$FILES" ]; then echo "$FILES"; else echo "NO_VERIFIED_CHECKPOINTS"; fi
+      printf '%s\n' "$CLASSIFIED" | awk -F '\t' -v f="$FOREIGN_N" \
+        '$(1) == "match-root" { print "ROOT_DIFFERS " $(2) }
+         $(1) == "foreign" { print "FOREIGN " $(2) }
+         $(1) == "unstamped" && f > 0 { print "UNVERIFIED " $(2) }' | head -40
+      if [ "$FOREIGN_N" -gt 0 ]; then
+        echo "SHARED_BUCKET: $FOREIGN_N checkpoint(s) here were saved by another project"
+      fi
+    fi
+  fi
+fi
+```
+
+**Candidates include every `.md` file in the directory**, but they are ordered
+**current-branch-first** (the branch is read from each file's `branch:`
+frontmatter). Other-branch files stay in the set as a fallback, which preserves
+Conductor workspace handoff when the current branch has no checkpoint of its own.
+
+**Project identity.** Plain path lines are this project's checkpoints (verified by
+the `remote:`/`project_root:` stamp, or unstamped in a directory no other project
+has written to). Prefixed lines are never candidates for "latest":
+- `FOREIGN <path>`: saved by a different project that shares this directory.
+- `UNVERIFIED <path>`: saved before identity stamps, in a directory another
+  project also uses, so it may belong to either.
+- `ROOT_DIFFERS <path>`: same repository, different checkout (Conductor workspace
+  handoff or a moved clone). This is information, not a mismatch; the file is
+  also listed as a plain path line.
+
+### Step 2: Load the right file
+
+- If the user specified a title fragment or number: find the matching file among
+  the candidates, including `FOREIGN` and `UNVERIFIED` lines (a user may restore
+  another project's checkpoint deliberately).
+- Otherwise: load the **first plain path line returned by Step 1 above**, which
+  is the newest `YYYYMMDD-HHMMSS` checkpoint of this project for the current
+  branch, or, if the current branch has none, the newest across all branches.
+- If Step 1 printed `NO_VERIFIED_CHECKPOINTS` or `IDENTITY_CHECK_FAILED`, do not
+  present any checkpoint as the latest one. Say "No checkpoint in this directory
+  is verified as this project's", list the `FOREIGN`/`UNVERIFIED` titles with the
+  `remote:`/`project_root:` they name (or "unknown"), and ask which one, if any, to
+  open.
+
+**Report identity problems before any summary.** If the chosen file is `FOREIGN`
+or `UNVERIFIED`, start with:
+"PROJECT MISMATCH: this checkpoint was saved by `{remote or project_root from its
+frontmatter, or 'an unknown project'}`, not this project (`{PROJECT_IDENTITY}`)."
+If Step 1 printed `SHARED_BUCKET`, say "This checkpoints directory also holds N
+checkpoint(s) from another project; only this project's are listed." If it printed
+`LEGACY_BUCKET`, relay that line. If the chosen file is `ROOT_DIFFERS`, add
+"Saved from another checkout of this repository at `{project_root}`." as info.
+
+Read the chosen file and present a summary:
+
+```
+RESUMING CONTEXT
+════════════════════════════════════════
+Title:       {title}
+Branch:      {branch from frontmatter}
+Saved:       {timestamp, human-readable}
+Duration:    Last session was {formatted duration} (if available)
+Status:      {status}
+════════════════════════════════════════
+
+### Summary
+{summary from saved file}
+
+### Remaining Work
+{remaining work items}
+
+### Notes
+{notes}
+```
+
+If the current branch differs from the saved context's branch, note this:
+"This context was saved on branch `{branch}`. You are currently on
+`{current branch}`. You may want to switch branches before continuing."
+
+### Step 3: Offer next steps
+
+After presenting, ask via AskUserQuestion:
+
+- A) Continue working on the remaining items
+- B) Show the full saved file
+- C) Just needed the context, thanks
+
+If A, summarize the first remaining work item and suggest starting there.
+
+---
+
+## If no saved contexts exist
+
+If Step 1 printed `NO_CHECKPOINTS`, tell the user:
+
+"No saved contexts yet. Run `/context-save` first to save your current working
+state, then `/context-restore` will find it."
+
+If it also printed `LEGACY_BUCKET`, relay that line: earlier checkpoints are kept
+in the old bucket until the user copies them with `gstack-slug --adopt-legacy`.
+
+---
+
+
+--- END FILE "context-restore/SKILL.md" ---

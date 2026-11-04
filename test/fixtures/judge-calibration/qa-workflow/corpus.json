@@ -1,0 +1,426 @@
+{
+  "config": "qa-workflow",
+  "judge": "QA workflow judge: buildQaWorkflowJudgePrompt(section) in test/helpers/llm-judge.ts:561-583 (called from test/skill-llm-eval.test.ts:201-228 'qa/SKILL.md workflow'; prompt text formerly inline at skill-llm-eval.test.ts:208-227)",
+  "pass_rule": "panel means clarity >= 3 AND completeness >= 3 AND actionability >= 4",
+  "items": [
+    {
+      "id": "p01",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Older production /qa baseline workflow from qa/SKILL.md at v1.66.0.0 (git 410b4928e): Setup parameters and tiers, browse-binary check, four modes, Phases 1-6 with concrete $B commands, report/baseline.json outputs, health rubric and Important Rules. Only the bun-installer block and CDP note were trimmed.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Intact legacy browser baseline (setup, modes, auth, orient, explore, document, wrap-up with baseline.json schema and full health rubric) with concrete commands; covers only Phases 1-6 and browser surfaces, so completeness is borderline 3 while actionability for its deliverables is solid."
+      }
+    },
+    {
+      "id": "p02",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Older production /qa fix loop (v1.66.0.0 qa/SKILL.md): tiers, clean-tree gate, Phase 7 triage, Phase 8 locate/fix/commit/re-test/classify/regression test/self-regulation with numeric stop rule and hard cap, Phases 9-11 with report fields and PR line. Short context header added.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Intact legacy Phases 7-11 fix loop: clear tier triage, locate/fix/commit/retest/classify, a detailed regression-test procedure, WTF self-regulation, final QA, report and TODOS update; it covers only the fix half and lacks native surfaces and regression-before-repair, so completeness is around 3."
+      }
+    },
+    {
+      "id": "p03",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Consolidated standalone /qa for browser, functional or mixed targets, built from current qa/SKILL.md (parameters, tiers, clean tree, Phases 7-10), sections/scope.md (surface selection, isolation, boundaries), exploratory.md (charters, budgets, four-field checkpoints, exact replay), qa-patterns.md (modes, Aside read script, rubric) and browser-verify.md (after evidence). Covers every phase the judge names (surface selection, bounded probes, reproduce/diagnose, regression before repair, recheck, evidence/coverage report) and references no unsupplied file.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "(replacement item, reviewed blind) Complete single-file /qa workflow covering surface selection (browser/functional/mixed), isolation and authority, browser readiness with a blocked path, charters and budgets, a checkpointed probe loop with exact replay, triage, a fix loop with a regression test before repair, rechecks, stop rules, a final health score and a separated report; every phase has defined decisions and outputs."
+      }
+    },
+    {
+      "id": "p04",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Current qa/SKILL.md fix-verify half: parameters and tiers, the Phases 1-6 pointer to sections/exploratory.md (separate file per the judge preamble), Output Structure, Phase 7 triage, Phase 8 (reproduce, regression test before repair with value card, minimal fix, re-test, commit, classify, record, self-regulation), Phases 9-11, Additional Rules.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Current /qa entry file: well-defined triage, regression-before-repair, fix, recheck, commit, classify, self-regulation, final QA and report with browser/functional splits and blocked paths; Phases 1-6 and setup are delegated to an unsupplied exploratory section, so completeness is about 3 and actionability about 4."
+      }
+    },
+    {
+      "id": "p05",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Hand-written improved, self-contained /qa workflow distilled from qa/SKILL.md and qa-patterns.md: every phase ends with a named output, explicit page-selection per mode, severity definitions, inline health rubric, test-first fix loop with classification, stop rules and final report fields.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Self-contained web-app QA workflow with an explicit output per phase, defined inputs, page selection per mode, severity definitions, a full scoring rubric, a test-first fix loop, stop rules and report contents; clear and fully executable."
+      }
+    },
+    {
+      "id": "p06",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Consolidated standalone /qa repair workflow for workers, jobs and webhooks, built from current sections/scope.md (isolation, permission), system-functional.md (modes, contract map, acceptance vs final effect, evidence) and qa/SKILL.md Phases 7-10 (diagnose, regression test before repair, minimal fix, three-part recheck, classify, stop rules) with templates/functional-report-template.md report fields. Unlike p08 (report-only), it repairs defects; it references no unsupplied file.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "(replacement item, reviewed blind) Self-contained functional (worker/job/webhook) test-repair-verify workflow with inputs, authority gate, isolation and permission stop, a contract map, a replay/minimize probe loop, defined severities, a regression-test-first repair loop with rechecks, stop rules, a final run and a fully specified report; clear and executable."
+      }
+    },
+    {
+      "id": "p07",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Current qa/sections/qa-patterns.md in full (generated header removed): modes, Phases 1-6 with Aside scripts and screenshot handling, Phase 6 report/baseline.json fields, health rubric, framework guidance, rules. Dense and leans on the shared exploratory loop and BROWSER SETUP files, which the judge preamble says are loaded separately.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Intact browser methodology with modes, concrete Aside scripts, document/wrap-up outputs, baseline.json schema and a precise health rubric; still a section that depends on the shared loop and has no repair path, so completeness is around 3 while actionability for browser QA is strong."
+      }
+    },
+    {
+      "id": "p08",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Hand-written self-contained functional QA workflow (API/CLI/job/webhook) distilled from qa/sections/scope.md and system-functional.md: boundaries and isolation, contract-to-probe table, probe procedure with evidence and replay confirmation, outcome vocabulary, report fields and pass verdict rule.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Self-contained functional-surface QA workflow: target/contract definition, isolation and permission gate, contract-to-probe table, exact probe/replay procedure, outcome taxonomy and a defined report and verdict; clear and executable even though it proposes rather than performs repairs."
+      }
+    },
+    {
+      "id": "f01",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "p02's fix loop with planted defects: tier rule contradicted ('fix every issue ... whatever tier' then 'only critical if time is short'), commit step moved before locate/fix (two '8a' steps), re-test/classify/regression/self-regulation and Phase 9 deleted, report reduced to 'Write up what you did'. Rules still cite the deleted steps.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Corrupted fix loop: triage contradicts the tiers, commit happens before locate/fix, duplicate 8a, re-test/classify/regression steps and Phase 9 missing while rules cite Phase 8e.5 and the WTF heuristic; report is just 'write up what you did'."
+      }
+    },
+    {
+      "id": "f02",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Hand-written six-line skeleton ('Open the site. Look around. Fix the bugs that matter. Write a report.') with no inputs, decision criteria, commands, evidence or output format.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Six vague steps ('look around', 'fix the bugs that matter', 'use good judgment') with no criteria, commands, evidence or report format."
+      }
+    },
+    {
+      "id": "f03",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "p01 with every command block stripped (phases now say 'Get a map of the application:' with nothing after), the four modes replaced by 'pick whatever depth seems right', and Phase 6 outputs plus the health rubric replaced by 'Summarize what you found'.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Degraded baseline: browse-binary command removed, modes replaced with 'pick whatever depth', auth branches and orient/explore commands emptied, Phase 6 reduced to 'summarize' while still demanding a health score with no rubric."
+      }
+    },
+    {
+      "id": "f04",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Current canary/SKILL.md (from '# /canary' to end, Phase 5 read script deduplicated) with defaults removed ('as long as seems necessary', 'periodically'), baseline schema removed, 2x performance threshold made vague, 'alert immediately on the first error' contradicting the retained two-consecutive-checks rule, and the report format/status rules replaced by 'write up a report'.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Degraded canary: duration becomes 'as long as seems necessary', baseline saved 'somewhere', performance threshold vague, 'be fast' contradicts the two-check confirmation rule, report is just 'write up a report'; off-target for QA as well."
+      }
+    },
+    {
+      "id": "f05",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Current qa-only/SKILL.md (trimmed as a06) with a planted instruction to fix and commit critical/high bugs, contradicting 'NEVER fix anything' and Additional Rule 1, and with the entire Output section (report assembly, templates, write destinations) deleted.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "/qa-only document that says NEVER fix anything, then instructs fixing and committing critical/high bugs; the direct contradiction plus missing output/report section and unsupplied sections breaks clarity and actionability."
+      }
+    },
+    {
+      "id": "f06",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Hand-written workflow whose every step defers to undefined external artifacts (QA Handbook 2.3, QA-PROTOCOL-v2 steps P1-P14, release matrix, S0-S4 scale, 'the usual place') with a circular precedence note. Nothing is executable from the document.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Depends entirely on external, unsupplied artifacts (QA Handbook, QA-PROTOCOL-v2, release matrix, wiki, 'usual place'); an agent cannot execute any step from this text."
+      }
+    },
+    {
+      "id": "f07",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Hand-written fix loop that inverts the real /qa safeguards: no fix cap or stop rule, unrelated refactors encouraged, failing regression tests deleted, existing tests rewritten to match new behavior, re-test optional, 'git reset --hard HEAD~1' recovery, report 'list the issues as fixed'.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Fix loop with harmful, incoherent instructions (scope creep, delete failing tests, rewrite existing test expectations, optional retest, git reset --hard, report everything as fixed); an agent following it would not produce trustworthy deliverables."
+      }
+    },
+    {
+      "id": "f08",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Hand-written philosophy essay ('Quality is not a phase...') with principles but no steps, inputs, decision points, commands or deliverables.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "A mindset essay with no phases, commands, decision points or deliverables; nothing for an agent to execute."
+      }
+    },
+    {
+      "id": "a01",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "p02 with 8f Self-Regulation and Phase 11 deleted. The core loop, classification, regression-test procedure and report remain, but there is no stop rule or fix cap and two references to the removed WTF-likelihood heuristic now dangle.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Legacy fix loop with 8f self-regulation (WTF computation, stop threshold, hard cap) and Phase 11 removed, while rules 15 and 8e.5 still cite the undefined WTF heuristic; the loop has no defined stop and completeness drops to borderline."
+      },
+      "author_expected": "pass",
+      "adjudication": "Kept the author label: the loop, classification, regression procedure and report remain; the missing stop rule and dangling WTF references cost clarity, not the completeness 3 / actionability 4 floor."
+    },
+    {
+      "id": "a02",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "p07 (current qa-patterns.md) with Phase 6 Wrap Up and the whole Health Score Rubric deleted. Exploration phases are intact, but the modes still say 'Score health' / 'score per Health Score Rubric' and no report, baseline.json or score definition remains, so deliverables are undefined.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Browser-methodology section only, with Phase 6 and the Health Score Rubric removed while Quick/Full still say to score health and new bugs go 'in the Phase 6 report'; it also depends on an unsupplied shared loop and BROWSER SETUP and has no repair path."
+      }
+    },
+    {
+      "id": "a03",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Current canary/SKILL.md (from '# /canary' to end, Phase 5 read script deduplicated) with Phase 6 reduced to 'summarize the results for the user' and Phase 7 removed. Monitoring and alerting are fully specified, but the report format, HEALTHY/DEGRADED/BROKEN rules, saved files and history log are gone.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Canary with the health report reduced to 'summarize' and baseline update removed; besides being off-target for a QA fix workflow, its output definition is incomplete."
+      }
+    },
+    {
+      "id": "a04",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Current qa/sections/exploratory.md + system-functional.md as a labeled two-file bundle: complete charter/deadline/probe-loop/checkpoint/report procedure and contract map, but very dense (single-letter names G/Q/D/R) and its first Read (sections/scope.md) is not supplied.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Shared exploratory and functional sections without the SKILL.md entry, scope.md, browser method or Phase 8 repair; the dense single-letter shorthand (R, D, G, Q) hurts clarity, and an agent cannot run the full QA workflow or its deliverables from this text."
+      },
+      "author_expected": "pass",
+      "adjudication": "Changed to the reviewer label: no entry point, no repair phase, and the single-letter probe-loop shorthand is the same density CI judges flagged at actionability 3.67 on the real qa bundle."
+    },
+    {
+      "id": "a05",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Hand-written compact /qa workflow with concrete setup/explore/fix steps, but the fix selection is vague ('fix the important issues ... unless they are quick'), no severity scale exists, and the report requires a before/after health score that is never defined.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Short but concrete, ordered browser test-fix-verify workflow with setup, issue format, fix/commit/revert rules, stop limits and report contents; lacks regression tests, native surfaces and a defined health-score rubric, so completeness is about 3 and actionability about 4."
+      },
+      "author_expected": "fail",
+      "adjudication": "Kept the author label: the report requires a before/after health score the document never defines, so a deliverable is not executable (actionability below 4)."
+    },
+    {
+      "id": "a06",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Current qa-only/SKILL.md from '# /qa-only' to end, trimmed (test value bar and Output Structure table removed). Parameters, isolation, report artifacts, check sequencing, output assembly and rules are present; probing and finalization live in referenced section files that are not supplied.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Intact /qa-only entry file: carefully specified, but exploration and reporting are both delegated to unsupplied sections and it never repairs or adds regressions, so against the /qa rubric completeness is about 3 and actionability about 3."
+      },
+      "author_expected": "pass",
+      "adjudication": "Changed to the reviewer label: exploration and reporting are delegated to section files that are not supplied, so the agent cannot produce the deliverables from this text (actionability below 4)."
+    },
+    {
+      "id": "a07",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Current qa/SKILL.md Setup section in full (parameters, tiers, clean-tree gate, report-artifact rules, scope STOP directive), followed by a phase list that only names Phases 1-11 with one-line glosses. Setup is executable; testing, fixing and reporting are not defined.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Setup plus a phase list whose phases are never defined; baseline, triage, fix loop and report all depend on an unsupplied sections/scope.md and nothing else, so there is nothing to execute after setup."
+      }
+    },
+    {
+      "id": "a08",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "p01 with Phase 2 (authentication) deleted and Phase 6 compressed to one sentence (no ordered wrap-up, no baseline.json schema). Modes, exploration commands, rubric and rules remain, so the workflow still runs with weaker output definitions.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Old browser baseline (Phases 1-6) with Phase 2 auth excised (jumps 1->3) and Phase 6 cut to one line with no baseline.json schema, yet regression mode depends on it; no repair, regression-before-repair, native surfaces or isolation, so completeness sits at or below 3."
+      },
+      "author_expected": "pass",
+      "adjudication": "Kept the author label: the core browser workflow, modes, commands and rubric remain; the missing baseline schema weakens regression mode but leaves completeness at the 3 floor."
+    }
+  ],
+  "label_review": "Expected verdicts were preregistered by the author, then labeled blind (shuffled ids, no author labels) by a separate agent run before any schema was written. Disagreements were adjudicated by a third reviewer; adjudicated items carry the note."
+}

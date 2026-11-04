@@ -1,0 +1,464 @@
+{
+  "config": "workflow-default",
+  "judge": "Shared workflow judge, default (non-frontier) branch: buildWorkflowJudgePrompt({judgeContext, judgeGoal}, {text: bundle}) in test/helpers/workflow-judge-input.ts:45-82 with agentCapability unset; bundles produced by readWorkflowJudgeInput (same file) and hand-degraded where noted",
+  "pass_rule": "panel means clarity >= 3, completeness >= 3, actionability >= 4",
+  "items": [
+    {
+      "id": "p01",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real benchmark-models/SKILL.md window \"# /benchmark-models\" to \"## Important Rules\" via readWorkflowJudgeInput, unmodified. Every step has a command or AskUserQuestion with options, explicit fallbacks (no binary, no authed providers, no judge) and a defined summary.",
+      "inputs": {
+        "judgeContext": "a cross-model skill benchmarking workflow",
+        "judgeGoal": "how to locate the gstack-model-benchmark binary, choose a prompt and authed providers, decide whether to enable the quality judge, run the benchmark, interpret speed/cost/quality results, and optionally save a JSON baseline",
+        "bundle": {
+          "file": "inputs/p01.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Every step has commands, decision branches and outputs: binary location, prompt/provider/judge choices, run command, interpretation and save."
+      }
+    },
+    {
+      "id": "p02",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real context-save/SKILL.md window \"# /context-save\" to \"## Important Rules\", unmodified. Command detection, gather/summarize/duration/write steps with bash, a file template, and the list flow with table format.",
+      "inputs": {
+        "judgeContext": "a working-context save and list workflow",
+        "judgeGoal": "how to gather git state, summarize decisions and remaining work, write a collision-safe timestamped context file under the project state directory, and list saved contexts in a table",
+        "bundle": {
+          "file": "inputs/p02.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Exact git-state gathering, summary contents, sanitized collision-safe path, file format, stamp step, confirmation and list table are all defined."
+      }
+    },
+    {
+      "id": "p03",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real learn/SKILL.md window \"# Project Learnings Manager\" to end of file, unmodified. Explicit subcommand routing, a bash command per mode, prune flags with A/B/C options, export template, stats script, manual-add fields.",
+      "inputs": {
+        "judgeContext": "a project learnings management workflow",
+        "judgeGoal": "how to route /learn subcommands, show and search learnings, prune stale or contradictory entries with user approval, export them as markdown, compute stats, and manually add a learning",
+        "bundle": {
+          "file": "inputs/p03.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Every subcommand is routed with concrete commands, approval-gated pruning, export format, stats script and manual-add fields."
+      }
+    },
+    {
+      "id": "p04",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real landing-report/SKILL.md window \"## Step 1: Detect platform\" to end, unmodified. Concrete commands, jq fields, exact dashboard and offline render formats, and three defined next-action cases.",
+      "inputs": {
+        "judgeContext": "a read-only version queue dashboard workflow",
+        "judgeGoal": "how to detect the base branch, read current and base VERSION, query the version queue for each bump level, render the landing report dashboard (including offline output), and suggest one next action",
+        "bundle": {
+          "file": "inputs/p04.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Complete read-only flow with exact commands, full dashboard and offline templates, and three concrete next-action rules."
+      }
+    },
+    {
+      "id": "p05",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real test-audit/SKILL.md window \"# /test-audit: Test value sweep\" to \"## Handoff\", unmodified. Boundaries, six steps with mechanical filters, evidence rules, report/sidecar output, one question per batch and an approval-gated apply step.",
+      "inputs": {
+        "judgeContext": "a report-first test value audit workflow",
+        "judgeGoal": "how to scope an audit of existing tests, mechanically pre-filter candidates, gather evidence, report findings with a sidecar, ask one question per batch, and apply only an approved batch",
+        "bundle": {
+          "file": "inputs/p05.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Scope, mechanical pre-filter, evidence cards, report plus JSON sidecar, one question per batch and approved-batch application are fully specified."
+      }
+    },
+    {
+      "id": "p06",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Real diagram/SKILL.md window \"# /diagram\" to \"## Completion status\", unmodified. Author, stage, render, deliver steps with commands and rules.",
+      "inputs": {
+        "judgeContext": "a diagram authoring and rendering workflow",
+        "judgeGoal": "how to turn an English request into mermaid source, stage the render bundle, render the editable .excalidraw plus SVG/PNG triplet, and deliver the files",
+        "bundle": {
+          "file": "inputs/p06.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Authoring rules, staging script, one-call triplet render with error handling, and delivery steps are concrete and complete."
+      }
+    },
+    {
+      "id": "p07",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Real context-restore/SKILL.md window \"# /context-restore\" to \"## Important Rules\", unmodified. Command detection, project-scoped discovery script, file selection rules, presentation format, next-step offer and the no-saved-contexts path.",
+      "inputs": {
+        "judgeContext": "a saved working-context restore workflow",
+        "judgeGoal": "how to find saved context files for the current project, pick the right one (latest or user-specified), load and present it, offer next steps, and handle the case where no saved contexts exist",
+        "bundle": {
+          "file": "inputs/p07.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Detailed find/order/identity logic, explicit selection rules, presentation template, next-step question and no-context handling."
+      }
+    },
+    {
+      "id": "p08",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Real deslop-shared-libs/SKILL.md window \"# Find code worth sharing\" to end, unmodified (12.9k). Detailed read-only boundary, source establishment, candidate survey, scoring rubric and output contract.",
+      "inputs": {
+        "judgeContext": "a read-only shared-code extraction review",
+        "judgeGoal": "how to establish the reviewed source, survey recent work, evaluate candidate extractions against a rubric, and report up to three recommendations without writing any files",
+        "bundle": {
+          "file": "inputs/p08.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Dense but complete: source establishment, bounded survey, explicit rubric, read-only boundary and a defined three-part report are all executable."
+      }
+    },
+    {
+      "id": "f01",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "pair-agent/SKILL.md window \"## Step 1\" to \"## Troubleshooting\", degraded: removed the Step 2 agent options and TARGET_HOST mapping, deleted Step 3 (local vs remote) while Step 4 still branches on \"option A/B\", added \"run Step 5 verify first if short on time\", and replaced the explicit-consent rule with \"Always pass --force-restart\" while the one-way-door consent question remains. Undefined inputs plus contradictory ordering and authority.",
+      "inputs": {
+        "judgeContext": "a browser pairing workflow for sharing the gstack browser with another AI agent",
+        "judgeGoal": "how to check the browse server, choose the target agent and local-vs-remote mode, get consent before relaunching a live daemon or opening a tunnel, execute the pairing, and verify the connection",
+        "bundle": {
+          "file": "inputs/f01.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "'Always pass --force-restart' contradicts the live-daemon consent gate, target-agent options and the local/remote choice are missing, and it suggests verifying before pairing."
+      }
+    },
+    {
+      "id": "f02",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "health/SKILL.md window \"# /health\" to \"## Important Rules\", degraded: Step 3 rubric/weights/composite script replaced by \"score based on how healthy it looks\", Step 4 dashboard format replaced by \"Show the results\", Step 5 persistence path/schema replaced by \"save somewhere\", Step 6 replaced by \"compare if you can\". Detection and run steps kept.",
+      "inputs": {
+        "judgeContext": "a code health dashboard workflow",
+        "judgeGoal": "how to detect the project's health tools, run each checker with honest capture, score categories with weights into a composite, present a dashboard, persist history, and show trends and recommendations",
+        "bundle": {
+          "file": "inputs/f02.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "After Step 2, scoring, dashboard, persistence and trends are one-line vague instructions with no weights, format, path or comparison rules."
+      }
+    },
+    {
+      "id": "f03",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "setup-browser-cookies/SKILL.md window \"# Setup Browser Cookies\" to end, degraded: steps 2-4 and platform boundaries replaced by \"TBD\", \"Import whatever cookies seem relevant\", and \"Let the user know how it went\". Consent, scope selection, commands and honest reporting criteria all removed.",
+      "inputs": {
+        "judgeContext": "a browser cookie import workflow for authenticated testing",
+        "judgeGoal": "how to choose the browser, confirm import options, select source profile and domains with user consent, import cookies, and report the outcome honestly",
+        "bundle": {
+          "file": "inputs/f03.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Options step is 'TBD', source/domain selection has no consent ('import whatever seems relevant') and the report step is 'let the user know how it went'."
+      }
+    },
+    {
+      "id": "f04",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "document-generate/SKILL.md window \"## Step 0: Scope & Intent\" to end, degraded: Steps 2-6 (Diataxis partitioning and all four templates) collapsed to \"write whatever documentation seems most useful\"; Step 8 self-review moved to after Step 9 commit/push and made optional (\"failures can be fixed in a later PR\"), contradicting Important Rules.",
+      "inputs": {
+        "judgeContext": "a Diataxis documentation generation workflow",
+        "judgeGoal": "how to scope documentation, research the codebase, partition content into tutorial/how-to/reference/explanation docs, write each from templates, cross-link, self-review against quality gates, and commit with a structured summary",
+        "bundle": {
+          "file": "inputs/f04.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Steps 2-6 (quadrant partition, templates, writing) are reduced to 'write whatever seems useful', and self-review is placed after commit/push as optional, contradicting the goal."
+      }
+    },
+    {
+      "id": "f05",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "skillify/SKILL.md window \"# /skillify\" to \"## Limits\", degraded: Step 8 failure handling replaced by \"if the test fails, continue to Step 10 anyway\" and Step 9 approval gate deleted, while the Iron contract still requires test pass + explicit approval and Step 10 still says \"If the user approved\" / \"rejected in step 9\". Direct contradiction and dangling decision.",
+      "inputs": {
+        "judgeContext": "a scrape-to-skill codification workflow",
+        "judgeGoal": "how to verify provenance, propose a name, synthesize and test a deterministic script in a staged directory, get explicit approval, then atomically commit or discard the skill and verify it",
+        "bundle": {
+          "file": "inputs/f05.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Approval step 9 is missing yet referenced, and Step 8 says to commit even when the test fails, directly contradicting the never-write-a-broken-skill contract."
+      }
+    },
+    {
+      "id": "f06",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "investigate/SKILL.md window \"# Systematic Debugging\" to \"## Important Rules\", degraded: Iron Law rewritten to \"FIX OBVIOUS BUGS IMMEDIATELY\" (contradicting Phase 3 and red flags), Phase 2 pattern table replaced by one vague line, 3-strike rule removed, Phase 5 debug report format replaced by \"Summarize what you did\"; Prior Learnings/Scope Lock/web research/learnings sections removed (size).",
+      "inputs": {
+        "judgeContext": "a systematic root-cause debugging workflow",
+        "judgeGoal": "how to investigate symptoms, match known bug patterns, test hypotheses with a 3-strike limit, implement a minimal root-cause fix with a regression test, and produce a structured debug report",
+        "bundle": {
+          "file": "inputs/f06.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Iron Law says fix obvious bugs immediately (contradicting root-cause-first), pattern analysis is one vague line, no 3-strike limit, and the report is just 'summarize'."
+      }
+    },
+    {
+      "id": "f07",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "gstack-upgrade/SKILL.md window \"## Inline upgrade flow\" to \"## Standalone usage\", degraded: install-type detection script replaced by \"figure out how gstack was installed\", Step 3 told to record the old version AFTER Step 4 upgrades (breaks migrations and What's New), Step 4 upgrade mechanics replaced by \"upgrade with whatever method fits; put it back if it fails\"; Steps 4.5 and 4.8 removed (size).",
+      "inputs": {
+        "judgeContext": "a version upgrade detection and execution workflow",
+        "judgeGoal": "how to detect install type, compare versions, back up current install, upgrade via git or fresh clone, run setup, and show what changed",
+        "bundle": {
+          "file": "inputs/f07.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Install-type detection and upgrade are gutted ('figure out how', 'whatever method fits'), and Step 3 saves the old version after the upgrade, recording the wrong version."
+      }
+    },
+    {
+      "id": "f08",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "plan-tune/SKILL.md window \"## Step 0\" to \"## Inspect profile\", degraded: implicit gate conditions and their run-first order replaced by \"may run before or after\", consent A/B/C options deleted while \"If A or B\"/\"If C\" branches remain, marker write changed to \"only if enabled\" (contradicting the never-re-ask design), and Q1-Q5 questions plus numeric mapping removed while the profile write still needs <Q1_VALUE>..<Q5_VALUE>.",
+      "inputs": {
+        "judgeContext": "a question-tuning consent and profile setup workflow",
+        "judgeGoal": "how to run implicit gates before intent routing, obtain explicit consent for question tuning with marker files, and run the five-question declared-profile setup that writes numeric values to the developer profile",
+        "bundle": {
+          "file": "inputs/f08.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Implicit gates are unspecified (list starts at 4), consent options A/B/C are never defined, the marker is touched only on enable (re-ask risk), and the five questions/numeric values are missing."
+      }
+    },
+    {
+      "id": "a01",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real ios-fix/SKILL.md window \"# Autonomous iOS bug fixer\" to end, unmodified (3.1k). Clear phases, endpoints, fixture paths, 3-iteration cap and a failure-mode table; thinner on Phase 2 and regression-test details. I expect about 4/4/4.",
+      "inputs": {
+        "judgeContext": "an autonomous iOS bug-fix workflow on a real device",
+        "judgeGoal": "how to reproduce a reported bug with a state snapshot, find its root cause in Swift source, rebuild and verify the fix on device, and add a regression test with the snapshot fixture",
+        "bundle": {
+          "file": "inputs/a01.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Short but complete: snapshot reproduction, root cause, rebuild/verify with iteration cap, regression test and a failure-mode table."
+      }
+    },
+    {
+      "id": "a02",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real freeze/SKILL.md window \"# /freeze\" to end, unmodified (3.3k). Short: one AskUserQuestion, one helper command with failure handling, a confirmation message, and hook behavior notes. Small but complete for its job.",
+      "inputs": {
+        "judgeContext": "an edit-boundary safety mode setup",
+        "judgeGoal": "how to ask for the directory to restrict edits to, set the freeze boundary with the shared state helper, confirm to the user, and understand how the hook enforces it",
+        "bundle": {
+          "file": "inputs/a02.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Ask for path, set via shared helper with failure handling, exact confirmation text and a clear explanation of hook enforcement."
+      }
+    },
+    {
+      "id": "a03",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "pair-agent window with lighter degradation than f01: Step 3 (local vs remote question) deleted so Step 4's \"option A/B\" branches are never asked, and Step 5 (verify connection) deleted so there is no completion check. Agent mapping, consent gates and commands intact. Expect actionability or completeness about 3.",
+      "inputs": {
+        "judgeContext": "a browser pairing workflow for sharing the gstack browser with another AI agent",
+        "judgeGoal": "how to check the browse server, choose the target agent and local-vs-remote mode, get consent before relaunching a live daemon or opening a tunnel, execute the pairing, and verify the connection",
+        "bundle": {
+          "file": "inputs/a03.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Local-vs-remote decision (Step 3) is missing, so 'option A/B' headings are ambiguous with the relaunch A/B, and the connection-verification step is absent despite being a stated goal."
+      }
+    },
+    {
+      "id": "a04",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real scrape/SKILL.md window \"# /scrape\" to end with \"## When the read fails\" and \"## Output discipline\" removed. Read scripts, refuse rule, sign-in wall handling, 3-4 attempt budget and JSON_START/JSON_END output survive; the explicit failed-read decision and stdout contract are gone.",
+      "inputs": {
+        "judgeContext": "a read-only web page data extraction workflow",
+        "judgeGoal": "how to determine the scrape intent, refuse mutating intents, read the page with structured or fuzzy extraction scripts, handle failed reads, and return one JSON document",
+        "bundle": {
+          "file": "inputs/a04.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Clear intent/refusal/read flow with structured and fuzzy scripts, sign-in and console-error handling, and a single JSON output; minor rule-number references only."
+      }
+    },
+    {
+      "id": "a05",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real canary/SKILL.md window \"### Phase 2\" to \"## Important Rules\" with the four alert rules (CRITICAL/HIGH/MEDIUM/LOW criteria, 2x load threshold), \"alert on changes\" and the two-consecutive-checks rule replaced by \"raise an alert at whatever severity seems right if a page looks noticeably worse\"; Phase 6 still derives BROKEN/DEGRADED from confirmed CRITICAL alerts. Core decision becomes undefined.",
+      "inputs": {
+        "judgeContext": "a post-deploy canary monitoring workflow driving a real browser (Aside first, the gstack headless browser as fallback)",
+        "judgeGoal": "how to capture baseline screenshots and metrics before deploy, run a continuous monitoring loop checking each page every 60 seconds for console errors and performance regressions, fire alerts with evidence (screenshots), and produce a health report with per-page status and verdict",
+        "bundle": {
+          "file": "inputs/a05.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Alert criteria are 'whatever severity seems right if a page looks noticeably worse', with no error/performance thresholds or confirmation rule, though the report depends on confirmed CRITICAL alerts."
+      }
+    },
+    {
+      "id": "a06",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real setup-deploy/SKILL.md window \"### Step 2\" to \"## Important Rules\" with the CLAUDE.md \"## Deploy Configuration\" template and replace/append rule replaced by \"Write the confirmed configuration into CLAUDE.md\", and the Step 6 summary block replaced by \"Tell the user what was configured\". Fields to collect are still listed; the persisted format downstream tools rely on is gone.",
+      "inputs": {
+        "judgeContext": "a deployment configuration setup workflow that detects deploy platforms and writes config to CLAUDE.md",
+        "judgeGoal": "how to detect deploy platforms (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom), gather platform-specific configuration (URLs, status commands, health checks, custom hooks), and persist everything to CLAUDE.md for future automated use",
+        "bundle": {
+          "file": "inputs/a06.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Detection and questions are good, but Step 4 just says 'write the configuration into CLAUDE.md' with no section name or format, undermining persistence for future automated use; summary is vague."
+      }
+    },
+    {
+      "id": "a07",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Real health/SKILL.md window \"# /health\" to \"## Important Rules\", trimmed to fit 14k: removed the GBrain sub-score computation block (the rubric table row for GBrain stays), the lint DETAILS example and one duplicated state-root line. Otherwise the full real workflow.",
+      "inputs": {
+        "judgeContext": "a code health dashboard workflow",
+        "judgeGoal": "how to detect the project's health tools, run each checker with honest capture, score categories with weights into a composite, present a dashboard, persist history, and show trends and recommendations",
+        "bundle": {
+          "file": "inputs/a07.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Detection, honest capture, weighted rubric with coded composite, dashboard format, history schema and trend/recommendation rules are all defined."
+      }
+    },
+    {
+      "id": "a08",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "landing-report window with the exact dashboard and offline render formats replaced by \"Render a dashboard from these fields\" and the three next-action cases replaced by \"suggest a sensible next action\". Commands and jq field list kept. Deliverable format and decision rules undefined.",
+      "inputs": {
+        "judgeContext": "a read-only version queue dashboard workflow",
+        "judgeGoal": "how to detect the base branch, read current and base VERSION, query the version queue for each bump level, render the landing report dashboard (including offline output), and suggest one next action",
+        "bundle": {
+          "file": "inputs/a08.bundle.txt"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Dashboard is 'render from these fields' with no format or offline output, and the next action is just 'suggest a sensible next action'."
+      }
+    }
+  ],
+  "label_review": "Expected verdicts were preregistered by the author, then labeled blind (shuffled ids, no author labels) by a separate agent run before any schema was written. Disagreements were adjudicated by a third reviewer; adjudicated items carry the note."
+}

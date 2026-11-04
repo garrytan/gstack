@@ -1,0 +1,418 @@
+{
+  "config": "qa-health-rubric",
+  "judge": "QA health score rubric judge: buildQaHealthRubricJudgePrompt(section) in test/helpers/llm-judge.ts:585-605 (called from test/skill-llm-eval.test.ts:230-252 'qa/SKILL.md health rubric'; prompt text formerly inline at skill-llm-eval.test.ts:253-270)",
+  "pass_rule": "panel means clarity >= 3 AND completeness >= 3 AND actionability >= 4",
+  "items": [
+    {
+      "id": "p01",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "The exact production input: qa/sections/qa-patterns.md sliced from '## Health Score Rubric' to end of file (sliceQaPatterns), including Framework-Specific Guidance and Important Rules. Weights sum to 100, every band and deduction is numeric, counting/untested/rounding rules are explicit.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Full rubric: dedupe and primary-category order, untested handling, exact console/link/severity deductions with definitions, weights and normalized rounding formula; extra rules text does not hurt."
+      }
+    },
+    {
+      "id": "p02",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Same real rubric from qa/sections/qa-patterns.md, cut at the '---' before Framework-Specific Guidance so only the scoring rules remain. Unmodified scoring content; fully computable.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Complete rubric with dedupe and category order, untested handling, exact bands and deductions, severity definitions, weights and normalized rounding formula."
+      }
+    },
+    {
+      "id": "p03",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Improved variant of the real rubric: adds a definition of 'tested', explicit tie-break to the higher severity, link timeout value, a weights total row, and a worked example (89.6 -> 90; provisional 88.44 -> 88) whose arithmetic is correct.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Most complete version: explicit counting, tested definition, bands, deductions with severity tie rule, weights totalling 100%, precision and rounding rules, and a correct worked example including the partial case."
+      }
+    },
+    {
+      "id": "p04",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Hand-written alternative rubric (six site categories, weights 20/30/15/15/10/10 = 100) with numeric per-category rules, first-match categorisation, untested renormalisation, half-up rounding and a correct worked example (86.75 -> 87).",
+      "inputs": {
+        "section": {
+          "file": "inputs/p04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Six categories with exact deductions, weights summing to 100, first-match tie-break, dedupe, floor, untested renormalization, rounding, bands and a correct worked example."
+      }
+    },
+    {
+      "id": "p05",
+      "category": "pass",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "The real qa-patterns rubric restated as a 7-step algorithm with pseudocode for each category score and the normalised weighted average; same weights/bands/deductions as production, nothing removed.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Step-by-step procedure with pseudocode for every category score, weights summing to 1.00, untested exclusion, rounding and labeling; unambiguous."
+      }
+    },
+    {
+      "id": "p06",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "The real rubric reorganised into one category table (weight, what counts, score rule) plus severity points, first-match order, untested handling and the final formula. Same numbers as production; well specified.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Single table with counts, score rules and weights summing to 1.00, defined severities with tie rule, one-category ordering, untested handling and an exact formula with rounding."
+      }
+    },
+    {
+      "id": "p07",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Hand-written points-allocation rubric for mobile web (25/20/15/15/15/10 = 100 points) with per-category deductions, explicit band boundaries, rescaling for untested categories and a correct worked example (67/85 -> 79). Different scoring model, still fully computable.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Point-allocation rubric with explicit deductions, boundary handling, first-fit counting, rescaling for untested categories, rounding and a correct worked example."
+      }
+    },
+    {
+      "id": "p08",
+      "category": "pass",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Hand-written rubric for content/docs sites: five weighted categories (30/25/15/20/10) scored from measurable checks (crawl ratio, per-page deductions, console bands), single-category rule, partial-score renormalisation, rounding and report bands.",
+      "inputs": {
+        "section": {
+          "file": "inputs/p08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Five well-defined categories with explicit deduction amounts, floors, console bands, weights summing to 100, single-category tie-break, partial-coverage renormalization and rounding; fully computable."
+      }
+    },
+    {
+      "id": "f01",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real rubric with all weights deleted (no per-category weights, no Weights table) and the final score replaced by 'weight them accordingly... use your judgment'. Category scores are computable but the final score is not reproducible.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "No weights: the final combination is left to the agent's judgment, so the overall score is neither defined nor reproducible."
+      }
+    },
+    {
+      "id": "f02",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real rubric with weights that sum to 125%, section headings that contradict the table (Console 20% vs 15%, Links 15% vs 10%), and an unnormalised formula while claiming a perfect site scores 100. Severity definitions also removed.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Weights contradict each other (Console 20% vs 15%, Links 15% vs 10%) and the table sums to 125%, while the formula has no normalization yet claims a max of 100."
+      }
+    },
+    {
+      "id": "f03",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real rubric with every deduction amount and band made vague ('a few errors -> partial credit', 'in proportion to how bad it is', 'sensible floor', 'round sensibly') and severities redefined as Serious/Moderate/Minor without criteria. Weights kept.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Deductions are vague ('a few errors', 'in proportion to how bad it is', 'sensible floor', 'round sensibly'); scores are not reproducible."
+      }
+    },
+    {
+      "id": "f04",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Overlapping categories and contradictions planted in the real rubric: count findings in every category vs 'no double deductions', per-page counting vs deduplication, overlapping console bands (1-5/3-10/8+), merged Functional/UX weight with 'deduct from whichever feels closer, or both', Medium '-8 or -10'.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Self-contradictory: counts findings in every category yet says no double deductions, counts per page yet deduplicates, overlapping console bands, '-8 or -10', 'whichever feels closer, or both'."
+      }
+    },
+    {
+      "id": "f05",
+      "category": "fail",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Hand-written one-paragraph stub: 'take off points for bugs... more for worse problems'. No categories, weights, deduction amounts or formula.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "One vague paragraph with no categories, deductions or weights; scores cannot be computed consistently."
+      }
+    },
+    {
+      "id": "f06",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Weights table kept from the real rubric but every category is scored 0-100 from 'overall impression' ('trust your instincts'), with no deduction criteria. Arithmetic is defined, the inputs are subjective, so scores are not reproducible.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Category scores come from overall impression and instinct; no deduction criteria, so an agent cannot compute a consistent score."
+      }
+    },
+    {
+      "id": "f07",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Real rubric with contradictory aggregation planted: final score is 'the lowest category score' (intro) vs 'weighted average' (Final Score) vs 'average of Console and Links only' in Quick mode; untested categories 'count as 0' vs 'exclude'.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Contradicts itself: final score is the lowest category vs the weighted average; untested categories count as 0 vs are excluded; Quick mode uses a different average."
+      }
+    },
+    {
+      "id": "f08",
+      "category": "fail",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Structure of the real rubric kept, but console bands, per-link penalty, severity penalties and all weights are deferred to an external 'team QA scoring profile' that is not provided. Cannot compute a score from this rubric alone.",
+      "inputs": {
+        "section": {
+          "file": "inputs/f08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "All deduction amounts, console bands and weights are delegated to an external team profile; the score cannot be computed from this rubric alone."
+      }
+    },
+    {
+      "id": "a01",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Full production slice (rubric + framework guidance + rules) minus the '### Counting' section: no deduplication/primary-category rule and no untested/provisional rule (the formula still divides by tested weights). Core numbers intact, so still computable; completeness weaker.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a01.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "high",
+        "reason": "Full scoring rules, severity definitions, weights and normalized formula; lacks the explicit counting/untested section but 'tested weights' in the formula covers renormalization; computable."
+      }
+    },
+    {
+      "id": "a02",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Real rubric (p02 cut) with the Critical/High/Medium/Low severity definitions deleted. Deduction amounts per severity remain; severity classification becomes an upstream judgment, which costs completeness but not the computation.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a02.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Complete counting, bands, deductions, weights and formula; severity levels are named but not defined, a modest gap that leaves the score largely computable."
+      }
+    },
+    {
+      "id": "a03",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real rubric with only the Content row removed from the Weights table (weights now sum to 95%) while Content is still listed as a scored category and primary category. Normalisation hides the gap, but whether/how Content counts is undefined, so scores are not reproducible.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a03.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Content is a scored category but missing from the weights table (weights sum to 95%), so an agent cannot weight Content correctly; otherwise complete."
+      }
+    },
+    {
+      "id": "a04",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real rubric with only the Console bands made vague ('a few' -> 70, 'several' -> 40, 'many' -> 10). Everything else numeric; a 15%-weight category is no longer reproducible, which should cost clarity and actionability.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a04.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Otherwise complete, but the Console bands are vague ('a few', 'several', 'many'), so the 15%-weighted console score is not reproducible; actionability likely falls below 4."
+      }
+    },
+    {
+      "id": "a05",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "dev",
+      "rationale": "Verbatim older production rubric from qa/SKILL.md at v1.66.0.0 (git 410b4928e): no counting/untested rules, no severity definitions, unnormalised formula, and a band overlap at exactly 10 errors ('4-10' vs '10+'). Weights sum to 100 and all amounts are numeric.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a05.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "low",
+        "reason": "Basic weights and deductions exist, but console bands overlap at 10, severities are undefined, and there are no dedupe, category-assignment, untested or rounding rules; completeness is weak."
+      },
+      "author_expected": "pass",
+      "adjudication": "Kept the author label: weights sum to 100 and every deduction is numeric, so an agent can compute a score; the band overlap at exactly 10 errors and missing severity definitions are gaps an agent can resolve."
+    },
+    {
+      "id": "a06",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "dev",
+      "rationale": "Real gstack scoring text from design-review/SKILL.md '### Scoring System' (letter grades A-F, weights summing to 100, High drops a letter, Medium half a letter). Well structured, but there is no letter-to-number mapping, no defined half-letter grade, and AI Slop grading has no criteria, so a 0-100 score cannot be computed.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a06.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "A letter-grade design rubric, not a 0-100 QA score; 'weighted average' of letters and half-grade drops are undefined, so no numeric score out of 100 can be computed."
+      }
+    },
+    {
+      "id": "a07",
+      "category": "adjacent",
+      "expected": "pass",
+      "split": "heldout",
+      "rationale": "Hand-written six-area rubric with numeric deductions and weights in headings that sum to 100, but no explicit formula, normalisation or rounding rule ('combine the six area scores using the weights'; 'leave it out'). A standard weighted average is the obvious reading.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a07.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "pass",
+        "confidence": "low",
+        "reason": "Areas, weights and deductions are explicit and dedupe/first-fit rules exist; rounding method and renormalization after dropping an unchecked area are only implied, so it is slightly underspecified but still computable."
+      }
+    },
+    {
+      "id": "a08",
+      "category": "adjacent",
+      "expected": "fail",
+      "split": "heldout",
+      "rationale": "Real rubric where the deductions use three labels (Blocker -25, Major -15, Minor -5) but the severity definitions keep four different labels (Critical/High/Medium/Low). How Medium and Low map onto Minor is undefined, so scores diverge.",
+      "inputs": {
+        "section": {
+          "file": "inputs/a08.section.md"
+        }
+      },
+      "second_review": {
+        "verdict": "fail",
+        "confidence": "high",
+        "reason": "Deduction levels (Blocker/Major/Minor) do not match the defined severities (Critical/High/Medium/Low), leaving how to deduct Medium and Low findings undefined; scores not reproducible."
+      }
+    }
+  ],
+  "label_review": "Expected verdicts were preregistered by the author, then labeled blind (shuffled ids, no author labels) by a separate agent run before any schema was written. Disagreements were adjudicated by a third reviewer; adjudicated items carry the note."
+}

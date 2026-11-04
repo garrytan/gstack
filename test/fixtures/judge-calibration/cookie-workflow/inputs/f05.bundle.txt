@@ -1,0 +1,41 @@
+SKILL.md is the entry point. BROWSER.md supplies the exact referenced cookie section, not an additional execution step.
+
+--- BEGIN FILE "setup-browser-cookies/SKILL.md" (lines 146-173; entrypoint) ---
+# Setup Browser Cookies
+
+## 1. Check for Aside
+
+Use this checkout as the gstack root if it contains `BROWSER.md` and `browse/SKILL.md`; otherwise use the installed root containing `bin/gstack-skill-start`, never a generated host stub. Read that root's `browse/SKILL.md` **BROWSER SETUP** section and run its Aside probe.
+
+- **Aside probe prints `READY`:** no import is needed, because Aside already has the user's signed-in sessions. Tell the user to use Aside, or to sign in there, and end this skill.
+- **Any other result:** continue with gstack's own headless browser (`$B`).
+
+## 2. Get every decision from the user first
+
+TODO: list the questions to ask the user.
+
+## 3. Prepare gstack's browser
+
+TBD.
+
+## 4. Import
+
+Run the import. Details to be added; see `BROWSER.md`, **Choosing a source and checking sign-in**, once it is written.
+
+## 5. Report honestly
+
+Let the user know how it went.
+
+## Platform boundaries
+
+TBD.
+
+--- END FILE "setup-browser-cookies/SKILL.md" ---
+
+--- BEGIN FILE "BROWSER.md" (lines 569-572; section) ---
+#### Choosing a source and checking sign-in
+
+_Draft: notes on source selection, sign-in checks and storage reset to come._
+
+
+--- END FILE "BROWSER.md" ---

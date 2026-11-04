@@ -1,0 +1,161 @@
+The material below is a bundle of source-file excerpts, with each original file and line range labeled.
+SKILL.md is the entry point; the labeled ranges identify which excerpts are supplied.
+
+--- BEGIN FILE "plan-tune/SKILL.md" (lines 379-579; entrypoint) ---
+## Step 0: Detect what the user wants
+
+Read the user's message. Route based on plain-English intent, not keywords.
+
+Some gates may run before or after intent routing, depending on the situation.
+
+When no implicit gate fires, route by user intent:
+
+4. **"Show my profile" / "what do you know about me" / "show my vibe"** →
+   run `Inspect profile`.
+5. **"Review questions" / "what have I been asked" / "show recent"** →
+   run `Review question log`.
+6. **"Stop asking me about X" / "never ask about Y" / "tune: ..."** →
+   run `Set a preference`.
+7. **"Update my profile" / "I'm more boil-the-ocean than that" / "I've changed
+   my mind"** → run `Edit declared profile` (confirm before writing).
+8. **"Show the gap" / "how far off is my profile"** → run `Show gap`.
+9. **"Dream cycle" / "distill" / "what have I been free-texting"** →
+   run `Dream cycle distill` below (triggers `gstack-distill-free-text`).
+10. **"Turn it off" / "disable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning false`
+11. **"Turn it on" / "enable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning true && GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"; touch "$GSTACK_STATE_ROOT"/.question-tuning-prompted`
+12. **Clear ambiguity** — if you can't tell what the user wants, ask plainly:
+    "Do you want to (a) see your profile, (b) review recent questions, (c) set
+    a preference, (d) update your declared profile, (e) run the dream cycle,
+    or (f) turn it off?"
+
+Power-user shortcuts (one-word invocations) — handle these too:
+`profile`, `vibe`, `gap`, `stats`, `review`, `enable`, `disable`, `setup`,
+`distill`, `dream`, `audit`.
+
+---
+
+## Consent + opt-in
+
+**When this fires.** Step 0's consent gate: `question_tuning` is `false` AND
+`$GSTACK_STATE_ROOT/.question-tuning-prompted` is missing. The user has never been
+asked.
+
+**Privacy note.** gstack defaults `question_tuning` to `false` for every user.
+There is no auto-flip for any cohort. The consent prompt is the only path to
+enabling, and the answer is honored with a marker file so the user is never
+re-asked. Contributors are not auto-enrolled (see
+`docs/designs/PLAN_TUNING_V1.md` §"Decisions log" for the privacy posture
+rationale). If the user is a contributor (`gstack_contributor: true`), the
+prompt can mention it as additional context, but the decision is still
+explicit.
+
+**Flow:**
+
+1. Detect contributor state (for prompt framing only, not for auto-action):
+   ```bash
+   _QT=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+   _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || echo "false")
+   echo "QUESTION_TUNING: $_QT"
+   echo "CONTRIBUTOR: $_CONTRIB"
+   ```
+
+2. AskUserQuestion (use the contributor-specific framing only if `_CONTRIB=true`,
+   otherwise use the general framing):
+
+   **General framing:**
+   > Question tuning is off. gstack can learn which of its prompts you find
+   > valuable vs noisy — so over time, gstack stops asking questions you've
+   > already answered the same way. It takes about 2 minutes to set up your
+   > initial profile. Questions you mark never-ask are answered with
+   > gstack's recommendation (one-way doors still ask); your profile is
+   > shown to you, not used to change defaults.
+   > Logs stay local (`~/.gstack/projects/<slug>/question-log.jsonl`).
+   >
+   > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
+   >
+
+   **Contributor framing (only if `_CONTRIB=true`):**
+   > You're a gstack contributor. Question tuning isn't on by default for
+   > anyone, but contributors are the cohort whose data most helps v2 work
+   > (skills adapting to your steering style). Enabling logs every
+   > AskUserQuestion outcome locally to
+   > `~/.gstack/projects/<slug>/question-log.jsonl` — nothing leaves your
+   > machine. Questions auto-decide only where you set never-ask.
+   >
+   > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
+   >
+
+3. Touch the marker only if the user enabled tuning:
+   ```bash
+   GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+   touch "$GSTACK_STATE_ROOT"/.question-tuning-prompted
+   ```
+
+4. If A or B: enable:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-config set question_tuning true
+   ```
+
+5. If C: do nothing else. Tell the user: "Question tuning stays off. Re-enable
+   any time with `/plan-tune enable` or `gstack-config set question_tuning true`."
+
+## 5-Q setup (post-consent, or via Setup gate)
+
+**When this fires.** Two paths:
+- Right after the consent prompt above accepts option A.
+- Standalone via Step 0's setup gate: `question_tuning` is already `true`
+  (user opted in via gstack-config or earlier `/plan-tune enable`) AND
+  `declared` is empty AND `$GSTACK_STATE_ROOT/.declared-setup-prompted` is missing.
+  This catches users who set `question_tuning: true` directly without
+  running the wizard.
+
+**Flow:**
+
+1. Ask FIVE one-per-dimension declaration questions via individual
+   AskUserQuestion calls (one at a time). Use plain English, no jargon:
+
+   Ask about their preferences on each dimension.
+
+   After each answer, save the declared dimension. Write each declaration directly into
+   `$GSTACK_STATE_ROOT/developer-profile.json` under `declared.{dimension}`:
+
+   ```bash
+   # Ensure profile exists
+   ~/.claude/skills/gstack/bin/gstack-developer-profile --read >/dev/null
+   # Update declared dimensions atomically
+   GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+   _PROFILE="$GSTACK_STATE_ROOT/developer-profile.json"
+   bun -e "
+     const fs = require('fs');
+     const p = JSON.parse(fs.readFileSync('$_PROFILE','utf-8'));
+     p.declared = p.declared || {};
+     p.declared.scope_appetite = <Q1_VALUE>;
+     p.declared.risk_tolerance = <Q2_VALUE>;
+     p.declared.detail_preference = <Q3_VALUE>;
+     p.declared.autonomy = <Q4_VALUE>;
+     p.declared.architecture_care = <Q5_VALUE>;
+     p.declared_at = new Date().toISOString();
+     const tmp = '$_PROFILE.tmp';
+     fs.writeFileSync(tmp, JSON.stringify(p, null, 2));
+     fs.renameSync(tmp, '$_PROFILE');
+   "
+   ```
+
+2. Touch the marker so the Setup gate doesn't re-fire:
+   ```bash
+   GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+   touch "$GSTACK_STATE_ROOT"/.declared-setup-prompted
+   ```
+   Touch it even if the user bails out partway — they were asked; they chose
+   not to complete. The Setup gate respects that. They can rerun the 5-Q
+   anytime with `/plan-tune setup` (Step 0 power-user shortcut).
+
+3. Tell the user: "Profile set. Question tuning is on. Use `/plan-tune`
+   again any time to inspect, adjust, or turn it off."
+
+4. Show the profile inline as a confirmation (see `Inspect profile` below).
+
+---
+
+
+--- END FILE "plan-tune/SKILL.md" ---
