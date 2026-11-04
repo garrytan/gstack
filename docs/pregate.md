@@ -775,15 +775,21 @@ once:
   them here. A /ship lane or guard whose inventory names one carries the
   covered files and runs only the skipped ones here, through the runner its
   `ship_lanes_from` entry declares as `per_file` (a command with `{files}`,
-  such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
-  tests stage's `runner`). That run is recorded under `<label>.skipped`, the
-  `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
-  is written only after four checks pass. In order, they are the remainder's
-  exit (`skipped_failed`), its test count above zero (`skipped_zero_run`), every
-  carried run again (`run_changed`), and the working tree once more
+  such as `"per_file": "bun --no-env-file test --timeout=30000 {files}"`, the
+  same form as the tests stage's `runner`). It runs one file at a time, each path
+  anchored with `./` because Bun reads a bare relative path as a substring
+  filter. Those runs are recorded under `<label>.skipped`, the `LANE:` line adds
+  `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row is written only
+  after four checks pass. In order, they are each file's exit
+  (`skipped_failed`), each file's test count above zero (`skipped_zero_run`),
+  every carried run again (`run_changed`), and the working tree once more
   (`tree_changed`, for an edit made during those checks). An edit made while the
   remainder itself runs leaves its ledger row without a tree, so it shows as
-  `skipped_zero_run`. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
+  `skipped_zero_run`. One exception to the count check (GST-1314): a file whose
+  Bun summary registered tests and skipped every one of them here too, the way
+  an env-gated or tool-gated file skips by design, is not owed. The CI row lists
+  it under `skipped_here.not_owed` and the `LANE:` line adds
+  `not_owed_here=<n>`. A file that registers no test here still refuses. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
   skipped file ran tests and stays covered. gstack's own Free Tests writer
   (`scripts/ci-tree-reuse.ts record`) emits the list from complete per-file
