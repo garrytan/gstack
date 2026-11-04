@@ -66,7 +66,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
-| `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version. `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
+| `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
 Containment, checked by `validate` and again at write time: paths and globs are
 repo-relative with no `..` segment, under 256 characters, at most 64 per list,
@@ -2005,9 +2005,11 @@ at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
 is the head the READY names. There's no train, no stamp commit, no base merge
 and no extra CI round. GitHub's required checks plus `--match-head-commit`
 stay the gate. Versions aren't set per PR: a PR carries only its
-`changelog.d` fragment, VERSION stays where it is, and the release stamps the
-version and folds the fragments. Land refuses, and merges nothing, unless all
-of these hold:
+`changelog.d` fragment, VERSION stays where it is, and the
+[release PR](#release-stamp) stamps the version and folds the fragments. Land
+refuses, and merges nothing, unless all of these hold (a `release/<version>`
+head is checked by the release rules below instead of the receipt, READY and
+release-file rows):
 
 | Check | Refusal |
 |---|---|
@@ -2032,6 +2034,43 @@ if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
 after GitHub merged goes straight to the tree check. `--dry-run` runs every
 check and merges nothing. Under `merge: direct`, `train build` refuses and
 names this command.
+
+<a id="release-stamp"></a>
+### Versions at release: the release PR (`merge: direct`)
+
+Under `merge: direct`, VERSION, the `package.json` version, CHANGELOG.md, the
+release outputs and the `stamp_paths` constants move only in a release PR.
+Before each stable cut, the Captain runs:
+
+```bash
+gstack-release-stamp open            # --dry-run prints the stamp and creates nothing
+```
+
+It stamps a fresh worktree of `origin/main` with `gstack-restamp --release`,
+commits the result on `release/<version>`, pushes that branch and opens its PR.
+The release stamp folds every fragment in `changelog.d/` under one new CHANGELOG
+heading and deletes the files. The new version is the base's plus the highest
+bump any fragment declares (the policy `bump` when none does). It reruns the
+release tool, and it moves a tentative `stamp_paths` mention (a `*_KEY_VERSION`
+a PR wrote ahead of its release) on lines added since the last version change.
+With no fragment on main it refuses with
+[`RELEASE_STAMP_EMPTY`](troubleshooting.md#release-stamp-empty).
+
+When the release PR's checks are green, the Captain lands it like any other PR:
+`gstack-ship-queue land --pr <n> --pin <head>`. On a `release/<version>`
+branch, land needs no /ship receipt or READY note. Instead it checks that the
+head is exactly the release stamp of its merge base, and that the merge base is
+still the tip of `origin/main` (open the release again if main moved, so no PR
+ships under a version its fragment missed): every fragment there folded and
+none added, the version equal to the base's plus their bump, every
+other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
+changed release output equal to what the release tool generates at the new
+version. Anything more is
+[`RELEASE_STAMP_INVALID`](troubleshooting.md#release-stamp-invalid), and
+nothing merges. The Version Gate (`Check VERSION is not stale vs queue`)
+applies the same test, so a release head passes it while any other PR that
+changes VERSION still fails it. Once the release PR lands, the next stable cut
+tags `v<version>` ([releases.md](releases.md)).
 
 <a id="migrating-to-fragments"></a>
 ### Migrating to fragments

@@ -352,6 +352,8 @@ gstack_result_anchor() {
     QUEUE_LAND_CHECKS) printf '%s' 'queue-land-checks' ;;
     QUEUE_LAND_NOT_CLEAN) printf '%s' 'queue-land-not-clean' ;;
     QUEUE_LAND_UNVERIFIED) printf '%s' 'queue-land-unverified' ;;
+    RELEASE_STAMP_EMPTY) printf '%s' 'release-stamp-empty' ;;
+    RELEASE_STAMP_INVALID) printf '%s' 'release-stamp-invalid' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
