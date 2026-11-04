@@ -195,7 +195,7 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     try {
       const pin = openPr(fx, '87');
       moveMain(fx, 'other.txt', 'other\n');
-      fx.env.GH_TOKEN = 'sekrit-land-token';
+      fx.env.GH_TOKEN = 'placeholder';
       const no = land(fx, '87', pin);
       expect(no.status).not.toBe(EXIT.ok);
       expect(no.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
