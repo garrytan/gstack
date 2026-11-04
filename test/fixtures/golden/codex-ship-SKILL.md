@@ -323,8 +323,8 @@ repository-landing asks, including on Apple repos.
 
 ## Step 1: Pre-flight
 
-Run `$GSTACK_ROOT/bin/gstack-ship-preflight --base <base>`: Steps 1–3's mechanics in one call;
-act on every `STOP:` and `NEXT:` line.
+Run `$GSTACK_ROOT/bin/gstack-ship-preflight --base <base> --run <SESSION_ID>`: Steps 1–3 at once;
+act on each `STOP:` and `NEXT:` line.
 
 1. It saves the current branch as `<branch-name>`. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
 2. Uncommitted changes are always included; do not ask (`STATUS:`).

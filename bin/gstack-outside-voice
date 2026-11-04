@@ -17,7 +17,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import type { OutsideGate } from '../lib/outside-review-result';
+import { findingsLabel, type OutsideGate } from '../lib/outside-review-result';
 import { RUNNER_IDS, createRunner, familyConflict, modelFamily, outsideStatusLine, runnerTable, selectRunner, type RunnerId } from '../lib/outside-voice-runner';
 import { outsideConsent } from '../lib/outside-consent';
 import { apiTimeoutMs } from '../lib/outside-voice-api';
@@ -121,7 +121,7 @@ async function main(argv: string[]): Promise<number> {
   fs.writeFileSync(`${path.resolve(outFile)}.meta.json`, JSON.stringify(result, null, 2) + '\n');
   if (json) process.stdout.write(JSON.stringify(result) + '\n');
   else {
-    if (result.verdict) process.stdout.write(`VERDICT: ${result.verdict.verdict}\nFINDINGS: ${result.verdict.findings.highest ?? 'none'}\n`);
+    if (result.verdict) process.stdout.write(`VERDICT: ${result.verdict.verdict}\nFINDINGS: ${findingsLabel(result.verdict)}\n`);
     process.stdout.write(outsideStatusLine(result) + '\n');
   }
   if (result.status === 'completed' || result.status === 'unverified') return EXIT.ok;

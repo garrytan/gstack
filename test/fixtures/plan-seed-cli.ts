@@ -22,10 +22,10 @@ const row=(type,content,stop)=>JSON.stringify({type,sessionId:sid,cwd,message:{r
 const text=s=>[{type:'text',text:s}];
 const append=(type,content,stop)=>fs.appendFileSync(file,row(type,content,stop));
 const rule='─'.repeat(120);
-const frame=(s,history='',top=rule,bottom=rule)=>{
+const frame=(s,history='',top=rule,bottom=rule,tail='')=>{
  const inputRows=1+(s.match(/\r\n/g)||[]).length;
  const topRow=(process.stdout.rows||40)-inputRows-2;
- process.stdout.write('\x1b[2J\x1b[H'+history+'\x1b['+topRow+';1H'+top+'\r\n❯ '+s+'\r\n'+bottom+'\r\npaste again to expand');
+ process.stdout.write('\x1b[2J\x1b[H'+history+'\x1b['+topRow+';1H'+top+'\r\n❯ '+s+'\r\n'+bottom+'\r\npaste again to expand'+tail);
 };
 let input='',seed='',submitted=false;
 process.stdin.setRawMode(true);process.stdin.resume();
@@ -40,12 +40,12 @@ else if(scenario==='startup-ci-placeholder')frame(process.env.CI==='true'&&proce
 else if(scenario==='startup-ci-typed-hint')frame(hint);
 else if(scenario==='startup-placeholder-cursor')frame('\x1b[7mT\x1b[27m\x1b[2m'+hint.slice(1)+'\x1b[22m');
 else if(scenario==='startup-placeholder-unicode')frame('\x1b[2mTry "refactor src/設定.ts"\x1b[22m');
-else if(['startup-placeholder','startup-prior-conversation','startup-missing-styles','startup-waiting','startup-prose-question','startup-permission','startup-fresh-waiting'].includes(scenario))frame('\x1b[2m'+hint+'\x1b[22m');
+else if(['startup-placeholder','startup-prior-conversation','startup-missing-styles','startup-waiting','startup-prose-question','startup-permission','startup-fresh-waiting'].includes(scenario))frame('\x1b[2m'+hint+'\x1b[22m','',rule,rule,
+ scenario==='startup-prose-question'?'Which option do you prefer?\r\nA) Full review (recommended)\r\nB) Skip review\r\n'
+ :scenario==='startup-permission'?'Bash command run checks requires permission\r\n':'');
 else if(scenario==='startup-typed-hint')frame(hint);
 else if(scenario==='startup-partial-dim')frame('\x1b[2mTry \x1b[22m"refactor <filepath>"');
 else frame('');
-if(scenario==='startup-prose-question')process.stdout.write('Which option do you prefer?\r\nA) Full review (recommended)\r\nB) Skip review\r\n');
-if(scenario==='startup-permission')process.stdout.write('Bash command run checks requires permission\r\n');
 process.stdin.on('data',chunk=>{
  input+=chunk.toString();
  if(input.startsWith('\x1b[200~')&&input.endsWith('\x1b[201~')){

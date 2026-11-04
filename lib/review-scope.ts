@@ -316,6 +316,8 @@ export interface ReviewLoopSummary {
   ledgers_read?: number;
   /** What could not bind (GST-1168), each named with its reason: a row with no start token or readable time, a row finding's ledger_id no ledger holds, a Review-Finding trailer naming no finding. Never counted as zero silently. */
   unbound?: string[];
+  /** Abandoned passes left out of every count, each named (GBEV-3). */
+  voided?: string[];
 }
 
 /** Review-log rows of one /ship invocation (skill review, via ship, at or after `since`) → the loop summary. */
@@ -379,13 +381,16 @@ function rowLocus(f: Record<string, any>): string | null {
  * When a dispatch ledger started (its first event) and whether it holds a fix-check reader's review: a fix-check run through
  * gstack-review-dispatch (the pass program's `fix-check` step) leaves this ledger even when no review-fix-check row was logged.
  */
-export interface LedgerPass { started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string }
+export interface LedgerPass {
+  started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string;
+  /** Whether judge ran on it at all (a rejected judgment counts): a pN pass never judged that no row names, replaced by a later judged or named pass, was abandoned (voided) and counts nothing (GBEV-3); a fix-check ledger and the last pass are never voided. */ judged?: boolean;
+}
 export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass {
   const events = readLedger(ledger);
   const started = Date.parse(String(events[0]?.at ?? ''));
   const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
   const ids = events.flatMap(e => (e.event === 'output' && Array.isArray(e.ids) ? (e.ids as string[]) : e.event === 'judgment' && e.kind === 'added' && typeof e.id === 'string' ? [e.id] : [])).map(key);
-  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))) };
+  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge') };
 }
 
 /** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
@@ -413,7 +418,7 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, ledgers: readonly (readonly LedgerBlocker[])[] = [], ledgerPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
@@ -423,6 +428,13 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const rowKey = (r: Record<string, any>) => JSON.stringify([r.skill, r.pass ?? null, r.commit_full ?? r.commit ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => (f && typeof f === 'object' ? (typeof f.ledger_id === 'string' ? f.ledger_id : findingIdentity(f)) : '')).sort()]);
   const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? rowKey(r) : `#${i}`, r] as const)).values()];
   const passes = loopRows.filter(r => r.skill === 'review');
+  const named = (dir: string) => { const n = /^p(\d+)$/.exec(dir)?.[1]; return loopRows.some(r => (n !== undefined && r.skill === 'review' && String(r.pass) === n) || (Array.isArray(r.findings) && r.findings.some((f: any) => typeof f?.ledger_id === 'string' && f.ledger_id.startsWith(`${dir}/`)))); };
+  const passNo = (p: LedgerPass) => (p.fixCheck ? undefined : Number(/^p(\d+)$/.exec(p.name ?? '')?.[1] ?? NaN));
+  const replaced = (n: number) => allPasses.some(q => (passNo(q) ?? NaN) > n && (q.judged !== false || named(q.name!)));
+  const voidedAt = new Set(allPasses.flatMap((p, i) => { const n = passNo(p); return n !== undefined && Number.isFinite(n) && p.judged === false && p.ids?.length && !named(p.name!) && replaced(n) ? [i] : []; }));
+  const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
+  const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
+  const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
   type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string; fingerprint?: string };
   const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
@@ -494,6 +506,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   if (unrecorded) out.unrecorded = unrecorded;
   if (ledgers.length) out.ledgers_read = ledgers.length;
   if (unbound.length) out.unbound = unbound;
+  if (voided.length) out.voided = voided;
   const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
   out.rounds = passes.length + fixChecks;

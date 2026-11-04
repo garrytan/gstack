@@ -51,7 +51,8 @@ export const SECRET_LINE = [
   /\b(?:keychain|keytar|find-generic-password|find-internet-password|secret-tool|git-credential|credential\.helper)\b/i, /\bgh auth token\b/, /(?:^|[\s'"/])\.netrc\b/,
 ];
 
-const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape'];
+/** Sealed custody (harness-evals#237: scripts/sealed/seal.ts) and egress code are trust boundaries too (GST-1177). */
+const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'seal', 'sealed', 'custody', 'egress'];
 /** Coarse, linear-time rules (GST-850 B+): any changed line naming the child_process module, any outbound HTTP client call; quantifiers bounded. */
 export const SECURITY_LINE = [
   /\bshell\s*:\s*true\b/, /\bshell\s*=\s*True\b/, /(?<![.\w$])exec(?:Sync)?\s*\(/, /\b(?:child_process|childProcess|cp)\.exec(?:Sync)?\s*\(/, /\bos\.system\s*\(/,
@@ -67,6 +68,8 @@ export const SECURITY_LINE = [
   /(?<![.\w])eval\s*\(/, /(?:^|[;&|])\s*eval\s+["'$]/, /\bnew\s+Function\s*\(/,
   /\b(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/, /\bBun\.spawn(?:Sync)?\s*\(\s*\[\s*['"](?:\/bin\/)?(?:ba|z)?sh['"]/,
   /\brmSync\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s*\((?:.{0,500}?recursive\s*:\s*true|[^)]{501})/, /\brm\s+-(?=[a-z]*r)(?=[a-z]*f)[a-z]*[rf]\b/,
+  /\bredact\w{0,40}\s{0,20}\(/, /(?:\b(?:from|import)\s{1,20}|\b(?:require|import)\s{0,20}\(\s{0,20})['"][^'"]{0,300}(?:redact|outside-voice)[^'"]{0,300}['"]/, /\b(?:from|import)\s{1,20}[\w.]{0,200}(?:redact|outside_voice)/,
+  /\b[A-Z0-9_]{0,60}(?:SECRET|CREDENTIAL)[A-Z0-9_]{0,60}\s{0,20}=\s{0,20}(?:\[\s{0,20})?(?:\/|new\s{1,20}RegExp\b)/,
   /\b(?:innerHTML|outerHTML)\s*\+?=/, /\bdangerouslySetInnerHTML\b/, /\bv-html\b/, /\{@html\b/, /\binsertAdjacentHTML\s*\(/, /\bdocument\.write\s*\(/,
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */
@@ -131,6 +134,8 @@ export interface RiskInput {
   removed?: Record<string, readonly string[]>;
   /** gstack-diff-scope's SCOPE_AUTH: the auth class needs it and an auth token in the path. */
   scopeAuth: boolean;
+  /** Executables (lib/review-collect.ts): never a config file or results script, so their lines are always read. */
+  executables?: readonly string[];
   /** The base policy's review.risk_paths matcher: a code path it matches is risk class `policy`. */
   isRiskPath?: (p: string) => boolean;
 }
@@ -141,9 +146,10 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
   const hit = (c: RiskClass, reason: string) => { if (!why.has(c)) why.set(c, reason); };
   for (const p of i.codePaths) {
     if (i.isRiskPath?.(p)) hit('policy', 'risk_paths: ' + p);
-    const stats = STATS_SCRIPT.test(p);
+    const exe = !!i.executables?.includes(p);
+    const stats = !exe && STATS_SCRIPT.test(p);
     const t = stats ? [] : tokens(p);
-    const config = CONFIG_DATA_PATH.test(p);
+    const config = !exe && CONFIG_DATA_PATH.test(p);
     const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
