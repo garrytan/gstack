@@ -392,8 +392,8 @@ export const RELEASE_RESULT_CODES = {
   },
   REVIEW_LOOP_EXCEPTION_INVALID: {
     anchor: 'review-loop-exception-invalid',
-    summary: 'write --review-loop-exception got an exception that is malformed, follows no fix-check (review_loop.fix_checks is 0 or missing), names a fix-check head that is not the receipt head or its ancestor, or is missing from the PR body',
-    fix: 'pass { accepted_by, date, via, reason, fix_check: { head, findings } } with the owner’s words, the --review-loop summary that counts the fix-check, and the printed "Review-loop exception: …" line in the body',
+    summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
+    fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
   },
   RECEIPT_CARRY_TREE_MISMATCH: {
     anchor: 'receipt-carry-tree-mismatch',

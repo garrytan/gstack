@@ -859,6 +859,43 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     expect(early.status).toBe(3);
   });
 
+  // Value: protects=a base merge after the granted fix-check that also edits a fix-checked file keeps that file's credit when its
+  //   patch against the base is the one the fix-check read (#3916 open note, merge 131a856); fails_when=finish compares the
+  //   fix-check commit's tree with the current tree path by path and prints FIX_CHECK: reviewed none, or credits a branch edit
+  //   made after the merge; seam=finish's route reading the review log; no_claim=a conflict resolution's meaning
+  test('a base merge that also edits a fix-checked file keeps the credit while the branch patch is unchanged', () => {
+    const f = fx({ 'src/x.ts': lines(9) }, { 'src/x.ts': lines(9, { 5: 'export const l5 = 50;' }), 'test/x.test.ts': TEST_V1 });
+    const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    f.write({ 'src/x.ts': lines(9, { 5: 'export const l5 = 51;' }), 'test/x.test.ts': TEST_V2 }); f.commit('fix the round-2 blocker and bound its case');
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const post = snapshot(f);
+    const id = grant(f, passHead);
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    f.advanceBase({ 'src/x.ts': lines(9, { 1: 'export const l1 = 100;' }), 'src/y.ts': 'export const y = 1;\n' });
+    mergeMain(f);
+    expect(f.git('show', 'HEAD:src/x.ts').stdout).toBe(lines(9, { 1: 'export const l1 = 100;', 5: 'export const l5 = 51;' }));
+    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}, grant ${id})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE'), lineOf(r.stdout, 'DOCS')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=1 context=0 fix_checked=2$/), expect.stringMatching(/^DOCS: fresh .*carried: tests=0 base=1 /)]);
+    f.write({ 'src/x.ts': lines(9, { 1: 'export const l1 = 100;', 5: 'export const l5 = 52;' }) }); f.commit('an edit after the merge');
+    const late = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(late.stdout, 'FIX_CHECK')).toStartWith('FIX_CHECK: reviewed test/x.test.ts (');
+    expect([late.status, late.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+  });
+
+  // Value: protects=the docs audit carries a path only on the tree finish checks, so a --build that rewrites an audited doc after
+  //   the commit check is still stale (#3970 outside voice); fails_when=the carry compares HEAD and prints DOCS: fresh;
+  //   seam=finish's docsFresh; no_claim=push's own working-tree guard
+  test('a build that rewrites an audited doc after the commit check keeps the docs audit stale', () => {
+    const f = fx({ 'README.md': '# Fx\n' }, { 'README.md': '# Fx, from the branch\n' });
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--docs-rechecked', '--build', "printf '# Generated replacement never audited\\n' > README.md"]);
+    expect([r.status, lineOf(r.stdout, 'DOCS')]).toEqual([3, 'DOCS: stale (README.md)']);
+  });
+
   test('a fix-check logged on uncommitted content is not counted', () => {
     const { f, passHead, reviewed, post } = afterFixCheck();
     f.write({ 'src/x.ts': 'export const x = 9;\n' });

@@ -70,7 +70,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             its ask or scope naming review_loop_grant and the stop head's sha, at or after --range-base and at or
                             before HEAD; needs --range-base): the stop after a round-2 full pass with a fixed blocking finding or a
                             gate-class edit plans that fix-check instead; a fix-check never earns another; any other row is refused (exit 3)
-  --fix-checks <n>          fix-checks already run in this invocation (R65's lean loop: the owner's grant adds one only after the first)
+  --fix-checks <n>          fix-checks already run in this invocation: the owner's grant adds one only after the first, in the lean
+                            loop and after a round-2 fix-check in the full loop (GEVA-223)
   --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR)
   --declare-risk <classes>  risk classes the lane declares for the diff (comma list of ${RISK_CLASSES.join(', ')}): they join
                             the detected classes and only raise the depth; RISK_DECLARED: prints both (GST-1129)

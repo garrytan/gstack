@@ -339,6 +339,59 @@ describe('the targeted role end to end on a fixture repository', () => {
   }, 180_000);
 });
 
+// Value: protects=a targeted record carries across a plain docs-only commit after the read, as docs/troubleshooting.md says
+//   (GST-1195, truther#1168: designs/ and designs/research/*.md after the money reader); fails_when=write refuses the record on
+//   that commit, or carries one across a docs commit that adds a numeric claim, sits on a results/eval path, or names money or
+//   secrets; seam=bin/gstack-ship-receipt write --review-targeted; no_claim=the queue's own targeted verdict
+describe('a targeted record across a docs-only delta (GST-1195, TRUT-26)', () => {
+  const setup = () => {
+    const repo = makeFixtureRepo({ prefix: 'targeted-docs-' });
+    repos.push(repo);
+    repo.git('checkout', '-q', '-b', 'feat');
+    fs.mkdirSync(path.join(repo.work, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(repo.work, 'designs', 'research'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 5;\n');
+    fs.writeFileSync(path.join(repo.work, 'designs', '08-house-agent.md'), '# House agent\n\nThe agent answers questions.\n');
+    fs.writeFileSync(path.join(repo.work, 'designs', 'research', 'notes.md'), '# Notes\n\nOpen questions.\n');
+    fs.writeFileSync(path.join(repo.work, 'designs', 'research', 'dfi-evals.md'), '# Evals\n\nHow the cases run.\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'charge');
+    const head = repo.git('rev-parse', 'HEAD');
+    const record = JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted', head });
+    const write = () => runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', record, '--json']);
+    const docsCommit = (files: Record<string, string>) => {
+      repo.git('reset', '-q', '--hard', head);
+      for (const [p, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.work, p), text);
+      repo.git('commit', '-qam', 'docs after the targeted read');
+    };
+    return { repo, head, write, docsCommit };
+  };
+
+  test('a plain docs commit under designs/ and designs/research/ carries the record', () => {
+    const { head, write, docsCommit } = setup();
+    docsCommit({ 'designs/08-house-agent.md': '# House agent\n\nThe agent answers questions about a house.\n', 'designs/research/notes.md': '# Notes\n\nOpen questions, grouped by topic.\n' });
+    const w = write();
+    expect([w.status, w.err]).toEqual([0, expect.not.stringContaining(`the targeted reader read ${head.slice(0, 12)}`)]);
+    expect(JSON.parse(w.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+  }, 60_000);
+
+  test('a docs commit with a numeric claim, on an eval path, or naming money or secrets does not carry it', () => {
+    const { head, write, docsCommit } = setup();
+    for (const files of [
+      { 'designs/08-house-agent.md': '# House agent\n\nThe agent answers 40% more questions.\n' },
+      { 'designs/research/dfi-evals.md': '# Evals\n\nHow the cases run, one runner each.\n' },
+      { 'designs/08-house-agent.md': '# House agent\n\nThe agent no longer checks the spend cap.\n' },
+      { 'designs/research/notes.md': '# Notes\n\nThe API key now lives in the repo.\n' },
+      { 'designs/08-house-agent.md': '# House agent\n\nThe service no longer checks the spend cap and prints credentials.\n\0' },
+      { 'designs/08-house-agent.md': '# House agent\n\nAuthentication now happens later.\n' },
+      { 'designs/research/notes.md': '# Notes\n\nThis skips the CSRF check for authorized users.\n' },
+    ] as Record<string, string>[]) {
+      docsCommit(files);
+      const w = write();
+      expect([Object.keys(files)[0], w.status === 0, w.err.includes(`the targeted reader read ${head.slice(0, 12)}`)]).toEqual([Object.keys(files)[0], false, true]);
+    }
+  }, 120_000);
+});
+
 describe('the /ship commands carry the targeted record to the receipt (GST-464)', () => {
   // Value: protects=when the targeted reader ran, the receipt /ship writes carries its record, so ready prints verdict=ok instead
   //   of receipt=legacy (gstack-evals#95, #3682, #3612); fails_when=Step 11's verify writes the record nowhere Step 19 reads, the

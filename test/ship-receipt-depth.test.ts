@@ -212,6 +212,41 @@ describe('the review-loop exception (#3559)', () => {
   }, 90_000);
 });
 
+describe('the review-loop exception after the second full pass (TRUT-7, truther#1169)', () => {
+  // Value: protects=an owner who accepts an open finding under the two-round cap has a receipt path when /ship stopped after the
+  //   second full pass (passes=2 blocking_found=1 deferred=1, no fix-check); fails_when=write refuses that stop, accepts one with
+  //   fewer than two passes, no deferred finding, no finding id, both stop kinds or no body line, or the queue ignores the line;
+  //   seam=gstack-ship-receipt write and bindShippedReceipt; no_claim=finish's routing
+  test('write records it with the deferred finding named by id; a stop that is neither kind is still refused', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const head = commit(repo, { 'lib/util.js': lines(3) });
+    const body = path.join(repo.root, 'body.md');
+    const exception = { accepted_by: 'TRUT-1', date: '2026-11-03', via: 'TRUT-7 relay', reason: 'the open finding ships as a note under the two-round cap', second_pass: { head, deferred: ['specialist#3'] } };
+    const arg = (e: unknown) => ['--review-loop-exception', JSON.stringify(e)];
+    const loop = (passes: number, deferred: number) => ['--review-loop', JSON.stringify({ passes, blocking_found: 1, deferred, noted: 2, fixed: 2, scope: 'frozen' })];
+    fs.writeFileSync(body, '## What changed\n');
+    for (const [extra, why] of [
+      [[...arg(exception), ...loop(1, 1)], 'passes >= 2'],
+      [[...arg(exception), ...loop(2, 0)], 'deferred >= 1'],
+      [[...arg({ ...exception, second_pass: { head, deferred: [] } }), ...loop(2, 1)], 'second_pass.deferred must name'],
+      [[...arg({ ...exception, fix_check: { head, findings: 1 } }), ...loop(2, 1)], 'exactly one of fix_check or second_pass'],
+      [[...arg({ ...exception, second_pass: { head: 'a'.repeat(40), deferred: ['specialist#3'] } }), ...loop(2, 1)], 'is not ' + head.slice(0, 12) + ' or an ancestor of it'],
+      [[...arg(exception), ...loop(2, 1)], 'does not carry the exception line verbatim'],
+    ] as Array<[string[], string]>) {
+      const out = writeReceipt(repo, body, extra);
+      expect([why, out.status, out.err.includes('(REVIEW_LOOP_EXCEPTION_INVALID;'), out.err.includes(why)]).toEqual([why, EXIT.fail, true, true]);
+    }
+    const line = reviewLoopExceptionLine(exception as never);
+    expect(line).toBe(`Review-loop exception: accepted by TRUT-1 2026-11-03 via TRUT-7 relay: the open finding ships as a note under the two-round cap (second full pass at ${head.slice(0, 12)}, deferred specialist#3)`);
+    fs.writeFileSync(body, `## What changed\n\n${line}\n`);
+    expect(writeReceipt(repo, body, [...arg(exception), ...loop(2, 1)]).status).toBe(EXIT.ok);
+    expect(receiptIn(body).review_loop_exception).toEqual(exception);
+    expect(bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]).ok).toBe(true);
+    const dropped = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8').replace(line, ''), '7', [head]);
+    expect(!dropped.ok && dropped.code).toBe('QUEUE_RECEIPT_EXCEPTION_INVALID');
+  }, 90_000);
+});
+
 describe('the queue and a scoped second pass (GSTA-152 D6)', () => {
   // Value: protects=a receipt whose pass 2 was scoped (fix-check, Red Team, native adversarial; no specialists) READYs at the depth
   // its head needs, with no schema change; fails_when=the queue reads review_loop.dispatches or passes as a depth signal; seam=bindShippedReceipt

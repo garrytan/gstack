@@ -100,6 +100,17 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', granted: 'a-1' }).step).toBe('done');
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
   });
+  // Value: protects=a recorded grant gets its one fix-check when round 2 was itself a fix-check (GEVA-223), without restating
+  //   history as a full pass; fails_when=the planner prints stop despite the grant, runs a second granted fix-check, or grants
+  //   one with a blocker open; seam=nextStep; no_claim=the CLI's grant binding to the stop head
+  test('a recorded grant after a round-2 fix-check runs its one fix-check, and never a second (GEVA-223)', () => {
+    const h = { fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-a17f3fd0a47a', fixChecks: 1 } as const;
+    expect(nextStep(h)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-a17f3fd0a47a') });
+    expect(nextStep({ ...h, fixedBlocking: false, touchedGate: true }).step).toBe('fix-check');
+    expect(nextStep({ ...h, gate: true }).step).toBe('voices');
+    expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
+    for (const o of [{ fixChecks: 2 }, { fixChecks: undefined }, { blockingOpen: true }, { granted: undefined }, { fullPasses: FULL_PASS_CAP }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
+  });
   test('docs/review-policy.md\'s transitions table and rule 3 say both', () => {
     const doc = fs.readFileSync(path.join(ROOT, 'docs', 'review-policy.md'), 'utf8');
     const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('A **fix-check** is one reviewer'));
