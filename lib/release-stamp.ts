@@ -60,6 +60,8 @@ export function classifyRelease(o: { repoRoot: string; policy: ShipPolicy; merge
   const residual = receipt.files.filter(f => f.verdict === 'changed');
   const outside = residual.filter(f => !matchesAny(o.policy.release_outputs, f.path));
   if (outside.length) return no(`more than the stamp changed: ${outside.map(f => `${f.path} (${f.residual ?? f.rule})`).join(', ')}`);
+  const gone = git(o.repoRoot, ['diff', '--name-only', '--no-renames', '--diff-filter=D', o.mergeBase, o.head]).out.split('\n').filter(f => f && matchesAny(o.policy.release_outputs, f));
+  if (gone.length) return no(`a release regenerates its outputs and never deletes one, but it deletes ${gone.join(', ')}`);
   const manifest = (rev: string) => { const r = git(o.repoRoot, ['show', `${rev}:package.json`]); try { return r.ok ? (JSON.parse(r.out).version as string | undefined) ?? null : null; } catch { return null; } };
   const npmWas = manifest(o.mergeBase);
   const npmWant = npmWas === null ? null : expected.split('.').slice(0, npmWas.split('.').length).join('.');
