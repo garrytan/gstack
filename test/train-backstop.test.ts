@@ -17,7 +17,8 @@ import type { GhRunner } from '../scripts/recover-receipts';
 import { runBackstop } from '../scripts/train-backstop';
 import { gitIn, trainPrefixes, type TrainRecord } from '../scripts/train-gate';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
-import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
+import { gitFixtureTemplate, rebindGitDir, type GitFixtureTemplate } from './helpers/git-fixture-template';
+import { BASE_POLICY, cleanup, fixtureRepoAt, seedFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
 import { TRAIN_BLOCK, TRAIN_POLICY } from './helpers/ship-queue-train-fixture';
 
 const REPO = 'fixture/repo';
@@ -30,10 +31,23 @@ afterEach(() => { if (savedStateRoot === undefined) delete process.env.GSTACK_ST
 
 interface Fixture { repo: FixtureRepo; main0: string; prs: string[]; train: string[]; record: TrainRecord }
 
-/** Five PR branches from main and the train T1..T5 gstack-ship-queue would build from them (lib/ship-queue-train.ts buildChain). */
+/** Five PR branches from main and the train T1..T5 gstack-ship-queue would build from them, built once per policy and copied per test. */
+const templates = new Map<string, GitFixtureTemplate<Omit<Fixture, 'repo'>>>();
+afterAll(() => { for (const t of templates.values()) t.dispose(); });
 function trainFixture(policy: Record<string, unknown> = TRAIN_POLICY): Fixture {
-  const repo = makeFixtureRepo({ policy, prefix: 'train-backstop-fx-' });
+  const key = JSON.stringify(policy);
+  if (!templates.has(key)) templates.set(key, gitFixtureTemplate({ prefix: 'train-backstop-fx-', build: root => buildTrain(root, policy), rebind: (copy, tpl) => rebindGitDir(path.join(copy, 'work', '.git'), tpl, copy) }));
+  const { root, meta } = templates.get(key)!.copy();
+  const repo = fixtureRepoAt(root);
   repos.push(repo);
+  process.env.GSTACK_STATE_ROOT = path.join(repo.root, 'state');
+  return { repo, ...structuredClone(meta) };
+}
+
+/** lib/ship-queue-train.ts buildChain's T1..T5 over five PR branches from main. */
+function buildTrain(root: string, policy: Record<string, unknown>): Omit<Fixture, 'repo'> {
+  seedFixtureRepo(root, { policy });
+  const repo = fixtureRepoAt(root);
   process.env.GSTACK_STATE_ROOT = path.join(repo.root, 'state');
   const main0 = repo.git('rev-parse', 'HEAD');
   const prs = [1, 2, 3, 4, 5].map(i => {
@@ -56,7 +70,7 @@ function trainFixture(policy: Record<string, unknown> = TRAIN_POLICY): Fixture {
   const record: TrainRecord = { schema: 1, kind: 'train-gate', nonce: TRAIN_NONCE, head_sha: parent, tree: repo.git('rev-parse', `${parent}^{tree}`), verdict: 'GREEN',
     census: { complete: true, planned: { rule: 108, judge: 24 }, executed: { rule: 108, judge: 24 }, unbound: 0, partial_shards: 0, cancelled_shards: 0, killed_before_upload: 0 },
     panels: [], run: { id: 900, attempt: 1, url: 'https://example.invalid/runs/900' }, prefixes };
-  return { repo, main0, prs, train, record };
+  return { main0, prs, train, record };
 }
 
 /** The coordinator's squash merge of PR i onto main, stamped at merge (VERSION, package.json, the release output). */

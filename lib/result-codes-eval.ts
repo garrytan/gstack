@@ -22,8 +22,13 @@ export const EVAL_RESULT_CODES = {
   // Garry, 2026-10-31: "all of our head to head tests have to test no gstack from here".
   PREREG_NO_GSTACK_ARM: {
     anchor: 'prereg-no-gstack-arm',
-    summary: 'the Comparison says stack: loaded and the No-gstack arm section is missing, lacks a key, or does not give every model its own <model>#no-gstack Arms line',
-    fix: 'add `## No-gstack arm` with arms:, inputs:, prompt:, panel: and report:, and list each <model>#no-gstack arm under Arms; when no arm loads a skill stack, say stack: none with a why: line',
+    summary: 'the Comparison says stack: loaded and the No-gstack arm section is missing, lacks a key (masking:, install: and audit: included), says none for a masking key, or does not give every model its own <model>#no-gstack Arms line',
+    fix: 'add `## No-gstack arm` with arms:, inputs:, prompt:, panel:, report:, masking:, install: and audit:, and list each <model>#no-gstack arm under Arms; when no arm loads a skill stack, say stack: none with a why: line',
+  },
+  EVAL_REPORT_NO_GSTACK_ROW: {
+    anchor: 'eval-report-no-gstack-row',
+    summary: 'the results file has no single table with a filled row for every arm the preregistration lists, so a no-gstack row is missing or not beside its variants',
+    fix: 'put one row per arm identity (each <model>#no-gstack beside its variants) in one markdown table of the results file, then rerun `gstack-eval-plan results --check`; publish no number before it says ok',
   },
   EVAL_ARM_DUPLICATE: {
     anchor: 'eval-arm-duplicate',

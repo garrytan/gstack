@@ -344,7 +344,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - No \`user-scalable=no\` or \`maximum-scale=1\` in viewport meta
 
 **7. Motion & Animation** (7 items)
-- Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
+- Easing: ease-out to enter and exit, ease-in-out to move; flag plain ease-in
 - Duration: 50-700ms range (nothing slower unless page transition)
 - Purpose: every animation communicates something (state change, attention, spatial relationship)
 - \`prefers-reduced-motion\` respected (check: \`await pg.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)\`)
@@ -593,11 +593,10 @@ Show the screenshot to the user. Ask: "Does this feel right? Want to iterate on 
 If they want changes, regenerate the HTML with their feedback and re-render.
 If they approve or say "good enough," proceed.
 
-**Step 5: Include in design doc**
+**Step 5: Save the sketch**
 
-Reference the wireframe screenshot in the design doc's "Recommended Approach" section.
-The screenshot file at \`<sketch-dir>/sketch.png\` (name the full path in the doc) can be referenced by downstream skills
-(\`/plan-design-review\`, \`/design-review\`) to see what was originally envisioned.
+Copy the temporary \`sketch.png\` and \`sketch.html\` to \`<PROJECT_DIR>/{user}-{branch}-sketch-{datetime}.*\`.
+In "Recommended Approach" add \`Wireframe: projects/<slug>/<png name>\` (state-root relative), or \`Wireframe: none (<reason>)\`.
 
 **Step 6: Outside design voices** (optional)
 

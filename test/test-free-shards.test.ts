@@ -29,6 +29,9 @@ import {
   loadFreeTestDurations,
   packShardsByDuration,
   wallTimeoutForPackedShard,
+  ciShardJobTimeoutMinutes,
+  ciPlanMatrix,
+  MAX_CI_JOB_TIMEOUT_MINUTES,
   createFreeCiPlan,
   validateFreeCiPlan,
   verifyFreeCiResults,
@@ -196,7 +199,7 @@ describe('test-free-shards: exclusive host-state phase', () => {
     let child: ReturnType<typeof Bun.spawn> | undefined;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
-      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'lib/state-root.ts',
+      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'scripts/lib/shard-jobs.ts', 'lib/state-root.ts',
         'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'test/helpers/touchfiles-data.ts', 'test/helpers/test-selection.ts']) {
         const target = path.join(directory, file);
         fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -1100,5 +1103,31 @@ describe('test-free-shards: duration-aware packing (full-suite LPT)', () => {
     expect(wallTimeoutForPackedShard(242_000, WALL_BASE_MS, 253)).toBe(253 * 5_000);
     // When the prediction is the larger bound, it still wins.
     expect(wallTimeoutForPackedShard(600_000, WALL_BASE_MS, 10)).toBe(1_800_000);
+  });
+
+  test('a shard\'s job timeout is its runner wall plus the flaky-retry wall plus setup, rounded up (#3850)', () => {
+    // 750 s predicted -> 2250 s wall, + 360 s retry, + 300 s setup = 2910 s -> 49 min.
+    expect(ciShardJobTimeoutMinutes({ shard: 1, files: ['a'], predictedMs: 750_000 }, 300)).toBe(49);
+    // A tiny shard still covers the 6-minute base wall and the retry pass.
+    expect(ciShardJobTimeoutMinutes({ shard: 2, files: ['a'], predictedMs: 1_000 }, 60)).toBe(13);
+  });
+
+  test('a shard that would need a job over the cap fails the plan instead of being truncated', () => {
+    const predictedMs = MAX_CI_JOB_TIMEOUT_MINUTES * 60_000 / 3;
+    expect(() => ciShardJobTimeoutMinutes({ shard: 4, files: ['a'], predictedMs }, 300)).toThrow(/FREE_JOB_TIMEOUT_OVER_CAP: CI shard 4 needs a 101-minute job/);
+  });
+
+  test('the matrix carries per-shard timeouts only when the plan is given a setup margin', () => {
+    const plan = createFreeCiPlan(['a.test.ts', 'b.test.ts'], 2, { 'a.test.ts': 750_000, 'b.test.ts': 1_000 }, 'rev');
+    expect(ciPlanMatrix(plan)).toEqual({ shard: [1, 2] });
+    expect(ciPlanMatrix(plan, 300)).toEqual({ include: [{ shard: 1, timeout_minutes: 49 }, { shard: 2, timeout_minutes: 17 }] });
+  });
+
+  test('--job-setup-seconds is a --ci-plan flag with whole seconds from 1 to 3600', () => {
+    expect(parseCliOptions(['--ci-plan', 'p.json', '--job-setup-seconds', '300']).jobSetupSeconds).toBe(300);
+    expect(() => parseCliOptions(['--shards', '2', '--job-setup-seconds', '300'])).toThrow('--job-setup-seconds applies only to --ci-plan');
+    for (const bad of ['0', '3601', '1.5', 'x']) {
+      expect(() => parseCliOptions(['--ci-plan', 'p.json', '--job-setup-seconds', bad])).toThrow('--job-setup-seconds needs a whole number of seconds from 1 to 3600');
+    }
   });
 });

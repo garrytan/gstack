@@ -3,7 +3,9 @@
 `/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /ship run spends, and
 long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
-There is no default cap: without one, /ship meters usage when it can and prints it, and
+There is one default cap: an observe-mode /ship subagent that meters its own task row (`--reading-from task`,
+below) and names no cap gets 100M, the line where /runaway-stopper stops a subagent, and prints
+`BUDGET_DEFAULT_CAP: 100M`; `--token-cap none` turns it off. Without a cap, /ship meters usage when it can and prints it, and
 nothing else changes.
 
 ## What the cap guarantees
@@ -41,7 +43,7 @@ unless `--label` is given.
 
 **Counting calls.** `gstack-ship-budget calls --events <file> [--since <iso>] [--until <iso>]` reads
 the host's transcript items (a JSON array, or `{ "items": [...] }` as Capy's `tools.thread.get`
-transcript returns) and prints
+transcript returns; a leading `~` or `~/` in `<file>` means the home directory) and prints
 `CALLS: total= decision= keepalive= idle_gaps_over_300s= max_gap_s= first= last= source=`. Every tool
 item is one parent call; a `wait`, or a program that only reads status (plus at most one bash for its
 note), is a keep-alive, and a gap over 300 s between calls outlives the prompt cache
@@ -76,8 +78,17 @@ one program measure nothing: Capy books a call after its program ends.
 
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
-whose counter also holds every sibling tree, so a subagent running /ship passes its own jam id;
-a root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
+whose counter also holds every sibling tree. A subagent running /ship cannot read its own jam id. When its brief names its title
+(`GSTACK_SHIP_TASK_TITLE=<title>`), it reads `cost` from its own row of the root thread's `tasks` (the row whose `title` matches; its subtree, exact)
+and starts with `--reading-from task`; every later reading in the run comes from that same row, and the title carries a
+nonce so a rerun at the same head can't match a finished row. Otherwise it
+reads `"this"` and starts with `--subagent --reading-from this --meter-scope tree` (`GSTACK_SHIP_SUBAGENT=1` in its
+brief stands in for `--subagent` only; `--reading-from this` is still required): the run is tree-scoped, and every BUDGET, NOTE, BUDGET_FINAL
+and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, upper bound)`. A
+subagent that asks for `--meter-scope self` while reading `"this"` is refused
+(`METER_SCOPE_PARENT`). A `--token-cap` on a tree-scoped run stops on that upper bound, so sibling
+lanes count against it. Exact per-run cost comes from a root replay thread: a root thread that runs
+only that /ship, whose `"this"` is its own counter. A root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
 verifies with no reading and prints `METER: parent`; the parent's handoff and reconcile readings,
 taken on its own counter (which holds the child), measure it.
 
@@ -286,6 +297,7 @@ stop rules) before claiming a saving from the cap or from delegation.
 
 [BUDGET_CAP_REACHED](troubleshooting.md#budget-cap-reached) ·
 [BUDGET_READING_MISSING](troubleshooting.md#budget-reading-missing) ·
+[METER_SCOPE_PARENT](troubleshooting.md#meter-scope-parent) ·
 [BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected) ·
 [BUDGET_METER_UNAVAILABLE](troubleshooting.md#budget-meter-unavailable) ·
 [BUDGET_LEDGER_INVALID](troubleshooting.md#budget-ledger-invalid) ·

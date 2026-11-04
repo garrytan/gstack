@@ -26,6 +26,7 @@
 # reports which root received the value and which root still overrides it.
 # Docs: https://github.com/garrytan/gstack/blob/main/docs/state-root.md
 set -euo pipefail
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 [ -r "$(dirname "$0")/gstack-state-root.sh" ] && . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
@@ -208,6 +209,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   the same model; every reviewer keeps full.
 # Docs: docs/model-policy.md
 #
+# harness_start_hook:       # on | off. on: ./setup and gstack-harness add the
+#                           #   gstack-start plugin to OpenClaw and Hermes registrations
+#                           #   (a one-line note on every turn to run the start
+#                           #   command of a skill; edits openclaw.json or config.yaml via the
+#                           #   harness CLI). off: takes it out. Absent = each
+#                           #   registration keeps its saved choice (default off).
+#                           #   GSTACK_HARNESS_START_HOOK=1|0 overrides it. Docs: docs/hosts.md
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Outside review (Codex or Claude Code by harness): sends
 #                           #   the review prompt and repository content to that model.
@@ -221,6 +230,17 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /codex and /claude-code still run when you ask by name.
 #                           #   An unreadable config counts as disabled.
 #                           #   Invalid values preserve the old value.
+# autoplan_shadow: off      # Shadow mode for the CEO-only decider (gstack-autoplan
+#                           #   driver runs): on gives every gate one hidden model
+#                           #   prediction, recorded before the owner answers, for
+#                           #   taste-replay R2. Sends the reviewed plan and the gate
+#                           #   to that model on your own API key, about $0.07 per
+#                           #   gate, counted against --spend-cap. Read at the first
+#                           #   next of each run only. GSTACK_AUTOPLAN_SHADOW=1|0
+#                           #   overrides.
+#                           #   Invalid values are rejected, the old value kept.
+# autoplan_shadow_model: claude-opus-5-5  # The model the shadow decider runs on.
+#                           #   Docs: docs/unattended.md#shadow-mode
 # browse_extension_id:      # Forks and self-built extensions: the 32-letter (a-p)
 #                           #   Chrome extension ID the browse sidebar terminal accepts.
 #                           #   Empty = the gstack extension. "" clears it.
@@ -281,7 +301,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   bot owns logins starting with its name and
 #                           #   checks mentioning it).
 # pr_wait_advisory_bots: coderabbit  # review bots gstack-pr-wait reports but
-#                           #   never waits for. Both lists: lowercase names,
+#                           #   never waits for. /review and /ship triage the
+#                           #   comments of every bot in both lists (e.g.
+#                           #   coderabbit,copilot). Both lists: lowercase names,
 #                           #   letters, digits, . _ - only; none empties a list.
 #                           #   Invalid values are REJECTED (value kept).
 #
@@ -308,7 +330,10 @@ lookup_default() {
     skill_prefix) echo "false" ;;
     explain_level) echo "default" ;;
     plan_mode_preamble) echo "on" ;; # on | off — off drops the plan-mode preamble on the next ./setup (#3168)
+    claude_loadout) echo "full" ;; # a modules/loadouts.json name — written by ./setup --loadout (docs/loadouts.md)
     codex_reviews) echo "enabled" ;;
+    autoplan_shadow) echo "off" ;; # on | off — autoplan shadow mode, fixed at each run's first next (lib/autoplan-shadow.ts)
+    autoplan_shadow_model) echo "claude-opus-5-5" ;; # the shadow decider's model; needs a lib/pricing.ts row and its family's API key
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
     design_detector_install_prompted) echo "false" ;; # true once the user answered the one-time engine install offer with "never ask again"
     gstack_contributor) echo "false" ;;
@@ -320,6 +345,8 @@ lookup_default() {
     artifacts_sync_removals) echo "off" ;; # on | off — publish removals of synced files gone from disk
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
+    skill_routing) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_routing ;; # on | off — the skill-routing UserPromptSubmit hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
+    skill_contracts) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_contracts ;; # on | off — the skill-contract Stop hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
@@ -368,6 +395,7 @@ lookup_default() {
     agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
+    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice (docs/hosts.md#start-hook)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
@@ -781,6 +809,10 @@ $_gstack_legacy_root"
           ;;
       esac
     fi
+    if [ "$KEY" = "claude_loadout" ] && ! printf '%s' "$VALUE" | grep -Eq '^[a-z0-9-]{1,40}$'; then
+      echo "Warning: claude_loadout must be a loadout name such as lite or full. Using full." >&2
+      VALUE="full"
+    fi
     if [ "$KEY" = "plan_mode_preamble" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
       echo "Warning: plan_mode_preamble '$VALUE' not recognized. Valid values: on, off. Using on." >&2
       VALUE="on"
@@ -831,6 +863,10 @@ $_gstack_legacy_root"
     # typo instead of coercing it (the probe refuses an invalid stored value too).
     if [ "$KEY" = "review_effort_tiers" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
       echo "Error: review_effort_tiers '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
+    if [ "$KEY" = "harness_start_hook" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: harness_start_hook '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged. fix: gstack-config unset harness_start_hook keeps each registration's saved choice (docs/hosts.md#start-hook)" >&2
       exit 1
     fi
     if [ "$KEY" = "codex_effort" ]; then
@@ -959,6 +995,12 @@ $_gstack_legacy_root"
     # never flip consent in either direction, so nothing is coerced or stored.
     if [ "$KEY" = "memorable_recall" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
       echo "Error: memorable_recall '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # autoplan_shadow is a CONSENT key: `on` sends each gate's plan to a model
+    # API. Reject like memorable_recall -- a typo must never flip it.
+    if [ "$KEY" = "autoplan_shadow" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: autoplan_shadow '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
     # browse_extension_id (D1) decides which Chrome extension may reach the
@@ -1092,15 +1134,16 @@ $_gstack_legacy_root"
     echo "# ─── Active values (including defaults for unset keys) ───"
     report_root_disagreement
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
-               skill_prefix explain_level plan_mode_preamble \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               skill_prefix explain_level plan_mode_preamble claude_loadout \
+               codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
+               skill_routing skill_contracts; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1117,15 +1160,16 @@ $_gstack_legacy_root"
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
-               skill_prefix explain_level plan_mode_preamble \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               skill_prefix explain_level plan_mode_preamble claude_loadout \
+               codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
-               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model; do
+               model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
+               skill_routing skill_contracts; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -1150,6 +1194,7 @@ $_gstack_legacy_root"
     . "$SCRIPT_DIR/gstack-render-claude.sh" 2>/dev/null || { echo "$0: $SCRIPT_DIR/gstack-render-claude.sh is missing. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
     _PLAN_MODE_ARG=""
     [ "$("$0" get plan_mode_preamble 2>/dev/null || true)" != off ] || _PLAN_MODE_ARG="--plan-mode=off"
+    gstack_claude_loadout_arg "$0"
     DETECT_BIN="$SCRIPT_DIR/gstack-gbrain-detect"
     DETECTION_FILE="$STATE_DIR/gbrain-detection.json"
     mkdir -p "$STATE_DIR"
@@ -1218,7 +1263,7 @@ $_gstack_legacy_root"
           gstack_claude_overlay "$INSTALL_DIR" "$0"
           RENDER_TMP="$RENDER_DIR.tmp.$$"
           rm -rf "$RENDER_TMP"
-          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} >/dev/null 2>&1 ); then
+          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} >/dev/null 2>&1 ); then
             gstack_render_lock "$RENDER_DIR"
             _swap_in_render "$RENDER_DIR" "$RENDER_TMP"
             gstack_render_unlock "$RENDER_DIR"
@@ -1244,7 +1289,7 @@ $_gstack_legacy_root"
         # brain blocks, so removing gbrain keeps the chosen overlay.
         INSTALL_DIR="$HOME/.claude/skills/gstack"
         RENDER_DIR="${GSTACK_USER_RENDER_DIR:-$STATE_DIR/render/claude}"
-        if { [ -d "$RENDER_DIR" ] || "$0" has claude_overlay_model || [ -n "$_PLAN_MODE_ARG" ]; } \
+        if { [ -d "$RENDER_DIR" ] || "$0" has claude_overlay_model || [ -n "$_PLAN_MODE_ARG" ] || [ -n "$_LOADOUT_ARG" ]; } \
           && [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/VERSION" ] && [ -f "$INSTALL_DIR/package.json" ]; then
           if ! command -v bun >/dev/null 2>&1; then
             echo "Skip: bun not on PATH — the Claude render at $RENDER_DIR was not refreshed. Install bun, then re-run 'gstack-config gbrain-refresh'."

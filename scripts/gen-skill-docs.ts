@@ -55,6 +55,8 @@ export interface GenerationOptions {
   catalogMode?: 'trim' | 'full';
   explainLevel?: 'default' | 'terse';
   respectDetection?: boolean;
+  /** A detection result the caller already read; wins over respectDetection so one read serves identity and render. */
+  gbrainDetected?: boolean;
   log?: (message: string) => void;
   planMode?: boolean;
   /** Module loadout (scripts/modules.ts selectModules); null/undefined = `full`. */
@@ -94,7 +96,7 @@ export interface GenerationResult {
 }
 
 /** Canonical generation never reads local detection state unless opted in. */
-function loadGbrainOverride(respectDetection: boolean): boolean {
+export function loadGbrainOverride(respectDetection: boolean): boolean {
   if (!respectDetection) return false;
   const stateDir = resolveStateRoot();
   try {
@@ -484,13 +486,21 @@ policy:
 
 /**
  * Transform frontmatter for external hosts.
- * Claude: strips `sensitive:` field (only Factory uses it).
+ * Claude: strips template-only fields, adds disable-model-invocation to manual_only skills.
  * Codex: keeps name + description only, enforces 1024-char limit.
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
 function transformFrontmatter(content: string, host: Host): string {
   const hostConfig = getHostConfig(host);
   const fm = hostConfig.frontmatter;
+  const templateFrontmatter = content.startsWith('---\n') ? content.slice(4, content.indexOf('\n---', 4)) : '';
+  const escape = (s: unknown) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const conditionalLines = (fm.conditionalFields || [])
+    .filter(rule => Object.entries(rule.if).every(([k, v]) => new RegExp(`^${escape(k)}:[ \\t]*${escape(v)}[ \\t]*$`, 'm').test(templateFrontmatter)))
+    .flatMap(rule => Object.entries(rule.add))
+    .filter(([key]) => !new RegExp(`^${escape(key)}:`, 'm').test(templateFrontmatter))
+    .map(([key, value]) => `${key}: ${value}\n`)
+    .join('');
 
   if (fm.mode === 'denylist') {
     // Denylist mode: strip listed fields, keep everything else
@@ -501,7 +511,7 @@ function transformFrontmatter(content: string, host: Host): string {
         content = content.replace(new RegExp(`^${field}:\\s*.*\\n`, 'm'), '');
       }
     }
-    return content;
+    return conditionalLines ? content.replace('\n---\n', () => `\n${conditionalLines}---\n`) : content;
   }
 
   // Allowlist mode: reconstruct frontmatter with only allowed fields
@@ -544,19 +554,7 @@ function transformFrontmatter(content: string, host: Host): string {
     }
   }
 
-  // Add conditional fields
-  if (fm.conditionalFields) {
-    for (const rule of fm.conditionalFields) {
-      const match = Object.entries(rule.if).every(([k, v]) =>
-        new RegExp(`^${k}:\\s*${v}`, 'm').test(frontmatter)
-      );
-      if (match) {
-        for (const [key, value] of Object.entries(rule.add)) {
-          newFm += `${key}: ${value}\n`;
-        }
-      }
-    }
-  }
+  newFm += conditionalLines;
 
   // Preserve additional keepFields beyond name and description
   if (fm.keepFields) {
@@ -851,7 +849,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   // metadata gets the updated description with voice triggers included.
   const postProcessDescription = extractNameAndDescription(content).description;
 
-  // For Claude: strip sensitive: field (only Factory uses it)
+  // For Claude: strip template-only fields, add conditional fields
   // For external hosts: route output, transform frontmatter, rewrite paths
   let symlinkLoop = false;
   let metadata: { outputPath: string; content: string } | undefined;
@@ -989,7 +987,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
     model: settings.model ?? null,
     catalogMode: settings.catalogMode ?? 'trim',
     explainLevel: settings.explainLevel ?? 'default',
-    gbrainDetected: loadGbrainOverride(settings.respectDetection ?? false),
+    gbrainDetected: settings.gbrainDetected ?? loadGbrainOverride(settings.respectDetection ?? false),
     planMode: settings.planMode ?? true,
     modules: settings.modules ?? null,
   };

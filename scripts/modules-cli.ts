@@ -5,6 +5,14 @@
  *   gstack-modules validate
  *   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
  *                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
+ *                         [--bind-model <id> --full-root <abs>]
+ *   gstack-modules resolve [--model <id>] [--loadout <name>]
+ *   gstack-modules install --full-root <abs> [--model <id>] [--loadout <name>] [--store <dir>] [--plan-mode on|off]
+ *
+ * resolve and install pick the loadout through lib/model-detect.ts. install
+ * prints `LOADOUT: …` and `SKILL_ROOT: <dir>`: the full root for full, else
+ * the published lite tree (scripts/modules-install.ts). A lite render that
+ * fails prints LOADOUT_FALLBACK and serves full, exit 0.
  *
  * Exit 0 on success, 2 on a refused input (ModuleError, printed with its code,
  * fix and docs anchor), 1 on an unexpected failure.
@@ -14,8 +22,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveHostArg } from '../hosts/index';
 import { resolveModel } from './models';
-import { LOADOUTS_FILE, ModuleError, loadLoadouts, moduleCatalog, selectModules, validateLoadouts } from './modules';
+import { LOADOUTS_FILE, MODEL_ID_RE, ModuleError, loadLoadouts, moduleCatalog, normalizeModelId, selectModules, validateLoadouts } from './modules';
 import { renderLoadout } from './modules-render';
+import { installLoadout } from './modules-install';
+import { describeResolution, resolveLoadout } from '../lib/model-detect';
+import { resolveStateRoot } from '../lib/state-root';
 import type { Host } from './resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -24,7 +35,14 @@ const USAGE = `Usage:
   gstack-modules validate                   check ${LOADOUTS_FILE} against the catalog
   gstack-modules render --host <h> (--loadout <name> | --modules <base>,-id,+id) --out-dir <d>
                         [--install-root <abs>] [--model <id>] [--plan-mode on|off]
-                                            render one loadout and write loadout.lock.json
+                        [--bind-model <id> --full-root <abs>]
+                                            render one loadout and write loadout.lock.json;
+                                            --bind-model bakes the start lines an install
+                                            for that model serves
+  gstack-modules resolve [--model <id>] [--loadout <name>]
+                                            the loadout an install would serve, and why
+  gstack-modules install --full-root <abs> [--model <id>] [--loadout <name>] [--store <dir>] [--plan-mode on|off]
+                                            publish that loadout and print SKILL_ROOT
 Guide: docs/loadouts.md`;
 
 export interface CliResult { code: number; stdout: string; stderr: string }
@@ -74,9 +92,37 @@ export async function modulesMain(args: string[]): Promise<CliResult> {
       if (planMode !== undefined && planMode !== 'on' && planMode !== 'off') throw new ModuleError('MODULE_SPEC_INVALID', '--plan-mode takes on or off', 'drop it, or pass --plan-mode off');
       const installRoot = flag(rest, '--install-root');
       if (installRoot !== undefined && !/^\/[A-Za-z0-9_.@+\/-]*$/.test(installRoot)) throw new ModuleError('MODULE_SPEC_INVALID', '--install-root must be a plain absolute path', 'pass the absolute install root setup would use');
-      const selection = selectModules({ loadout, modules });
+      const bindModel = flag(rest, '--bind-model');
+      const fullRoot = flag(rest, '--full-root');
+      const selected = selectModules({ loadout, modules });
+      if ((bindModel === undefined) !== (fullRoot === undefined)) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model and --full-root go together', 'pass both, or neither');
+      if (bindModel !== undefined && !selected) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model needs a loadout that excludes something', 'drop --bind-model for the full loadout');
+      if (bindModel !== undefined && !MODEL_ID_RE.test(normalizeModelId(bindModel))) throw new ModuleError('MODULE_SPEC_INVALID', '--bind-model is not a plain model id', 'pass an id such as claude-opus-5-5');
+      if (fullRoot !== undefined && !/^\/[A-Za-z0-9_.@+\/-]*$/.test(fullRoot)) throw new ModuleError('MODULE_SPEC_INVALID', '--full-root must be a plain absolute path', 'pass the full install root, for example --full-root "$HOME/.claude/skills"');
+      const selection = selected && bindModel !== undefined ? { ...selected, boundModel: normalizeModelId(bindModel), fullRoot } : selected;
       const lock = await renderLoadout({ host, selection, outDir, installRoot: installRoot ?? null, model, planMode: planMode !== 'off' });
       return { code: 0, stdout: `RENDERED: loadout=${lock.loadout} host=${host} files=${lock.files.length} bytes=${lock.total_bytes} excluded=${lock.excluded.length} lock=${path.join(path.resolve(outDir), 'loadout.lock.json')}\n`, stderr: '' };
+    }
+    if (command === 'resolve' || command === 'install') {
+      const resolution = resolveLoadout({ loadout: flag(rest, '--loadout'), model: flag(rest, '--model') });
+      const notice = resolution.notice ? `${resolution.notice}\n` : '';
+      if (command === 'resolve') return { code: 0, stdout: describeResolution(resolution) + '\n', stderr: notice };
+      const fullRoot = flag(rest, '--full-root');
+      if (!fullRoot || !/^\/[A-Za-z0-9_.@+\/-]*$/.test(fullRoot)) throw new ModuleError('MODULE_SPEC_INVALID', 'install needs --full-root <plain absolute path>', 'pass the full install root, for example --full-root "$HOME/.claude/skills"');
+      const planMode = flag(rest, '--plan-mode');
+      if (planMode !== undefined && planMode !== 'on' && planMode !== 'off') throw new ModuleError('MODULE_SPEC_INVALID', '--plan-mode takes on or off', 'drop it, or pass --plan-mode off');
+      const full = (line: string) => ({ code: 0, stdout: `${line}\nSKILL_ROOT: ${fullRoot}\n`, stderr: notice });
+      if (resolution.loadout === 'full') return full(describeResolution(resolution));
+      try {
+        const selection = selectModules({ loadout: resolution.loadout });
+        if (!selection) return full(describeResolution(resolution));
+        const store = flag(rest, '--store') ?? path.join(resolveStateRoot(), 'loadouts');
+        const result = await installLoadout({ selection, boundModel: resolution.model, fullRoot, store, planMode: planMode !== 'off' });
+        return { code: 0, stdout: `${describeResolution(resolution)} digest=${result.lock.identity_sha256.slice(0, 12)} reused=${result.reused ? 'yes' : 'no'}\nSKILL_ROOT: ${result.root}\n`, stderr: notice };
+      } catch (error) {
+        const why = error instanceof ModuleError ? `${error.code}: ${error.message}` : (error as Error).message;
+        return { code: 0, stdout: `${describeResolution({ ...resolution, loadout: 'full', model: null, reason: 'render-failed' })}\nSKILL_ROOT: ${fullRoot}\n`, stderr: `${notice}LOADOUT_FALLBACK: ${why.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 400)}; serving full (docs/troubleshooting.md#loadout-fallback)\n` };
+      }
     }
     return { code: 2, stdout: '', stderr: `Unknown command ${JSON.stringify(command.slice(0, 40))}.\n${USAGE}\n` };
   } catch (error) {

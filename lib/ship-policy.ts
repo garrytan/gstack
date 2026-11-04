@@ -15,8 +15,14 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
+import { RELEASE_GATE_EXPLANATION, releaseGateErrors, type ReleaseGatePolicy } from './release-gate-policy';
+import { LAND_EXPLANATION, landPolicyErrors, type LandPolicy } from './land-merged-checks';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
+import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
 import { cmpVersion, parseVersion } from './version-source';
+import { placeholderErrors, templateErrors } from './ship-policy-stamps';
+export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
 export const SHIP_POLICY_SCHEMA = 'https://github.com/garrytan/gstack/docs/ship-policy.md#schema-v1';
@@ -53,6 +59,9 @@ export interface ShipPolicy {
   stamp_sensitive_gates: string[];
   /** The /ship review loop's finding scope (docs/ship-policy.md#review-scope). */
   review_scope: ReviewScope;
+  /** Git glob pathspecs (root-anchored) whose data, docs, binary and log files /ship's reviewers leave out; read from the base only (docs/ship-policy.md#review-exclude-paths). */
+  review_exclude_paths: string[];
+  /** How much review /ship runs (docs/review-policy.md#review-depth): the panel fallback, the risk reader's model, platform review and extra risk paths; read from the base only. */ review: ReviewPolicy;
   /** Consumed by the plan reviews (D1). */
   pr_count: { default_pr_count: number; split_requires_owner: boolean };
   /** Maintainer logins for contributor-PR mode (E3); empty means "use push permission". */
@@ -61,6 +70,8 @@ export interface ShipPolicy {
   stamp_files: string[];
   /** Literal stamp templates with one `{version}` slot, beside the built-in `(was X)`, `since: X`, `vX`; writer and classifier share them. */
   stamp_patterns: string[];
+  /** Placeholders (`TBD`) a restamp may replace with the new version inside a `stamp_patterns` template, on the branch's own lines only. */
+  stamp_placeholders: string[];
   /** The repo's own restamp, run first in the staging worktree with the target version; gstack's version writer is skipped. */
   restamp_command: string | null;
   /** Migration numbering: `{ dir, id }` where `id` is a regex with one capture group over the file name. */
@@ -77,6 +88,10 @@ export interface ShipPolicy {
   docs: { caps: Array<{ path: string; max_bytes: number }> } | null;
   /** How /ship reproduces a Step 5 failure on the base branch before calling it base-red (docs/ship-policy.md#base-red); null never calls one base-red. */
   base_red: BaseRedPolicy | null;
+  /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
+  release_gate: ReleaseGatePolicy | null;
+  /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
+  /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
@@ -100,6 +115,44 @@ export interface TrainPolicy {
   screen_selection: 'gstack-paid' | 'none';
   /** Bisect admission price of one case trial that has no recorded cost. */
   trial_reservation_usd: number;
+  /**
+   * The repo's own gates (docs/ship-policy.md#run-a-merge-train): every entry must be GREEN on every prefix T0..Tk.
+   * A block with gates declares only gates, land, max_size and fill_hours; without gates the block is the gstack-evals
+   * kind above, and the six gstack-evals fields above are absent on a block with gates (read them only when gates is absent).
+   */
+  gates?: TrainGate[];
+  /** How `train land` merges a slot; absent means squash (gstack-evals trains only). */
+  land?: TrainLand;
+}
+
+/** One generic train gate: the repo's CI workflows dispatched by nonce on each prefix, or a command run on a Ubicloud VM. */
+export type TrainGate = WorkflowsGate | CommandGate;
+export interface WorkflowsGate {
+  kind: 'workflows';
+  /** Workflow files dispatched on each prefix ref; each accepts a `nonce` input and names it in run-name as `[eval-bg <nonce>]`. */
+  workflows: string[];
+  /** `<workflow file>/<job name as GitHub reports it>`: each must conclude success (skipped or missing is INCOMPLETE). */
+  required_jobs: string[];
+  /** Artifact with JUnit XML or a JSON test list; when set it must exist and report at least one executed test. */
+  record?: string;
+  /** Check runs `train land` waits on at the merged commit (default none). */
+  post_merge_checks?: string[];
+}
+export interface CommandGate {
+  kind: 'command';
+  /** Run on a Ubicloud VM (scripts/ubicloud/ubi-runner.sh) from a clean checkout of the prefix head; exit 0 is GREEN. */
+  command: string;
+  timeout_sec: number;
+  /** One cap over every prefix run of one train, at the VM's list price. */
+  spend_cap_usd: number;
+  /** The only local variables forwarded to the VM. */
+  pass_env?: string[];
+}
+export type MergeMethod = 'squash' | 'merge' | 'rebase';
+export interface TrainLand {
+  merge_method: MergeMethod;
+  /** Checks `train land` requires green on the landing commit, for repos without changelog_fragments (whose required_checks are the one list). */
+  required_checks?: string[];
 }
 
 export const DEFAULT_POLICY: ShipPolicy = {
@@ -115,10 +168,13 @@ export const DEFAULT_POLICY: ShipPolicy = {
   preregistration_shas: [],
   stamp_sensitive_gates: [],
   review_scope: 'frozen',
+  review_exclude_paths: [],
+  review: { panel: 'all', reader_model: 'lane', platform: 'off', risk_paths: [] },
   pr_count: { default_pr_count: 1, split_requires_owner: true },
   maintainers: [],
   stamp_files: [],
   stamp_patterns: [],
+  stamp_placeholders: [],
   restamp_command: null,
   migrations: null,
   gate_command: null,
@@ -126,7 +182,8 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null,
+  base_red: null, merge: 'train', land: null,
+  release_gate: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -146,17 +203,23 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   preregistration_shas: 'Commits that must be ancestors of HEAD before push (preregistered evals); checked by `gstack-evidence ancestor`.',
   stamp_sensitive_gates: 'Evidence labels (gstack-evidence --label) that read VERSION or generated bytes; the tree receipt never marks them reusable.',
   review_scope: 'frozen | diff-plus-blocking | all. frozen (default): /ship Step 9 fixes findings in the diff on pass 1, files blocking findings in code the PR did not change as issues, and later passes read only the range since the previous pass and fix only blocking findings; diff-plus-blocking: the same, but a blocking finding in code the PR did not change is fixed in this PR instead of filed; all: every finding is fixed now (the pre-1.91.249 loop).',
+  review_exclude_paths: 'Git glob pathspecs, root-anchored and case-sensitive (`receipts/**`, `**/*.jsonl`; at most 64, 256 characters each, no leading `:` or `!`): /ship\'s reviewers leave out the data, docs, binary and .log files they match. Read from the base branch only, so a branch cannot exclude its own files. Code, gate paths, agent prose, config, executables, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-exclude-paths).',
+  review: '{ panel?, reader_model?, platform?, risk_paths? }, read from the base branch only. panel: all (default: today\'s panel and loop everywhere) | risk (opt-in: today\'s panel at full depth on risk class, one reader on the rest) | off (one merged reader on risk class too); risk and off run one fix round. Their one-reader shape has not passed a no-loss replay yet (GSTA-258 C: FIX-METHOD). reader_model: the model of the one reader a lean depth runs, `lane` (default: the lane\'s own model, the native adversarial reader), `cross-family` or a model id. platform: off (default) | on: a docs or tests diff with no numeric, results or prereg claims whose PR carries the platform review (capy-ai[bot]) at the exact head skips /ship\'s readers (review_depth platform); never runtime code. risk_paths: globs of code paths that are risk class on top of R51\'s; data, docs and binary files under them stay out (docs/review-policy.md#review-depth).',
   pr_count: '{ default_pr_count, split_requires_owner }: the PR-count row in plan reviews.',
   maintainers: 'GitHub logins treated as maintainers by /review contributor mode; empty uses repository push permission.',
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
   stamp_patterns: 'Literal templates with exactly one {version} slot (at most 16, 128 characters each), for example `"version": "{version}"` or `since: \'{version}\'`; the restamp writer and the tree receipt use them beside (was X), since: X and vX.',
+  stamp_placeholders: 'Literal placeholders (at most 16, one line, 32 characters each, never `{version}` or a version), for example `["TBD"]`: a line the branch added that reads a placeholder in a stamp_patterns template (`since: \'TBD\'`) may become that template at the new version, and finish, the receipt carry and the tree receipt read it as a stamp. Empty (default) accepts no placeholder.',
   restamp_command: 'The repo’s own restamp, run first in gstack-restamp’s staging worktree (a clean checkout of HEAD) with the target version as its argument and in GSTACK_RESTAMP_VERSION; gstack’s version writer is skipped, output confinement still applies. Needs a clean caller tree and --allow-repo-commands.',
   migrations: '{ dir, id }: the migration directory and a regex with one capture group for the number in a file name; `gstack-pregate regate` reports MIGRATION_COLLISION against the base branch and every open PR.',
   gate_command: 'The repo’s full pre-merge gate command. gstack-ship-queue gate-ahead and ready print it for the caller to run (in the background or in CI); gstack never executes it. null when the repo has none.',
   full_e2e: 'true: every merge needs a passing full-gate result (gstack-ship-queue gate-ahead --record, or the lane\'s --gate-exit 0 --gate-log on the gated head) bound to a tree equal to the merging one modulo stamps; ready, stamp and verify refuse without one (QUEUE_GATE_MISSING).',
-  train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd } or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|bisect|rebuild|prune, ready --screen|--no-screen, verify --train). null keeps today\'s per-PR queue unchanged.',
+  train: '{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? } (the gstack-evals gate) or { gates, land, max_size, fill_hours } (any repo: gates lists { kind: workflows, workflows, required_jobs, record?, post_merge_checks? } and { kind: command, command, timeout_sec, spend_cap_usd, pass_env? }, each GREEN on every prefix; land is { merge_method: squash|merge|rebase, required_checks? }) or null: turns on merge trains in gstack-ship-queue (train build|status|verdict|land|watch|init|doctor|prune, ready --screen|--no-screen, verify --train). gates and land need min_gstack_version at the release that reads them (validate names it). null keeps today\'s per-PR queue unchanged.',
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
   base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
+  release_gate: RELEASE_GATE_EXPLANATION,
+  land: LAND_EXPLANATION,
+  merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -191,6 +254,14 @@ export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
 /** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
 export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
 export const BASE_RED_KEY_VERSION = '1.91.374.0';
+/** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
+export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
+export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.16.0';
+export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
+export const RELEASE_GATE_KEY_VERSION = '1.96.0.0';
+export const REVIEW_POLICY_KEY_VERSION = '1.94.30.0';
+export const MERGE_KEY_VERSION = '1.95.0.0';
+export const LAND_KEY_VERSION = '1.96.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -198,7 +269,8 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
-  base_red: BASE_RED_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
+  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -211,30 +283,22 @@ const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, pa
 export function runningGstackVersion(): string {
   let own = '0.0.0.0';
   try { own = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim(); } catch {}
-  const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
+  const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
   return parseVersion(own) && !newer(known, own) ? own : known;
 }
 
 /** The newest introducing version among the keys a parsed policy sets: the gstack a crew needs to read it. */
 export function minimumReader(raw: Record<string, unknown>): string {
   return Object.keys(raw).filter((k): k is PolicyKey => POLICY_KEYS.includes(k as PolicyKey))
-    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
+    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'train' && genericTrainKeys(raw.train) ? TRAIN_GATES_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
 }
 
 export interface PolicyError { code: ResultCodeName; path: string; message: string }
 
-const MAX_LIST = 64;
-const MAX_PATTERN = 256;
-const MAX_REGEX = 512;
-const MAX_COMMAND = 512;
+const MAX_LIST = 64, MAX_PATTERN = 256, MAX_REGEX = 512, MAX_COMMAND = 512;
 const SHA_RE = /^[0-9a-f]{7,64}$/;
-const MAX_TEMPLATES = 16;
-const MAX_TEMPLATE = 128;
-export const VERSION_SLOT = '{version}';
 
-function hasDotDot(p: string): boolean {
-  return p.split(/[\\/]+/).some(seg => seg === '..');
-}
+const hasDotDot = (p: string): boolean => p.split(/[\\/]+/).some(seg => seg === '..');
 
 /** A repo-relative path or glob: no absolute paths, drive letters, `..` segments, NULs or control bytes. */
 export function containedRelative(p: string): string | null {
@@ -287,14 +351,13 @@ function globError(g: string): string | null {
   return null;
 }
 
-function templateErrors(value: unknown, out: PolicyError[]): void {
-  if (!Array.isArray(value)) { out.push({ code: 'POLICY_INVALID', path: 'stamp_patterns', message: 'must be an array of literal templates' }); return; }
-  if (value.length > MAX_TEMPLATES) out.push({ code: 'POLICY_CONTAINMENT', path: 'stamp_patterns', message: `more than ${MAX_TEMPLATES} templates` });
-  value.forEach((t, i) => {
-    const at = `stamp_patterns[${i}]`;
-    if (typeof t !== 'string') { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be a string' }); return; }
-    if (t.split(VERSION_SLOT).length !== 2) out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(t)} must contain exactly one ${VERSION_SLOT}` });
-    else if (t.length > MAX_TEMPLATE || /[\0\r\n]/.test(t)) out.push({ code: 'POLICY_CONTAINMENT', path: at, message: `must be one line of at most ${MAX_TEMPLATE} characters` });
+/** `review_exclude_paths`: git glob pathspecs, each one repo-relative line with no pathspec magic of its own; every error is POLICY_INVALID at its index. */
+function excludeErrors(value: unknown, out: PolicyError[]): void {
+  if (!Array.isArray(value)) { out.push({ code: 'POLICY_INVALID', path: 'review_exclude_paths', message: 'must be an array of git glob pathspecs' }); return; }
+  if (value.length > MAX_LIST) out.push({ code: 'POLICY_INVALID', path: 'review_exclude_paths', message: `more than ${MAX_LIST} patterns` });
+  value.forEach((p, i) => {
+    const why = typeof p !== 'string' ? 'must be a string' : containedRelative(p) ?? (/^[:!]/.test(p) ? 'must not start with : or ! (no pathspec magic or negation)' : /[\x00-\x1f\x7f]/.test(p) ? 'contains a control character' : p.replace(/\/+$/, '') === '' || p === '.' ? 'must not name the whole repository' : null);
+    if (why) out.push({ code: 'POLICY_INVALID', path: `review_exclude_paths[${i}]`, message: `${JSON.stringify(p)} ${why}` });
   });
 }
 
@@ -311,7 +374,7 @@ function migrationErrors(value: unknown, out: PolicyError[]): void {
   } catch (e: any) { out.push({ code: 'POLICY_INVALID', path: 'migrations.id', message: `not a valid regex: ${e.message}` }); }
 }
 
-const TRAIN_FIELDS: Record<keyof TrainPolicy, (v: unknown) => string | null> = {
+const TRAIN_FIELDS: Record<Exclude<keyof TrainPolicy, 'gates' | 'land'>, (v: unknown) => string | null> = {
   gate_workflow: v => (typeof v === 'string' && /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/.test(v) ? null : 'must be a workflow file name such as evals.yml'),
   free_workflow: v => (typeof v === 'string' && /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/.test(v) ? null : 'must be a workflow file name such as free-tests.yml'),
   full_gate_check: v => (typeof v === 'string' && /^[A-Za-z0-9_./-]{1,64}$/.test(v) ? null : 'must be a check-run name ([A-Za-z0-9_./-]{1,64})'),
@@ -322,15 +385,88 @@ const TRAIN_FIELDS: Record<keyof TrainPolicy, (v: unknown) => string | null> = {
   trial_reservation_usd: v => (typeof v === 'number' && v > 0 && v <= 100 ? null : 'must be dollars above 0 and at most 100'),
 };
 
-function trainErrors(value: unknown, out: PolicyError[]): void {
+const WORKFLOW_FILE = /^[A-Za-z0-9_.-]{1,64}\.ya?ml$/;
+const CHECK_NAME = /^[^\n]{1,100}$/;
+const GENERIC_TRAIN_KEYS = ['gates', 'land', 'max_size', 'fill_hours'];
+
+/** Whether a raw train block uses the generic keys (gates or land), which need TRAIN_GATES_KEY_VERSION. */
+export function genericTrainKeys(train: unknown): boolean {
+  return !!train && typeof train === 'object' && !Array.isArray(train) && ('gates' in train || 'land' in train);
+}
+
+function nameList(at: string, v: unknown, max: number, item: RegExp, out: PolicyError[], what: string): v is string[] {
+  if (!Array.isArray(v) || !v.length || v.length > max || new Set(v).size !== v.length || v.some(x => typeof x !== 'string' || !item.test(x))) {
+    out.push({ code: 'POLICY_INVALID', path: at, message: `${JSON.stringify(v)} must be 1-${max} distinct ${what}` });
+    return false;
+  }
+  return true;
+}
+
+function workflowsGateErrors(o: Record<string, unknown>, at: string, out: PolicyError[]): void {
+  const wfs = nameList(`${at}.workflows`, o.workflows, 8, WORKFLOW_FILE, out, 'workflow file names such as ci.yml') ? o.workflows as string[] : [];
+  if (nameList(`${at}.required_jobs`, o.required_jobs, 64, /^[A-Za-z0-9_.-]{1,64}\.ya?ml\/[^\n]{1,100}$/, out, '<workflow file>/<job name> entries')) {
+    for (const job of o.required_jobs as string[]) {
+      const wf = job.slice(0, job.indexOf('/'));
+      if (wfs.length && !wfs.includes(wf)) out.push({ code: 'POLICY_INVALID', path: `${at}.required_jobs`, message: `${JSON.stringify(job)} names ${wf}, which is not in workflows` });
+    }
+    for (const wf of wfs) if (!(o.required_jobs as string[]).some(j => j.startsWith(`${wf}/`))) out.push({ code: 'POLICY_INVALID', path: `${at}.required_jobs`, message: `no required job of ${wf}; a dispatched workflow with no required job proves nothing` });
+  }
+  if ('record' in o && (typeof o.record !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(o.record))) out.push({ code: 'POLICY_INVALID', path: `${at}.record`, message: 'must be an artifact name ([A-Za-z0-9_.-]{1,64})' });
+  if ('post_merge_checks' in o) nameList(`${at}.post_merge_checks`, o.post_merge_checks, 20, CHECK_NAME, out, 'check names of 1-100 characters');
+}
+
+function commandGateErrors(o: Record<string, unknown>, at: string, out: PolicyError[]): void {
+  if (typeof o.command !== 'string' || !o.command.trim()) out.push({ code: 'POLICY_INVALID', path: `${at}.command`, message: 'must be a non-empty string' });
+  else if (o.command.length > MAX_COMMAND || /[\0\r\n]/.test(o.command)) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.command`, message: `must be one line under ${MAX_COMMAND} characters` });
+  if (!Number.isInteger(o.timeout_sec) || (o.timeout_sec as number) < 60 || (o.timeout_sec as number) > 21600) out.push({ code: 'POLICY_INVALID', path: `${at}.timeout_sec`, message: 'must be an integer from 60 to 21600' });
+  if (typeof o.spend_cap_usd !== 'number' || !(o.spend_cap_usd > 0) || o.spend_cap_usd > 100) out.push({ code: 'POLICY_INVALID', path: `${at}.spend_cap_usd`, message: 'must be dollars above 0 and at most 100' });
+  if (!('pass_env' in o)) return;
+  const p = o.pass_env;
+  if (!Array.isArray(p) || p.length > 16 || new Set(p).size !== p.length || p.some(n => typeof n !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(n))) out.push({ code: 'POLICY_INVALID', path: `${at}.pass_env`, message: 'must be up to 16 distinct variable names' });
+  else if (p.some(n => /^UBICLOUD_/.test(n))) out.push({ code: 'POLICY_CONTAINMENT', path: `${at}.pass_env`, message: 'the runner never forwards its own Ubicloud credentials to a VM' });
+}
+
+function gateErrors(g: unknown, at: string, out: PolicyError[]): void {
+  const o = g as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o)) { out.push({ code: 'POLICY_INVALID', path: at, message: 'must be { kind: workflows, ... } or { kind: command, ... }' }); return; }
+  const allowed = o.kind === 'workflows' ? ['kind', 'workflows', 'required_jobs', 'record', 'post_merge_checks'] : o.kind === 'command' ? ['kind', 'command', 'timeout_sec', 'spend_cap_usd', 'pass_env'] : null;
+  if (!allowed) { out.push({ code: 'POLICY_INVALID', path: `${at}.kind`, message: `${JSON.stringify(o.kind)} must be workflows | command` }); return; }
+  for (const k of Object.keys(o)) if (!allowed.includes(k)) out.push({ code: 'POLICY_INVALID', path: `${at}.${k}`, message: `unknown key for a ${o.kind} gate` });
+  if (o.kind === 'workflows') workflowsGateErrors(o, at, out); else commandGateErrors(o, at, out);
+}
+
+function landErrors(v: unknown, obj: Record<string, unknown>, out: PolicyError[]): void {
+  const l = v as Record<string, unknown> | null;
+  if (!l || typeof l !== 'object' || Array.isArray(l)) { out.push({ code: 'POLICY_INVALID', path: 'train.land', message: 'must be { merge_method, required_checks? }' }); return; }
+  for (const k of Object.keys(l)) if (k !== 'merge_method' && k !== 'required_checks') out.push({ code: 'POLICY_INVALID', path: `train.land.${k}`, message: 'unknown key' });
+  if (!['squash', 'merge', 'rebase'].includes(l.merge_method as string)) out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `${JSON.stringify(l.merge_method)} must be squash | merge | rebase` });
+  if (!('required_checks' in l)) return;
+  if (obj.changelog_fragments != null) out.push({ code: 'POLICY_INVALID', path: 'train.land.required_checks', message: 'this policy declares changelog_fragments; its required_checks are the one list train land reads' });
+  else nameList('train.land.required_checks', l.required_checks, 50, CHECK_NAME, out, 'check names of 1-100 characters');
+}
+
+function trainErrors(value: unknown, obj: Record<string, unknown>, out: PolicyError[]): void {
   const t = value as Record<string, unknown> | null;
-  if (!t || typeof t !== 'object' || Array.isArray(t)) { out.push({ code: 'POLICY_INVALID', path: 'train', message: `must be { ${Object.keys(TRAIN_FIELDS).join(', ')} } or null` }); return; }
-  for (const k of Object.keys(t)) if (!(k in TRAIN_FIELDS)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: 'unknown key' });
+  if (!t || typeof t !== 'object' || Array.isArray(t)) { out.push({ code: 'POLICY_INVALID', path: 'train', message: `must be { ${Object.keys(TRAIN_FIELDS).join(', ')} }, { ${GENERIC_TRAIN_KEYS.join(', ')} } or null` }); return; }
+  const generic = 'gates' in t;
+  const fields = generic ? GENERIC_TRAIN_KEYS : [...Object.keys(TRAIN_FIELDS), 'land'];
+  for (const k of Object.keys(t)) {
+    if (!fields.includes(k)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: generic && k in TRAIN_FIELDS ? 'belongs to the gstack-evals gate; a train with gates declares only gates, land, max_size and fill_hours' : 'unknown key' });
+  }
+  for (const k of generic ? GENERIC_TRAIN_KEYS : Object.keys(TRAIN_FIELDS)) if (!(k in t)) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: `missing (every ${generic ? 'field of a train with gates' : 'train field'} is required)` });
   for (const [k, check] of Object.entries(TRAIN_FIELDS)) {
-    if (!(k in t)) { out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: 'missing (every train field is required)' }); continue; }
-    const why = check(t[k]);
+    if (!(k in t) || (generic && k !== 'max_size' && k !== 'fill_hours')) continue;
+    const size = t[k] as number;
+    const why = generic && k === 'max_size' ? (Number.isInteger(size) && size >= 1 && size <= 5 ? null : 'must be an integer from 1 to 5 (every prefix is gated: at most six runs per gate)') : check(t[k]);
     if (why) out.push({ code: 'POLICY_INVALID', path: `train.${k}`, message: `${JSON.stringify(t[k])} ${why}` });
   }
+  if (generic) {
+    if (!Array.isArray(t.gates) || !t.gates.length || t.gates.length > 4) out.push({ code: 'POLICY_INVALID', path: 'train.gates', message: 'must be a list of 1-4 gates' });
+    else t.gates.forEach((g, i) => gateErrors(g, `train.gates[${i}]`, out));
+  }
+  if ('land' in t) landErrors(t.land, obj, out);
+  const method = (t.land as { merge_method?: unknown } | undefined)?.merge_method ?? 'squash';
+  if ('land' in t && obj.history === 'merge-only' && method !== 'merge') out.push({ code: 'POLICY_INVALID', path: 'train.land.merge_method', message: `history merge-only allows only the merge method; train land would use ${String(method)}` });
 }
 
 /**
@@ -358,6 +494,9 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   oneOf('queue_mode', ['claim-at-open', 'stamp-at-merge']);
   oneOf('history', ['merge-only', 'squash-ok']);
   oneOf('review_scope', ['frozen', 'diff-plus-blocking', 'all']);
+  oneOf('merge', ['direct', 'train']);
+  if ('review_exclude_paths' in obj) excludeErrors(obj.review_exclude_paths, errors);
+  if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
   if ('release_tool' in obj && obj.release_tool !== null) {
     const t = obj.release_tool;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'release_tool', message: 'must be a non-empty string or null' });
@@ -367,6 +506,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('release_outputs' in obj) listErrors('release_outputs', obj.release_outputs, errors, globError);
   if ('stamp_files' in obj) listErrors('stamp_files', obj.stamp_files, errors, globError);
   if ('stamp_patterns' in obj) templateErrors(obj.stamp_patterns, errors);
+  if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'restamp_command', message: 'must be a non-empty string or null' });
@@ -379,10 +519,12 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
     else if (t.length > MAX_COMMAND || /[\0\r\n]/.test(t)) errors.push({ code: 'POLICY_CONTAINMENT', path: 'gate_command', message: `must be one line under ${MAX_COMMAND} characters` });
   }
   if ('full_e2e' in obj && typeof obj.full_e2e !== 'boolean') errors.push({ code: 'POLICY_INVALID', path: 'full_e2e', message: 'must be true or false' });
-  if ('train' in obj && obj.train !== null) trainErrors(obj.train, errors);
+  if ('train' in obj && obj.train !== null) trainErrors(obj.train, obj, errors);
   if ('docs' in obj && obj.docs !== null) docsErrors(obj.docs, errors);
   if ('changelog_fragments' in obj && obj.changelog_fragments !== null) fragmentsErrors(obj.changelog_fragments, errors);
   if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
+  if ('release_gate' in obj && obj.release_gate !== null) errors.push(...releaseGateErrors(obj.release_gate));
+  if ('land' in obj && obj.land !== null) errors.push(...landPolicyErrors(obj.land));
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -427,6 +569,9 @@ function compatErrors(obj: Record<string, unknown>, running: string, errors: Pol
     if (JSON.stringify(obj[key]) === JSON.stringify((DEFAULT_POLICY as any)[key])) continue;
     if (typeof min === 'string' && !newer(since, min)) continue;
     errors.push({ code: 'POLICY_INVALID', path: key, message: `introduced in gstack ${since}; set min_gstack_version to ${since} or later so an older gstack refuses this policy by name` });
+  }
+  if (genericTrainKeys(obj.train) && !(typeof min === 'string' && !newer(TRAIN_GATES_KEY_VERSION, min))) {
+    errors.push({ code: 'POLICY_INVALID', path: 'train', message: `gates and land were introduced in gstack ${TRAIN_GATES_KEY_VERSION}; set min_gstack_version to ${TRAIN_GATES_KEY_VERSION} or later so an older gstack refuses this policy by name` });
   }
   if (obj.bump === 'never' && !(typeof min === 'string' && !newer(BUMP_NEVER_KEY_VERSION, min))) {
     errors.push({ code: 'POLICY_INVALID', path: 'bump', message: `never was introduced in gstack ${BUMP_NEVER_KEY_VERSION}; set min_gstack_version to ${BUMP_NEVER_KEY_VERSION} or later so an older gstack refuses this policy by name` });
@@ -519,15 +664,19 @@ function git(repoRoot: string, args: string[]): { ok: boolean; out: string; err:
   return { ok: r.status === 0, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() };
 }
 
-/** `--base` when given, else origin/HEAD's branch, else `main`. */
+/**
+ * `--base` when given, else the default base (lib/default-base.ts): origin/HEAD's branch unless it is the checked-out
+ * one, the PR's base, origin/main, origin/master. When none resolves it stays `main`, which origin then lacks, so every
+ * reader of origin/<base> refuses; when origin/HEAD named the checked-out branch, stderr says why.
+ */
 export function resolveBaseBranch(repoRoot: string, explicit?: string): string {
   if (explicit && explicit.trim()) return explicit.trim().replace(/^origin\//, '');
-  const r = git(repoRoot, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-  if (r.ok && r.out) return r.out.replace(/^origin\//, '');
-  return 'main';
+  const found = defaultBaseBranch(repoRoot);
+  if (!found.branch && found.skipped) process.stderr.write(`gstack: ${noDefaultBaseLine(found.skipped)}\n`);
+  return found.branch ?? 'main';
 }
 
-function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
+export function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
   if (rawText === null) return { policy: mergePolicy(null, source.label).policy, present: false, source, errors: [], values: mergePolicy(null, source.label).values };
   let raw: unknown;
   try { raw = JSON.parse(rawText); }
@@ -617,6 +766,7 @@ export function shipConsequences(policy: ShipPolicy, base: string): string[] {
     : policy.review_scope === 'diff-plus-blocking'
       ? 'review_scope diff-plus-blocking: Step 9.4 runs `gstack-review-scope classify --policy diff-plus-blocking` each pass; pass 1 fixes the diff and every blocking finding, in unchanged code too, later passes read only the range since the previous pass and fix only blocking findings; notes go to the PR body'
       : 'review_scope frozen: Step 9.4 runs `gstack-review-scope classify` each pass; pass 1 fixes the diff and defers blocking findings in unchanged code to issues, later passes read only the range since the previous pass and fix only blocking findings; notes go to the PR body');
+  if (policy.review_exclude_paths.length) out.push(`review_exclude_paths ${policy.review_exclude_paths.join(' ')}: Step 9's reviewers leave out the data, docs, binary and .log files these git globs match on this branch; gstack-review-plan prints REVIEW_EXCLUDE: with the counts and the kept files, and every brief names what was left out (docs/ship-policy.md#review-exclude-paths)`);
   if (policy.preregistration_shas.length) out.push(`preregistration: \`gstack-evidence ancestor --from-policy --base ${base}\` must print only ANCESTOR: ok before push; the ship receipt records the result`);
   if (policy.release_tool) out.push(`release_tool: \`${policy.release_tool}\` runs only inside gstack-restamp (staging worktree, outputs confined to release_outputs)`);
   return out;
@@ -641,22 +791,4 @@ export function stampFilesInTree(repoRoot: string, treeish: string, globs: reado
   return listTreeFiles(repoRoot, treeish).filter(e => e.mode !== '120000' && matchesAny(globs, e.path)).map(e => e.path);
 }
 
-/**
- * A working-tree path a stamp may write: inside `root` after realpath (a
- * symlink out of the repository is refused even when the glob matched).
- */
-export function assertInsideRoot(root: string, rel: string): string | null {
-  const realRoot = fs.realpathSync(root);
-  const abs = path.resolve(realRoot, rel);
-  if (abs !== realRoot && !abs.startsWith(realRoot + path.sep)) return `${rel} resolves outside ${root}`;
-  let probe = abs;
-  while (!fs.existsSync(probe)) {
-    const parent = path.dirname(probe);
-    if (parent === probe) break;
-    probe = parent;
-  }
-  let real: string;
-  try { real = fs.realpathSync(probe); } catch { return null; }
-  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return `${rel} resolves through a symlink to outside ${root}`;
-  return null;
-}
+export { assertInsideRoot } from './path-containment';

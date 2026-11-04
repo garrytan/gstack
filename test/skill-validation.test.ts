@@ -430,7 +430,7 @@ describe('Update check preamble', () => {
 // --- Part 7: Cross-skill path consistency (A1) ---
 
 describe('Cross-skill path consistency', () => {
-  test('REMOTE_SLUG derivation pattern is identical across files that use it', () => {
+  test('no qa or review skill file hand-rolls a REMOTE_SLUG derivation (gstack-slug and gstack-review-bots own it)', () => {
     const patterns = extractRemoteSlugPatterns(ROOT, ['qa', 'review']);
     const allPatterns: string[] = [];
 
@@ -438,50 +438,30 @@ describe('Cross-skill path consistency', () => {
       allPatterns.push(...filePatterns);
     }
 
-    // Should find at least 2 occurrences (qa/SKILL.md + review/greptile-triage.md)
-    expect(allPatterns.length).toBeGreaterThanOrEqual(2);
+    // review/greptile-triage.md held the last prose copy until #3122 moved it into lib/review-bots.ts.
+    expect(allPatterns).toEqual([]);
+  });
 
-    // All occurrences must be character-for-character identical
-    const unique = new Set(allPatterns);
-    if (unique.size > 1) {
-      const variants = Array.from(unique);
-      throw new Error(
-        `REMOTE_SLUG pattern differs across files:\n` +
-        variants.map((v, i) => `  ${i + 1}: ${v}`).join('\n')
-      );
+  test('every review-bot history write goes through the one writer (project and global rows: test/review-bots.test.ts)', () => {
+    // ship's bot handling moved into sections/greptile.md (T9 carve).
+    for (const content of [fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8'), readShipUnion()]) {
+      expect(content).toContain('History File Writes');
+      expect(content).not.toContain('greptile-history (type:');
     }
   });
 
-  test('all greptile-history write references specify both per-project and global paths', () => {
-    const filesToCheck = [
-      'review/SKILL.md',
-      'ship/SKILL.md',
-      'review/greptile-triage.md',
-    ];
-
-    for (const file of filesToCheck) {
-      const filePath = path.join(ROOT, file);
-      if (!fs.existsSync(filePath)) continue;
-      // ship's greptile handling moved into sections/greptile.md (T9 carve).
-      const content = file === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(filePath, 'utf-8');
-
-      const hasBoth = (content.includes('per-project') && content.includes('global')) ||
-        (content.includes('$REMOTE_SLUG/greptile-history') && content.includes('~/.gstack/greptile-history'));
-
-      expect(hasBoth).toBe(true);
-    }
-  });
-
-  test('greptile-triage.md contains both project and global history paths', () => {
+  test('greptile-triage.md records through gstack-review-bots into review-bot-history.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
-    expect(content).toContain('$REMOTE_SLUG/greptile-history.md');
-    expect(content).toContain('~/.gstack/greptile-history.md');
+    expect(content).toContain('gstack-review-bots record --dir <bot-dir> --id <comment-id>');
+    expect(content).toContain('review-bot-history.md');
   });
 
-  test('retro/SKILL.md reads global greptile-history (not per-project)', () => {
+  test('retro/SKILL.md reads the global review-bot and greptile histories (not per-project)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'retro', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('the path `GREPTILE_HISTORY` printed');
-    expect(fs.readFileSync(path.join(ROOT, 'bin', 'gstack-retro-metrics'), 'utf-8')).toContain('$_GH/greptile-history.md');
+    expect(content).toContain('`REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present`');
+    const metrics = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-retro-metrics'), 'utf-8');
+    expect(metrics).toContain('$_GH/greptile-history.md');
+    expect(metrics).toContain('$_GH/review-bot-history.md');
     // Should NOT reference per-project path for reads
     expect(content).not.toContain('$REMOTE_SLUG/greptile-history.md');
   });
@@ -911,7 +891,7 @@ describe('office-hours skill structure', () => {
 
 describe('investigate skill structure', () => {
   const content = fs.readFileSync(path.join(ROOT, 'investigate', 'SKILL.md'), 'utf-8');
-  for (const section of ['Iron Law', 'Root Cause', 'Pattern Analysis', 'Hypothesis',
+  for (const section of ['Iron Law', 'How to work', 'Scope Lock',
                           'DEBUG REPORT', '3-strike', 'BLOCKED']) {
     test(`contains ${section}`, () => expect(content).toContain(section));
   }
@@ -1794,22 +1774,28 @@ describe('Skill trigger phrases', () => {
     });
   }
 
-  // Skills with proactive triggers should have "Proactively suggest" somewhere in the skill.
-  const SKILLS_REQUIRING_PROACTIVE = [
-    'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
-    'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
-    'design-review', 'design-consultation', 'retro', 'document-release',
-  ];
+  // Only the four core skills (the proactive: core default) may invite unasked
+  // suggestions; a non-core description that says "Proactively suggest" reaches
+  // every host that keeps full descriptions, under core too (#3446).
+  const SKILLS_REQUIRING_PROACTIVE = ['qa', 'ship', 'review', 'office-hours'];
 
   for (const skill of SKILLS_REQUIRING_PROACTIVE) {
     test(`${skill}/SKILL.md.tmpl has proactive routing phrase`, () => {
-      const skillPath = path.join(ROOT, skill, 'SKILL.md.tmpl');
-      if (!fs.existsSync(skillPath)) return;
-      const content = fs.readFileSync(skillPath, 'utf-8');
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md.tmpl'), 'utf-8');
       // Same catalog-trim consideration — check the template description.
       expect(content).toMatch(/Proactively (suggest|invoke)/i);
     });
   }
+
+  test('no non-core skill description invites proactive suggestions (#3446)', () => {
+    const offenders = fs.readdirSync(ROOT)
+      .filter(dir => !SKILLS_REQUIRING_PROACTIVE.includes(dir) && fs.existsSync(path.join(ROOT, dir, 'SKILL.md.tmpl')))
+      .filter(dir => {
+        const tmpl = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf-8');
+        return /Proactively (suggest|invoke)/i.test(tmpl.slice(0, tmpl.indexOf('\n---', 4)));
+      });
+    expect(offenders).toEqual([]);
+  });
 });
 
 // ─── Private-path leak detector ──────────────────────────────

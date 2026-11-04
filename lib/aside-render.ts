@@ -76,10 +76,13 @@ export type AsideProbe =
   | { ok: true; version: string }
   | { ok: false; reason: 'NEEDS_ASIDE' | 'ASIDE_NOT_RUNNING'; detail: string };
 
-/** Same probe the skills run in BROWSER SETUP: binary present, app answering. */
-export function probeAside(timeoutMs = 30_000): AsideProbe {
+/** Same probe the skills run in BROWSER SETUP: binary present, app answering. Aside ships only for macOS, so any other platform answers NEEDS_ASIDE without spawning. */
+export function probeAside(timeoutMs = 30_000, platform: NodeJS.Platform = process.platform): AsideProbe {
   if (process.env.GSTACK_SKIP_ASIDE === '1') {
     return { ok: false, reason: 'NEEDS_ASIDE', detail: 'GSTACK_SKIP_ASIDE=1 — Aside skipped by request' };
+  }
+  if (platform !== 'darwin') {
+    return { ok: false, reason: 'NEEDS_ASIDE', detail: `Aside is macOS-only (this is ${platform})` };
   }
   const which = spawnSync('aside', ['--version'], { encoding: 'utf8', timeout: 10_000 });
   if (which.error) {
@@ -318,10 +321,10 @@ export function serveDir(root: string, nonce: string = randomBytes(16).toString(
 
 // ─── Async spawn (keeps the loopback server's event loop free) ────────────────
 
-async function runProc(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
+async function runProc(cmd: string, args: string[], timeoutMs: number, env?: Record<string, string | undefined>): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
   let child: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
   try {
-    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });
+    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(env ? { env } : {}) });
   } catch (e) {
     return { code: null, stdout: '', stderr: '', error: (e as Error).message };
   }
@@ -516,6 +519,13 @@ function screenshotName(i: number, step: ScreenshotStep): string {
  * Aside path, one CLI call per action, artifacts staged under /tmp and copied
  * to the caller's paths. The tab is closed in a finally; the daemon stays up.
  */
+/** The checkout's bin/gstack-browser-ensure next to a browse/dist/browse binary; it installs gstack's Chromium on first use. */
+function browserEnsureBin(bin: string): string | null {
+  const root = /^(.*)[\\/]browse[\\/]dist[\\/]browse(?:\.exe)?$/.exec(bin)?.[1];
+  const ensure = root ? path.join(root, 'bin', 'gstack-browser-ensure') : null;
+  return ensure && fs.existsSync(ensure) ? ensure : null;
+}
+
 export async function renderWithBrowse(spec: RenderSpec, bin: string | null = resolveBrowseBin()): Promise<RenderResult> {
   const outputs: string[] = [];
   const evals: Record<number, string> = {};
@@ -525,12 +535,14 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   const target = pageTarget(spec);
   if (target.kind === 'error') return fail(target.error);
 
-  const deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  let deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const browseEnv = { ...process.env, BROWSE_SESSION: '' };
   const run = async (args: string[]): Promise<string> => {
-    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())));
+    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), browseEnv);
     log.push(`$ browse ${args.join(' ').slice(0, 300)}\n${r.stdout}${r.stderr}`.trim());
     if (r.error || r.code !== 0) {
-      const first = (r.stderr || r.stdout || r.error || '').trim().split('\n')[0];
+      const lines = (r.stderr || r.stdout || r.error || '').split('\n').map((l) => l.trim()).filter(Boolean);
+      const first = lines.find((l) => /Executable doesn't exist/.test(l)) ?? lines.find((l) => !/^\[browse\] (Starting server|Server failed to start)/.test(l) && !/^[\u2554\u2551\u255a]/.test(l)) ?? lines[0] ?? '';
       if (/JS execution blocked/.test(`${r.stderr}${r.stdout}`)) {
         // After `$B cookie-import` the daemon refuses page JS on every other
         // origin, 127.0.0.1 included; a local-HTML render cannot proceed in it.
@@ -561,10 +573,23 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
     try {
       opened = await openTab();
     } catch (e) {
-      if (!/Unable to connect/.test((e as Error).message)) throw e;
-      log.push('newtab: daemon not up yet — retrying once');
-      await Bun.sleep(1_500);
-      opened = await openTab();
+      const message = (e as Error).message;
+      const ensure = /Executable doesn't exist/.test(message) ? browserEnsureBin(bin) : null;
+      if (ensure) {
+        log.push('newtab: Chromium is not installed — running gstack-browser-ensure once');
+        const installStart = Date.now();
+        const installed = await runProc('bash', [ensure, '--quiet'], 600_000, browseEnv);
+        deadline += Date.now() - installStart;
+        const last = installed.stdout.trim().split('\n').at(-1) ?? '';
+        log.push(`${ensure} --quiet\n${installed.stdout}${installed.stderr}`.trim());
+        if (installed.error || installed.code !== 0) throw new Error(`${message} (gstack-browser-ensure: ${last || installed.error || `exit ${installed.code}`})`);
+        opened = await openTab();
+      } else {
+        if (!/Unable to connect/.test(message)) throw e;
+        log.push('newtab: daemon not up yet — retrying once');
+        await Bun.sleep(1_500);
+        opened = await openTab();
+      }
     }
     tab = opened ? JSON.parse(opened).tabId : undefined;
     if (typeof tab !== 'number') throw new Error('browse newtab --json returned no tabId');
@@ -644,7 +669,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   } catch (e) {
     return fail((e as Error).message);
   } finally {
-    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000);
+    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000, browseEnv);
     srv?.stop();
     if (work) fs.rmSync(work, { recursive: true, force: true });
   }

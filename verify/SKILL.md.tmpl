@@ -3,14 +3,16 @@ name: verify
 preamble-tier: 1
 version: 0.1.0
 description: |
-  Build loop while coding: run the repo's checks and the tests /ship would
-  pick, fix, repeat until green. Never green when no test covers a change.
-  Use when asked to "verify", "check my work", "run the checks", "make it
-  green", or after each change before /ship. (gstack)
+  Use when coding: run the checks and tests /ship picks until green.
+  Build loop: run the repo's checks and the tests /ship would pick, fix, repeat.
+  Never green when no test covers a change. Fits "verify", "check my work", "run
+  the checks", "make it green", or after each change before /ship. (gstack)
 triggers:
   - verify my change
   - run the checks
   - make the tests pass
+  - make it green
+  - is it green
   - check my work before ship
 allowed-tools:
   - Bash

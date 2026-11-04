@@ -18,8 +18,8 @@ gbrain:
   context_queries:
     - id: prior-retros
       kind: filesystem
-      # /retro writes .context/retros/*.json (repo-local; see Step 13).
-      glob: ".context/retros/*.json"
+      # /retro writes its history here, shared by every worktree (Step 13).
+      glob: "{gstack_state_root}/projects/{repo_slug}/retros/*.json"
       sort: mtime_desc
       limit: 5
       render_as: "## Prior retros for this project"
@@ -72,9 +72,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -305,15 +305,16 @@ Also check `RETRO_REF`: if it is not `origin/<default>` (local-only repo, missin
 | `TEST_FILES_TOTAL` / `TEST_FILES_CHANGED` / `REGRESSION_TEST_COMMITS` / `REGRESSION_COMMIT` | Test health: repo-wide test file count, test files changed in window, `test(qa):` / `test(design):` / `test: coverage` commits |
 | `VERSION_RANGE` | First → last VERSION file value in the window (when tracked) |
 | `TEAM_STREAK` / `USER_STREAK` | Consecutive commit days with anchor date (Step 11) |
-| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs — Read the ones marked present |
+| `RETRO_CONTEXT` / `GREPTILE_HISTORY` / `REVIEW_BOT_HISTORY` / `TODOS_FILE` / `SKILL_USAGE_LOG` / `EUREKA_LOG` | Presence of optional inputs |
+| `FRICTION` / `FRICTION_SOURCES` | Friction by skill, top 3 (`questions=absent`: untracked) |
 
 **Optional inputs** (Read each file the script marks `present`):
 
-- `RETRO_CONTEXT: present` → Read the `retro-context.md` path that line printed. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
-- `GREPTILE_HISTORY: present` → Read the `greptile-history.md` path that line printed. Filter entries to the retro window by date. Count by type: `fix`, `fp`, `already-fixed`. Signal ratio = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines silently; if no entries fall in the window, skip the Greptile metric row.
+- `RETRO_CONTEXT: present` → Read the path it prints. It is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate it into the retro narrative where relevant.
+- `REVIEW_BOT_HISTORY` / `GREPTILE_HISTORY: present` → Read each printed path (column 6: bot; old rows Greptile's). Filter to the window. Per bot, count `fix`, `fp`, `already-fixed`; signal = `(fix + already-fixed) / (fix + already-fixed + fp)`. Skip unparseable lines; with none in the window, skip the row.
 - `TODOS_FILE: present` → Read `TODOS.md`. Compute: total open TODOs (exclude the `## Completed` section), P0/P1 count, P2 count, items completed this period (Completed entries dated within the window), items added this period (cross-reference `COMMIT:` lines that touched TODOS.md).
-- `SKILL_USAGE_LOG: present` → Read the path it prints (`$GSTACK_STATE_ROOT/analytics/skill-usage.jsonl`). Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
-- `EUREKA_LOG: present` → Read the path it prints (`$GSTACK_STATE_ROOT/analytics/eureka.jsonl`). Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
+- `SKILL_USAGE_LOG: present` → Read the path it prints. Filter to the window by `ts`. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name.
+- `EUREKA_LOG: present` → Read the path it prints. Filter to the window by `ts`. For each eureka moment note the skill that flagged it, the branch, and a one-line summary of the insight.
 
 ### Step 2: Compute Metrics
 
@@ -341,7 +342,7 @@ Use the analyzed ref in the commit-count label (not always `main`). Test health 
 | Active days | N |
 | Detected sessions | N |
 | Avg raw LOC/session-hour | N |
-| Greptile signal | N% (Y catches, Z FPs) |
+| Bot signal | N% per bot (Y catches, Z FPs) |
 | Test Health | N test files · M changed this period · K regression test commits |
 
 Lead with user-visible features, then commit and logical-SLOC metrics; raw LOC
@@ -363,6 +364,7 @@ Conditional rows (skip each when its input is absent or empty in the window):
 ```
 | Backlog Health | N open (X P0/P1, Y P2) · Z completed this period |
 | Skill Usage | /ship(12) /qa(8) /review(5) · 3 safety hook fires |
+| Friction by skill | /ship 7 in 12 runs (4 questions, 3 aborts) · /qa 5 in 6 (5 questions) |
 | Eureka Moments | 2 this period |
 ```
 
@@ -502,12 +504,16 @@ End the section with: `N markers, M with no trigger.` If none: `No shortcut debt
 
 ### Step 12: Load History & Compare
 
-Before saving the new snapshot, check for prior retro history:
+Load history, shared across worktrees (`<today>`: session-reminder date):
 
 ```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-ls -t .context/retros/*.json 2>/dev/null
+_RM="$HOME/.claude/skills/gstack/bin/gstack-retro-metrics"
+[ -x "$_RM" ] || _RM=".claude/skills/gstack/bin/gstack-retro-metrics"
+today="<today>"
+"$_RM" --history --next "$today"
 ```
+
+`RETRO_PRIOR:` lists snapshots, newest first (skip `{}` stubs). On `RETRO_HISTORY_ERROR:` show its fix, skip history and Step 13. No `RETRO_FILE:` otherwise: stale helper; suggest `/gstack-upgrade`.
 
 **If prior retros exist:** Load the most recent one with the same `window` using the Read tool; if none matches, disclose that and skip historical deltas. Calculate deltas for available key metrics and include a **Trends vs Last Retro** section (in `compare` mode use the freshly computed prior period instead):
 ```
@@ -528,20 +534,7 @@ Deep sessions:      3      →    5           ↑2
 
 After computing all metrics (including streak) and loading any prior history for comparison, draft the tweetable summary and the "3 Things to Improve" items using the format in Step 14, then save a JSON snapshot. The Step 14 narrative must reuse this exact summary and these exact items. `streak_days` is the live **team** streak from Step 11 (0 when broken); put the personal streak in `user_streak_days`.
 
-```bash
-mkdir -p .context/retros
-```
-
-Determine the next unused sequence number for today (substitute the session-reminder date for `<today>`):
-```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-today="<today>"
-next=1
-while [ -e ".context/retros/${today}-${next}.json" ]; do next=$((next + 1)); done
-# Save as .context/retros/${today}-${next}.json
-```
-
-Use the Write tool to save the JSON file with this schema:
+Read Step 12's reserved `RETRO_FILE`, then Write it with this schema:
 ```json
 {
   "date": "2026-03-08",
@@ -587,7 +580,7 @@ Use the Write tool to save the JSON file with this schema:
 
 **Always include `recommendations`:** one object per "3 Things to Improve" item, with a one-word lowercase `category` and the item's text verbatim. Write `[]` when there are none; never pad.
 
-**Note:** Only include the `greptile` field if `greptile-history.md` (the path `GREPTILE_HISTORY` printed) exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (`TEST_FILES_TOTAL` > 0). If any has no data, omit the field entirely.
+**Note:** Only include the `greptile` field (other bots: a `review_bots` object keyed by bot) if it has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (`TEST_FILES_TOTAL` > 0). If any has no data, omit the field entirely.
 
 Include test health data in the JSON when test files exist:
 ```json
@@ -728,7 +721,7 @@ From the commit timestamps gathered in Step 3, group by date. For each date, cou
 
 From the discovery JSON, analyze tool usage patterns:
 - Which AI tool is used for which repos (exclusive vs. shared)
-- Session count per tool
+- Session count per tool (each discovery `tools` entry, by `label`)
 - Behavioral patterns (e.g., "Codex used exclusively for myapp, Claude Code for everything else")
 
 ### Global Step 7: Aggregate and draft narrative
@@ -757,7 +750,7 @@ pad names to the longest name and never truncate them.
 ║
 ║  [N] commits across [M] projects
 ║  +[X]k LOC added · [Y]k LOC deleted · [Z]k net
-║  [N] AI coding sessions (CC: X, Codex: Y, Gemini: Z)
+║  [N] AI coding sessions ([label]: X per tool)
 ║  [N]-day shipping streak 🔥
 ║
 ║  PROJECTS
@@ -804,7 +797,7 @@ Full team/project analysis follows the personal card.
 | Projects active | N |
 | Total commits (all repos, all contributors) | N |
 | Total LOC | +N / -N |
-| AI coding sessions | N (CC: X, Codex: Y, Gemini: Z) |
+| AI coding sessions | N ([label]: X per tool) |
 | Active days | N |
 | Global shipping streak (any contributor, any repo) | N consecutive days |
 | Context switches/day | N avg (max: M) |
@@ -844,9 +837,8 @@ Format:
 
 ### Tool Usage Analysis
 Per-tool breakdown with behavioral patterns:
-- Claude Code: N sessions across M repos — patterns observed
-- Codex: N sessions across M repos — patterns observed
-- Gemini: N sessions across M repos — patterns observed
+- [label]: N sessions across M repos — patterns observed
+- `unattributed` (Antigravity): sessions, no repos
 
 ### Ship of the Week (Global)
 Highest-impact PR across ALL projects. Identify by LOC and commit messages.
@@ -869,7 +861,7 @@ ls -t "$GSTACK_STATE_ROOT"/retros/global-*.json 2>/dev/null | head -5
 
 **Only compare against a prior retro with the same `window` value** (e.g., 7d vs 7d). If the most recent prior retro has a different window, skip comparison and note: "Prior global retro used a different window — skipping comparison."
 
-If a matching prior retro exists, load it with the Read tool. Show a **Trends vs Last Global Retro** table with deltas for key metrics: total commits, LOC, sessions, streak, context switches/day.
+If a matching prior retro exists, load it with the Read tool. Show a **Trends vs Last Global Retro** table with deltas for key metrics: total commits, LOC, sessions, streak, context switches/day. Missing tools count as 0.
 
 If no prior global retros exist, append: "First global retro recorded — run again next week to see trends."
 
@@ -913,7 +905,7 @@ Use the Write tool to save JSON to the printed `RETRO_FILE`:
     "deletions": 4200,
     "projects": 5,
     "active_days": 6,
-    "sessions": { "claude_code": 48, "codex": 8, "gemini": 3 },
+    "sessions": { "claude_code": 48, "codex": 8, "gemini": 3, "omp": 1 },
     "global_streak_days": 52,
     "avg_context_switches_per_day": 2.1
   },
@@ -944,7 +936,7 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Never compare teammates against each other negatively. Each person's section stands on its own.
 - Size the report to the window and the team: every section carries specific evidence, and a section with nothing to say is cut, not padded
 - Use markdown tables and code blocks for data, prose for narrative
-- Output the narrative directly to the conversation; the only report file is the JSON snapshot (`.context/retros/` for repo retros, `$GSTACK_STATE_ROOT/retros/` for global)
+- Output the narrative directly to the conversation; the only report file is the JSON snapshot (`$GSTACK_STATE_ROOT/projects/<slug>/retros/` for repo retros, `$GSTACK_STATE_ROOT/retros/` for global)
 
 ## Important Rules
 
@@ -956,4 +948,4 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 - Treat merge commits as PR boundaries
 - Do not read CLAUDE.md or unrelated docs — this skill is self-contained; the CHANGELOG and optional inputs explicitly named above are exceptions
 - On first run (no prior retros), skip saved-history comparisons gracefully; explicit `compare` mode still computes its prior window
-- **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not `.context/retros/`). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".
+- **Global mode:** Does NOT require being inside a git repo. Saves snapshots to `~/.gstack/retros/` (not the per-project history). Gracefully skip AI tools that aren't installed. Only compare against prior global retros with the same window value. If streak hits 365d cap, display as "365+ days".

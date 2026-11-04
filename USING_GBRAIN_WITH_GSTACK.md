@@ -74,6 +74,8 @@ If you accept the local PGLite, you end up in **split-engine mode**:
 - **Brain/context queries** (`mcp__gbrain__search`, `mcp__gbrain__query`, `mcp__gbrain__get_page`) route to the remote MCP. Plans, retros, learnings, cross-machine memory — all on the shared server.
 - **Code queries** (`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `gbrain search` for code) route to the local PGLite via the `.gbrain-source` pin in each worktree. Indexed locally, fast, never leaves the machine.
 
+A `gbrain serve --http` on this machine's loopback address (`localhost`, `127.0.0.1`, `::1`) over this machine's own Postgres brain is not Path 4. That is gbrain's recommended setup for local agents on a Postgres brain (`gbrain bootstrap harness`), and gstack treats it as a local brain: transcripts go through `gbrain import` here. gstack decides this from the URL and the local gbrain config alone, and only a config with a Postgres `database_url` counts. A loopback URL next to a local PGLite stays Path 4, so the split-engine setup above keeps working when you reach the remote brain through an SSH tunnel or port forward on a loopback port.
+
 The two engines are independent. Wiping the local PGLite doesn't touch the remote brain; rotating the remote MCP bearer doesn't affect local code search. This is also the right configuration if your remote brain admin can't (or shouldn't) index every developer's checkout — local code stays local.
 
 ## MCP registration for Claude Code
@@ -210,7 +212,7 @@ The skill re-collects a PAT (one-time, discarded after), lists every project in 
 
 | Bin | Purpose |
 |---|---|
-| `gstack-gbrain-detect` | Emit current state as JSON: gbrain on PATH, version, config engine, doctor status, sync mode |
+| `gstack-gbrain-detect` | Emit current state as JSON: gbrain on PATH, version, config engine, doctor status, sync mode. `--doctor` runs the full brain-health gate that `/setup-gbrain` Step 5 uses (`gbrain doctor --json --scope=brain`); it prints `brain_ok`, `brain_failures` and `skill_failures`, and exits 0 only when `brain_ok` is true. Failed skill checks (gbrain grading another agent's skills folder) never decide `brain_ok`. |
 | `gstack-gbrain-install` | Detect-first installer (probes `~/git/gbrain`, `~/gbrain`, then fresh clone). Has `--dry-run` and `--validate-only` flags. PATH-shadow check exits 3 with remediation menu. |
 | `gstack-gbrain-lib.sh` | Sourced, not executed. Provides `read_secret_to_env VARNAME "prompt" [--echo-redacted "<sed-expr>"]` |
 | `gstack-gbrain-supabase-verify` | Structural URL check. Rejects direct-connection URLs (`db.*.supabase.co:5432`) with exit 3 |
@@ -226,7 +228,7 @@ Gbrain itself ships with these that gstack wraps:
 |---|---|
 | `gbrain init --pglite` | Initialize a local PGLite brain |
 | `gbrain init --non-interactive` | Initialize via env (`GBRAIN_DATABASE_URL` or `DATABASE_URL`). Never pass a URL as argv — it'll leak to shell history. |
-| `gbrain doctor --json` | Health check. Returns `{status: "ok"|"warnings"|"error", health_score: 0-100, checks: [...]}` |
+| `gbrain doctor --json` | Health check. Returns `{status: "healthy"|"warnings"|"unhealthy" (older gbrain: "ok"), health_score: 0-100, checks: [...]}`. `--scope=brain` (gbrain v0.41.20+) skips the skill checks. |
 | `gbrain migrate --to supabase --url ...` | Move a PGLite brain to Supabase (lossless, preserves source as backup) |
 | `gbrain migrate --to pglite` | Reverse migration |
 | `gbrain search "query"` | Search the brain |

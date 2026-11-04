@@ -6,20 +6,21 @@
  * computes the P7 adoption census over merged PRs (deduplicated by run and
  * thread id against an owner-maintained thread cohort).
  */
+import { spawnSync } from 'node:child_process';
 import { ARTIFACT_SCHEMAS, checkSchema, type ShipReceipt, type ValidationError } from './headless-artifacts';
 import { approvalSummary } from './approval-citations';
 import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
 import { matchesAny } from './ship-policy';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
-import { stampOnlyLine } from './restamp';
+import { stampOnlyLine, type BranchSide } from './stamp-only';
 
 export const RECEIPT_FENCE = 'gstack-ship-receipt';
 const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
-  'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd',
+  'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'review_targeted', 'carry', 'base_red',
+  'review_loop_exception', 'review_targeted', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -92,10 +93,32 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
   return { ok: true, receipt: r, head, line };
 }
 
-/** The block becomes the first section of the body: an existing block is replaced in place at the top, prose follows. */
+/**
+ * Every /ship run's receipt (GSTA-258 L4, receipt attribution): when a write or carry replaces a different receipt, the old one's
+ * identifiers and counters move to an append-only `gstack-receipt-runs` block (one JSON line per run, oldest first, the
+ * newest RECEIPT_RUNS_KEPT kept) right after the current block, so a later replay sees each run's review loop, not only the last.
+ */
+export const RUNS_FENCE = 'gstack-receipt-runs';
+export const RECEIPT_RUNS_KEPT = 30;
+const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
+export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string };
+export function receiptRuns(body: string): ReceiptRun[] {
+  const m = RUNS_RE.exec(body);
+  return m ? m[1]!.split('\n').flatMap(l => { try { const o = JSON.parse(l); return o && typeof o.head === 'string' ? [o as ReceiptRun] : []; } catch { return []; } }) : [];
+}
+export function receiptRun(r: ShipReceipt): ReceiptRun {
+  const { head, version, gstack_version, run, review_loop, review_loop_exception } = r;
+  return JSON.parse(JSON.stringify({ head, version, gstack_version, run, review_loop, review_loop_exception, depth: r.review_depth?.depth, carried_from: r.carry?.from }));
+}
+
+/** The block becomes the first section of the body: an existing block is replaced in place at the top, prose follows; a replaced receipt joins the runs block. */
 export function placeReceiptFirst(body: string, receipt: ShipReceipt): string {
-  const block = renderReceiptBlock(receipt);
-  const stripped = body.replace(BLOCK_RE, '').replace(/^\s+/, '');
+  const prior = extractReceipt(body).receipt;
+  const runs = receiptRuns(body);
+  if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
+  const kept = runs.slice(-RECEIPT_RUNS_KEPT);
+  const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');
+  const stripped = body.replace(BLOCK_RE, '').replace(RUNS_RE, '').replace(/^\s+/, '');
   return block + (stripped ? '\n' + stripped : '');
 }
 
@@ -129,12 +152,34 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   if (r.approval) parts.push(`approval=${approvalSummary(r.approval)}`);
   const loop = parseReviewLoop(r.review_loop);
   if (loop) parts.push(`passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred}`
-    + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
+    + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.rounds !== undefined ? ` rounds=${loop.rounds}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
   if (r.carry && typeof r.carry.from === 'string') parts.push(`carried_from=${r.carry.from.slice(0, 12)}`);
+  if (Array.isArray(r.ci_carried) && r.ci_carried.length) parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}`);
   if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
 }
 
+/** A risk-class PR (R51): the receipt's review depth has class gate or a risk class. Only these get the cross-family trail read. */
+export const riskClassReceipt = (r: ShipReceipt | undefined) => r?.review_depth?.class === 'gate' || !!r?.review_depth?.risk?.length;
+
+/**
+ * The rest of the READY block (GSTA-258 E1: the ready output is the whole READY): the receipt's review loop, the trial-merge
+ * line the lane fills, and the Attention stub, whose opening line follows the receipt's risk class (docs/unattended.md).
+ */
+export function readyTailLines(r: ShipReceipt | undefined): string[] {
+  const loop = parseReviewLoop(r?.review_loop);
+  const opt = (k: keyof ReviewLoopReceipt) => (loop?.[k] ? ` ${k}=${loop[k]}` : '');
+  const risk = riskClassReceipt(r);
+  const legacy = !!r && !r.review_depth;
+  return [
+    loop ? `REVIEW_LOOP: passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred} noted=${loop.noted ?? 0} fixed=${loop.fixed ?? 0}${opt('unrecorded')}${opt('unbound')}${opt('fix_checks')}` : 'REVIEW_LOOP: none in the receipt',
+    'TRIAL_MERGES: <one line per open sibling pin that shares a file: its git merge-tree result and the resolution, or "none share a file">',
+    'Attention:',
+    legacy ? 'reviewed by <model on another family> (risk class unknown: the receipt records no review_depth; rule 27 cross-family trail read)'
+      : risk ? `reviewed by <model on another family> (risk class: ${oneLine([r?.review_depth?.class === 'gate' ? 'gate' : '', ...(r?.review_depth?.risk ?? [])].filter(Boolean).join(', '))}; rule 27 cross-family trail read)` : 'self-audited (not a risk class: no cross-family trail read)',
+    '<flags against decision-trail row numbers, or No flags>',
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // carry: the receipt follows a head whose product diff is unchanged
@@ -151,11 +196,11 @@ export function receiptSummaryLine(r: ShipReceipt): string {
  * such as `openapi.spec.yaml` is product.
  */
 const TEST_CODE_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts', 'rb', 'py', 'go', 'rs', 'java', 'kt', 'swift', 'dart', 'php', 'cs'];
-export const CARRY_TEST_GLOBS: readonly string[] = [
-  'test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**',
+export const CARRY_TEST_CODE_GLOBS: readonly string[] = [
   ...TEST_CODE_EXTENSIONS.flatMap(ext => [`**/*.test.${ext}`, `**/*.spec.${ext}`]),
   '**/*_test.go', '**/test_*.py', '**/*_test.py', '**/*_spec.rb', '**/*Test.java', '**/*Tests.swift',
 ];
+export const CARRY_TEST_GLOBS: readonly string[] = ['test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**', ...CARRY_TEST_CODE_GLOBS];
 export const CARRY_METADATA_GLOBS: readonly string[] = ['VERSION', 'CHANGELOG.md', 'package.json', 'agents-digest/**'];
 /** How many differing product paths a RECEIPT_CARRY_PRODUCT_CHANGED refusal names, and how far the per-path patch-id walk goes. */
 export const CARRY_NAMED_PATHS = 20;
@@ -176,6 +221,14 @@ export interface CarryPlanInput {
   rangeDiff: string;
   /** The base the receipt was reviewed against when it differs from the carry's (a stack parent that landed, #3570): productPatchId.from is then the recorded diff against it. */
   retargetedFrom?: string;
+  /** A commit inside the reviewed range whose product change the base already holds (a stack parent that squash-merged under a receipt written against the base, GST-1199): productPatchId.from is then the range from it. */
+  stackParent?: string;
+  /** A clean scoped review of product paths whose only difference is base context next to unchanged hunks (lib/ship-patch.ts, GST-384): the carry reason it adds. */
+  scopedReview?: string;
+  /** Stamp files the branch changed as product whose only change since the reviewed head is a stamp on the branch's own rows, the base untouched, and without which the two product patches match (GST-980). */
+  stampedRows?: string[];
+  /** A clean scoped re-check of the range-diff since the reviewed head (lib/ship-recheck.ts, J1): the carry reason it adds. */
+  recheck?: string;
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -184,30 +237,32 @@ const CARRY_RERUNS = ['CI at head (gstack-ship-queue ready requires it); test an
 
 /**
  * The file's text at the reviewed head and at HEAD, with the release version each head carries (from `VERSION`, else
- * `package.json`) and the base policy's `stamp_patterns` templates.
+ * `package.json`) and the base policy's `stamp_patterns` templates and `stamp_placeholders`.
  */
-export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[] }
+export interface CarryChange { before: string | null; after: string | null; oldVersion?: string | null; newVersion?: string | null; templates?: readonly string[]; side?: BranchSide; placeholders?: readonly string[] }
 
 /**
  * A policy-named stamp path's change is a stamp when the new text reads as the
  * old text once every new version in it is the old one, or when every changed
  * line is a stamp-form rewrite to the new version (`stampOnlyLine`: the old
- * version or a newer tentative `*_KEY_VERSION` the slot stamp moved, #3512): the rule
+ * version or a newer tentative `*_KEY_VERSION` the slot stamp moved, #3512, and
+ * on a line the branch added itself, `side`, the fork version or newer, GST-963; with a kept VERSION only such a line,
+ * GST-980): the rule
  * the tree receipt applies to the same `stamp_paths`, `stamp_files` and
  * `release_outputs` before the train accepts a stamp commit. No version
- * change, or a file missing on either side, is not a stamp.
+ * change outside the branch's own lines, or a file missing on either side, is not a stamp.
  */
 export function stampOnlyText(change: CarryChange): boolean {
   const { before, after, oldVersion, newVersion } = change;
-  if (before === null || after === null || !oldVersion || !newVersion || oldVersion === newVersion) return false;
+  if (before === null || after === null || !oldVersion || !newVersion || (oldVersion === newVersion && !change.side)) return false;
   // Digit-bounded: replacing 1.2.3 inside 11.2.3 or 1.2.34 would read a different version's stamp as this one's.
   const escaped = newVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (after.replace(new RegExp(`(?<![0-9])${escaped}(?![0-9])`, 'g'), oldVersion) === before) return true;
+  if (oldVersion !== newVersion && after.replace(new RegExp(`(?<![0-9])${escaped}(?![0-9])`, 'g'), oldVersion) === before) return true;
   const was = before.split('\n');
   const now = after.split('\n');
   if (was.length !== now.length) return false;
   const changed = was.map((line, i) => i).filter(i => was[i] !== now[i]);
-  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? []));
+  return changed.length > 0 && changed.every(i => stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, change.templates ?? [], change.side, i + 1, change.placeholders ?? []));
 }
 
 /**
@@ -237,15 +292,21 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * against the base has the same patch-id at both heads, which is what a
  * conflict-only base merge, a test-only fix or a release-metadata change
  * leaves behind. A product patch that differs is RECEIPT_CARRY_PRODUCT_CHANGED,
- * whatever else changed.
+ * whatever else changed, unless every difference is base context next to unchanged hunks
+ * and a scoped review of those hunks came back clean (`scopedReview`), or a stamp on the
+ * branch's own rows in a stamp file the branch also changed as product (`stampedRows`, GST-980).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head) {
+  if (input.productPatchId.from !== input.productPatchId.head && !input.recheck && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
-  const reasons: string[] = input.retargetedFrom ? [`stack parent ${input.retargetedFrom} landed`] : [];
+  const parent = input.retargetedFrom ?? input.stackParent?.slice(0, 12);
+  const reasons: string[] = parent ? [`stack parent ${parent} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
+  if (input.recheck && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.recheck);
+  if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
+  if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');
   if (input.changed.some(c => c.class === 'generated')) reasons.push('regenerated outputs');
@@ -258,6 +319,29 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
       covers: CARRY_COVERS, reruns: CARRY_RERUNS, ancestry: 'linear',
     },
   };
+}
+
+/** How many commits of the reviewed range landedStackParent tries, newest first. */
+export const STACK_PARENT_WALK = 100;
+
+/**
+ * The newest commit inside the reviewed range (rangeBase..reviewed, the reviewed head itself excluded) whose product
+ * change the current base already holds: merging it into currentBase changes no product path. That is a stack parent
+ * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
+ * product change of its own (a test-first commit) is no parent, since any base trivially holds it. Null when no
+ * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
+ */
+export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[]): string | null {
+  const run = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const commits = run(['rev-list', '--topo-order', `--max-count=${STACK_PARENT_WALK + 1}`, `${s.rangeBase}..${s.reviewed}`]);
+  if (commits.status !== 0) return null;
+  for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
+    if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
+    const merged = run(['merge-tree', '--write-tree', '--no-messages', s.currentBase, commit]);
+    const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
+    if (tree && run(['diff', '--quiet', s.currentBase, tree, '--', ...product]).status === 0) return commit;
+  }
+  return null;
 }
 
 export interface TreeCarryInput {
@@ -322,7 +406,12 @@ export function parseReviewLoop(value: unknown): ReviewLoopReceipt | undefined {
   if (n('fixed') !== undefined) out.fixed = n('fixed');
   if (typeof v.scope === 'string') out.scope = v.scope.slice(0, 20);
   if (n('fix_checks') !== undefined) out.fix_checks = n('fix_checks');
+  if (n('rounds') !== undefined) out.rounds = n('rounds');
   if (n('est_input_tokens') !== undefined) out.est_input_tokens = n('est_input_tokens');
+  if (n('unrecorded')) out.unrecorded = n('unrecorded');
+  if (n('ledgers_read')) out.ledgers_read = n('ledgers_read');
+  const unbound = Array.isArray(v.unbound) ? v.unbound.length : n('unbound');
+  if (unbound) out.unbound = unbound;
   if (v.dispatches && typeof v.dispatches === 'object' && !Array.isArray(v.dispatches)) {
     const d = Object.fromEntries(Object.entries(v.dispatches as Record<string, unknown>)
       .filter(([k, c]) => /^[a-z][a-z0-9-]{0,39}$/.test(k) && typeof c === 'number' && Number.isInteger(c) && c >= 0).slice(0, 12)) as Record<string, number>;

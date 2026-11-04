@@ -3,8 +3,9 @@ name: qa
 preamble-tier: 4
 version: 2.0.0
 description: |
-  Fix browser/API/CLI/job/worker/webhook bugs.
-  Commit verified fixes atomically. Use when asked to "qa", "QA", "test this site", "find bugs",
+  Use when you test the site, API or CLI and fix bugs.
+  Covers browser/API/CLI/job/worker/webhook bugs and commits verified fixes atomically.
+  Fits "qa", "QA", "qa test this", "test this site", "find bugs", "find bugs on site",
   "test and fix", or "fix what's broken".
   Proactively suggest when the user says a feature is ready for testing
   or asks "does this work?". Three tiers: Quick (critical/high only),
@@ -127,8 +128,8 @@ Prefer the richer of recent project test plans and plans in conversation over gi
 ## Phases 1-6: QA Baseline
 
 Follow the shared section's ordered preparation, then run its probe loop.
-Inside that loop, browser runs apply qa-patterns.md's numbered Phases 1-6 as techniques,
-and functional runs apply system-functional.md's contract map; neither is a separate workflow.
+In that loop, browser runs use qa-patterns.md's Phases 1-6 as techniques (touch: `$B device "iPhone 15"`, then `tap`),
+and functional runs use system-functional.md's contract map; neither is a separate workflow.
 
 {{SECTION:exploratory}}
 

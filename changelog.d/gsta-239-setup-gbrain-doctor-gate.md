@@ -1,0 +1,10 @@
+**`/setup-gbrain` no longer stops on a working brain because gbrain's skill checks failed on another agent's skills folder (#3790).** gbrain doctor also grades whatever skills folder it finds on its own, such as `~/.openclaw/workspace`. When one of those skill checks failed, Step 5 read the whole report as `unhealthy` and stopped, and the agent then offered to edit the other agent's workspace to get past it. `gstack-gbrain-detect` reported `gbrain_doctor_ok: false` for the same reason.
+
+### Fixed
+- **Step 5 and `gbrain_doctor_ok` judge the brain from brain checks only** (`bin/gstack-gbrain-detect`, `setup-gbrain`). A new `gstack-gbrain-detect --doctor` runs `gbrain doctor --json --scope=brain`, ignores failed checks tagged `category: "skill"` from gbrain versions that still run them, and prints `brain_ok`, `brain_failures` and `skill_failures`. Step 5 proceeds on `brain_ok`, notes any skill failures, and tells the agent never to edit another agent's workspace to make setup pass. A failed connection, schema_version or pgvector check still stops setup.
+- **A fully healthy brain passes Step 5.** gbrain reports `healthy`, `warnings` or `unhealthy`; Step 5 used to accept only `ok` or `warnings`, so a brain with no warnings at all stopped too.
+- **The doctor gate fails closed with a cause.** No JSON, a crash, a timeout or a gbrain that can't start reports `brain_ok: false` and why, instead of crashing detect. A JSON-null `~/.gbrain/config.json` no longer breaks Step 1's detection. Doctor now runs through gbrain's spawn helper, so the Windows `gbrain.cmd` shim works, and a large report reaches Step 5 whole.
+
+### Tests
+- `test/setup-gbrain-doctor-gate.test.ts` runs the real Step 5 block and detect against a stub gbrain: skill-only failures with and without `--scope=brain`, brain failures, a fully healthy brain, no JSON, empty output, a large report through a pipe and a JSON-null config. 10 of its first 14 cases failed on main 6bffa20.
+- `test/gbrain-spawn-windows-shell.test.ts` checks that detect spawns doctor through `spawnGbrain`.

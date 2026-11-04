@@ -22,9 +22,12 @@ if [ ! -f "$REPO_ROOT/.env" ]; then
   fi
 fi
 
-# 2. Install dependencies, devDependencies included. Always run: a checkout
-# first installed by ./setup has production dependencies only, and an
-# up-to-date install is a no-op.
+# 2. Install dependencies, devDependencies included, and mark this clone as a
+# contributor's (#3447) so ./setup keeps the dev toolchain instead of moving it
+# to the production-only install. Always run: a checkout first installed by
+# ./setup has production dependencies only, and an up-to-date install is a no-op.
+git -C "$REPO_ROOT" config --local gstack.contributor true 2>/dev/null \
+  || echo "Warning: could not set git config gstack.contributor in $REPO_ROOT; export GSTACK_CONTRIBUTOR=1 before ./setup to keep the dev toolchain." >&2
 echo "Installing dependencies..."
 (cd "$REPO_ROOT" && bun install)
 

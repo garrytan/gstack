@@ -28,15 +28,32 @@
 #   --since  midnight-aligned ISO date ("2026-03-11T00:00:00") or a relative
 #            expression ("24 hours ago"). Default: "7 days ago".
 #   --until  optional window end (compare mode's prior window).
+#
+#   gstack-retro-metrics --history [--next <YYYY-MM-DD>]
+#
+#   Retro history for this project (#3749): prints RETRO_HISTORY_DIR (the
+#   state root's projects/<slug>/retros, shared by every worktree of the
+#   repository) and one RETRO_PRIOR line per snapshot, newest first. Moves any
+#   legacy .context/retros/*.json from this worktree and the main checkout
+#   into it first: a copy identical to a stored snapshot of the same date
+#   collapses, a same-name snapshot that differs takes the next free number
+#   for its date, and a .context/retros that resolves outside its worktree
+#   is left alone. --next <YYYY-MM-DD> also reserves the next unused
+#   <date>-<n>.json (written as {} so a concurrent run cannot take it) and
+#   prints it as RETRO_FILE.
+
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 BASE=""
 SINCE="7 days ago"
 UNTIL=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base)  BASE="$2"; shift 2 ;;
-    --since) SINCE="$2"; shift 2 ;;
-    --until) UNTIL="$2"; shift 2 ;;
+    --base)  BASE="$2"; shift 2 || break ;;
+    --since) SINCE="$2"; shift 2 || break ;;
+    --until) UNTIL="$2"; shift 2 || break ;;
+    --history) HISTORY=1; shift ;;
+    --next)  NEXT_DATE="$2"; shift 2 || break ;;
     *) shift ;;
   esac
 done
@@ -48,6 +65,62 @@ _BIN="$_SCRIPT_DIR"
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
 _GH="$_gstack_sr_root"
+
+if [ -n "${HISTORY:-}" ]; then
+  _SLUG=$("$_BIN/gstack-slug" --get SLUG 2>/dev/null || true)
+  if [ -z "$_SLUG" ]; then
+    echo "RETRO_HISTORY_ERROR: could not resolve the project slug (gstack-slug failed). fix: reinstall with ./setup or /gstack-upgrade"
+    exit 0
+  fi
+  _HD="$_GH/projects/$_SLUG/retros"
+  mkdir -p "$_HD" || { echo "RETRO_HISTORY_ERROR: cannot create $_HD"; exit 0; }
+  if [ -n "${NEXT_DATE:-}" ]; then
+    case "$NEXT_DATE" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+      *) echo "RETRO_HISTORY_ERROR: --next takes a YYYY-MM-DD date, got '$NEXT_DATE'"; exit 0 ;;
+    esac
+  fi
+  _HDR=$(cd -P "$_HD" && pwd)
+  _TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  _MAIN=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  _MOVED=0
+  for _TREE in "$_TOP" "$_MAIN"; do
+    [ -n "$_TREE" ] && [ -d "$_TREE/.context/retros" ] || continue
+    _SRC=$(cd -P "$_TREE/.context/retros" 2>/dev/null && pwd) || continue
+    _TR=$(cd -P "$_TREE" 2>/dev/null && pwd) || continue
+    case "$_SRC" in "$_TR"/*) ;; *) continue ;; esac
+    [ "$_SRC" != "$_HDR" ] || continue
+    for _F in "$_SRC"/*.json; do
+      [ -f "$_F" ] && [ ! -L "$_F" ] || continue
+      _B=$(basename "$_F")
+      _DUP=""
+      for _E in "$_HD/$_B" "$_HD/${_B%-*}"-*.json; do
+        [ -f "$_E" ] && cmp -s "$_F" "$_E" && { _DUP=1; break; }
+      done
+      if [ -n "$_DUP" ]; then rm -f "$_F"; continue; fi
+      _DEST="$_HD/$_B"
+      _N=1
+      while [ -e "$_F" ] && [ "$_N" -le 1000 ]; do
+        [ -e "$_DEST" ] || mv -n "$_F" "$_DEST" 2>/dev/null
+        [ -e "$_F" ] || { _MOVED=$((_MOVED + 1)); break; }
+        _N=$((_N + 1)); _DEST="$_HD/${_B%-*}-$_N.json"
+      done
+    done
+    rmdir "$_TREE/.context/retros" 2>/dev/null || true
+  done
+  echo "RETRO_HISTORY_DIR: $_HD"
+  [ "$_MOVED" -gt 0 ] && echo "RETRO_HISTORY_MIGRATED: $_MOVED from .context/retros"
+  ls -t "$_HD"/*.json 2>/dev/null | sed 's/^/RETRO_PRIOR: /'
+  if [ -n "${NEXT_DATE:-}" ]; then
+    _N=1
+    until ( set -C; printf '{}\n' > "$_HD/$NEXT_DATE-$_N.json" ) 2>/dev/null; do
+      _N=$((_N + 1))
+      [ "$_N" -le 1000 ] || { echo "RETRO_HISTORY_ERROR: cannot reserve a snapshot file in $_HD"; exit 0; }
+    done
+    echo "RETRO_FILE: $_HD/$NEXT_DATE-$_N.json"
+  fi
+  exit 0
+fi
 
 echo "RETRO_METRICS_PROTO: 1"
 
@@ -375,8 +448,40 @@ fi
 # ── Aux inputs (presence only — the model Reads what exists) ─────────────────
 [ -f "$_GH/retro-context.md" ]            && echo "RETRO_CONTEXT: present ($_GH/retro-context.md)"            || echo "RETRO_CONTEXT: absent"
 [ -f "$_GH/greptile-history.md" ]         && echo "GREPTILE_HISTORY: present ($_GH/greptile-history.md)"      || echo "GREPTILE_HISTORY: absent"
+[ -f "$_GH/review-bot-history.md" ]       && echo "REVIEW_BOT_HISTORY: present ($_GH/review-bot-history.md)"  || echo "REVIEW_BOT_HISTORY: absent"
 [ -f "TODOS.md" ]                         && echo "TODOS_FILE: present (TODOS.md)"                            || echo "TODOS_FILE: absent"
 [ -f "$_GH/analytics/skill-usage.jsonl" ] && echo "SKILL_USAGE_LOG: present ($_GH/analytics/skill-usage.jsonl)" || echo "SKILL_USAGE_LOG: absent"
 [ -f "$_GH/analytics/eureka.jsonl" ]      && echo "EUREKA_LOG: present ($_GH/analytics/eureka.jsonl)"         || echo "EUREKA_LOG: absent"
+
+# ── Friction by skill (this project's timeline + question log) ──────────────
+# lib/retro-friction.ts does the counting; the window bounds come from git's own
+# date parser so they match the commit queries above. Any failure prints
+# FRICTION: unavailable and the script still reaches RETRO_METRICS_END.
+_FR_SLUG=$("$_BIN/gstack-slug" --get SLUG 2>/dev/null || true)
+_FR_SINCE=$(git rev-parse "--since=$SINCE" 2>/dev/null | sed -n 's/^--max-age=//p' | head -1)
+_FR_UNTIL=""
+[ -n "$UNTIL" ] && _FR_UNTIL=$(git rev-parse "--until=$UNTIL" 2>/dev/null | sed -n 's/^--min-age=//p' | head -1)
+_FR_QLOG=""
+[ "$("$_BIN/gstack-config" get question_tuning 2>/dev/null)" = "true" ] && _FR_QLOG="$_GH/projects/$_FR_SLUG/question-log.jsonl"
+_FR_LIB="$_SCRIPT_DIR/../lib/retro-friction.ts"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && _FR_LIB="$(cygpath -m "$_FR_LIB")" ;;
+esac
+if [ -z "$_FR_SLUG" ]; then
+  echo "FRICTION: unavailable (no project slug)"
+elif [ -z "$_FR_SINCE" ] || { [ -n "$UNTIL" ] && [ -z "$_FR_UNTIL" ]; }; then
+  echo "FRICTION: unavailable (window bounds did not resolve)"
+elif ! command -v bun >/dev/null 2>&1; then
+  echo "FRICTION: unavailable (bun not found)"
+else
+  _FR_OUT=$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$_FR_LIB" \
+    --timeline "$_GH/projects/$_FR_SLUG/timeline.jsonl" \
+    --questions "$_FR_QLOG" \
+    --since-epoch "$_FR_SINCE" --until-epoch "$_FR_UNTIL" 2>/dev/null) || _FR_OUT=""
+  case "$_FR_OUT" in
+    *FRICTION:*) printf '%s\n' "$_FR_OUT" ;;
+    *) echo "FRICTION: unavailable (friction helper failed)" ;;
+  esac
+fi
 
 echo "RETRO_METRICS_END: ok"

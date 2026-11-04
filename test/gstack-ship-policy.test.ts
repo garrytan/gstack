@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
-import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
+import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, STAMP_PLACEHOLDERS_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
 import { fillDue } from '../lib/ship-queue-train';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -61,6 +61,32 @@ describe('validatePolicy (schema + containment, pure)', () => {
     expect(codes({ mirror: '.' })).toEqual(['POLICY_CONTAINMENT:mirror']);
     expect(codes({ mirror: '..' })).toEqual(['POLICY_CONTAINMENT:mirror']);
     expect(codes({ preregistration_shas: ['not-a-sha'] })).toEqual(['POLICY_CONTAINMENT:preregistration_shas[0]']);
+  });
+
+  // Value: protects=stamp_placeholders defaults to none, needs its reader floor, and admits only short one-line literals
+  //   that are neither the {version} slot nor a version (GST-1026); fails_when=a non-default value validates without
+  //   min_gstack_version, or a version, a slot, a multi-line or an oversized entry is accepted; seam=validatePolicy
+  test('stamp_placeholders: empty by default, needs its floor, and admits only short literal placeholders (GST-1026)', () => {
+    const codes = (p: unknown) => validatePolicy(p).map(e => `${e.code}:${e.path}`);
+    const at = (stamp_placeholders: unknown) => codes({ stamp_placeholders, min_gstack_version: STAMP_PLACEHOLDERS_KEY_VERSION });
+    expect(DEFAULT_POLICY.stamp_placeholders).toEqual([]);
+    expect(POLICY_KEY_INTRODUCED.stamp_placeholders).toBe(STAMP_PLACEHOLDERS_KEY_VERSION);
+    expect(codes({ stamp_placeholders: [] })).toEqual([]);
+    expect(codes({ stamp_placeholders: ['TBD'] })).toEqual(['POLICY_INVALID:stamp_placeholders']);
+    expect(minimumReader({ stamp_placeholders: ['TBD'] })).toBe(STAMP_PLACEHOLDERS_KEY_VERSION);
+    expect(at(['TBD', 'UNRELEASED'])).toEqual([]);
+    expect(at('TBD')).toEqual(['POLICY_INVALID:stamp_placeholders']);
+    expect(at([7])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
+    expect(at(Array.from({ length: 17 }, (_, i) => `P${i}`))).toEqual(['POLICY_CONTAINMENT:stamp_placeholders']);
+    expect(at(['x'.repeat(33)])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
+    expect(at(['x'.repeat(32)])).toEqual([]);
+    expect(at(['TB\nD'])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
+    expect(at([''])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
+    expect(at(['  '])).toEqual(['POLICY_CONTAINMENT:stamp_placeholders[0]']);
+    expect(at(['{version}'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
+    expect(at(['next-{version}'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
+    expect(at(['1.2.3.0'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
+    expect(at(['0.60.553'])).toEqual(['POLICY_INVALID:stamp_placeholders[0]']);
   });
 
   // Value: protects=bump never is refused without its floor (an older gstack names the cause) and next to any policy that stamps a version at every merge, reports its reader floor, and prints its Step 12 consequence; fails_when=never validates bare, or beside stamp-at-merge, train or changelog_fragments;
@@ -162,16 +188,17 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
-  // Value: protects=the fill rule the coordinator relies on: a train dispatches at 3 READY PRs or one hour after the first READY, whichever comes first
-  // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
-  test('fills a train at 3 READY PRs or one hour after the first READY, whichever comes first', () => {
+  // Value: protects=the fill rule the coordinator relies on: a train dispatches at 5 READY PRs or one hour after the first READY, whichever comes first
+  // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day, so the fill went to 3 PRs / 1 hour; 2026-10-31: Garry's B1 raised the size back to 5, keeping the 1-hour fill); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
+  test('fills a train at 5 READY PRs or one hour after the first READY, whichever comes first', () => {
     const raw = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', '.gstack', 'ship-policy.json'), 'utf8'));
-    expect([raw.train.max_size, raw.train.fill_hours]).toEqual([3, 1]);
+    expect([raw.train.max_size, raw.train.fill_hours]).toEqual([5, 1]);
     const first = '2026-10-26T09:00:00.000Z';
     const slots = (n: number) => Array.from({ length: n }, (_, i) => ({ pr: i + 1, ready_at: new Date(Date.parse(first) + i * 60_000).toISOString() })) as any;
     expect(fillDue(slots(2), raw.train, '2026-10-26T09:59:00Z', false)).toBe('2026-10-26T10:00:00.000Z');
     expect(fillDue(slots(2), raw.train, '2026-10-26T10:00:00Z', false)).toBeNull();
-    expect(fillDue(slots(3), raw.train, '2026-10-26T09:05:00Z', false)).toBeNull();
+    expect(fillDue(slots(4), raw.train, '2026-10-26T09:05:00Z', false)).toBe('2026-10-26T10:00:00.000Z');
+    expect(fillDue(slots(5), raw.train, '2026-10-26T09:05:00Z', false)).toBeNull();
   });
 });
 

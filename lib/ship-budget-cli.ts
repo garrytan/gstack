@@ -9,11 +9,12 @@
  */
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
-  BudgetError, DEFAULT_TAIL, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  BudgetError, DEFAULT_TAIL, SUBAGENT_DEFAULT_CAP, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
+  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, labelScope, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next, type Note,
@@ -236,20 +237,29 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from'], ['subagent']);
   const mode = str(o, 'mode') ?? 'admit';
   if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
+  const scope = str(o, 'meter-scope');
+  if (scope !== undefined && scope !== 'self' && scope !== 'tree') throw usageError(`--meter-scope '${scope}' is not self or tree`);
+  const from = str(o, 'reading-from') ?? (ctx.env.GSTACK_SHIP_TASK_TITLE ? 'task' : undefined);
+  if (from !== undefined && from !== 'this' && from !== 'own' && from !== 'task') throw usageError(`--reading-from '${from}' is not this, own or task`);
+  const parentCounter = (o.subagent === true || ctx.env.GSTACK_SHIP_SUBAGENT === '1') && from === 'this';
+  if (parentCounter && scope === 'self') throw budgetError('METER_SCOPE_PARENT', 'start --subagent --reading-from this --meter-scope self');
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
-  const cap = rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
+  const defaultCap = rawCap === undefined && mode === 'observe' && from === 'task' && tokensOpt(o, 'reading') !== undefined;
+  const cap = defaultCap ? SUBAGENT_DEFAULT_CAP : rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
   if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
-    const l = readLedger(existing.ledger);
-    return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+    return mutateLedger(existing.ledger, ctx.env, l => {
+      if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+    });
   }
   const meter = pickMeter(o);
   if (!meter) {
@@ -270,6 +280,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
     ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
+    ...(scope === 'tree' || parentCounter ? { meter_scope: 'tree' as const } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;
@@ -278,7 +289,8 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
-  return { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...out.stdout], exit: out.exit };
+  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
+  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
 }
 
 /**
@@ -400,10 +412,11 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
 }
 
 /** calls: count parent calls from the host's transcript items (lib/ship-calls.ts). */
-export function cmdCalls(argv: string[]): Outcome {
+export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['events', 'since', 'until']);
-  const file = str(o, 'events');
-  if (!file) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  const raw = str(o, 'events');
+  if (!raw) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  const file = raw === '~' || raw.startsWith('~/') ? path.join(ctx.env.HOME || os.homedir(), raw.slice(1)) : raw;
   let doc: unknown;
   try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { throw usageError(`calls --events ${file}: ${e.message}`); }
   const d = doc as { items?: unknown; cursor?: unknown };
@@ -470,7 +483,7 @@ function rebuildLedger(file: string, record: string | undefined, ctx: Ctx, o: Op
     meter: { contract: METER_CONTRACTS[meter], epoch: num('epoch') + 1, baseline: meter === 'capy' ? reading! : 0, last: meter === 'capy' ? reading! : null },
     epochs: [], carried_used: num('used'), estimate_used: 0, unknown: num('unknown') + num('reserved'), next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     ...(() => { try { return { marker: reviewPaths(ctx.cwd, ctx.env).marker, review_log: reviewPaths(ctx.cwd, ctx.env).reviewLog }; } catch { return {}; } })(),
-    ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}),
+    ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}), ...(b.meter_scope === 'tree' ? { meter_scope: 'tree' as const } : {}),
   };
   if (meter === 'estimate') l.estimate_used = 0;
   fs.mkdirSync(l.dir, { recursive: true, mode: 0o700 });

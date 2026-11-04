@@ -350,7 +350,7 @@ function writeDriver(dir: string): string {
   fs.writeFileSync(driver, `const M = await import(${JSON.stringify(LIB)});
 const job = JSON.parse(process.argv[2]);
 let out;
-if (job.fn === 'probeAside') out = M.probeAside(job.timeoutMs);
+if (job.fn === 'probeAside') out = M.probeAside(job.timeoutMs, job.platform);
 else if (job.fn === 'renderWithAside') out = await M.renderWithAside(job.spec);
 else if (job.fn === 'render') {
   if (job.primeAside) M.pickEngine(true, { probe: () => ({ ok: true, version: 'fake-aside' }) });
@@ -383,9 +383,9 @@ describe.skipIf(!HERMETIC)('aside-render: probeAside classifies a fake CLI the w
   let driver: string;
   beforeAll(() => { fs.mkdirSync(bin); driver = writeDriver(tmp); });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const probe = (env?: Record<string, string>): AsideProbe => {
+  const probe = (env?: Record<string, string>, platform = 'darwin'): AsideProbe => {
     fs.rmSync(log, { force: true });
-    return runDriver<AsideProbe>(driver, { fn: 'probeAside', timeoutMs: 5_000 }, { binDir: bin, env });
+    return runDriver<AsideProbe>(driver, { fn: 'probeAside', timeoutMs: 5_000, platform }, { binDir: bin, env });
   };
 
   test('no `aside` on PATH → NEEDS_ASIDE (install it), never "not running"', () => {
@@ -441,6 +441,23 @@ describe.skipIf(!HERMETIC)('aside-render: probeAside classifies a fake CLI the w
     expect(r.reason).toBe('NEEDS_ASIDE');
     expect(r.detail).toContain('GSTACK_SKIP_ASIDE=1');
     expect(fs.existsSync(log)).toBe(false);
+  });
+
+  test.each(['linux', 'win32'])('on %s → NEEDS_ASIDE naming the platform, and the CLI is never invoked, even when one is on PATH (#2864)', platform => {
+    writeFakeAside(bin, { repl: 'echo "ASIDE_READY /x"', log });
+    const r = probe(undefined, platform);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('NEEDS_ASIDE');
+    expect(r.detail).toBe(`Aside is macOS-only (this is ${platform})`);
+    expect(fs.existsSync(log)).toBe(false);
+  });
+
+  test('GSTACK_SKIP_ASIDE=1 keeps precedence over the platform check', () => {
+    const r = probe({ GSTACK_SKIP_ASIDE: '1' }, 'linux');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.detail).toContain('GSTACK_SKIP_ASIDE=1');
   });
 });
 
@@ -848,6 +865,51 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(readLines(log).filter((l) => l === 'newtab --json').length).toBe(2);
     expect(r.stdout).toContain('newtab: daemon not up yet — retrying once');
     expect(r.evals[0]).toBe('Fake Title');
+  });
+
+  // Value: protects=a lazy Capy install (Chromium skipped until first use) renders on the first call: Playwright's missing-browser launch
+  //   error runs the checkout's gstack-browser-ensure once and retries newtab; fails_when=the render stops on "browse newtab failed: [browse]
+  //   Starting server..." with the cause hidden; why_new=GST-1204 (gbrain-evals#317: gstack-pr-shots on a Capy machine); seam=bin/gstack-browser-ensure
+  const MISSING = "echo '[browse] Starting server...' >&2; echo '\u2554\u2550 Looks like Playwright was just installed or updated. \u2557' >&2; echo \"launch: Executable doesn't exist at /x/chrome-headless-shell\" >&2; exit 1";
+  const lazyCheckout = (ensureBody: string, installedNewtab = ''): { browse: string; ensureLog: string; marker: string } => {
+    const root = fs.mkdtempSync(path.join(tmp, 'lazy-'));
+    const dist = path.join(root, 'browse', 'dist');
+    fs.mkdirSync(dist, { recursive: true });
+    fs.mkdirSync(path.join(root, 'bin'));
+    const ensureLog = path.join(root, 'ensure.log');
+    const marker = path.join(root, 'chromium');
+    writeExecutable(path.join(root, 'bin', 'gstack-browser-ensure'), 'printf "%s\\n" "$*" >> ' + JSON.stringify(ensureLog) + '\n' + ensureBody.replace('MARKER', JSON.stringify(marker)) + '\n');
+    fs.rmSync(log, { force: true });
+    const browse = writeFakeBrowse(dist, log, { newtab: 'if [ ! -f ' + JSON.stringify(marker) + ' ]; then ' + MISSING + '; fi; ' + installedNewtab + ' echo \'{"tabId":7}\'' });
+    return { browse, ensureLog, marker };
+  };
+
+  test('a missing Playwright Chromium runs gstack-browser-ensure once, then the render proceeds', async () => {
+    const { browse, ensureLog } = lazyCheckout(": > MARKER; echo 'BROWSER_OK playwright 140.0'");
+    const r = await renderWithBrowse({ file: doc, steps: [{ kind: 'eval', expression: 'document.title' }] }, browse);
+    expectOk(r);
+    expect(readLines(ensureLog)).toEqual(['--quiet']);
+    expect(readLines(log).filter((l) => l === 'newtab --json').length).toBe(2);
+    expect(r.stdout).toContain('newtab: Chromium is not installed');
+  });
+
+  // Value: protects=a Chromium download longer than the render budget leaves the retried newtab its own time; fails_when=the retry runs on
+  //   the 1 s floor and the first render on a fresh machine times out; why_new=GST-1204 review (outside voice + adversarial P2); seam=deadline
+  test('the install time does not count against the render deadline', async () => {
+    const { browse, ensureLog } = lazyCheckout("sleep 3; : > MARKER", 'sleep 1.5;');
+    const r = await renderWithBrowse({ file: doc, timeoutMs: 2_500, steps: [{ kind: 'eval', expression: 'document.title' }] }, browse);
+    expectOk(r);
+    expect(readLines(ensureLog)).toEqual(['--quiet']);
+  }, 20_000);
+
+  test('when gstack-browser-ensure cannot install Chromium, the error names the launch failure, not the daemon banner', async () => {
+    const { browse, ensureLog } = lazyCheckout("echo 'BROWSER_UNAVAILABLE offline'; exit 1");
+    const r = await renderWithBrowse({ file: doc, steps: [] }, browse);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("browse newtab failed: launch: Executable doesn't exist");
+    expect(r.error).toContain('BROWSER_UNAVAILABLE offline');
+    expect(readLines(ensureLog).length).toBe(1);
+    expect(readLines(log).filter((l) => l === 'newtab --json').length).toBe(1);
   });
 
   test('any other newtab failure is not retried', async () => {

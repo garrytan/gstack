@@ -20,6 +20,14 @@ SHIP_RECEIPT: pr=<n> head=<sha12> version=- base=<BASE> tree=<tree> session_kind
 READY_RECEIPT: <path the tool wrote> (<local and notes-ref detail>)
 ```
 
+A wave PR (docs/ship-policy.md#wave-prs) adds two lines after `READY`, and the controller checks
+that every constituent named is one the wave was planned for:
+
+```text
+WAVE: <nonce> area=<area> branch=wave/<nonce> constituents=<k> integrator_commits=<i>
+CONSTITUENTS: #<n>@<sha12>,#<n>@<sha12>,... (heads frozen; fixes go on the wave branch)
+```
+
 Under `changelog_fragments` (docs/ship-policy.md#changelog-fragments) the PR's entry is a
 fragment, `changelog.d/<slug>.md`, never an `[Unreleased]` section or a version, and the
 controller merges with `train land` or `land`, so no slot call follows this block.
@@ -31,8 +39,16 @@ pin: <sha40>                      # the full head SHA, restated
 screen choice: <--no-screen: cases <ids> ran focused and passed | --screen: <reason>>
 flaky: <none | case, both run ids, logged in the ledger on <date>>
 review passes: <n> (deferred: <items filed as issues, or none>)
+Unverified: <none | each claim the lane did not check itself, and why>
 Head frozen from now on; a push drops this PR from any train and I will READY again.
 ```
+
+`Unverified:` is required. It lists every claim in the READY that the lane did not check
+itself: a local test that timed out, a paid run skipped, a number a model reported, a claim
+inherited from another thread, and a review finding set aside on an assumption nobody
+tested. `none` means the lane looked for each of these and found none. A missing line is
+asked for as a follow-up message: it never holds a PR out of a train, does not stale
+READYs sent before the line existed, and needs no new `ready` or /ship run.
 
 Optional lines a crew's rules file may require:
 

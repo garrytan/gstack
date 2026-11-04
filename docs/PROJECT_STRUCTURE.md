@@ -20,6 +20,7 @@ gstack/
 │   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
 │   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # IDE hosts
 │   ├── hermes.ts, gbrain.ts  # Agent runtime hosts
+│   ├── copilot.ts, agy.ts, gemini.ts  # GitHub Copilot CLI, Antigravity CLI, Gemini CLI
 │   └── index.ts     # Registry: exports all, derives Host type
 ├── scripts/         # Build + DX tooling
 │   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
@@ -61,6 +62,7 @@ gstack/
 ├── plan-eng-review/ # /plan-eng-review skill
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → DX → eng, eng always last)
 ├── benchmark/       # /benchmark skill (performance regression detection)
+├── runaway-stopper/ # /runaway-stopper skill (runaway thread/subagent detect, stop, rotate, prevent; bin/gstack-runaway, templates/)
 ├── ubicloud/        # /ubicloud skill (ephemeral Ubicloud VMs: TTL + reaper, quota preflight, watchdog, verify; bin/gstack-ubi)
 ├── canary/          # /canary skill (post-deploy monitoring loop)
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
@@ -93,7 +95,7 @@ gstack/
 │   ├── test/        # Integration tests
 │   └── dist/        # Compiled binary
 ├── agents-digest/   # Committed 2KB instruction-tier rules digest (gstack-AGENTS.md) for rules-reading hosts
-├── modules/         # loadouts.json (+ loadouts.schema.json): model rungs, pinned modules and named loadouts; read by scripts/modules.ts, rendered by bin/gstack-modules (docs/loadouts.md)
+├── modules/         # loadouts.json (+ loadouts.schema.json): model rungs, the model map, pinned modules and named loadouts; read by scripts/modules.ts and lib/model-detect.ts, rendered by bin/gstack-modules (docs/loadouts.md)
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering, Aside first, engine fallback; design-catalog.ts = the typed design anti-pattern catalog every design skill renders from; design-lint/ = the static and render tiers behind bin/gstack-design-lint, ported from hallmark's sloplint; design-detect-contract.ts = detector sentinel vocabulary; design-md.ts = open DESIGN.md reader/writer; dom-dump-script.ts + generated dom-dump.js = rendered-DOM dump for the detector; review-evidence.ts = review-start receipt binding, computed freshness and shared-code snapshot eligibility; frontend-scope.ts; claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
 │   └── diagram-render/  # Vendored mermaid + excalidraw runtimes, built into one offline bundle the renderer loads

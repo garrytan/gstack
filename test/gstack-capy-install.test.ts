@@ -50,7 +50,7 @@ function fixture(opts: { bun?: string; jq?: boolean } = {}) {
   const log = path.join(base, 'calls.log');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(stub, { recursive: true });
-  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh']) {
+  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-claude-root.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh']) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO, rel), path.join(root, rel));
     fs.chmodSync(path.join(root, rel), fs.statSync(path.join(REPO, rel)).mode);
@@ -154,6 +154,30 @@ describe('gstack-capy-install', () => {
     expect(run(f, ['--bogus']).status).toBe(2);
     expect(run(f, ['--for', 'qa', '--require', 'claude']).status).toBe(2);
     expect(run(f, ['--revision']).status).toBe(2);
+  });
+
+  // Value: protects=--project names the project the verdict and launch file are keyed to;
+  //   fails_when=a repo slug (owner/name) that is no directory silently keys the verdict to no project, so a later check reads a stale one;
+  //   why_new=GST-743, HARN-12 lost three pregate runs to it; seam=bin/gstack-capy-install --project; no_claim=resolving slugs
+  test('--project that is not a directory (a repo slug) is a usage error: exit 2, no setup, no verdict', () => {
+    const f = fixture();
+    const r = run(f, ['--for', 'ship', '--project', 'garrytan/harness-evals']);
+    expect([r.status, r.stderr.trim()]).toEqual([2, "gstack-capy-install: --project takes a directory path; 'garrytan/harness-evals' is not a directory (pass the project checkout's path, not a repo slug)"]);
+    expect(f.calls().filter(l => l.startsWith('setup') || l.startsWith('doctor '))).toEqual([]);
+    expect(fs.existsSync(path.join(f.home, '.gstack-state/install-verdicts'))).toBe(false);
+  });
+
+  // Value: protects=the installer keys the verdict by the project's git toplevel, the key pregate admission reads (lib/install-verdict.ts installProject);
+  //   fails_when=--project <repo>/<subdir> writes a verdict at the subdirectory's key, which admission never reads; seam=bin/gstack-capy-install --project
+  test('--project names a subdirectory: the verdict is keyed by its git toplevel, the same file --project <toplevel> writes', () => {
+    const f = fixture();
+    const project = path.join(f.base, 'proj');
+    fs.mkdirSync(path.join(project, 'packages/x'), { recursive: true });
+    sh('git init -q', project);
+    const verdictOf = (r: { stdout: string; status: number | null; stderr: string }) => { expect(r.status, r.stdout + r.stderr).toBe(0); return r.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1]!; };
+    const sub = verdictOf(run(f, ['--for', 'autoplan', '--project', path.join(project, 'packages/x')]));
+    expect(sub).toBe(verdictOf(run(f, ['--for', 'autoplan', '--project', project])));
+    expect(JSON.parse(fs.readFileSync(sub, 'utf8')).project).toBe(fs.realpathSync(project));
   });
 
   test('preflight: a missing tool stops with exit 3 and INSTALL_PREFLIGHT_FAILED before ./setup runs', () => {
@@ -382,6 +406,44 @@ describe('gstack-capy-install', () => {
     expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
   });
 
+  // GST-1233 (TRUT-26): the union above needs the same Bun and an ok run, so a child whose shell
+  // resolves another Bun, or whose install fails, still replaced the shared verdict and /ship's
+  // finish pregate reported INSTALL_UNVERIFIED. Each workflow keeps its own verdict as well.
+  test('--for ship then --for document-release with another Bun or a failed run: ship stays admitted; another HEAD invalidates both', () => {
+    const f = fixture();
+    const env = { HOME: f.home, GSTACK_HOME: path.join(f.home, '.gstack-state') };
+    const admits = (skill: string) => verdictProblem(skill, f.root, env, '', '1.4.2', f.home);
+    const ship = run(f, ['--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(ship.status, ship.stdout + ship.stderr).toBe(0);
+    const file = ship.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1]!;
+    const childBin = path.join(f.base, 'child-bin');
+    script(path.join(childBin, 'bun'), ['[ "$1" = --version ] && { echo 1.4.2; exit 0; }', 'exit 0']);
+    const docs = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', PATH: `${childBin}${path.delimiter}${f.env.PATH}` });
+    expect(docs.status, docs.stdout + docs.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', bun_path: path.join(childBin, 'bun') });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
+    const shipBun = JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path;
+    expect(shipBun).not.toBe(path.join(childBin, 'bun'));
+    const check = run(f, ['--check', '--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path).toBe(shipBun);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'ship', bun_path: shipBun });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
+    const failed = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', STUB_DOCTOR_FAIL: '1' });
+    expect(failed.status).not.toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', ok: false });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')?.detail).toContain('the install verdict says: gstack: fail');
+    sh('git -c user.email=t@t -c user.name=t commit -q --allow-empty -m next', f.root);
+    expect(admits('ship')?.detail).toMatch(/^the install verdict says: gstack: fail/);
+    const moved = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime' });
+    expect(moved.status, moved.stdout + moved.stderr).toBe(0);
+    expect(admits('document-release')).toBeNull();
+    expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
+  });
+
   test('--root clones when the directory is absent and refuses a non-gstack directory', () => {
     const f = fixture();
     const clone = path.join(f.base, 'clone');
@@ -524,6 +586,125 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     const plain = run(f, ['--for', 'autoplan']);
     expect(plain.status, plain.stdout + plain.stderr).toBe(0);
     expect(fs.readFileSync(launch, 'utf8')).not.toContain('GSTACK_PREFERENCES_FILE');
+  });
+
+  test('--model: Opus 5.5 gets the lite SKILL_ROOT and its own launch file; another model, a failed render and no --model keep the verdict and its launch file', () => {
+    const f = fixture();
+    script(path.join(f.root, 'bin/gstack-modules'), [
+      'echo "modules $*" >> "$CAPY_LOG"',
+      'model="${GSTACK_MODEL:-}" full=""; while [ $# -gt 0 ]; do case "$1" in --model) model="$2"; shift ;; --full-root) full="$2"; shift ;; esac; shift; done',
+      'case "$model" in',
+      '  claude-opus-5-5) mkdir -p "$HOME/lite-0123456789ab"; echo "LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=0123456789ab reused=no"; echo "SKILL_ROOT: $HOME/lite-0123456789ab" ;;',
+      '  broken) echo "boom" >&2; exit 1 ;;',
+      '  *) echo "LOADOUT: full model=none source=model-flag reason=unmapped"; echo "SKILL_ROOT: $full" ;;',
+      'esac',
+    ]);
+    const launchOf = (out: string) => out.match(/^GSTACK_LAUNCH_FILE: (.+)$/m)![1];
+    const opus = run(f, ['--for', 'ship', '--model', 'claude-opus-5-5']);
+    expect(opus.status, opus.stdout + opus.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('modules '))).toEqual([`modules install --model claude-opus-5-5 --full-root ${f.home}/.claude/skills`]);
+    expect(opus.stdout).toContain(`LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=0123456789ab reused=no\nSKILL_ROOT: ${f.home}/lite-0123456789ab\n`);
+    const [verdict] = verdicts(f);
+    const base = verdict.replace(/\.json$/, '.env');
+    const lite = launchOf(opus.stdout);
+    expect(lite).toBe(verdict.replace(/\.json$/, '.loadout-lite-0123456789ab.env'));
+    expect(fs.statSync(lite).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(lite, 'utf8')).toBe(fs.readFileSync(base, 'utf8') + `export GSTACK_LOADOUT_SKILL_ROOT='${f.home}/lite-0123456789ab'\n`);
+    expect(fs.readFileSync(base, 'utf8')).not.toContain('GSTACK_LOADOUT_SKILL_ROOT');
+    expect(lastLine(opus.stdout)).toMatch(/^gstack: ok 1\.2\.3 /);
+
+    const sonnet = run(f, ['--for', 'ship', '--model', 'claude-sonnet-5-5']);
+    expect(sonnet.status).toBe(0);
+    expect(sonnet.stdout).toContain(`LOADOUT: full model=none source=model-flag reason=unmapped\nSKILL_ROOT: ${f.home}/.claude/skills\n`);
+    expect(launchOf(sonnet.stdout)).toBe(base);
+    const broken = run(f, ['--for', 'ship', '--model', 'broken']);
+    expect(broken.stdout).toContain(`LOADOUT_FALLBACK: boom; serving full (docs/troubleshooting.md#loadout-fallback)\nLOADOUT: full model=none source=model-flag reason=render-failed\nSKILL_ROOT: ${f.home}/.claude/skills\n`);
+    expect(launchOf(broken.stdout)).toBe(base);
+    const plain = run(f, ['--for', 'ship']);
+    expect(plain.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
+    expect(launchOf(plain.stdout)).toBe(base);
+    const fromEnv = run(f, ['--for', 'ship'], { GSTACK_MODEL: 'claude-opus-5-5' });
+    expect(fromEnv.status, fromEnv.stdout + fromEnv.stderr).toBe(0);
+    expect(launchOf(fromEnv.stdout)).toBe(lite);
+    expect(f.calls().filter(l => l.startsWith('modules ')).at(-1)).toBe(`modules install --full-root ${f.home}/.claude/skills`);
+    expect(verdicts(f)).toEqual([verdict]);
+    expect(fs.existsSync(lite)).toBe(true);
+  });
+
+  test('with no --model and no GSTACK_MODEL, the agent_model in the session preferences file picks the loadout (GST-982); GSTACK_MODEL still wins and a host preference serves full', () => {
+    const f = fixture();
+    script(path.join(f.root, 'bin/gstack-modules'), [
+      'echo "modules $*" >> "$CAPY_LOG"',
+      'model="${GSTACK_MODEL:-}" full=""; while [ $# -gt 0 ]; do case "$1" in --model) model="$2"; shift ;; --full-root) full="$2"; shift ;; esac; shift; done',
+      'case "$model" in',
+      '  claude-opus-5-5) mkdir -p "$HOME/lite-0123456789ab"; echo "LOADOUT: lite model=claude-opus-5-5 source=model-flag digest=0123456789ab reused=no"; echo "SKILL_ROOT: $HOME/lite-0123456789ab" ;;',
+      '  *) echo "LOADOUT: full model=none source=GSTACK_MODEL reason=unmapped"; echo "SKILL_ROOT: $full" ;;',
+      'esac',
+    ]);
+    script(path.join(f.root, 'bin/gstack-models'), [
+      'echo "models $* prefs=${GSTACK_PREFERENCES_FILE:-}" >> "$CAPY_LOG"',
+      '[ -z "${FAKE_BAD_MODEL:-}" ] || { echo "agent: agent_model $FAKE_BAD_MODEL is not a model"; exit 1; }',
+      '[ -z "${FAKE_CONFIG_MODEL:-}" ] || { echo "agent: anthropic/$FAKE_CONFIG_MODEL (opus) - from agent_model in $HOME/.gstack/config.yaml, this machine"; exit 0; }',
+      'case "$(sed -n "s/^agent_model: *//p" "${GSTACK_PREFERENCES_FILE:-/dev/null}" 2>/dev/null)" in',
+      '  opus) echo "agent: anthropic/claude-opus-5-5 (opus) - from agent_model in $GSTACK_PREFERENCES_FILE, the preferences file" ;;',
+      '  *) echo "agent: host - keep the running agent\'s own model and omit the model field (no preference set)" ;;',
+      'esac',
+    ]);
+    const prefs = path.join(f.home, 'drive-skill/preferences.yaml');
+    write(prefs, 'agent_model: opus\n');
+    const launchOf = (out: string) => out.match(/^GSTACK_LAUNCH_FILE: (.+)$/m)![1];
+    const opus = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs });
+    expect(opus.status, opus.stdout + opus.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('modules '))).toEqual([`modules install --model claude-opus-5-5 --full-root ${f.home}/.claude/skills`]);
+    expect(opus.stdout).toContain(`LOADOUT: lite model=claude-opus-5-5 source=preferences digest=0123456789ab reused=no\nSKILL_ROOT: ${f.home}/lite-0123456789ab\n`);
+    expect(launchOf(opus.stdout)).toBe(verdicts(f)[0].replace(/\.json$/, '.loadout-lite-0123456789ab.env'));
+    expect(opus.stdout).toContain("LOADOUT_ASSUMED: model=claude-opus-5-5 is the owner's agent_model (preferences), not read from the session; a session on another model sets GSTACK_MODEL=<its id>\n");
+
+    const config = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, FAKE_CONFIG_MODEL: 'claude-opus-5-5' });
+    expect(config.status, config.stdout + config.stderr).toBe(0);
+    expect(config.stdout).toContain('LOADOUT: lite model=claude-opus-5-5 source=config digest=0123456789ab');
+    expect(config.stdout).toContain("is the owner's agent_model (config)");
+
+    const modulesBefore = f.calls().filter(l => l.startsWith('modules ')).length;
+    for (const evalEnv of [{ GSTACK_EVAL_DIR: path.join(f.home, 'evals') }, { EVALS_RUN_ID: 'r1' }] as Record<string, string>[]) {
+      const ev = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, ...evalEnv });
+      expect(ev.status, ev.stdout + ev.stderr).toBe(0);
+      expect(ev.stdout).not.toMatch(/^(LOADOUT|LOADOUT_ASSUMED|SKILL_ROOT):/m);
+    }
+    expect(f.calls().filter(l => l.startsWith('modules ')).length).toBe(modulesBefore);
+
+    const bad = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, FAKE_BAD_MODEL: 'gpt-6.1-sol' });
+    expect(bad.status, bad.stdout + bad.stderr).toBe(0);
+    expect(bad.stdout).toContain('LOADOUT_FALLBACK: agent_model unreadable: agent: agent_model gpt-6.1-sol is not a model; serving full (docs/troubleshooting.md#loadout-fallback)\n');
+    expect(bad.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
+    expect(launchOf(bad.stdout)).toBe(verdicts(f)[0].replace(/\.json$/, '.env'));
+    expect(f.calls().filter(l => l.startsWith('modules ')).length).toBe(modulesBefore);
+
+    const env = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs, GSTACK_MODEL: 'claude-sonnet-5-5' });
+    expect(env.status, env.stdout + env.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('modules ')).at(-1)).toBe(`modules install --full-root ${f.home}/.claude/skills`);
+    expect(env.stdout).toContain('LOADOUT: full model=none source=GSTACK_MODEL reason=unmapped\n');
+
+    write(prefs, 'agent_model: host\n');
+    const host = run(f, ['--for', 'ship'], { GSTACK_PREFERENCES_FILE: prefs });
+    expect(host.status, host.stdout + host.stderr).toBe(0);
+    expect(host.stdout).not.toMatch(/^(LOADOUT|SKILL_ROOT):/m);
+    expect(launchOf(host.stdout)).toBe(verdicts(f)[0].replace(/\.json$/, '.env'));
+  });
+
+  test('the first line of gstack-models resolve --role agent keeps the provider/model shape the installer reads (GST-982)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst982-'));
+    try {
+      for (const [pref, want] of [['opus', /^agent: anthropic\/claude-opus-[0-9a-z.-]+ \(opus\) /], ['host', /^agent: host /]] as const) {
+        const file = path.join(dir, `${pref}.yaml`);
+        fs.writeFileSync(file, `agent_model: ${pref}\n`);
+        const out = spawnSync(path.join(REPO, 'bin/gstack-models'), ['resolve', '--role', 'agent'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_PREFERENCES_FILE: file, GSTACK_STATE_ROOT: dir, GSTACK_HOME: dir } });
+        expect(out.status, out.stderr).toBe(0);
+        expect(out.stdout.split('\n')[0]).toMatch(want);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('the verdict file records checkout, HEAD, workflow, trailer and the Bun resolution, keyed by checkout and project; --check certifies without setup or downloads', () => {
