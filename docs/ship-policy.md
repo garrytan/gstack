@@ -1483,10 +1483,10 @@ fix chosen by where the policy stands; a `git diff` that fails or runs past
 [`REVIEW_DIFF_UNREADABLE`](troubleshooting.md#review-diff-unreadable), exit 1.
 There is no override flag: the recovery is a policy PR on the base, or a split.
 
-<a id="review-scope"></a>
+<a id="readers"></a>
 ## `readers`: what reviewers may not fetch or open
 
-Since the release that added it (`READERS_KEY_VERSION` in `lib/ship-policy.ts`).
+Since the release that added it (`READERS_KEY_VERSION` in `lib/ship-policy-keys.ts`).
 Every reader brief already carries the fetch rule. It says to review only this
 checkout and its local git history, and never to clone, fetch or download another
 repository, dataset or archive ([review-policy.md](review-policy.md#what-readers-may-fetch)).
@@ -1517,6 +1517,7 @@ out of its review, and its text would reach every brief. A directory pattern
 only)` or `READERS: forbid_fetch=<n> forbid_paths=<n> note=yes|no head_added=<n>
 digest=<d>`, and every brief's ledger event records the digest.
 
+<a id="review-scope"></a>
 ## `review_scope`: how the review loop converges
 
 Since the release that added `review_scope` (`REVIEW_SCOPE_KEY_VERSION` in
