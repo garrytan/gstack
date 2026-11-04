@@ -5252,8 +5252,8 @@ version has no tag yet.
 than a clean checkout of `origin/<base>`, or the base policy has no
 `changelog_fragments`. Or `land --pin` (or the Version Gate) was given a
 `release/<version>` head that is more than the release stamp of its merge base:
-it changes a file outside the stamp, skips or adds a fragment, or carries a
-version other than the base's plus the fragments' bump. Nothing was written or
+it changes a file outside the stamp, deletes a release output, skips or adds a
+fragment, or carries a version other than the base's plus the fragments' bump. Nothing was written or
 merged.
 
 **Fix.** Close the bad release PR and run `gstack-release-stamp open` again.
