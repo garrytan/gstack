@@ -905,7 +905,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(freezeOf(fx).cleared_by).toBe(`repair #8; backstop 503 green on ${green.sha}`);
   }, 180_000);
 
-  test('no clear without the evidence: a green gate on a main that is not at or after the freeze main, or with the repair\'s land note missing, leaves the freeze active; a leftover train freeze frees a spent land repair too', () => {
+  test('no clear without the evidence: a green gate on a main that is not at or after the freeze main, or with the repair\'s land note missing, leaves the freeze active; a leftover train freeze frees a spent land repair too and clears on its successor\'s green', () => {
     const fx = setup(DIRECT_TRAIN);
     const orphan = fx.repo.git('commit-tree', fx.repo.git('rev-parse', 'origin/main^{tree}'), '-m', 'a main this history never had');
     freezeMain(fx, { main: { sha: orphan, tree: fx.repo.git('rev-parse', orphan + '^{tree}') } });
@@ -920,6 +920,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     moveMain(fy, 'hand.txt', 'merged without land\n');
     const g2 = backstopOn(fy, 'success', 602);
     expect(g2.lines.join('\n')).toContain('repair #9 has no land note');
+    expect(g2.lines.join('\n')).toContain('gate this main again with gh run rerun <this backstop run> -R fixture/repo');
     expect(freezeOf(fy).cleared_at).toBeNull();
     const fz = setup(DIRECT_TRAIN);
     freezeMain(fz, { train: 'gate.train-old', backstop: null });
@@ -928,5 +929,9 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(backstopOn(fz, 'failure', 603).action).toBe('frozen');
     expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', repair: null, cleared_at: null });
     expect(freezeOf(fz).reason).toContain('repair #3 did not turn main green');
+    const pin4 = openPr(fz, '4');
+    expect(land(fz, '4', pin4, ['--repair']).status).toBe(EXIT.ok);
+    const g3 = backstopOn(fz, 'success', 604);
+    expect(freezeOf(fz)).toMatchObject({ train: 'gate.train-old', cleared_by: `repair #4; backstop 604 green on ${g3.sha}` });
   }, 180_000);
 });

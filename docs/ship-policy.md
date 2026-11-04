@@ -2113,7 +2113,9 @@ trains. So the repair goes through land:
    When that main contains the admitted repair's merge and the gate concluded
    `failure`, the repair is spent: the slot is freed for the next `--repair`. A
    gate that never judged it (no run, cancelled, past the deadline) keeps the
-   slot and says so in the reason. Both steps re-read the notes ref after
+   slot and says so in the reason. Main doesn't move while frozen, so both
+   lines name `gh run rerun <backstop run id>` to gate the same commit again
+   once the cause is fixed. Both steps re-read the notes ref after
    the gate finishes, so a repair recorded while an earlier commit's gate ran
    is kept, and a freeze the notes fetch can't confirm is never rewritten.
 

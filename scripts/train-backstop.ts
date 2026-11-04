@@ -171,6 +171,9 @@ export function runBackstop(o: BackstopOptions): { action: BackstopAction; lines
   return freeze(o, { gh, git, repoKey, nonce, run }, lines);
 }
 
+/** Main does not move while frozen, so rerunning this backstop run gates the same commit again (the workflow has no other trigger than a push). */
+const rerunCommand = (o: BackstopOptions) => `gh run rerun ${process.env.GITHUB_RUN_ID ?? '<this backstop run>'} -R ${o.repo}`;
+
 /** The land note of a merge: direct freeze's admitted repair (gstack-ship-queue land --pin --repair), when main contains its merge. */
 function repairIn(o: BackstopOptions, git: Git, repoKey: string, f: FreezeRecord): { merge_sha: string } | string {
   const r = f.repair;
@@ -190,7 +193,7 @@ function clearOnGreen(o: BackstopOptions, c: { git: Git; repoKey: string; run: R
   fetchNotes(o.repoRoot);
   const f = noteRecords<FreezeRecord>(c.git, 'freeze', c.repoKey).find(r => !r.cleared_at);
   if (!f) return { action: 'gated', lines };
-  const stands = (why: string) => { lines.push(`BACKSTOP: green, but the freeze stands: ${why} (docs/troubleshooting.md#backstop-freeze-stands)`); return { action: 'gated' as const, lines }; };
+  const stands = (why: string) => { lines.push(`BACKSTOP: green, but the freeze stands: ${why}; once that is fixed, gate this main again with ${rerunCommand(o)} (docs/troubleshooting.md#backstop-freeze-stands)`); return { action: 'gated' as const, lines }; };
   if (!c.git(['merge-base', '--is-ancestor', f.main.sha, o.sha]).ok) return stands(`main ${o.sha.slice(0, 12)} is not at or after the freeze main ${f.main.sha.slice(0, 12)}`);
   const repair = repairIn(o, c.git, c.repoKey, f);
   if (typeof repair === 'string') return stands(repair);
@@ -217,7 +220,7 @@ function freeze(o: BackstopOptions, c: { gh: GhRunner; git: Git; repoKey: string
     const judged = c.run?.status === 'completed' && c.run.conclusion === 'failure';
     const verdict = typeof repair === 'string' ? '' : judged
       ? `; repair #${active.repair!.pr} did not turn main green, so its admission is spent: land the next repair with land --pin --repair`
-      : `; repair #${active.repair!.pr} was not judged (${runText}), so its admission stands: rerun the backstop on this main`;
+      : `; repair #${active.repair!.pr} was not judged (${runText}), so its admission stands: gate this main again with ${rerunCommand(o)}`;
     const issue = (active as { issue?: string | null }).issue;
     active.reason = `backstop red on main ${o.sha.slice(0, 12)}: ${cases}; ${runText}${verdict}; frozen since main ${active.main.sha.slice(0, 12)}; fix: land the revert or fix-forward${issue ? ` (${issue})` : ''}`;
     if (verdict && judged) active.repair = null;

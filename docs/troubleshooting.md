@@ -5660,9 +5660,12 @@ that merge, or main isn't at or after the freeze's main. A repair train's
 freeze clears through its verify instead.
 
 **Fix.** Land the repair with `gstack-ship-queue land --pr <n> --pin <sha>
---repair`. A repair merged by hand gets its `land` note when you rerun that
-command, which goes straight to the tree check; the next backstop then judges
-it. Nothing else clears the freeze.
+--repair`. A repair that merged at its recorded pin but has no `land` note (the
+post-merge tree check could not finish) gets the note when you rerun that
+command, which goes straight to the tree check. Main doesn't move while
+frozen, and the backstop runs only on a push, so then gate the same commit
+again with the command the line names: `gh run rerun <backstop run id> -R
+<owner/repo>`. Nothing else clears the freeze.
 
 <a id="backstop-red-frozen"></a>
 ### `BACKSTOP: red, and the queue is already frozen`
@@ -5672,8 +5675,9 @@ freeze it rewrites the reason with this red run and keeps `frozen since main
 <sha>`. When main contains the admitted repair's merge and the gate concluded
 `failure`, the reason adds `repair #<n> did not turn main green` and the repair
 slot is freed. A gate that never judged it (no run, cancelled, past the
-deadline) adds `repair #<n> was not judged` and keeps the slot: rerun the
-backstop on that main.
+deadline) adds `repair #<n> was not judged` and keeps the slot: gate that main
+again with `gh run rerun <backstop run id> -R <owner/repo>`, as the reason
+says.
 
 **Fix.** Land the next repair (revert or fix-forward) with `land --pin
 --repair`.
