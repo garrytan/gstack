@@ -180,6 +180,7 @@ const USAGE = [
   'gstack-runaway — find runaway Capy threads and subagents (read-only; /runaway-stopper)',
   '  scan --thread <thread.get json> [--events <transcript json>] [--subagents <subagent.list json>] [--now <iso>]',
   '  scan --dir <dir> [--now <iso>]   reads every <code>.thread.json with its <code>.events.json and <code>.subagents.json',
+  '  and <dir>/crew.json (the thread.list codes, {"items": [...]}): an empty crew list is RUNAWAY_INPUT, never a clean SWEEP.',
   'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT, DEFER, SWEEP (--dir).',
   'Review rounds count only subagent titles that name the PR (#N); the rest show as unattributed.',
   'Limits (R70): own > 500M or active > 3d rotate (warn 400M); subagent > 100M stop (LOOK when it already ended);',
@@ -217,6 +218,16 @@ export function runawayMain(argv: string[]): number {
   for (const s of sets) for (const f of [s.thread, s.events, s.subagents]) if (f && !fs.existsSync(f)) return fail('no file ' + f);
   const verdicts: Verdict[] = [];
   let unreadable = 0;
+  const crewFile = dir ? path.join(dir, 'crew.json') : undefined;
+  if (crewFile && fs.existsSync(crewFile)) {
+    let problem: string | null = null;
+    try {
+      const items = (readJson(crewFile) as { items?: unknown })?.items;
+      if (!Array.isArray(items)) problem = 'field=items expected=array of thread codes';
+      else if (!items.length) problem = 'the crew list is empty; a thread outside every crew lists none, so pass thread.list captain: "<Captain code>"';
+    } catch (e) { problem = (e instanceof Error ? e.message : String(e)).split('\n')[0]!; }
+    if (problem) { unreadable++; console.log('RUNAWAY_INPUT: file=' + crewFile + ' ' + problem); }
+  }
   for (const s of sets) {
     let file = s.thread;
     try {
