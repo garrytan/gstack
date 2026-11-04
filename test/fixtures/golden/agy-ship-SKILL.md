@@ -689,7 +689,7 @@ Its `STOP:` names the route:
    Insert `5–11.5 → 12–14 → 16` before the pending Step 17. It excludes Step 14.5 (a rebuild
    can change generated docs; compare before stage 3) and Step 15 (`finish` STOPs on an uncommitted
    non-release file: commit it by Step 15's rules, then rerun). A STOP naming a scoped-review packet
-   instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.
+   instead takes one reader (no round) and `--context-reviewed` rerun; a blocker is this item.
 2. **Only authored docs or release metadata changed:** Keep Step 8's original child
    report and counts. Recheck affected plan items using their recorded verification
    and append current evidence to the invocation record. If a classification is no

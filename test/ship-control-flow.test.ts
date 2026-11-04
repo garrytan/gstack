@@ -343,7 +343,7 @@ describe('ship source controller', () => {
   //   STOP to the full loop or stage 3 offers only a re-audit or a named risk (GST-444); seam=none; no_claim=the bins' own STOP text
   test('Step 16 routes the scoped-review STOP and the --docs-requested fix (GST-444)', () => {
     const behavior = gate.slice(gate.indexOf('1. **Behavior'), gate.indexOf('2. **Only authored'));
-    expect(behavior).toContain('A STOP naming a scoped-review packet instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.');
+    expect(behavior).toContain('A STOP naming a scoped-review packet instead takes one reader (no round) and `--context-reviewed` rerun; a blocker is this item.');
     const docs = gate.slice(gate.indexOf('### 3.'), gate.indexOf('### 4.'));
     expect(docs).toContain('**A fix the audit\'s result named:** rerun finish with `--docs-requested <path> --docs-result <json>`.');
   });
