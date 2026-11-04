@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { LAND_KEY_VERSION, MERGE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
@@ -51,6 +52,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
+    "  try{d.lockAtMerge=JSON.parse(g('show','refs/notes/gstack-land:lock.json'))}catch{}",
     "  let main=g('rev-parse','refs/heads/main');if(d.raceMain){main=g('commit-tree',g('rev-parse',main+'^{tree}'),'-p',main,'-m','landed during the check');g('update-ref','refs/heads/main',main)}",
     "  let tree=g('merge-tree','--write-tree',main,want).split('\\n')[0];",
     "  if(d.strayOnMerge){tree=g('rev-parse',main+'^{tree}')}",
@@ -140,17 +142,16 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     const red = openPr(fx, '8', { edit: w => fs.writeFileSync(path.join(w, 'budget.md'), 'pr line\n') });
     const green = openPr(fx, '82');
     const moved = moveMain(fx, 'other.txt', 'other\n');
-    const r = land(fx, '8', red);
+    const r = land(fx, '8', red, ['--allow-repo-commands']);
     expect(r.status).not.toBe(EXIT.ok);
     expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
     expect(r.err).toContain(moved.slice(0, 12));
     expect(r.err).toContain('budget.md over its cap');
     expect(fx.read().mergeArgs).toBeUndefined();
     expect(remote(fx, 'main')).toBe(moved);
-    expect(land(fx, '8', red, ['--dry-run']).err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
 
     const want = fx.repo.git('merge-tree', '--write-tree', moved, green);
-    const ok = land(fx, '82', green);
+    const ok = land(fx, '82', green, ['--allow-repo-commands']);
     expect(ok.err).toBe('');
     expect(ok.status).toBe(EXIT.ok);
     expect(ok.out).toContain(`MERGED_CHECKS: pass tree=${want} base=${moved} pin=${green.slice(0, 12)} checks: test -e other.txt && ls pr-*.txt >/dev/null; `);
@@ -158,7 +159,7 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
     expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(want);
     expect(landNotes(fx)).toHaveLength(1);
-    const again = land(fx, '82', green);
+    const again = land(fx, '82', green, ['--allow-repo-commands']);
     expect(again.err).toBe('');
     expect(again.status).toBe(EXIT.ok);
     expect(again.out).toContain(`MERGED_CHECKS: pass tree=${want} base=${moved} (after the merge`);
@@ -178,20 +179,64 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
     expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(fx.repo.git('merge-tree', '--write-tree', moved, pin));
     expect(landNotes(fx)).toHaveLength(1);
+    const again = land(fx, '84', pin);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toContain('already merged');
+    expect(again.out).toContain('no land.merged_checks configured, so the rerun checks the tree only');
+    expect(again.out).toMatch(/^LANDED: /m);
+  }, 90_000);
+
+  test('land.merged_checks are repo commands: refused without --allow-repo-commands, skipped under --dry-run, not run when GitHub is not clean, and run with a scrubbed environment under the land lock', () => {
+    const marker = path.join(os.tmpdir(), `gstack-land-marker-${process.pid}-${Date.now()}`);
+    const fx = setup({ ...POLICY, land: { merged_checks: [`echo "${'$'}HOME|${'$'}{GH_TOKEN-}|${'$'}{LAND_SHIM_DATA-}" > ${marker}`] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '87');
+      moveMain(fx, 'other.txt', 'other\n');
+      fx.env.GH_TOKEN = 'sekrit-land-token';
+      const no = land(fx, '87', pin);
+      expect(no.status).not.toBe(EXIT.ok);
+      expect(no.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fx.read().mergeArgs).toBeUndefined();
+
+      const dry = land(fx, '87', pin, ['--dry-run', '--allow-repo-commands']);
+      expect(dry.err).toBe('');
+      expect(dry.status).toBe(EXIT.ok);
+      expect(dry.out).toContain('DRY-RUN: land.merged_checks not run');
+      expect(fs.existsSync(marker)).toBe(false);
+
+      fx.write(d => { d.prs['87'].mergeStateStatus = 'BLOCKED'; });
+      const blocked = land(fx, '87', pin, ['--allow-repo-commands']);
+      expect(blocked.err).toContain('(QUEUE_LAND_NOT_CLEAN)');
+      expect(fs.existsSync(marker)).toBe(false);
+      fx.write(d => { d.prs['87'].mergeStateStatus = 'CLEAN'; });
+
+      const ok = land(fx, '87', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      const [home, token, shim] = fs.readFileSync(marker, 'utf8').trim().split('|');
+      expect(home).not.toBe(process.env.HOME);
+      expect(home).not.toBe('');
+      expect(token).toBe('');
+      expect(shim).toBe('');
+      expect(fx.read().lockAtMerge).toMatchObject({ pr: '87', phase: 'merging' });
+      expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'))).toMatchObject({ released: true });
+    } finally { fs.rmSync(marker, { force: true }); }
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
     const fx = setup(CHECKED);
     const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });
     const moved = moveMain(fx, 'other.txt', 'main\n');
-    const r = land(fx, '83', pin);
+    const r = land(fx, '83', pin, ['--allow-repo-commands']);
     expect(r.status).not.toBe(EXIT.ok);
     expect(r.err).toContain('(QUEUE_LAND_NOT_CLEAN)');
     expect(r.err).toContain('conflicts with ' + moved.slice(0, 12) + ' in other.txt');
     expect(fx.read().mergeArgs).toBeUndefined();
   }, 90_000);
 
-  test('main moved between the stale-base check and GitHub\'s merge: land reports QUEUE_LAND_UNVERIFIED and writes no land note, and so does a rerun', () => {
+  test('main moved between the stale-base check and GitHub\'s merge: land reports QUEUE_LAND_UNVERIFIED and writes no land note; with no land.merged_checks a rerun cannot tell which base land checked, so it checks the tree only', () => {
     const fx = setup();
     const pin = openPr(fx, '81');
     fx.write(d => { d.raceMain = true; });
@@ -202,8 +247,8 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(landNotes(fx)).toEqual([]);
     const again = land(fx, '81', pin);
     expect(again.out).toContain('already merged');
-    expect(again.err).toContain('(QUEUE_LAND_UNVERIFIED)');
-    expect(landNotes(fx)).toEqual([]);
+    expect(again.out).toContain('so the rerun checks the tree only');
+    expect(again.status).toBe(EXIT.ok);
   }, 90_000);
 
   test('a rerun after GitHub merged the PR goes straight to the tree check and lands', () => {
@@ -457,6 +502,11 @@ describe('merge: direct | train', () => {
     const slow = run(["trap 'exit 0' TERM; sleep 5; exit 1"], 500);
     expect(slow.ok).toBe(false);
     if (!slow.ok) expect(slow.detail).toContain('did not finish');
+    const pidFile = path.join(fx.repo.root, 'grandchild.pid');
+    const orphan = run([`sleep 30 & echo $! > ${pidFile}; wait`], 500);
+    expect(orphan.ok).toBe(false);
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    expect(alive(Number(fs.readFileSync(pidFile, 'utf8').trim()))).toBe(false);
     const rewrite = run(['echo fixed > pr-86.txt', 'test "$(cat pr-86.txt)" = fixed']);
     expect(rewrite.ok).toBe(false);
     if (!rewrite.ok) expect(rewrite.detail).toContain('changed tracked files');

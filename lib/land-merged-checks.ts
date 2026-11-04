@@ -2,7 +2,10 @@
  * The `land` block of .gstack/ship-policy.json and its merged-tree run (docs/ship-policy.md#land-direct, GST-1316).
  * When the base moved past a pin's merge base, `gstack-ship-queue land --pin` builds the pin merged onto the base
  * tip in a throwaway worktree and runs `land.merged_checks` there; it lands only when every command passes. A
- * conflict or a failing command refuses; with no key, land warns and merges as before. Validated here so lib/ship-policy.ts stays one schema file.
+ * conflict or a failing command refuses; with no key, land warns and merges as before. The commands are repo commands
+ * (the merged tree's package.json decides what `bun run` does), so they run only under --allow-repo-commands, never
+ * under --dry-run, with an environment that keeps PATH and locale only and a throwaway HOME. Validated here so
+ * lib/ship-policy.ts stays one schema file.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -22,8 +25,9 @@ export interface LandPolicy {
 }
 
 const MAX_CHECKS = 16, MAX_COMMAND = 512, CHECK_TIMEOUT_MS = 900_000;
+const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'];
 
-export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). null lands a stale base unchecked with a STALE_BASE: warn line.';
+export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line.';
 
 export function landPolicyErrors(raw: unknown): PolicyError[] {
   const l = raw as Record<string, unknown> | null;
@@ -40,12 +44,15 @@ export function landPolicyErrors(raw: unknown): PolicyError[] {
 
 export type MergedRun = { ok: true; tree: string } | { ok: false; conflict: boolean; tree?: string; detail: string };
 
-/** Run `checks` on a throwaway commit of `pin` merged onto `base` (HEAD is that commit), in a worktree of `root` that is always removed; a check that does not finish, or that changes a tracked file, fails. */
+/** Run `checks` on a throwaway commit of `pin` merged onto `base` (HEAD is that commit), in a worktree of `root` that is always removed, with a scrubbed environment; a check that does not finish (its whole process group is killed), or that changes a tracked file, fails. */
 export function runMergedChecks(root: string, base: string, pin: string, checks: string[], timeoutMs = CHECK_TIMEOUT_MS): MergedRun {
   const mt = git(root, ['merge-tree', '--write-tree', '--name-only', base, pin]);
   const [tree = '', ...rest] = mt.out.split('\n');
   if (!mt.ok) return { ok: false, conflict: mt.status === 1, detail: mt.status === 1 ? `the pin conflicts with ${base.slice(0, 12)} in ${rest.slice(0, rest.indexOf('') < 0 ? undefined : rest.indexOf('')).join(', ') || 'files git did not name'}` : `git merge-tree failed: ${mt.err.split('\n')[0]}` };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-merged-'));
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-merged-'));
+  const dir = path.join(scratch, 'tree'), home = path.join(scratch, 'home');
+  fs.mkdirSync(home);
+  const env: NodeJS.ProcessEnv = { HOME: home, ...Object.fromEntries(KEPT_ENV.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]])) };
   try {
     const who = { GIT_AUTHOR_NAME: 'gstack land', GIT_AUTHOR_EMAIL: 'land@gstack.invalid', GIT_COMMITTER_NAME: 'gstack land', GIT_COMMITTER_EMAIL: 'land@gstack.invalid' };
     const commit = git(root, ['commit-tree', tree, '-p', base, '-p', pin, '-m', 'gstack land: merged-tree check'], { ...process.env, ...who });
@@ -54,7 +61,10 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     const deps = path.join(root, 'node_modules');
     if (fs.existsSync(deps) && !fs.existsSync(path.join(dir, 'node_modules'))) fs.symlinkSync(deps, path.join(dir, 'node_modules'));
     for (const cmd of checks) {
-      const r = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+      const group = process.platform !== 'win32';
+      const opts = { cwd: dir, env, encoding: 'utf8' as const, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, detached: group };
+      const r = spawnSync('sh', ['-c', cmd], opts);
+      if (group && r.pid) try { process.kill(-r.pid, 'SIGKILL'); } catch {}
       if (r.status === 0 && !r.error) continue;
       const tail = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.trim().split('\n').slice(-6).join('\n');
       return { ok: false, conflict: false, tree, detail: `\`${cmd}\` ${r.error ? `did not finish (${r.error.message})` : `exited ${r.status ?? r.signal}`} on the merged tree ${tree.slice(0, 12)}${tail ? `:\n${tail}` : ''}` };
@@ -64,6 +74,6 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     return { ok: true, tree };
   } finally {
     git(root, ['worktree', 'remove', '--force', dir]);
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(scratch, { recursive: true, force: true });
   }
 }
