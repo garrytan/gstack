@@ -796,7 +796,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
    unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass, none), a
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
-   `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), and the fork
+   `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), `--voices`
+   keeps only the plan's voices for Step 11 on its own `--out` (it takes no `--extras`, and a
+   reviewer pass refuses to resume that manifest, GST-1368), and the fork
    point is found against `origin/<base>` first, as preflight does.
 7. Every brief, audit readers' included, opens with a fingerprint step and ends with a
    workspace paragraph naming the checkout the bins run in (GST-482): a reader on a shared
