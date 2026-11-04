@@ -334,11 +334,11 @@ act on each `STOP:` and `NEXT:` line.
 
 4. **Carry check.** An open PR prints `PR: #<n>` and its `gstack-ship-receipt carry --pr <n> --base <base> --dry-run` line.
    `CARRY: would carry` (base merge committed, same product patch-id): skip review and Step 14.5,
-   fix what it broke (CHANGELOG, size caps), commit and push with
-   `gstack-ship-release push`, run `gstack-pregate --allow-repo-commands`, then carry without
+   fix what it broke (CHANGELOG, size caps), commit, run `gstack-pregate --allow-repo-commands`,
+   push (`gstack-ship-release push --branch <branch-name>`), then carry without
    `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and ends
    the run with its `GSTACK_RESULT:` line. A failed check, HEAD moving after pregate, `current`, or `refused` with no
-   `NEXT: carry route` re-runs Steps 2–16. Steps 17–21 then publish as usual.
+   `NEXT: carry route` re-runs Steps 2–16. Steps 17–21 then publish.
 
 5. Display historical readiness using the dashboard below, then finish Step 1.
    Prior CLEAR reviews or dashboard skips never replace Step 9's gates.
@@ -674,7 +674,7 @@ files and CI. Pass each to `finish` as `--build`. If none exists, record not app
 the inspected sources. A missing prerequisite or failed build stops shipping:
 report **Build failed or prerequisite missing**, with the command, error and needed
 repair. Never invent a substitute command.
-**If blocked:** repair it, repeat stage 1, then continue to stage 2: a content repair is behavior there.
+**If blocked:** repair it and repeat stage 1; at stage 2 a content repair is behavior.
 
 ### 2. Choose the change route
 
