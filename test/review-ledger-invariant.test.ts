@@ -12,6 +12,18 @@ const LEAD = new RegExp(`(?:^|\\| )[^\\p{L}\\p{N}]*(?:\\d+[.)]\\s*[^\\p{L}\\p{N}
 const HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(?:${LABELS})\\b`, 'm');
 const LABEL = new RegExp(`${LABELS}`, 'gi');
 const LEAD_NO_FIXABLE = new RegExp(LEAD.source.replace('|FIXABLE|INVESTIGATE', ''), 'u');
+/**
+ * GST-435: a reader's own no-defect closing sentence is no finding at the label it denies, so these pinned inputs collect fewer or
+ * weaker records than main; each is held to its exact new labels on both classes. Every other input keeps main as its floor.
+ */
+const NO_DEFECT_SUMMARIES: Record<string, string[]> = {
+  'Nothing CRITICAL or HIGH remains.': [], 'No **CRITICAL** issues found.': [], 'No `CRITICAL` issue.': [], 'Nothing at CRITICAL severity remains.': [],
+  'Nothing CRITICAL to report.': [], 'No CRITICAL/HIGH findings.': [], 'No P0/P1 issues.': [], 'No CRITICAL, HIGH or MEDIUM issues.': [],
+  'There are no CRITICAL findings.': [], 'No CRITICAL or High findings to report.': [],
+  'I found nothing CRITICAL.': [], "So there's nothing at CRITICAL.": [], 'Neither finding is CRITICAL.': [], 'Nothing here is CRITICAL.': [], 'Neither fix is CRITICAL.': [],
+  'Nothing in this diff is CRITICAL.': [], 'review-ledger/geva-77-fix-check.txt': Array(3).fill('INFORMATIONAL'),
+  'review-ledger/harn15-ship2-p2-red-team.txt': Array(4).fill('INFORMATIONAL'), 'review-ledger/harn15-ship2-p2-fix-check.txt': Array(5).fill('INFORMATIONAL'),
+};
 
 describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
   // Value: protects=no input the suite pins, no reader fixture and no Severity field shape collects below the label main (82e9d7ec)
@@ -32,6 +44,8 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
     for (const e of entries as Array<{ reader: string; output?: string; fixture?: string; main: string[] }>) {
       const output = e.output ?? fs.readFileSync(path.join(ROOT, 'test/fixtures', e.fixture!), 'utf8');
       const got = parseFindings(e.reader, output, raises);
+      const summary = NO_DEFECT_SUMMARIES[e.fixture ?? output];
+      if (summary) { if (JSON.stringify(got.map(f => f.label)) !== JSON.stringify(summary)) bad.push(`GST-435 ${JSON.stringify(got.map(f => f.label))} ${JSON.stringify(output.slice(0, 80))}`); continue; }
       if (!e.main.length) continue;
       if (got.length !== e.main.length) { bad.push(`count ${got.length}/${e.main.length} ${JSON.stringify(output.slice(0, 80))}`); continue; }
       got.forEach((f, i) => {
