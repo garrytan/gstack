@@ -36,6 +36,8 @@ export interface BackstopOptions {
   repo: string; branch: string; sha: string; repoRoot: string;
   gh?: GhRunner; git?: Git; now?: () => number; sleep?: (ms: number) => void;
   settleMs?: number; pollMs?: number; gateDeadlineMs?: number; random?: string;
+  /** This workflow run's id (GITHUB_RUN_ID), named in the rerun command a standing freeze prints. */
+  runId?: string;
 }
 interface Run { id: number; status: string; conclusion: string | null; head_sha: string; display_title?: string; html_url?: string }
 
@@ -174,7 +176,7 @@ export function runBackstop(o: BackstopOptions): { action: BackstopAction; lines
 }
 
 /** Main does not move while frozen, so rerunning this backstop run gates the same commit again (the workflow has no other trigger than a push). */
-const rerunCommand = (o: BackstopOptions) => `gh run rerun ${process.env.GITHUB_RUN_ID ?? '<this backstop run>'} -R ${o.repo}`;
+const rerunCommand = (o: BackstopOptions) => `gh run rerun ${o.runId ?? '<this backstop run>'} -R ${o.repo}`;
 
 /** The land note of a merge: direct freeze's admitted repair (gstack-ship-queue land --pin --repair), when main contains its merge. */
 function repairIn(o: BackstopOptions, git: Git, repoKey: string, f: FreezeRecord): { merge_sha: string } | string {
@@ -281,7 +283,7 @@ if (import.meta.main) {
   const minutes = (name: string, fallback: number) => Number(flag(name) ?? fallback) * 60_000;
   const [repo, branch, sha] = [flag('repo'), flag('branch'), flag('sha')];
   if (command !== 'run' || !repo || !branch || !sha) { console.error(USAGE); process.exit(2); }
-  const { action, lines } = runBackstop({ repo: repo!, branch: branch!, sha: sha!, repoRoot: process.cwd(), settleMs: minutes('settle-minutes', 60),
+  const { action, lines } = runBackstop({ repo: repo!, branch: branch!, sha: sha!, repoRoot: process.cwd(), runId: process.env.GITHUB_RUN_ID, settleMs: minutes('settle-minutes', 60),
     pollMs: Number(flag('poll-seconds') ?? 60) * 1000, gateDeadlineMs: minutes('gate-deadline-minutes', 270) });
   const summary = flag('summary');
   for (const line of lines) {
