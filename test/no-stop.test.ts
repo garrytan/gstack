@@ -79,6 +79,13 @@ describe('lib/no-stop: what qualifies', () => {
     expect(regateTouches('- Run 40 jobs per sweep\n+ Run 400 jobs per sweep').length).toBeGreaterThan(0);
     expect(regateTouches('- Keep the budgets\n+ Double the budgets').length).toBeGreaterThan(0);
   });
+
+  test('review pass 2 holes: a retry count is not a timeout, and dropping a paid eval or swapping a model is a re-gate', () => {
+    expect(check('test-timeout-fix', diff('test/a.test.ts', ['  retry({ fn }, 3);'], ['  retry({ fn }, 10);']))).toMatchObject({ ok: false });
+    expect(check('test-timeout-fix', diff('test/a.test.ts', ['  }, 5_000);'], ['  }, 30_000);']))).toMatchObject({ ok: true });
+    expect(regateTouches('- Run the paid eval\n+ Skip the paid eval').length).toBeGreaterThan(0);
+    expect(regateTouches('- Score it on Opus\n+ Score it on Haiku').length).toBeGreaterThan(0);
+  });
 });
 
 describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
@@ -136,6 +143,16 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
     expect(run('list', '--json').stdout).toBe(before.stdout);
   });
 
+  test('a checkout with an empty ledger still sees the branch\'s K1 grant in the approval record and stops', () => {
+    const file = JSON.parse(run('list', '--json').stdout).file as string;
+    const saved = fs.readFileSync(file, 'utf8');
+    fs.rmSync(file);
+    const r = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'again', '--evidence', 'commit x');
+    fs.writeFileSync(file, saved);
+    expect(r.status).toBe(3);
+    expect(r.stderr).toContain('the approval record already holds this branch\'s K1 grant');
+  });
+
   test('a class outside the five stops, and the range-based classes need --range-base', () => {
     expect(run('record', '--class', 'merge-anyway', '--reason', 'r', '--evidence', 'e').status).toBe(3);
     expect(run('record', '--class', 'stamp-only-carry', '--reason', 'r', '--evidence', 'e').status).toBe(2);
@@ -181,10 +198,22 @@ describe('gstack-no-stop record --class stamp-only-carry --base, and import', ()
     expect(r.stderr).toContain('app.ts is not a stamp file');
   });
 
-  test('import adds an autoplan run\'s records once and skips anything outside the five', () => {
+  test('a rename into changelog.d with an edit is a deletion plus an add, so it still stops', () => {
+    write('notes.md', 'one\ntwo\nthree\nfour\nfive\nsix\n'); git('add', '-A'); git('commit', '-qm', 'notes');
+    const from = git('rev-parse', 'HEAD');
+    fs.mkdirSync(path.join(work, 'changelog.d'), { recursive: true });
+    git('mv', 'notes.md', 'changelog.d/notes.md'); write('changelog.d/notes.md', 'one\ntwo\nthree\nfour\nfive\nseven\n'); git('add', '-A'); git('commit', '-qm', 'move');
+    const r = run('record', '--class', 'stamp-only-carry', '--range-base', from, '--reason', 'r', '--evidence', 'e');
+    expect(r.status).toBe(3);
+    expect(r.stderr).toContain('notes.md is not a stamp file');
+  });
+
+  test('import adds an autoplan run\'s re-gate records once and skips every other class', () => {
     const src = path.join(tmp, 'run-no-stop.json');
-    fs.writeFileSync(src, JSON.stringify([{ class: 'autoplan-regate', reason: 'plan edit, no spend', evidence: 'autoplan:run-1@gate_rev=2' }, { class: 'merge-anyway', reason: 'x', evidence: 'y' }]));
-    expect(run('import', '--from', src).stdout).toMatch(/^NO_STOP: imported 1 record\(s\)/m);
+    fs.writeFileSync(src, JSON.stringify([{ class: 'autoplan-regate', reason: 'plan edit, no spend', evidence: 'autoplan:run-1@gate_rev=2' }, { class: 'merge-anyway', reason: 'x', evidence: 'y' }, { class: 'stamp-only-carry', reason: 'x', evidence: 'y' }, { class: 'autoplan-regate', reason: 'x', evidence: 'hand-written' }]));
+    const first = run('import', '--from', src).stdout;
+    expect(first).toMatch(/^NO_STOP: imported 1 record\(s\)/m);
+    expect(first).toMatch(/^NO_STOP: skipped 3 record\(s\): import takes only autoplan-regate records/m);
     expect(run('import', '--from', src).stdout).toMatch(/^NO_STOP: imported 0 record\(s\)/m);
     expect(JSON.parse(run('list', '--json').stdout).records.map((r: NoStopRecord) => r.class)).toEqual(['stamp-only-carry', 'autoplan-regate']);
   });
@@ -201,7 +230,7 @@ describe('the no-stop defaults in the /ship and /autoplan sources', () => {
   test('a refused case and any other stop still stop; the receipt write carries the ledger', () => {
     expect(ship).toContain('three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,\n`refused` stops.');
     expect(help).toContain('NO_STOP: refused (exit 3): the stop stands. Anything else still stops.');
-    expect(read('ship/sections/pr-body.md.tmpl')).toContain('echo --no-stop @"$NS"');
+    expect(read('ship/sections/pr-body.md.tmpl')).toContain('${NS:+--no-stop "@$NS"}');
     expect(read('ship/DRIVER.md.tmpl')).toContain('end the run, except `gstack-no-stop`');
     expect(read('autoplan/DRIVER.md.tmpl')).toContain("K1's `autoplan-regate` no-stop");
   });

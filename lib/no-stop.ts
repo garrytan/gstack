@@ -34,7 +34,7 @@ const VERSION = /\d+\.\d+\.\d+(?:\.\d+)?/g;
 const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const STAMP_PATHS = ['VERSION', 'package.json', 'CHANGELOG.md', 'agents-digest/gstack-AGENTS.md'];
 /** Plan-delta words that mean spend, a cap, an eval arm or a verdict changed: those re-gates go to the owner. */
-export const REGATE_WORDS = /\$|\b(?:spend|spending|spent|costs?|budgets?|prices?|caps?|capped|credits?|limits?|max|maximum|arms?|models?|judges?|verdicts?|thresholds?|bars?|pass(?:es)? at|trials?|samples?|stop rules?|kill rules?)\b|\bn\s*=/i;
+export const REGATE_WORDS = /\$|\b(?:spend|spending|spent|costs?|budgets?|prices?|caps?|capped|credits?|limits?|max|maximum|arms?|models?|judges?|verdicts?|thresholds?|bars?|pass(?:es)? at|trials?|samples?|stop rules?|kill rules?|paid|evals?|opus|sonnet|haiku|gpt[\w.-]*|gemini|claude)\b|\bn\s*=/i;
 
 /** Unified diff (git diff) to files, each with its one-for-one changed line pairs; a run of unequal - and + counts is unpaired. */
 export function parseDiff(diff: string): FileDiff[] {
@@ -65,8 +65,11 @@ export function parseDiff(diff: string): FileDiff[] {
   return files;
 }
 
-const timeoutValues = (s: string) => [...s.matchAll(TIMEOUT_VALUE)].filter(m => !m[1]!.startsWith('}') || /\)\s*;?\s*$/.test(s.slice(m.index! + m[0].length))).map(m => Number(m[2]!.replace(/_/g, '')));
-const maskTimeouts = (s: string) => s.replace(TIMEOUT_VALUE, (_m, key: string, _n: string, at: number) => (!key.startsWith('}') || /\)\s*;?\s*$/.test(s.slice(at + _m.length)) ? `${key}#` : _m));
+const TEST_CALL = /^\s*(?:test|it|describe|bench|beforeAll|beforeEach|afterAll|afterEach)(?:\.\w+)*\(/;
+/** A trailing `}, N)` is a timeout only where it closes a test callback: the line opens a test call, or the brace starts the line. */
+const isTimeout = (s: string, key: string, at: number, len: number) => !key.startsWith('}') || ((TEST_CALL.test(s) || !s.slice(0, at).trim()) && /\)\s*;?\s*$/.test(s.slice(at + len)));
+const timeoutValues = (s: string) => [...s.matchAll(TIMEOUT_VALUE)].filter(m => isTimeout(s, m[1]!, m.index!, m[0].length)).map(m => Number(m[2]!.replace(/_/g, '')));
+const maskTimeouts = (s: string) => s.replace(TIMEOUT_VALUE, (_m, key: string, _n: string, at: number) => (isTimeout(s, key, at, _m.length) ? `${key}#` : _m));
 
 /** Why the diff is not timeout-only, or null: every changed line pairs with one that differs only in larger timeout values (never an assertion). */
 export function notTimeoutOnly(files: FileDiff[]): string | null {

@@ -14,9 +14,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import { appendRows, buildRow, locate } from '../lib/approval-record';
-import { EXIT, NO_STOP_CLASSES, exitTableHelp } from '../lib/headless-artifacts';
+import { appendRows, buildRow, locate, readRecord } from '../lib/approval-record';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendLedger, checkNoStop, ledgerPath, readLedger } from '../lib/no-stop';
+import { runScriptSync } from '../lib/script-invocation';
 
 const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/review-policy.md#no-stop)
 
@@ -44,10 +45,12 @@ ${exitTableHelp()}`;
 const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const git = (args: string[]) => spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
 const NEEDS_RANGE = ['scoped-fix-check', 'test-timeout-fix', 'stamp-only-carry'];
+const K1_BY = 'gstack no-stop default (K1)';
+const AUTOPLAN_EVIDENCE = /^autoplan:\S+@gate_rev=\d+$/;
 
 /** The commit the newest full or scoped pass reviewed (its review-log row's commit_full): round 2's PASS_HEAD. */
 function lastPassHead(): string | null {
-  const r = spawnSync(path.join(import.meta.dir, 'gstack-review-read'), [], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = runScriptSync(path.join(import.meta.dir, 'gstack-review-read'), [], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   const rows = (r.stdout ?? '').split('---CONFIG---')[0]!.split('\n').flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
   const pass = rows.filter(x => x.skill === 'review' && typeof x.commit_full === 'string').at(-1);
   return pass ? pass.commit_full : null;
@@ -60,7 +63,7 @@ function grant(head: string, detail: string, ledger: string): string | { error: 
   const row = buildRow({
     ask: `No-stop default: one scoped fix-check past R51's cap (review_loop_grant ${head})`,
     words: `K1 no-stop default, docs/review-policy.md#no-stop: ${detail}`,
-    by: 'gstack no-stop default (K1)', scope: `review_loop_grant ${head}`, outcome: 'approved', source: `no-stop:${ledger.split('/').pop()}`,
+    by: K1_BY, scope: `review_loop_grant ${head}`, outcome: 'approved', source: `no-stop:${ledger.split('/').pop()}`,
   }, branch);
   if ('code' in row) return { error: row.message };
   const added = appendRows(loc, [row]);
@@ -81,6 +84,11 @@ function record(args: string[], json: boolean): number {
       process.stderr.write(`NO_STOP: refused ${cls} (--range-base ${rangeBase} is not the commit the last review pass read (${pass ? pass.slice(0, 12) : 'no review-log row'}), so the checked range would not be the range the fix-check covers); stop for the owner\n`);
       return EXIT.refused;
     }
+    const loc = locate({ cwd: process.cwd(), env: process.env, branch: git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() });
+    if (!readLedger(file).some(r => r.class === cls) && !('code' in loc) && readRecord(loc).rows.some(r => r.by === K1_BY)) {
+      process.stderr.write(`NO_STOP: refused ${cls} (the approval record already holds this branch's K1 grant, from this or another checkout; a second goes to the owner); stop for the owner\n`);
+      return EXIT.refused;
+    }
   }
   let diff: string | undefined;
   if (rangeBase) {
@@ -91,7 +99,7 @@ function record(args: string[], json: boolean): number {
       if (merged.status !== 0) { process.stderr.write(`NO_STOP: refused ${cls} (git merge-tree ${base} ${rangeBase} failed: ${merged.stderr.trim() || 'conflict'}); stop for the owner\n`); return EXIT.refused; }
       from = merged.stdout.split('\n')[0]!.trim();
     }
-    const d = git(['diff', '--no-color', '--no-ext-diff', from, 'HEAD']);
+    const d = git(['diff', '--no-color', '--no-ext-diff', '--no-renames', from, 'HEAD']);
     if (d.status !== 0) { process.stderr.write(`gstack-no-stop record: git diff ${rangeBase} HEAD failed: ${d.stderr.trim()}\n`); return EXIT.fail; }
     diff = d.stdout;
   }
@@ -126,9 +134,12 @@ function main(argv: string[]): number {
     const file = ledgerPath(process.cwd());
     if (!src || !file) { process.stderr.write(`gstack-no-stop import: ${src ? 'not inside a git checkout' : '--from <file> is required'}\n`); return EXIT.usage; }
     const have = readLedger(file);
-    const fresh = readLedger(src).filter(r => (NO_STOP_CLASSES as readonly string[]).includes(r.class) && r.reason && r.evidence && !have.some(h => JSON.stringify(h) === JSON.stringify(r)));
+    const rows = readLedger(src);
+    const eligible = rows.filter(r => r.class === 'autoplan-regate' && r.reason && AUTOPLAN_EVIDENCE.test(r.evidence ?? ''));
+    const fresh = eligible.filter(r => !have.some(h => JSON.stringify(h) === JSON.stringify(r)));
     for (const r of fresh) appendLedger(file, r);
-    process.stdout.write(json ? JSON.stringify({ file, imported: fresh.length }) + '\n' : `NO_STOP: imported ${fresh.length} record(s) from ${src}\nNO_STOP_FILE: ${file}\n`);
+    const skipped = rows.length - eligible.length;
+    process.stdout.write(json ? JSON.stringify({ file, imported: fresh.length, skipped }) + '\n' : [`NO_STOP: imported ${fresh.length} record(s) from ${src}`, ...(skipped ? [`NO_STOP: skipped ${skipped} record(s): import takes only autoplan-regate records with autoplan:<run>@gate_rev=N evidence; record the other classes with gstack-no-stop record`] : []), `NO_STOP_FILE: ${file}`].join('\n') + '\n');
     return EXIT.ok;
   }
   if (cmd === 'list') {
