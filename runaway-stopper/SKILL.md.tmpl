@@ -26,8 +26,8 @@ Needs Capy's thread and subagent tools; without them, say so and stop (`gstack-r
 files). Step 1 only reads. Stop only your own subagents; only a Captain rotates and archives, and only threads in
 its own crew (R39). An org sweep runs Step 1 everywhere and sends each finding to the owning Captain; threads
 outside every crew are left alone. For a crew over ~15 threads or the org sweep, run Step 1 from an automation
-with a fresh thread per run that writes the lines to the Captain's drive, archives itself, and messages the
-Captain only when a ROTATE, STOP or REPORT line appears.
+with a fresh thread per run that sets `captain` below (it is in no crew), writes the lines to the Captain's
+drive, archives itself, and messages the Captain on a ROTATE, STOP, REPORT or RUNAWAY_INPUT line.
 
 ## 1. Detect
 
@@ -38,8 +38,10 @@ const pages = 3; // 1 for an org sweep; empty_wake needs 20+ turns, else it prin
 const max = Math.floor(240 / (pages + 1)); // threads per program, under the 256-call limit
 const cursor = undefined; // the previous program's NEXT_CURSOR, to continue a large sweep
 const dir = "/home/user/.capy/work/runaway/" + crypto.randomUUID();
-const list = await tools.thread.list({ scope: "crew", status: ["working", "waiting", "idle"], limit: Math.min(100, max), cursor }); // org sweep: scope "all"
-const codes = [...list.items.map(t => t.code), ...(cursor ? [] : ["this"])].slice(0, max);
+const captain = undefined; // from an automation thread: the Captain's code
+const list = await tools.thread.list({ ...(captain ? { captain } : { scope: "crew" }), status: ["working", "waiting", "idle"], limit: Math.min(100, max), cursor }); // org sweep: scope "all"
+await tools.capy.write({ path: `${dir}/crew.json`, content: JSON.stringify({ items: list.items.map(t => t.code) }) });
+const codes = [...list.items.map(t => t.code), ...(cursor ? [] : [captain ?? "this"])].slice(0, max);
 const fetch = async code => {
   let before, events = [], doc;
   for (let k = 0; k < pages; k++) {

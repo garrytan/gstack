@@ -15,6 +15,7 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 sensitive: true
+manual_only: true
 triggers:
   - merge and deploy
   - land the pr
@@ -422,8 +423,8 @@ to check next. No deploy needed: merged, verification skipped for the stated rea
 Staging-only: production remains unverified, not necessarily undeployed. Rollback
 pending: identify who must resolve conflicts, merge the revert PR, or verify its deploy.
 REVERTED: cite rollback evidence; do not claim the original branch survived cleanup.
-Offer `/canary <url>` for extended monitoring, `/benchmark <url>` when performance
-matters, and `/document-release` when docs need updating.
+Offer `/canary <url>` for extended monitoring, `/benchmark <url>` for performance,
+and `/document-release` for docs.
 
 ---
 
@@ -439,8 +440,8 @@ Recheck read-only evidence; never redo a merge/deploy because a section was miss
 ## Important Rules
 
 - Never force-push, bypass CI, replay a confirmed merge, or hide missing evidence.
-- Auto-detect facts; ask when unknown or when an explicit approval gate applies.
+- Auto-detect facts; ask when unknown or an explicit approval gate applies.
 - Step 3 is one `gstack-pr-wait` call; elsewhere poll at the stated interval (30 s for merge readback and deploy) with progress lines.
 - After merge failures, offer approved rollback when appropriate; never revert a rollback automatically.
-- Verify once; `/canary` provides extended monitoring. Rechecks require the user's choice.
+- Verify once; `/canary` does extended monitoring; rechecks need the user's choice.
 - Use `--delete-branch`; reconcile failed cleanup non-destructively with confirmation.

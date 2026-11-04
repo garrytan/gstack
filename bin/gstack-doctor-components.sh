@@ -352,6 +352,8 @@ gstack_result_anchor() {
     QUEUE_LAND_CHECKS) printf '%s' 'queue-land-checks' ;;
     QUEUE_LAND_NOT_CLEAN) printf '%s' 'queue-land-not-clean' ;;
     QUEUE_LAND_UNVERIFIED) printf '%s' 'queue-land-unverified' ;;
+    RELEASE_STAMP_EMPTY) printf '%s' 'release-stamp-empty' ;;
+    RELEASE_STAMP_INVALID) printf '%s' 'release-stamp-invalid' ;;
     PR_WAIT_BLOCKED) printf '%s' 'pr-wait-blocked' ;;
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
@@ -393,6 +395,7 @@ gstack_result_anchor() {
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
     CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;
     SHADOW_BEFORE_ANSWER) printf '%s' 'shadow-before-answer' ;;
+    ARTIFACT_OWNER_WORDS) printf '%s' 'artifact-owner-words' ;;
     BROWSE_TAB_UNRECOVERABLE) printf '%s' 'browse-tab-unrecoverable' ;;
     BROWSE_SESSION_INVALID) printf '%s' 'browse-session-invalid' ;;
     BROWSE_SESSION_ROOT_ONLY) printf '%s' 'browse-session-root-only' ;;

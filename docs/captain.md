@@ -332,7 +332,11 @@ commits. Each PR merges at its own green head, and versions are set at release
    leaves VERSION, the `package.json` version and CHANGELOG.md alone.
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>`. It merges with
    `--match-head-commit`, checks main's tree and writes a land note.
-3. Release: the release gate stamps the version and folds the fragments.
+3. Release: before each stable cut (Monday and Thursday, 14:00 UTC), the Captain runs
+   `gstack-release-stamp open`, waits for the release PR's checks, then lands it with
+   `gstack-ship-queue land --pr <n> --pin <head>` (no /ship receipt or READY note needed for a
+   `release/<version>` head). The cut then tags the new version
+   ([ship-policy.md](ship-policy.md#release-stamp)).
 
 What to do with each refusal (nothing was merged unless the code says so):
 
@@ -347,6 +351,8 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
 | `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it |
+| `RELEASE_STAMP_INVALID` | Captain | the `release/<version>` head is more than its stamp: close it, `gstack-release-stamp open` again |
+| `RELEASE_STAMP_EMPTY` | Captain | no fragment landed since the last release: nothing to release |
 
 ## Merge trains
 

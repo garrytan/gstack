@@ -16,6 +16,7 @@ import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import { bumpVersion } from '../lib/version-gate-train';
+import { openRelease } from '../lib/release-stamp';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -416,4 +417,93 @@ describe('merge: direct | train', () => {
     const fork = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim();
     if ('merge' in raw) expect(validatePolicy(raw, { gstackVersion: fork })).toEqual([]);
   });
+});
+
+describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () => {
+  /** Land PR 7 (a fragment), then open the release PR from origin/main with gstack-release-stamp open's code path. */
+  function release(fx: Fx, tamper?: (work: string) => void): { pin: string; base: string } {
+    expect(land(fx, '7', openPr(fx, '7')).status).toBe(EXIT.ok);
+    const base = remote(fx, 'main');
+    const r = openRelease({ repoRoot: fx.repo.work, base: 'main', gh: () => ({ ok: true, out: 'https://github.com/o/r/pull/50\n', err: '' }) });
+    if (!r.ok) throw new Error(r.message);
+    let pin = r.head!;
+    if (tamper) {
+      fx.repo.git('fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*');
+      fx.repo.git('checkout', '-q', '--detach', pin);
+      tamper(fx.repo.work);
+      fx.repo.git('add', '-A');
+      fx.repo.git('commit', '-q', '-m', 'hand edit');
+      fx.repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/' + r.branch);
+      pin = fx.repo.git('rev-parse', 'HEAD');
+      fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    }
+    fx.write(d => { d.prs['50'] = { state: 'OPEN', baseRefName: 'main', headRefName: r.branch, isCrossRepository: false, title: 'v' + r.version + ' release', body: '' }; });
+    return { pin, base };
+  }
+
+  test('a release/<version> head that is exactly the release stamp lands with no /ship receipt or READY note, and main moves to the new version', () => {
+    const fx = setup();
+    const { pin, base } = release(fx);
+    const next = bumpVersion(show(fx, base + ':VERSION'), 'patch')!;
+    const r = land(fx, '50', pin);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('RELEASE: v' + next + ' folds 1 fragment(s)');
+    const main = remote(fx, 'main');
+    expect(show(fx, main + ':VERSION')).toBe(next);
+    expect(show(fx, main + ':CHANGELOG.md')).toContain('- #7 change');
+    expect(spawnSync('git', ['-C', fx.repo.work, 'cat-file', '-e', main + ':changelog.d/pr-7.md'], { timeout: 30_000 }).status).not.toBe(0);
+  }, 120_000);
+
+  test('a release/<version> head with a hand edit beyond the stamp is refused with RELEASE_STAMP_INVALID and nothing merges', () => {
+    const fx = setup();
+    const { pin, base } = release(fx, work => fs.writeFileSync(path.join(work, 'pr-7.txt'), 'changed in the release\n'));
+    const r = land(fx, '50', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('RELEASE_STAMP_INVALID');
+    expect(r.err).toContain('pr-7.txt');
+    expect(remote(fx, 'main')).toBe(base);
+  }, 120_000);
+
+  test('a release head on a branch naming another version is refused with RELEASE_STAMP_INVALID', () => {
+    const fx = setup();
+    const { pin, base } = release(fx);
+    fx.repo.git('push', '-q', 'origin', pin + ':refs/heads/release/9.9.9.9');
+    fx.write(d => { d.prs['50'].headRefName = 'release/9.9.9.9'; });
+    const r = land(fx, '50', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('not the version its branch names');
+    expect(remote(fx, 'main')).toBe(base);
+  }, 120_000);
+
+  test('a rerun after the release merged, from a fresh clone without the pin, fetches it and lands against the main it was stamped on', () => {
+    const fx = setup();
+    const { pin, base } = release(fx);
+    expect(land(fx, '50', pin).status).toBe(EXIT.ok);
+    const branch = fx.read().prs['50'].headRefName as string;
+    const g = (...a: string[]) => fx.repo.git('--git-dir', fx.repo.origin, ...a);
+    g('update-ref', 'refs/pull/50/head', pin);
+    fx.write(d => { d.prs['50'].headRefOid = pin; });
+    g('update-ref', '-d', 'refs/heads/' + branch);
+    const fresh = fx.repo.root + '/fresh';
+    fx.repo.git('clone', '-q', '--no-local', '--single-branch', '--branch', 'main', fx.repo.origin, fresh);
+    expect(spawnCheck(fresh, pin)).toBe(false);
+    const r = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '50', '--pin', pin, '--base', 'main'], fx.env, fresh);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('already merged');
+    expect(r.out).toMatch(/^LANDED: .* equals the pin merged onto /m);
+    expect(r.out).toContain(base);
+  }, 120_000);
+
+  test('a release head stamped on an older main is refused: PRs that landed since would ship under its version', () => {
+    const fx = setup();
+    const { pin } = release(fx);
+    const moved = moveMain(fx, 'later.txt', 'landed after the stamp\n');
+    const r = land(fx, '50', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('RELEASE_STAMP_INVALID');
+    expect(r.err).toContain('moved to ' + moved.slice(0, 12));
+    expect(remote(fx, 'main')).toBe(moved);
+  }, 120_000);
 });

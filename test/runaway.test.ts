@@ -138,6 +138,24 @@ describe('gstack-runaway scan', () => {
     expect(r.code).toBe(0);
   });
 
+  // Value: protects=a sweep from a thread outside every crew (the fresh automation thread the skill recommends) never reports a clean SWEEP over its own thread alone; fails_when=an empty crew list scans only "this" and exits 0; why_new=#3975 open note 3 (red-team, cross-family trail read)
+  test('an empty crew list in crew.json is RUNAWAY_INPUT and fails the sweep; a listed crew scans clean', () => {
+    const d = path.join(tmp, 'empty-crew');
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'AUTO-1.thread.json'), JSON.stringify({ code: 'AUTO-1', status: 'working', created_at: '2026-11-03T21:00:00Z', cost: { tokens: 1e6 }, tasks: [] }));
+    fs.writeFileSync(path.join(d, 'crew.json'), JSON.stringify({ items: [] }));
+    const r = run('scan', '--dir', d, '--now', NOW);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/RUNAWAY_INPUT: file=\S*crew\.json the crew list is empty/);
+    expect(r.out).toContain('unreadable=1');
+    fs.writeFileSync(path.join(d, 'crew.json'), JSON.stringify({ items: ['AUTO-1'] }));
+    const ok = run('scan', '--dir', d, '--now', NOW);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain('ok=1 unreadable=0');
+    fs.writeFileSync(path.join(d, 'crew.json'), JSON.stringify({ codes: [] }));
+    expect(run('scan', '--dir', d, '--now', NOW).out).toMatch(/crew\.json field=items expected=array/);
+  });
+
   test('an unreadable or incomplete thread file is named, skipped and fails the sweep; the rest still scan', () => {
     const d = path.join(tmp, 'bad');
     fs.mkdirSync(d);

@@ -4804,6 +4804,30 @@ a hit there needs a plan edit: change the path, `revise`, and export again.
 Generic home-directory paths that are not recorded roots are WARN lines, not
 errors.
 
+<a id="artifact-owner-words"></a>
+### `ARTIFACT_OWNER_WORDS`
+
+**Meaning.** A public copy of an autoplan run still quotes the owner's own
+words: a gate reply the private run recorded (on a decision row, the gate or
+the journal), the words a carried gate reused, or a reason a human gave for
+deferring a phase, in prose or in one of gstack's renderings of that reason.
+Nothing a person wrote leaves without their click. A reply of 3 or more words
+is a quote wherever it appears whole, and from 8 words any 8 consecutive words
+are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and
+Markdown markup, invisible format characters, contractions and case; replies
+of 1 or 2 words are not scanned for, and words the owner echoed from earlier
+text he didn't write are not his (the words a reply adds to an echo still are). See
+[the public copy](unattended.md#the-public-copy). `gstack-artifact validate --public <dir> --private
+<run>/run.json` reports each quote with file:line, and `gstack-autoplan export
+--public` runs that check on a staging copy and writes nothing when it fails.
+The error never prints the words themselves.
+
+**Fix.** Export with `gstack-autoplan export --out <run> --public <dir>`, which
+drops those fields and replaces each quote or rendering in prose and sealed
+reviewer files with `[owner words redacted]`. Export never rewrites inline code
+or fenced blocks in plan.md, so a quote there needs a plan edit: remove it,
+`revise`, and export again.
+
 <a id="artifact-public-target-exists"></a>
 ### `ARTIFACT_PUBLIC_TARGET_EXISTS`
 
@@ -5237,6 +5261,32 @@ reviewed pin reached main. No land note was written.
 
 **Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
 <pin>`, revert what doesn't belong to the PR, and report it to the Captain.
+
+<a id="release-stamp-empty"></a>
+### `RELEASE_STAMP_EMPTY`
+
+**Meaning.** `gstack-release-stamp open` (or `gstack-restamp --release`) found
+no changelog fragment on the base, so there's nothing to release. No branch or
+PR was created.
+
+**Fix.** Nothing to do. The next release stamp folds whatever fragments PRs
+land in the meantime. The stable cut still tags the current VERSION if that
+version has no tag yet.
+
+<a id="release-stamp-invalid"></a>
+### `RELEASE_STAMP_INVALID`
+
+**Meaning.** One of two things. A release stamp was asked to run somewhere other
+than a clean checkout of `origin/<base>`, or the base policy has no
+`changelog_fragments`. Or `land --pin` (or the Version Gate) was given a
+`release/<version>` head that is more than the release stamp of its merge base:
+it changes a file outside the stamp, deletes a release output, skips or adds a
+fragment, or carries a version other than the base's plus the fragments' bump. Nothing was written or
+merged.
+
+**Fix.** Close the bad release PR and run `gstack-release-stamp open` again.
+It stamps a fresh checkout of `origin/main`. Never edit a `release/<version>`
+branch by hand.
 
 <a id="queue-train-stamp-mismatch"></a>
 ### `QUEUE_TRAIN_STAMP_MISMATCH`

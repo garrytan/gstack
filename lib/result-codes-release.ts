@@ -498,6 +498,17 @@ export const RELEASE_RESULT_CODES = {
     summary: 'after the merge, the base branch tree is not the pin merged onto the merge commit\'s parent, so something besides the reviewed pin reached main',
     fix: 'compare the merge commit with the pin merged onto its parent, revert what does not belong to the PR, and report it to the Captain',
   },
+  // gstack-restamp --release, gstack-release-stamp and the release route of land --pin (lib/release-stamp.ts): versions at release.
+  RELEASE_STAMP_EMPTY: {
+    anchor: 'release-stamp-empty',
+    summary: 'the base holds no changelog fragment, so there is nothing to release and no release PR was opened',
+    fix: 'nothing to do: the next release stamp folds the fragments the PRs landed since; the cut tags the current VERSION if it has no tag yet',
+  },
+  RELEASE_STAMP_INVALID: {
+    anchor: 'release-stamp-invalid',
+    summary: 'a release stamp ran off a clean checkout of the base, or a release/<version> head is more than the release stamp of its merge base',
+    fix: 'open the release again with gstack-release-stamp open (it stamps a fresh checkout of origin/main); never edit a release/<version> branch by hand',
+  },
   // gstack-pr-wait (lib/pr-wait.ts): the landing-path PR watcher's two terminal codes.
   PR_WAIT_BLOCKED: {
     anchor: 'pr-wait-blocked',
