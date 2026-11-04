@@ -278,6 +278,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
   const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers);
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
+  for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);
   // A /ship invocation always runs Step 9 once; zero matching rows means the wrong --since or a review log written elsewhere, never a loop to record.
   if (summary.passes === 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `no review-log row of this branch is a via:ship review at or after ${since}; check REVIEW_SINCE (${line})`);
