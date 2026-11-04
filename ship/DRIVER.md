@@ -7,14 +7,14 @@ Read this, not `ship/SKILL.md`, when a parent agent runs /ship
 the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FILE>`), never
 `export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.
 
-**Rules.** Each phase below is one call: one program (Capy: an execute program; else a script)
+**Rules.** Each phase below is one call: one program (Capy: execute; else a script)
 that runs the bins, reads, dispatches and waits, returning only result lines and reader
-outputs, printed verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
+outputs verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
 gates, the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
-the next act. Read a section only when a phase or the list at the end sends you, never
-up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
-there, come back. Unattended, take a question's recommended option (log it); gate
-dispositions and approvals stay pending and end the run. Keep a private invocation record (`--record`): write its six headings at Phase 1, fill each as its phase ends: **Checks**
+the next act. Read a section only when a phase or the list below sends you, never
+up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish there,
+come back. Unattended, take a question's recommended option (log it); gate
+dispositions and approvals stay pending and end the run, except `gstack-no-stop`. Keep a record (`--record`): write its six headings at Phase 1, fill each per phase: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
@@ -37,7 +37,7 @@ A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
-call resumes the poll. Lanes, pregate, `finish` run in background. Never end the turn while
+call resumes the poll. Lanes, pregate, `finish` run in background; after a restart, rerun the same command. Never end the turn while
 readers run (each wakes it). A small waiting child saves nothing. Past 100 minutes, stop. Returns:
 ≤32 KB per program; split longer reads at headings, each byte once, before first use: phase programs
 end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - its output>`; on
@@ -60,14 +60,14 @@ Install check, this file.
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --lane <label>=<command>...` (repo test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+`gstack-ship-preflight --base <base> --run <run dir name> --lane <label>=<test command>...`. `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. `ship_lanes_from`: push early (`sections/tests.md#ci-carry`). A lane passes on `tests_ran: N` with exit 0; `0` is ZERO-RUN (failed); `unknown`
 is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
 harness changed, start the eval selector and pre-merge command (detached past 30 min); else
 record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
-(`CONTEXT:`) and the TODOS.md items naming touched paths (`TODOS:`), and prints the coverage map,
+(`CONTEXT:`) and the TODOS.md items on touched paths (`TODOS:`); prints the coverage map,
 plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; read a section only when its reader is `needed`.
 Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never replaces Step 9.
 

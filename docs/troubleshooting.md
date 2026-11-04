@@ -179,7 +179,23 @@ the readiness dashboard and the PR body, and never count it as a pass.
   A reply whose last `Verdict:` line says `not ready` is `findings` and exits
   3 even when readable advisory severities (P2 or P3) were parsed; `FINDINGS:`
   names the highest one. A not-ready reply with no readable severity still
-  prints `FINDINGS: unspecified` and exits 3.
+  prints `FINDINGS: unspecified` and exits 3. A last `Verdict:` line that is
+  not an approval (`ready`, `LGTM`, `approve`, `ship it`, `pass`, `clean`,
+  `good to go`, or exactly `NO_FINDINGS`), such as `Can't verify`, `blocked`,
+  `revise` or an empty one, or an approval that says something was excluded,
+  blocked, skipped, not run, not executed or could not be verified (or "not
+  yet", or holds a `?` such as `Ready? No`), is
+  [`unverified`](#outside-review-unverified-verdict), never `clean`. Inline
+  code in the verdict is blanked like any other quote, so write the verdict as
+  plain text: `Verdict: \`ready\`` is unverified. Only a line that starts
+  with `Verdict:` (after optional bold, a heading mark or a bullet) is read; a
+  verdict under a bare `Verdict` heading, after `>`, or as `Overall verdict`
+  is not.
+- **Numbered findings.** In a reply with a `Verdict:` line, every numbered item
+  at the start of a line (`1. x`, `1. **Nonblocking — x**`) is a finding,
+  unless the reply concludes that it found nothing. When one has no readable
+  severity, `FINDINGS:` prints `unspecified` instead of `none` (here and in
+  `gstack-outside-voice run`); the verdict still comes from the rules above.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
   `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
@@ -379,6 +395,33 @@ bun lib/outside-review-result.ts --verdict execution reply.md
 
 **Expected result.** `VERDICT: findings` or `VERDICT: clean` with a P0-P3
 `FINDINGS:` value, and no `UNPARSED:` line.
+
+<a id="outside-review-unverified-verdict"></a>
+### `... outside review: ran, verdict unverified (the reviewer's own verdict does not say the change is ready (Verdict: ...))` / `REASON: unverified_verdict`
+
+**Meaning.** The reply's last `Verdict:` line is neither an approval nor
+`not ready`, for example `Verdict: Can't verify (one changed file excluded
+...)`, or it approves but also says something was excluded, blocked, skipped,
+not run or could not be verified, or asks a question. The
+reviewer did not say the review finished and found the change ready, so gstack
+does not count it as `clean`. The quoted verdict is in parentheses. Besides
+the approvals, only the exact `NO_FINDINGS` token counts as a clean verdict.
+
+A `/codex` consult or challenge answer whose verdict picks an option
+(`Verdict: go with B`, `Verdict: Proceed with the plan`) is `unverified` on
+purpose: a consult is advice, not a pass/fail review, so there is no pass to
+report. Read the answer itself; an answer with no verdict line stays `clean`.
+
+**What is kept.** The full reply is shown above.
+
+**Fix.** Read the verdict and the reply, and decide; it is not a pass. Fix
+what the verdict names (a file left out of the review, a suite that could not
+run), then re-run the review. To re-check a saved reply, run
+`bun lib/outside-review-result.ts --verdict execution reply.md` from your
+gstack checkout.
+
+**Expected result.** `VERDICT: clean` or `VERDICT: findings` with a last
+verdict that approves the change or says `not ready`.
 
 <a id="codex-model-unusable"></a>
 ### `CODEX_MODE: model_unusable` / `MODEL_UNUSABLE`
@@ -587,6 +630,49 @@ fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tre
 
 **Expected result.** `gstack-review-read` shows both records at one tree with
 `review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
+
+<a id="ship-preflight-run-open"></a>
+### `STOP: /ship run <id> is open on this checkout and past its preflight (<marker>; open until its finish or for 120 minutes) ...`
+
+**Meaning.** A full `gstack-ship-preflight` (Steps 1-3) ran on a checkout where a
+/ship run already passed them and has not finished. A full preflight merges the
+base into the working tree, and that run's review readers diff this tree, so the
+merge would void their pass (gbrain-evals#317). /ship passes `--run <id>` (Step 1:
+the preamble's `SESSION_ID`; `ship/DRIVER.md` Phase 2: the run dir's name). Once
+Steps 1-3 succeed, preflight records the run in the checkout's git dir
+(`gstack-ship-run`) and opens it on the checkout's own lease
+(`<git dir>/gstack-leases`, so the driver needs no workflow lease). The run
+counts as open while the marker exists, which `gstack-ship-release finish` removes
+when Steps 15-16 pass, and while `bin/gstack-lease open` says so: under 120
+minutes old and its holder (the harness that ran preflight) alive. A finished,
+aged-out or dead run never blocks, and /ship's own first preflight (or a rerun
+after a Step 3 STOP) is never refused. A different `--run` from the open run's
+holder replaces it: that is a new /ship after one that stopped before finish.
+The holder is the first non-shell process above preflight: the Claude Code
+session, or on Capy the machine's one `capy-server`, so there only the same id or
+a missing `--run` is refused. The same id, no `--run`, or an open run held by
+another live process (another session) stops.
+
+**What is kept.** Nothing ran: no fetch, no merge, the tree is untouched.
+
+**Fix.** Rerun Step 5 with `gstack-ship-preflight --tests-only`, which never
+merges, or let that /ship finish. If that run is no longer running (it stopped
+before finish), remove the marker the STOP names (`rm <marker>`), then rerun.
+
+**Expected result.** The preflight continues to `STATUS:` and `MERGE:`.
+
+<a id="ship-preflight-run-unrecorded"></a>
+### `STOP: cannot record /ship run <id> on this checkout's lease (...)`
+
+**Meaning.** `--run` was given, but `gstack-lease touch` could not open the run
+on the checkout's lease, for example while a live process holds its lock.
+Unrecorded, a later full preflight could not be refused, so preflight stops
+before the fetch instead of going on unprotected.
+
+**What is kept.** Nothing ran: no fetch, no merge.
+
+**Fix.** Do what the parenthesized `gstack-lease` line names (wait for the
+process holding `<git dir>/gstack-leases/.lock`), then rerun.
 
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
@@ -2706,6 +2792,8 @@ exempt wherever they appear, so there the finding means the quad is not a
 release of this repository (or the post ran outside the checkout).
 
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
+A gstack release named right after `gstack` (`gstack 1.94.4.0`, the install
+check's `gstack: ok 1.94.4.0 for=ship`) is exempt too, but only for majors 0 to 2.
 MEDIUM findings do not block pushes.
 
 <a id="redact-run-id-as-phone"></a>
@@ -4712,6 +4800,30 @@ a hit there needs a plan edit: change the path, `revise`, and export again.
 Generic home-directory paths that are not recorded roots are WARN lines, not
 errors.
 
+<a id="artifact-owner-words"></a>
+### `ARTIFACT_OWNER_WORDS`
+
+**Meaning.** A public copy of an autoplan run still quotes the owner's own
+words: a gate reply the private run recorded (on a decision row, the gate or
+the journal), the words a carried gate reused, or a reason a human gave for
+deferring a phase, in prose or in one of gstack's renderings of that reason.
+Nothing a person wrote leaves without their click. A reply of 3 or more words
+is a quote wherever it appears whole, and from 8 words any 8 consecutive words
+are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and
+Markdown markup, invisible format characters, contractions and case; replies
+of 1 or 2 words are not scanned for, and words the owner echoed from earlier
+text he didn't write are not his (the words a reply adds to an echo still are). See
+[the public copy](unattended.md#the-public-copy). `gstack-artifact validate --public <dir> --private
+<run>/run.json` reports each quote with file:line, and `gstack-autoplan export
+--public` runs that check on a staging copy and writes nothing when it fails.
+The error never prints the words themselves.
+
+**Fix.** Export with `gstack-autoplan export --out <run> --public <dir>`, which
+drops those fields and replaces each quote or rendering in prose and sealed
+reviewer files with `[owner words redacted]`. Export never rewrites inline code
+or fenced blocks in plan.md, so a quote there needs a plan edit: remove it,
+`revise`, and export again.
+
 <a id="artifact-public-target-exists"></a>
 ### `ARTIFACT_PUBLIC_TARGET_EXISTS`
 
@@ -5145,6 +5257,32 @@ reviewed pin reached main. No land note was written.
 
 **Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
 <pin>`, revert what doesn't belong to the PR, and report it to the Captain.
+
+<a id="release-stamp-empty"></a>
+### `RELEASE_STAMP_EMPTY`
+
+**Meaning.** `gstack-release-stamp open` (or `gstack-restamp --release`) found
+no changelog fragment on the base, so there's nothing to release. No branch or
+PR was created.
+
+**Fix.** Nothing to do. The next release stamp folds whatever fragments PRs
+land in the meantime. The stable cut still tags the current VERSION if that
+version has no tag yet.
+
+<a id="release-stamp-invalid"></a>
+### `RELEASE_STAMP_INVALID`
+
+**Meaning.** One of two things. A release stamp was asked to run somewhere other
+than a clean checkout of `origin/<base>`, or the base policy has no
+`changelog_fragments`. Or `land --pin` (or the Version Gate) was given a
+`release/<version>` head that is more than the release stamp of its merge base:
+it changes a file outside the stamp, deletes a release output, skips or adds a
+fragment, or carries a version other than the base's plus the fragments' bump. Nothing was written or
+merged.
+
+**Fix.** Close the bad release PR and run `gstack-release-stamp open` again.
+It stamps a fresh checkout of `origin/main`. Never edit a `release/<version>`
+branch by hand.
 
 <a id="queue-train-stamp-mismatch"></a>
 ### `QUEUE_TRAIN_STAMP_MISMATCH`
@@ -6673,6 +6811,50 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 
 **Meaning.** `--out-dir` is a non-empty directory that an earlier `gstack-modules render` did not write, so replacing it could delete someone's files. **Fix.** Pass a new or empty directory, or the directory of an earlier render.
 
+## ubi-runner recovery and results sink
+
+These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, `RECOVER_GONE` and `RECOVER_FAILED` lines go to stdout, one per bundle. Every `RECOVER_FAILED` keeps its bundle, so rerunning `recover` after the fix is always safe.
+
+<a id="ubi-recovery-required"></a>
+### `UBI_RECOVERY_REQUIRED`
+
+**Meaning.** A counted run (`--counted` or `UBI_COUNTED=1`) or `recover` needs a recovery directory, and neither `UBI_RECOVERY_DIR` nor `GSTACK_CAPY_RECOVERY_DIR` (nor `recover --dir`) names one. Nothing was created. A counted rerun also refuses with this code when it would reattach to a live VM whose bundle under the recovery directory is missing or doesn't open under this secret. **Fix.** Set `UBI_RECOVERY_DIR` to a directory another controller can read (on Capy, a drive folder), then rerun. For a VM without a bundle that opens, destroy it with the printed `down` command, then rerun.
+
+<a id="ubi-recovery-unavailable"></a>
+### `UBI_RECOVERY_UNAVAILABLE`
+
+**Meaning.** The bundle can't be written or opened: `openssl` is missing, there is no secret (`UBI_RECOVERY_KEY` or `UBICLOUD_API_KEY`), or the directory isn't writable. A counted run stops: before any create when the check runs up front, or through `up`'s teardown, which destroys the VM, when a later write fails. An uncounted run prints a warning and goes on without a bundle. **Fix.** Install openssl and make the directory writable, then rerun.
+
+<a id="recover-decrypt-failed"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_DECRYPT_FAILED`
+
+**Meaning.** The bundle didn't authenticate under this machine's secret, or it was sealed for a different VM name or owner than its file name and folder say, so no state was written. Either the secret differs from the creating controller's (another `UBI_RECOVERY_KEY`, or a different Ubicloud token), or the file was changed, renamed or moved. **Fix.** Set `UBI_RECOVERY_KEY` (or `UBICLOUD_API_KEY`) to the value the creating controller used and rerun `recover`. If the secret is right, treat the bundle as tampered and destroy the VM from the Ubicloud console instead.
+
+<a id="recover-api-unavailable"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_API_UNAVAILABLE`
+
+**Meaning.** The Ubicloud API answered something other than 200 or 404 for the VM, or the VM's create was sent less than `UBI_CREATE_GRACE` seconds ago and may still be in flight. No state was written. **Fix.** Rerun `recover` once the API answers, or after the grace period.
+
+<a id="recover-exists"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_EXISTS`
+
+**Meaning.** This machine already has state for the VM, and `recover` never overwrites it. **Fix.** Use that state (`pull`, `ssh`, `down <name>`). Remove the state directory only if you know it's stale.
+
+<a id="recover-gone"></a>
+### `RECOVER_GONE: vm=<name>`
+
+**Meaning.** The VM is confirmed gone, so its bundle was deleted. **Fix.** None. Its results are wherever its sink put them, if it had one.
+
+<a id="ubi-sink-invalid"></a>
+### `UBI_SINK_INVALID`
+
+**Meaning.** `--sink` or `UBI_SINK` names something other than `https-put:<presigned https URL>`. `file:<absolute dir>` works only with `UBI_SINK_ALLOW_FILE=1`, which is meant for tests, and there is no `git:` sink because it would put a repository credential on the VM. Nothing was created, and the line never prints the URL. **Fix.** Pass a presigned PUT URL for one object.
+
+<a id="sink-flush-failed"></a>
+### `SINK_FLUSH_FAILED: vm=<name> seq=<n> last_push=<epoch|never> [sink_skipped=size|tar_failed]`
+
+**Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun. For a tiered `verify`, rerun with `--no-resume`: a plain rerun reuses the tiers that already passed under the same key, creates no VM and pushes nothing, so the sink would still hold the incomplete snapshot.
+
 ## Per-repo cleanup (gstack-clean)
 
 These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<repo>/.gstack/tmp/`, browse logs over 1 MB and, with `--audit-days N`, old browse audit entries. It changes nothing unless you pass `--apply`, and `gstack-clean --help` lists what it touches.
@@ -6696,3 +6878,13 @@ These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<
 ### `gstack-clean: unexpected gstack-clean failure … (GSTACK_CLEAN_INTERNAL)`
 
 **Meaning.** gstack-clean hit an error it does not expect; the line names it. Exit 1. Changes made before the error stay made, and each was checked right before it was made. **Fix.** Rerun once; if it repeats, report the printed error to the gstack maintainers.
+
+<a id="runaway-usage"></a>
+### `RUNAWAY_USAGE: …` (gstack-runaway)
+
+**Meaning.** `gstack-runaway` got no command, an unknown one, both or neither of `--thread` and `--dir`, a flag with no value, an unparseable `--now`, or a path that does not exist. Exit 2; nothing was read. **Fix.** Run `gstack-runaway --help` and pass the files the /runaway-stopper fetch program wrote.
+
+<a id="runaway-input"></a>
+### `RUNAWAY_INPUT: file=<path> …` (gstack-runaway)
+
+**Meaning.** That thread's file is not valid JSON, or lacks `cost.tokens`, a parseable `created_at` or numeric `tasks[].cost.tokens`. The thread is skipped (never counted as OK), the rest of the sweep still runs, `SWEEP:` counts it as `unreadable`, and the exit is 1. **Fix.** Fetch that thread again with `tools.thread.get` (the whole object, not a summary) and rerun the scan.

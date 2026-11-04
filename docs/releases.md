@@ -1,8 +1,19 @@
 # Releases and update channels
 
-gstack stamps a version at every merge to main, about a dozen a day. Since
-late October 2026 there is also a tagged release, cut twice a week, and
-team-mode installs follow it instead of every merge.
+gstack used to stamp a version at every merge to main. Under `merge: direct`
+PRs land unstamped, with a `changelog.d` fragment each, and the version moves
+only when the Captain lands a release PR (`gstack-release-stamp open`, see
+[ship-policy.md](ship-policy.md#release-stamp)). Since late October 2026 there
+is also a tagged release, cut twice a week, and team-mode installs follow it
+instead of every merge.
+
+Land a release PR before each cut. The cut tags the VERSION it finds, and a
+version is tagged once: if no release PR landed since the last cut, the next
+cut finds that version's tag on an older commit and refuses. A release PR
+lands only on the main it was stamped on, so open it again if main moved. The
+cut tags the newest green commit, so a PR that lands between the release PR
+and the cut ships in that tag, and its CHANGELOG entry appears in the next
+release.
 
 ## What a release is
 
@@ -261,7 +272,8 @@ Two edge cases are handled on purpose:
   hotfix was cut below it) stays where it is until stable passes it. The
   updater never moves a checkout backwards. A depth-1 clone cannot see that an
   older release is its ancestor, so the VERSIONs decide: main stamps a higher
-  version at every merge and stable is always a main commit.
+  version at every merge (under `merge: direct`, at every release PR) and stable is
+  always a main commit.
 
 The local branch stays `main` either way. A stable install is a `main`
 checkout parked at the last released commit, which is why fast-forward-only
@@ -270,7 +282,8 @@ still holds and nothing about version stamping changed.
 ## Cutting a release by hand (hotfixes)
 
 A hotfix is an ordinary PR: it merges to main through a train and gets its
-version like any other change. To put it on stable before the next scheduled
+version like any other change (under `merge: direct`, from the next [release
+PR](ship-policy.md#release-stamp), which has to land before the cut). To put it on stable before the next scheduled
 cut, run the workflow by hand with the merge commit's SHA, once the 72-hour
 floor allows it (a security or regression fix uses its input instead):
 

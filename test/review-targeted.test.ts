@@ -421,3 +421,81 @@ describe('the receipt record and the queue line', () => {
     expect(summarizeReviewLoop([{ skill: 'review', via: 'ship', timestamp: '2026-10-30T10:00:00Z', dispatches: [{ role: 'targeted', prompt_bytes: 40 }] }], '2026-10-30T09:00:00Z')).toMatchObject({ dispatches: { targeted: 1 }, est_input_tokens: 10 });
   });
 });
+
+describe('incidental money signals (GST-961, GST-962)', () => {
+  // Value: protects=R51's one reviewer on docs and data PRs and on code that only reports a cost; fails_when=a data file no code
+  //   reads gets a money reader because its name says cost (gstack-evals#138), or reading a cost_usd field raises money
+  //   (gstack-evals#139), or a narrowed rule stops firing on a cap, a budget, a spend check, a billing path or a provider call;
+  //   seam=lib/review-risk.ts matchRisk through targetedClasses and gstack-review-plan
+  test('a data file no code reads never names money, by its path or its rows; every other class still reads it', () => {
+    const tsv = 'wiki/results/cost-gstack-full.tsv';
+    expect(classesOf(input([tsv], { consumed: [] }))).toEqual([]);
+    expect(classesOf(input([tsv], { consumed: [], added: { [tsv]: ['arm\tcost_usd\tcredits', 'A\t1.20\t300'] } }))).toEqual([]);
+    expect(classesOf(input([tsv], { consumed: [tsv] }))).toEqual(['money']);
+    expect(classesOf(input([tsv]))).toEqual(['money']);
+    expect(classesOf(input([tsv], { consumed: 'all' }))).toEqual(['money']);
+    expect(classesOf(input(['wiki/credentials.json'], { consumed: [] }))).toEqual(['secret']);
+    expect(classesOf(input(['wiki/keys.json'], { consumed: [], added: { 'wiki/keys.json': ['{"k": "$OPENAI_API_KEY"}'] } }))).toEqual(['secret']);
+    expect(classesOf(input(['src/billing/invoice.ts'], { consumed: [] }))).toEqual(['money']);
+    expect(classesOf(input(['prices/us-east.json'], { consumed: [] }))).toEqual(['money']);
+    expect(classesOf(input(['data/rates.json'], { consumed: [], added: { 'data/rates.json': ['{"input_price_usd": 3}'] } }))).toEqual(['money']);
+    expect(classesOf(input(['config/models.yaml'], { consumed: 'all', added: { 'config/models.yaml': ['  cost_per_1k_usd: 0.3'] } }))).toEqual(['money']);
+    expect(classesOf(input(['evals/config.json'], { consumed: 'all', added: { 'evals/config.json': ['  "output_price_usd": 15,'] } }))).toEqual(['money']);
+    expect(classesOf(input(['docs/b/results/run.json'], { consumed: 'all', added: { 'docs/b/results/run.json': ['  "list_price_usd": 1.2485,'] } }))).toEqual([]);
+    expect(classesOf(input(['evals/config.json'], { consumed: 'all', added: { 'evals/config.json': ['  "lease_usd": 32.9,'] } }))).toEqual([]);
+    expect(classesOf(input([tsv], { consumed: [], added: { [tsv]: ['spend_cap\t500'] } }))).toEqual(['money']);
+  });
+
+  test('a cost_usd field read or reported names no money; a cap, budget, limit, spend or comparison still does', () => {
+    const at = (line: string) => classesOf(input(['analysis/summarize.ts'], { added: { 'analysis/summarize.ts': [line] } }));
+    for (const line of [
+      'const total = trials.reduce((s, t) => s + t.cost_usd, 0);',
+      'console.log(`cost: ${row.cost_usd.toFixed(2)}`);',
+      'rows.push({ arm, cost_usd: r.cost_usd, tokens });',
+      'const perTrial = totalCostUsd / trials.length;',
+      'return { costUsd: sum(rows.map(r => r.costUsd)) };',
+    ]) expect(at(line), line).toEqual([]);
+    for (const line of [
+      'const max_cost_usd = 5;',
+      'if (total_cost_usd > budget) throw new Error("over budget");',
+      'if (budget <= run.cost_usd) stop();',
+      'const remainingBudgetUsd = cap - spent;',
+      'const spendLimitUsd = 25;',
+      'while (spent_usd < cap) step();',
+      'const spend_cap_usd = 5;',
+      'const MAX_SPEND_USD = 10;',
+      '  if (spent > capUsd) throw new Error("over cap");',
+      'const client = new Anthropic();',
+      'await meter.charge(user, amount);',
+      'if (limit < run?.cost_usd) stop();',
+      'if ((run.cost_usd ?? 0) > limit) stop();',
+      'if (limit <= (row.cost_usd ?? 0)) stop();',
+      'const capped = Math.min(cost_usd, cap);',
+      'if (Number(row.cost_usd) > budget) stop();',
+      'const intent = await stripe.paymentIntents.create({ amount: amount_usd * 100 });',
+      'await refund(user, refund_usd);',
+      'const cost_usd = input_tokens * PRICE_PER_MTOK;',
+      'const check = { attempt, estimate_usd: 0 };',
+      'rows.push({ arm, cost_usd: 0 });',
+      '    return { ...r, reservation_usd: estimateCostUsd({ input: Math.ceil(r.in_tokens / r.calls), output: r.max_out_tokens }, r.model) };',
+      '  const maxEstimate = Math.max(0, ...record.attempts.map(a => a.estimate_usd));',
+      '  const worst = summary.worst_case_usd + workers * maxEstimate;',
+      '    reserve(file, attempt, a.estimate_usd, { label });',
+      '  a.estimate_usd = usd;',
+      '    ship_measure_ask_per_trial_usd) echo "200" ;;',
+      "  trial_reservation_usd: v => (typeof v === 'number' && v > 0 && v <= 100000 ? null : 'x'),",
+      'if ($cost_usd <> 0) return;',
+      'SELECT id FROM runs WHERE cost_usd <> 0;',
+    ]) expect(at(line), line).toEqual(['money']);
+  });
+
+  test('gstack-review-plan on #138\'s shape: a docs PR with a cost-named data file dispatches no targeted reader', () => {
+    const docs = planRepo({ head: { 'wiki/results/cost-gstack-full.tsv': 'arm\tcost_usd\nA\t1.20\n', 'wiki/results/README.md': '# Results\nArm A cost 1.20.\n' } }).run([]);
+    expect(docs.status, docs.stderr).toBe(0);
+    expect(field(docs.stdout, 'TARGETED:', 'classes')).toBe('none');
+    expect(docs.stdout).not.toContain('DISPATCH: targeted');
+    const read = planRepo({ head: { 'wiki/results/cost-gstack-full.tsv': 'arm\tcost_usd\nA\t1.20\n', 'src/load.ts': 'export const f = "wiki/results/cost-gstack-full.tsv";\n' } }).run([]);
+    expect(read.status, read.stderr).toBe(0);
+    expect(field(read.stdout, 'TARGETED:', 'classes')).toBe('money');
+  }, 60_000);
+});

@@ -38,7 +38,7 @@ line yourself; gstack never writes the plan. **Kinds (R65), first `next` only.**
 5. `REOPENED: <phases>` means loop `next` again (Eng last). `APPROVED:` means `export` (`DISPATCHES: <n> est_input_tokens=<k>`, relative).
 6. Rounds: one by default; a second only for High or Critical findings; cap 2 (`--max-rounds`). A `revise` whose decisions all resolve below
    High prints `APPLIED: <ids> without re-review (below High)`. At the cap with High open, `ESCALATE: evidence sufficient, decision needed`: relay it, never ask for another round.
-7. Carry-forward ([docs/unattended.md#carry-forward](../docs/unattended.md#carry-forward); `--no-carry-forward` on the first `next` opts out): a later gate that asks nothing new takes the owner's words from the gate before it (`CARRIED:`, then `APPROVED:`); `CARRY: no (<why>)` leaves it for the owner; `CARRY_CHECK:` means one reviewer from another model family reads the printed delta prompt, then `check --out <dir> --attempt <id> --result <file> --model <id>` (or `--unavailable "<reason>"`).
+7. Carry-forward ([docs/unattended.md#carry-forward](../docs/unattended.md#carry-forward); `--no-carry-forward` on the first `next` opts out): a later gate that asks nothing new takes the owner's words from the gate before it (`CARRIED:`, then `APPROVED:`); a plan edit that only adds plain ELI5 lines carries as K1's `autoplan-regate` no-stop (`NO_STOP:`; before /ship run `gstack-no-stop import --from <dir>/no-stop.json`); `CARRY: no (<why>)` leaves it for the owner; `CARRY_CHECK:` means one reviewer from another model family reads the printed delta prompt, then `check --out <dir> --attempt <id> --result <file> --model <id>` (or `--unavailable "<reason>"`).
 
 ### On Capy
 
@@ -86,7 +86,7 @@ line yourself; gstack never writes the plan. **Kinds (R65), first `next` only.**
 - `gstack-autoplan export --out <dir>`
   write the artifact set; then `gstack-artifact validate <dir>/run.json`.
 - `gstack-autoplan export --out <dir> --public <pub>`
-  a machine-path-free copy to commit or share (recorded roots rewritten, plan.md code kept, provenance digests); the private run is not touched; then `gstack-artifact validate --public <pub> --private <dir>/run.json` on this machine.
+  a machine-path-free copy to commit or share (recorded roots rewritten, plan.md code kept, provenance digests) without the owner's own words (every owner_reply the run recorded, carried words and a human's deferral reason dropped, quotes and gstack's renderings of them redacted; refused when one sits in plan.md code); the private run is not touched; then `gstack-artifact validate --public <pub> --private <dir>/run.json` on this machine.
 - `gstack-autoplan status|resume --out <dir>`
   read the manifest (PENDING: lines name open attempts); take ownership after a crash (EXECUTION_UNKNOWN lists unfinished attempts).
 - `gstack-autoplan resume --out <new dir> --from <checkpoint>`

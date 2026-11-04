@@ -22,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
-import { carryLines, voidPendingCheck } from './autoplan-carry';
+import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
 import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
 import { diffStat, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
@@ -207,6 +207,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, at_gate_rev: atGate ?? null };
   fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify({ state, renames, committed, settled }, null, 2) + '\n');
   publish(state, staging, renames, committed, settled);
+  keepPlanFile(state.out, file);
   const lines = [`REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,
     ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (${state.lean ? 'lean run: one gate revision' : 'below High'}; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
   for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; the gate asks the owner about the unreviewed delta (+${delta.added} -${delta.removed} lines)`);

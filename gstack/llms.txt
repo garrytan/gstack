@@ -47,7 +47,7 @@ Conventions:
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
 - [/learn](learn/SKILL.md): Manage project learnings.
 - [/make-pdf](make-pdf/SKILL.md): Turn any markdown file into a publication-quality PDF.
-- [/modernize](modernize/SKILL.md): Bring an aging pull request onto its current base and decide whether it should still exist: MODERNIZE, REWORK or CLOSE, with range-diff proof before any push.
+- [/modernize](modernize/SKILL.md): Bring an aging PR onto its current base and decide: MODERNIZE, REWORK or CLOSE.
 - [/office-hours](office-hours/SKILL.md): YC Office Hours — two modes.
 - [/open-gstack-browser](open-gstack-browser/SKILL.md): Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
 - [/pair-agent](pair-agent/SKILL.md): Pair a remote AI agent with your browser.
@@ -60,6 +60,7 @@ Conventions:
 - [/qa-only](qa-only/SKILL.md): Report browser/API/CLI/job/worker/webhook bugs.
 - [/retro](retro/SKILL.md): Weekly engineering retrospective.
 - [/review](review/SKILL.md): Use when you review this PR's diff.
+- [/runaway-stopper](runaway-stopper/SKILL.md): Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats.
 - [/scrape](scrape/SKILL.md): Pull data from a web page through the Aside browser — your real, already signed-in sessions.
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
 - [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.

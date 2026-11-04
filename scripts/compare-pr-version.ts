@@ -49,6 +49,10 @@ if (process.env.BASE_REF && process.env.HEAD_SHA) {
     console.log(`✓ ${tag} is unstamped under the base's ship policy: VERSION and package.json match its merge base, any changed release output is what the release tool generates at the merge base's VERSION, and ${entry}. The merge step stamps it.`);
     process.exit(0);
   }
+  if (train.kind === "release") {
+    console.log(`✓ ${tag} is the release stamp of its merge base: v${train.version} folds its ${train.fragments} changelog fragment(s), and everything else it changes is the stamp (docs/ship-policy.md#release-stamp).`);
+    process.exit(0);
+  }
   if (train.kind === "invalid") {
     console.log(`::error::${tag}: ${train.reason}.`);
     process.exit(1);

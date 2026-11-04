@@ -333,11 +333,12 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   const mergedResume = info.state === 'MERGED' && !!j && ['pushed', 'merged', 'landed'].includes(j.phase) && j.stamp_commit === info.headRefOid;
   if (info.state !== 'OPEN' && !mergedResume) return fail([], { code: 'QUEUE_NOT_READY', message: `#${o.pr} is ${info.state}` }, run);
   if (info.baseRefName && info.baseRefName !== ctx.base) return fail([], { code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}; land merges only PRs on the base it stamps (retarget it, or land its parent first)` }, run);
-  if (j && !mergedResume && (j.phase === 'landed' || ![j.reviewed_pin, j.last_pushed_head, j.stamp_commit].includes(info.headRefOid))) j = null;
+  const reset = j && !mergedResume && j.stamp_commit && j.last_pushed_head && j.last_pushed_head !== j.reviewed_pin && info.headRefOid === j.reviewed_pin ? `JOURNAL: #${o.pr}'s head is the reviewed pin ${j.reviewed_pin.slice(0, 12)}, not the stamp commit ${j.stamp_commit.slice(0, 12)} (phase ${j.phase}); discarding the journal and restamping` : null;
+  if (j && !mergedResume && (reset || j.phase === 'landed' || ![j.reviewed_pin, j.last_pushed_head, j.stamp_commit].includes(info.headRefOid))) j = null;
   if (j && mergedResume) j.phase = 'merged';
   const recovered = j ? null : stampPin(root, info.headRefName, info.headRefOid, o.pr);
   const pin = j?.reviewed_pin ?? recovered ?? info.headRefOid;
-  const lines = [`LAND: #${o.pr} branch=${info.headRefName} pin=${pin}${j ? ` (resuming at ${j.phase})` : recovered ? ` (the head ${info.headRefOid.slice(0, 12)} is land's stamp commit; restamping from its pin)` : ''}`];
+  const lines = [`LAND: #${o.pr} branch=${info.headRefName} pin=${pin}${j ? ` (resuming at ${j.phase})` : recovered ? ` (the head ${info.headRefOid.slice(0, 12)} is land's stamp commit; restamping from its pin)` : ''}`, ...(reset ? [reset] : [])];
   git(root, ['fetch', '-q', 'origin', ctx.base]);
   const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [pin], mergedResume);
   lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));

@@ -59,7 +59,8 @@ surface. Keep it small and predictable:
 | `DIGEST.md` | the controller | Needs you / New / In progress, rewritten every turn ([template](../captain/templates/DIGEST.md)) |
 | `NOTES.md` | the controller | the append-only timestamped log the digest is derived from ([template](../captain/templates/NOTES.md)) |
 | `skills/<name>/SKILL.md` | the controller | crew procedures the lanes load (the runbooks) |
-| `reports/<code>.md` | each lane, once | Outcome, PR, Needs, Cost, Lesson, Approvals ([template](../captain/templates/report.md)) |
+| `reports/<code>.md` | each lane, once | Outcome with its Unverified line, PR, Needs, Cost, Lesson, Approvals ([template](../captain/templates/report.md)) |
+| `reports/postmortem-<n>.md` | the controller, or a lane it names | why a reverted or S1-fixed merged PR passed every reviewer ([template](../captain/templates/postmortem.md)) |
 | `handoffs/` | lanes | datasets and specs the next lane needs; `handoffs/flaky-ledger.md` is the flaky ledger ([template](../captain/templates/flaky-ledger.md)) |
 | `plans/` | the controller | approved plans, with their Approvals table |
 
@@ -96,7 +97,7 @@ Where each rule lives:
 | 4 | File ownership: edit only what you own; the controller routes the rest | [Lane discipline](#lane-discipline); the ownership list is the digest's **In progress** |
 | 5 | Standing spend and its cap per rerun | [Approvals, shape A](#approvals-three-shapes); the `SPEND` parameter |
 | 6 | The job ends at an unstamped READY; stamp on call; never merge | [The READY contract](#the-ready-contract), the [READY](../captain/templates/READY.md) and [slot call](../captain/templates/slot-call.md) templates, [ship-policy.md](ship-policy.md#stamp-at-merge) |
-| 7 | One report per lane: Outcome, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../captain/templates/report.md) |
+| 7 | One report per lane: Outcome with its Unverified line, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../captain/templates/report.md) |
 | 8 | One path: everything through the controller, never peer to peer | [Roles](#roles); [Lane discipline](#lane-discipline) |
 | 9 | Hands: a real browser, the owner's session or local work go through the controller | [The owner's device](#the-owners-device) |
 | 10 | Keep going; come back only for scope, a conflict, access or the owner's decision | [Lane discipline](#lane-discipline) |
@@ -259,12 +260,17 @@ The short version: the pin is the full 40-character head SHA; every required che
 green at that head; pregate passed for that tree; `SHIP_RECEIPT: pr=<n> head=<pin>` was
 written by /ship at the pin; the screen choice is stated with its justification; flaky
 cases are already in the ledger; the CHANGELOG entry sits under `## [Unreleased]` with
-the version files at the base's version; and the lane declares the head frozen. A green
-PR page is not a READY. A cheap test tier is not merge evidence. The controller refuses a
-block that misses any of this and sends the lane back, never into a train. When the
+the version files at the base's version; the lane declares the head frozen; and an
+`Unverified:` line lists every claim the lane did not check itself (a local test that
+timed out, a paid run skipped, a number a model reported, a review finding set aside on an
+assumption nobody tested), or says `none`. A green PR page is not a READY. A cheap test
+tier is not merge evidence. The controller refuses a block that misses any of this and
+sends the lane back, never into a train. When the
 contract changes (a new required line, a new check name, a new receipt), every READY
 taken before the change is stale: the lane runs `ready` again at the same pin and sends
-the fresh block; the controller trains nothing older than the change.
+the fresh block; the controller trains nothing older than the change. The `Unverified:`
+line is the one exception: the controller asks for a missing line in a follow-up message,
+never refuses or stales a READY for it, and the lane reruns neither `ready` nor /ship.
 
 ### The lane's /ship sequence before READY
 
@@ -326,7 +332,11 @@ commits. Each PR merges at its own green head, and versions are set at release
    leaves VERSION, the `package.json` version and CHANGELOG.md alone.
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>`. It merges with
    `--match-head-commit`, checks main's tree and writes a land note.
-3. Release: the release gate stamps the version and folds the fragments.
+3. Release: before each stable cut (Monday and Thursday, 14:00 UTC), the Captain runs
+   `gstack-release-stamp open`, waits for the release PR's checks, then lands it with
+   `gstack-ship-queue land --pr <n> --pin <head>` (no /ship receipt or READY note needed for a
+   `release/<version>` head). The cut then tags the new version
+   ([ship-policy.md](ship-policy.md#release-stamp)).
 
 What to do with each refusal (nothing was merged unless the code says so):
 
@@ -341,6 +351,8 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
 | `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it |
+| `RELEASE_STAMP_INVALID` | Captain | the `release/<version>` head is more than its stamp: close it, `gstack-release-stamp open` again |
+| `RELEASE_STAMP_EMPTY` | Captain | no fragment landed since the last release: nothing to release |
 
 ## Merge trains
 
@@ -538,9 +550,19 @@ only the run the lane named.
 Every report ends with one Lesson. The controller reads lessons before chat, and each
 one becomes a rule in CREW.md, a line in AGENTS.md, or a tool fix filed as an issue;
 nothing stays a lesson for long. Rules carry the thread that produced them, so a new lane
-can read the incident behind the rule. When the owner states a rule meant for every
-Captain, forward it in the same turn to the thread that keeps the account's shared rules,
-so every crew gets it.
+can read the incident behind the rule.
+
+A revert or an S1 fix of a merged crew PR gets a postmortem as well as a lesson. The
+controller starts it when the fix's brief goes out, from the
+[postmortem template](../captain/templates/postmortem.md), saves it as
+`reports/postmortem-<n>.md` and links it from the fixing PR. Its root cause section asks
+why the lane and every reviewer believed the change was right, and it is answered from the
+review outputs, receipts, decision trail and approvals, not the diff. Each rule change it
+names ships as a gstack PR, because gstack holds the how; a rule kept only in a crew file
+is a gap.
+
+When the owner states a rule meant for every Captain, forward it in the same turn to the
+thread that keeps the account's shared rules, so every crew gets it.
 
 ## Setting it up on Capy
 
