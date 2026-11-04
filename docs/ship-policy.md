@@ -1392,11 +1392,11 @@ Everything else stays in every reader's diff with one reason code:
 | Reason | Kept because |
 |---|---|
 | `policy-dir` | it is under `.gstack/` or `.github/` |
-| `gate-path` | it is a gate path (lib/review-depth.ts) |
+| `gate-path` | it is a gate path (lib/review-depth.ts), such as `lib/review-exclude.ts` or `lib/default-base.ts` |
 | `executable` | its old or new mode is executable |
 | `link` | its old or new mode is a symlink or a submodule commit |
 | `agent-prose` | it is a skill, section, resolver, template or rule file |
-| `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles) |
+| `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles, `scripts/harness-pins/`) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
 | `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
 | `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary) |

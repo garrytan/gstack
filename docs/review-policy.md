@@ -247,7 +247,8 @@ adds one fix-check after the first and never a second.
 **Classes** are unchanged. A mixed diff takes its most restrictive class: **docs**
 (markdown no agent or gate reads), **tests** (test files and fixtures), **code**
 (everything else, including every `SKILL.md` and template, markdown in a skill
-directory, `*/sections/**`, `scripts/resolvers/**`, rule docs, checklists and bins) and
+directory, `*/sections/**`, `scripts/resolvers/**`, rule docs, checklists, bins and the
+harness pins under `scripts/harness-pins/`, whose paths repeat a `test/` segment) and
 **gate** (code plus auth or migration scope, a hunk the gate scan tags, a deleted code
 or test path, CI workflows, credential, state-root and the paths below).
 
@@ -262,7 +263,8 @@ the working tree with untracked files; a data file named only by another data fi
 follows that file, four files deep. Precedence: agent prose (`.gstack/**`), a test or
 fixture path, a gate path, a config file (`.github/**`, anything under a `config/`
 directory, dotfiles, `*.config.*`, `package.json`, lockfiles, `tsconfig*.json`,
-`manifest.json` and the other tool manifests `lib/review-depth.ts` lists) and a named
+`manifest.json`, the other tool manifests `lib/review-depth.ts` lists, and the harness
+pins under `scripts/harness-pins/`, which code reads by path and never names) and a named
 consumer each keep the path code, and YAML and TOML are always code. An SVG counts
 as data only when its whole text at the head is a drawing (GST-911): SVG drawing
 elements and RDF metadata, CSS made of declarations only (no `@` rule and no
@@ -372,7 +374,8 @@ and lockfiles stay runtime. To adopt it, commit an entry like this on the base b
 
 **Gate paths for the machinery itself.** An edit to `lib/review-depth.ts`,
 `lib/review-collect.ts`, `bin/gstack-review-plan`, `lib/review-scope.ts`,
-`lib/review-targeted.ts`, `lib/review-risk.ts`, `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
+`lib/review-targeted.ts`, `lib/review-risk.ts`, `lib/review-exclude.ts` (which files reviewers never see),
+`lib/default-base.ts` (the base every diff is cut from), `review/specialists/targeted.md`, `lib/ship-queue*.ts`, `lib/regen.ts`, `.gstack/generated.json`,
 `ship/sections/review-army.md.tmpl`, `ship/sections/adversarial.md.tmpl` or
 `scripts/resolvers/review-army.ts` is gate class: changing how much review runs gets
 the most review. `rules=` (`DEPTH_RULES`) hashes the deciding constants and patterns,
