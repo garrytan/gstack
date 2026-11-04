@@ -1049,6 +1049,9 @@ describe('a declared runner gets only the files its tool runs', () => {
     expect(planRuns(ctxWith(repo, 'bun test --timeout=30000 {files}'), files)).toEqual({ groups: [{ runner: 'bun test --timeout=30000 {files}', cwd: '', files: ['test/sum.test.ts'] }], unclaimed: [], missing: [], noPubspec: [], dropped: ['test/resize_test.py', 'tests/real-outcome/agent_test.py'] });
     expect(planRuns(ctxWith(repo, 'python3 -m pytest {files}'), files).groups).toEqual([{ runner: 'python3 -m pytest {files}', cwd: '', files: ['test/resize_test.py', 'tests/real-outcome/agent_test.py'] }]);
     expect(planRuns(ctxWith(repo, 'bash scripts/run-tests.sh {files}'), files)).toEqual({ groups: [{ runner: 'bash scripts/run-tests.sh {files}', cwd: '', files }], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctxWith(repo, 'tests/node/run.sh {files}'), files).groups[0]!.files).toEqual(files);
+    expect(planRuns(ctxWith(repo, 'bun test {files} && python3 -m pytest {files}'), files).dropped).toBeUndefined();
+    expect(planRuns(ctxWith(repo, './node_modules/.bin/jest {files}'), files).dropped).toEqual(['test/resize_test.py', 'tests/real-outcome/agent_test.py']);
     expect(planRuns(ctxWith(repo, 'bun test {files}'), ['test/resize_test.py'])).toEqual({ groups: [], unclaimed: [], missing: [], noPubspec: [], dropped: ['test/resize_test.py'] });
   });
 
