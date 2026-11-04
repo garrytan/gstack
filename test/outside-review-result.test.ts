@@ -66,6 +66,13 @@ describe('a ## Recommendation heading carries the completion recommendation (#39
     expect(classifyOutsideReview({ text: '## Recommendation\n\nApprove because I found no issues.', gate: 'review' }).verdict).toBe('clean');
   });
 
+  test('a heading over a no-findings line with no because-clause reads as it did before the heading fold', () => {
+    for (const text of ['## Recommendation\n\nNo issues found.', 'Reviewed the diff.\n\n## Recommendation\n\nNo issues found in the change.']) {
+      expect(classifyOutsideReview({ text, gate: 'structured' }).verdict).toBe('clean');
+      expect(classifyOutsideReview({ text, gate: 'review' }).reason).toBe('missing_markers');
+    }
+  });
+
   test('the inline form still works', () => {
     const result = review('Recommendation: Ship as-is because current callers already enforce the invariant.');
     expect(result.verdict).toBe('clean');

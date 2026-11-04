@@ -198,7 +198,7 @@ function plainReview(text: string): string {
  * at line start for the severity and verdict parsers.
  */
 function recommendationHeading(text: string): string {
-  return text.replace(/^[\t ]*#{1,6}[\t ]+Recommendation[\t ]*:?[\t ]*\r?\n(?:[\t ]*\r?\n)*(?![\t ]*(?:[#>]|[-+*][\t ]))[\t ]*(\S[^\r\n]*)/gim, 'Recommendation: $1');
+  return text.replace(/^[\t ]*#{1,6}[\t ]+Recommendation[\t ]*:?[\t ]*\r?\n(?:[\t ]*\r?\n)*(?![\t ]*(?:[#>]|[-+*][\t ]))(?=[^\r\n]*\bbecause\b)[\t ]*(\S[^\r\n]*)/gim, 'Recommendation: $1');
 }
 
 /**
