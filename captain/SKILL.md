@@ -193,8 +193,7 @@ and adds the lines the tool cannot know. Validate every field before the pin goe
 | `Unverified` | each claim the lane did not check itself, or `none` | never refused or staled; ask for it |
 
 Optional lines a crew's rules file may require: the gate run id and tree hash of the
-lane's own gate, the issue the PR closes, and the key before/after image. One crew's
-habit is not the contract.
+lane's own gate, the issue the PR closes, and the key before/after image.
 
 After READY the head is frozen. A push drops the PR from any train and needs a new READY
 at the new head, /ship rerun included. The one exception is the stamp push below.
@@ -417,11 +416,10 @@ occurrence escalates. Every rerun's spend is reported.
 
 A lane that finishes writes `reports/<code>.md` (`captain/templates/report.md`): Outcome
 with its `Unverified:` line, PR (number, head, version, checks), Needs (what the owner
-must do), Cost, Lesson, and the Approvals table. The controller reads reports before it
-reads chat, and turns every Lesson into a rule in the rules file, a line in the
-standing-rules file (`captain/templates/AGENTS.md`), or a filed tool fix. The controller's
-own log is append-only and timestamped (`captain/templates/NOTES.md`); the digest is
-derived from it. After a revert or S1 fix of a merged crew PR, the controller writes a
+must do), Cost, Lesson, and the Approvals table. The controller reads reports before
+chat and turns each Lesson into a rule, a standing-rules line (`captain/templates/AGENTS.md`)
+or a filed tool fix. Its log (`captain/templates/NOTES.md`) is append-only and timestamped;
+the digest comes from it. After a revert or S1 fix of a merged crew PR, the controller writes a
 postmortem (`captain/templates/postmortem.md`): why did the lane and every reviewer believe
 it was right? Its rule change ships as a gstack PR.
 
