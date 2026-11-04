@@ -146,6 +146,25 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(fs.readdirSync(dir).filter(f => f.includes('.public-'))).toEqual([]);
   });
 
+  test('owner words inside double-backtick inline code in plan.md are code too: export refuses', () => {
+    const inline = V2.replace('## Review record', `The owner's answer: \`\` ${WA} \`\`\n\n## Review record`);
+    const { out, dir } = ownerBundle({ v2: inline });
+    const e = r.ap(['export', '--out', out, '--public', path.join(dir, 'public')]);
+    expect(e.status, e.stdout + e.stderr).toBe(3);
+    expect(e.stderr).toMatch(/plan\.md:\d+: owner words .*\(inside code, which export never rewrites: edit the plan\).*\(ARTIFACT_OWNER_WORDS\)$/m);
+  });
+
+  test('a reply that names a recorded root is redacted before the root is rewritten', () => {
+    const next = path.join(r.host.base, `owner${n + 1}`, 'run');
+    const wa = `Read ${next}/acquisition-merger-notes first.`;
+    const { out, dir } = ownerBundle({ wa, ceo: { native: `Owner: ${wa}` }, eng: {} });
+    expect(out).toBe(next);
+    const pub = path.join(dir, 'public');
+    expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
+    expect(allText(pub)).not.toContain('acquisition-merger-notes');
+    expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Owner: ${MARK}`);
+  });
+
   test('validate --public --private fails with file:line on owner words left in a public copy', () => {
     const { out, dir } = ownerBundle();
     const pub = path.join(dir, 'public');

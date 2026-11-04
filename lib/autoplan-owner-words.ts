@@ -22,12 +22,15 @@
  *
  * Quotes. Text is read in two views, each with an offset map back to the
  * original. Both decode JSON string escapes (\n, \u2019) and HTML entities (an
- * unknown name reads as a space), drop format characters by category (\p{Cf},
+ * accented-letter name such as &eacute; reads as its letter, any other unknown
+ * name as a space), drop format characters by category (\p{Cf},
  * variation selectors, the combining grapheme joiner), read an HTML tag name as
- * a space and join a hyphen-newline wrap. The rendered view also drops HTML
+ * a space and join a hyphen-newline wrap. The rendered view reads a whole tag,
+ * attributes included, as a space, and also drops HTML
  * comments, footnote markers, reference definitions and link targets and
  * titles, keeping link text; the raw view keeps those as words, so owner words
- * inside a comment or a title are found too. Contractions split: "don't" reads
+ * inside a comment or a title are found too. A reply is indexed in both views,
+ * so the words of a link target it gave are found as well. Contractions split: "don't" reads
  * "do not", "can't" and "cannot" read "can not", "it's" "it is", "I'd" "I
  * would", and -n't, -'re, -'ve, -'ll, -'d, -'m likewise. Words are runs of
  * Unicode letters, marks and digits with inner apostrophes; everything else
@@ -78,7 +81,7 @@ function pass(m: Mapped, re: RegExp, pieces: (x: RegExpMatchArray) => Piece[]): 
         if (piece[1] > piece[0]) { out.from[out.s.length - (piece[1] - piece[0])] = m.from[a]!; out.to[out.s.length - 1] = m.to[b - 1]!; }
         continue;
       }
-      for (const c of piece) { out.s += c; out.from.push(m.from[a]!); out.to.push(m.to[b - 1]!); }
+      for (let k = 0; k < piece.length; k++) { out.s += piece[k]; out.from.push(m.from[a]!); out.to.push(m.to[b - 1]!); }
     }
     last = b;
   }
@@ -88,6 +91,15 @@ function pass(m: Mapped, re: RegExp, pieces: (x: RegExpMatchArray) => Piece[]): 
 
 /** Common punctuation and spaces, and every HTML named entity for a format character (U+00AD, U+200B-U+200F, U+2060-U+2063). */
 const NAMED: Record<string, number> = { amp: 0x26, lt: 0x3c, gt: 0x3e, quot: 0x22, apos: 0x27, nbsp: 0xa0, mdash: 0x2014, ndash: 0x2013, hellip: 0x2026, lsquo: 0x2018, rsquo: 0x2019, ldquo: 0x201c, rdquo: 0x201d, shy: 0xad, zerowidthspace: 0x200b, negativeverythinspace: 0x200b, negativethinspace: 0x200b, negativemediumspace: 0x200b, negativethickspace: 0x200b, zwnj: 0x200c, zwj: 0x200d, lrm: 0x200e, rlm: 0x200f, nobreak: 0x2060, applyfunction: 0x2061, af: 0x2061, invisibletimes: 0x2062, it: 0x2062, invisiblecomma: 0x2063, ic: 0x2063 };
+/** A named entity for an accented Latin letter (eacute, Ntilde, ccedil): the base letter and its combining mark. */
+const ACCENT: Record<string, string> = { acute: '\u0301', grave: '\u0300', circ: '\u0302', uml: '\u0308', tilde: '\u0303', ring: '\u030a', cedil: '\u0327', caron: '\u030c', macr: '\u0304', breve: '\u0306', ogon: '\u0328', dot: '\u0307' };
+const LETTERS: Record<string, string> = { szlig: 'ß', aelig: 'æ', AElig: 'Æ', oslash: 'ø', Oslash: 'Ø', eth: 'ð', ETH: 'Ð', thorn: 'þ', THORN: 'Þ', oelig: 'œ', OElig: 'Œ' };
+const namedEntity = (name: string): string | undefined => {
+  const code = NAMED[name.toLowerCase()];
+  if (code !== undefined) return String.fromCodePoint(code);
+  const accent = /^([A-Za-z])([a-z]+)$/.exec(name);
+  return LETTERS[name] ?? (accent && ACCENT[accent[2]!] ? (accent[1]! + ACCENT[accent[2]!]).normalize('NFC') : undefined);
+};
 const JSON_ESCAPES: Record<string, string> = { n: ' ', r: ' ', t: ' ', b: ' ', f: ' ', '"': '"', '\\': '\\', '/': '/' };
 /** What a rendered page doesn't show as words: HTML comments, reference definitions, footnote markers, link targets and titles. */
 const RENDERED: Array<[RegExp, (x: RegExpMatchArray) => Piece[]]> = [
@@ -102,11 +114,12 @@ function normalize(text: string, rendered: boolean): Mapped {
   let m: Mapped = { s: text, from: Array.from({ length: text.length }, (_, i) => i), to: Array.from({ length: text.length }, (_, i) => i + 1) };
   m = pass(m, /\\(?:u([0-9a-fA-F]{4})|([nrtbf"\\/]))/g, x => [x[1] ? String.fromCharCode(parseInt(x[1], 16)) : JSON_ESCAPES[x[2]!]!]);
   m = pass(m, /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z][a-z0-9]*));/gi, x => {
-    const code = x[1] ? parseInt(x[1], 10) : x[2] ? parseInt(x[2], 16) : NAMED[x[3]!.toLowerCase()];
-    return [code !== undefined && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' '];
+    if (x[3]) return [namedEntity(x[3]) ?? ' '];
+    const code = x[1] ? parseInt(x[1], 10) : parseInt(x[2]!, 16);
+    return [code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' '];
   });
   m = pass(m, /[\p{Cf}\p{Variation_Selector}\u034f]/gu, () => []);
-  m = pass(m, /<\/?[A-Za-z][\w:-]*/g, () => [' ']);
+  m = pass(m, rendered ? /<\/?[A-Za-z](?:[^<>]*>|[\w:-]*)/g : /<\/?[A-Za-z][\w:-]*/g, () => [' ']);
   if (rendered) for (const [re, pieces] of RENDERED) m = pass(m, re, pieces);
   return pass(m, /(?<=[\p{L}\p{N}])-[ \t]*\r?\n[ \t>]*(?=[\p{L}\p{N}])/gu, () => []);
 }
@@ -150,17 +163,19 @@ export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]
   };
   for (const s of [...replies, ...(o.deferred ?? [])]) {
     if (s.parsed) continue;
-    const keys = tokens(s.text).map(t => t.key);
     const prior = keysOf(s.prior ?? []);
-    add(keys, prior);
-    const size = Math.min(keys.length, WINDOW);
-    const echo = new Set<number>();
-    for (let j = 0; j + size <= keys.length; j++) if (prior.includes(` ${keys.slice(j, j + size).join(' ')} `)) for (let k = j; k < j + size; k++) echo.add(k);
-    for (let j = 0; echo.size && j < keys.length;) {
-      let k = j;
-      while (k < keys.length && !echo.has(k)) k++;
-      if (k > j) add(keys.slice(j, k), prior);
-      j = k + 1;
+    for (const rendered of [true, false]) {
+      const keys = tokens(s.text, rendered).map(t => t.key);
+      add(keys, prior);
+      const size = Math.min(keys.length, WINDOW);
+      const echo = new Set<number>();
+      for (let j = 0; j + size <= keys.length; j++) if (prior.includes(` ${keys.slice(j, j + size).join(' ')} `)) for (let k = j; k < j + size; k++) echo.add(k);
+      for (let j = 0; echo.size && j < keys.length;) {
+        let k = j;
+        while (k < keys.length && !echo.has(k)) k++;
+        if (k > j) add(keys.slice(j, k), prior);
+        j = k + 1;
+      }
     }
   }
   const placements = [

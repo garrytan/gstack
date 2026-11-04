@@ -67,10 +67,19 @@ describe('the quote rule', () => {
     ['a directional isolate', 'Jane \u2066Doe\u2069 vetoed it'],
     ['a combining grapheme joiner', 'Jane Do\u034fe vetoed it'],
     ['a variation selector', 'Jane Doe\ufe0f vetoed it'],
+    ['an HTML tag with attributes', 'Jane <span class="highlight">Doe</span> vetoed it'],
   ])('%s does not hide a short quote', (_, text) => {
     const r = redactOwnerWords(text, ownerIndex([{ text: 'Jane Doe vetoed it' }]));
     expect(r.redacted).toBeGreaterThanOrEqual(1);
     for (const word of ['Jane', 'vetoed']) expect(r.text).not.toContain(word);
+  });
+
+  test('an accented letter written as a named entity, an astral character reference and a private link target do not hide a quote', () => {
+    const accented = redactOwnerWords('Context: Jos&eacute; Alvarez vetoed it.', ownerIndex([{ text: 'José Alvarez vetoed it' }]));
+    expect(accented.text).toBe(`Context: ${MARK}.`);
+    expect(redactOwnerWords('Hello &#x1f600; Jane Doe vetoed it', ownerIndex([{ text: 'Jane Doe vetoed it' }])).text).toBe(`Hello &#x1f600; ${MARK}`);
+    const link = redactOwnerWords('Ref: https://x.test/acquisition-of-private-company-closes-next-monday', ownerIndex([{ text: 'see [the notes](https://x.test/acquisition-of-private-company-closes-next-monday) today' }]));
+    expect(link.text).not.toContain('acquisition');
   });
 
   test('the redaction covers the original characters, markup inside the quote included', () => {
