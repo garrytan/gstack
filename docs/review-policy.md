@@ -524,6 +524,35 @@ Independently of the key, no reader is handed more than 2,000,000 bytes of
 diff: `gstack-review-dispatch` stops with `REVIEW_DIFF_TOO_LARGE` before it writes
 anything, instead of a review of the part a reader happened to see.
 
+## What readers may fetch
+
+Every reader brief closes with the fetch rule, before the workspace paragraph:
+review only this checkout and its local git history (the diff base is already
+local), and never clone, fetch, pull or download another repository, dataset or
+archive. The rule names each forbidden shape from one table in
+`lib/review-fetch.ts`: `git clone`, `fetch`, `pull`, `ls-remote` or `submodule
+update` against a network remote; `gh repo clone`, `gh api` tarball, zipball or
+contents, `gh release download`; dataset or model downloads; `curl` or `wget` of
+an archive or a raw repository file; package installs from a git URL. A clone of
+a local path or a `file://` URL is fine, and so is reading a single
+documentation page. No brief asks for a fetch today. A repository's
+[`readers` key](ship-policy.md#readers) adds hosts, repositories and paths no
+reader may reach at all, and a one-line note every brief carries.
+
+`gstack-review-dispatch audit-fetch --events <jsonl>` scans one reader's tool
+calls (inputs only, never results) against the same table and the pass's policy.
+It splits each command into words and flags only a known download tool aimed at
+a network target, so a reader that greps for `git clone` or reads the scanner's
+source is not a hit, while `bash -c`, wrappers such as `timeout` and `command:`
+strings inside a program are read through. A fetch of the checkout's own remote
+by name is a note. Today the result is recorded on the reader in the pass
+manifest as a note (`fetch_audit`, `enforced: false`).
+
+What this protects: the readers' findings, the merged review and PR text never
+carry a sealed file a reader fetched or opened. What it cannot protect: data that
+is already public may be in a model's training set, and the rule does nothing
+about that.
+
 ## What the receipt records
 
 `gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads this invocation's
@@ -615,7 +644,7 @@ difference passed a scoped review.
 `diff-plus-blocking` is the fallback for a repository where deferred issues pile
 up; `all` is the loop as it ran before the key existed. A value other than
 `frozen` needs `min_gstack_version` at or past the release that added the key
-(`REVIEW_SCOPE_KEY_VERSION` in `lib/ship-policy.ts`) so an older gstack refuses
+(`REVIEW_SCOPE_KEY_VERSION` in `lib/ship-policy-keys.ts`) so an older gstack refuses
 the file by name instead of ignoring the key.
 
 ## Reviewer fan-out

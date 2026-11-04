@@ -1,0 +1,4 @@
+{"tool":"capy.bash","input":{"command":"cd /workspace/gbrain-evals && git diff 1a2b3c4 -- src/rs1"}}
+{"tool":"capy.bash","input":{"command":"cd /tmp && git clone https://github.com/example-org/BEAM.git beam && cd beam && git checkout b2da22e"}}
+{"tool":"capy.bash","input":{"command":"ls /tmp/beam/chats | head -5"}}
+{"tool":"capy.bash","input":{"command":"rm -rf /tmp/beam"}}

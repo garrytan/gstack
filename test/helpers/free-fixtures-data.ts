@@ -208,6 +208,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/redact-diagram/**': ['test/redact-context-exemptions.test.ts'],
   'test/fixtures/remote-identity-vectors.json': ['test/bin-context-windows-slug.test.ts', 'test/gstack-slug-parity.test.ts', 'test/remote-identity-vectors.test.ts'],
   'test/fixtures/review-depth/**': ['test/review-dispatch-compare.test.ts'],
+  'test/fixtures/review-fetch/**': ['test/review-fetch.test.ts'],
   'test/fixtures/review-ledger/**': ['test/review-dispatch.test.ts'],
   'test/fixtures/review-pins/**': ['test/review-packets-removed.test.ts'],
   'test/fixtures/review-risk/gbrain-evals-289.json': ['test/review-risk-routing.test.ts'],

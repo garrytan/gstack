@@ -681,11 +681,11 @@ describe('merge: direct | train', () => {
     const tentative = bumpVersion(fork, 'minor')!;
     const policy = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
     const templates: string[] = policy.stamp_patterns;
-    expect(policy.stamp_paths).toContain('lib/ship-policy.ts');
+    expect(policy.stamp_paths).toContain('lib/ship-policy-keys.ts');
     expect(templates).toContain("_KEY_VERSION = '{version}'");
-    expect(fs.readFileSync(path.join(root, 'lib', 'ship-policy.ts'), 'utf8')).toContain(`export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`);
+    expect(fs.readFileSync(path.join(root, 'lib', 'ship-policy-keys.ts'), 'utf8')).toContain(`export const MERGE_KEY_VERSION = '${MERGE_KEY_VERSION}';`);
     const line = `export const MERGE_KEY_VERSION = '${tentative}';`;
-    expect(tentativeMentions(new Map([['lib/ship-policy.ts', new Set([line])]]), fork, stamped, templates)).toEqual([tentative]);
+    expect(tentativeMentions(new Map([['lib/ship-policy-keys.ts', new Set([line])]]), fork, stamped, templates)).toEqual([tentative]);
     const out = rewriteStamps(line, tentative, stamped, templates);
     expect(out.count).toBe(1);
     expect(out.text).toBe(`export const MERGE_KEY_VERSION = '${stamped}';`);
