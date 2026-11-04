@@ -273,3 +273,13 @@ describe('landed schemas match the recorded calibration', () => {
     expect(judgeSource).toContain('buildArmJudgePrompt(task, diff), ARM_JUDGE_MODEL, { jsonSchema: ARM_JUDGE_SCHEMA })');
   });
 });
+
+describe('retired skill-prose judges (GST-1371)', () => {
+  // Value: protects=the removal of the skill-prose clarity judges; fails_when=a merge or revert restores their control-bundle script or the cookie manual-review record that scripts/lib/paid-report.ts now rejects; why_new=no remaining test names either path; seam=none; no_claim=that the kept judges pass
+  test('the control-bundle script and the cookie manual-review record stay deleted', () => {
+    const root = path.resolve(import.meta.dir, '..');
+    for (const file of ['scripts/judge-controls.ts', '.github/cookie-workflow-manual-review.json']) {
+      expect(fs.existsSync(path.join(root, file)), `${file} was retired with the skill-prose judges (GST-1371); fix: delete it`).toBe(false);
+    }
+  });
+});
