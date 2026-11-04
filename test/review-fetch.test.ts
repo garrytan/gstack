@@ -90,6 +90,7 @@ describe('scanner', () => {
   test('a directory-form forbid_paths entry covers the files under it, and nothing beside it', () => {
     const g = [new Bun.Glob('sealed')];
     expect([forbiddenPath(g, 'sealed/loader.ts'), forbiddenPath(g, 'sealed'), forbiddenPath(g, 'sealedx/a.ts'), forbiddenPath(g, 'src/sealed.ts')]).toEqual([true, true, false, false]);
+    expect([forbiddenPath([new Bun.Glob('lib/x')], 'lib/review-fetch.ts'), forbiddenPath([new Bun.Glob('data/?')], 'data/longname/file'), forbiddenPath([new Bun.Glob('**/x')], 'src/ok.ts')]).toEqual([false, false, false]);
     expect(rules([bash('cat sealed/loader.ts'), bash('cat src/a.ts')], { forbid_fetch: [], forbid_paths: ['sealed'] }).map(x => x[2])).toEqual(['sealed/loader.ts']);
   });
   test('forbid_fetch matches hosts, subdomains and owner/repo, with or without .git', () => {
@@ -176,6 +177,8 @@ describe('readers policy', () => {
       expect(names).toContain('src/keep.ts');
       expect(names.filter(n => forbiddenPath([new Bun.Glob(pattern.replace(/\/+$/, ''))], n))).toEqual([]);
     }
+    const sibling = spawnSync('git', ['diff', '--name-only', r.base, '--', '.', ...forbidSpecs({ forbid_paths: ['src/x'] })], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim().split('\n');
+    expect([sibling.includes('src/keep.ts'), forbiddenPath([new Bun.Glob('src/x')], 'src/keep.ts')]).toEqual([true, false]);
   });
   test('no policy file is the default rule; an invalid base policy refuses', () => {
     const none = repo(null);

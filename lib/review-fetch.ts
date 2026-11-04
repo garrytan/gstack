@@ -183,10 +183,10 @@ const field = (input: unknown, keys: string[], code: RegExp): string[] => {
   return [...keys.map(k => o[k]).filter((v): v is string => typeof v === 'string'), ...(typeof o.code === 'string' ? [...o.code.matchAll(code)].map(m => m[2]!) : [])];
 };
 
-/** Whether a repo-relative path falls under a forbid_paths glob the way git reads one: the path itself or any directory above it matches. */
+/** Whether a repo-relative path is one forbidSpecs excludes: the path itself or a directory above it matches a pattern (git then excludes `<dir>/**`). */
 export function forbiddenPath(globs: readonly InstanceType<typeof Bun.Glob>[], rel: string): boolean {
   const parts = rel.replace(/\/+$/, '').split('/');
-  return parts.some((_, i) => { const p = parts.slice(0, i + 1).join('/'); return globs.some(g => g.match(p) || g.match(p + '/x')); });
+  return parts.some((_, i) => { const p = parts.slice(0, i + 1).join('/'); return globs.some(g => g.match(p)); });
 }
 
 /** Scan a reader's tool calls against the default rule and the pass's readers policy; `root` is the checkout under review. */
