@@ -3,8 +3,8 @@ name: modernize
 preamble-tier: 2
 version: 0.1.0
 description: |
-  Bring an aging pull request onto its current base and decide whether it should
-  still exist: MODERNIZE, REWORK or CLOSE, with range-diff proof before any push.
+  Bring an aging PR onto its current base and decide: MODERNIZE, REWORK or CLOSE.
+  Proves the rebase with range-diff before any push.
   Use when asked to "modernize this PR", "rebase this old PR", "revive this
   branch", or "is this PR still worth landing". Never closes a PR on its own.
   (gstack)
@@ -21,6 +21,7 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 sensitive: true
+manual_only: true
 ---
 
 # /modernize — Is this PR still worth landing?

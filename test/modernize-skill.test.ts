@@ -69,7 +69,7 @@ describe('/modernize skill', () => {
     expect(read('AGENTS.md')).toMatch(/^\| `\/modernize` \| /m);
     expect(read('docs/skills.md')).toMatch(/^\| \[`\/modernize`\]\(#modernize\) \| /m);
     expect(read('docs/skills.md')).toContain('## `/modernize`');
-    expect(read('SKILL.md.tmpl')).toContain('invoke `/modernize`');
+    expect(read('SKILL.md.tmpl')).toContain('type `/modernize`');
     expect(read('gstack/llms.txt')).toContain('[/modernize](modernize/SKILL.md)');
     expect(read('docs/PROJECT_STRUCTURE.md')).toMatch(/^├── modernize\//m);
     expect(read('lib/doctor-components.ts')).toMatch(/^  modernize: CLAUDE_ONLY,$/m);
