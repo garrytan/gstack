@@ -654,7 +654,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-Stages run in order; 1–4's commands are only `STOP:` recoveries. Content
+Stages run in order; 1–4's other commands are `STOP:` recoveries. Content
 changes during or after verification restart at stage 1 and complete all five
 stages before Step 17. Content-preserving commits keep evidence valid.
 
@@ -669,7 +669,7 @@ termination before another writer runs; timeout or cancellation acknowledgment
 alone means STOP until confirmed.
 
 Find declared generation/build commands in project instructions, manifests, build
-files and CI. Run them and save results. If none exists, record not applicable and
+files and CI. Pass each to `finish` as `--build`. If none exists, record not applicable and
 the inspected sources. A missing prerequisite or failed build stops shipping:
 report **Build failed or prerequisite missing**, with the command, error and needed
 repair. Never invent a substitute command.
@@ -765,8 +765,8 @@ does not authorize a third attempt.
 
 ### 5. Report, then push
 
-Commit only approved, verified release changes left uncommitted after Step 15,
-including generated outputs; use its grouping rules; never create an empty commit.
+`finish` made the release commit. Commit only verified outputs stage 1's
+builds regenerated, grouped as in Step 15; never create an empty commit.
 Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified

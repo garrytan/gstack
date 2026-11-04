@@ -213,8 +213,7 @@ Only commit if there are changes. Stage the bootstrap's own files by name (confi
 **Run it:** `~/.claude/skills/gstack/bin/gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...`
 (or the Step 1 call with lanes). It runs the free pre-gate first, before any lane, eval or
 remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, strays, literals;
-stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger (one at
-a time on 4 or fewer cores unless `--lanes serial|parallel`), and prints `PREGATE:`, `LANES:` and
+stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger, and prints `PREGATE:`, `LANES:` and
 one `LANE: <label> <state> exit= tests_ran= log=` line each.
 `fail` or `incomplete` blocks: fix, rerun. **No-stop** (docs/review-policy.md#no-stop): a pregate flake rerun (one per branch), a
 timeout-only fix and three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,
@@ -232,7 +231,7 @@ Before the first push that lane runs only targeted tests and the repro (the full
 merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
 `scripts/lib/shard-engine.ts`). Push early so CI runs beside the review: commit, `gstack-ship-release push
 --branch <branch> --early` (sealed, secrets and guards first; Step 6.5 asks only for Greptile), open a draft PR
-(`gstack-post pr-create --draft`), then `gstack-ci-carry wait` in
+(`gstack-post pr-create --base <base> --draft --title-file <f> --body-file <f>`), then `gstack-ci-carry wait` in
 the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
 run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
 label=<l> (<reason>)` names why a mapped lane ran here. Any other lane that already passed at this
