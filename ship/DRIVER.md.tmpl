@@ -35,7 +35,7 @@ A dispatching program takes `BEFORE` (R and C) as readers start and passes
 `--dispatched-at <R> --dispatched-credits <C> --readers <n>` with the reading after the last settles.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
-call resumes the poll. Lanes, pregate, `finish` run in background. Never end the turn while
+call resumes the poll. Lanes, pregate, `finish` run in background; after a restart, rerun the same command. Never end the turn while
 readers run (each wakes it). A small waiting child saves nothing. Past 100 minutes, stop. Returns:
 ≤32 KB per program; split longer reads at headings, each byte once, before first use: phase programs
 end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - its output>`; on
