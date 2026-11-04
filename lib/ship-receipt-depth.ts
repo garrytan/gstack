@@ -25,8 +25,8 @@ import { collectCommit } from './review-collect';
 import { reviewExclude, type Exclusion } from './review-exclude';
 import { isUnavailable } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
-import { depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
-import type { RiskClass } from './review-risk';
+import { classifyPath, depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
+import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, MONEY_PATH_TOKENS, matchRisk, type RiskClass } from './review-risk';
 import { platformReviewAt } from './review-platform';
 import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
@@ -146,14 +146,28 @@ export function taggedPaths(jsonl: string): Set<string> {
 export const depthBelow = (have: Depth | 'platform', need: Depth | 'platform') => RANK[have] < RANK[need];
 export const deeper = <D extends Depth | 'platform'>(a: D, b: D): D => (RANK[a] >= RANK[b] ? a : b);
 
-/** `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the fix-check it followed. */
+/**
+ * `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the stop it accepts:
+ * the fix-check it followed (`fix_check`), or the second full pass that left a finding open (`second_pass`, the deferred
+ * finding ids; TRUT-7).
+ */
 export function parseReviewLoopException(value: unknown): { ok: true; exception: ReviewLoopException } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } }');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } | second_pass: { head, deferred: [<finding id>] } }');
   const v = value as Record<string, unknown>;
-  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
+  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check', 'second_pass'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
   for (const key of ['accepted_by', 'date', 'via', 'reason']) if (!text(v[key])) return bad(`review_loop_exception.${key} must be a non-empty one-line string`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date as string)) return bad('review_loop_exception.date must be YYYY-MM-DD');
+  if ((v.fix_check === undefined) === (v.second_pass === undefined)) return bad('review_loop_exception names exactly one of fix_check or second_pass: the stop it accepts');
+  const accepted = { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim() };
+  if (v.second_pass !== undefined) {
+    const s = v.second_pass as Record<string, unknown> | null;
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return bad('review_loop_exception.second_pass must be { head, deferred: [<finding id>] }');
+    for (const key of Object.keys(s)) if (!['head', 'deferred'].includes(key)) return bad(`review_loop_exception.second_pass: unknown key ${JSON.stringify(key)}`);
+    if (!sha(s.head)) return bad('review_loop_exception.second_pass.head must be the full commit the second full pass reviewed');
+    if (!Array.isArray(s.deferred) || !s.deferred.length || !s.deferred.every(text)) return bad('review_loop_exception.second_pass.deferred must name the open finding the owner accepted by id');
+    return { ok: true, exception: { ...accepted, second_pass: { head: s.head, deferred: (s.deferred as string[]).slice(0, 20).map(d => d.trim()) } } };
+  }
   const f = v.fix_check as Record<string, unknown> | null;
   if (!f || typeof f !== 'object' || Array.isArray(f)) return bad('review_loop_exception.fix_check must be { head, findings[, files] }');
   for (const key of Object.keys(f)) if (!['head', 'findings', 'files'].includes(key)) return bad(`review_loop_exception.fix_check: unknown key ${JSON.stringify(key)}`);
@@ -161,12 +175,22 @@ export function parseReviewLoopException(value: unknown): { ok: true; exception:
   if (typeof f.findings !== 'number' || !Number.isInteger(f.findings) || f.findings < 0) return bad('review_loop_exception.fix_check.findings must be an integer >= 0 (what the fix-check reported)');
   if (f.files !== undefined && (!Array.isArray(f.files) || !f.files.every(text))) return bad('review_loop_exception.fix_check.files must be a list of paths');
   const files = (f.files as string[] | undefined)?.slice(0, 50);
-  return { ok: true, exception: { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim(), fix_check: { head: f.head, findings: f.findings, ...(files?.length ? { files } : {}) } } };
+  return { ok: true, exception: { ...accepted, fix_check: { head: f.head, findings: f.findings, ...(files?.length ? { files } : {}) } } };
+}
+
+/** The commit the accepted stop reviewed: the fix-check's head or the second full pass's. */
+export const exceptionHead = (e: ReviewLoopException) => (e.fix_check ?? e.second_pass)!.head;
+
+/** Whether the review loop shows the stop the exception accepts: a fix-check ran, or two full passes left a finding deferred. */
+export function exceptionLoopProblem(e: ReviewLoopException, loop: ShipReceipt['review_loop']): string | null {
+  if (e.fix_check) return loop?.fix_checks ? null : 'needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check';
+  return (loop?.passes ?? 0) >= 2 && (loop?.deferred ?? 0) >= 1 ? null : 'second_pass needs --review-loop with passes >= 2 and deferred >= 1: the stop it accepts follows the second full pass with a finding left open';
 }
 
 /** The line the PR body must carry, word for word, while the exception stands. */
 export function reviewLoopExceptionLine(e: ReviewLoopException): string {
-  return `Review-loop exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason} (fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'})`;
+  const stop = e.fix_check ? `fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'}` : `second full pass at ${e.second_pass!.head.slice(0, 12)}, deferred ${e.second_pass!.deferred.join(', ')}`;
+  return `Review-loop exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason} (${stop})`;
 }
 
 const carries = (body: string, line: string) => body.split(/\r?\n/).some(l => l.trim() === line);
@@ -187,8 +211,9 @@ export function exceptionProblems(body: string, r: ShipReceipt, isAncestor?: (co
     const e = parseReviewLoopException(r.review_loop_exception);
     if (!e.ok) out.push(e.message);
     else {
-      if (!r.review_loop?.fix_checks) out.push('review_loop_exception needs review_loop.fix_checks >= 1 (the stop it accepts follows a fix-check)');
-      if (isAncestor && !isAncestor(e.exception.fix_check.head)) out.push(`review_loop_exception.fix_check.head ${e.exception.fix_check.head.slice(0, 12)} is not the receipt head or an ancestor of it`);
+      const loopProblem = exceptionLoopProblem(e.exception, r.review_loop);
+      if (loopProblem) out.push(`review_loop_exception ${loopProblem.replace('--review-loop', 'review_loop')}`);
+      if (isAncestor && !isAncestor(exceptionHead(e.exception))) out.push(`review_loop_exception's head ${exceptionHead(e.exception).slice(0, 12)} is not the receipt head or an ancestor of it`);
       const line = reviewLoopExceptionLine(e.exception);
       if (!carries(body, line)) out.push(`the body does not carry the review-loop exception line verbatim: ${JSON.stringify(line)}`);
     }
@@ -201,11 +226,12 @@ export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
 /**
  * `write --review-targeted` input (gstack-review-dispatch verify --targeted-out), bound to the receipt's product patch-id here.
  * `head` is the commit the reader read; `productPatchOf` gives that commit's product patch-id by the receipt's own rules. The
- * record binds only on an equal product patch, and with `classesSince` also only when nothing changed after the read carries a
- * targeted class (a test change the gate scan tags is gate class though the product patch leaves tests out), so a record never
- * vouches for work it did not read (GST-986).
+ * record binds only on an equal product patch, or with `plainDocs` across a change after the read that is plain docs
+ * (plainDocsSince, GST-1195), and with `classesSince` also only when nothing changed after the read carries a targeted class (a
+ * test change the gate scan tags is gate class though the product patch leaves tests out), so a record never vouches for work it
+ * did not read (GST-986).
  */
-export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
+export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null, plainDocs?: (read: string) => boolean): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
   if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by, head }');
   const v = value as Record<string, unknown>;
@@ -217,7 +243,7 @@ export function parseReviewTargeted(value: unknown, productPatchId: string, prod
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
   if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
   const read = productPatchOf(v.head);
-  if (read !== productPatchId || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read, so run the targeted reader on HEAD and verify again`);
+  if ((read !== productPatchId && !plainDocs?.(v.head)) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only a docs change with no numeric, results, prereg, eval, money or security claim carries the record), so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
@@ -345,6 +371,24 @@ export function targetedClassesSince(root: string, from: string, head: string): 
   const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
   return t.errors.length ? null : t.classes;
 }
+
+/**
+ * Whether what changed from `from` to the checked-out `head` is plain docs, which a targeted record carries across (GST-1195):
+ * every path docs class, R65's claim rule (platformFits: no numeric claim, no results, prereg or eval path), and no money,
+ * security, secret or auth wording in the changed lines (the risk matchers plus DOCS_CLAIM_WORDS, since the matchers spare prose).
+ * False when `from` is not an ancestor or the diff is unreadable.
+ */
+export function plainDocsSince(root: string, from: string, head: string): boolean {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return false;
+  const c = collectCommit(root, from, head);
+  if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary)) return false;
+  const lines = c.paths.flatMap(p => [...(c.added?.[p] ?? []), ...(c.removed?.[p] ?? [])]);
+  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return false;
+  return platformFits('docs', c.paths, 0, scanNumbers(c.added ?? {})) && matchRisk({ codePaths: c.paths, added: c.added, removed: c.removed, scopeAuth: true }).size === 0;
+}
+/** Words that make a docs line a money, security, secret or auth claim for plainDocsSince: deliberately broad, since a false hit only reruns the reader. */
+const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'cap', 'caps', 'capped', 'usd', 'dollar', 'dollars', 'paid', 'pay', 'payment', 'payments', 'refund', 'refunds',
+  'secret', 'secrets', 'key', 'keys', 'credential', 'credentials', 'password', 'passwords', 'token', 'tokens', 'security', 'sandbox', 'injection', 'trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'csrf', 'xss', 'vulnerability', 'privilege']);
 
 /**
  * receiptTargetedVerdict at the receipt's head, with the classes the queue computes: what write and carry check before they
