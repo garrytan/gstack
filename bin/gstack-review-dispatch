@@ -66,10 +66,12 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       review_exclude_paths prints REVIEW_EXCLUDE_RECORD: digest=<d> (the selection every reader's newest brief names: the
       value gstack-ship-receipt write --review-exclude takes), and a mixed set of digests makes it dirty
   pass --base <ref> --out <dir> --pass <id> [--ledger <f>] [--diff-base <sha>] [--learnings-file <f>] [--extras <json>] [--audit-only]
-       [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
+       [--voices] [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
       the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      --voices (Step 11 on its own --out) keeps only the plan's voices, so it renders nothing its program never sends; it
+      takes no --extras, and a reviewer pass refuses to resume its manifest.
       <id> is letters, digits and dashes, read as lowercase (P1 is p1): the manifest, reader titles and a resume use that form.
       A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       --diff-base sets every reader's base, a scoped pass's Red Team included (the targeted reader keeps the merge base).
@@ -203,6 +205,7 @@ function pass(): number {
   if (fs.existsSync(file)) {
     const m = readManifest(file);
     if (m.pass !== id) throw new BriefError(`${file} belongs to pass ${m.pass}, not ${id}`);
+    if (m.voices_only && !args.includes('--voices')) throw new BriefError(`${file} holds only Step 11's voices (pass --voices); a reviewer pass needs its own --out`);
     process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${m.pass} readers=${m.readers.length} resumed`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
@@ -212,7 +215,7 @@ function pass(): number {
     if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
     const extras = JSON.parse(readFile(extrasFile, 'extras')!) as Extra[];
     const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: mergeBaseWith(base) ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
-      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras });
+      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)'], extras, voices: args.includes('--voices') });
     fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
     const t = sectionTexts(ROOT);
     renderStage(m, 'first', t, branchDiff);
@@ -243,7 +246,7 @@ function pass(): number {
     dispatches: step === 'fix-check' ? p.dispatches : p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
     targetedClasses: p.targeted?.classes, mergeBase, rangeBase: flag('--diff-base') ? undefined : rangeBase,
     fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined,
-    ...planExclude(p.review_exclude) });
+    ...planExclude(p.review_exclude), voices: args.includes('--voices') });
   const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
