@@ -32,6 +32,12 @@ describe("#1731 gbrain spawns carry the Windows shell flag", () => {
     });
   }
 
+  test("bin/gstack-gbrain-detect: gbrain doctor goes through spawnGbrain (no direct openers)", () => {
+    const src = read("bin/gstack-gbrain-detect");
+    expect(src.match(/(spawnSync|spawn|execFileSync|tryExec)\(\s*["']gbrain["']/g)?.length ?? 0).toBe(0);
+    expect(src).toContain("spawnGbrain([\"doctor\"");
+  });
+
   // Not-yet-seamed file: every direct gbrain spawn must still carry the
   // #1731 shell flag. (Migrate to gbrainInvocation when next touched.)
   test("lib/gbrain-local-status.ts: every gbrain spawn has shell:NEEDS_SHELL_ON_WINDOWS", () => {
