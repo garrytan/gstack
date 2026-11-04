@@ -135,3 +135,50 @@ describe('review-army specialist diff at the literal merge base', () => {
     }
   });
 });
+
+/**
+ * 2026-10-29 flaky pass (GSTA-162). Nine paid ship qa-callers reds after #3553 had two causes:
+ * - Six trials (late-input, plan-checks, small-cli): the parent paraphrased its specialist prompt ("run
+ *   \`git diff origin/main\` in <dir>"; checklist paths as braces or "(same directory)"), and the child ran the one
+ *   call refused in each trial: \`git -C <dir> diff\` or a cd into the checklist directory.
+ * - Three late-input trials: error_max_turns at 25 of 25 parent turns. Each ran Step 9's gate scan only after
+ *   writing the receipt, or never reached it; the passing reruns batched it with the review plan and used 18 to 21.
+ */
+describe('ship qa-callers child handoff and Step 9 scheduling (2026-10-29 captures)', () => {
+  const captures = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/qa-caller-child-handoff-2026-10-29.json'), 'utf8'));
+
+  for (const [run, trial] of Object.entries(captures.childHandoff) as [string, { childPrompt: string; childCommands: string[] }][]) {
+    test(`captured ${run}: the child's paraphrased-boundary call stays refused, and the parent is told how to hand boundaries down`, () => {
+      const caseId = run.split(' ').pop() as QaCallerCase;
+      const fixture = fixtureFor(caseId);
+      const base = spawnSync('git', ['merge-base', 'origin/main', 'HEAD'], { cwd: fixture.cwd, encoding: 'utf8', timeout: 5000 }).stdout.trim();
+      const commands = trial.childCommands.map(command => command.replaceAll('<root>', fixture.root).replace(/\b[0-9a-f]{40}\b/g, base));
+      const refused = commands.filter(command => !qaCallerCommandAllowed(command, fixture.workflowCommands, context(fixture)));
+      expect(refused).toHaveLength(1);
+      expect(refused[0]).toMatch(/^git -C |^cd /);
+      expect(qaCallerCommandAllowed('git diff origin/main', fixture.workflowCommands, context(fixture))).toBe(true);
+      const prompt = qaCallerSessionOptions(fixture, 'free-child-handoff').prompt;
+      expect(prompt).toContain('Pass these same command and write boundaries to any child, which starts in this product directory');
+      expect(prompt).toContain('no \`in <dir>\` paraphrase, cd or git -C');
+      expect(prompt).toContain('each file it should Read as its own literal path (Read takes no braces or globs)');
+    });
+  }
+
+  test('captured max-turns reds: the gate scan they ran late is an admitted block, and the ship contract schedules it with diff discovery', () => {
+    const { maxTurns, failures, gateScanCommand, passingReruns } = captures.turnBudget;
+    for (const [run, trial] of Object.entries(failures) as [string, { parentTurns: number; receiptWriteTurn: number; gateScanTurn: number | null }][]) {
+      expect(trial.parentTurns, run).toBe(maxTurns);
+      if (trial.gateScanTurn !== null) expect(trial.gateScanTurn, run).toBeGreaterThan(trial.receiptWriteTurn);
+    }
+    for (const turns of Object.values(passingReruns) as number[]) expect(turns).toBeLessThan(maxTurns - 2);
+    const discovery = (caseId: QaCallerCase) => {
+      const contract = qaCallerSessionOptions(fixtureFor(caseId), 'free-turns').appendSystemPrompt!;
+      return contract.match(/Read-only discovery is ([^.;]*);/)?.[1] ?? '';
+    };
+    const ship = fixtureFor('ship-exploratory-late-input', true);
+    expect(qaCallerCommandAllowed(gateScanCommand.replaceAll('<root>', ship.root), ship.workflowCommands, context(ship))).toBe(true);
+    expect(qaCallerSessionOptions(ship, 'free-turns').maxTurns).toBe(maxTurns);
+    for (const caseId of SHIP_CASES) expect(discovery(caseId)).toContain("Step 9's review-plan command and gate-scan block, which belong with the first diff discovery");
+    expect(discovery('review-exploratory-small-cli')).not.toContain('gate-scan');
+  });
+});

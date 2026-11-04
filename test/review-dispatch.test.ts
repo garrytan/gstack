@@ -1,16 +1,26 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph } from '../lib/review-brief';
-import { collect, judge, parseFindings, type MergedLine } from '../lib/review-ledger';
+import { BriefError, checkReviewedTree, promptHash, renderBrief, sectionTexts, workspaceParagraph, workspaceStep } from '../lib/review-brief';
+import { collect, judge, parseFindings, rank, readJsonl, type MergedLine } from '../lib/review-ledger';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-review-dispatch');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-')); dirs.push(d); return d; };
+/** A clean checkout of HEAD: the outside voice embeds the diff against its base, and a build that rewrites tracked files in ROOT can push that past the reviewer diff ceiling. */
+let clean = '';
+const cleanCheckout = () => {
+  if (clean) return clean;
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatch-clean-')), 'wt');
+  const r = spawnSync('git', ['-C', ROOT, 'worktree', 'add', '--detach', dir, 'HEAD'], { encoding: 'utf8', timeout: 120_000 });
+  if (r.status !== 0) throw new Error(`git worktree add failed: ${r.stderr}`);
+  return (clean = dir);
+};
+afterAll(() => { if (clean) spawnSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', clean], { encoding: 'utf8', timeout: 60_000 }); });
 /** A reader that follows its brief's workspace paragraph starts its reply with the REVIEWED_TREE line of that checkout (GST-482). */
 function treeLineOf(cwd: string): string {
   const git = (a: string[]) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8', timeout: 30_000 }).stdout.trim();
@@ -106,6 +116,48 @@ describe('gstack-review-dispatch render: briefs from the sections, slots only', 
     expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8')).toContain(`Read each checklist at ${lists} (tag each finding's`);
     expect(run(['render', '--role', 'specialist-batched', '--out', out, '--diff-base', SHA, '--checklists', 'testing,maintenance']).stderr).toContain('BRIEF_RENDER_FAILED: checklist not found');
   });
+
+  // Value: protects=a finding or learning that quotes a slot name reaches its reader byte for byte instead of failing the render;
+  //   fails_when=the unfilled-slot check runs after findings or learnings are pasted in, or a later slot fill rewrites the pasted text
+  //   (#3795: a finding quoting `origin/<base>` failed with BRIEF_RENDER_FAILED: red-team: unfilled placeholder <base>);
+  //   why_new=GST-797; seam=lib/review-brief.ts renderBrief via gstack-review-dispatch render; no_claim=fix-check or outside-voice content
+  test('findings and learnings that quote slot names render verbatim', () => {
+    const quoted = ['[HIGH] bin/x.ts:4 runs `git merge-base origin/<base> HEAD` against a stale ref',
+      '[MEDIUM] lib/y.ts:9 builds `DIFF_BASE=<diff-base> && git diff "$DIFF_BASE" <exclude>` by hand'].join('\n');
+    const out = tmp();
+    const w = (name: string, text: string) => { const f = path.join(out, name); fs.writeFileSync(f, text); return f; };
+    const red = run(['render', '--role', 'red-team', '--out', out, '--diff-base', SHA, '--findings-file', w('findings.txt', `${quoted}\n`), '--specialists', '2']);
+    expect(red.status, red.stderr).toBe(0);
+    expect(fs.readFileSync(field(red.stdout, 'file'), 'utf8')).toContain(quoted);
+    const spec = run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA, '--exclude', "-- . ':(exclude)*.lock'", '--learnings-file', w('learnings.txt', quoted)]);
+    expect(spec.status, spec.stderr).toBe(0);
+    const brief = fs.readFileSync(field(spec.stdout, 'file'), 'utf8');
+    expect(brief).toContain(`Past learnings: ${quoted}`);
+    expect(brief).toContain(`git diff "$DIFF_BASE" -- . ':(exclude)*.lock'`);
+  });
+
+  // Value: protects=the unfilled-slot refusal still fires when a section really leaves a slot open, quoted findings or not;
+  //   fails_when=the GST-797 fix skips the check, or quoted content masks a real open slot; seam=lib/review-brief.ts renderBrief
+  test('a slot the section really leaves open still refuses the render', () => {
+    const t = sectionTexts(ROOT);
+    const slots = { diff_base: SHA, checklist: '/x/red-team.md', specialists: '2' };
+    const open = { ...t, redTeam: `${t.redTeam} Compare against origin/<base>.` };
+    expect(() => renderBrief('red-team', slots, open)).toThrow(/^red-team: unfilled placeholder <base>$/);
+    expect(() => renderBrief('red-team', { ...slots, findings: 'quotes `origin/<base>`' }, open)).toThrow(/^red-team: unfilled placeholder <base>$/);
+    expect(() => renderBrief('specialist', { ...slots, name: 'testing', learnings: 'see <exclude>' }, { ...t, specialist: `${t.specialist} See <exclude>.` })).toThrow(/^specialist: unfilled placeholder <exclude>$/);
+  });
+
+  // Value: protects=a diff or hunk that carries NUL bytes reaches its reader unchanged and never pulls in another slot's text;
+  //   fails_when=renderBrief's put-back matches a token the caller can type, so a diff with \0learnings\0 splices the project's
+  //   learnings into the outside voice's brief and \0findings\0 crashes the render (GST-797 adversarial pass); seam=lib/review-brief.ts renderBrief
+  test('reviewer text is put back only where the render held it', () => {
+    const t = sectionTexts(ROOT);
+    const diff = '+a \u0000learnings\u0000 b \u0000findings\u0000 c';
+    const outside = renderBrief('outside-voice', { diff_base: SHA, diff, learnings: 'SECRET-LEARN', findings: 'F' }, t);
+    expect(outside).toContain(diff);
+    expect(outside).not.toContain('SECRET-LEARN');
+    expect(renderBrief('fix-check', { fix_list: 'a.ts:3 fixed', hunks: diff, tests: '3 pass' }, t)).toContain(diff);
+  });
 });
 
 describe('gstack-review-dispatch sent, collect, judge and verify: nothing changed on the way in or out', () => {
@@ -165,10 +217,11 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const spec = p.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"off by one","specialist":"testing"}\n{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"name","specialist":"testing"}\n');
     const outside = p.w('outside.out', 'Findings:\n1. **High**: retry loop never backs off (q.ts:78)\n2. Low - log line is noisy\nRecommendation: Fix the retry because it DoSes the pool\n');
     const c1 = run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', spec, '--merged', p.merged]);
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
-    const ov = field(run(['render', '--role', 'outside-voice', '--out', p.out, '--diff-base', head]).stdout, 'file');
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', p.out, '--diff-base', head], wt).stdout, 'file');
     run(['sent', '--ledger', p.ledger, '--role', 'outside-voice', '--sent', ov]);
-    const c2 = run(['collect', '--ledger', p.ledger, '--role', 'outside-voice', '--output', outside, '--merged', p.merged]);
+    const c2 = run(['collect', '--ledger', p.ledger, '--role', 'outside-voice', '--output', outside, '--merged', p.merged], wt);
     expect([c1.stdout.includes('findings=2'), c2.stdout.includes('findings=2')]).toEqual([true, true]);
     const merged = fs.readFileSync(p.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as MergedLine);
     expect(merged.map(m => [m.id, m.label])).toEqual([['specialist/testing#1', 'CRITICAL'], ['specialist/testing#2', 'INFORMATIONAL'], ['outside-voice#1', 'High'], ['outside-voice#2', 'Low']]);
@@ -194,6 +247,31 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     fs.writeFileSync(p.merged, fs.readFileSync(p.merged, 'utf8').replace('"label":"Low"', '"label":"Low","x":1').replace(/"output_sha256":"[0-9a-f]+"}\n$/, '"output_sha256":"' + '0'.repeat(64) + '"}\n'));
     const tampered = run(['verify', '--ledger', p.ledger]);
     expect([tampered.status, tampered.stdout.includes('OUTPUT outside-voice MISMATCH')]).toEqual([1, true]);
+  });
+
+  // Value: protects=a pass whose readers all came back clean records "nothing to judge" without a hand-written judged.jsonl, and a pass with findings still needs lead judgment's file; fails_when=judge crashes on the absent judged set of an empty merge (gstack-evals#191 /ship), or an absent judged set passes a merge that holds findings;
+  //   why_new=judge always read --judged; seam=judge and verify; no_claim=that Step 9.4 runs judge at all on an empty merge
+  test('judge on an empty merge records nothing to judge without a judged set; a merge with findings still needs one', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('none.out', 'NO FINDINGS\n'), '--merged', p.merged]).status).toBe(0);
+    expect(fs.readFileSync(p.merged, 'utf8')).toBe('');
+    const judged = path.join(p.out, 'judged.jsonl');
+    const empty = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]);
+    expect([empty.status, empty.stderr, empty.stdout.trim()]).toEqual([0, '', `JUDGMENT: ok nothing to judge (${p.merged} holds no findings; wrote an empty ${judged})`]);
+    expect(fs.readFileSync(judged, 'utf8')).toBe('');
+    const v = run(['verify', '--ledger', p.ledger]);
+    expect([v.status, v.stdout.includes('JUDGE - OK'), v.stdout.includes('VERIFY: clean briefs=1 outputs=1')]).toEqual([0, true, true]);
+    const q = pass();
+    run(['sent', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--sent', q.file]);
+    const finding = q.w('spec.out', '{"severity":"CRITICAL","path":"a.ts","line":3,"category":"logic","summary":"x","specialist":"testing"}\n');
+    expect(run(['collect', '--ledger', q.ledger, '--role', 'specialist', '--name', 'testing', '--output', finding, '--merged', q.merged]).status).toBe(0);
+    const missing = path.join(q.out, 'judged.jsonl');
+    const needed = run(['judge', '--ledger', q.ledger, '--merged', q.merged, '--judged', missing]);
+    expect([needed.status, needed.stdout]).toEqual([2, '']);
+    expect(needed.stderr.trim()).toBe(`gstack-review-dispatch judge: ${missing} does not exist; ${q.merged} holds 1 finding, so lead judgment writes one judged line per finding first`);
+    expect(fs.existsSync(missing)).toBe(false);
+    expect(fs.readFileSync(q.ledger, 'utf8')).not.toContain('"event":"judge"');
   });
 
   // Value: protects=verify is clean only when every collected output came from a brief rendered and sent verbatim, nothing was collected after the judgment, and the judged set still passes as recorded; a fold keeps a standalone survivor; fails_when=outputs from hand-written briefs, a finding collected after judge, a judged.jsonl edited after judge, a self-fold or a fold cycle still read clean (/ship #3648 pass-1 Red Team);
@@ -247,6 +325,56 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     // Replay C1-34 (GSTA-193): a judged line with "severity": null crashed judge with a TypeError; it is an invalid line.
     expect(judge(m, [{ id: 'r#1', severity: null as unknown as string }, { id: 'lead#1' } as unknown as { id: string; severity: string }]).invalid).toEqual(['r#1', 'lead#1']);
     expect(judge(m, [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'a real defect' }]).ok).toBe(true);
+  });
+
+  // Value: protects=a blocker named in an exception clause after a negated severity word collects at its label (GSTA-167 S1: GST-766's
+  //   negation drop collected nothing for each of these on 8cef24ce, where 8cef24ce^ collected CRITICAL); fails_when=any probe collects
+  //   nothing or a weaker label; why_new=GST-766 skipped any label a negation word governs and lost these blockers; seam=parseFindings;
+  //   no_claim=that the reader's negated wording is clear (lead judgment reads the raw line)
+  test('a blocker in an exception clause after a negated severity word collects at its label', () => {
+    for (const prose of ['No CRITICAL issues except the token leak in log.ts:3', 'There is no CRITICAL issue other than the SQL injection at db.ts:12',
+      'Nothing CRITICAL apart from the auth bypass (auth.ts:9).', 'No new CRITICAL findings, but the token leak in log.ts:3 still blocks.',
+      'None CRITICAL besides the race in queue.ts:40, which loses writes.', '- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).'])
+      for (const reader of ['outside-voice', 'fix-check', 'red-team', 'adversarial-native'])
+        expect([prose, reader, parseFindings(reader, prose).map(f => f.label)]).toEqual([prose, reader, ['CRITICAL']]);
+  });
+
+  // Value: protects=a negated severity word still collects at its label, so a reader's closing prose ("found nothing CRITICAL" after a
+  //   clause of its own) is a known phantom lead judgment folds and never a dropped line (GSTA-167 S1 reverts GST-766's negation drop),
+  //   except a sentence that is wholly a no-defect summary (GST-435), which is no finding; fails_when=any other negated form collects
+  //   nothing or a weaker label, except under the finding's own Severity field, which decides it (GST-976); why_new=GST-766's drop lost
+  //   blockers named in exception clauses; seam=parseFindings; no_claim=that a negated line is a real finding (judge folds phantoms)
+  test('a negated severity word still collects at its label: GEVA-92 fix-check#5 and its negated forms are known phantoms', () => {
+    const fixCheck = [
+      'REVIEWED_TREE: bedd511efa0fa16c9277821073c68e438dc760d2 /workspace/gstack-evals',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":229,"summary":"Section 9\'s opening still says every ruling is recorded in the approvals file."}',
+      '{"severity":"INFORMATIONAL","path":"wiki/board/README.md","line":113,"summary":"The tstack row still runs on full stacks-r1 and is not labelled raw."}',
+      '',
+      'I checked these against the post, the frozen texts and the pinned code, and found nothing CRITICAL. The arithmetic is consistent throughout:',
+      '- The new secondary: 47/60, 15/60, 5/40, 7/40, 4/40 and 11.5/40.',
+      '- The minimum p of 2^-15.',
+    ].join('\n');
+    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL', 'CRITICAL']);
+    const kept: Array<[string, string]> = [['Found no CRITICAL issues in the fix range.', 'CRITICAL'], ['This is not CRITICAL.', 'CRITICAL'],
+      ['I found zero Critical findings, and none High.', 'Critical'], ['The retry path is safe; without CRITICAL impact.', 'CRITICAL'], ['No new CRITICAL issues introduced by the fix.', 'CRITICAL'],
+      ['No remaining CRITICAL or HIGH findings.', 'CRITICAL'], ['**No** CRITICAL issues found.', 'CRITICAL'],
+      ['No [P1] issues remain.', 'P1'], ['No CRITICAL regressions introduced by the fix.', 'CRITICAL'],
+      ['There is nothing CRITICAL in the fix range.', 'CRITICAL'], ['No CRITICAL — the fix is sound.', 'CRITICAL'], ['Found no CRITICAL or HIGH regressions.', 'CRITICAL'], ['No HIGH-risk changes.', 'HIGH'],
+      ['Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.', 'CRITICAL'], ['No CRITICAL issues; served on localhost:3000.', 'CRITICAL']];
+    for (const [prose, label] of kept) expect([prose, parseFindings('fix-check', prose).map(f => f.label)]).toEqual([prose, [label]]);
+    for (const prose of ['Nothing CRITICAL or HIGH remains.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'Nothing at CRITICAL severity remains.', 'Nothing CRITICAL to report.',
+      'No CRITICAL/HIGH findings.', 'No P0/P1 issues.', 'No CRITICAL, HIGH or MEDIUM issues.'])
+      expect([prose, parseFindings('fix-check', prose).map(f => f.label)]).toEqual([prose, []]);
+    expect(parseFindings('r', 'Not CRITICAL, but High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', 'No CRITICAL, High: the cache drops a row (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', 'Nothing CRITICAL / HIGH: race in q.ts:7').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', 'No CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL lock guards the write in Makefile:7\nSeverity: CRITICAL').map(f => [f.label, f.raw])).toEqual([['LOW', '1. auth.ts:3 LOW: log line too verbose'], ['CRITICAL', 'No CRITICAL lock guards the write in Makefile:7 | Severity: CRITICAL']]);
+    expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.').map(f => f.label)).toEqual(['LOW', 'CRITICAL']);
+    expect(parseFindings('outside-voice', '- a.ts:3 race. Severity: Low. Blocks: no\n  Separately, nothing CRITICAL about b.ts:9, but it leaks fds.\n  Severity: High').map(f => [f.label, f.raw])).toEqual([['Low', '- a.ts:3 race. Severity: Low. Blocks: no'], ['High', 'Separately, nothing CRITICAL about b.ts:9, but it leaks fds. | Severity: High']]);
+    expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('r', '- A divide by zero CRITICAL bug in parse()').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
   // Value: protects=normalizer v2 in production (GSTA-167 part 1, certified by round 5's G1): a prose voice's Blocks: yes reaches
@@ -317,8 +445,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '> Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
   });
   // Value: protects=a later finding's Severity/Blocks line never lands on the finding before it, and an explicit Severity label
-  //   decides its line (#3660 pass 2 Red Team); fails_when=the later blocker's text is lost and the earlier finding takes its
-  //   CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
+  //   decides its line unless a stronger label leads that line (#3660 pass 2 Red Team, GST-976); fails_when=the later blocker's text
+  //   is lost and the earlier finding takes its CRITICAL, or 'Severity: Low (not High)' collects as High; seam=parseFindings
   test('prose after a finding\'s field, a blank-line paragraph or an indented block starts the next finding; an explicit Severity label wins', () => {
     const raws = (o: string) => parseFindings('outside-voice', o).map(f => [f.label, f.raw]);
     const two = [['Low', 'A in a.ts:1. | Severity: Low'], ['CRITICAL', 'B in b.ts:2. | Blocks: yes']];
@@ -339,7 +467,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     ['CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)', [['CRITICAL', 'CRITICAL: x.ts:4 drops rows (pass 1 had Severity: Low)']]],
   ])('fix-check shape %j', (output, want) => expect(parseFindings('outside-voice', output).map(f => [f.label, f.raw])).toEqual(want));
   test('the native voice\'s FIXABLE collects as CRITICAL under its role with or without a dispatch name', () => {
-    for (const reader of ['adversarial-native', 'adversarial-native/adversarial']) expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no').map(f => f.label)).toEqual(['CRITICAL']);
+    for (const reader of ['adversarial-native', 'adversarial-native/adversarial']) {
+      expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium').map(f => f.label)).toEqual(['CRITICAL']);
+      expect(parseFindings(reader, 'FIXABLE: race in a.ts:3\nSeverity: Medium\nBlocks: no').map(f => f.label)).toEqual(['Medium']);
+    }
     expect(parseFindings('outside-voice', 'FIXABLE: race in a.ts:3\nSeverity: Medium').map(f => f.label)).toEqual(['Medium']);
   });
   test('a non-prefix Blocks: yes under a labeled finding raises it to CRITICAL', () => {
@@ -428,7 +559,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   test('unlabeled detail bullets and the Severity line after them stay on the open paragraph finding', () => {
     const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
     expect(parseFindings('adversarial-native', native).map(f => [f.label, f.raw.slice(0, 12), f.raw.endsWith('| Severity: ' + (f.label === 'High' ? 'High' : 'Low') + '. Blocks: no.')]))
-      .toEqual([['High', '**1. A PR in', true], ['CRITICAL', '**2. A case ', true], ['CRITICAL', '**3. Local `', true], ['Low', '**4. No trai', true]]);
+      .toEqual([['High', '**1. A PR in', true], ['Low', '**2. A case ', true], ['Low', '**3. Local `', true], ['Low', '**4. No trai', true]]);
     expect(parseFindings('outside-voice', '1. FIXABLE: race in a.ts:3\n- Unlabeled sibling at b.ts:9\nSeverity: Medium').map(f => f.label)).toEqual(['FIXABLE', 'Medium']);
     expect(parseFindings('outside-voice', '**Retry storm in r.ts:2 (INVESTIGATE).**\n- detail\n- High: a second defect in s.ts:4\nSeverity: Medium').map(f => f.label)).toEqual(['INVESTIGATE', 'High']);
     expect(parseFindings('outside-voice', 'Low: cache TTL mismatch (cache.ts:4)\n\n2. Token never expires (auth.ts:9)\nSeverity: High\nBlocks: yes').map(f => [f.label, f.raw]))
@@ -436,6 +567,185 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (High).**\n- the writer holds no lock\nSeverity: Medium').map(f => f.raw)).toEqual(['**Race in a.ts:3 (High).** | - the writer holds no lock | Severity: Medium']);
     expect(parseFindings('outside-voice', '**Race in a.ts:3 (Medium).**\n\n- the writer holds no lock\n\nSeverity: Medium. Blocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['CRITICAL', '**Race in a.ts:3 (Medium).** | - the writer holds no lock | Severity: Medium. Blocks: yes']]);
+  });
+
+  // Value: protects=the reviewer's own Severity and Blocks fields travel beside the collected label in merged.jsonl (GST-766 part a:
+  //   HARN-1 on harness-evals#200 and GSTA-135 on GST-718 saw FIXABLE collected as CRITICAL while the text said "Severity: Low. Blocks:
+  //   no.", and the run record did not show the disagreement); fails_when=a merged line drops the stated fields or they change the
+  //   label; why_new=collect kept only the label; seam=collect; no_claim=which of the two should block (part b, a gate change)
+  test('a finding keeps the severity and Blocks its reviewer stated beside the collected label', () => {
+    const d = tmp();
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/gsta-196-native.txt'), 'utf8');
+    const r = collect(path.join(d, 'l.jsonl'), 'adversarial-native', native, path.join(d, 'm.jsonl'));
+    expect(r.lines.map(l => [l.label, l.stated])).toEqual([
+      ['High', { severity: 'High', blocks: 'no' }], ['Low', { severity: 'Low', blocks: 'no' }], ['Low', { severity: 'Low', blocks: 'no' }], ['Low', { severity: 'Low', blocks: 'no' }]]);
+    expect(fs.readFileSync(path.join(d, 'm.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l).stated)).toEqual(r.lines.map(l => l.stated));
+    const json = collect(path.join(d, 'l2.jsonl'), 'fix-check', '{"severity":"INFORMATIONAL","path":"a.ts","line":3,"summary":"Severity: High is the wrong word here"}\n', path.join(d, 'm2.jsonl'));
+    expect(json.lines.map(l => [l.label, l.stated])).toEqual([['INFORMATIONAL', undefined]]);
+  });
+
+  // Value: protects=collect keeps every label on a prose line, at the strongest one (GST-435 rule (a)): each line that three review
+  //   rounds found losing its label under a negation-drop draft (an exception clause, a negated subject, "else"/"other", a blocker named in an
+  //   earlier sentence), fix-check 5's table rows and INFORMATIONAL cases, and harness-evals #152's native (FIXABLE, medium) findings collect
+  //   at their label (adversarial.md); fails_when=any of them collects nothing or a weaker label; why_new=GST-435's negation drops lost a
+  //   blocker in each round and were removed; seam=parseFindings; no_claim=that every kept line is a real finding (judge folds phantoms)
+  test('collect keeps every label at the strongest on its line: no wording drops a blocker', () => {
+    const kept: Array<[string, string]> = [['| 1 | `CRITICAL` | High | token leak in log.ts:3 |', 'CRITICAL'], ['| log.ts:3 | `CRITICAL` | High | token leak |', 'CRITICAL'],
+      ['None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence', 'CRITICAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'CRITICAL'],
+      ['| a.ts:3 | race | not CRITICAL, Low |', 'CRITICAL'], ['| a.ts:3 | maps `FIXABLE` to `CRITICAL` in a comment | Low |', 'CRITICAL'],
+      ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'],
+      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
+      ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL'],
+      ['No input validation is CRITICAL (upload.ts:4)', 'CRITICAL'], ['No CSRF token is a CRITICAL gap at form.ts:12', 'CRITICAL'],
+      ['Nothing escaped here is CRITICAL: stored XSS at view.ts:8', 'CRITICAL'], ['No timeout here is High (fetch.ts:3)', 'High'],
+      ['Upgraded: not High, CRITICAL (a.ts:3)', 'CRITICAL'], ['Severity: not Medium, CRITICAL', 'CRITICAL'],
+      ['Nothing else is CRITICAL except the token leak in log.ts:3.', 'CRITICAL'], ['No other issue is CRITICAL besides the auth bypass in auth.ts:9.', 'CRITICAL'],
+      ['None of the other findings are CRITICAL, but the SQL injection in db.ts:12 is.', 'CRITICAL'],
+      ['Nothing here is CRITICAL apart from the unescaped query (db.ts:12).', 'CRITICAL'], ['Nothing else is CRITICAL except the token leak.', 'CRITICAL'],
+      ['Fix the token leak in log.ts:3 first; nothing else is CRITICAL.', 'CRITICAL'], ['The token leak in log.ts:3 blocks the merge. Nothing else is CRITICAL.', 'CRITICAL'],
+      ['1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.', 'CRITICAL'], ['The token leak blocks the merge.\nNo other issue is CRITICAL.', 'CRITICAL'],
+      ['The token leak in log.ts:3 blocks the merge. None of the other findings are CRITICAL.', 'CRITICAL'],
+      ['The token leak in log.ts:3 must block the merge. The other two are nits. Neither finding is CRITICAL.', 'CRITICAL'],
+      ['Apart from the token leak in log.ts:3, I found two nits. Neither finding is CRITICAL.', 'CRITICAL'],
+      ['Besides the auth bypass at auth.ts:9 there are three nits. None of the three findings are CRITICAL.', 'CRITICAL'],
+      ['The token leak in log.ts:3 must block the merge. Nothing here is CRITICAL.', 'CRITICAL'], ['No auth check guards the admin route, so nothing CRITICAL.', 'CRITICAL']];
+    for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-152-p1-adversarial-native.txt'), 'utf8');
+    expect(parseFindings('adversarial-native', native).map(f => f.label)).toEqual(['CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL']);
+    expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low. Blocks: no').map(f => f.label)).toEqual(['Low']);
+    expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low.').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Race in a.ts:3 (FIXABLE).').map(f => f.label)).toEqual(['FIXABLE']);
+    expect(parseFindings('adversarial-native', 'No rate limit is FIXABLE (login.ts:9)').map(f => f.label)).toEqual(['CRITICAL']);
+  });
+
+  // Value: protects=a reader's own closing summary that opens with a clause of its own is a known phantom that keeps its label (HARN-15's
+  //   ship2 Red Team "Red-team pass is done: …", harness-evals #152's "…, so there's nothing at CRITICAL"): it collects, and judge refuses
+  //   to drop or lower it unless it is a summary_candidate lowered with a reason; a sentence that is wholly a no-defect summary (GEVA-77's
+  //   "Neither finding is CRITICAL.", HARN-15 ship2 p2's count summaries) is no finding at the label it denies (GST-435);
+  //   fails_when=a phantom collects nothing or a weaker label, or a wholly no-defect sentence still collects its denied label;
+  //   why_new=GST-435 removed the negation drop after it lost blockers in three review rounds, then narrowed it to whole summary
+  //   sentences; seam=parseFindings, collect and judge; no_claim=that a phantom is free (it stays CRITICAL in the judged set)
+  test('known phantoms: closing summaries with a clause of their own keep their label; wholly no-defect sentences collect none', () => {
+    const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
+    const replies: Array<[string, string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 'CRITICAL', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 'INFORMATIONAL', 3],
+      ['fix-check', 'harn15-ship2-p2-fix-check.txt', 'INFORMATIONAL', 4], ['fix-check', 'harn15-152-p2-fix-check.txt', 'CRITICAL', 2]];
+    for (const [reader, name, summary, json] of replies) {
+      const found = parseFindings(reader, fixture(name));
+      expect([name, found.map(f => f.label)]).toEqual([name, [summary, ...Array(json).fill('INFORMATIONAL')]]);
+      expect(found[0]!.raw).toMatch(/(no|nothing( at)?) CRITICAL/);
+    }
+    const fc = fixture('geva-77-fix-check.txt');
+    const d = tmp();
+    const merged = path.join(d, 'merged.jsonl');
+    const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fc, merged);
+    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL'], ['fix-check#3', 'INFORMATIONAL']]]);
+    expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
+    const phantom = collect(path.join(d, 'l2.jsonl'), 'fix-check', fixture('harn15-152-p2-fix-check.txt'), path.join(d, 'm2.jsonl'));
+    fs.writeFileSync(path.join(d, 'j2.jsonl'), phantom.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(judge(readJsonl<MergedLine>(path.join(d, 'm2.jsonl')), readJsonl(path.join(d, 'j2.jsonl'))).ok).toBe(false);
+    for (const line of ['There are no CRITICAL findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
+      'Neither finding is CRITICAL.', 'Nothing here is CRITICAL.', 'Neither fix is CRITICAL.', 'Nothing in this diff is CRITICAL.'])
+      expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, []]);
+    expect(parseFindings('outside-voice', 'This is not CRITICAL.').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['Low']);
+  });
+
+  // Value: protects=item layouts collect as on main: an indented JSON finding keeps its JSON severity, an indented label heading sets
+  //   the section for the next item, and a later Blocks: yes raises the finding a Severity field line or JSON line opened;
+  //   fails_when=any of these collects a lower label or a different finding than main; why_new=GST-435's paragraph-split draft broke each
+  //   of these and was deferred; seam=parseFindings; no_claim=that main's reading is the right one (known, deferred to the follow-up:
+  //   HARN-15 ship2 native item 4 collects without its title, and an indented label heading rates the next item, not the one above it)
+  test('item layouts collect as on main; the later-paragraph split and indented label headings are known deferred shapes', () => {
+    const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-ship2-p2-adversarial-native.txt'), 'utf8');
+    const found = parseFindings('adversarial-native', native);
+    expect(found.map(f => f.label)).toEqual(['Medium', 'Low', 'Low', 'Low', 'Low', 'Low']);
+    expect(parseFindings('outside-voice', '1. **Race on the lock** (a.ts:3)\n   - the writer holds no lock\n\n   Fix: take it first. Severity: High. Blocks: no.').map(f => f.label)).toEqual(['High']);
+    expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"critical","summary":"Low-level race in q.ts"}').map(f => [f.label, f.raw]))
+      .toEqual([['critical', '{"severity":"critical","summary":"Low-level race in q.ts"}']]);
+    expect(parseFindings('red-team', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['Critical', '2. Token leak in the logger']]);
+    expect(parseFindings('red-team', '1. Unescaped query\n   ## High\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['High', '2. Token leak in the logger']]);
+    expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['CRITICAL', '{"severity":"low","summary":"race"} | this blocks the merge. Blocks: yes']]);
+  });
+
+  // Value: protects=a finding's own Severity and Blocks fields set its collected label, so a severity word in its body never raises it
+  //   (gstack-evals #143: the outside voice marked six findings Blocks: no, and the "P0" in #1, #2 and #4 was the plan's phase name),
+  //   while a real P0 or CRITICAL in label position, a Severity: P0 field and Blocks: yes still collect as blocking; fails_when=a body
+  //   token outranks the finding's fields, or a label-position P0/CRITICAL or Blocks: yes collects below CRITICAL rank;
+  //   why_new=GST-976: #1, #2 and #4 collected as P0, judge refused the downgrade (JUDGMENT_REJECTED), verify stayed dirty and the
+  //   receipt needed accepted_by; seam=parseFindings, collect and judge; no_claim=that a body-only label on a line with no Severity field
+  //   is a real finding (it still collects at that label, a known phantom judge may fold; GSTA-167 S1 keeps body labels with no fields
+  //   because dropping them lost blockers)
+  test('GST-976: a severity word in a finding body never outranks its Severity and Blocks fields; real P0 and CRITICAL still block', () => {
+    const blocking = (label: string) => rank(label) === 4;
+    // The #143 outside-voice reply, cut to each finding's title, its P0 sentence and its fields (gstack-evals is private).
+    const reply = [
+      'The problems below are about accounting and what the post leaves out. None of them breaks a test, production or custody.',
+      '',
+      '1. **The per-task cost leaves out model spend.** The P0 and bulk go or no-go will re-project cost from these figures, so they will come out too low. Severity: Medium. Blocks: no.',
+      '',
+      '2. **One round-2 K1 pair is not accounted for.** The post sets a precedent for P0 yield math, so that drop should be named. Severity: Low. Blocks: no.',
+      '',
+      '3. **The two probe populations are not reconciled.** The stage table probes 189 candidates. Severity: Low. Blocks: no.',
+      '',
+      "4. **The P0 impact of the shortfall is missing.** The plan's P0 (line 323) needs 6 K4 replays and 2 decoys. The post says the shortfall but not that it blocks P0. Severity: Low. Blocks: no.",
+      '',
+      '6. **Some wording is ambiguous.** Two examples:',
+      '   - "Repositories 4 (3 for build tasks)" is set against a target of "at least 5 repositories".',
+      '',
+      '   Severity: Low. Blocks: no.',
+      '',
+      "Recommendation: ship after a one-line fix because finding 1's per-task cost leaves out measured model spend.",
+    ].join('\n');
+    const d = tmp();
+    const merged = path.join(d, 'merged.jsonl');
+    const r = collect(path.join(d, 'l.jsonl'), 'outside-voice', reply, merged);
+    expect(r.lines.map(l => [l.label, l.stated])).toEqual([['Medium', { severity: 'Medium', blocks: 'no' }], ...Array(4).fill(['Low', { severity: 'Low', blocks: 'no' }])]);
+    expect(r.lines.filter(l => blocking(l.label)).map(l => l.id)).toEqual([]);
+    const judged = path.join(d, 'judged.jsonl');
+    fs.writeFileSync(judged, r.lines.map(l => JSON.stringify({ id: l.id, severity: l.stated!.severity })).join('\n') + '\n');
+    expect(judge(readJsonl<MergedLine>(merged), readJsonl(judged))).toMatchObject({ ok: true, downgraded: [] });
+    const real: Array<[string, string]> = [['[P0] Token leak in log.ts:3', 'P0'], ['P0: token leak in log.ts:3', 'P0'], ['1. Token leak in log.ts:3\n   Severity: P0', 'P0'],
+      ['1. The P0 pilot drops the last row (q.ts:7). Severity: P0. Blocks: no', 'P0'], ['**Critical**\n- Token leak in log.ts:3', 'Critical'], ['## P0\n- Token leak in log.ts:3', 'P0'],
+      ['### CRITICAL: missing auth check in api.ts:10', 'CRITICAL'], ['1. The P0 pilot loses rows on retry (r.ts:2). Severity: Low. Blocks: yes', 'CRITICAL'],
+      ['1. The P0 pilot loses rows on retry (r.ts:2)\n   Severity: Medium\n   Blocks: yes', 'CRITICAL']];
+    for (const [output, label] of real) {
+      const got = parseFindings('outside-voice', output).map(f => f.label);
+      expect([output, got, got.map(blocking)]).toEqual([output, [label], [true]]);
+    }
+    expect(parseFindings('outside-voice', '1. The P0 pilot table drops a row (t.md:3)').map(f => f.label)).toEqual(['P0']);
+    // Review of this fix (gst976-p1): a locus-first or emoji-led label, an inline field the next field line follows, a second field on
+    // the line, and prose that only mentions a severity never lower a blocker the reader labeled.
+    const kept: Array<[string, string]> = [['1. api.ts:10 CRITICAL: missing auth. Severity: Low', 'CRITICAL'], ['1. api.ts:10 CRITICAL: missing auth\n   Severity: Low', 'CRITICAL'],
+      ['1. 🔴 CRITICAL: missing auth. Severity: Low', 'CRITICAL'], ['1. Token leak in auth.ts:3 lets anyone read sessions. Severity: Critical\n\nSeverity: Low', 'Critical'],
+      ['- auth.ts:3 token leak. Severity: Low (pre-exploit), Severity: Critical (once exposed)', 'Critical'],
+      ['- Missing auth on DELETE /users lets any user wipe accounts (CRITICAL); the old ticket filed it at severity low.', 'CRITICAL'],
+      ['- api.ts:10 lets any user wipe accounts. Earlier triage said Severity: Low; it is CRITICAL.', 'CRITICAL']];
+    for (const [output, label] of kept) expect([output, parseFindings('outside-voice', output).map(f => f.label)]).toEqual([output, [label]]);
+    // gst976-p2: an all-caps lead before a space, comma or parenthesis; a field after a locus's parenthesis or with no colon at the
+    // line's start; and a long run of marks before a label stays linear.
+    const p2: Array<[string, string]> = [['1. CRITICAL missing auth. Severity: Low', 'CRITICAL'], ['1. CRITICAL, missing auth on DELETE. Severity: Low', 'CRITICAL'],
+      ['1. CRITICAL (api.ts:10) missing auth. Severity: Low', 'CRITICAL'], ['1. The P0 pilot table drops a row (t.md:3) Severity: Low', 'Low'],
+      ['1. The P0 pilot table drops a row\nSeverity Low', 'Low'], ['1. The P0 pilot table drops a row\n**Severity** Low', 'Low'],
+      ['1. Bypass x.ts:3 is CRITICAL (Severity: Low in pass 1)', 'CRITICAL'], ['Still open: x.ts:3 is CRITICAL, Severity: Low in pass 1 understated it', 'CRITICAL'],
+      ['1. lib/x.ts:42-58 CRITICAL: drops rows. Severity: Low', 'CRITICAL'], ['1. lib/x.ts:42:7 CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
+      ['1. (lib/x.ts:42, 50) CRITICAL: drops rows. Severity: Low', 'CRITICAL'],
+      ['1. The P0 pilot table drops a row\nSeverity: Low: only the pilot', 'Low'], ['1. The P0 pilot table drops a row\nSeverity: Low because it is internal', 'Low'],
+      ['1. The P0 pilot table drops a row\nSeverity: Low/Medium', 'P0'], ['Severity: Low: only the P0 pilot table', 'Low'],
+      ['1. The P0 pilot drops a row. Severity: Low/P3', 'P0'], ['1. drops rows\nSeverity: High/Critical', 'Critical'],
+      ['Severity: Medium/CRITICAL', 'CRITICAL'], ['1. x.ts:3 drops prod rows. Severity: Low/CRITICAL', 'CRITICAL'],
+      ['1. x.ts:3 is CRITICAL (Severity: Low/Medium in pass 1)', 'CRITICAL'], ['1. x.ts:3 is CRITICAL (Severity: Low: pass 1)', 'CRITICAL'],
+      ['Still open: x.ts:3 is P0, Severity: Low: pass 1 understated it', 'P0']];
+    for (const [output, label] of p2) expect([output, parseFindings('outside-voice', output).map(f => f.label)]).toEqual([output, [label]]);
+    const t0 = performance.now();
+    for (const run of ['='.repeat(60), '-'.repeat(60), '|' + '-'.repeat(60) + '|', '🔴'.repeat(60), '. '.repeat(60), '-.'.repeat(60), '`'.repeat(60)])
+      for (const tail of [' P0 pilot table', ' High-risk', ' CRITICAL findings follow', ' a.ts:3 P0 pilot']) parseFindings('outside-voice', run + tail + '. Severity: Low');
+    parseFindings('outside-voice', '-'.repeat(16000) + ' P0 pilot table. Severity: Low');
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
 
   // Value: protects=a non-review the same dispatch later answers with a review is voided (counted, VERIFY clean), and a failed outside
@@ -455,9 +765,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', path.join(p.out, 'judged.jsonl')]);
     const v = run(['verify', '--ledger', p.ledger]);
     expect([v.status, v.stdout.includes('replaced_by_a_review'), v.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
     const o = tmp();
-    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head]).stdout, 'file');
+    const ov = field(run(['render', '--role', 'outside-voice', '--out', o, '--diff-base', head], wt).stdout, 'file');
     const ledger = path.join(o, 'review-ledger.jsonl'), merged = path.join(o, 'merged.jsonl');
     run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', ov]);
     const fail = path.join(o, 'timeout.out');
@@ -495,6 +806,134 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const v = run(['verify', '--ledger', ledger]);
     expect([v.status, v.stdout.trim()]).toEqual([3, "VERIFY: no brief records (this run's ledger kept no prompts; dispatched-vs-rendered cannot be checked)"]);
   });
+
+  // Value: protects=verify re-derives every merged row from the reader's unchanged output by its index, so a merged.jsonl edited
+  //   after collect cannot lower a finding or swap a blocker's text for a summary and still verify clean; fails_when=a forged label
+  //   or a copied raw line on a real blocker's id verifies clean (GST-541: both did at main c830c9b), or a clean run collected through a
+  //   symlinked run directory and judged there with relative paths verifies dirty (GST-541 ship2-p11); why_new=verify compared only
+  //   output hashes and line counts; seam=verify; no_claim=that an output collected without a recorded file can be re-derived
+  test('verify re-derives each merged row by index: a forged label or a summary copied onto a blocker id is dirty', () => {
+    const blocker = '{"severity":"CRITICAL","path":"log.ts","line":3,"category":"security","summary":"bearer token written to a public log","specialist":"testing"}';
+    const summary = '{"severity":"INFORMATIONAL","path":"a.ts","line":9,"category":"style","summary":"I found nothing CRITICAL.","specialist":"testing"}';
+    const setup = () => {
+      const p = pass();
+      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+      const out = p.w('spec.out', blocker + '\n' + summary + '\n');
+      expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', out, '--merged', p.merged]).status).toBe(0);
+      return p;
+    };
+    const judgeAll = (p: ReturnType<typeof pass>, severity: string) => run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', p.w('judged.jsonl',
+      readJsonl<MergedLine>(p.merged).map(m => JSON.stringify({ id: m.id, severity: m.id.endsWith('#1') ? severity : 'INFORMATIONAL' })).join('\n') + '\n')]);
+    const clean = setup();
+    expect(judgeAll(clean, 'CRITICAL').status).toBe(0);
+    expect(run(['verify', '--ledger', clean.ledger]).stdout).toContain('VERIFY: clean');
+    const forge = (p: ReturnType<typeof pass>, edit: (rows: MergedLine[]) => void) => {
+      const rows = readJsonl<MergedLine>(p.merged);
+      edit(rows);
+      fs.writeFileSync(p.merged, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+      expect(judgeAll(p, 'INFORMATIONAL').stdout.trim()).toBe('JUDGMENT: ok added=0 promoted=0 folded=0');
+      return run(['verify', '--ledger', p.ledger]);
+    };
+    const label = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([label.status, label.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    const copied = forge(setup(), rows => { rows[0]!.label = rows[1]!.label; rows[0]!.raw = rows[1]!.raw; });
+    expect([copied.status, copied.stdout]).toEqual([1, expect.stringContaining('merged_line_differs=["specialist/testing#1"]')]);
+    expect(copied.stdout).toMatch(/^JUDGE - MISMATCH .*merged_line_differs/m);
+    const gone = setup();
+    fs.rmSync(path.join(gone.out, 'spec.out'));
+    const missing = forge(gone, rows => { rows[0]!.label = 'INFORMATIONAL'; });
+    expect([missing.status, missing.stdout.includes('output_file_missing'), missing.stdout.includes('merged_line_differs=["specialist/testing#1","specialist/testing#2"]')]).toEqual([1, true, true]);
+    const copy = setup();
+    const forgedCopy = copy.w('merged2.jsonl', readJsonl<MergedLine>(copy.merged).map((r, k) => JSON.stringify(k ? r : { ...r, label: 'INFORMATIONAL' })).join('\n') + '\n');
+    expect(run(['judge', '--ledger', copy.ledger, '--merged', forgedCopy, '--judged', copy.w('judged.jsonl', readJsonl<MergedLine>(copy.merged).map(m => JSON.stringify({ id: m.id, severity: 'INFORMATIONAL' })).join('\n') + '\n')]).status).toBe(0);
+    const viaCopy = run(['verify', '--ledger', copy.ledger]);
+    expect([viaCopy.status, viaCopy.stdout]).toEqual([1, expect.stringMatching(/^JUDGE - MISMATCH .*judge_merged_not_collected/m)]);
+    const relinked = pass();
+    const linkDir = path.join(tmp(), 'run');
+    fs.symlinkSync(relinked.out, linkDir);
+    const ledgerViaLink = path.join(linkDir, 'review-ledger.jsonl');
+    run(['sent', '--ledger', ledgerViaLink, '--role', 'specialist', '--name', 'testing', '--sent', relinked.file]);
+    const linkOut = relinked.w('spec.out', blocker + '\n' + summary + '\n');
+    expect(run(['collect', '--ledger', ledgerViaLink, '--role', 'specialist', '--name', 'testing', '--output', path.join(linkDir, path.basename(linkOut)), '--merged', path.join(linkDir, 'merged.jsonl')]).status).toBe(0);
+    relinked.w('judged.jsonl', readJsonl<MergedLine>(relinked.merged).map(m => JSON.stringify({ id: m.id, severity: m.label })).join('\n') + '\n');
+    expect(run(['judge', '--ledger', 'review-ledger.jsonl', '--merged', 'merged.jsonl', '--judged', 'judged.jsonl'], linkDir).status).toBe(0);
+    const linked = run(['verify', '--ledger', ledgerViaLink]);
+    expect([linked.status, linked.stdout.includes('judge_merged_not_collected'), linked.stdout.includes('VERIFY: clean')]).toEqual([0, false, true]);
+    const quiet = pass();
+    run(['sent', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--sent', quiet.file]);
+    const none = quiet.w('none.out', 'NO FINDINGS\n');
+    expect(run(['collect', '--ledger', quiet.ledger, '--role', 'specialist', '--name', 'testing', '--output', none, '--merged', quiet.merged]).status).toBe(0);
+    fs.writeFileSync(quiet.merged, '');
+    expect(run(['judge', '--ledger', quiet.ledger, '--merged', quiet.merged, '--judged', quiet.w('judged.jsonl', '')]).status).toBe(0);
+    fs.rmSync(none);
+    const noneGone = run(['verify', '--ledger', quiet.ledger]);
+    expect([noneGone.status, noneGone.stdout.includes('output_file_missing')]).toEqual([1, true]);
+    const extra = forge(setup(), rows => { rows[0]!.label = 'INFORMATIONAL'; rows.push({ ...rows[1]!, id: 'specialist/testing#9' }); });
+    expect([extra.status, extra.stdout.includes('merged_rows_not_collected=["specialist/testing#9"]')]).toEqual([1, true]);
+  });
+  // Value: protects=an output event edited to read like a refused reply (no ids, review false, tree_ok false) or to drop its file
+  //   cannot drop its findings and still verify clean, while a reply collect really refused for its tree stays NOT_REVIEWED until a re-sent brief is answered;
+  //   fails_when=verify skips the count check on the editable review or tree_ok field, so a clean marker keeps the output MATCH or a
+  //   later review voids it, or an output with no recorded file passes on its review field (fix-checks at 721539c, 56ed6e3 and 50dc73c: VERIFY: clean); why_new=the GST-482 count exemption trusted collect's
+  //   fields; seam=verify; no_claim=that a deleted output event is caught (#3719)
+  test('an output event edited to look refused, or a refused one edited to look accepted, is dirty; a real wrong-tree reply is NOT_REVIEWED, then voided by a review', () => {
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const findings = '1. **CRITICAL**: auth.ts:3 leaks a token\nBlocks: yes\n\nRecommendation: request changes\n';
+    const voice = (reply: string) => {
+      const out = tmp();
+      const ledger = path.join(out, 'review-ledger.jsonl');
+      const merged = path.join(out, 'merged.jsonl');
+      const brief = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
+      const send = () => run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', brief], wt);
+      let n = 0;
+      const take = (text: string) => { const f = path.join(out, `ov${++n}.out`); fs.writeFileSync(f, text); return run(['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', f, '--merged', merged], wt); };
+      send();
+      const c = take(reply);
+      const forge = (edit: Record<string, unknown>) => {
+        fs.writeFileSync(ledger, readJsonl<Record<string, unknown>>(ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, ...edit } : e)).join('\n') + '\n');
+        fs.writeFileSync(merged, '');
+      };
+      const verify = () => {
+        fs.writeFileSync(path.join(out, 'judged.jsonl'), '');
+        expect(run(['judge', '--ledger', ledger, '--merged', merged, '--judged', path.join(out, 'judged.jsonl')], wt).status).toBe(0);
+        return run(['verify', '--ledger', ledger], wt);
+      };
+      return { c, send, take, forge, verify };
+    };
+    const noIds = voice(findings);
+    expect(noIds.c.status).toBe(0);
+    noIds.forge({ ids: [], review: false });
+    const v = noIds.verify();
+    expect([v.status, v.stdout.includes('merged_count_differs=1/0'), v.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const unfiled = voice(findings);
+    unfiled.forge({ file: null, ids: [] });
+    const u = unfiled.verify();
+    expect([u.status, u.stdout.includes('output_file_unrecorded'), u.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const flagged = voice(findings);
+    flagged.forge({ ids: [], review: false, tree_ok: false });
+    flagged.send();
+    expect(flagged.take('Recommendation: approve\n').status).toBe(0);
+    const f = flagged.verify();
+    expect([f.status, f.stdout.includes('merged_count_differs=1/0'), f.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+    const wrong = voice(`REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\n` + findings);
+    expect([wrong.c.status, wrong.c.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice')]).toEqual([1, true]);
+    const w = wrong.verify();
+    expect([w.status, /^OUTPUT outside-voice NOT_REVIEWED .*wrong_tree/m.test(w.stdout), w.stdout.includes('merged_count_differs')]).toEqual([1, true, false]);
+    wrong.send();
+    expect(wrong.take('Recommendation: approve\n').status).toBe(0);
+    const r = wrong.verify();
+    expect([r.status, r.stdout.includes('replaced_by_a_review'), r.stdout.includes('VERIFY: clean briefs=1 outputs=2 voided=1')]).toEqual([0, true, true]);
+    const elsewhere = pass();
+    run(['sent', '--ledger', elsewhere.ledger, '--role', 'specialist', '--name', 'testing', '--sent', elsewhere.file]);
+    const refused = run(['collect', '--ledger', elsewhere.ledger, '--role', 'specialist', '--name', 'testing', '--output', elsewhere.w('else.out', `REVIEWED_TREE: ${'b'.repeat(40)} /elsewhere\nNO FINDINGS\n`), '--merged', elsewhere.merged]);
+    expect(refused.stdout.startsWith('COLLECT_WRONG_TREE: reader=specialist/testing')).toBe(true);
+    fs.writeFileSync(elsewhere.ledger, readJsonl<Record<string, unknown>>(elsewhere.ledger).map(e => JSON.stringify(e.event === 'output' ? { ...e, tree_ok: true, review: true, reported_tree: e.tree } : e)).join('\n') + '\n');
+    fs.writeFileSync(elsewhere.merged, '');
+    expect(run(['judge', '--ledger', elsewhere.ledger, '--merged', elsewhere.merged, '--judged', elsewhere.w('judged.jsonl', '')]).status).toBe(0);
+    const e = run(['verify', '--ledger', elsewhere.ledger]);
+    expect([e.status, /^OUTPUT specialist\/testing NOT_REVIEWED .*wrong_tree/m.test(e.stdout), e.stdout.includes('VERIFY: dirty')]).toEqual([1, true, true]);
+  });
 });
 
 describe('the workspace paragraph (GST-482)', () => {
@@ -517,7 +956,7 @@ describe('the workspace paragraph (GST-482)', () => {
       const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
       expect(r.status, role + ': ' + r.stderr).toBe(0);
       const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
-      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(main + '\n\n' + workspaceParagraph(top));
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(workspaceStep(top) + '\n\n' + main + '\n\n' + workspaceParagraph(top));
     }
     expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
     expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
@@ -560,8 +999,9 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     const out = tmp();
     const ledger = path.join(out, 'review-ledger.jsonl');
     const merged = path.join(out, 'merged.jsonl');
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
-    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head]).stdout, 'file');
+    const wt = cleanCheckout();
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
     run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
     const reply = path.join(out, 'r.out');
     fs.writeFileSync(reply, '1. **CRITICAL**: auth bypass in a.ts:3\nBlocks: yes\n\nRecommendation: request changes\n');
@@ -573,10 +1013,77 @@ describe('reading the REVIEWED_TREE line (GST-482 review fixes)', () => {
     expect([u.status, u.stdout.startsWith('COLLECT_UNAVAILABLE: reader=outside-voice')]).toEqual([0, true]);
   });
 
+  // Value: protects=the fingerprint request opens every brief and asks for the command's output line, so a reader that
+  //   follows a findings-only format still binds its tree; the captured gpt-6.1-sol replies from GST-850, which never ran
+  //   the command, stay refused; fails_when=the request only closes the brief (GST-850 p1/p2 COLLECT_WRONG_TREE) or reads
+  //   as "copy the command", or collect relaxes for a reply with findings and no line; seam=lib/review-brief.ts
+  //   withWorkspace, bin/gstack-review-dispatch collect; no_claim=a model's compliance (the GST-897 replay measures that)
+  test('the fingerprint step opens the brief and its command prints a line collect accepts; GST-850 gpt-6.1-sol replies stay refused (GST-897)', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const wt = cleanCheckout();
+    const wtTop = fs.realpathSync(wt);
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    const file = field(run(['render', '--role', 'outside-voice', '--out', out, '--diff-base', head], wt).stdout, 'file');
+    const brief = fs.readFileSync(file, 'utf8');
+    const first = brief.split('\n')[0]!;
+    expect(first).toStartWith(`First step, before anything else: run \`cd '${wtTop}' && echo "REVIEWED_TREE: `);
+    expect(first).toContain('Copy that output line, not the command, as the first line of your final reply');
+    expect(brief.slice(brief.lastIndexOf('\n\n') + 2)).toContain('(the output, not the command)');
+    const command = /run `([^`]+)`/.exec(first)![1]!;
+    const printed = spawnSync('bash', ['-c', command], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+    expect(checkReviewedTree(printed + '\nNO FINDINGS', `${tree} ${wtTop}`).ok).toBe(true);
+    run(['sent', '--ledger', ledger, '--role', 'outside-voice', '--sent', file]);
+    for (const p of ['p1', 'p2']) {
+      const reply = path.join(ROOT, `test/fixtures/review-wrong-tree/gpt-6.1-sol-gst850-${p}.out`);
+      const refused = spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'outside-voice', '--output', reply, '--merged', path.join(out, `${p}.jsonl`)], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+      expect([p, refused.status, refused.stdout.startsWith('COLLECT_WRONG_TREE: reader=outside-voice reported="none"')]).toEqual([p, 1, true]);
+    }
+  });
+
   test('render outside a readable checkout refuses instead of recording a fingerprint no reply can match', () => {
     const dir = tmp();
     const r = run(['render', '--role', 'adversarial-native', '--out', path.join(dir, 'o'), '--diff-base', SHA], dir);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('BRIEF_RENDER_FAILED: cannot read HEAD^{tree} and the toplevel of');
+  });
+});
+
+describe('the REVIEWED_TREE line as GBRA-218 readers wrote it (GST-776)', () => {
+  const top = fs.realpathSync(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim());
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
+  const command = `cd '${top}' && echo "REVIEWED_TREE: $(git rev-parse 'HEAD^{tree}') $(git rev-parse --show-toplevel)"`;
+  // Value: protects=a reader that reviewed the right checkout is not failed for how it wrote its fingerprint; fails_when=a reply that echoes the command and then writes `printed: REVIEWED_TREE: …` (two Sonnet 5.5 low readers) is failed as reported="none", or a `printed:` label lets a wrong tree, toplevel or other label through;
+  //   why_new=GBRA-218 pass restarts on gstack 1.92.25.0; seam=lib/review-brief.ts checkReviewedTree via gstack-review-dispatch collect; no_claim=the brief's wording, which stays main's until a no-loss replay
+  test('the echoed command then a printed: line is read; the same shape with a wrong tree or checkout is still refused', () => {
+    const reply = (fingerprint: string) => `${command}\nprinted: REVIEWED_TREE: ${fingerprint}\nNO FINDINGS\n`;
+    const oneLine = (fingerprint: string) => `${command} printed: REVIEWED_TREE: ${fingerprint}\n\nNO FINDINGS\n`;
+    expect(checkReviewedTree(oneLine(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(oneLine(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true });
+    expect(checkReviewedTree(oneLine(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false });
+    expect(checkReviewedTree(`${command} Note: REVIEWED_TREE: ${tree} ${top}`, `${tree} ${top}`).reported).toBe('none');
+    expect(checkReviewedTree(reply(`${tree} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: true });
+    expect(checkReviewedTree(reply(`${'b'.repeat(40)} ${top}`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: true, reported: `${'b'.repeat(40)} ${top}` });
+    expect(checkReviewedTree(reply(`${tree} /elsewhere`), `${tree} ${top}`)).toMatchObject({ ok: false, moved: false, reported: `${tree} /elsewhere` });
+    expect(checkReviewedTree(`Note: REVIEWED_TREE: ${tree} ${top}\nNO FINDINGS`, `${tree} ${top}`).reported).toBe('none');
+    for (const line of ['`printed: REVIEWED_TREE: ' + tree + ' ' + top + '`', `**Printed:** REVIEWED_TREE: ${tree} ${top}`, `**printed: REVIEWED_TREE: ${tree} ${top}**`]) {
+      expect(checkReviewedTree(line, `${tree} ${top}`).ok, line).toBe(true);
+      expect(checkReviewedTree(line.replace(tree, 'c'.repeat(40)), `${tree} ${top}`).ok, line).toBe(false);
+    }
+
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const file = field(run(['render', '--role', 'specialist', '--name', 'testing', '--out', out, '--diff-base', SHA]).stdout, 'file');
+    run(['sent', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--sent', file]);
+    const collectReply = (text: string) => {
+      const f = path.join(out, 'reply.out');
+      fs.writeFileSync(f, text);
+      return spawnSync(BIN, ['collect', '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--output', f, '--merged', merged], { cwd: ROOT, encoding: 'utf8', timeout: 60_000 });
+    };
+    const wrong = collectReply(reply(`${'b'.repeat(40)} ${top}`));
+    expect([wrong.status, wrong.stdout.startsWith('COLLECT_TREE_MOVED: reader=specialist/testing')]).toEqual([1, true]);
+    const right = collectReply(reply(`${tree} ${top}`));
+    expect(right.stdout).toStartWith('COLLECT: reader=specialist/testing findings=0 ');
   });
 });

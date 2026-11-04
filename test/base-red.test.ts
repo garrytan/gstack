@@ -144,7 +144,7 @@ describe('pause, receipt and wait', () => {
     fs.writeFileSync(bodyFile, placeReceiptFirst('## Summary\n', { schema_version: 1, pr: 7, head, base: 'main', base_red: receiptBaseRed(pause) } as any));
     const res = bin('gstack-ship-receipt', ['result', '--body', bodyFile, '--head', head, '--out', path.join(root, 'run')]);
     expect(res.status).toBe(EXIT.fail);
-    expect(res.stdout.trim()).toBe(`GSTACK_RESULT: skill=ship status=incomplete run=${path.join(root, 'run')}`);
+    expect(res.stdout.trim()).toBe(`GSTACK_RESULT: skill=ship status=incomplete head=${head} run=${path.join(root, 'run')}`);
     expect(res.stderr).toContain(`SHIP_PAUSED: base-red cases=1 base=${pause.base_sha.slice(0, 12)} lane=tests`);
     expect(JSON.parse(fs.readFileSync(path.join(root, 'run', 'ship-run.json'), 'utf8')).status).toBe('incomplete');
     const carry = bin('gstack-ship-receipt', ['carry', '--body', bodyFile]);

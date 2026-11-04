@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs'
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { resolveBase } from '../lib/gate-diff/git';
 
 const SCRIPT = join(import.meta.dir, '..', 'bin', 'gstack-diff-scope');
 
@@ -65,6 +66,66 @@ afterAll(() => {
 
 describe('gstack-diff-scope', () => {
   // --- Existing scope signals ---
+
+  // Value: protects=a stale local base branch does not stand in for the base: a docs-only branch that merged a newer
+  //   origin/main is docs, not the backend change origin/main already has (GST-462, GBRA-218); fails_when=the script
+  //   diffs against the local branch whenever it resolves (with the name given, or the default it detects); seam=a
+  //   tracking ref moved with update-ref, as a fetch would; no_claim=nothing about remotes other than origin.
+  test('a stale local main yields to origin/main, named or defaulted; a tag, a qualified ref or a pinned sha is never redirected', () => {
+    const dir = createRepo([]);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('checkout', '-q', 'main');
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'server.ts'), 'export const port = 1;\n');
+    git('add', '.'); git('commit', '-qm', 'upstream backend');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    git('checkout', '-q', '-b', 'topic', 'origin/main');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs', 'howto.md'), '# How to\n');
+    git('add', '.'); git('commit', '-qm', 'docs');
+    for (const args of [['main'], []]) {
+      const out = spawnSync(SCRIPT, args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+      expect(out).toContain('SCOPE_DOCS=true');
+      expect(out).toContain('SCOPE_BACKEND=false');
+    }
+    const scopeOf = (args: string[]) => spawnSync(SCRIPT, args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    git('tag', 'origin/main', 'HEAD');
+    expect(scopeOf(['main'])).toContain('SCOPE_DOCS=true');
+    git('tag', '-d', 'origin/main');
+    git('update-ref', 'refs/remotes/origin/origin/main', 'HEAD');
+    expect(scopeOf(['origin/main'])).toContain('SCOPE_DOCS=true');
+    git('tag', 'origin/main', 'HEAD');
+    expect(scopeOf(['origin/main'])).toContain('SCOPE_DOCS=true');
+    git('tag', '-d', 'origin/main');
+    const pinned = git('rev-parse', 'origin/main').stdout.toString().trim();
+    git('update-ref', `refs/remotes/origin/${pinned}`, 'HEAD');
+    expect(scopeOf([pinned])).toContain('SCOPE_DOCS=true');
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    expect(spawnSync(SCRIPT, ['HEAD'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString()).toContain('SCOPE_DOCS=false');
+    git('update-ref', 'refs/remotes/origin/main', git('commit-tree', git('rev-parse', 'HEAD^{tree}').stdout.toString().trim(), '-m', 'unrelated').stdout.toString().trim());
+    const unrelated = spawnSync(SCRIPT, ['main'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(unrelated).toContain('SCOPE_BACKEND=true');
+  });
+
+  // Value: protects=diff-scope reads the base gstack-review-plan's path list reads (origin/<base>), so a test file a local
+  //   main carries but origin lacks counts when the branch includes it; fails_when=a related local main ahead of origin/main
+  //   stays the base (fix-check, pass 2: SCOPE_TESTS=false beside a path list naming the test); seam=a tracking ref set with
+  //   update-ref; no_claim=remotes other than origin
+  test('a local main ahead of origin/main yields to it, so its unpushed test file is in scope', () => {
+    const dir = createRepo([]);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('checkout', '-q', 'main');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    mkdirSync(join(dir, 'test'), { recursive: true });
+    writeFileSync(join(dir, 'test', 'a.test.ts'), "test.skip('b', () => {});\n");
+    git('add', '.'); git('commit', '-qm', 'unpushed test');
+    git('checkout', '-q', '-b', 'topic', 'main');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs', 'x.md'), '# x\n');
+    git('add', '.'); git('commit', '-qm', 'docs');
+    expect(spawnSync(SCRIPT, ['main'], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString()).toContain('SCOPE_TESTS=true');
+  });
 
   test('detects frontend files', () => {
     const dir = createRepo(['styles.css', 'component.tsx']);
@@ -161,6 +222,28 @@ describe('gstack-diff-scope', () => {
     const scope = runScope(dir);
     expect(scope.SCOPE_AUTH).toBe('true');
   });
+
+  // Value: protects=auth matches as a word or path segment, so docs about authors stay out of the gate class;
+  //   fails_when=the auth match is a bare substring again (author-spec.md, AUTHORS, authority.ts raise SCOPE_AUTH);
+  //   why_new=GST-1065 (author-spec.md raised a docs bundle to gate class with four full readers); seam=bin/gstack-diff-scope
+  for (const file of ['docs/author-spec.md', 'AUTHORS', 'lib/authority.ts', 'docs/authored-by.md', 'src/coauthors.ts', 'AUTHORS.md']) {
+    test(`${file} is not an auth path`, () => {
+      expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('false');
+    });
+  }
+
+  // Value: protects=real auth paths still raise SCOPE_AUTH after the word-boundary fix (negative controls for GST-1065);
+  //   fails_when=the boundary drops a segment, a separator, a camelCase name, an authn/authz/oauth spelling or a glued token (auth0, basicauth, nextauth);
+  //   why_new=GST-1065 and its review (the first word-only matcher dropped glued tokens the old glob caught); seam=bin/gstack-diff-scope
+  for (const file of ['src/auth.ts', 'app/auth/login.rb', 'lib/oauth.ts', 'src/oauth2/token.ts', 'lib/authn/check.go', 'src/authz.py', 'src/authService.ts',
+    'src/useAuth.ts', 'lib/OAuthClient.ts', 'lib/authentication.rb', 'lib/authorization_policy.rb', 'src/Authorize.tsx', 'config/AUTH_KEYS.md', 'pkg/auth-middleware.go',
+    'lib/auth0.ts', 'src/basicauth.go', 'src/authguard.ts', 'lib/reauth.ts', 'pages/api/nextauth.ts', 'src/authtoken.ts', 'lib/preauth.rb', 'src/HTTPAuth.ts',
+    'src/unauthenticated.ts', 'lib/reauthentication.ts', 'src/deauthorize.ts', 'app/oauth2client.py', 'api/HTTPAuthorization.ts',
+    'src/nextauthmiddleware.ts', 'src/reauthn.ts', 'src/noauthrequired.ts']) {
+    test(`${file} is an auth path`, () => {
+      expect(runScope(createRepo([file])).SCOPE_AUTH).toBe('true');
+    });
+  }
 
   test('detects config via bun.lock (Bun v1.2+ text lockfile)', () => {
     const dir = createRepo(['bun.lock']);
@@ -327,6 +410,70 @@ describe('exit-code contract (#2526)', () => {
       cwd: dir, stdio: 'pipe', timeout: 5000,
     });
     expect(result.stdout.toString()).toContain('ERR=unmatched FRONT=false');
+  });
+});
+
+describe('a bare base name reads origin/<base> when it exists (#3650)', () => {
+  function behindBase(base: string) {
+    const dir = createRepo(['README2.md']);
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString().trim();
+    const seed = git('rev-parse', 'main');
+    git('checkout', '-q', '-B', base, 'main');
+    writeFileSync(join(dir, 'service.py'), 'print(1)\n');
+    git('add', '.');
+    git('commit', '-qm', 'upstream backend change');
+    git('update-ref', `refs/remotes/origin/${base}`, 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    git('rebase', '-q', `origin/${base}`);
+    git('branch', '-f', base, seed);
+    expect(git('diff', '--name-only', `${base}...HEAD`).split('\n').sort()).toEqual(['README2.md', 'service.py']);
+    return { dir, git };
+  }
+  const scopeAt = (dir: string, base: string) => Object.fromEntries(spawnSync('bash', [SCRIPT, base], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString().trim().split('\n').map(l => l.split('=')));
+
+  test('a local main behind origin/main does not widen the scope to upstream commits', () => {
+    const { dir } = behindBase('main');
+    const scope = runScope(dir);
+    expect([scope.SCOPE_BACKEND, scope.SCOPE_DOCS]).toEqual(['false', 'true']);
+  });
+
+  test('a slash-named base reads its remote-tracking twin too, and HEAD or a sha stays as given', () => {
+    const { dir, git } = behindBase('release/x');
+    expect(scopeAt(dir, 'release/x').SCOPE_BACKEND).toBe('false');
+    git('update-ref', 'refs/remotes/origin/HEAD', git('rev-parse', 'release/x'));
+    expect(scopeAt(dir, 'HEAD').SCOPE_DOCS).toBe('false');
+    git('update-ref', `refs/remotes/origin/${git('rev-parse', 'release/x')}`, 'HEAD');
+    expect(scopeAt(dir, git('rev-parse', 'release/x')).SCOPE_BACKEND).toBe('true');
+  });
+
+  test('a colliding tag, a fork branch over an explicit remote base, or an unrelated twin never replaces the base (#3650 review)', () => {
+    const { dir, git } = behindBase('main');
+    const upstreamCommit = git('rev-parse', 'origin/main');
+    git('tag', 'origin/main', 'HEAD');
+    expect([scopeAt(dir, 'main').SCOPE_BACKEND, scopeAt(dir, 'main').SCOPE_DOCS]).toEqual(['false', 'true']);
+    git('remote', 'add', 'upstream', 'file:///nonexistent-upstream');
+    git('update-ref', 'refs/remotes/upstream/main', git('rev-parse', 'main'));
+    git('update-ref', 'refs/remotes/origin/upstream/main', 'HEAD');
+    expect(scopeAt(dir, 'upstream/main').SCOPE_BACKEND).toBe('true');
+    git('tag', '-d', 'origin/main');
+    git('checkout', '-q', '--orphan', 'island');
+    git('commit', '-q', '--allow-empty', '-m', 'unrelated');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    expect(scopeAt(dir, 'main').SCOPE_BACKEND).toBe('true');
+    expect(upstreamCommit).not.toBe('');
+  });
+
+  test('with origin/main unrelated, a related local main comes before a related other remote, the base resolveBase picks', () => {
+    const { dir, git } = behindBase('main');
+    git('remote', 'add', 'upstream', 'file:///nonexistent-upstream');
+    git('update-ref', 'refs/remotes/upstream/main', git('rev-parse', 'origin/main'));
+    git('checkout', '-q', '--orphan', 'island');
+    git('commit', '-q', '--allow-empty', '-m', 'unrelated');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('checkout', '-q', 'feature/test');
+    expect(resolveBase('main', dir, 'HEAD')?.sha).toBe(git('rev-parse', 'main'));
+    expect(scopeAt(dir, 'main').SCOPE_BACKEND).toBe('true');
   });
 });
 

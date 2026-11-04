@@ -275,7 +275,7 @@ check_codex_probe() {
 }
 
 check_sync() {
-  local mode file json status held drainable drain push queue=0 now f detail case_names fix="$BIN/gstack-brain-sync --status"
+  local mode file json json_held status held drainable drain push queue=0 now f detail case_names fix="$BIN/gstack-brain-sync --status"
   cfg artifacts_sync_mode off; mode=$_cfg
   if [ ! -d "$STATE_ROOT/.git" ]; then
     row "not configured" "artifacts sync" "off; cross-machine artifacts sync is unavailable" "$BIN/gstack-artifacts-init"
@@ -285,6 +285,11 @@ check_sync() {
     row "not configured" "artifacts sync" "artifacts_sync_mode off; cross-machine artifacts sync is unavailable" "$BIN/gstack-config set artifacts_sync_mode artifacts-only"
     return
   fi
+  for f in "$STATE_ROOT/developer-profile.json" "$STATE_ROOT"/projects/*/decisions.active.json; do
+    [ -f "$f" ] && grep -qE '^(<{7}|>{7})( |$)' "$f" 2>/dev/null || continue
+    row warn "artifacts sync" "${f#"$STATE_ROOT"/} holds git conflict markers and does not parse" "repair the file, or restore it from git -C $STATE_ROOT log -- ${f#"$STATE_ROOT"/}"
+    return
+  done
   for f in "$STATE_ROOT/.brain-queue.d"/*.json; do [ -f "$f" ] && queue=$((queue + 1)); done
   for f in "$STATE_ROOT/.brain-queue.jsonl" "$STATE_ROOT/.brain-queue.jsonl.migrating"; do
     [ -f "$f" ] && queue=$((queue + $(wc -l < "$f" | tr -d ' ')))
@@ -306,8 +311,15 @@ check_sync() {
   [ -n "$push" ] || push=$(epoch_of "$(head -1 "$STATE_ROOT/.brain-last-push" 2>/dev/null)")
   now=$(date +%s)
   case "$status" in
-    held) row warn "artifacts sync" "status held${held:+ ($held file(s) held by the secret scanner)}" "$fix"; return ;;
-    blocked) row warn "artifacts sync" "status blocked (a re-scan still flags staged content)" "$fix"; return ;;
+    held)
+      json_held=$(printf '%s' "$json" | grep -o '"rule": *"invalid-json"' | wc -l | tr -d ' ')
+      if [ "${json_held:-0}" -gt 0 ]; then
+        row warn "artifacts sync" "status held ($json_held synced file(s) are not valid JSON${held:+; $held held in all})" "$fix"
+      else
+        row warn "artifacts sync" "status held${held:+ ($held file(s) held by the secret scanner)}" "$fix"
+      fi
+      return ;;
+    blocked) row warn "artifacts sync" "status blocked (nothing was committed; --status names the cause)" "$fix"; return ;;
     push_failed|error|unknown) row warn "artifacts sync" "status $status" "$fix"; return ;;
   esac
   if [ -n "$case_names" ]; then

@@ -1,0 +1,126 @@
+name: Release gate
+# The release gate (docs/ship-policy.md#release-gate; bin/gstack-release-gate,
+# lib/release-gate.ts): the full paid gate on main's head every 8 hours, only
+# when main moved since the last gate. It records the verdict as a release
+# note in refs/notes/gstack-trains, publishes the main-backstop check run on
+# the gated commit (what scripts/release-cut.ts reads as gated), and bisects
+# a red gate's cases. It never writes the stable branch: release-cut is its
+# only writer, and refuses every cut while the newest gate is red. Inert (no
+# paid work, nothing written) unless main's .gstack/ship-policy.json declares
+# a release_gate block; with one, the per-push main backstop
+# (evals-main-backstop.yml) stands down and this replaces it.
+on:
+  schedule:
+    # Every 8 hours (RELEASE_GATE_SCHEDULE_HOURS in lib/release-gate-policy.ts;
+    # test/release-gate-workflow.test.ts pins the two together), off the hour.
+    - cron: '17 */8 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print what the gate would test and dispatch nothing'
+        type: boolean
+        default: false
+      ignore_cadence:
+        description: 'Gate now even if the last gate is younger than cadence_hours (main must still have moved)'
+        type: boolean
+        default: true
+
+# One gate at a time; a second run waits for the first.
+concurrency:
+  group: release-gate
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-24.04
+    # A dispatch gates only from the default branch, with its tooling.
+    if: github.ref_name == github.event.repository.default_branch
+    # The full gate (270) + a bisect round + margin; past --budget-minutes the
+    # record stays resumable by the next run.
+    timeout-minutes: 345
+    outputs:
+      action: ${{ steps.gate.outputs.action }}
+      sha: ${{ steps.gate.outputs.sha }}
+      check: ${{ steps.gate.outputs.check }}
+    permissions:
+      # Pushes the release record to refs/notes/gstack-trains and a bisect's
+      # release-gate/<id> branch (deleted after its round).
+      contents: write
+      # Dispatches the gate and reads its runs and artifacts.
+      actions: write
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # Read with git and jq only: without a release_gate block nothing below runs.
+      - name: Read the release gate policy (main)
+        id: policy
+        run: |
+          file=.gstack/ship-policy.json
+          policy=$(git show "${GITHUB_SHA}:${file}" 2>/dev/null || echo null)
+          gate=$(jq -c 'if (.release_gate | type) == "object" then .release_gate else null end' <<<"$policy") || { echo "::error::${GITHUB_SHA}:${file} is not valid JSON; fix the policy file" >&2; exit 1; }
+          if [ -z "$gate" ] || [ "$gate" = null ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "- Release gate inert: main's ${file} declares no release_gate block; the per-push backstop gates main" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.policy.outputs.release == 'true'
+        with:
+          bun-version: 1.4.2
+
+      - name: Gate main's head when it moved
+        id: gate
+        if: steps.policy.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GSTACK_STATE_ROOT: ${{ runner.temp }}/gstack-state
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          IGNORE_CADENCE: ${{ inputs.ignore_cadence && '1' || '' }}
+        # held and failed on a gated commit are verdicts the release-check job publishes there. Failing this job would
+        # leave a failed check on main's head, which release-cut reads as red even after that head gates green, so
+        # those leave it green. A failure with no gated commit (a refused policy, unreadable notes, an unresolved
+        # branch) publishes no check run, so it fails the job, as does a run that recorded no action (a crash).
+        run: |
+          rc=0
+          ./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes 330 \
+            --summary "$GITHUB_STEP_SUMMARY" --outputs "$GITHUB_OUTPUT" ${DRY_RUN:+--dry-run} ${IGNORE_CADENCE:+--ignore-cadence} || rc=$?
+          if [ "$rc" != 0 ] && ! { grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT" && grep -qE '^sha=[0-9a-f]{40}$' "$GITHUB_OUTPUT"; }; then exit "$rc"; fi
+
+  # The gated commit's check run (release_gate.check_name, main-backstop), the
+  # evidence scripts/release-cut.ts reads. Its own job with checks: write and
+  # no repository code, as for backstop-check: only the recorded action word.
+  release-check:
+    runs-on: ubuntu-24.04
+    needs: release-gate
+    if: ${{ !cancelled() && contains(fromJSON('["gated","held","failed"]'), needs.release-gate.outputs.action) && needs.release-gate.outputs.sha != '' }}
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    steps:
+      - name: Publish the release gate's check run on the gated commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ needs.release-gate.outputs.action }}
+          SHA: ${{ needs.release-gate.outputs.sha }}
+          CHECK: ${{ needs.release-gate.outputs.check }}
+        run: |
+          case "$ACTION" in
+            gated) conclusion=success ;;
+            held) conclusion=failure ;;
+            failed) conclusion=neutral ;;
+            *) echo "::error::unknown release gate action '$ACTION'"; exit 1 ;;
+          esac
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::'$SHA' is not a commit SHA"; exit 1; }
+          [[ "$CHECK" =~ ^[A-Za-z0-9_./-]{1,64}$ ]] || { echo "::error::'$CHECK' is not a check-run name"; exit 1; }
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" -X POST -f name="$CHECK" -f head_sha="$SHA" -f status=completed -f conclusion="$conclusion" \
+            -f details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f "output[title]=Release gate: ${ACTION}" -f "output[summary]=${ACTION}: see the release-gate job summary of run ${GITHUB_RUN_ID}" >/dev/null
+          echo "- ${CHECK}: ${conclusion} (release gate ${ACTION}) on ${SHA}" >> "$GITHUB_STEP_SUMMARY"

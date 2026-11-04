@@ -60,10 +60,28 @@ export function budgetHarness(): Harness {
   git('checkout', '-q', '-b', 'feature');
   fs.writeFileSync(path.join(repo, 'app.ts'), 'export const x = 2;\n');
   git('commit', '-qam', 'change');
+  // Windows Free Tests 41131257934 (shard 6): two consecutive cases hit bun's 30 s test timeout inside one bin call each,
+  // with empty output and no cause. A run that ends without an exit code now names its command, how it ended, its
+  // elapsed time and, on Windows, the children it left (bash, git or a nested bin), so the next red names the stuck stage.
+  let abnormal = '';
+  const childListMs = 10_000;
   const run = (bin: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}): Run => {
     const argv = bin === REVIEW_LOG_BIN ? ['bash', bin] : [process.execPath, ...bunIsolationArgs(), bin];
+    const started = Date.now();
+    abnormal = '';
     const r = spawnSync(argv[0], [...argv.slice(1), ...args], { cwd: repo, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 60_000 });
-    return { code: r.status ?? -1, out: r.stdout ?? '', err: r.stderr ?? '' };
+    const result = { code: r.status ?? -1, out: r.stdout ?? '', err: r.stderr ?? '' };
+    if (r.status !== null) return result;
+    abnormal = `${path.basename(bin)} ${args[0]} ended without an exit code (${r.signal ?? r.error?.message ?? 'no signal'}) after ${Date.now() - started} ms`;
+    if (process.platform === 'win32' && r.pid) {
+      const children = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        `Get-CimInstance Win32_Process -Filter 'ParentProcessId=${r.pid}' | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.CommandLine }`,
+      ], { encoding: 'utf8', timeout: childListMs, windowsHide: true });
+      abnormal += `; children of ${r.pid}: ${children.stdout?.trim() || (children.error ? `unavailable (${children.error.message})` : 'none')}`;
+    }
+    result.err += `\n[harness] ${abnormal}`;
+    process.stderr.write(`[harness] ${abnormal}\n`);
+    return result;
   };
   let records = 0;
   return {
@@ -79,7 +97,7 @@ export function budgetHarness(): Harness {
     field(out, line, key) {
       const row = out.split('\n').find(l => l.startsWith(line + ':'));
       const m = row ? new RegExp(`(?:^|\\s)${key}=(\\S+)`).exec(row) : null;
-      if (!m) throw new Error(`no ${key}= on a ${line}: line in:\n${out}`);
+      if (!m) throw new Error(`no ${key}= on a ${line}: line in:\n${out}${abnormal ? `\n[harness] last run without an exit code: ${abnormal}` : ''}`);
       return m[1]!;
     },
     ledger: file => JSON.parse(fs.readFileSync(file, 'utf8')),

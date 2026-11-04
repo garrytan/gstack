@@ -6,7 +6,7 @@
  *                        [--pending <text>] [--outcome approved|rejected|pending|standing]
  *                        [--date YYYY-MM-DD] [--source <ref>] [--branch <name>] [--json]
  *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
- *   gstack-approvals render [--no-heading] [--branch <name>]
+ *   gstack-approvals render [--no-heading] [--full] [--branch <name>]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
  *   gstack-approvals path [--branch <name>]
@@ -20,7 +20,7 @@
  */
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderRecord, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
+import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
@@ -29,7 +29,9 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           [--pending <text>] [--outcome approved|rejected|pending|standing] [--date YYYY-MM-DD] [--source <ref>]
   import  --autoplan <run dir> [--by <whose words, e.g. Garry>] [--stack <b1,b2,...>]
           --stack writes the same rows to every branch of a stack; each branch is checked first, and one unknown branch writes none
-  render  [--no-heading]          the ## Approvals section for a PR body or report
+  render  [--no-heading] [--full] the ## Approvals section for a PR body or report; a public repository, or one whose
+          visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
+          its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private
   list    [--json]
   sync                            re-mirror the record (GSTACK_APPROVALS_DIR, the Captain's drive approvals/, or the project-user Drive)
   path                            print the record and mirror paths, and which rule chose the mirror
@@ -52,7 +54,7 @@ function parse(args: string[]): { flags: Record<string, string>; bools: Set<stri
       const v = args[i + 1];
       if (v === undefined) return { flags, bools, error: `${a} needs a value` };
       flags[a] = v; i++;
-    } else if (a === '--json' || a === '--no-heading') bools.add(a);
+    } else if (a === '--json' || a === '--no-heading' || a === '--full') bools.add(a);
     else return { flags, bools, error: `unknown argument ${a}` };
   }
   return { flags, bools };
@@ -134,7 +136,12 @@ function main(argv: string[]): number {
     if (read.restored) process.stderr.write(`gstack-approvals: read the Drive mirror ${loc.mirror} (no local copy on this machine; gstack-approvals sync restores it)\n`);
     if (cmd === 'list' && json) process.stdout.write(JSON.stringify({ branch: loc.branch, state: read.state, rows: read.rows }) + '\n');
     else if (cmd === 'list') for (const r of read.rows) process.stdout.write(`${r.date} ${r.id} ${r.outcome} ${JSON.stringify(r.ask)} words=${JSON.stringify(r.words)} by=${JSON.stringify(r.by)}\n`);
-    else process.stdout.write(renderRecord(read, loc, { heading: !bools.has('--no-heading') }));
+    else {
+      const visibility = repoVisibility(process.cwd());
+      const mode = renderMode(visibility, bools.has('--full'));
+      if (mode === 'redacted') process.stderr.write(`APPROVALS_RENDER: redacted (repository visibility ${visibility}${bools.has('--full') ? '; --full applies only to a private repository' : ''}); gstack-approvals list shows the full record\n`);
+      process.stdout.write(renderRecord(read, loc, { heading: !bools.has('--no-heading'), mode }));
+    }
     if (read.state === 'unavailable') return fail(cmd, { code: 'APPROVAL_RECORD_UNAVAILABLE', message: `no record at ${loc.file} and no mirror` });
     return EXIT.ok;
   }

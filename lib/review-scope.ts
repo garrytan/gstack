@@ -13,7 +13,9 @@
  *
  * Pure functions here; bin/gstack-review-scope runs git and gh.
  */
+import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
+import { rank, readLedger, type LedgerBlocker } from './review-ledger';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -28,6 +30,8 @@ export const HUNK_CONTEXT_LINES = 3;
 export interface ScopeFinding {
   fingerprint?: string; path?: string; line?: number; severity?: string; category?: string; summary?: string;
   problem?: string; fix?: string; specialist?: string; advisory?: boolean; test_stub?: string;
+  /** The severity and Blocks the reviewer's own text stated, from its merged.jsonl line (GST-766); `Blocks: no` keeps a CRITICAL below the floor (GST-1031). */
+  stated?: { severity?: string; blocks?: string };
   /** The changed line that causes a defect reported elsewhere (a broken caller, a consumer of a removed export); the locus follows it. */
   cause?: { path?: string; line?: number };
   [key: string]: unknown;
@@ -177,11 +181,13 @@ export function kindOf(finding: ScopeFinding): Kind {
 
 /**
  * The blocking floor: a CRITICAL defect (a test that would fail, a production
- * break, a security or data-loss defect). Advisories, test gaps, wording and
- * INFORMATIONAL items are below it and never trigger another pass.
+ * break, a security or data-loss defect) its reviewer did not mark `Blocks: no`
+ * (GST-1031). Advisories, test gaps, wording and INFORMATIONAL items are below
+ * it and never trigger another pass.
  */
+export const statesNoBlock = (f: Record<string, any>) => String(f.stated?.blocks ?? '').toLowerCase() === 'no';
 export function isBlocking(finding: ScopeFinding, kind = kindOf(finding)): boolean {
-  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL';
+  return kind === 'defect' && String(finding.severity ?? '').toUpperCase() === 'CRITICAL' && !statesNoBlock(finding);
 }
 
 export interface ScopeInput { policy: ReviewScopePolicy; pass: number; diffHunks: HunkMap; rangeHunks: HunkMap | null; context?: number }
@@ -252,10 +258,11 @@ export function renderDeferredIssue(f: ScopedFinding, ctx: DeferContext): { titl
   const title = `Deferred review finding: ${findingWhere(f)} — ${text}`.slice(0, 120);
   const origin = ctx.pr ? `${ctx.repo ? `${ctx.repo}#${ctx.pr}` : `PR #${ctx.pr}`}` : ctx.branch ? `branch \`${ctx.branch}\`` : 'a /ship run';
   const marker = `<!-- ${DEFERRED_MARKER}: ${oneLine(findingIdentity(f))} -->`;
+  const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
   const body = [
     `Filed by /ship's pre-landing review of ${origin}${ctx.head ? ` (head ${ctx.head.slice(0, 12)})` : ''}. The finding is in code that PR did not change, so it was deferred here instead of being fixed there (review scope frozen after pass 1).`,
     '',
-    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}`,
+    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}${said.length ? ` (the reviewer wrote ${said.join(', ')})` : ''}`,
     `- **Where:** \`${findingWhere(f)}\``,
     `- **Finding:** ${text}`,
     ...(f.fix ? [`- **Suggested fix:** ${oneLine(f.fix)}`] : []),
@@ -297,10 +304,20 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
+  /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
+  rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
   /** Prompt plus diff bytes the dispatches read, / 4: a relative estimate, never a bill. */
   est_input_tokens?: number;
+  /** Blocking findings no row gives a disposition (fixed, deferred, noted, skipped or a gate answer): found, outcome unrecorded. */
+  unrecorded?: number;
+  /** Dispatch ledgers whose collected and judged findings were counted (gstack-review-dispatch). */
+  ledgers_read?: number;
+  /** What could not bind (GST-1168), each named with its reason: a row with no start token or readable time, a row finding's ledger_id no ledger holds, a Review-Finding trailer naming no finding. Never counted as zero silently. */
+  unbound?: string[];
+  /** Abandoned passes left out of every count, each named (GBEV-3). */
+  voided?: string[];
 }
 
 /** Review-log rows of one /ship invocation (skill review, via ship, at or after `since`) → the loop summary. */
@@ -343,12 +360,83 @@ function rowDispatches(row: Record<string, any>): Array<{ role: string; bytes: n
     .map(([name]) => ({ role: name === 'red-team' ? 'red-team' : 'specialist', bytes: null }));
 }
 
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string): ReviewLoopSummary {
+/** Row actions that record what happened to a finding. */
+const DISPOSITIONS = ['fixed', 'auto-fixed', 'deferred', 'noted', 'skipped', 'kept', 'restored', 'open'];
+/** A row finding that blocks: classified blocking, or an unclassified CRITICAL defect its reviewer did not mark Blocks: no (logged before Step 9.4's classify). */
+const rowBlocks = (f: Record<string, any>) => f.blocking === true || (f.blocking === undefined && f.advisory !== true && rank(f.severity) === 4 && !statesNoBlock(f));
+/** The reviewer behind a row's raised_by or a ledger id: every specialist is one; the lead's additions and unknowns name none. */
+function raiserOf(raiser: unknown): string | null {
+  const role = typeof raiser === 'string' ? raiser.split(/[/#]/)[0]!.trim() : '';
+  if (!role || role === 'unknown' || role === 'lead' || role === 'core') return null;
+  return ['qa', 'red-team', 'adversarial-native', 'outside-voice', 'fix-check', 'targeted'].includes(role) ? role : 'specialist';
+}
+/** A row finding's path:line, from its path and line or its fingerprint (`path:line:category`). */
+function rowLocus(f: Record<string, any>): string | null {
+  if (typeof f.path === 'string' && Number.isInteger(f.line)) return `${f.path.replace(/^\.\//, '')}:${f.line}`;
+  const m = /^(.+?):(\d+):/.exec(typeof f.fingerprint === 'string' ? f.fingerprint : '');
+  return m ? `${m[1]!.replace(/^\.\//, '')}:${m[2]}` : null;
+}
+
+/**
+ * When a dispatch ledger started (its first event) and whether it holds a fix-check reader's review: a fix-check run through
+ * gstack-review-dispatch (the pass program's `fix-check` step) leaves this ledger even when no review-fix-check row was logged.
+ */
+export interface LedgerPass {
+  started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string;
+  /** Whether judge ran on it at all (a rejected judgment counts): a pN pass never judged that no row names, replaced by a later judged or named pass, was abandoned (voided) and counts nothing (GBEV-3); a fix-check ledger and the last pass are never voided. */ judged?: boolean;
+}
+export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass {
+  const events = readLedger(ledger);
+  const started = Date.parse(String(events[0]?.at ?? ''));
+  const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
+  const ids = events.flatMap(e => (e.event === 'output' && Array.isArray(e.ids) ? (e.ids as string[]) : e.event === 'judgment' && e.kind === 'added' && typeof e.id === 'string' ? [e.id] : [])).map(key);
+  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge') };
+}
+
+/** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
+export interface FixTrailer { finding: string; reader: string; commit: string }
+export function parseFixTrailers(commit: string, values: readonly string[]): FixTrailer[] {
+  return values.flatMap(v => {
+    const m = /^\s*(\S+)\s+reader=([a-z][a-z0-9-]*)\s*$/.exec(v);
+    return m ? [{ finding: m[1]!, reader: m[2]!, commit }] : [];
+  });
+}
+
+/**
+ * The loop summary. blocking_found counts every blocker found (GST-951). Each CRITICAL the dispatch ledgers hold
+ * (`ledgerBlockers`, one list per ledger) is paired with at most one row finding per ledger at the same path:line, raised
+ * by the same reviewer (or naming none; a fix-check re-reads every reviewer's fixes), that may be it (no severity yet, CRITICAL as logged or before a mapper lowered
+ * it, or blocking), so one finding re-raised by a later pass's ledger pairs again. A paired finding blocks unless its newest
+ * classification put it below the floor (blocking: false), and its row's action is its disposition. An unpaired ledger
+ * CRITICAL blocks and is unrecorded. A row finding blocks by its newest classification, else as an unclassified CRITICAL.
+ * A ledger CRITICAL with no locus, or a second one at a paired line, counts on its own. A different defect the same reviewer
+ * raises at the exact line of a finding a row classified below the floor pairs with that finding: path:line is the only
+ * identity rows and ledgers share until rows carry the ledger id.
+ * Fix-checks (GST-986, #3862; `ledgerPasses`, one per ledger): fix_checks is the larger of the review-fix-check rows and the
+ * fix-check ledgers, so one logged both ways counts once. When fix-checks ran without their review-fix-check rows (more fix-check
+ * ledgers than rows), a blocker no row disposes counts as fixed if a fix-check ledger started after the last ledger that raised it:
+ * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
+ * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
+ */
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
+  const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
-  const loopRows = rows.filter(r => inRun(r) && (r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL));
+  const unbound: string[] = rows.filter(r => r && r.via === 'ship' && loopSkill(r) && !Number.isFinite(rowTime(r)))
+    .map(r => `row ${String(r.skill)} pass=${String(r.pass ?? '?')}: no start token and no readable timestamp, so it cannot be placed in this run`);
+  // A repeated logger command writes the same row twice (#3911: one fix-check counted as two): rows that record their head dedupe by kind, pass, head and finding ids.
+  const rowKey = (r: Record<string, any>) => JSON.stringify([r.skill, r.pass ?? null, r.commit_full ?? r.commit ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => (f && typeof f === 'object' ? (typeof f.ledger_id === 'string' ? f.ledger_id : findingIdentity(f)) : '')).sort()]);
+  const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? rowKey(r) : `#${i}`, r] as const)).values()];
   const passes = loopRows.filter(r => r.skill === 'review');
-  const blocking = new Set<string>();
+  const named = (dir: string) => { const n = /^p(\d+)$/.exec(dir)?.[1]; return loopRows.some(r => (n !== undefined && r.skill === 'review' && String(r.pass) === n) || (Array.isArray(r.findings) && r.findings.some((f: any) => typeof f?.ledger_id === 'string' && f.ledger_id.startsWith(`${dir}/`)))); };
+  const passNo = (p: LedgerPass) => (p.fixCheck ? undefined : Number(/^p(\d+)$/.exec(p.name ?? '')?.[1] ?? NaN));
+  const replaced = (n: number) => allPasses.some(q => (passNo(q) ?? NaN) > n && (q.judged !== false || named(q.name!)));
+  const voidedAt = new Set(allPasses.flatMap((p, i) => { const n = passNo(p); return n !== undefined && Number.isFinite(n) && p.judged === false && p.ids?.length && !named(p.name!) && replaced(n) ? [i] : []; }));
+  const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
+  const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
+  const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
+  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string; fingerprint?: string };
+  const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
   const fixed = new Set<string>();
@@ -357,16 +445,71 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
     if (REVIEW_SCOPE_POLICIES.includes(row.review_scope)) scope = row.review_scope;
     for (const f of Array.isArray(row.findings) ? row.findings : []) {
       if (!f || typeof f !== 'object') continue;
-      const id = findingIdentity(f);
-      if (f.blocking === true) blocking.add(id);
+      const ledgerId = typeof f.ledger_id === 'string' && f.ledger_id ? f.ledger_id : undefined;
+      // A late defer re-logs a finding an earlier row holds; without a ledger_id it is that finding when the locus and reviewer agree (GBEV-3).
+      const same = !ledgerId && row.skill === LATE_DEFER_SKILL ? [...seen].find(([, s]) => s.locus !== null && s.locus === rowLocus(f) && s.raiser === raiserOf(f.raised_by))?.[0] : undefined;
+      const id = ledgerId ?? same ?? findingIdentity(f);
+      const prior = seen.get(id);
+      const classified = typeof f.blocking === 'boolean';
+      seen.set(id, {
+        locus: rowLocus(f) ?? prior?.locus ?? null,
+        raiser: prior?.raiser ?? raiserOf(f.raised_by),
+        classified: classified || !!prior?.classified,
+        blocks: classified ? f.blocking : prior?.classified ? prior.blocks : !!prior?.blocks || rowBlocks(f),
+        candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
+        disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
+        ...(ledgerId ?? prior?.ledgerId ? { ledgerId: ledgerId ?? prior?.ledgerId } : {}),
+        ...(prior?.fingerprint ?? findingIdentity(f) ? { fingerprint: prior?.fingerprint ?? findingIdentity(f) } : {}),
+      });
       if (f.action === 'deferred') deferred.add(id);
       if (f.action === 'noted') noted.add(id);
       if (f.action === 'fixed' || f.action === 'auto-fixed') fixed.add(id);
     }
   }
-  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blocking.size, deferred: deferred.size, noted: noted.size, fixed: fixed.size, scope };
-  const fixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
+  for (const p of ledgerPasses) {
+    const n = /^p(\d+)$/.exec(p.name ?? '')?.[1];
+    if (n && !passes.some(r => String(r.pass) === n)) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
+  }
+  const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
+  if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);
+  const paired = new Set<string>();
+  const ledgerOnlyKeys: Array<{ key: string; id: string; fixed: boolean }> = [];
+  const pairedIds = new Set<string>();
+  const followedIds = new Set<string>();
+  const lastPaired = new Map<string, number>();
+  const fixCheckStarts = ledgerPasses.filter(p => p.fixCheck && Number.isFinite(p.started)).map(p => p.started);
+  const rowFixChecks = loopRows.filter(r => r.skill === FIX_CHECK_SKILL).length;
+  const followed = (n: number) => fixCheckStarts.length > rowFixChecks && fixCheckStarts.some(t => t > (ledgerPasses[n]?.started ?? Infinity));
+  for (const [n, list] of ledgers.entries()) {
+    for (const b of list) {
+      const by = b.id.startsWith('fix-check') ? null : raiserOf(b.id);
+      const key = b.key ?? b.id;
+      const open = ([k]: [string, Seen]) => !paired.has(`${n}\0${k}`);
+      const id = [...seen].find(e => open(e) && (e[1].ledgerId === key || e[1].ledgerId === b.id))?.[0]
+        ?? (b.locus ? [...seen].find(e => open(e) && !e[1].ledgerId && e[1].candidate && e[1].locus === b.locus && (!e[1].raiser || !by || e[1].raiser === by))?.[0] : undefined);
+      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else ledgerOnlyKeys.push({ key, id: b.id, fixed: followed(n) });
+    }
+  }
+  for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
+  for (const t of trailers) {
+    const hit = [...seen].find(([k, s]) => k === t.finding || s.ledgerId === t.finding || s.fingerprint === t.finding);
+    if (hit) { hit[1].disposed = true; fixed.add(hit[0]); continue; }
+    const only = ledgerOnlyKeys.find(l => l.key === t.finding || l.id === t.finding);
+    if (only) { only.fixed = true; continue; }
+    unbound.push(`trailer ${t.commit.slice(0, 12)} Review-Finding: ${t.finding} reader=${t.reader}: names no finding this run's rows or ledgers hold`);
+  }
+  const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
+  for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
+  const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
+  const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
+  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };
+  if (unrecorded) out.unrecorded = unrecorded;
+  if (ledgers.length) out.ledgers_read = ledgers.length;
+  if (unbound.length) out.unbound = unbound;
+  if (voided.length) out.voided = voided;
+  const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
+  out.rounds = passes.length + fixChecks;
   const byRole: Record<string, number> = {};
   let bytes = 0; let measured = false;
   for (const row of rows.filter(r => inRun(r) && DISPATCH_SKILLS.includes(r.skill))) {
@@ -384,5 +527,6 @@ export function dispatchTotal(d: Record<string, number> | undefined): number | u
 export function reviewLoopLine(s: ReviewLoopSummary): string {
   const total = dispatchTotal(s.dispatches);
   return `REVIEW_LOOP: passes=${s.passes} blocking_found=${s.blocking_found} deferred=${s.deferred} noted=${s.noted} fixed=${s.fixed} scope=${s.scope}`
+    + (s.unrecorded ? ` unrecorded=${s.unrecorded}` : '') + (s.unbound?.length ? ` unbound=${s.unbound.length}` : '') + (s.ledgers_read ? ` ledgers_read=${s.ledgers_read}` : '')
     + (s.fix_checks ? ` fix_checks=${s.fix_checks}` : '') + (total !== undefined ? ` dispatches=${total}` : '') + (s.est_input_tokens !== undefined ? ` est_input_tokens=${s.est_input_tokens}` : '');
 }

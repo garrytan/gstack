@@ -56,6 +56,7 @@ const BASELINE = [
   'test/ceo-split-question-policy.test.ts',
   'test/ceo-stale-fill-decision.test.ts', // replays census reports against the paid CEO section-loading case's structured checker
   'test/changed-files-union.test.ts',
+  'test/claude-overlay-setup-installs.test.ts', // GSTA-151: its bin/gstack-skill-start assertion moved to test/claude-overlay-setup-project.test.ts in the shard-time split; the remaining cases still run the real ./setup through test/helpers/install-fixture.ts
   'test/claude-provider-keychain.test.ts',
   'test/codex-carve-fixture.test.ts',
   'test/codex-eval-recording.test.ts',
@@ -83,6 +84,8 @@ const BASELINE = [
   'test/docsync-atomic-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/docsync-child-marker.test.ts', // replays a PR-lane capture against the paid ship-docsync case's child-marker check
   'test/docsync-command-grammar.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/docsync-fault-interface-faults.test.ts', // GSTA-151: split from test/docsync-fault-interface.test.ts for shard time; replays the fault-control callbacks through the generated child
+  'test/docsync-fault-interface-legacy.test.ts', // GSTA-151: split from test/docsync-fault-interface.test.ts for shard time; replays the legacy-control callbacks through the generated child
   'test/docsync-nested-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/dx-selected-navigation-ap.test.ts',
   'test/eng-batching-current-ledger.test.ts',
@@ -101,6 +104,7 @@ const BASELINE = [
   'test/extension-pty-inject-invariant.test.ts',
   'test/gbrain-source-worktree-advance.test.ts',
   'test/gbrain-sync-voyage-code-3-integration.test.ts',
+  'test/git-fixture-template.test.ts', // GSTA-151: pins the copy isolation and leak scan of test/helpers/git-fixture-template.ts, which the templated git fixtures in release-cut, train-backstop, restamp-mentions, pregate-user-policy and held-install-recovery rely on
   'test/gstack-gbrain-source-wireup.test.ts',
   'test/gstack-home-module-scope.test.ts',
   'test/gstack-upgrade-migration-v1_17_0_0.test.ts',
@@ -124,6 +128,7 @@ const BASELINE = [
   'test/helpers/session-runner.test.ts',
   'test/helpers/sync-command-capture.test.ts',
   'test/hooks-windows-paths.test.ts',
+  'test/host-renders-prune-shared-root.test.ts', // GSTA-151: split from test/host-renders-prune.test.ts for shard time; runs the real ./setup prune through test/helpers/install-fixture.ts
   'test/ios-debug-bridge-release-guard.test.ts',
   'test/ios-qa-stateserver-hardening.test.ts',
   'test/ios-qa-swift-build.test.ts',
@@ -204,15 +209,19 @@ const BASELINE = [
   'test/review-enum-lifecycle.test.ts',
   'test/review-n-plus-one-contract.test.ts',
   'test/review-quality-provenance.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/sdk-system-prompt-tripwire.test.ts', // the Agent SDK prompt tripwire: its subject is the eval harness (test/helpers/sdk-system-prompt.ts, agent-sdk-runner.ts) and every SDK caller under test/
   'test/session-runner-browse-errors.test.ts', // slices test/skill-e2e-review.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/session-runner-stream-lifecycle.test.ts',
   'test/session-runner-timeout.test.ts',
   'test/setup-browser-hint.test.ts',
   'test/setup-bun-cmd-and-pipe-bugs.test.ts',
+  'test/setup-codex-scope-runtime-links.test.ts', // GSTA-151: split from test/setup-codex-scope-review-boundaries.test.ts for shard time; runs the real ./setup through test/helpers/install-fixture.ts
   'test/setup-conductor-worktree.test.ts',
   'test/setup-playwright-platform.test.ts',
   'test/setup-sections-linking.test.ts',
   'test/shared-libs-cancellation.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/shared-libs-checker-interface-evidence-declared.test.ts', // GSTA-151: split from test/shared-libs-checker-interface-evidence.test.ts for shard time; same cases, slices the same paid source
+  'test/shared-libs-checker-interface-evidence-replays.test.ts', // GSTA-151: split from test/shared-libs-checker-interface-evidence.test.ts for shard time; same cases
   'test/shared-libs-checker-interface-evidence.test.ts', // slices test/skill-e2e-shared-libs.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-fixture.test.ts', // slices test/skill-e2e-shared-libs-periodic.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-plan-actor.test.ts',
@@ -231,6 +240,9 @@ const BASELINE = [
   'test/tasks-section-jq.test.ts',
   'test/test-free-shards-capture.test.ts',
   'test/timeline.test.ts',
+  'test/ubicloud-runner-reattach.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
+  'test/ubicloud-runner-recovery.test.ts', // GST-1220: recovery bundle and results sink; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
+  'test/ubicloud-runner-tiers.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
   'test/workflow-judge-cache.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/workflow-judge-input.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
 ];

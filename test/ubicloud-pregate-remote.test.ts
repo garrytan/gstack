@@ -20,7 +20,7 @@ afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
 const COPIED = ['scripts/ubicloud/pregate-remote.sh', 'bin/gstack-wtree', 'bin/gstack-path-spelling.sh',
   'scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts',
-  'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'lib/state-root.ts', 'test/helpers/paid-test-set.ts',
+  'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'scripts/lib/shard-jobs.ts', 'lib/state-root.ts', 'test/helpers/paid-test-set.ts',
   'test/helpers/touchfiles.ts', 'test/helpers/touchfiles-data.ts', 'test/helpers/test-selection.ts'];
 const TESTS: Record<string, string> = {
   'test/alpha.test.ts': "import { expect, test } from 'bun:test';\ntest('alpha', () => { expect(1).toBe(1); });\n",
@@ -272,7 +272,7 @@ describe('pregate-remote.sh keyed path (stub ubi-runner)', () => {
     expect(create.exit, create.out).toBe(4);
     expect(create.out).toContain('PREGATE_REMOTE_INFRA: infrastructure failure (ubi-runner exit 1): ubi-runner: create failed');
     expect(create.out).toMatch(/VM: eu-central-h1\/(ubirun-stub-\d+-[0-9a-f]{8}-t1); ubi-runner: gone: eu-central-h1\/\1 \(never existed or already destroyed\)/);
-    expect(create.out).toMatch(/VM (ubirun-stub-\d+-[0-9a-f]{8}-t1); if this run is killed before its teardown line, destroy it with: bash scripts\/ubicloud\/ubi-runner\.sh down \1\n/);
+    expect(create.out).toMatch(/VM (ubirun-stub-\d+-[0-9a-f]{8}-t1); if this run is killed before its teardown line, rerun the same command to reattach; if the rerun does not reattach to it, or you give up, destroy it with: bash scripts\/ubicloud\/ubi-runner\.sh down \1\n/);
     expect(create.out).toMatch(/log: \S+\/\.context\/pregate-remote\/\S+\/run\.log/);
     expect(create.out).toContain('spent=0.00 (0 billed min on standard-16)');
     const setup = gate(fixture(), ['test/alpha.test.ts'], { ...KEY, STUB_SETUP_FAIL: '1' });

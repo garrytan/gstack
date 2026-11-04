@@ -1,0 +1,7 @@
+{"severity":"INFORMATIONAL","path":"wiki/plans/p/README.md","line":91,"summary":"The run-order step still says the run goes on when every linked log holds only no-contract-skill lines, where the readout stops it."}
+{"severity":"INFORMATIONAL","path":"wiki/plans/p/hooks.ts.txt","line":46,"summary":"ls() now swallows every readdirSync error, so an unreadable arm folder is skipped without a word."}
+
+I found no defect that is CRITICAL. Here is what I checked:
+- **The silent-hook rule.** All five outcomes the hook can trace are in the logged count, so a working hook can't be read as silent.
+- **The lost rule.** Its result feeds only the tally and the exposure label, and no other caller reads it.
+- **Tests weakened.** None.

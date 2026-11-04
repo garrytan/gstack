@@ -213,13 +213,32 @@ Only commit if there are changes. Stage the bootstrap's own files by name (confi
 **Run it:** `~/.claude/skills/gstack/bin/gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...`
 (or the Step 1 call with lanes). It runs the free pre-gate first, before any lane, eval or
 remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, strays, literals;
-stage 2 the selected lanes under pipefail), then every lane in parallel inside the evidence
-ledger, and prints `PREGATE:` and one `LANE: <label> <state> exit= tests_ran= log=` line each.
-`fail` or `incomplete` blocks: fix, rerun. `requires-remote` (other platforms; the remote gate under 8 cores) needs
+stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger (one at
+a time on 4 or fewer cores unless `--lanes serial|parallel`), and prints `PREGATE:`, `LANES:` and
+one `LANE: <label> <state> exit= tests_ran= log=` line each.
+`fail` or `incomplete` blocks: fix, rerun. **No-stop** (docs/review-policy.md#no-stop): a pregate flake rerun (one per branch), a
+timeout-only fix and three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,
+`refused` stops. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
 after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.
 
 Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. Pass each as `--lane <label>=<command>`; use the same lane labels and exact commands again in Step 16.
+
+<a id="ci-carry"></a>
+**CI is the one full test run.** When `origin/<base>`'s `.gstack/pregate.json` maps a lane's exact
+command in `ship_lanes_from` (gstack maps `bun run test`), that lane is carried from a verified CI run
+at this exact, clean tree instead of running here: `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`.
+Before the first push run only targeted tests and the repro (the full suite too when the diff touches
+merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
+`scripts/lib/shard-engine.ts`). Push early so CI runs beside the review: commit, `gstack-ship-release push
+--branch <branch> --early` (sealed, secrets and guards first), open a draft PR, then `gstack-ci-carry wait` in
+the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
+run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
+label=<l> (<reason>)` names why a mapped lane ran here (a dirty tree, no green run at HEAD yet, a fork or stale
+run, a newer red run, a tree.json that misses an inventory file). Any other lane that already passed at this
+tree, command and runtime is reused (`reused=<time>`), never run twice. In Step 16, `finish` defers a mapped
+lane it cannot carry (`EVIDENCE: DEFERRED`); after the push, `gstack-ship-release accept --base <base>
+--lane …` carries it from the green run at the final head and reruns the pregate there.
 
 **If no applicable test suite exists:** Name the untested scope. AskUserQuestion:
 A) Add tests (recommended), B) Ship with this named testing

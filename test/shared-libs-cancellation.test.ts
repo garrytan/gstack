@@ -93,7 +93,7 @@ function harness(options: { drainOnClose?: boolean; refuse?: boolean } = {}) {
       expect(name).toBe('shared-libs-review-revalidation'); expect(timeout).toBe(CAPTURE_LONG_MS); registered = callback;
     },
     createSharedLibsFixture: (label: string) => ({ root: `/virtual/${label}`, repo: '/virtual', env: {} }),
-    seedReviewSources() {}, fixtureWrite() {}, installNormalizingFilter() {}, seedSkippedAdvisory: async () => ({}),
+    seedReviewSources() {}, fixtureWrite() {}, installNormalizingFilter() {}, seedSkippedAdvisory: async () => ({ evidence_paths: [] }),
     fixtureWorkingTree: () => 'same', fixtureGit() {}, reviewLifecycleInstructions: () => '',
     seedPathReviewPrerequisites: () => ({ input: '' }), checkPathReviewPrerequisites: () => ({ settled: true }),
     reviewRevalidationPrompt: (f: any) => f.root,

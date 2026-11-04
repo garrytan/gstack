@@ -5,7 +5,7 @@
  *   gstack-review-scope classify --base <ref> --pass <n> [--range-base <sha>] [--policy frozen|diff-plus-blocking|all] [--findings <file>|-] [--json]
  *   gstack-review-scope defer --findings <classified.json> [--pr <n>] [--repo <owner/repo>] [--branch <name>] [--out <deferred.json>] [--dry-run] [--json]
  *   gstack-review-scope render --deferred <deferred.json> [--findings <classified.json>]
- *   gstack-review-scope summary --since <iso-timestamp> [--out <file>] [--json]
+ *   gstack-review-scope summary --since <iso-timestamp> (--run <dir> | --ledger <f>... | --no-ledger) [--out <file>] [--json]
  *
  * `classify` reads a JSON array of findings (the Step 9.3 result) and stamps
  * each with `locus` (diff | fix-range | outside), `kind` (defect | test-gap |
@@ -23,12 +23,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
+import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import { EXIT as POST_EXIT, runPost } from '../lib/gstack-post';
 import {
-  parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  ledgerPass, parseFixTrailers, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   ALREADY_FILED_REASON, DEFERRED_MARKER, findingIdentity, findingWhere, REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
+import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
 
 const HELP = `gstack-review-scope — finding scope for /ship's review loop (docs/ship-policy.md#review-scope)
 
@@ -41,8 +43,14 @@ const HELP = `gstack-review-scope — finding scope for /ship's review loop (doc
   render --deferred <file> [--findings <classified.json>]
                                       the PR-body sections: ## Deferred findings (references, never closing keywords)
                                       and ## Review notes (scope=note findings)
-  summary --since <iso> [--out <file>] the invocation's passes from this branch's review log: REVIEW_LOOP: passes=…
-                                      blocking_found=… deferred=… noted=… (the ship receipt's --review-loop input)
+  summary --since <iso> (--run <dir> | --ledger <f>... | --no-ledger) [--out <file>]
+                                      the invocation's passes from this branch's review log: REVIEW_LOOP: passes=…
+                                      blocking_found=… deferred=… noted=… (the ship receipt's --review-loop input);
+                                      blocking_found also counts every CRITICAL the dispatch ledgers collected or judged
+                                      (--run finds each review-ledger.jsonl under the run directory); unrecorded=N names
+                                      blockers no row disposes; a row finding's ledger_id (<pass dir>/<merged id>) and each
+                                      fix commit's Review-Finding: <id> reader=<role> trailer bind by id, and what cannot bind
+                                      prints REVIEW_SCOPE_UNBOUND: <what>: <why> (unbound=N). An unreadable ledger: REVIEW_SCOPE_LEDGER
 
 Defaults: --policy from the base branch's .gstack/ship-policy.json review_scope (frozen); an unresolvable base refuses
   (POLICY_SOURCE_UNAVAILABLE) unless --policy is passed; --findings - reads stdin; --branch the current branch.
@@ -116,7 +124,7 @@ function readFindings(spec: string | undefined, what: string): ScopeFinding[] {
   if (!list || !list.every((f: unknown) => f && typeof f === 'object' && !Array.isArray(f))) throw new Error(`${what}: expected a JSON array of finding objects`);
   return list as ScopeFinding[];
 }
-function refuse(cmd: string, code: 'REVIEW_SCOPE_INPUT' | 'REVIEW_SCOPE_RANGE', detail: string): number {
+function refuse(cmd: string, code: 'REVIEW_SCOPE_INPUT' | 'REVIEW_SCOPE_RANGE' | 'REVIEW_SCOPE_LEDGER', detail: string): number {
   process.stderr.write(resultLineWithDocs(`gstack-review-scope ${cmd}`, code, detail) + '\n');
   return EXIT.fail;
 }
@@ -237,14 +245,40 @@ function cmdRender(rest: string[]): number {
 function cmdSummary(rest: string[], json: boolean): number {
   const since = flag(rest, '--since');
   if (!since || !Number.isFinite(Date.parse(since))) return refuse('summary', 'REVIEW_SCOPE_INPUT', '--since <ISO-8601 timestamp> (the invocation\'s first Step 9 entry) is required');
-  const read = spawnSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
-  if (read.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `gstack-review-read failed: ${(read.stderr ?? '').trim().split('\n')[0] ?? ''}`);
+  const read = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  if (read.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `gstack-review-read failed: ${read.error?.message ?? (read.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const rows: Record<string, unknown>[] = [];
   for (const line of (read.stdout ?? '').split('---CONFIG---')[0]!.split('\n')) {
     if (!line.trim() || line === 'NO_REVIEWS') continue;
     try { rows.push(JSON.parse(line)); } catch { /* malformed row: gstack-review-read already warned */ }
   }
-  const summary = summarizeReviewLoop(rows, since);
+  const files: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] !== '--ledger') continue;
+    if (!rest[i + 1] || rest[i + 1]!.startsWith('--')) return refuse('summary', 'REVIEW_SCOPE_INPUT', '--ledger needs a file');
+    files.push(rest[++i]!);
+  }
+  const run = flag(rest, '--run');
+  if (run) {
+    let found: string[];
+    try { found = (fs.readdirSync(run, { recursive: true }) as string[]).filter(p => path.basename(p) === 'review-ledger.jsonl').sort().map(p => path.join(run, p)); } catch (e: any) { return refuse('summary', 'REVIEW_SCOPE_LEDGER', `--run ${run}: ${e.code ?? e.message}`); }
+    if (!found.length) return refuse('summary', 'REVIEW_SCOPE_LEDGER', `--run ${run} holds no review-ledger.jsonl: name the run directory the passes wrote, or each --ledger`);
+    files.push(...found);
+  }
+  const noLedger = rest.includes('--no-ledger');
+  if (noLedger && files.length) return refuse('summary', 'REVIEW_SCOPE_INPUT', '--no-ledger contradicts --run and --ledger');
+  // The ledgers hold every reader's findings, the voices' too, before any row classifies them; a summary without them can undercount.
+  if (!noLedger && !files.length) return refuse('summary', 'REVIEW_SCOPE_LEDGER', 'name the review\'s dispatch ledgers (--run <run dir> or --ledger <f>), or --no-ledger when no reader ran through gstack-review-dispatch');
+  // A row's ledger_id and a fix trailer name a finding as <pass dir>/<merged id>: the ids restart in every pass's ledger.
+  const keyOf = (file: string) => (id: string) => `${path.basename(path.dirname(path.resolve(file)))}/${id}`;
+  let ledgers: LedgerBlocker[][];
+  try { ledgers = files.map(f => ledgerBlockers(f).map(b => ({ ...b, key: keyOf(f)(b.id) }))); } catch (e: any) { return refuse('summary', 'REVIEW_SCOPE_LEDGER', e.message); }
+  const log = spawnSync('git', ['log', '--first-parent', '--no-merges', `--since=${since}`, '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', 'HEAD'], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  if (log.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `git log for Review-Finding trailers failed: ${(log.stderr ?? '').trim().split('\n')[0] ?? ''}`);
+  const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
+  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers);
+  for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
+  for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);
   // A /ship invocation always runs Step 9 once; zero matching rows means the wrong --since or a review log written elsewhere, never a loop to record.
   if (summary.passes === 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `no review-log row of this branch is a via:ship review at or after ${since}; check REVIEW_SINCE (${line})`);

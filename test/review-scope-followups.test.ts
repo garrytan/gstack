@@ -30,7 +30,7 @@ describe('late defers from Step 11', () => {
       { skill: 'adversarial-review', via: 'ship', timestamp: '2026-10-26T10:25:00Z', findings: [{ fingerprint: 'd:1:w', blocking: true, action: 'deferred' }] },
     ];
     const s = summarizeReviewLoop(rows, '2026-10-26T09:30:00Z');
-    expect(s).toEqual({ passes: 2, blocking_found: 3, deferred: 2, noted: 0, fixed: 1, scope: 'frozen' });
+    expect(s).toEqual({ passes: 2, blocking_found: 3, deferred: 2, noted: 0, fixed: 1, scope: 'frozen', rounds: 2 });
     expect(reviewLoopLine(s)).toBe('REVIEW_LOOP: passes=2 blocking_found=3 deferred=2 noted=0 fixed=1 scope=frozen');
     expect(LATE_DEFER_SKILL).toBe('review-late-defer');
     // A `review` row logged without a start token would be the newest review row and read UNVERIFIED; the late-defer row is not a diff review at all.

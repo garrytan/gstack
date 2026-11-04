@@ -14,9 +14,11 @@ import { EXIT } from '../lib/headless-artifacts';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { resolveReleaseConflicts } from '../lib/ship-queue-land';
-import { mergePolicy } from '../lib/ship-policy';
+import { receiptDepthAtHead, receiptExclude, receiptReviewAtHead } from '../lib/ship-receipt-depth';
+import { mergePolicy, REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 
+const ROOT = path.resolve(import.meta.dir, '..');
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -47,7 +49,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
     "  if(d.mergeRefuse){console.error('Pull request is not mergeable: the base branch policy prohibits the merge');process.exit(1)}",
     "  if(d.driftOnMerge){const m=g('rev-parse','refs/heads/main');const t=g('rev-parse',m+'^{tree}');g('update-ref','refs/heads/main',g('commit-tree',t,'-p',m,'-m','outside merge'));d.driftOnMerge=false}",
-    "  const main=g('rev-parse','refs/heads/main');const sq=g('commit-tree',g('rev-parse',want+'^{tree}'),'-p',main,'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);if(d.outsideAfter){g('update-ref','refs/heads/main',g('commit-tree',g('rev-parse',sq+'^{tree}'),'-p',sq,'-m','outside after'));d.outsideAfter=false}d.mergeArgs=a.slice(3);p.state='MERGED';save();if(d.mergeErrorAfter){d.mergeErrorAfter=false;save();console.error('HTTP 502: Bad Gateway');process.exit(1)}process.exit(0)}",
+    "  const main=g('rev-parse','refs/heads/main');const sq=g('commit-tree',g('rev-parse',want+'^{tree}'),'-p',main,...(d.trueMerge&&a.includes('--merge')?['-p',want]:[]),'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);if(d.outsideAfter){g('update-ref','refs/heads/main',g('commit-tree',g('rev-parse',sq+'^{tree}'),'-p',sq,'-m','outside after'));d.outsideAfter=false}d.mergeArgs=a.slice(3);p.state='MERGED';save();if(d.mergeErrorAfter){d.mergeErrorAfter=false;save();console.error('HTTP 502: Bad Gateway');process.exit(1)}process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='create'&&d.createFail){d.createFail=false;save();console.error('timeout');process.exit(1)}",
     "if(a[0]==='pr'&&a[1]==='create'){const h=a[a.indexOf('--head')+1];const had=Object.entries(d.prs).find(([,p])=>p.headRefName===h&&p.state==='OPEN');if(had){console.error('a pull request for branch \"'+h+'\" into branch \"main\" already exists:\\nhttps://github.com/o/r/pull/'+had[0]);process.exit(1)}}",
     "if(a[0]==='pr'&&a[1]==='create'){const n=String(Math.max(0,...Object.keys(d.prs).map(Number))+1);d.prs[n]={state:'OPEN',headRefName:a[a.indexOf('--head')+1],isCrossRepository:false,title:a[a.indexOf('--title')+1],body:''};save();console.log('https://github.com/o/r/pull/'+n);process.exit(0)}",
@@ -538,6 +540,69 @@ describe('land: one pass, base, lock and history', () => {
     expect(remote(fx, 'pr-11')).toBe(head);
   }, 90_000);
 
+  // Value: protects=a PR that writes a third-party version into a stamp_files line lands it byte for byte, while its own
+  //   fork-version token still moves (GST-1245, HARN-7: harness-evals#235's "QM v0.1.15" landed as "QM v0.0.115");
+  //   fails_when=land's restamp reads any vX newer than the fork point on a PR line as the PR's stamp; why_new=no land
+  //   case put a version in a stamp file; seam=lib/restamp.ts rewriteStampPaths via buildStamp; no_claim=none beyond protects
+  test('a foreign version on a PR-added stamp_files line lands byte for byte; the PR\'s own fork-version token moves (GST-1245)', () => {
+    const fx = setup({ ...POLICY, stamp_files: ['VERSION', 'package.json', 'package-lock.json', 'CHANGELOG.md', 'README.md'] });
+    const qm = 'QM v2.1.15.0 grades every run.\nPin QM v2.1.15.0 in CI.\nUpgrade notes for QM v2.1.15.0 are below.\n';
+    openPr(fx, '235', { edit: work => fs.writeFileSync(path.join(work, 'README.md'), qm + 'Written at fixture v1.2.3.0 by this PR.\n') });
+    const r = land(fx, ['--pr', '235']);
+    expect(r.err).toBe('');
+    const stamp = remote(fx, 'pr-235');
+    expect(show(fx, stamp + ':VERSION')).toBe('1.2.4.0');
+    expect(show(fx, stamp + ':README.md')).toBe(qm + 'Written at fixture v1.2.4.0 by this PR.');
+  }, 90_000);
+
+  // Value: protects=a stamp reset back to the reviewed pin restamps instead of resuming a journal whose stamp commit the
+  //   branch no longer holds (GST-1245, HARN-7: "resuming at stamped", then QUEUE_TRAIN_MOVED until the journal was removed
+  //   by hand); fails_when=land keeps the journal because the pin is one of the heads it names; why_new=every resume case
+  //   keeps the stamp commit on the branch; seam=lib/ship-queue-land.ts land; no_claim=the lock: own-lock resume already
+  //   matches on PR and journal path, and this case asserts it needs no --break-lock
+  test.each([['pushed'], ['stamped']])('a stamp reset to the pin at phase %s discards the journal and restamps, with no --break-lock (GST-1245)', phase => {
+    const fx = setup();
+    const base = remote(fx, 'main');
+    const pin = openPr(fx, '14');
+    expect(land(fx, ['--pr', '14']).status).toBe(EXIT.ok);
+    const first = remote(fx, 'pr-14');
+    const file = path.join(fx.repo.work, '.gstack', 'tmp', 'ship-queue', 'land', '14.json');
+    const journal = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect([journal.phase, journal.stamp_commit, journal.last_pushed_head]).toEqual(['pushed', first, first]);
+    // phase stamped: a restamp built its commit and stopped before the push (the state HARN-7's rerun resumed at).
+    if (phase === 'stamped') fs.writeFileSync(file, JSON.stringify({ ...journal, phase: 'stamped' }));
+    fx.repo.git('push', '-q', '-f', 'origin', pin + ':refs/heads/pr-14');
+    const again = land(fx, ['--pr', '14']);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).not.toContain('resuming at');
+    expect(again.out).toContain(`JOURNAL: #14's head is the reviewed pin ${pin.slice(0, 12)}, not the stamp commit ${first.slice(0, 12)} (phase ${phase}); discarding the journal and restamping`);
+    expect(again.out).not.toContain('LOCK: broke');
+    expect(again.out).toContain('PUSHED: ');
+    const restamped = remote(fx, 'pr-14');
+    expect(fx.repo.git('rev-list', '--parents', '-n', '1', restamped).split(' ').slice(1)).toEqual([pin, base]);
+    expect(land(fx, ['--pr', '14']).out).toContain('MERGED: #14');
+  }, 90_000);
+
+  // Value: protects=a stamp land built but never pushed still resumes and pushes that commit: the branch never moved,
+  //   so nothing is discarded (GST-1245 review); fails_when=the reset check fires on any journal whose head is the pin;
+  //   why_new=the reset cases above all pushed a stamp first; seam=lib/ship-queue-land.ts land; no_claim=none beyond protects
+  test('a stamp built but never pushed resumes at stamped and pushes that commit, discarding nothing (GST-1245)', () => {
+    const fx = setup();
+    const pin = openPr(fx, '15');
+    expect(land(fx, ['--pr', '15']).status).toBe(EXIT.ok);
+    const first = remote(fx, 'pr-15');
+    const file = path.join(fx.repo.work, '.gstack', 'tmp', 'ship-queue', 'land', '15.json');
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), phase: 'stamped', last_pushed_head: null }));
+    fx.repo.git('push', '-q', '-f', 'origin', pin + ':refs/heads/pr-15');
+    const again = land(fx, ['--pr', '15']);
+    expect(again.err).toBe('');
+    expect(again.out).toContain('(resuming at stamped)');
+    expect(again.out).not.toContain('JOURNAL:');
+    expect(again.out).toContain(`PUSHED: ${first}`);
+    expect(remote(fx, 'pr-15')).toBe(first);
+  }, 90_000);
+
   // Value: protects=a lost local journal resumes from the stamp commit's pin; fails_when=the stamp commit is treated as the pin and the receipt refuses; why_new=resume cases keep the journal; seam=none; no_claim=none beyond protects
   test('with the local journal gone, a head that is land\'s stamp commit resumes from its pin', () => {
     const fx = setup();
@@ -561,6 +626,50 @@ describe('land: one pass, base, lock and history', () => {
     expect(r.err).toBe('');
     expect(r.out).toContain('LANDED: ');
     expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toContain('--merge');
+  }, 90_000);
+
+  // Value: protects=a merge-only land interrupted after GitHub merged resumes to LANDED, though a true merge puts the pin inside
+  //   the base; fails_when=the receipt check refuses the merged pin as BASE_CONTAINS_HEAD, or its depth check reads the empty
+  //   range as a scope error and raises the depth, and the lock is never released; why_new=GST-774's base guard, and the shim
+  //   only squashed; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
+  test('merge-only: a true merge that errored after GitHub merged resumes to LANDED with a depth-bearing receipt', () => {
+    const fx = setup({ ...POLICY, history: 'merge-only' });
+    const head = openPr(fx, '14');
+    const depth = receiptDepthAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head);
+    expect(depth.depth).toBe('light');
+    fx.write(d => { d.prs['14'].body = shippedBody('14', head, { gstack_version: '1.91.400.0', review_depth: depth }); });
+    land(fx, ['--pr', '14']);
+    fx.write(d => { d.trueMerge = true; d.mergeErrorAfter = true; });
+    expect(land(fx, ['--pr', '14']).err).toContain('HTTP 502');
+    const again = land(fx, ['--pr', '14']);
+    expect(again.out + again.err).not.toMatch(/BASE_CONTAINS_HEAD|QUEUE_RECEIPT_DEPTH_RAISED/);
+    expect(again.out).toMatch(/^REVIEW_DEPTH: receipt=light required=light /m);
+    expect(again.out).toContain('LANDED: ');
+  }, 90_000);
+
+  // Value: protects=the same merged resume when review_exclude_paths excluded files from the PR's range; fails_when=the queue
+  //   recomputes the exclusion over the merged (empty) range and refuses the receipt's digest as RECEIPT_INVALID; why_new=the
+  //   case above has no review_exclude_paths; seam=none; no_claim=GitHub's merge-commit shape beyond two parents
+  test('merge-only: a merged resume lands when review_exclude_paths excluded files from the range', () => {
+    const fx = setup({ ...POLICY, history: 'merge-only', review_exclude_paths: ['data/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION });
+    const head = openPr(fx, '15', { edit: work => { fs.mkdirSync(path.join(work, 'data', 'a'), { recursive: true }); fs.writeFileSync(path.join(work, 'data', 'a', 'result.json'), '{"ok": true}\n'); } });
+    fx.repo.git('checkout', '-q', '--detach', head);
+    const prior = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'ready-state');
+    let review: ReturnType<typeof receiptReviewAtHead>;
+    try { review = receiptReviewAtHead(fx.repo.work, 'main', path.join(ROOT, 'bin'), head); }
+    finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    const { depth, exclude } = review;
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const recorded = receiptExclude(exclude);
+    expect(recorded?.excluded).toBe(1);
+    fx.write(d => { d.prs['15'].body = shippedBody('15', head, { gstack_version: REVIEW_EXCLUDE_KEY_VERSION, review_depth: depth, review_exclude: recorded }); });
+    land(fx, ['--pr', '15']);
+    fx.write(d => { d.trueMerge = true; d.mergeErrorAfter = true; });
+    expect(land(fx, ['--pr', '15']).err).toContain('HTTP 502');
+    const again = land(fx, ['--pr', '15']);
+    expect(again.out + again.err).not.toMatch(/RECEIPT_INVALID|BASE_CONTAINS_HEAD|QUEUE_RECEIPT_DEPTH_RAISED/);
+    expect(again.out).toContain('LANDED: ');
   }, 90_000);
 });
 

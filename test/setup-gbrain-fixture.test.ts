@@ -170,7 +170,7 @@ describe('setup-gbrain owned Path 4 fixture', () => {
       let failure = '';
       try {
         await runSetupGbrainAttempt(fixture, {
-          systemPrompt: '', userPrompt: 'free deadline probe', queryProvider,
+          systemPrompt: { type: 'sdk-default', reason: 'stub queryProvider: no model reads the prompt' }, userPrompt: 'free deadline probe', queryProvider,
           pathToClaudeCodeExecutable: '/nonexistent/free-test-never-spawn-claude',
           signal: controller.signal,
         }, () => { validated = true; }, mode === 'deadline' ? 250 : 1000, {
@@ -213,7 +213,7 @@ describe('setup-gbrain owned Path 4 fixture', () => {
     })() as ReturnType<QueryProvider>;
     try {
       await expect(runSetupGbrainAttempt(fixture, {
-        systemPrompt: '', userPrompt: 'free validation cancellation probe', queryProvider,
+        systemPrompt: { type: 'sdk-default', reason: 'stub queryProvider: no model reads the prompt' }, userPrompt: 'free validation cancellation probe', queryProvider,
         pathToClaudeCodeExecutable: '/nonexistent/free-test-never-spawn-claude', signal: controller.signal,
       }, async () => {
         await Promise.resolve();
@@ -276,7 +276,7 @@ describe('setup-gbrain owned Path 4 fixture', () => {
         let thrown = '';
         try {
           await runSetupGbrainAttempt(fixture, {
-            systemPrompt: '', userPrompt: 'free fixture probe', queryProvider,
+            systemPrompt: { type: 'sdk-default', reason: 'stub queryProvider: no model reads the prompt' }, userPrompt: 'free fixture probe', queryProvider,
             canUseTool: async (_tool, input) => ({ behavior: 'allow', updatedInput: {
               ...input, answers: { 'Want symbol-aware code search?': 'Yes, local PGLite' },
             } }),

@@ -119,7 +119,7 @@ rounded:
 ## Motion
 
 - **Approach:** Minimal-functional — only transitions that aid comprehension. The dashboard's live feed IS the motion.
-- **Easing:** enter(ease-out / cubic-bezier(0.16,1,0.3,1)) exit(ease-in) move(ease-in-out)
+- **Easing:** enter(ease-out / cubic-bezier(0.16,1,0.3,1)) exit(ease-out) move(ease-in-out)
 - **Duration:** micro(50-100ms) short(150ms) medium(250ms) long(400ms)
 - **Animated elements:** live feed dot pulse (2s infinite), skill bar fill (600ms ease-out), hover states (150ms)
 
