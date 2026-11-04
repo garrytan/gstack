@@ -2029,7 +2029,7 @@ release-file rows):
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
-| land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main` | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
+| land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and `--break-lock` breaks another lander's stale lock under the usual rules | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
 | when the base moved past the pin's merge base and the base policy lists `land.merged_checks`: `--allow-repo-commands` was passed, the pin merges onto the tip without a conflict, and every command passes on that merged tree | [`REPO_COMMANDS_NOT_ALLOWED`](troubleshooting.md#repo-commands-not-allowed), [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean), [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) |
 
 Release outputs (the agents digest) are checked by the Version Gate, which must
@@ -2043,8 +2043,11 @@ in), runs each `land.merged_checks` command there in order, and prints
 commands are repo commands: the merged tree's `package.json` decides what
 `bun run` does, so the PR controls them. Land runs them only with
 `--allow-repo-commands`, with `PATH` and the locale as the whole environment
-and a throwaway `HOME` (no tokens), and kills a command's whole process group
-when it times out. It still doesn't sandbox the filesystem. A list such
+and a throwaway `HOME`, so no token reaches them through the environment, and
+kills a command's whole process group when it times out. It doesn't sandbox
+the filesystem: a command can still write the checkout's `.git` (the worktree
+shares it) and the linked `node_modules`, so pass the flag only for a base
+policy and PRs you trust to run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
 merge, a CI round and a new receipt per PR. Without the key, land prints
 `STALE_BASE: warn … no land.merged_checks configured` and merges the stale
@@ -2058,12 +2061,16 @@ one the pin contains, main moved between the check and the merge: land runs
 `land.merged_checks` again on the landed tree, and reports
 [`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified) when they
 fail or the key is absent. Last, it writes a `land` note on `refs/notes/gstack-trains`
-and releases the lock. A rerun after GitHub merged goes straight to the tree
-check; it doesn't know which base the first run checked, so with
-`land.merged_checks` it runs them on the landed tree, and without the key it
+and releases the lock. Land refreshes the lock right before the merge and
+refuses if another lander broke it meanwhile. A rerun after GitHub merged goes
+straight to the tree check and releases a lock an earlier run of the same land
+left. It doesn't know which base the first run checked, so when GitHub merged
+onto a base the pin doesn't contain, it runs `land.merged_checks` on the landed
+tree (they need `--allow-repo-commands` there too), and without the key it
 prints a `STALE_BASE: warn` line and checks the tree only. `--dry-run` takes
 no lock, runs every other check, prints `DRY-RUN: land.merged_checks not run`
-in place of the merged checks, and merges nothing. Under `merge: direct`, `train build` refuses and
+in place of the merged checks, and merges nothing; on a PR that already
+merged it verifies nothing. Under `merge: direct`, `train build` refuses and
 names this command.
 
 <a id="release-stamp"></a>

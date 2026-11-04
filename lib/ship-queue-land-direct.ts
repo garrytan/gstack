@@ -19,13 +19,13 @@ import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { git, type QueueFailure } from './ship-queue-gate';
-import { acquireLandLock, lockLabel, readLock, type HeldLandLock } from './ship-queue-land-lock';
+import { acquireLandLock, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from './ship-queue-land-lock';
 import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
 
 interface DirectPr { state: string; baseRefName?: string; headRefName: string; headRefOid: string; isCrossRepository: boolean; body: string; mergeable?: string; mergeStateStatus?: string; mergeCommit?: { oid: string } | null }
-export interface DirectOptions { pr: string; pin: string; dryRun?: boolean; allowRepoCommands?: boolean; now?: () => Date }
+export interface DirectOptions { pr: string; pin: string; dryRun?: boolean; allowRepoCommands?: boolean; breakLock?: boolean; now?: () => Date }
 
 const isSha = (s: string | undefined) => /^[0-9a-f]{40,64}$/.test(s ?? '');
 
@@ -106,9 +106,21 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const lines = [`LAND: #${o.pr} pin=${o.pin} direct`];
   if (info.isCrossRepository) return fail(lines, { code: 'QUEUE_TRAIN_UNTRUSTED', message: `#${o.pr} is a fork head; land merges only crew branches` });
   if (info.baseRefName && info.baseRefName !== ctx.base) return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}`, fix: `retarget it to ${ctx.base}, or land its parent first` });
+  const remote = ctx.remote ?? 'origin';
+  const journal = `land-pin:${o.pin}`;
+  const takeLock = () => acquireLandLock({
+    root, remote, holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal, now, phase: () => 'merging', breakLock: o.breakLock,
+    takeover: (held: LandLock) => !held.train && held.pr === o.pr && held.journal.startsWith('land-pin:') ? `LOCK: taking over #${o.pr}'s land lock that an earlier land --pin run left (${held.journal}, since ${held.started_at})` : null,
+  });
   if (info.state === 'MERGED' && info.headRefOid === o.pin && isSha(info.mergeCommit?.oid)) {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
-    return verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: policy.land?.merged_checks ?? [], allow: o.allowRepoCommands });
+    if (o.dryRun) return { ok: true, run, lines: [...lines, 'DRY-RUN: nothing verified (a rerun without --dry-run runs the tree check and writes the land note)'] };
+    const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: policy.land?.merged_checks ?? [], allow: o.allowRepoCommands });
+    const left = readLock(root, remote);
+    if (left.state !== 'held' || !ownsLock(left.lock, { pr: o.pr }, journal)) return out;
+    const got = takeLock();
+    const freed = 'held' in got && got.held.release();
+    return { ...out, lines: [...out.lines, freed ? `LOCK: released the land lock an earlier run of this land left` : `LOCK: warn the land lock an earlier run of this land left is still held; rerun this land to release it`] };
   }
   if (info.state !== 'OPEN') return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} is ${info.state}` });
   if (info.headRefOid !== o.pin) return fail(lines, { code: 'QUEUE_LAND_PIN_MOVED', message: `#${o.pr}'s head is ${info.headRefOid.slice(0, 12)}, not the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs /ship and gstack-ship-queue ready --pr ${o.pr} at the new head and reports READY with it` });
@@ -134,8 +146,8 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   }
   const freeze = activeFreeze(keys);
   if (freeze) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})` });
-  const lock = readLock(root, ctx.remote ?? 'origin');
-  if (lock.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });
+  const lock = o.dryRun ? readLock(root, remote) : null;
+  if (lock?.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });
 
   const stamped = release ? [] : stampedFiles(root, policy, mergeBase, o.pin);
   if ('error' in stamped) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot read the version at the pin or its merge base: ${stamped.error}` });
@@ -156,7 +168,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const checks = policy.land?.merged_checks ?? [];
   let held: HeldLandLock | undefined;
   if (!o.dryRun) {
-    const got = acquireLandLock({ root, remote: ctx.remote ?? 'origin', holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal: `land-pin:${o.pin}`, now, phase: () => 'merging' });
+    const got = takeLock();
     lines.push(...got.lines);
     if ('failure' in got) return fail(lines, got.failure);
     held = got.held;
@@ -180,6 +192,8 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --squash --match-head-commit ${o.pin})`] };
 
     const method = policy.history === 'merge-only' ? '--merge' : '--squash';
+    const lost = held!.set('merging');
+    if (lost) return fail(lines, lost);
     const m = ctx.gh(['pr', 'merge', o.pr, method, '--match-head-commit', o.pin]);
     let merge: string | undefined;
     for (let i = 0; i < (m.ok ? 4 : 1) && !isSha(merge); i++) {

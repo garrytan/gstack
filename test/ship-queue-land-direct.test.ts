@@ -19,6 +19,7 @@ import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import { runMergedChecks } from '../lib/land-merged-checks';
+import { readLock, writeLock } from '../lib/ship-queue-land-lock';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -249,6 +250,51 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(again.out).toContain('already merged');
     expect(again.out).toContain('so the rerun checks the tree only');
     expect(again.status).toBe(EXIT.ok);
+  }, 90_000);
+
+  test('the land lock: a lock an interrupted run left for the same PR is taken over; another PR\'s lock refuses, --break-lock cannot break it mid-merge but breaks a stale one; a lock left after the merge is released by the rerun; a dry rerun verifies nothing', () => {
+    const fx = setup();
+    const hold = (pr: string, journal: string, minutesAgo: number) => {
+      const at = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+      expect(writeLock(fx.repo.work, readLock(fx.repo.work).sha, { pr, holder: 'gone:1', started_at: at, phase_at: at, phase: 'merging', journal }).ok).toBe(true);
+    };
+    const pin = openPr(fx, '88');
+    hold('88', 'land-pin:' + '0'.repeat(40), 0);
+    const took = land(fx, '88', pin);
+    expect(took.err).toBe('');
+    expect(took.out).toContain("LOCK: taking over #88's land lock");
+    expect(readLock(fx.repo.work).state).toBe('released');
+
+    const other = openPr(fx, '89');
+    hold('90', 'land-pin:' + '1'.repeat(40), 0);
+    expect(land(fx, '89', other).err).toContain('(QUEUE_LAND_LOCKED)');
+    expect(land(fx, '89', other, ['--break-lock']).err).toContain('mid-merge');
+    expect(fx.read().prs['89'].state).toBe('OPEN');
+    hold('90', 'land-pin:' + '1'.repeat(40), 11);
+    const broke = land(fx, '89', other, ['--break-lock']);
+    expect(broke.err).toBe('');
+    expect(broke.out).toContain("LOCK: broke #90's lock");
+
+    hold('89', 'land-pin:' + other, 0);
+    const again = land(fx, '89', other);
+    expect(again.err).toBe('');
+    expect(again.out).toContain('LOCK: released the land lock an earlier run of this land left');
+    expect(readLock(fx.repo.work).state).toBe('released');
+    const dry = land(fx, '89', other, ['--dry-run']);
+    expect(dry.out).toContain('DRY-RUN: nothing verified');
+  }, 120_000);
+
+  test('main moved during the merge with land.merged_checks: they run on the landed tree; a rerun without --allow-repo-commands refuses with REPO_COMMANDS_NOT_ALLOWED and runs nothing', () => {
+    const fx = setup(CHECKED);
+    const pin = openPr(fx, '91');
+    moveMain(fx, 'other.txt', 'other\n');
+    fx.write(d => { d.raceMain = true; });
+    const r = land(fx, '91', pin, ['--allow-repo-commands']);
+    expect(r.err).toBe('');
+    expect(r.out).toContain('(after the merge, on the base GitHub merged onto)');
+    const again = land(fx, '91', pin);
+    expect(again.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
+    expect(again.out).not.toContain('MERGED_CHECKS:');
   }, 90_000);
 
   test('a rerun after GitHub merged the PR goes straight to the tree check and lands', () => {
