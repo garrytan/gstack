@@ -30,6 +30,8 @@ export function flakyGit(root: string): FlakyGit {
   fs.writeFileSync(path.join(dir, 'git'), [
     '#!/bin/bash',
     `REAL='${real}'`,
+    `D=':${dir}:'`,
+    'P=":$PATH:"; P="${P//"$D"/:}"; P="${P#:}"; export PATH="${P%:}"',
     'S="$FLAKY_GIT"',
     'case " $* " in *refs/notes/gstack-land*) ;; *) exec "$REAL" "$@" ;; esac',
     'bad() { echo "error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502" >&2; exit 128; }',
