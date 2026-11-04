@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { acquireLandLock, LAND_LOCK_REF, readLock, writeLock, type LandLock, type LockOwner } from '../lib/ship-queue-land-lock';
 import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
+import { flakyGit } from './helpers/flaky-git';
 import { coordinatorClone } from './helpers/ship-queue-fixture';
 import {
   GREEN_GATE, TRAIN_POLICY, fragmentPr, nonceOf, queue, repoKey, trainFixture, trainJson, wrapLand, type TrainFixture,
@@ -114,6 +115,34 @@ describe('the lock module', () => {
       expect(failureOf(same)).toBeNull();
       if ('held' in same) same.held.release();
       expect(failureOf(take(root, standalone('8')))).toBeNull();
+    });
+  }, 60_000);
+
+  test('GST-1344: a push origin applied but answered with an HTTP 502 counts as written; a push that never landed reports the lock unchanged; an unreadable origin says so instead', () => {
+    const repo = bareRepo();
+    const g = flakyGit(repo.root);
+    withRepoEnv({ ...repo, env: { ...repo.env, ...g.env } }, () => {
+      const root = repo.work;
+      const lock: LandLock = { pr: '11', holder: 'h11', started_at: new Date(T0).toISOString(), phase: 'stamping', journal: 'land/11' };
+      g.pushLandsThenFails(1);
+      const w = writeLock(root, '', lock);
+      expect(w.ok).toBe(true);
+      expect(repo.git('rev-parse', LAND_LOCK_REF)).toBe(w.sha);
+      expect(repo.git('--git-dir', repo.origin, 'rev-parse', LAND_LOCK_REF)).toBe(w.sha);
+
+      g.reset();
+      const got = take(root, standalone('11'), { journal: 'land/11' });
+      expect(failureOf(got)).toBeNull();
+      if (!('held' in got)) return;
+      g.pushFails(1);
+      expect(got.held.set('waiting')).toMatchObject({ code: 'QUEUE_NOT_READY', message: expect.stringContaining('the lock there is unchanged') });
+      g.pushFails(1);
+      g.lsRemoteFails(2);
+      g.fetchFails(true);
+      expect(got.held.set('waiting')).toMatchObject({ code: 'QUEUE_NOT_READY', message: expect.stringContaining('could not be read') });
+      g.reset();
+      expect(got.held.release()).toBe(true);
+      expect(readLock(root)).toMatchObject({ state: 'released' });
     });
   }, 60_000);
 
