@@ -52,10 +52,12 @@ const TEST_PATH = [/(^|\/)(tests?|spec|__tests__)\/|(^|\/)tests?\.py$|(^|\/)test
 const DOC_PATH = /\.(md|mdx|markdown|rst|txt|adoc)$/i;
 /** Release metadata a version stamp writes: never a reason for review depth on its own. */
 const RELEASE_METADATA = [/^CHANGELOG\.md$/, /^VERSION$/, /^agents-digest\//];
+/** The harness pins scripts/bump-harness-version.ts writes per harness file: code, though their paths repeat a test/ segment. */
+const HARNESS_PINS = /^scripts\/harness-pins\//;
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope|targeted|risk)\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted|risk|exclude)\.ts$/, /^lib\/default-base\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/generated\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** The path rules lib/review-exclude.ts keeps a matched file for: a gate path, agent prose, or a data-shaped config file. */
@@ -69,7 +71,7 @@ export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avr
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
 const DATA_CONFIG = [
-  /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/,
+  /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/, HARNESS_PINS,
   /(^|\/)(package|package-lock|npm-shrinkwrap|composer|deno|jsr|tsconfig[^/]*|jsconfig[^/]*|manifest|app|vercel|netlify|firebase|renovate|turbo|nx|lerna|biome|angular|nest-cli|lint-staged|components|pyrightconfig|cdk|serverless|appsettings[^/]*)\.json$/i,
 ];
 
@@ -176,7 +178,7 @@ export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
  */
 export function classifyPath(p: string, root?: string | readonly string[]): PathClass {
   if (RELEASE_METADATA.some(r => r.test(p))) return 'docs';
-  if (AGENT_PROSE.some(r => r.test(p))) return 'code';
+  if (AGENT_PROSE.some(r => r.test(p)) || HARNESS_PINS.test(p)) return 'code';
   if (TEST_PATH.some(r => r.test(p))) return 'tests';
   if (!DOC_PATH.test(p)) return 'code';
   const top = p.includes('/') ? p.split('/')[0]! : '';
@@ -237,6 +239,8 @@ export interface ClassInput {
   created?: readonly string[];
   /** The SVG candidates (svgCandidate) whose whole text the collector read as a drawing (svgDrawing); any other SVG stays code. */
   drawings?: readonly string[];
+  /** Docs-, data- or log-named paths the collector found executable (exec bit, a symlink or a "#!" first line): code whatever their name or directory, never judged by path alone. */
+  executables?: readonly string[];
   /** Added and deleted lines per path (lib/review-collect.ts): the risk classes read them; without them no line signal applies. */
   added?: Record<string, readonly string[]>;
   removed?: Record<string, readonly string[]>;
@@ -252,9 +256,9 @@ export interface ClassResult { class: DiffClass; reasons: string[]; errors: Dept
 
 const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
-const unconsumedData = (i: ClassInput, p: string) => Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
-const binaryData = (i: ClassInput, p: string) => BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
-const pathClass = (i: ClassInput, p: string): PathClass => (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) ? 'docs' : classifyPath(p, i.root));
+export const unconsumedData = (i: Pick<ClassInput, 'consumed' | 'drawings' | 'root' | 'executables'>, p: string) => !i.executables?.includes(p) && Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
+const binaryData = (i: ClassInput, p: string) => !i.executables?.includes(p) && BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, ...DATA_CONFIG].some(r => r.test(p));
+const pathClass = (i: ClassInput, p: string): PathClass => i.executables?.includes(p) && !i.excluded?.has(p) ? 'code' : (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -285,8 +289,8 @@ export function classifyDiff(i: ClassInput): ClassResult {
     for (const p of i.paths) if (GATE_PATH.some(r => r.test(p))) { raise('gate', `gate path: ${p}`); break; }
     if (i.registry?.error) errors.push(i.registry.error);
   }
-  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
-  const docSecret = i.paths.find(p => pathClass(i, p) === 'docs' && DOC_PATH.test(p) && (i.added?.[p] ?? []).some(l => DOC_SECRET_LINE.some(r => r.test(l))));
+  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), executables: i.executables, added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
+  const docSecret = i.paths.find(p => DOC_PATH.test(p) && (i.added?.[p] ?? []).some(l => DOC_SECRET_LINE.some(r => r.test(l))));
   if (docSecret && !riskHits.has('security')) riskHits.set('security', `docs that can print a credential: ${docSecret}`);
   const byRank = (a: RiskClass, b: RiskClass) => RISK_CLASSES.indexOf(a) - RISK_CLASSES.indexOf(b);
   const detected = [...riskHits.keys()].sort(byRank);

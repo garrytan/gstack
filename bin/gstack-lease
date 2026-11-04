@@ -30,6 +30,10 @@
 #   gstack-lease release --pid <p> --run <id> [--root <checkout>]
 #       close run <id> on <pid>'s lease (gstack-skill-end); once every run it
 #       recorded is closed the lease is idle and live skips it (GST-1205)
+#   gstack-lease open --run <id> [--pid <p> | --from <pid>] [--root <checkout>]
+#       exit 0 while run <id> on a lease (<pid>'s, the harness's behind
+#       --from, or any) is open (not released, under 120 minutes) and its
+#       holder alive; 1 otherwise
 #   gstack-lease list [--root <checkout>]
 #       print `<pid> <age>m alive|idle|dead|stale` for every lease
 # A pid alone is not a holder: pids are reused after a reboot or a machine
@@ -67,8 +71,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$VERB" in
-  touch|live|list|release) ;;
-  -h|--help|'') sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  touch|live|list|release|open) ;;
+  -h|--help|'') sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-lease: unknown verb '$VERB'" >&2; exit 2 ;;
 esac
 [ -n "$ROOT" ] || ROOT=$(gstack_source_root "$BIN")
@@ -318,6 +322,16 @@ case "$VERB" in
     fi
     unlock
     exit 0 ;;
+  open)
+    [ -z "$FROM" ] || PID=$(gstack_harness_pid "$FROM")
+    case "$PID" in *[!0-9]*) echo "gstack-lease: open needs --run <id> and an optional --pid <number>" >&2; exit 2 ;; esac
+    [ -n "$RUN" ] || { echo "gstack-lease: open needs --run <id> and an optional --pid <number>" >&2; exit 2; }
+    for f in "$DIR"/${PID:-*}; do
+      [ -f "$f" ] || continue
+      [ "$(state "${f##*/}" "$(head -1 "$f" 2>/dev/null)" "$(age_min "$f")")" = alive ] || continue
+      fresh "$f" | awk -v id="$RUN" '$1 == "run" && $2 == id { found = 1 } END { exit !found }' && exit 0
+    done
+    exit 1 ;;
   list)
     for f in "$DIR"/*; do
       [ -f "$f" ] || continue

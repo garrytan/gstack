@@ -44,7 +44,7 @@ description: Fixture copy for the contract tests. (gstack)
 triggers:
   - review this pr
   - check my diff
-contract: { version: 1, items: [ { id: specialists, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:" }, { id: adversarial, kind: agent_dispatch, marker: "Dispatching adversarial pass: native", match: "Think like an attacker and a chaos engineer" }, { id: report, kind: report_labels, heading: Pre-Landing Review, labels: [Gate edits] } ] }
+contract: { version: 1, items: [ { id: specialists, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:" }, { id: adversarial, kind: agent_dispatch, match: "Think like an attacker and a chaos engineer" }, { id: report, kind: report_labels, heading: Pre-Landing Review, labels: [Gate edits] } ] }
 ---
 # /review (fixture)
 `,

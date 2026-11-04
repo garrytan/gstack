@@ -14,6 +14,7 @@
  *   gstack-ship-queue gate-ahead --list --pr <n>
  *   gstack-ship-queue verify --pr <n> --screen                  (train policy: the head's screen verdict from its run)
  *   gstack-ship-queue verify --post-merge <sha> [--timeout <s>] (after a merge: main's push workflows at that commit until they settle)
+ *   gstack-ship-queue land --pr <n> --pin <sha> [--dry-run]       (merge: direct; lib/ship-queue-land-direct.ts)
  *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock [--break-train-lock]]   (the merge step; lib/ship-queue-land.ts)
  *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
  *   gstack-ship-queue land --census
@@ -57,6 +58,8 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   verify --pr <n> --screen                 (train policy) the PR head's screen verdict read from its run (SCREEN_VERDICT)
   verify --post-merge <sha> [--timeout <s>] wait for every check run at a merged commit to settle: POST_MERGE: green|red|pending
                                            and one CHECK: line per workflow; resumable, default timeout 2700 s
+  land --pr <n> --pin <sha> [--dry-run]   merge: direct: merge the PR at its own green head (receipt and READY at the pin, no stamp
+                                           files, checks green, mergeable clean), verify the tree, write a land note
   land --pr <n> [--dry-run] [--no-wait] [--timeout <min>] [--break-lock [--break-train-lock]] [--allow-repo-commands]
                                            the merge step: lock, merge the base, stamp (fragments folded), push the stamp commit,
                                            wait for its checks, squash with --match-head-commit, confirm the base tree; resumable
@@ -86,7 +89,7 @@ function finish(cmd: string, out: StepOutput): number {
   }
   process.stdout.write(formatResult('ship-queue', out.ok ? 'complete' : 'refused', out.run) + '\n');
   if (out.ok) return EXIT.ok;
-  return out.failure && ['QUEUE_VERIFY_MISMATCH', 'QUEUE_STAMP_NOT_STAMP_ONLY'].includes(out.failure.code) ? EXIT.fail : EXIT.refused;
+  return out.failure && ['QUEUE_VERIFY_MISMATCH', 'QUEUE_STAMP_NOT_STAMP_ONLY', 'QUEUE_LAND_UNVERIFIED'].includes(out.failure.code) ? EXIT.fail : EXIT.refused;
 }
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -163,6 +166,8 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'train') {
     const train = await import('../lib/ship-queue-train-cli');
     if (!args[0] || args[0].startsWith('-')) { process.stdout.write(train.TRAIN_HELP + '\n'); return args.includes('--help') || args.includes('-h') ? EXIT.ok : EXIT.usage; }
+    const loaded = args[0] === 'build' || args[0] === 'land' ? loadBasePolicy(ctx) : null;
+    if (loaded && !('message' in loaded) && loaded.policy.merge === 'direct') return finish(`train ${args[0]}`, { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, so trains are off', fix: 'land each READY PR with gstack-ship-queue land --pr <n> --pin <sha> (docs/ship-policy.md#land-direct)' } });
     return train.trainMain(ctx, args);
   }
   if (cmd === 'wave') return (await import('../lib/ship-queue-wave')).waveMain(ctx, args);
@@ -171,6 +176,11 @@ async function main(argv: string[]): Promise<number> {
     const l = await import('../lib/ship-queue-land');
     if (args.includes('--census')) return finish('land', l.census(ctx));
     if (!pr || !/^\d+$/.test(pr)) return usage('land needs --pr <number> (or --census)');
+    if (args.includes('--pin')) {
+      const pin = flag(args, '--pin') ?? '';
+      if (!/^[0-9a-f]{40,64}$/.test(pin)) return usage('--pin needs the full head sha the READY names');
+      return finish('land', (await import('../lib/ship-queue-land-direct')).landDirect(ctx, { pr, pin, dryRun: args.includes('--dry-run') }));
+    }
     const timeout = flag(args, '--timeout');
     return finish('land', l.land(ctx, { pr, repair: args.includes('--repair'), dryRun: args.includes('--dry-run'), noWait: args.includes('--no-wait'), breakLock: args.includes('--break-lock'), breakTrainLock: args.includes('--break-train-lock'), allowRepoCommands: args.includes('--allow-repo-commands'), waitTimeoutMin: timeout && /^\d+$/.test(timeout) ? Number(timeout) : undefined }));
   }

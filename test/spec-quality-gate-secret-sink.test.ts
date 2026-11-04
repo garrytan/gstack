@@ -9,10 +9,12 @@ let output: string;
 
 beforeAll(() => {
   output = mkdtempSync(join(tmpdir(), 'gstack-spec-gate-render-'));
-  const rendered = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--out-dir', output], {
-    cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
-  });
-  if (rendered.exitCode !== 0) throw new Error(rendered.stderr.toString());
+  for (const host of ['claude', 'codex']) {
+    const rendered = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host, '--out-dir', output], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
+    });
+    if (rendered.exitCode !== 0) throw new Error(rendered.stderr.toString());
+  }
 });
 afterAll(() => { if (output) rmSync(output, { recursive: true, force: true }); });
 

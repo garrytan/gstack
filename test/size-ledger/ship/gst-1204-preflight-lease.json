@@ -1,0 +1,4 @@
+{
+  "bytes": 2,
+  "why": "GST-1204: Step 1 passes --run <SESSION_ID> so a full preflight rerun cannot merge the base under an open run's reviews"
+}
