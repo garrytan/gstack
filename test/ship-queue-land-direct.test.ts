@@ -464,4 +464,15 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
     expect(r.err).toContain('pr-7.txt');
     expect(remote(fx, 'main')).toBe(base);
   }, 120_000);
+
+  test('a release head stamped on an older main is refused: PRs that landed since would ship under its version', () => {
+    const fx = setup();
+    const { pin } = release(fx);
+    const moved = moveMain(fx, 'later.txt', 'landed after the stamp\n');
+    const r = land(fx, '50', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('RELEASE_STAMP_INVALID');
+    expect(r.err).toContain('moved to ' + moved.slice(0, 12));
+    expect(remote(fx, 'main')).toBe(moved);
+  }, 120_000);
 });

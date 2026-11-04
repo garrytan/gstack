@@ -96,6 +96,8 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (!isSha(mergeBase)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot compute the merge base of the pin ${o.pin.slice(0, 12)} and origin/${ctx.base}, so the release-file check cannot run`, fix: `git fetch origin ${ctx.base} and the PR head (an unshallow clone), then rerun land` });
   const release = RELEASE_BRANCH.test(info.headRefName) ? classifyRelease({ repoRoot: root, policy, mergeBase, head: o.pin }) : null;
   if (release && !release.ok) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `${info.headRefName} is not the release stamp of its merge base ${mergeBase.slice(0, 12)}: ${release.reason}`, fix: 'close it and run gstack-release-stamp open again; never edit a release branch by hand' });
+  const tip = git(root, ['rev-parse', `origin/${ctx.base}`]).out;
+  if (release && mergeBase !== tip) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `origin/${ctx.base} moved to ${tip.slice(0, 12)} since ${info.headRefName} was stamped on ${mergeBase.slice(0, 12)}; the PRs that landed since would ship under this version while their fragments wait for the next release`, fix: 'run gstack-release-stamp open again (it replaces the release branch), then land the new head' });
   const keys = repoIdentity(root).keys;
   if (release) lines.push(`RELEASE: v${release.version} folds ${release.fragments.length} fragment(s) and changes nothing but the stamp, so it needs no /ship receipt or READY note`);
   else {

@@ -9,7 +9,11 @@ instead of every merge.
 
 Land a release PR before each cut. The cut tags the VERSION it finds, and a
 version is tagged once: if no release PR landed since the last cut, the next
-cut finds that version's tag on an older commit and refuses.
+cut finds that version's tag on an older commit and refuses. A release PR
+lands only on the main it was stamped on, so open it again if main moved. The
+cut tags the newest green commit, so a PR that lands between the release PR
+and the cut ships in that tag, and its CHANGELOG entry appears in the next
+release.
 
 ## What a release is
 

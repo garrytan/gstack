@@ -1962,8 +1962,10 @@ With no fragment on main it refuses with
 When the release PR's checks are green, the Captain lands it like any other PR:
 `gstack-ship-queue land --pr <n> --pin <head>`. On a `release/<version>`
 branch, land needs no /ship receipt or READY note. Instead it checks that the
-head is exactly the release stamp of its merge base: every fragment there
-folded and none added, the version equal to the base's plus their bump, every
+head is exactly the release stamp of its merge base, and that the merge base is
+still the tip of `origin/main` (open the release again if main moved, so no PR
+ships under a version its fragment missed): every fragment there folded and
+none added, the version equal to the base's plus their bump, every
 other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
 changed release output equal to what the release tool generates at the new
 version. Anything more is
