@@ -780,9 +780,14 @@ function backstopOn(fx: Fx, gate: 'success' | 'failure' | 'cancelled', run: numb
     return { status: 1, stdout: '', stderr: `unexpected gh ${joined}` };
   };
   const prior = process.env.GSTACK_STATE_ROOT;
+  const runId = process.env.GITHUB_RUN_ID;
   process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'backstop-state');
+  delete process.env.GITHUB_RUN_ID;
   try { return { sha, ...runBackstop({ repo: 'fixture/repo', branch: 'main', sha, repoRoot: runner, gh, sleep: () => {}, pollMs: 1, random: 'abc123' }) }; }
-  finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+  finally {
+    if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior;
+    if (runId !== undefined) process.env.GITHUB_RUN_ID = runId;
+  }
 }
 /** gstack's own shape: merge: direct with the train block still set, so the backstop gates every push to main. */
 const DIRECT_TRAIN = { ...POLICY, train: TRAIN_BLOCK };

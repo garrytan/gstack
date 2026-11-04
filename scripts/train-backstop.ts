@@ -204,7 +204,8 @@ function rewriteFreeze(git: Git, repoRoot: string, repoKey: string, change: (f: 
     if (!active) return { state: 'none' };
     const next = change(structuredClone(active));
     if (!next) return { state: 'unchanged', record: active };
-    persist(repoRoot, [next], { push: false });
+    const written = persist(repoRoot, [next], { push: false });
+    if (written.detail !== 'notes written locally (not pushed)') return { state: 'failed', detail: written.detail };
     if (git(['push', '-q', 'origin', `${NOTES_REF}:${NOTES_REF}`]).ok) return { state: 'pushed', record: next };
   }
   return { state: 'failed', detail: `origin's ${NOTES_REF} moved under three pushes` };
