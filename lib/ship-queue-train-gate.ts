@@ -11,7 +11,7 @@
  *   a second red is real; both attempts' jobs are kept.
  * - `command`: a clean detached checkout of the prefix head runs on a Ubicloud VM through
  *   scripts/ubicloud/ubi-runner.sh, forwarding only `pass_env`; the VM's `git write-tree` must equal the prefix
- *   tree and exit 0 is GREEN. One spend cap covers every run of the train.
+ *   tree and exit 0 is GREEN. One spend cap per command gate covers that gate's runs across every prefix of the train.
  *
  * The verdict is per prefix; the train is GREEN when every prefix is, and otherwise the first red prefix after a
  * green one names the culprit (classifyPrefixes). Slot 1's READY may declare FIXES_BASE_RED: T0 is then allowed
@@ -366,7 +366,7 @@ async function settleCommand(env: TrainEnv, t: TrainRecord, a: AttemptRecord, g:
   lines.push(`COMMAND: gate ${a.gate} on T${p.index} ${r.outcome} (${r.detail})`);
 }
 
-/** Run every command unit that has no finished attempt, all prefixes in parallel, under the train's one spend cap. */
+/** Run every command unit that has no finished attempt, all prefixes in parallel, under one spend cap per command gate across every prefix of the train. */
 async function runCommands(env: TrainEnv, t: TrainRecord, units: GateUnit[], lines: string[]): Promise<QueueFailure | null> {
   const commands = units.filter(u => u.workflow === 'command');
   if (!commands.length) return null;

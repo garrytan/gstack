@@ -71,6 +71,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/captain` | Run a crew from one controller: READY contract, merge trains, digest, approvals shapes, daily flaky pass. Also `/crew`. Templates in `captain/templates/`, team guide in `docs/captain.md`. |
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
 | `/ubicloud` | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs with a reaper, quota preflight, hang watchdog, one committed verify per repository. |
+| `/runaway-stopper` | Find runaway Capy threads and subagents (own tokens past 500M, active past 3 days, subagent past 100M, empty wakes, review rounds past 2), stop or rotate them at a clean point, and prevent the pattern. |
 | `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini, plus particle-1 and DeepSeek V4.1 Flash through OpenRouter, side-by-side). |
 | `/eval-plan` | Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it for $0, pilot three priced items, then approve the spend. |
 | `/cso` | Supported security findings with explicit coverage. Static assessment remains available without catalog profiles. Contained runtime and scanner execution needs Docker and a matching qualified profile. The runtime catalog qualifies ten images: Node 24.4.0, Bun 1.3.10, Python 3.13.4 with uv 0.8.0, Rails on Ruby 3.4.4, and PostgreSQL 17.2, each for linux/amd64 and linux/arm64. The scanner catalog qualifies twelve: gitleaks, OSV-Scanner, Schemathesis, Semgrep, Trivy and zizmor on both platforms. Without Docker, or where no profile matches (native Windows Docker, for example), `/cso` runs static assessment only. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
@@ -281,10 +282,15 @@ Agents poll `eval:bg:*` logs for the `### gstack-detach EXIT=<code> ###` sentine
 
 ## Platform support
 
+Support tiers (full: macOS, Linux; minimal: Windows, Gemini models) are in
+[docs/support-tiers.md](docs/support-tiers.md).
+
 - **macOS** + **Linux**: full test suite supported.
-- **Windows**: the curated Windows-safe subset runs in the `windows-free-tests`
-  CI workflow across six `windows-latest` jobs, packed by Windows-measured
-  durations. Setup script (`./setup`) requires Git Bash or
+- **Windows**: minimal support; [docs/support-tiers.md](docs/support-tiers.md)
+  says what is promised. Every PR must pass the `windows-smoke` check (`./setup`,
+  the core skills start, the fastest Windows-safe tests); the curated
+  Windows-safe subset runs nightly on main in `windows-free-tests` and never
+  blocks a PR. Setup script (`./setup`) requires Git Bash or
   MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.

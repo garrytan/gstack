@@ -99,6 +99,14 @@ const captured39852003387 = JSON.parse(fs.readFileSync(${JSON.stringify(path.joi
 // Should I review all 7 areas or focus on a few?" with lettered options ("A) Review all 7 areas").
 const captured40664336141 = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'test/fixtures/design-ui-focus-capture-40664336141.json'))}, 'utf8'))
   .calls.map(({ preReview, observedAtMs, call }) => nativePlanCallFingerprint(call, observedAtMs, preReview));
+// Runs 41178131219 and 41186376825 slice 6 (a77fae28, 047dad78): Step 0D titled only "Review focus",
+// rated in its ELI10 body, and lettered its options ("A) All 7 passes", "A) All 7 dimensions").
+const [captured41178131219, captured41186376825] = ['design-ui-focus-capture-41178131219.json', 'design-ui-focus-capture-41186376825.json'].map(name => JSON.parse(fs.readFileSync(${JSON.stringify(ROOT)} + '/test/fixtures/' + name, 'utf8'))
+  .calls.map(({ preReview, observedAtMs, call }) => nativePlanCallFingerprint(call, observedAtMs, preReview)));
+// Run 41414111284 slice 6 (train 4a280637): header "Focus", rated in its ELI10 body, and the all-7 option
+// put the count second ("Full review, all 7 (recommended)").
+const captured41414111284 = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'test/fixtures/design-ui-focus-capture-41414111284.json'))}, 'utf8'))
+  .calls.map(({ preReview, observedAtMs, call }) => nativePlanCallFingerprint(call, observedAtMs, preReview));
 const unnumberedFinding = fp('unnumbered-finding', "Which region is the dashboard's primary anchor, and how is the page composed?", false);
 unnumberedFinding.nativeCall.questions[0].options = nativeFinding.nativeCall.questions[0].options;
 const finding = fp('finding', 'Which loading feedback should Save show?', false);
@@ -231,6 +239,46 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-runner.ts'
     expect(opts.isReviewAUQ(captured40664336141[1])).toBe(false);
     expect([0, 2].some(index => opts.isLastStep0AUQ(captured40664336141[index]))).toBe(false);
     expect(opts.isReviewAUQ(captured40664336141[3])).toBe(true);
+    for (const capture of [captured41178131219, captured41186376825]) {
+      expect(opts.isLastStep0AUQ(capture[1])).toBe(true);
+      expect(opts.isReviewAUQ(capture[1])).toBe(false);
+      expect([0, 2].some(index => opts.isLastStep0AUQ(capture[index]) || opts.isReviewAUQ(capture[index]))).toBe(false);
+      expect(opts.isReviewAUQ(capture[3])).toBe(true);
+    }
+    expect(opts.isLastStep0AUQ(captured41414111284[0])).toBe(true);
+    expect(opts.isReviewAUQ(captured41414111284[0])).toBe(false);
+    expect(opts.isLastStep0AUQ(captured41414111284[1]) || opts.isReviewAUQ(captured41414111284[1])).toBe(false);
+    expect(opts.isReviewAUQ(captured41414111284[2])).toBe(true);
+    const headed = (id, header, question, labels) => {
+      const call = labeled(id, question, labels);
+      call.nativeCall.questions[0].header = header;
+      return call;
+    };
+    const focusBody = 'D1 — Review focus\\nProject/branch/task: main.\\nELI10: I rated this plan 4/10 on design completeness.';
+    const fullFirst = ['Full review, all 7 (recommended)', 'Focus on specific areas'];
+    expect(opts.isLastStep0AUQ(headed('focus-header', 'Focus', focusBody, fullFirst))).toBe(true);
+    for (const [label, header, question, labels] of [
+      ['focus-header-unrated', 'Focus', 'D1 — Review focus\\nELI10: I will review every dimension unless you narrow it.', fullFirst],
+      ['focus-header-out-of-seven', 'Focus', focusBody.replace('4/10', '4/7'), fullFirst],
+      ['focus-header-issue-labeled', 'Focus', focusBody, ['1A Full review, all 7', '1B Focus on hierarchy']],
+      ['focus-header-single-option', 'Focus', focusBody, fullFirst.slice(0, 1)],
+      ['focus-header-no-all-seven', 'Focus', focusBody, ['Every dimension (recommended)', 'States + hierarchy only']],
+      ['focus-header-all-four', 'Focus', focusBody, ['Full review, all 4 (recommended)', 'Focus on specific areas']],
+      ['other-header', 'Hierarchy', focusBody, fullFirst],
+      ['header-names-more', 'Focus order', focusBody, fullFirst],
+    ]) expect(opts.isLastStep0AUQ(headed(label, header, question, labels)), label).toBe(false);
+    const letteredFocus = 'D2 — Review focus\\nProject/branch/task: main.\\nELI10: I rated this plan 4/10 on design completeness.';
+    for (const labels of [['A) All 7 dimensions (recommended)', 'B) Focus on specific areas'], ['A. All seven passes (recommended)', 'B. Hierarchy+states only'],
+      ['A: All 7 areas (recommended)', 'B: Only specific areas']]) {
+      expect(opts.isLastStep0AUQ(labeled('lettered-focus', letteredFocus, labels)), labels[0]).toBe(true);
+    }
+    for (const [label, question, labels] of [
+      ['lettered-not-leading', letteredFocus, ['A) Review all 7 dimensions (recommended)', 'B) Focus on specific areas']],
+      ['lettered-bare', letteredFocus, ['A) All 7', 'B) Focus on specific areas']],
+      ['lettered-word-prefix', letteredFocus, ['AB) All 7 dimensions (recommended)', 'B) Focus on specific areas']],
+      ['lettered-out-of-seven', letteredFocus.replace('4/10', '4/7'), ['A) All 7 dimensions (recommended)', 'B) Focus on specific areas']],
+      ['lettered-without-focus', 'D2 — Which plan should I review?\\nELI10: I rated this plan 4/10 on design completeness.', ['A) All 7 dimensions (recommended)', 'B) PLAN.md']],
+    ]) expect(opts.isLastStep0AUQ(labeled(label, question, labels)), label).toBe(false);
     const lettered = ['A) Review all 7 areas (recommended)', 'B) Focus on hierarchy/states/responsive'];
     for (const [label, question, labels] of [
       ['title-offer-unrated', 'D2: Should I review all 7 areas or focus on a few?\\nELI10: I will review every area unless you narrow it.', lettered],
@@ -318,6 +366,12 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-runner.ts'
       : mode === 'captured-39852003387-no-focus' ? captured39852003387.filter((_, index) => index !== 0)
       : mode === 'captured-40664336141' ? captured40664336141
       : mode === 'captured-40664336141-no-focus' ? captured40664336141.filter((_, index) => index !== 1)
+      : mode === 'captured-41178131219' ? captured41178131219
+      : mode === 'captured-41178131219-no-focus' ? captured41178131219.filter((_, index) => index !== 1)
+      : mode === 'captured-41186376825' ? captured41186376825
+      : mode === 'captured-41186376825-no-focus' ? captured41186376825.filter((_, index) => index !== 1)
+      : mode === 'captured-41414111284' ? captured41414111284
+      : mode === 'captured-41414111284-no-focus' ? captured41414111284.filter((_, index) => index !== 0)
       : mode === 'captured-focus-after-finding' ? [...captured.filter((_, index) => index !== 1), captured[1]]
       : mode.startsWith('target-menu') ? [target, fp('other', 'Which artifact should I inspect?', false)]
       : mode === 'early-exit' ? [] : mode === 'focus-only' ? [chosenFocus]
@@ -362,12 +416,12 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-plan-design-with-u
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
-test.each(['source', 'paraphrase', 'native-sequence', 'native-unnumbered', 'native-passes', 'captured', 'captured-rated', 'captured-39298269902', 'captured-39363705692', 'captured-39852003387', 'captured-40664336141'])('UI gate seeds the exact target and accepts Design progress with an unselected no-UI alternative (%s)', mode => {
+test.each(['source', 'paraphrase', 'native-sequence', 'native-unnumbered', 'native-passes', 'captured', 'captured-rated', 'captured-39298269902', 'captured-39363705692', 'captured-39852003387', 'captured-40664336141', 'captured-41178131219', 'captured-41186376825', 'captured-41414111284'])('UI gate seeds the exact target and accepts Design progress with an unselected no-UI alternative (%s)', mode => {
   const result = exercise(mode);
   expect(result.code, result.output).toBe(0);
 }, 20_000);
 
-test.each(['target-menu', 'target-menu-design-system', 'focus-only', 'captured-no-focus', 'captured-focus-after-finding', 'captured-rated-no-focus', 'captured-39298269902-no-focus', 'captured-39298269902-focus-only', 'captured-39363705692-no-focus', 'captured-39852003387-no-focus', 'captured-40664336141-no-focus', 'native-setup-only', 'native-voices-only', 'early-exit', 'timeout', 'exited', 'unanswered-finding', 'failed-finding', 'no-native-finding'])('UI gate rejects %s and removes its fixture', mode => {
+test.each(['target-menu', 'target-menu-design-system', 'focus-only', 'captured-no-focus', 'captured-focus-after-finding', 'captured-rated-no-focus', 'captured-39298269902-no-focus', 'captured-39298269902-focus-only', 'captured-39363705692-no-focus', 'captured-39852003387-no-focus', 'captured-40664336141-no-focus', 'captured-41178131219-no-focus', 'captured-41186376825-no-focus', 'captured-41414111284-no-focus', 'native-setup-only', 'native-voices-only', 'early-exit', 'timeout', 'exited', 'unanswered-finding', 'failed-finding', 'no-native-finding'])('UI gate rejects %s and removes its fixture', mode => {
   const result = exercise(mode);
   expect(result.code, result.output).toBe(1);
   expect(result.output).toContain('plan-design-review with UI scope FAILED');

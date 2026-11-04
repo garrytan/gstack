@@ -1,0 +1,6 @@
+I read the diff and ran `bun test test/retry.test.ts`.
+
+1. **Nonblocking — The retry log line repeats the attempt count.** `lib/retry.ts:41`
+
+Verdict: ready
+END OF REPORT: 1 findings (0 blocking)

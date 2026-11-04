@@ -55,9 +55,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -102,8 +102,8 @@ telemetry — it never blocks the workflow.
 
 ## 1. Find the skill
 
-Run `~/.claude/skills/gstack/bin/gstack-skill-bill <name|folder>`. It resolves exact names only and prints the
-skill's kind and its size per level. A new skill: make the folder first (in a gstack checkout, follow CONTRIBUTING.md
+Run `~/.claude/skills/gstack/bin/gstack-skill-bill <name|folder>`. It prints the skill's kind,
+its size per level and its `EVIDENCE:` row. A new skill: make the folder first (in a gstack checkout, follow CONTRIBUTING.md
 "Adding a new skill"), then write every line by sections 2 and 3.
 - `user`: edit it in place.
 - `gstack-install`: never edit; gstack-upgrade overwrites it. Edit `<skill>/SKILL.md.tmpl` in a gstack checkout, or
@@ -126,7 +126,9 @@ Put each fact on the lowest level that still reaches the agent before it needs i
 
 Stop at the first step that handles the change.
 1. **Fix it below the skill.** A clearer error, a flag, a check or a test in the tool. Prose is for judgment calls.
-2. **Check the model needs it.** If a fresh session does the right thing without the line, add nothing.
+2. **Earn its place.** Add a skill, step, instruction, check or default only with evidence it helps frontier models
+   or a dated plan to measure it (skill-evals `tasks.json` or an /eval-plan prereg). If a fresh session does it right
+   without the line, add nothing.
 3. **Edit, don't append.** Change the line that already covers the idea; each meaning lives in one place.
 4. **Pick its level** (section 2).
 5. **Rule, not story.** One positive rule under a short name; the incident goes in the commit message.
@@ -138,6 +140,8 @@ When code changes a name or flag a skill teaches, update the skill in the same c
 
 - Run `~/.claude/skills/gstack/bin/gstack-skill-bill` before and after, and put `Skill-Size: <before>→<after> bytes (<file>)` in the commit
   message. DUE means it grew over 10% since its last `Skill-Diet:` commit: diet it instead of adding.
+- Add `Evidence: <run id, results file or commit>`, `Evidence: plan <tasks.json or prereg> measure_by <date>` or
+  `Evidence: safety: <reason>`. A new gstack skill adds its `docs/inventory/evidence.json` row (`gstack-inventory --check`).
 - In a gstack checkout: `bun test test/skill-bin-drift.test.ts test/parity-suite.test.ts` and the budgets in
   CONTRIBUTING.md. A red context-budget ratchet means diet, not a higher ceiling.
 - Rerun the case that prompted the change in a fresh session.

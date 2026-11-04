@@ -7,6 +7,8 @@
  */
 import { APPROVALS_FOOTER_END, APPROVALS_TABLE_HEADER } from './approval-record';
 import { RECEIPT_FENCE } from './ship-receipt';
+import { parseReviewLoopException, reviewLoopExceptionLine } from './ship-receipt-depth';
+import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
 
 export interface ProseClaim { field: string; prose: number; receipt: number }
 export interface ProseCheck { checked: number; mismatches: ProseClaim[] }
@@ -28,6 +30,32 @@ export function receiptCounters(receipt: Record<string, unknown>): Map<string, n
 const BLOCK_RE = new RegExp('```' + RECEIPT_FENCE + '[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```', 'g');
 const ESCAPE = /[.*+?^${}()|[\]\\]/g;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const fenceClose = (fence: string) => new RegExp(`^ {0,3}${fence[0] === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+
+/**
+ * The body without its closed code fences (GST-984): pasted test output (`113 pass, 0 fail`) and quoted code
+ * (`the first 35 failing`) are evidence, not this PR's counters. The fence rules are withoutApprovalsBlocks' (a fence
+ * closes only on a run of its own character at least as long as the opener with nothing after it). A backtick run with
+ * another backtick later on its line (```npm test``` inline code) opens no fence, as in CommonMark. A fence that never
+ * closes stays prose, and so does the rest of the body, so an unclosed opener cannot hide the claims after it or let a
+ * shorter fence inside it hide them. A marker line takes each fence's place so the text on either side never joins
+ * into a claim.
+ */
+function withoutFences(body: string): string {
+  const lines = body.split(/(?<=\n)/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.replace(/\r?\n$/, '');
+    const open = FENCE_OPEN.exec(line);
+    if (!open || (open[1]![0] === '`' && line.slice(open[0].length).includes('`'))) { out.push(lines[i]!); continue; }
+    const close = fenceClose(open[1]!);
+    const end = lines.findIndex((l, j) => j > i && close.test(l.replace(/\r?\n$/, '')));
+    if (end < 0) return out.join('') + lines.slice(i).join('');
+    out.push('(code fence)\n');
+    i = end;
+  }
+  return out.join('');
+}
 
 /**
  * The body without the `## Approvals` blocks gstack-approvals renders (lib/approval-record.ts renderRecord): the
@@ -54,7 +82,7 @@ function withoutApprovalsBlocks(body: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = bare(i);
     if (fence !== null) {
-      if (new RegExp(`^ {0,3}${fence[0] === '`' ? '`' : '~'}{${fence.length},}\\s*$`).test(line)) fence = null;
+      if (fenceClose(fence).test(line)) fence = null;
     } else if (FENCE_OPEN.test(line)) fence = FENCE_OPEN.exec(line)![1]!;
     else if (/^ {0,3}## Approvals\s*$/.test(line)) {
       const end = blockEnd(i);
@@ -66,8 +94,26 @@ function withoutApprovalsBlocks(body: string): string {
 }
 
 /**
+ * The body without the exception lines the receipt's own exceptions require: the `Review-loop exception: …` line
+ * (GST-977) and the `Documentation exception: …` line (GST-983). write and the receipt check want each word for word,
+ * and each quotes the owner's reason (`outside 1 and 2 skip detector`), not this PR's counters. Only a line whose
+ * trimmed text is a rendered line, the test write applies, is left out; the same words inside a longer line stay
+ * prose. A marker line takes its place so the text on either side never joins into a claim.
+ */
+function withoutExceptionLines(body: string, receipt: Record<string, unknown>): string {
+  const lines = new Set<string>();
+  const loop = receipt.review_loop_exception === undefined ? undefined : parseReviewLoopException(receipt.review_loop_exception);
+  if (loop?.ok) lines.add(reviewLoopExceptionLine(loop.exception));
+  const docs = receipt.docs === undefined ? undefined : parseReceiptDocs(receipt.docs);
+  const docsLine = docs?.ok ? docsExceptionLine(docs.docs) : null;
+  if (docsLine) lines.add(docsLine);
+  if (!lines.size) return body;
+  return body.split(/(?<=\n)/).map(l => (lines.has(l.trim()) ? '(exception line)\n' : l)).join('');
+}
+
+/**
  * Every `<name>=<n>`, `<name>: <n>` and `<n> <name>` in the prose (the body
- * without its receipt block and its rendered Approvals block), where `<name>` is a counter's leaf key with `_`
+ * without its receipt block, its code fences, its rendered Approvals block and its exception lines), where `<name>` is a counter's leaf key with `_`
  * matched as `_`, space or `-` and not part of a longer word (`3 pass-through`
  * is not a `pass` claim), compared with the receipt. A leaf key shared by
  * several counters (`pass` under every gate lane, `passed` under gate and ci)
@@ -77,7 +123,7 @@ function withoutApprovalsBlocks(body: string): string {
  * `<n> <name>` claim about the next key (#3513).
  */
 export function checkReceiptProse(receipt: Record<string, unknown>, body: string): ProseCheck {
-  const prose = withoutApprovalsBlocks(body.replace(BLOCK_RE, ''));
+  const prose = withoutExceptionLines(withoutApprovalsBlocks(withoutFences(body.replace(BLOCK_RE, ''))), receipt);
   const byLeaf = new Map<string, Array<{ field: string; value: number }>>();
   for (const [field, value] of receiptCounters(receipt)) {
     const leaf = field.split('.').at(-1)!;

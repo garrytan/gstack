@@ -106,6 +106,53 @@ describe("env.kv: a function call assigned to a credential name is code (#2899)"
   );
 });
 
+describe("env.kv: a name-shaped literal inside a call is a file or dict key, not a secret (GST-1064)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const FAKE_STRIPE_TAIL = "4eC39HqLyjWDarjtT1zdp7dc";
+  table(
+    "env.kv",
+    "MEDIUM",
+    [
+      String.raw`key = json.loads(files.get("key.json", ""))`,
+      String.raw`token = resp.json().get("access_token")`,
+      String.raw`    session = store.load('session.cookie')`,
+      String.raw`secret = vault.read("client_secret")`,
+    ],
+    [
+      String.raw`key = "${FAKE_KEY}"`,
+      String.raw`KEY=${FAKE_KEY}`,
+      String.raw`key = json.loads("sk_live_${FAKE_STRIPE_TAIL}")`,
+      String.raw`token = resp.json().get("access_token", "${FAKE_KEY}")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "hunter2.Zx9Qw8")`,
+      String.raw`key = json.loads(files.get("key.json")) or "${FAKE_KEY}"`,
+      String.raw`password = os.getenv("DB_PASSWORD", "correct-horse-battery-staple")`,
+      String.raw`api_key = decrypt("prod-signing-key")`,
+      String.raw`token = decrypt("correct_horse_battery_staple")`,
+      String.raw`key = decrypt("qwhzxkvbnmplor")`,
+      String.raw`SECRET_KEY = os.getenv("SECRET_KEY", "orange_monkey_pass")`,
+      String.raw`password = os.environ.get("DB_PASSWORD", "purple_walrus")`,
+      String.raw`token = resp.json().get("access_token", "orange_monkey_pass")`,
+      String.raw`key = derive_secret("tigers.horse")`,
+      String.raw`password = os.getenv("DB_PASSWORD", "qwhzxkvbnmplor.txt")`,
+      String.raw`password = make_password("orange_monkey_pass")`,
+      String.raw`password = bcrypt.hashpw("orange_monkey_pass", salt)`,
+      String.raw`token = jwt.encode("purple_walrus_pie", payload)`,
+      String.raw`api_key = settings.Secret("correct_horse_battery")`,
+      String.raw`password = hash_password("purple_walrus")`,
+      String.raw`password=hash_password("purple_walrus")`,
+      String.raw`+password = hash_password( "purple_walrus" )`,
+      String.raw`password = hash_password("purple_walrus").encode()`,
+      String.raw`password = hash_password("purple_walrus")  # seed user`,
+      String.raw`password = config.get("db_password") or ("orange_monkey_pass")`,
+      String.raw`password = config.get("db_password", ("orange_monkey_pass"))`,
+      String.raw`password = login(user, ("purple_walrus"))`,
+      String.raw`password = load_cfg("app.yaml"); login("purple_walrus")`,
+      String.raw`password = login(user, str("purple_walrus"))`,
+      String.raw`password = encrypt(str("orange_monkey_pass"))`,
+    ],
+  );
+});
+
 describe("internal.hostname: per-machine config filenames are not hosts (#2962, #2740)", () => {
   table(
     "internal.hostname",
@@ -157,6 +204,35 @@ describe("pii.ip_public: a four-part version needs a version declaration (#2784)
       "conversion 1.128.1.0",
       "## 1.128.1.0 is our egress",
       "## [1.128.1.0 mirror]",
+    ],
+  );
+});
+
+describe("pii.ip_public: a four-part version gstack names is not an address (GST-1204)", () => {
+  table(
+    "pii.ip_public",
+    "MEDIUM",
+    [
+      "gstack 1.94.4.0",
+      "gstack: ok 1.94.4.0 for=ship",
+      "gstack: fail claude,codex (1.93.37.0)",
+      "upgraded gstack from 1.93.14.0 to 1.94.4.0",
+      "seen on gstack 1.94.4.0 to 1.94.8.0",
+      "(gstack 1.94.4.0-1.94.8.0)",
+    ],
+    [
+      "gstack talks to 8.8.8.8",
+      "gstack-proxy 1.128.1.0",
+      "landed in 1.94.4.0",
+      "gstack 1.94.4.0 via 8.8.8.8",
+      "from 1.128.1.0 to 1.128.1.1",
+      "gstack 8.8.8.8",
+      "gstack: fail 8.8.8.8",
+      "upgraded gstack from 8.8.8.8",
+      "my-gstack 1.94.4.0",
+      "/opt/gstack 1.94.4.0",
+      "gstack 1.94.4.0 - 8.8.8.8",
+      "VERSION 1.2.3.4 to 8.8.8.8",
     ],
   );
 });
@@ -246,6 +322,33 @@ describe("pii.phone.e164: GitHub Actions run and job ids in their id positions",
       "job 40477638211",
       "workflow 40477638211",
       "40477638211 failed",
+    ],
+  );
+});
+
+describe("pii.phone.e164: run ids in a runs= list or an actions/runs/ path (GST-1227)", () => {
+  table(
+    "pii.phone.e164",
+    "MEDIUM",
+    [
+      // The run list a CI carry or run clear prints (lib/run-evidence.ts runReceiptFields): every id, not only the first.
+      "CI_CARRY: cleared pregate.json/remote_gate run tests=412 runs=41629861819/1,41629861820/2 profiles=free-tests heads=2f9d11a0c3e4",
+      '{"remote_gate": "carried runs=41629861819/1,41629861820/1,41629861821/3 profiles=free-tests,windows-smoke"}',
+      "run=41629861819/1,416298618201/1",
+      "see actions/runs/41629861820 for the log",
+      "garrytan/gstack actions/runs/4162986182/attempts/2",
+    ],
+    [
+      "call +1 415 555 0123 tomorrow",
+      "call +1 415 555 0123 about runs=41629861819/1,41629861820/2",
+      "runs=+14155550123/1",
+      "runs=1/4155550123",
+      "runs=4155550123",
+      "reruns=4155550123/1",
+      "factions/runs/4155550123",
+      "sales-actions/runs/4155550123",
+      "runs=4162986182/1",
+      "runs=1234567890123/1",
     ],
   );
 });

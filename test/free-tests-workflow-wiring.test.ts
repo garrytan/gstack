@@ -19,6 +19,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'node:child_process';
+import {
+  DEFAULT_WALL_TIMEOUT_MS, FLAKY_RETRY_CAP, ciPlanMatrix, collectFreeTestFiles, createFreeCiPlan,
+  loadFreeTestDurations, wallTimeoutForPackedShard, wallTimeoutForShard,
+} from '../scripts/test-free-shards';
 
 const WORKFLOW = path.resolve(import.meta.dir, '..', '.github', 'workflows', 'free-tests.yml');
 
@@ -47,7 +51,7 @@ describe('free-tests workflow wiring', () => {
     const suite = workflow.jobs['free-suite'];
     const aggregate = workflow.jobs['free-tests'];
     expect(planner.steps.find((step: any) => step.id === 'plan').run).toContain('--ci-plan');
-    expect(suite.needs).toBe('free-plan');
+    expect(suite.needs).toEqual(['free-plan', 'reuse']);
     expect(suite.strategy.matrix).toBe('${{ fromJSON(needs.free-plan.outputs.matrix) }}');
     expect(suite.strategy['fail-fast']).toBe(false);
     expect(suite.strategy['max-parallel']).toBe(20);
@@ -174,7 +178,8 @@ describe('free-tests workflow wiring', () => {
     expect(workflow.env.FREE_SUITE_SHARDS).toMatch(/^[1-9][0-9]?$/);
     expect(planner.outputs.runner).toBe('${{ steps.plan.outputs.runner }}');
     expect(workflow.jobs['free-suite']['runs-on']).toBe('${{ needs.free-plan.outputs.runner }}');
-    expect(plan.env).toEqual({ RUNNER_OVERRIDE: '${{ inputs.free_runner }}', SHARDS_OVERRIDE: '${{ inputs.free_shards }}' });
+    expect(workflow.env.FREE_SUITE_JOBS).toMatch(/^[1-8]$/);
+    expect(plan.env).toEqual({ RUNNER_OVERRIDE: '${{ inputs.free_runner }}', SHARDS_OVERRIDE: '${{ inputs.free_shards }}', JOBS_OVERRIDE: '${{ inputs.free_jobs }}' });
     expect(plan.run).not.toContain('${{');
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'free plan '));
     const bin = path.join(directory, 'bin');
@@ -185,7 +190,7 @@ describe('free-tests workflow wiring', () => {
       const output = path.join(directory, 'output');
       fs.writeFileSync(output, '');
       const result = spawnSync('bash', ['-c', plan.run], {
-        env: { ...process.env, ...workflow.env, RUNNER_OVERRIDE: '', SHARDS_OVERRIDE: '', ...overrides,
+        env: { ...process.env, ...workflow.env, RUNNER_OVERRIDE: '', SHARDS_OVERRIDE: '', JOBS_OVERRIDE: '', ...overrides,
           PATH: `${toShell(bin)}:${process.env.PATH}`, RUNNER_TEMP: toShell(directory),
           GITHUB_OUTPUT: toShell(output), GITHUB_STEP_SUMMARY: toShell(path.join(directory, 'summary')) },
         encoding: 'utf8', timeout: 5000,
@@ -199,12 +204,13 @@ describe('free-tests workflow wiring', () => {
       const unset = resolve({});
       expect(unset.status).toBe(0);
       expect(unset.outputs.runner).toBe(workflow.env.FREE_SUITE_RUNNER);
-      expect(unset.args).toContain(`--shards ${workflow.env.FREE_SUITE_SHARDS}`);
-      const override = resolve({ RUNNER_OVERRIDE: 'ubicloud-standard-4', SHARDS_OVERRIDE: '16' });
+      expect(unset.args).toContain(`--shards ${workflow.env.FREE_SUITE_SHARDS} --shard-jobs ${workflow.env.FREE_SUITE_JOBS}`);
+      const override = resolve({ RUNNER_OVERRIDE: 'ubicloud-standard-4', SHARDS_OVERRIDE: '16', JOBS_OVERRIDE: '3' });
       expect(override.status).toBe(0);
       expect(override.outputs.runner).toBe('ubicloud-standard-4');
-      expect(override.args).toContain('--shards 16');
-      const refusals: Record<string, string>[] = [{ RUNNER_OVERRIDE: 'ubuntu-24.04' }, { RUNNER_OVERRIDE: 'ubicloud-standard-8 x' }, { SHARDS_OVERRIDE: '0' }, { SHARDS_OVERRIDE: '41' }, { SHARDS_OVERRIDE: '16; true' }];
+      expect(override.args).toContain('--shards 16 --shard-jobs 3');
+      const refusals: Record<string, string>[] = [{ RUNNER_OVERRIDE: 'ubuntu-24.04' }, { RUNNER_OVERRIDE: 'ubicloud-standard-8 x' }, { SHARDS_OVERRIDE: '0' }, { SHARDS_OVERRIDE: '41' }, { SHARDS_OVERRIDE: '16; true' },
+        { JOBS_OVERRIDE: '0' }, { JOBS_OVERRIDE: '9' }, { JOBS_OVERRIDE: '2; true' }, { JOBS_OVERRIDE: '-1' }];
       for (const bad of refusals) {
         const refused = resolve(bad);
         expect(refused.status, JSON.stringify(bad)).not.toBe(0);
@@ -232,5 +238,31 @@ describe('free-tests workflow wiring', () => {
     // by checkout would hand that code whatever the repo default allows.
     expect(source).toMatch(/permissions:\s*\n\s*contents:\s*read/);
     expect(source).toMatch(/persist-credentials:\s*false/);
+  });
+  test('every free-suite job timeout covers its shard\'s runner wall, flaky retry and setup (#3850)', () => {
+    // GitHub must never kill a free-suite job before the runner's own wall can
+    // name the hung file and its flaky-retry pass can run: that kill uploads no
+    // result and leaves red CI with no attribution. The job timeout therefore
+    // follows the real plan for the committed duration seed and the live
+    // FREE_SUITE_SHARDS / FREE_SUITE_JOBS, never a hand-picked number.
+    const workflow = Bun.YAML.parse(source) as any;
+    const setupSeconds = Number(workflow.env.FREE_SUITE_SETUP_SECONDS);
+    expect(Number.isInteger(setupSeconds) && setupSeconds > 0).toBe(true);
+    const plan = createFreeCiPlan(collectFreeTestFiles(), Number(workflow.env.FREE_SUITE_SHARDS),
+      loadFreeTestDurations() ?? {}, 'wiring', Number(workflow.env.FREE_SUITE_JOBS));
+    const declared = workflow.jobs['free-suite']['timeout-minutes'];
+    const emitted = ciPlanMatrix(plan, setupSeconds);
+    if (!('include' in emitted)) throw new Error('the CI matrix carries no per-shard timeouts');
+    const short = plan.shards.flatMap(shard => {
+      const neededMs = wallTimeoutForPackedShard(shard.predictedMs, DEFAULT_WALL_TIMEOUT_MS, shard.files.length)
+        + wallTimeoutForShard(FLAKY_RETRY_CAP) + setupSeconds * 1000;
+      const minutes = declared === '${{ matrix.timeout_minutes }}'
+        ? emitted.include.find(entry => entry.shard === shard.shard)?.timeout_minutes ?? 0
+        : Number(declared);
+      return minutes * 60_000 >= neededMs ? [] : [`shard ${shard.shard}: ${minutes} min < ${Math.ceil(neededMs / 1000)} s`];
+    });
+    expect(short).toEqual([]);
+    const planStep = workflow.jobs['free-plan'].steps.find((step: any) => step.id === 'plan');
+    expect(planStep.run).toContain('--job-setup-seconds "$FREE_SUITE_SETUP_SECONDS"');
   });
 });

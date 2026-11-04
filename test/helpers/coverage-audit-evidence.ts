@@ -80,7 +80,9 @@ function stagePieces(stage: string[], scope: ShellScope, alone: boolean): Piece[
   if (!name || (discarded && name === 'echo')) return undefined;
   // Backslashes are data only in these closed grep/awk display patterns.
   const grepRange = /^grep\s+-n(?:\s+-i)?(?:\s+-B\d{1,4})?(?:\s+-A\d{1,4})?\s+(?:"(?:[^"\\$`]|\\[|.])*"|'(?:[^'\\$`]|\\[|.])*')\s+(.+)$/.exec(text);
-  const displayGrep = Boolean(grepRange && literal(grepRange[1]!) && !literal(grepRange[1]!)!.startsWith('-'));
+  // One or more literal file operands (the tokens after the quoted pattern), none of them an option.
+  const grepOperands = grepRange ? words.slice(words.findIndex((word, index) => index > 0 && /^["']/.test(word)) + 1) : [];
+  const displayGrep = grepOperands.length > 0 && grepOperands.every(operand => literal(operand) !== undefined && !literal(operand)!.startsWith('-'));
   const awkRange = /^awk\s+'\/(?:[^/\\]|\\[./|])*\/,\/(?:[^/\\]|\\[./|])*\/'\s+(.+)$/.exec(text)
     ?? /^awk\s+'\/(?:[^/\\]|\\[./|])*\/\{f=1\} f&&\/(?:[^/\\]|\\[./|])*\/\{exit\} f'\s+(.+)$/.exec(text);
   const displayAwk = Boolean(awkRange && literal(awkRange[1]!) && !literal(awkRange[1]!)!.startsWith('-'));
@@ -138,8 +140,8 @@ function stagePieces(stage: string[], scope: ShellScope, alone: boolean): Piece[
   }
   if (name === 'grep' || name === 'ls') return [unknown()];
   if (text === 'pwd' || text === 'wc -l') return [unknown(1, 1)];
-  if (name === 'wc' && args[0] === '-l' && args.length > 1) {
-    // One count line per literal in-cwd file, plus a total for several.
+  if (name === 'wc' && (args[0] === '-l' || args[0] === '-c') && args.length > 1) {
+    // One line or byte count line per literal in-cwd file, plus a total for several.
     if (args.slice(1).some(operand => !scopedFile(operand, scope))) return undefined;
     const lines = args.length - 1 + (args.length > 2 ? 1 : 0);
     return [unknown(lines, lines)];

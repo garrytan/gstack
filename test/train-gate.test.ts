@@ -54,6 +54,20 @@ describe('routeDispatch: every run keeps its mode, and train inputs are validate
     expect((route({ ...screen, trainPolicy: false }) as { error: string }).error).toContain('needs a train block');
   });
 
+  // Value: protects=the release gate's bisect (lib/release-gate.ts) routes on its own release-gate/<id> ref under a release_gate policy, names its own
+  // prefix artifact, keeps every train bisect check (nonce, head, cases, prefixes), and is refused without the policy or on any other ref;
+  // fails_when=a release bisect needs a train block (it stops working once trains go), a release-gate/ ref routes without a release_gate policy, or a
+  // train/ bisect starts accepting the release policy alone; why_new=the bisect test below covers train/<nonce> only; seam=none; no_claim=a live run
+  test('a release bisect runs on release-gate/<id> under a release_gate policy, with the train checks and its own artifact', () => {
+    const bisect = { nonce: bisectNonce, refName: 'release-gate/abc123-aaaaaaaaaaaa', expectedSha: A, cases: 'case-a', prefixShas: B, releasePolicy: true };
+    expect(route(bisect)).toEqual({ mode: 'bisect', cases: ['case-a'], prefixes: [B], artifact: 'gstack-release-record' });
+    expect((route({ ...bisect, releasePolicy: false, trainPolicy: true }) as { error: string }).error).toContain('needs a release_gate block');
+    expect((route({ ...bisect, prefixShas: C }) as { error: string }).error).toContain('is not an ancestor');
+    expect((route({ ...bisect, expectedSha: B }) as { error: string }).error).toContain('is not the train head');
+    expect((route({ ...bisect, refName: 'train/t1', trainPolicy: false }) as { error: string }).error).toContain('needs a train block');
+    expect((route({ ...bisect, refName: 'main' }) as { error: string }).error).toContain('runs on train/<nonce>');
+  });
+
   test('a bisect needs a bisect nonce on train/<nonce>, the train head, plan case ids and ancestor prefixes', () => {
     const bisect = { nonce: bisectNonce, refName: 'train/t1', expectedSha: A, cases: 'case-a, review/SKILL.md workflow', prefixShas: `${A},${B}`, trainPolicy: true };
     expect(route(bisect)).toEqual({ mode: 'bisect', cases: ['case-a', 'review/SKILL.md workflow'], prefixes: [A, B] });
@@ -222,6 +236,23 @@ describe('prefix trees modulo stamps', () => {
     expect(receipt(sha.squash1!)).toBe('same-modulo-stamps');
     expect(receipt(sha.edited!)).toBe('changed');
     expect(stampFreeTree(git, 'f'.repeat(40), repo.work, policy)).toHaveProperty('error');
+  });
+
+  // Value: protects=a gated-to-current diff git cannot produce refuses with its cause instead of reading as 'no changes'
+  //   (GST-448); fails_when=buildReceipt treats a failed diff as an empty one or drops why it failed; seam=a missing blob; no_claim=none
+  test('a diff git cannot produce refuses the receipt with EVIDENCE_IDENTITY_UNKNOWN and git\'s reason', () => {
+    const policy = loadPolicyFromHead(repo.work).policy;
+    repo.git('checkout', '-q', '-B', 'lost-blob', sha.t1!);
+    fs.writeFileSync(path.join(repo.work, 'lost.txt'), 'a blob this test deletes from the object store\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'add a blob');
+    const head = repo.git('rev-parse', 'HEAD');
+    const blobId = repo.git('rev-parse', `${head}:lost.txt`);
+    const gitDir = repo.git('rev-parse', '--absolute-git-dir');
+    fs.rmSync(path.join(gitDir, 'objects', blobId.slice(0, 2), blobId.slice(2)));
+    const r = buildReceipt({ repoRoot: repo.work, gated: sha.t1!, current: head, policy, policyLabel: 'fixture' }) as { error?: string; code?: string };
+    expect(r.code).toBe('EVIDENCE_IDENTITY_UNKNOWN');
+    expect(r.error).toMatch(/^git diff [0-9a-f]{12} [0-9a-f]{12} failed \(.+\), so the changed files cannot be classified/);
+    repo.git('checkout', '-q', '-f', 'squash');
   });
 
   // #3512: a stamp path carrying a tentative `*_KEY_VERSION = '<next minor>'` (gstack's own convention since #3511) digests the

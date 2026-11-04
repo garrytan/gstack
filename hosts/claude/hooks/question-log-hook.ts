@@ -35,8 +35,11 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { runBin } from './spawn-bin';
+import { HOOK_TIMEOUT_MS, hookChildBudgetMs, runBin } from './spawn-bin';
 import { logHookError as sharedLogHookError } from './hook-log';
+import { parseQidMarker } from '../../../scripts/qid-marker';
+import { resolveWindowsBashCached } from '../../../lib/script-invocation';
+import { resolveStateRoot } from '../../../lib/state-root';
 
 interface HookStdin {
   session_id?: string;
@@ -65,8 +68,16 @@ interface ExtractedQuestion {
   door_type?: string;
 }
 
-const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
+const HOOK_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000);
+/** Below this much budget a child cannot launch and finish, so the hook skips it instead of starting a call it must kill. */
+const MIN_LAUNCH_BUDGET_MS = 250;
+
+/** Why the next gstack-question-log call is skipped with `budgetMs` left, or null when it may launch. */
+export function launchSkipReason(budgetMs: number): string | null {
+  if (budgetMs >= MIN_LAUNCH_BUDGET_MS) return null;
+  return `the hook's ${HOOK_TIMEOUT_MS} ms budget is spent (${Math.max(0, budgetMs)} ms left, under the ${MIN_LAUNCH_BUDGET_MS} ms a call needs)`;
+}
 
 function logHookError(msg: string): void {
   sharedLogHookError('question-log-hook', msg);
@@ -103,13 +114,14 @@ function extractQuestionId(
   skill: string,
   questionText: string,
   options: string[],
-): { id: string; marker_present: boolean; stripped_question: string } {
-  const match = questionText.match(MARKER_RE);
-  if (match) {
+): { id: string; signal_key?: string; marker_present: boolean; stripped_question: string } {
+  const marker = parseQidMarker(questionText);
+  if (marker) {
     return {
-      id: match[1],
+      id: marker.id,
+      ...(marker.signal_key ? { signal_key: marker.signal_key } : {}),
       marker_present: true,
-      stripped_question: questionText.replace(MARKER_RE, '').trim(),
+      stripped_question: marker.stripped,
     };
   }
   return {
@@ -237,17 +249,19 @@ function detectSkill(cwd: string | undefined): string {
   return 'unknown';
 }
 
-function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
+function spawnLog(payload: Record<string, unknown>, budgetMs: number, cwd?: string): void {
+  const startedAt = Date.now();
   const res = runBin('gstack-question-log', [JSON.stringify(payload)], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 3000,
+    timeout: budgetMs,
     // Run from the originating tool call's cwd so gstack-slug resolves to
     // the project the user is actually in, not the hook script's location.
     cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
   });
   if (res.status !== 0) {
-    logHookError(`gstack-question-log exited ${res.status}: ${res.stderr || res.stdout}`);
+    const how = res.signal ? ` (${res.signal} after ${Date.now() - startedAt} of ${budgetMs} ms)` : '';
+    logHookError(`gstack-question-log exited ${res.status}${how}: ${res.stderr || res.stdout}`);
   }
 }
 
@@ -282,6 +296,7 @@ async function main(): Promise<void> {
   const choices = extractUserChoices(stdin.tool_response, questions, (msg) =>
     logHookError(`${msg} (tool_use_id=${stdin.tool_use_id || 'n/a'})`),
   );
+  if (process.platform === 'win32') resolveWindowsBashCached(path.join(resolveStateRoot(), 'cache', 'windows-bash.json'));
 
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
@@ -289,7 +304,7 @@ async function main(): Promise<void> {
     if (!qText) continue;
 
     const opts = optionLabels(q.options || []);
-    const { id, stripped_question } = extractQuestionId(skill, qText, opts);
+    const { id, signal_key, stripped_question } = extractQuestionId(skill, qText, opts);
     const recommended = extractRecommended(stripped_question, opts);
     const summary = stripped_question.slice(0, 200);
     const choice = choices[i] || { choice: '__unknown__' };
@@ -305,15 +320,24 @@ async function main(): Promise<void> {
       tool_use_id: stdin.tool_use_id?.slice(0, 128),
     };
     if (recommended) payload.recommended = recommended.slice(0, 64);
+    if (signal_key) payload.signal_key = signal_key;
     if (choice.free_text) payload.free_text = String(choice.free_text);
 
-    spawnLog(payload, stdin.cwd);
+    const budgetMs = hookChildBudgetMs(HOOK_STARTED_AT);
+    const skip = launchSkipReason(budgetMs);
+    if (skip) {
+      logHookError(`gstack-question-log skipped for questions ${i + 1}-${questions.length}: ${skip}`);
+      break;
+    }
+    spawnLog(payload, budgetMs, stdin.cwd);
   }
 
   process.exit(0);
 }
 
-main().catch((e) => {
-  logHookError(`main crash: ${(e as Error).message}`);
-  process.exit(0);
-});
+if (import.meta.main) {
+  main().catch((e) => {
+    logHookError(`main crash: ${(e as Error).message}`);
+    process.exit(0);
+  });
+}

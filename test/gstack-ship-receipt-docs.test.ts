@@ -49,8 +49,27 @@ describe('E18: a repository without a version source or CHANGELOG', () => {
     const out = path.join(repo.root, 'run');
     const result = runBin(repo, 'gstack-ship-receipt', ['result', '--body', body, '--out', out]);
     expect(result.status).toBe(EXIT.ok);
-    expect(result.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete run=${out}`);
+    expect(result.out.trim()).toBe(`GSTACK_RESULT: skill=ship status=complete head=${head} run=${out}`);
     expect(JSON.parse(fs.readFileSync(path.join(out, 'ship-run.json'), 'utf8')).version).toBe('none');
+  });
+
+  // Value: protects=a receipt write --version named in a repository with no version source keeps that version through a
+  //   carry (GST-1030 review); fails_when=the carry refuses because HEAD has no readable version, or drops the version;
+  //   seam=bin/gstack-ship-receipt cmdCarry
+  test('a carry keeps the version write --version named when HEAD has no version source (GST-1030)', () => {
+    const repo = fixture();
+    for (const f of ['VERSION', 'package.json', 'package-lock.json']) fs.rmSync(path.join(repo.work, f));
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'changelog only'); repo.git('push', '-q', 'origin', 'main');
+    makePr(repo, 'pr-unversioned');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, '## Summary\n');
+    expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '3', '--base', 'main', '--session-kind', 'x', '--version', '2.0.0', '--body', body]).status).toBe(EXIT.ok);
+    fs.mkdirSync(path.join(repo.work, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'test', 'a.test.ts'), 'test a\n');
+    repo.git('add', '-A'); repo.git('commit', '-qm', 'a test-only change');
+    const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    expect(carried.out, carried.err).toContain('CARRY: carried');
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.version).toBe('2.0.0');
   });
 
   test('a repository with a version source keeps its version, and one with only a CHANGELOG records no version rather than "none"', () => {
@@ -216,6 +235,55 @@ describe('carry follow-ups: git floor, named refusal, branch-touched walk, digit
     // A mention of another width is never a stamp candidate (tentativeMentions), so moving it by hand is a product change.
     expect(change(keys('1.3.0', '1.2.2.0'), keys('1.2.4.0', '1.2.2.0'))).toBe(false);
     expect(stampOnlyText({ before: 'left-pad since: 1.2.3\n', after: 'left-pad since: 1.2.4.0\n', oldVersion: '1.2.3.0', newVersion: '1.2.4.0' })).toBe(false);
+  });
+
+  // GST-963: the carry shares the stage's bound, so a key version the branch added at its fork version (older than the
+  // pin's VERSION after a base merge) is a stamp on the branch's own line and a hand edit on any other.
+  test('stampOnlyText takes the fork-version bound only on a line the branch added', () => {
+    const templates = ["_KEY_VERSION = '{version}'"];
+    const mine = "export const MINE_KEY_VERSION = '1.2.3.0';";
+    const before = `${mine}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n`;
+    const moved = (text: string) => ({ before, after: text, oldVersion: '1.2.4.0', newVersion: '1.2.5.0', templates });
+    const side = { fork: '1.2.3.0', added: new Set([mine]), at: new Set([1]) };
+    expect(stampOnlyText({ ...moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))), side })).toBe(true);
+    expect(stampOnlyText(moved(before.replace(mine, mine.replace('1.2.3.0', '1.2.5.0'))))).toBe(false);
+    expect(stampOnlyText({ ...moved(before.replace("BASE_KEY_VERSION = '1.2.3.0'", "BASE_KEY_VERSION = '1.2.5.0'")), side })).toBe(false);
+  });
+
+  // Value: protects=the carry reads the branch's own line by position and, with a kept VERSION claim, accepts only the
+  //   branch's own row moved from the fork version (GST-979, GST-980); fails_when=stampOnlyText refuses every change at
+  //   equal versions or takes a duplicated base line as the branch's; seam=lib/ship-receipt.ts stampOnlyText
+  test('stampOnlyText reads the branch line by position, and with a kept VERSION moves only the branch\'s own row (GST-979, GST-980)', () => {
+    const templates = ["_KEY_VERSION = '{version}'"];
+    const key = (v: string) => `export const MINE_KEY_VERSION = '${v}';`;
+    const before = `${key('1.2.3.0')}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n${key('1.2.3.0')}\n`;
+    const side = { fork: '1.2.3.0', added: new Set([key('1.2.3.0')]), at: new Set([3]) };
+    const lines = (a: string, c: string) => `${a}\nexport const BASE_KEY_VERSION = '1.2.3.0';\n${c}\n`;
+    const change = (after: string, oldVersion: string, newVersion: string) => stampOnlyText({ before, after, oldVersion, newVersion, templates, side });
+    expect(change(lines(key('1.2.3.0'), key('1.2.5.0')), '1.2.4.0', '1.2.5.0')).toBe(true);
+    expect(change(lines(key('1.2.5.0'), key('1.2.3.0')), '1.2.4.0', '1.2.5.0')).toBe(false);
+    expect(change(lines(key('1.2.3.0'), key('1.2.4.0')), '1.2.4.0', '1.2.4.0')).toBe(true);
+    expect(change(lines(key('1.2.4.0'), key('1.2.3.0')), '1.2.4.0', '1.2.4.0')).toBe(false);
+    expect(stampOnlyText({ before, after: lines(key('1.2.3.0'), key('1.2.4.0')), oldVersion: '1.2.4.0', newVersion: '1.2.4.0', templates })).toBe(false);
+  });
+
+  // Value: protects=the carry classifier reads a declared placeholder moved to the new version on the branch's own row
+  //   as a stamp, through the same predicate as finish and the tree receipt (GST-1026); fails_when=stampOnlyText ignores
+  //   the policy's placeholders, or accepts an undeclared one or a base row; seam=lib/ship-receipt.ts stampOnlyText
+  test('stampOnlyText reads a declared placeholder moved on the branch\'s own row as a stamp, and nothing else (GST-1026)', () => {
+    const templates = ["since: '{version}'"];
+    const row = (v: string, id: string) => `  { since: '${v}', id: '${id}' },`;
+    const text = (...rows: string[]) => ['export const ROWS = [', ...rows, '];', ''].join('\n');
+    const before = text(row('TBD', 'base'), row('TBD', 'mine'));
+    const side = { fork: '0.60.552.0', added: new Set([row('TBD', 'mine')]), at: new Set([3]) };
+    const change = (after: string, extra: Record<string, unknown> = {}) => stampOnlyText({ before, after, oldVersion: '0.60.552.0', newVersion: '0.60.553.0', templates, side, placeholders: ['TBD'], ...extra });
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')))).toBe(true);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { oldVersion: '0.60.553.0' })).toBe(true);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { placeholders: [] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { placeholders: ['WIP'] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { templates: [] })).toBe(false);
+    expect(change(text(row('TBD', 'base'), row('0.60.553.0', 'mine')), { side: undefined })).toBe(false);
+    expect(change(text(row('0.60.553.0', 'base'), row('TBD', 'mine')))).toBe(false);
   });
 
   test('planCarry names at most CARRY_NAMED_PATHS paths', () => {
