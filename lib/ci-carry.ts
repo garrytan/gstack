@@ -164,14 +164,14 @@ export function recordCiResult(stderr: string): { runs?: string; tests?: string;
   const none = lines.findLast(x => x.startsWith('CARRY_NONE: '))?.slice('CARRY_NONE: '.length);
   if (at < 0) return none ? { none } : {};
   const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(lines[at]!);
-  const here = / skipped_here=(\d+) tests_ran_here=(\S+)$/.exec(lines[at]!);
+  const here = / skipped_here=(\d+) tests_ran_here=(\S+)( not_owed_here=\d+)?$/.exec(lines[at]!);
   const notOwed = lines.slice(at + 1).find(x => x.startsWith('gstack-evidence: not owed: '))?.slice('gstack-evidence: not owed: '.length);
-  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}` } : {}) };
+  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}${here[3] ?? ''}` } : {}) };
 }
 
-/** The per_file runner command for `files`: `{files}` replaced by the paths, each single-quoted for bash. */
+/** The per_file runner command for `files`: `{files}` replaced by the paths, each anchored with ./ (Bun reads a bare relative path as a substring filter) and single-quoted for bash. */
 export const perFileCommand = (template: string, files: string[]): string =>
-  template.replaceAll('{files}', files.map(f => `'${f.replace(/'/g, `'\\''`)}'`).join(' '));
+  template.replaceAll('{files}', files.map(f => `'${(/^(\/|\.\/)/.test(f) ? f : `./${f}`).replace(/'/g, `'\\''`)}'`).join(' '));
 
 /** `<path>: <message>` errors for `ship_lanes_from`; empty when valid. Shared with lib/pregate/config.ts. */
 export function shipLanesErrors(raw: unknown, profileNames: readonly string[]): Array<{ path: string; message: string }> {

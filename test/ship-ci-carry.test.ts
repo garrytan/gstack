@@ -526,7 +526,7 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     const out = preflight(f, [`free=${FREE}`]);
     expect(out.status, out.stdout + out.stderr).toBe(0);
     expect(lane(out.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=1 file(s) tests_ran_here=1');
-    expect([args(f), runs(f, 'free-runs')]).toEqual(['test/b.test.ts\n', 0]);
+    expect([args(f), runs(f, 'free-runs')]).toEqual(['./test/b.test.ts\n', 0]);
     const all = rows(f);
     expect(all.find(r => r.source === 'ci')).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: ['test/b.test.ts'], tests_ran: 1 } });
     expect(all.find(r => r.label === 'free.skipped')).toMatchObject({ exit: 0, tests_ran: 1 });
@@ -536,14 +536,14 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     const f = shipFixture(withRunner(1)); fixtures.push(f);
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
-    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of 1 skipped file\(s\) exited 1 \(label=free\.skipped\)$/m)]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of test\/b\.test\.ts exited 1 \(label=free\.skipped\)$/m)]);
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
     expect(preflight(f, [`free=${FREE}`]).stdout).toContain('CI_CARRY: none label=free (skipped_failed');
     expect(runs(f, 'free-runs')).toBe(1);
   });
 
-  test('a remainder that ran zero tests here carries nothing: the lane runs whole', () => {
-    const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 1 skip\\n 0 fail\\nRan 1 test across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
+  test('a remainder file that registers no test here carries nothing: the lane runs whole', () => {
+    const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
     const f = shipFixture(zero); fixtures.push(f);
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
@@ -577,6 +577,47 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify({ ...w, editWhenArmed: { marker: path.join(f.root, 'armed'), file: path.join(f.work, 'src/b.ts'), content: 'export const b = 3;\n' } }));
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
     expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: tree_changed: /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
+  // Value: protects=GST-1314: a remainder file that skips every test here too (env-gated or tool-gated by design) is recorded as not owed
+  //   instead of refusing the whole carry, while a file that registers no test, or a mixed remainder hiding one, still refuses;
+  //   fails_when=run 41754278952's six skipped files (0 pass, 20 skip locally) make every gstack carry end in skipped_zero_run again;
+  //   why_new=GST-1314 replay (L6, #3979); seam=fake gh, gstack-evidence record-ci, per_file runner printing bun's per-file summary
+  const SIX: Array<[string, number]> = [["browse/test/security-bench.test.ts",3],["test/codex-resume-flag-semantics.test.ts",2],["test/cso-docker-integration.test.ts",5],["test/cso-node-lifecycle-integration.test.ts",1],["test/cso-stack-cold-integration.test.ts",1],["test/motion-pipeline.test.ts",8]];
+  const bunSummary = (f: ShipFx, cases: Array<[string, string]>) => fs.writeFileSync(path.join(f.root, 'perfile.sh'), `printf '%s\\n' "$@" >> ../perfile-args\ncase "$1" in\n${cases.map(([pat, out]) => `  *${pat}*) printf '${out}' >&2;;\n`).join('')}esac\n`);
+  const skipsOnly = (n: number) => ` 0 pass\\n ${n} skip\\n 0 fail\\nRan ${n} test${n === 1 ? '' : 's'} across 1 file. [1.00ms]\\n`;
+  const policy = (files: string[]) => ({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: `printf '${['test/a.test.ts', ...files].join('\\n')}\\n'`, per_file: 'sh ../perfile.sh {files}' } } }, null, 2) + '\n' });
+
+  test('GST-1314: run 41754278952\'s six remainder files skip every test here too, so they are not owed and the lane carries', () => {
+    const f = shipFixture(policy(SIX.map(([p]) => p))); fixtures.push(f);
+    bunSummary(f, SIX.map(([p, n]) => [p, skipsOnly(n)]));
+    world(f, { tree: { files: ['test/a.test.ts', ...SIX.map(([p]) => p)], skipped_files: SIX.map(([p]) => p) } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect(rec.status, rec.stderr).toBe(0);
+    expect(rec.stderr).toContain('not owed here: 6 remainder file(s) skipped every test on CI and here too');
+    expect(args(f).trim().split('\n')).toEqual(SIX.map(([p]) => './' + p));
+    const ci = rows(f).find(r => r.source === 'ci');
+    expect(ci).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: SIX.map(([p]) => p), tests_ran: 0, not_owed: SIX.map(([p]) => p) } });
+    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=6 file(s) tests_ran_here=0 not_owed_here=6');
+  });
+
+  test('GST-1314: a remainder that mixes a file that ran here with one that registers no test still refuses', () => {
+    const f = shipFixture(policy(['test/b.test.ts', 'test/c.test.ts'])); fixtures.push(f);
+    bunSummary(f, [['b.test', ' 2 pass\\n 0 fail\\nRan 2 tests across 1 file. [1.00ms]\\n'], ['c.test', ' 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n']]);
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'], skipped_files: ['test/b.test.ts', 'test/c.test.ts'] } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: the per_file run of test\/c\.test\.ts /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
+  test('GST-1314: a remainder file whose log hit the 2MB cap is never counted not owed from the truncated log', () => {
+    const f = shipFixture(policy(['test/b.test.ts'])); fixtures.push(f);
+    fs.writeFileSync(path.join(f.root, 'perfile.sh'), `printf '%s\\n' "$@" >> ../perfile-args\nprintf ' 0 pass\\n 5 skip\\n 0 fail\\nRan 5 tests across 1 file. [1.00ms]\\n' >&2\nhead -c 2200000 /dev/zero | tr '\\0' x >&2\nprintf '\\n 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2\n`);
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts'], skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run('sh', ['-c', '"$0" "$@" 2>../record-ci.err', path.join(BIN, 'gstack-evidence'), 'record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, fs.readFileSync(path.join(f.root, 'record-ci.err'), 'utf-8')]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: the per_file run of test\/b\.test\.ts ran 0 tests here /m)]);
+    expect(fs.readFileSync(rows(f).findLast(r => r.label === 'free.skipped').log_path, 'utf-8')).toContain('log truncated at 2MB');
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
   });
 

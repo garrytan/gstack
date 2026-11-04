@@ -138,7 +138,8 @@ interface EvidenceRecord {
   tests_unit?: "files";
   /** Why a carried lane was not owed at all: every job it names was path-skipped by an unchanged gate (record-ci, GST-1190). */
   not_owed?: string;
-  skipped_here?: { label: string; files: string[]; tests_ran: number | "unknown" };
+  /** The per_file run of the inventory files CI skipped entirely; not_owed: the ones that skipped every test here too (GST-1314). */
+  skipped_here?: { label: string; files: string[]; tests_ran: number | "unknown"; not_owed?: string[] };
 }
 
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
@@ -183,6 +184,15 @@ const ledgerLabel = (raw: string): string => raw.replace(/[^a-zA-Z0-9._-]/g, "_"
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const strip = (l: string) => l.replace(ANSI, "").replace(/\r$/, "");
 const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) ${word}\\b`).exec(text)?.[1] ?? 0);
+
+/** The tests bun's last terminal summary in a run's log registered, skips included ("Ran N tests across M files"); 0 when the log or the summary is missing, or the log is incomplete (capped at LOG_MAX_BYTES or cut by a write failure), since its last summary need not be the run's. */
+function registeredBunTests(logPath: string | undefined): number {
+  let text = "";
+  try { text = logPath ? readFileSync(logPath, "utf8") : ""; } catch { return 0; }
+  if (/^\[gstack-evidence: log (truncated at 2MB|ended early)/m.test(text)) return 0;
+  const last = text.split("\n").map(strip).findLast((l) => /^Ran \d+ tests? across \d+ files?\. \[/.test(l));
+  return Number(/^Ran (\d+)/.exec(last ?? "")?.[1] ?? 0);
+}
 
 /**
  * Bun: the last "Ran N tests across M files" block; executed = its " N pass" +
@@ -733,14 +743,23 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   let here: EvidenceRecord["skipped_here"];
   if (v.remainder?.length) {
     const hereLabel = `${label}.skipped`;
-    console.error(`gstack-evidence record-ci: ${v.remainder.length} inventory file(s) skipped every test in CI; running them here (label=${hereLabel})`);
-    const hereCommand = perFileCommand(m.per_file!, v.remainder);
-    const exit = await cmdRun(["--label", hereLabel, "--", hereCommand]);
-    if (exit !== 0) return none("skipped_failed", `the per_file run of ${v.remainder.length} skipped file(s) exited ${exit} (label=${hereLabel})`);
-    let rows: EvidenceRecord[] = [];
-    try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
-    here = { label: hereLabel, files: v.remainder, tests_ran: rows.findLast((r) => r.label === hereLabel && r.source === undefined && r.cmd_sha256 === sha256(hereCommand) && r.wtree === tree)?.tests_ran ?? "unknown" };
-    if (typeof here.tests_ran !== "number" || here.tests_ran <= 0) return none("skipped_zero_run", `the per_file run of ${v.remainder.length} skipped file(s) ran ${here.tests_ran} tests here (label=${hereLabel}); a lane passes on its runner count, never exit 0 alone`);
+    console.error(`gstack-evidence record-ci: ${v.remainder.length} inventory file(s) skipped every test in CI; running them here one at a time (label=${hereLabel})`);
+    let ran = 0;
+    const notOwed: string[] = [];
+    for (const file of v.remainder) {
+      const hereCommand = perFileCommand(m.per_file!, [file]);
+      const exit = await cmdRun(["--label", hereLabel, "--", hereCommand]);
+      if (exit !== 0) return none("skipped_failed", `the per_file run of ${file} exited ${exit} (label=${hereLabel})`);
+      let rows: EvidenceRecord[] = [];
+      try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
+      const row = rows.findLast((r) => r.label === hereLabel && r.source === undefined && r.cmd_sha256 === sha256(hereCommand) && r.wtree === tree);
+      const n = row?.tests_ran ?? "unknown";
+      if (typeof n === "number" && n > 0) { ran += n; continue; }
+      if (n === 0 && registeredBunTests(row?.log_path) > 0) { notOwed.push(file); continue; }
+      return none("skipped_zero_run", `the per_file run of ${file} ran ${n} tests here and registered none it skipped (label=${hereLabel}); a lane passes on its runner count, never exit 0 alone`);
+    }
+    here = { label: hereLabel, files: v.remainder, tests_ran: ran, ...(notOwed.length ? { not_owed: notOwed } : {}) };
+    if (notOwed.length) console.error(`gstack-evidence record-ci: not owed here: ${notOwed.length} remainder file(s) skipped every test on CI and here too (env- or tool-gated by design): ${notOwed.join(", ")}`);
     for (const e of v.runs) {
       const changed = runChanged(check.deps, e.run_id, e.run_attempt);
       if (changed) return none("run_changed", changed);
@@ -761,7 +780,7 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}` : ""}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
   if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
   return 0;
 }
