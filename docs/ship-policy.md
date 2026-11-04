@@ -65,6 +65,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
+| `land` | `{ merged_checks }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
@@ -2006,9 +2007,11 @@ tree, taking no lock and pushing nothing.
 
 Under `"merge": "direct"` in the base policy, the Captain merges one READY PR
 at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
-is the head the READY names. There's no train, no stamp commit, no base merge
-and no extra CI round. GitHub's required checks plus `--match-head-commit`
-stay the gate. Versions aren't set per PR: a PR carries only its
+is the head the READY names. There's no train and no stamp commit. GitHub's
+required checks plus `--match-head-commit` stay the gate. When the pin
+doesn't hold the tip of `origin/main`, those checks never ran on the tree that
+would land, so land tests that tree itself with the base policy's
+`land.merged_checks` (below). Versions aren't set per PR: a PR carries only its
 `changelog.d` fragment, VERSION stays where it is, and the
 [release PR](#release-stamp) stamps the version and folds the fragments. Land
 refuses, and merges nothing, unless all of these hold (a `release/<version>`
@@ -2026,17 +2029,54 @@ release-file rows):
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
+| land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and `--break-lock` breaks another lander's stale lock under the usual rules | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
+| when the base moved past the pin's merge base and the base policy lists `land.merged_checks`: `--allow-repo-commands` was passed, the pin merges onto the tip without a conflict, and every command passes on that merged tree | [`REPO_COMMANDS_NOT_ALLOWED`](troubleshooting.md#repo-commands-not-allowed), [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean), [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) |
 
 Release outputs (the agents digest) are checked by the Version Gate, which must
 be green at the pin: it accepts an output only when it equals what the release
-tool generates at the merge base's VERSION. If the base moved and GitHub still
-reports the PR clean, land merges it as it is. Then it runs `gh pr merge
+tool generates at the merge base's VERSION. A green PR merged onto newer
+commits can still break main (#3886 pushed ship/DRIVER.md past its size cap
+that way). So when the base moved, land builds the pin merged onto the tip of
+`origin/main` in a throwaway worktree (the checkout's `node_modules` linked
+in), runs each `land.merged_checks` command there in order, and prints
+`MERGED_CHECKS: pass tree=<tree> base=<tip> pin=<pin> checks: …`. The
+commands are repo commands: the merged tree's `package.json` decides what
+`bun run` does, so the PR controls them. Land runs them only with
+`--allow-repo-commands`, with `PATH` and the locale as the whole environment
+and a throwaway `HOME`, so no token reaches them through the environment,
+runs git around them with hooks and fsmonitor off, and kills a command's whole
+process group with SIGKILL when it ends or times out. A check that moves HEAD
+off the merged commit fails. Land re-reads the base policy after the locked
+fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
+merged tree's lockfile or `package.json` dependencies differ from the
+checkout's, the linked `node_modules` can't vouch for it: land refuses with
+`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
+the filesystem: a command can still write the checkout's `.git` (the worktree
+shares it) and the linked `node_modules`, so pass the flag only for a base
+policy and PRs you trust to run. A list such
+as typecheck plus the size ratchets takes about two minutes, against a main
+merge, a CI round and a new receipt per PR. Without the key, land prints
+`STALE_BASE: warn … no land.merged_checks configured` and merges the stale
+base untested, as it did before the key. Then land runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
 reads the merge commit, and checks that its tree is the pin merged onto the
-merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
-if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
-after GitHub merged goes straight to the tree check. `--dry-run` runs every
-check and merges nothing. Under `merge: direct`, `train build` refuses and
+merge commit's parent. The land lock keeps other gstack landers off main
+from the re-fetch to the merge, but a merge outside gstack can still land in
+between. When that parent is neither the base land checked nor
+one the pin contains, main moved between the check and the merge: land runs
+`land.merged_checks` again on the landed tree, and reports
+[`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified) when they
+fail or the key is absent. Last, it writes a `land` note on `refs/notes/gstack-trains`
+and releases the lock. Land refreshes the lock right before the merge and
+refuses if another lander broke it meanwhile. A rerun after GitHub merged goes
+straight to the tree check and releases a lock an earlier run of the same land
+left. It doesn't know which base the first run checked, so when GitHub merged
+onto a base the pin doesn't contain, it runs `land.merged_checks` on the landed
+tree (they need `--allow-repo-commands` there too), and without the key it
+prints a `STALE_BASE: warn` line and checks the tree only. `--dry-run` takes
+no lock, runs every other check, prints `DRY-RUN: land.merged_checks not run`
+in place of the merged checks, and merges nothing; on a PR that already
+merged it verifies nothing. Under `merge: direct`, `train build` refuses and
 names this command.
 
 <a id="release-stamp"></a>
@@ -2069,9 +2109,12 @@ ships under a version its fragment missed): every fragment there folded and
 none added, the version equal to the base's plus their bump, every
 other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
 changed release output equal to what the release tool generates at the new
-version. Anything more is
+version. A release may not delete a release output. Anything more is
 [`RELEASE_STAMP_INVALID`](troubleshooting.md#release-stamp-invalid), and
-nothing merges. The Version Gate (`Check VERSION is not stale vs queue`)
+nothing merges. A rerun after GitHub merged the release fetches the pin first,
+then reads the pin's parent, the main commit it was stamped on, and checks that
+the release merged onto it; a parent it can't read is `QUEUE_NOT_READY`, never
+a pass. The Version Gate (`Check VERSION is not stale vs queue`)
 applies the same test, so a release head passes it while any other PR that
 changes VERSION still fails it. Once the release PR lands, the next stable cut
 tags `v<version>` ([releases.md](releases.md)).

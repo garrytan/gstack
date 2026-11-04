@@ -8,18 +8,23 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { MERGE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { LAND_KEY_VERSION, MERGE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
+import { runMergedChecks } from '../lib/land-merged-checks';
+import { readLock, writeLock } from '../lib/ship-queue-land-lock';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
+/** The base policy with land.merged_checks: the first proves the checks see the merged tree, the second stands in for a budget cap a stale base can break (#3886). */
+const CHECKED = { ...POLICY, land: { merged_checks: ['test -e other.txt && ls pr-*.txt >/dev/null', "test ! -e budget.md || test ! -e other.txt || { echo 'budget.md over its cap' >&2; exit 1; }"] }, min_gstack_version: LAND_KEY_VERSION };
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
@@ -39,6 +44,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "const g=(...x)=>execFileSync('git',['--git-dir',O,...x],{encoding:'utf8',timeout:30000}).trim();",
     "const save=()=>fs.writeFileSync(D,JSON.stringify(d));",
     "if(a[0]==='pr'&&a[1]==='view'){const p=d.prs[a[2]];if(!p){console.error('no pr');process.exit(1)}",
+    "  if(d.mainOnView){g('update-ref','refs/heads/main',d.mainOnView);delete d.mainOnView;save()}",
     "  let head='';try{head=g('rev-parse','refs/heads/'+p.headRefName)}catch{};",
     "  console.log(JSON.stringify({mergeable:'MERGEABLE',mergeStateStatus:'CLEAN',...p,headRefOid:p.headRefOid??head,mergeCommit:p.mergeSha?{oid:p.mergeSha}:null}));process.exit(0)}",
     "if(a[0]==='api'){const m=/commits\\/([0-9a-f]+)\\/(check-runs|status)/.exec(a[1]);if(!m)process.exit(1);",
@@ -48,7 +54,9 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
-    "  const main=g('rev-parse','refs/heads/main');let tree=g('merge-tree','--write-tree',main,want).split('\\n')[0];",
+    "  try{d.lockAtMerge=JSON.parse(g('show','refs/notes/gstack-land:lock.json'))}catch{}",
+    "  let main=g('rev-parse','refs/heads/main');if(d.raceMain){main=g('commit-tree',g('rev-parse',main+'^{tree}'),'-p',main,'-m','landed during the check');g('update-ref','refs/heads/main',main)}",
+    "  let tree=g('merge-tree','--write-tree',main,want).split('\\n')[0];",
     "  if(d.strayOnMerge){tree=g('rev-parse',main+'^{tree}')}",
     "  const sq=g('commit-tree',tree,'-p',main,'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);",
     "  d.mergeArgs=a.slice(2);p.state='MERGED';p.mergeSha=sq;save();process.exit(0)}",
@@ -131,18 +139,181 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(notes[0]).toMatchObject({ kind: 'land', pr: '7', pin, merge_sha: main, base_sha: base });
   }, 90_000);
 
-  test('the base moved and the PR still merges clean: it lands as it is, on the new base, with no restamp or extra CI round', () => {
-    const fx = setup();
-    const pin = openPr(fx, '8');
+  test('GST-1316: the base moved after the pin\'s CI, so land runs land.merged_checks on the pin merged onto main: a failure refuses with QUEUE_LAND_MERGED_CHECKS and merges nothing, a pass lands and names the merged tree, and a rerun checks again', () => {
+    const fx = setup(CHECKED);
+    const red = openPr(fx, '8', { edit: w => fs.writeFileSync(path.join(w, 'budget.md'), 'pr line\n') });
+    const green = openPr(fx, '82');
     const moved = moveMain(fx, 'other.txt', 'other\n');
-    const r = land(fx, '8', pin);
-    expect(r.err).toBe('');
-    expect(r.status).toBe(EXIT.ok);
+    const r = land(fx, '8', red, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+    expect(r.err).toContain(moved.slice(0, 12));
+    expect(r.err).toContain('budget.md over its cap');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(remote(fx, 'main')).toBe(moved);
+
+    const want = fx.repo.git('merge-tree', '--write-tree', moved, green);
+    const ok = land(fx, '82', green, ['--allow-repo-commands']);
+    expect(ok.err).toBe('');
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toContain(`MERGED_CHECKS: pass tree=${want} base=${moved} pin=${green.slice(0, 12)} checks: test -e other.txt && ls pr-*.txt >/dev/null; `);
     const main = remote(fx, 'main');
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
-    expect(show(fx, main + ':other.txt')).toBe('other');
-    expect(show(fx, main + ':pr-8.txt')).toBe('8');
-    expect(fx.repo.git('rev-parse', 'origin/pr-8')).toBe(pin);
+    expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(want);
+    expect(landNotes(fx)).toHaveLength(1);
+    const again = land(fx, '82', green, ['--allow-repo-commands']);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toContain(`MERGED_CHECKS: pass tree=${want} base=${moved} (after the merge`);
+  }, 90_000);
+
+  test('no land key: a stale base lands untested as before, with a STALE_BASE: warn line naming the missing land.merged_checks', () => {
+    const fx = setup();
+    const pin = openPr(fx, '84');
+    const moved = moveMain(fx, 'other.txt', 'other\n');
+    const r = land(fx, '84', pin);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain(`STALE_BASE: warn origin/main moved to ${moved.slice(0, 12)}`);
+    expect(r.out).toContain('no land.merged_checks configured');
+    expect(r.out).not.toContain('MERGED_CHECKS:');
+    const main = remote(fx, 'main');
+    expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
+    expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(fx.repo.git('merge-tree', '--write-tree', moved, pin));
+    expect(landNotes(fx)).toHaveLength(1);
+    const again = land(fx, '84', pin);
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toContain('already merged');
+    expect(again.out).toContain('no land.merged_checks configured, so the rerun checks the tree only');
+    expect(again.out).toMatch(/^LANDED: /m);
+  }, 90_000);
+
+  test('land.merged_checks are repo commands: refused without --allow-repo-commands, skipped under --dry-run, not run when GitHub is not clean, and run with a scrubbed environment under the land lock', () => {
+    const marker = path.join(os.tmpdir(), `gstack-land-marker-${process.pid}-${Date.now()}`);
+    const fx = setup({ ...POLICY, land: { merged_checks: [`echo "${'$'}HOME|${'$'}{GH_TOKEN-}|${'$'}{LAND_SHIM_DATA-}" > ${marker}`] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '87');
+      moveMain(fx, 'other.txt', 'other\n');
+      fx.env.GH_TOKEN = 'placeholder';
+      const no = land(fx, '87', pin);
+      expect(no.status).not.toBe(EXIT.ok);
+      expect(no.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fx.read().mergeArgs).toBeUndefined();
+
+      const dry = land(fx, '87', pin, ['--dry-run', '--allow-repo-commands']);
+      expect(dry.err).toBe('');
+      expect(dry.status).toBe(EXIT.ok);
+      expect(dry.out).toContain('DRY-RUN: land.merged_checks not run');
+      expect(fs.existsSync(marker)).toBe(false);
+
+      fx.write(d => { d.prs['87'].mergeStateStatus = 'BLOCKED'; });
+      const blocked = land(fx, '87', pin, ['--allow-repo-commands']);
+      expect(blocked.err).toContain('(QUEUE_LAND_NOT_CLEAN)');
+      expect(fs.existsSync(marker)).toBe(false);
+      fx.write(d => { d.prs['87'].mergeStateStatus = 'CLEAN'; });
+
+      const ok = land(fx, '87', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      const [home, token, shim] = fs.readFileSync(marker, 'utf8').trim().split('|');
+      expect(home).not.toBe(process.env.HOME);
+      expect(home).not.toBe('');
+      expect(token).toBe('');
+      expect(shim).toBe('');
+      expect(fx.read().lockAtMerge).toMatchObject({ pr: '87', phase: 'merging' });
+      expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'))).toMatchObject({ released: true });
+    } finally { fs.rmSync(marker, { force: true }); }
+  }, 90_000);
+
+  test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
+    const fx = setup(CHECKED);
+    const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });
+    const moved = moveMain(fx, 'other.txt', 'main\n');
+    const r = land(fx, '83', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_NOT_CLEAN)');
+    expect(r.err).toContain('conflicts with ' + moved.slice(0, 12) + ' in other.txt');
+    expect(fx.read().mergeArgs).toBeUndefined();
+  }, 90_000);
+
+  test('main moved between the stale-base check and GitHub\'s merge: land reports QUEUE_LAND_UNVERIFIED and writes no land note; with no land.merged_checks a rerun cannot tell which base land checked, so it checks the tree only', () => {
+    const fx = setup();
+    const pin = openPr(fx, '81');
+    fx.write(d => { d.raceMain = true; });
+    const r = land(fx, '81', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_UNVERIFIED)');
+    expect(r.err).toContain('does not contain');
+    expect(landNotes(fx)).toEqual([]);
+    const again = land(fx, '81', pin);
+    expect(again.out).toContain('already merged');
+    expect(again.out).toContain('so the rerun checks the tree only');
+    expect(again.status).toBe(EXIT.ok);
+  }, 90_000);
+
+  test('the land lock: a lock an interrupted run left for the same PR is taken over; another PR\'s lock refuses, --break-lock cannot break it mid-merge but breaks a stale one; a lock left after the merge is released by the rerun; a dry rerun verifies nothing', () => {
+    const fx = setup();
+    const hold = (pr: string, journal: string, minutesAgo: number) => {
+      const at = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+      expect(writeLock(fx.repo.work, readLock(fx.repo.work).sha, { pr, holder: 'gone:1', started_at: at, phase_at: at, phase: 'merging', journal }).ok).toBe(true);
+    };
+    const pin = openPr(fx, '88');
+    hold('88', 'land-pin:' + '0'.repeat(40), 0);
+    const took = land(fx, '88', pin);
+    expect(took.err).toBe('');
+    expect(took.out).toContain("LOCK: taking over #88's land lock");
+    expect(readLock(fx.repo.work).state).toBe('released');
+
+    const other = openPr(fx, '89');
+    hold('90', 'land-pin:' + '1'.repeat(40), 0);
+    expect(land(fx, '89', other).err).toContain('(QUEUE_LAND_LOCKED)');
+    expect(land(fx, '89', other, ['--break-lock']).err).toContain('mid-merge');
+    expect(fx.read().prs['89'].state).toBe('OPEN');
+    hold('90', 'land-pin:' + '1'.repeat(40), 11);
+    const broke = land(fx, '89', other, ['--break-lock']);
+    expect(broke.err).toBe('');
+    expect(broke.out).toContain("LOCK: broke #90's lock");
+
+    hold('89', 'land-pin:' + other, 0);
+    const again = land(fx, '89', other);
+    expect(again.err).toBe('');
+    expect(again.out).toContain('LOCK: released the land lock an earlier run of this land left');
+    expect(readLock(fx.repo.work).state).toBe('released');
+    const dry = land(fx, '89', other, ['--dry-run']);
+    expect(dry.out).toContain('DRY-RUN: nothing verified');
+  }, 120_000);
+
+  test('main moved during the merge with land.merged_checks: they run on the landed tree; a rerun without --allow-repo-commands refuses with REPO_COMMANDS_NOT_ALLOWED and runs nothing', () => {
+    const fx = setup(CHECKED);
+    const pin = openPr(fx, '91');
+    moveMain(fx, 'other.txt', 'other\n');
+    fx.write(d => { d.raceMain = true; });
+    const r = land(fx, '91', pin, ['--allow-repo-commands']);
+    expect(r.err).toBe('');
+    expect(r.out).toContain('(after the merge, on the base GitHub merged onto)');
+    const again = land(fx, '91', pin);
+    expect(again.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
+    expect(again.out).not.toContain('MERGED_CHECKS:');
+  }, 90_000);
+
+  test('land re-reads the base policy after the locked fetch: a main that adds land.merged_checks while land runs gets them run on the stale base', () => {
+    const fx = setup();
+    const pin = openPr(fx, '93');
+    const { repo } = fx;
+    repo.git('fetch', '-q', 'origin');
+    repo.git('checkout', '-q', '--detach', 'origin/main');
+    fs.writeFileSync(path.join(repo.work, '.gstack', 'ship-policy.json'), JSON.stringify({ ...POLICY, land: { merged_checks: ['echo merged check ran >&2; exit 1'] }, min_gstack_version: LAND_KEY_VERSION }, null, 2) + '\n');
+    repo.git('commit', '-qam', 'main adds land.merged_checks');
+    repo.git('push', '-q', 'origin', 'HEAD:refs/heads/next-main');
+    const next = repo.git('rev-parse', 'HEAD');
+    repo.git('checkout', '-q', '--detach', 'origin/main');
+    fx.write(d => { d.mainOnView = next; });
+    const r = land(fx, '93', pin, ['--allow-repo-commands']);
+    expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+    expect(r.err).toContain('merged check ran');
+    expect(fx.read().mergeArgs).toBeUndefined();
   }, 90_000);
 
   test('a rerun after GitHub merged the PR goes straight to the tree check and lands', () => {
@@ -384,6 +555,57 @@ describe('merge: direct | train', () => {
     expect(errs({ merge: 'train' })).toBe('');
     expect(errs({ merge: 'sideways', min_gstack_version: MERGE_KEY_VERSION })).toContain('merge: must be one of direct | train');
     expect(errs({ merge: 'direct' })).toContain('introduced in gstack ' + MERGE_KEY_VERSION);
+  });
+
+  test('runMergedChecks: HEAD is the merged commit, no hook from the merged tree runs, a passing check that leaves a child behind passes at once; a check that times out (even one exiting 0 on SIGTERM) or that rewrites a tracked file fails', () => {
+    const fx = setup(CHECKED);
+    const hookMark = path.join(fx.repo.root, 'hook-ran');
+    const pin = openPr(fx, '86');
+    const moved = moveMain(fx, 'other.txt', 'other\n');
+    fs.mkdirSync(path.join(fx.repo.work, '.hooks'));
+    fs.writeFileSync(path.join(fx.repo.work, '.hooks', 'post-checkout'), `#!/bin/sh\ntouch ${hookMark}\n`, { mode: 0o755 });
+    fx.repo.git('config', 'core.hooksPath', '.hooks');
+    const run = (checks: string[], ms?: number) => runMergedChecks(fx.repo.work, moved, pin, checks, ms);
+    const head = run(['git show HEAD:pr-86.txt && git show HEAD:other.txt && test "$(git rev-parse HEAD^1)" = ' + moved]);
+    expect(head.ok).toBe(true);
+    expect(fs.existsSync(hookMark)).toBe(false);
+    const started = Date.now();
+    expect(run(['sleep 30 & exit 0'], 20_000).ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const slow = run(["trap 'exit 0' TERM; sleep 5; exit 1"], 500);
+    expect(slow.ok).toBe(false);
+    if (!slow.ok) expect(slow.detail).toContain('did not finish');
+    const pidFile = path.join(fx.repo.root, 'grandchild.pid');
+    const orphan = run([`sleep 30 & echo $! > ${pidFile}; wait`], 500);
+    expect(orphan.ok).toBe(false);
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    expect(alive(Number(fs.readFileSync(pidFile, 'utf8').trim()))).toBe(false);
+    const stubborn = Date.now();
+    expect(run(["trap '' TERM; sleep 5"], 300).ok).toBe(false);
+    expect(Date.now() - stubborn).toBeLessThan(3_000);
+    const moved2 = run(['git checkout -q HEAD^1']);
+    expect(moved2.ok).toBe(false);
+    if (!moved2.ok) expect(moved2.detail).toContain('moved HEAD');
+    const depPin = openPr(fx, '92', { edit: w => { const p = JSON.parse(fs.readFileSync(path.join(w, 'package.json'), 'utf8')); p.dependencies['is-odd'] = '3.0.1'; fs.writeFileSync(path.join(w, 'package.json'), JSON.stringify(p, null, 2) + '\n'); } });
+    const dep = runMergedChecks(fx.repo.work, moved, depPin, ['true']);
+    expect(dep.ok).toBe(false);
+    if (!dep.ok) { expect(dep.setup).toBe(true); expect(dep.detail).toContain('package.json dependencies differ'); }
+    const rewrite = run(['echo fixed > pr-86.txt', 'test "$(cat pr-86.txt)" = fixed']);
+    expect(rewrite.ok).toBe(false);
+    if (!rewrite.ok) expect(rewrite.detail).toContain('changed tracked files');
+    expect(fx.repo.git('worktree', 'list').split('\n')).toHaveLength(1);
+  }, 90_000);
+
+  test('land.merged_checks validates its commands and needs min_gstack_version', () => {
+    const errs = (o: Record<string, unknown>) => validatePolicy(o).map(e => e.path + ': ' + e.message).join('\n');
+    expect(errs({ land: { merged_checks: ['bun run typecheck'] }, min_gstack_version: LAND_KEY_VERSION })).toBe('');
+    expect(errs({ land: null })).toBe('');
+    expect(errs({ land: { merged_checks: ['bun run typecheck'] } })).toContain('introduced in gstack ' + LAND_KEY_VERSION);
+    const bad = (land: unknown) => errs({ land, min_gstack_version: LAND_KEY_VERSION });
+    expect(bad({ merged_checks: [] })).toContain('land.merged_checks: must list 1 to 16 commands');
+    expect(bad({ merged_checks: ['a'], timeout: 5 })).toContain('land.timeout: unknown key');
+    expect(bad({ merged_checks: ['a\nb', ' '] })).toBe('land.merged_checks[0]: must be one line of at most 512 characters\nland.merged_checks[1]: must be a non-empty command');
+    expect(bad(['a'])).toContain('land: must be { merged_checks } or null');
   });
 
   test('the key floor follows the stamp: the train restamp moves MERGE_KEY_VERSION to the stamped 1.x.N, an N install reads a policy with min N, an N-1 install gets the upgrade message', () => {

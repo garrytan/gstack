@@ -488,6 +488,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a check at the pin is red or pending, or a required check never ran there',
     fix: 'wait for pending checks (gstack-pr-wait <n> --until green), fix a red one at a new head, or dispatch a missing required workflow on the branch; then rerun land',
   },
+  QUEUE_LAND_MERGED_CHECKS: {
+    anchor: 'queue-land-merged-checks',
+    summary: 'the base moved past the pin\'s merge base, and a land.merged_checks command failed on the pin merged onto the base tip (GST-1316: a stale-base PR pushed a budgeted file past its cap on main); nothing merged',
+    fix: 'merge the base into the branch, fix what the failing command names, push, wait for the required checks, run /ship and gstack-ship-queue ready at the new head, then land it',
+  },
   QUEUE_LAND_NOT_CLEAN: {
     anchor: 'queue-land-not-clean',
     summary: 'GitHub does not report the PR mergeable and clean (a conflict, a branch rule, or a state GitHub is still computing)',

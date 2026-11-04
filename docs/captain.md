@@ -330,7 +330,8 @@ commits. Each PR merges at its own green head, and versions are set at release
 1. Lane: /ship, then `gstack-ship-queue ready --pr <n> --no-screen` at the pinned head,
    then READY to the Captain with that pin. The PR carries a `changelog.d` fragment and
    leaves VERSION, the `package.json` version and CHANGELOG.md alone.
-2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>`. It merges with
+2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>` (add `--allow-repo-commands` when
+   the base policy lists `land.merged_checks`, so a stale base can run them). It merges with
    `--match-head-commit`, checks main's tree and writes a land note.
 3. Release: before each stable cut (Monday and Thursday, 14:00 UTC), the Captain runs
    `gstack-release-stamp open`, waits for the release PR's checks, then lands it with
@@ -347,10 +348,11 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_RECEIPT_MISSING` / `QUEUE_RECEIPT_STALE` | lane | /ship at the pin |
 | `QUEUE_NOT_READY` | lane, or Captain | no READY note: `ready --pr <n> --no-screen` at the pin; `merge: train`: use the train; closed or retargeted PR: as named |
 | `QUEUE_LAND_CHECKS` | Captain, then lane | pending: `gstack-pr-wait <n> --until green` and rerun; red: back to the lane (rule 16 rerun for a flaky case); missing: dispatch the workflow on the branch |
-| `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
+| `QUEUE_LAND_MERGED_CHECKS` | lane | a `land.merged_checks` command failed on the pin merged onto main: the lane merges main (rule 19), fixes it, /ship, `ready`, new READY |
+| `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`, or the pin conflicts with main's tip on a stale base: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
 | `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
-| `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it |
+| `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent, or main moved after land's check and `land.merged_checks` failed or is absent on the landed tree: revert the stray change or fix forward, report it |
 | `RELEASE_STAMP_INVALID` | Captain | the `release/<version>` head is more than its stamp: close it, `gstack-release-stamp open` again |
 | `RELEASE_STAMP_EMPTY` | Captain | no fragment landed since the last release: nothing to release |
 

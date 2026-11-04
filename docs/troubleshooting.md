@@ -3228,10 +3228,12 @@ nothing.
 <a id="repo-commands-not-allowed"></a>
 ### `repo commands not executed (pass --allow-repo-commands) (REPO_COMMANDS_NOT_ALLOWED)`
 
-**Meaning.** The policy declares a command (`release_tool`), and the tool was
-run standalone. File presence never authorizes execution: outside `/ship` and
-`/land-and-deploy` a repo-declared command runs only with
-`--allow-repo-commands`. The commands were listed and nothing was written.
+**Meaning.** The policy declares a command (`release_tool`, or
+`land.merged_checks` for `gstack-ship-queue land --pin` on a stale base), and
+the tool was run without consent. File presence never authorizes execution:
+outside `/ship` and `/land-and-deploy` a repo-declared command runs only with
+`--allow-repo-commands`. The commands were listed and nothing was written or
+merged.
 
 **Fix.** Pass `--allow-repo-commands` when you mean to execute the repo's
 code (you already do when you run its tests), or drop the release tool.
@@ -5241,11 +5243,24 @@ ran there. Nothing was merged.
 the lane fixes it at a new head (a flaky case gets its one rerun under rule
 16). Missing: dispatch that workflow on the branch, then rerun land.
 
+<a id="queue-land-merged-checks"></a>
+### `QUEUE_LAND_MERGED_CHECKS`
+
+**Meaning.** `origin/main` moved since the pin's merge base, and a
+`land.merged_checks` command failed on the pin merged onto main's tip. The
+message names the command, its exit and its last output lines. Nothing was
+merged.
+
+**Fix.** The lane merges `origin/main` into the branch, fixes what the
+command names, pushes, waits for the required checks, runs /ship and `ready`
+at the new head, and sends a new READY.
+
 <a id="queue-land-not-clean"></a>
 ### `QUEUE_LAND_NOT_CLEAN`
 
-**Meaning.** GitHub doesn't report the PR `MERGEABLE` and `CLEAN`. Nothing
-was merged.
+**Meaning.** GitHub doesn't report the PR `MERGEABLE` and `CLEAN`, or, on a
+stale base, the pin conflicts with main's tip (the message names the files).
+Nothing was merged.
 
 **Fix.** `CONFLICTING`: the lane merges the base into its branch, resolves,
 runs /ship and `ready` at the new head. `UNKNOWN`: GitHub is still
@@ -5257,10 +5272,16 @@ rule it names.
 
 **Meaning.** GitHub merged the PR, but the base branch's merge commit tree
 isn't the pin merged onto that commit's parent, so something besides the
-reviewed pin reached main. No land note was written.
+reviewed pin reached main, or the merge commit's parent is neither in the pin
+nor the base land checked, so main moved between land's check and the merge,
+and `land.merged_checks` then failed on the landed tree or the base policy
+lists none. No land note was written.
 
-**Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
-<pin>`, revert what doesn't belong to the PR, and report it to the Captain.
+**Fix.** For a tree mismatch, compare the merge commit with `git merge-tree
+--write-tree <parent> <pin>`, revert what doesn't belong to the PR, and report
+it to the Captain. For a parent the pin doesn't contain, run the free checks on
+main at the merge commit; if one is red, fix forward or revert the PR, and
+report it to the Captain.
 
 <a id="release-stamp-empty"></a>
 ### `RELEASE_STAMP_EMPTY`
