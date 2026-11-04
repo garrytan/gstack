@@ -1030,3 +1030,57 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(r.status).toBe(EXIT.ok);
   }, 60_000);
 });
+
+describe('a declared runner gets only the files its tool runs', () => {
+  const BUN_APP = {
+    'lib/sum.ts': 'export const sum = (a: number, b: number) => a + b;\n',
+    'test/sum.test.ts': "import { expect, test } from 'bun:test';\nimport { sum } from '../lib/sum';\ntest('sum', () => expect(sum(1, 2)).toBe(3));\n",
+    'tests/real-outcome/agent_test.py': "import subprocess\n\ndef test_agent():\n    assert 'lib/sum.ts'\n",
+  };
+  const ctxWith = (repo: FixtureRepo, runner: string) => ({ repoRoot: repo.work, config: { ...DEFAULT_CONFIG, runner }, env: process.env }) as unknown as PregateContext;
+
+  // Value: protects=a declared JS runner never receives a Python test (bun exits 1 on "filters did not match any test files", so the
+  //   lane went PREGATE_LANE_FAILED on gstack-evals #196 and #200), and the files it cannot run are named, not counted as covered;
+  //   fails_when=a declared runner takes every selected file again; why_new=only detected runners split by language; seam=none;
+  //   no_claim=a Python lane (pytest never runs under a declared JS runner)
+  test('a declared bun runner plans JS/TS only and names the dropped .py files; pytest takes .py only; an unknown tool takes every file', () => {
+    const repo = fixture({ baseFiles: BUN_APP });
+    const files = ['test/sum.test.ts', 'test/resize_test.py', 'tests/real-outcome/agent_test.py'];
+    expect(planRuns(ctxWith(repo, 'bun test --timeout=30000 {files}'), files)).toEqual({ groups: [{ runner: 'bun test --timeout=30000 {files}', cwd: '', files: ['test/sum.test.ts'] }], unclaimed: [], missing: [], noPubspec: [], dropped: ['test/resize_test.py', 'tests/real-outcome/agent_test.py'] });
+    expect(planRuns(ctxWith(repo, 'python3 -m pytest {files}'), files).groups).toEqual([{ runner: 'python3 -m pytest {files}', cwd: '', files: ['test/resize_test.py', 'tests/real-outcome/agent_test.py'] }]);
+    expect(planRuns(ctxWith(repo, 'bash scripts/run-tests.sh {files}'), files)).toEqual({ groups: [{ runner: 'bash scripts/run-tests.sh {files}', cwd: '', files }], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctxWith(repo, 'tests/node/run.sh {files}'), files).groups[0]!.files).toEqual(files);
+    expect(planRuns(ctxWith(repo, 'node scripts/run-tests.js {files}'), files).groups[0]!.files).toEqual(files);
+    expect(planRuns(ctxWith(repo, 'python3 scripts/run-tests.py {files}'), files).groups[0]!.files).toEqual(files);
+    expect(planRuns(ctxWith(repo, 'node --test {files}'), files).dropped).toEqual(['test/resize_test.py', 'tests/real-outcome/agent_test.py']);
+    expect(planRuns(ctxWith(repo, 'bun test {files} && python3 -m pytest {files}'), files).dropped).toBeUndefined();
+    expect(planRuns(ctxWith(repo, './node_modules/.bin/jest {files}'), files).dropped).toEqual(['test/resize_test.py', 'tests/real-outcome/agent_test.py']);
+    expect(planRuns(ctxWith(repo, 'bun test {files}'), ['test/resize_test.py'])).toEqual({ groups: [], unclaimed: [], missing: [], noPubspec: [], dropped: ['test/resize_test.py'] });
+  });
+
+  // Value: protects=the reported runs end to end under a set `bun test {files}` runner: beside a TS test, a changed *_test.py and a .py
+  //   test selected by a literal match are no longer handed to bun (which skips them silently, so the lane counted 3 files for 1 run),
+  //   and a .py-only selection no longer runs bun at all (bun exits 1 when no file is a bun test: PREGATE_LANE_FAILED, gstack-evals
+  //   #196 and #200); both name the .py files; fails_when=bun is handed a .py file again; why_new=no fixture declared a JS runner beside
+  //   Python tests; seam=none; no_claim=TS tests that spawn python3 count as coverage of the .py files (they do not)
+  test('a set bun runner with a changed *_test.py and a literal-match .py runs bun without any .py file', () => {
+    const repoWith = (files: Record<string, string>) => {
+      const repo = fixture({ pregate: { ...BASE_PREGATE, runner: 'bun test {files}' }, baseFiles: BUN_APP });
+      commit(repo, { '.github/workflows/free-tests.yml': null, '.github/workflows/windows.yml': null }, 'no workflows');
+      repo.git('push', '-q', 'origin', 'HEAD:main');
+      repo.git('fetch', '-q', 'origin');
+      commit(repo, files);
+      return pregate(repo, ['--stage', 'tests', '--only', 'lanes']);
+    };
+    const mixed = repoWith({ 'lib/sum.ts': 'export const sum = (a: number, b: number) => b + a;\n', 'test/resize_test.py': 'def test_resize():\n    assert True\n' });
+    const ran = /^\s*lanes: ran: .*$/m.exec(mixed.out)?.[0] ?? '';
+    expect(ran).toContain('test/sum.test.ts');
+    expect(ran).not.toContain('.py');
+    expect(mixed.out).toMatch(/^tests {6}lanes {5}pass .*1 tests ran in 1 file\(s\), exit 0; 2 selected file\(s\) the declared runner cannot run \(not run, not counted as covered\): test\/resize_test\.py tests\/real-outcome\/agent_test\.py/m);
+    expect(mixed.status).toBe(EXIT.ok);
+    const pyOnly = repoWith({ 'test/resize_test.py': 'def test_resize():\n    assert True\n' });
+    expect(pyOnly.out).not.toMatch(/lanes: ran: /);
+    expect(pyOnly.out).toMatch(/^tests {6}lanes {5}pass .*no selected file is one the declared runner can run; 1 selected file\(s\) the declared runner cannot run \(not run, not counted as covered\): test\/resize_test\.py/m);
+    expect(pyOnly.status).toBe(EXIT.ok);
+  }, 60_000);
+});
