@@ -200,10 +200,10 @@ const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new b
 /** The run plan: the groups that can run, the files no runner claims, tools missing from PATH, `.dart` files with no pubspec.yaml above, and the files a declared runner cannot run (not run, not counted as covered). */
 export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: string[]; noPubspec: string[]; dropped?: string[] }
 
-/** The files a declared runner's tool runs, by extension: JS/TS for bun, node, deno, vitest, jest, mocha, ava and playwright; `.py` for pytest and python. A tool counts as a whole command word (`./node_modules/.bin/jest` does, `tests/node/run.sh` does not). Null for any other tool, or one naming both kinds: it takes every file. */
+/** The files a declared runner's test tool runs, by extension: JS/TS for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava and playwright; `.py` for pytest. A tool counts as a whole command word (`./node_modules/.bin/jest` does, `tests/node/run.sh` does not). Null for any other command (a dispatcher such as `node scripts/run-tests.js` may run any language), or one naming both kinds: it takes every file. */
 function declaredRunnerFiles(runner: string): RegExp | null {
-  const js = /(?:^|[\s;&|(])(?:\S*\/)?(?:bun|node|deno|vitest|jest|mocha|ava|playwright)(?=$|[\s;&|)])/.test(runner);
-  const py = /(?:^|[\s;&|(])(?:\S*\/)?(?:pytest|python3?)(?=$|[\s;&|)])/.test(runner);
+  const js = /(?:^|[\s;&|(])(?:\S*\/)?(?:vitest|jest|mocha|ava|playwright|bun\s+test|node\s+--test|deno\s+test)(?=$|[\s;&|)])/.test(runner);
+  const py = /(?:^|[\s;&|(])(?:\S*\/)?pytest(?=$|[\s;&|)])/.test(runner);
   return js === py ? null : js ? /\.[cm]?[jt]sx?$/ : /\.py$/;
 }
 
