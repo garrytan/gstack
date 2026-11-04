@@ -56,6 +56,14 @@ describe('gstack-restamp --release', () => {
     expect(readFile(repo, 'docs/notes.md')).toContain('Previous release v1.2.3.0.');
   });
 
+  test('takes its bump from the fragments: --bump with --release is a usage error', () => {
+    const repo = landed();
+    const r = runBin(repo, 'gstack-restamp', ['--release', '--bump', 'major', '--base', 'main', '--allow-repo-commands']);
+    expect(r.status).not.toBe(0);
+    expect(r.err).toContain('drop --bump');
+    expect(readFile(repo, 'VERSION').trim()).toBe('1.2.3.0');
+  });
+
   test('refuses off a clean checkout of origin/<base>, and with no fragment to release', () => {
     const repo = landed();
     repo.git('checkout', '-q', '-b', 'side');
@@ -89,6 +97,7 @@ describe('classifyRelease and the Version Gate', () => {
     ['the release output is hand-edited', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.3.0.0\nedited\n'), 'generated/digest.md'],
     ['package.json keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'package.json'), fs.readFileSync(path.join(w, 'package.json'), 'utf8').replace('"version": "1.3.0"', '"version": "1.2.3"')), 'package.json'],
     ['the CHANGELOG heading names another version', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('## [1.3.0.0]', '## [9.0.0.0]')), 'CHANGELOG.md'],
+    ['a folded entry moves under an older release', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('- a change\n\n', '').replace('- base release', '- base release\n\n- a change')), 'CHANGELOG.md'],
     ['the release output is deleted', (w: string) => fs.rmSync(path.join(w, 'generated', 'digest.md')), 'generated/digest.md'],
     ['the release output keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.2.3.0\nbody\n'), 'generated/digest.md'],
     ['the version is not base + the fragments\' bump', (w: string) => fs.writeFileSync(path.join(w, 'VERSION'), '1.4.0.0\n'), 'is 1.3.0.0'],

@@ -68,7 +68,10 @@ export function classifyRelease(o: { repoRoot: string; policy: ShipPolicy; merge
   if (lock.ok) { try { const l = JSON.parse(lock.out); if (l.version !== npmWant || (l.packages?.[''] && l.packages[''].version !== npmWant)) return no(`package-lock.json's root version is not ${npmWant}`); } catch { return no('package-lock.json at the head is not JSON'); } }
   if (o.policy.changelog) {
     const sections = (rev: string) => { const r = git(o.repoRoot, ['show', `${rev}:${o.policy.changelog}`]); return r.ok ? parseChangelog(r.out).sections : []; };
-    const [before, after] = [sections(o.mergeBase).filter(s => !s.unreleased).map(s => s.version), sections(o.head).map(s => s.unreleased ? 'Unreleased' : s.version)];
+    const [was, is] = [sections(o.mergeBase).filter(s => !s.unreleased), sections(o.head)];
+    const [before, after] = [was.map(s => s.version), is.map(s => s.unreleased ? 'Unreleased' : s.version)];
+    const rewritten = was.filter((s, i) => is[i + 1]?.lines.join('\n').trimEnd() !== s.lines.join('\n').trimEnd()).map(s => s.version);
+    if (rewritten.length) return no(`${o.policy.changelog} rewrites the released section(s) ${rewritten.slice(0, 3).join(', ')}; a release only adds its own section on top`);
     if (after[0] !== now.version || after.slice(1).join(' ') !== before.join(' ')) return no(`${o.policy.changelog} must add one [${now.version}] heading on top of the released headings it had (${after.slice(0, 3).join(', ')} …)`);
   }
   const outputs = !o.policy.release_tool ? residual.map(f => f.path) : [...new Set([...residual.map(f => f.path), ...git(o.repoRoot, ['ls-tree', '-r', '--name-only', o.head]).out.split('\n').filter(f => f && matchesAny(o.policy.release_outputs, f))])];
@@ -109,9 +112,9 @@ export function openRelease(o: OpenOptions): OpenResult {
   const baseSha = git(o.repoRoot, ['rev-parse', `origin/${o.base}`]).out;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-release-stamp-'));
   const dir = path.join(tmp, 'worktree');
-  const add = git(o.repoRoot, ['worktree', 'add', '--detach', '-q', dir, baseSha]);
-  if (!add.ok) return fail('RELEASE_STAMP_INVALID', `cannot create the release worktree: ${add.err}`);
   try {
+    const add = git(o.repoRoot, ['worktree', 'add', '--detach', '-q', dir, baseSha]);
+    if (!add.ok) return fail('RELEASE_STAMP_INVALID', `cannot create the release worktree: ${add.err}`);
     const nm = path.join(o.repoRoot, 'node_modules');
     if (fs.existsSync(nm)) fs.symlinkSync(nm, path.join(dir, 'node_modules'), 'dir');
     const stamp = restamp({ repoRoot: dir, base: o.base, release: true, policyFrom: 'base', allowRepoCommands: true, dryRun: !!o.dryRun, now: o.now });
@@ -135,7 +138,7 @@ export function openRelease(o: OpenOptions): OpenResult {
       '', `Folds: ${folded}`, '',
       `Land it with \`gstack-ship-queue land --pr <this PR> --pin ${head}\` once its checks are green. land checks that this head is exactly the release stamp of its merge base (RELEASE_STAMP_INVALID otherwise), so a release PR needs no /ship receipt.`,
     ].join('\n');
-    const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""'], dir);
+    const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository | not)][0].url // ""'], dir);
     const pr = open.ok && open.out.trim() ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', body], dir);
     if (!pr.ok) return fail('RELEASE_STAMP_INVALID', `gh pr create failed (${pr.err.trim().split('\n')[0]}); ${branch} is pushed, so open its PR by hand`);
     const url = pr.out.trim().split('\n').pop() ?? '';

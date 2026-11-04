@@ -106,6 +106,7 @@ function main(argv: string[]): number {
   const modes = ['--next', '--version', '--after', '--release'].filter(f => argv.includes(f));
   if (modes.length !== 1) { process.stderr.write(`gstack-restamp: pass exactly one of --next, --version <X>, --after <pr>, --release\n${HELP}\n`); return EXIT.usage; }
   const bump = flag(argv, '--bump') as Bump | undefined;
+  if (bump && argv.includes('--release')) { process.stderr.write('gstack-restamp: --release takes its bump from the fragments; drop --bump\n'); return EXIT.usage; }
   if (bump && !['micro', 'patch', 'minor', 'major'].includes(bump)) { process.stderr.write('gstack-restamp: --bump needs micro|patch|minor|major\n'); return EXIT.usage; }
   const queueMode = flag(argv, '--queue-mode') as 'stamp-at-merge' | 'claim-at-open' | undefined;
   if (queueMode && !['stamp-at-merge', 'claim-at-open'].includes(queueMode)) { process.stderr.write('gstack-restamp: --queue-mode needs stamp-at-merge|claim-at-open\n'); return EXIT.usage; }
