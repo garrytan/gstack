@@ -1179,7 +1179,10 @@ policy read, so no paid work starts and nothing is written. With the block it ru
    running at the budget, or incomplete), so a later green on the same commit
    is not undercut by an earlier failure. A run that fails before it has a
    commit to gate (a refused policy, unreadable notes, an unresolved branch)
-   publishes no check run, so it fails the workflow job instead.
+   publishes no check run, so it fails the workflow job instead. That failed
+   job is a red check run on main's head, so release-cut refuses that commit
+   until a later release-gate run on it succeeds (release-cut reads the
+   latest check run of each name).
 
 **What release-cut reads.** A GREEN release record on a commit counts as
 gated, the same as a successful `main-backstop` check run. A RED record
