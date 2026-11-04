@@ -712,8 +712,16 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `Severity` or `Blocks` line comes, so those fields never split off as a second record (GST-1031). An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
-   A negated severity word still collects at its label ("found nothing CRITICAL", "No P0/P1 issues"), so a reader's
-   closing summary is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
+   A reader's own no-defect closing sentence is no finding at the label it denies (GST-435): a prose line with no
+   list, heading, bold or lead label, no `Severity` or `Blocks` field, no FIXABLE or INVESTIGATE, no file:line or path
+   and no exception clause, whose every labelled sentence is wholly a denial ("I found nothing CRITICAL.", "I found no
+   defect that is CRITICAL.", "No P0/P1 issues.", "Neither finding is CRITICAL."), a count ("I found three
+   INFORMATIONAL issues and nothing CRITICAL" collects at INFORMATIONAL) or "nothing blocks". A quantifier that points
+   at a finding elsewhere ("nothing else", "no other", "remaining", "new"), a named defect ("No auth check guards the
+   admin route, so nothing CRITICAL") or any other labelled sentence on the line keeps the whole line at its label, and a
+   reply whose only text is such a sentence, with no clean marker, is still no review. Any other negated severity word
+   still collects at its label, so a closing summary with a clause of its own ("I checked these against the post and
+   found nothing CRITICAL") is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
    `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is
    CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
    with a reason, which judge records as `dismissed` (GST-1031); otherwise lead judgment can fold it only into a finding

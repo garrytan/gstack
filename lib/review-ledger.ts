@@ -102,6 +102,35 @@ export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.t
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
 /**
+ * A reader's own no-defect closing sentence (GST-435: gstack-evals #194 "I found nothing CRITICAL.", #202 "I found no defect that is
+ * CRITICAL..."): a prose line with no list, heading, bold or lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE, no
+ * file:line or path and no exception clause, whose every labelled sentence is wholly one of these clauses: a denial (`no CRITICAL
+ * issues`, `no defect that is CRITICAL`, `nothing at CRITICAL`, `there are no High findings`, `neither finding is CRITICAL`), a
+ * count (`I found three INFORMATIONAL issues`) or `nothing blocks`. It yields the labels its counts name (none for a pure denial), so
+ * the denied label is no finding. A quantifier that points at a finding elsewhere (`nothing else`, `no other`, `remaining`), a
+ * named defect (`No auth check guards the admin route, so nothing CRITICAL`) or any other labelled sentence keeps the line as it was.
+ */
+const SEV = `[*\`]*(?:CRITICAL|INFORMATIONAL|Critical|Informational|High|HIGH|Medium|MEDIUM|Low|LOW|P[0-3])[*\`]*`;
+const SEV_LIST = `${SEV}(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*${SEV})*(?![A-Za-z0-9])`;
+const NOUN = '(?:issues?|findings?|defects?|bugs?|problems?|regressions?|blockers?|concerns?|items?|notes?|ones?)';
+const DENY = `(?<![A-Za-z])(?:(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?`
+  + `|nothing\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|there(?:'s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+(?:still\\s+)?(?:no|zero|nothing(?:\\s+at)?)\\s+${SEV_LIST}(?:\\s+${NOUN})?`
+  + `|(?:nothing|none\\s+of\\s+(?:them|these|those|the\\s+(?:findings|fixes|notes|issues|changes))|neither(?:\\s+(?:finding|fix|note|issue|change|one)|\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))))`
+  + `(?:\\s+(?:here|in\\s+(?:this|the)\\s+(?:diff|change|fix|patch|range|PR)))?\\s+(?:is|are|was|were)\\s+(?:at\\s+)?${SEV_LIST})`;
+const SUMMARY_ITEM = `(?:(?:(?:I|we)\\s+(?:also\\s+)?(?:found|find|see|saw|spotted|identified|noticed|observed|have|had|raised|report)\\s+)?`
+  + `(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+|a\\s+few|several|some|an?)\\s+${SEV_LIST}\\s+${NOUN}|${DENY})`
+  + `|(?:nothing|none\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))|no\\s+(?:finding|issue)s?)\\s+(?:is\\s+|are\\s+)?(?:blocking|blocks?)(?:\\s+(?:landing|the\\s+merge|merging))?)`
+  + `(?:\\s+(?:here|found|to\\s+report|remain(?:s|ing)?|in\\s+(?:this|the)\\s+(?:diff|change|changes|fix|fixes|patch|range|PR|review|pass|commit)))*`;
+const SUMMARY_SENTENCE = new RegExp(`^(?:(?:so|overall|in\\s+short|in\\s+summary|in\\s+total|to\\s+sum\\s+up)[,:]?\\s+)?${SUMMARY_ITEM}(?:(?:\\s*[,;]\\s*|\\s+)(?:and\\s+)?${SUMMARY_ITEM})*\\s*[.!…]*$`, 'i');
+const DENIED = new RegExp(DENY, 'gi');
+export const closingSummary = (t: string): string[] | undefined => {
+  if (t.startsWith('{') || t.startsWith('**') || LIST_ITEM.test(t) || HEADING.test(t) || LEAD_LABEL.test(t) || t.match(SEVERITY_FIELD) || t.match(STATED_BLOCKS) || BLOCKS_YES.test(t)
+    || LOCUS.test(t) || PATH_LOCUS.test(t) || EXCEPTION.test(t) || /(?<![A-Za-z0-9])(?:FIXABLE|INVESTIGATE)(?![A-Za-z0-9])/i.test(t)) return undefined;
+  const labelled = t.split(SENTENCE).filter(s => ANY_LABEL.test(s));
+  if (!labelled.length || !labelled.every(s => SUMMARY_SENTENCE.test(s.trim()))) return undefined;
+  return labelled.flatMap(s => [...s.replace(DENIED, ' ').matchAll(ALL_LABELS)].map(m => m[1]!));
+};
+/**
  * The native reader's own verdict line (GSTA-258 L4: #3901 "There are three low-severity findings, all FIXABLE, and none blocks."): a prose
  * line, no list item, heading, lead label, file:line, Severity or Blocks field, whose only labels are FIXABLE or INVESTIGATE and which says
  * nothing blocks. It collects at FIXABLE as written, never raised to CRITICAL; the findings it summarizes collect on their own lines.
@@ -153,6 +182,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string) => {
     if (role === 'adversarial-native' && quietSummary(t)) return 'FIXABLE';
+    const summary = closingSummary(t);
+    if (summary) return strongestOf(summary.map(named));
     const field = fieldOf(t);
     if (field === undefined) return strongest(t);
     return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
