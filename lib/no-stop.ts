@@ -9,8 +9,8 @@
  * - test-timeout-fix: a fix whose every changed line, all in test files, only raises a timeout value.
  * - pregate-flake-rerun: one rerun of a failed pregate case at the same tree (CREW rule 16). One per branch.
  * - stamp-only-carry: a refused receipt carry whose changes since the receipt head are version stamps only.
- * - autoplan-regate: a later autoplan gate revision whose plan delta names no spend, cap, arm or verdict
- *   (lib/autoplan-carry.ts asks regateTouches before it carries).
+ * - autoplan-regate: a later autoplan gate revision whose plan-file edit only adds ELI5 lines that name no
+ *   number, spend, cap, arm or verdict (lib/autoplan-carry.ts asks notEli5Only before it carries).
  *
  * The ledger is a JSON array of {class, reason, evidence} under the checkout's git dir, one file per
  * branch, so `gstack-ship-receipt write --no-stop @<ledger>` takes it as it stands.
@@ -33,8 +33,8 @@ const ASSERTION = /\b(?:expect|assert\w*)\b|\s[<>]=?\s/;
 const VERSION = /\d+\.\d+\.\d+(?:\.\d+)?/g;
 const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const STAMP_PATHS = ['VERSION', 'package.json', 'CHANGELOG.md', 'agents-digest/gstack-AGENTS.md'];
-/** Plan-delta words that mean spend, a cap, an eval arm or a verdict changed: those re-gates go to the owner. */
-export const REGATE_WORDS = /\$|\b(?:spend|spending|spent|costs?|budgets?|prices?|caps?|capped|credits?|limits?|max|maximum|arms?|models?|judges?|verdicts?|thresholds?|bars?|pass(?:es)? at|trials?|samples?|stop rules?|kill rules?|paid|evals?|opus|sonnet|haiku|gpt[\w.-]*|gemini|claude)\b|\bn\s*=/i;
+/** Words that mean spend, a cap, an eval arm, a model or a verdict: an ELI5 addition naming one goes to the owner. */
+const REGATE_WORDS = /\$|\b(?:spend|spending|spent|costs?|budgets?|prices?|caps?|capped|credits?|limits?|max|maximum|arms?|models?|judges?|verdicts?|thresholds?|bars?|pass(?:es)? at|trials?|samples?|stop rules?|kill rules?|paid|evals?|opus|sonnet|haiku|gpt[\w.-]*|gemini|claude)\b|\bn\s*=/i;
 
 /** Unified diff (git diff) to files, each with its one-for-one changed line pairs; a run of unequal - and + counts is unpaired. */
 export function parseDiff(diff: string): FileDiff[] {
@@ -66,8 +66,8 @@ export function parseDiff(diff: string): FileDiff[] {
 }
 
 const TEST_CALL = /^\s*(?:test|it|describe|bench|beforeAll|beforeEach|afterAll|afterEach)(?:\.\w+)*\(/;
-/** A trailing `}, N)` is a timeout only where it closes a test callback: the line opens a test call, or the brace starts the line. */
-const isTimeout = (s: string, key: string, at: number, len: number) => !key.startsWith('}') || ((TEST_CALL.test(s) || !s.slice(0, at).trim()) && /\)\s*;?\s*$/.test(s.slice(at + len)));
+/** A trailing `}, N)` is a timeout only where the same line opens the test call it closes; a multi-line callback's `}, N);` could close any call. */
+const isTimeout = (s: string, key: string, at: number, len: number) => !key.startsWith('}') || (TEST_CALL.test(s) && /\)\s*;?\s*$/.test(s.slice(at + len)));
 const timeoutValues = (s: string) => [...s.matchAll(TIMEOUT_VALUE)].filter(m => isTimeout(s, m[1]!, m.index!, m[0].length)).map(m => Number(m[2]!.replace(/_/g, '')));
 const maskTimeouts = (s: string) => s.replace(TIMEOUT_VALUE, (_m, key: string, _n: string, at: number) => (isTimeout(s, key, at, _m.length) ? `${key}#` : _m));
 
@@ -105,45 +105,30 @@ export function notStampOnly(files: FileDiff[]): string | null {
   return null;
 }
 
-const QUANTITY = /^[$~]?-?\d[\d_,.]*(?:%|x|[a-z]{1,3})?$/i;
-const tokens = (line: string) => line.split(/\s+/).map(t => t.replace(/[,.;:!?)]+$/, '')).filter(Boolean);
-
-/** The tokens of a and b outside their longest common subsequence: what the edit changed, in place. */
-function changedTokens(a: string[], b: string[]): string[] {
-  const m = a.map(() => new Array<number>(b.length + 1).fill(0));
-  m.push(new Array<number>(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) m[i]![j] = a[i] === b[j] ? m[i + 1]![j + 1]! + 1 : Math.max(m[i + 1]![j]!, m[i]![j + 1]!);
-  const out: string[] = [];
-  let i = 0; let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i++; j++; } else if (m[i + 1]![j]! >= m[i]![j + 1]!) out.push(a[i++]!); else out.push(b[j++]!);
-  }
-  return [...out, ...a.slice(i), ...b.slice(j)];
-}
+const HEADING = /^#{1,6}\s+(.*)$/;
+const ELI5 = /^eli5\b/i;
 
 /**
- * The plan-delta lines (lineDiff's "+ " and "- " rows) whose edit changes spend, a cap, an arm, a verdict or any
- * number. A run of removed lines pairs in order with the added run after it; the tokens outside the pair's
- * longest common subsequence are its change. A pair counts when that change holds one of those words or a number,
- * or when the line names one and anything on it changed, so swapping two caps or doubling a budget counts. An
- * unpaired line counts when it holds one. An untouched line never counts. An autoplan re-gate with none is a no-stop.
+ * Why a plan-file edit (lineDiff rows) is not an ELI5-only addition, or null. Every changed line must be added (none
+ * removed or rewritten), inside the plan's `## ELI5` section (an added `## ELI5` heading opens one), and hold no digit
+ * and no spend, cap, arm, model or verdict word. Anything else goes to the owner: the carry exports the reviewed
+ * plan, so the added explanation is never built.
  */
-export function regateTouches(delta: string): string[] {
-  const rows = delta.split('\n').filter(l => /^[+-] /.test(l));
-  const hits = (ts: string[]) => ts.some(t => REGATE_WORDS.test(t) || QUANTITY.test(t));
-  const out: string[] = [];
-  for (let i = 0; i < rows.length;) {
-    const minus: string[] = []; const plus: string[] = [];
-    while (i < rows.length && rows[i]![0] === '-') minus.push(rows[i++]!);
-    while (i < rows.length && rows[i]![0] === '+') plus.push(rows[i++]!);
-    for (let k = 0; k < Math.max(minus.length, plus.length); k++) {
-      const a = minus[k]; const b = plus[k];
-      const changed = a && b ? changedTokens(tokens(a.slice(2)), tokens(b.slice(2))) : tokens((a ?? b)!.slice(2));
-      const named = [a, b].some(l => l && REGATE_WORDS.test(l.slice(2)));
-      if (hits(changed) || (named && changed.length)) out.push(...[a, b].filter((l): l is string => !!l).map(l => l.slice(0, 100)));
-    }
+export function notEli5Only(lines: ReadonlyArray<{ op: string; text: string }>): string | null {
+  let section = '';
+  let added = 0;
+  for (const l of lines) {
+    const heading = l.text.match(HEADING);
+    if (l.op === '-') return `it removes or rewrites a line: ${l.text.trim().slice(0, 80)}`;
+    if (l.op !== '+') { if (heading) section = heading[1]!.trim(); continue; }
+    if (!l.text.trim()) continue;
+    if (heading && !ELI5.test(heading[1]!.trim())) return `it adds a heading: ${l.text.trim().slice(0, 80)}`;
+    if (heading) { section = heading[1]!.trim(); continue; }
+    if (!ELI5.test(section)) return `it adds a line outside ## ELI5: ${l.text.trim().slice(0, 80)}`;
+    if (/\d/.test(l.text.replace(/\bELI5\b/gi, '')) || REGATE_WORDS.test(l.text)) return `it names a number, spend, a cap, an arm, a model or a verdict: ${l.text.trim().slice(0, 80)}`;
+    added++;
   }
-  return out;
+  return added ? null : 'the edit adds no ELI5 line';
 }
 
 export interface NoStopInput { cls: string; reason: string; evidence: string; prior: readonly NoStopRecord[]; diff?: string; root?: string }

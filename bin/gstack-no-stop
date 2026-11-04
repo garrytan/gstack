@@ -72,15 +72,17 @@ function grant(head: string, detail: string, ledger: string): string | { error: 
 
 function record(args: string[], json: boolean): number {
   const cls = flag(args, '--class') ?? '';
-  const rangeBase = flag(args, '--range-base');
+  const commit = (ref: string | undefined) => { if (!ref) return undefined; const r = git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]); return r.status === 0 ? r.stdout.trim() : null; };
+  const rangeBase = commit(flag(args, '--range-base'));
+  const base = cls === 'stamp-only-carry' ? commit(flag(args, '--base')) : undefined;
+  if (rangeBase === null || base === null) { process.stderr.write(`gstack-no-stop record: --range-base and --base must name commits\n`); return EXIT.usage; }
   if (!cls) { process.stderr.write(`gstack-no-stop record: --class is required\n${HELP}\n`); return EXIT.usage; }
   if (NEEDS_RANGE.includes(cls) && !rangeBase) { process.stderr.write(`gstack-no-stop record: --class ${cls} needs --range-base <sha>\n`); return EXIT.usage; }
   const file = ledgerPath(process.cwd());
   if (!file) { process.stderr.write('gstack-no-stop record: not inside a git checkout\n'); return EXIT.fail; }
   if (cls === 'scoped-fix-check') {
     const pass = lastPassHead();
-    const base = git(['rev-parse', '--verify', `${rangeBase}^{commit}`]).stdout.trim();
-    if (!pass || pass !== base) {
+    if (!pass || pass !== rangeBase) {
       process.stderr.write(`NO_STOP: refused ${cls} (--range-base ${rangeBase} is not the commit the last review pass read (${pass ? pass.slice(0, 12) : 'no review-log row'}), so the checked range would not be the range the fix-check covers); stop for the owner\n`);
       return EXIT.refused;
     }
@@ -92,7 +94,6 @@ function record(args: string[], json: boolean): number {
   }
   let diff: string | undefined;
   if (rangeBase) {
-    const base = cls === 'stamp-only-carry' ? flag(args, '--base') : undefined;
     let from = rangeBase;
     if (base) {
       const merged = git(['merge-tree', '--write-tree', '-X', 'ours', base, rangeBase]);

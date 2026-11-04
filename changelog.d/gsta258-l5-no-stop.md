@@ -10,9 +10,9 @@
 - **`gstack-no-stop import` and `list`** add an autoplan run's records to the branch and print the ledger. /ship's receipt write passes it as `--no-stop @<file>`.
 
 ### Changed
-- **An autoplan plan edit made after the owner's answer carries their words when it changes no spend, cap, arm or verdict.** Each edited line is compared word by word with the line it replaced. Any changed number counts, and so does any edit to a line that names spend, a budget, a cap, a limit, an arm, a model, a judge or a verdict. An edit with none of those carries as `reason=no-stop autoplan-regate: …` and is written to `<run>/no-stop.json`. Moving "cap 30 s" to "cap 90 s", swapping two arms' caps, or an edit to the reviewed plan itself still goes to the owner. The run keeps a copy of each plan file it hashes, so the edit is diffed against what the owner answered.
+- **An autoplan plan edit made after the owner's answer carries their words when it only adds ELI5 lines.** Every added line must sit in the plan's `## ELI5` section and name no number, spend, budget, cap, limit, arm, model, judge or verdict. Such an edit carries as `reason=no-stop autoplan-regate: …` and is written to `<run>/no-stop.json`, and the run still exports the reviewed plan. A removed or reworded line, a line added anywhere else, or an edit to the reviewed plan itself still goes to the owner. The run keeps a copy of each plan file it hashes, so the edit is diffed against what the owner answered.
 - docs/review-policy.md#no-stop has the table. docs/ship-policy.md lists the receipt's `no_stop` field, and docs/unattended.md describes the carry-forward change.
 
 ### Tests
 - `test/no-stop.test.ts`: each class's qualifying and refused cases, the ledger, the grant row, the receipt's `no_stop` validation, stamp-only after a base merge, import, and the template wording.
-- `test/autoplan-carry.test.ts`: an ELI5-only edit after the revise now carries and is recorded. A cap move still refuses.
+- `test/autoplan-carry.test.ts`: an ELI5-only addition after the revise now carries and is recorded. A cap move still refuses.

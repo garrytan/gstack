@@ -10,7 +10,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { validateReceipt } from '../lib/ship-receipt';
-import { checkNoStop, notStampOnly, parseDiff, regateTouches, type NoStopRecord } from '../lib/no-stop';
+import { lineDiff } from '../lib/autoplan-confirm';
+import { checkNoStop, notEli5Only, notStampOnly, parseDiff, type NoStopRecord } from '../lib/no-stop';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-no-stop');
@@ -34,7 +35,7 @@ describe('lib/no-stop: what qualifies', () => {
 
   test('test-timeout-fix: only a raised timeout in a test file qualifies', () => {
     expect(check('test-timeout-fix', TIMEOUT)).toMatchObject({ ok: true });
-    expect(check('test-timeout-fix', diff('test/worker.test.ts', ['}, 30_000);'], ['}, 5_000);']))).toMatchObject({ ok: false, reason: expect.stringContaining('does not raise') });
+    expect(check('test-timeout-fix', diff('test/worker.test.ts', ["  test('drains', async () => { await drain(); }, 30_000);"], ["  test('drains', async () => { await drain(); }, 5_000);"]))).toMatchObject({ ok: false, reason: expect.stringContaining('does not raise') });
     expect(check('test-timeout-fix', diff('test/worker.test.ts', ['expect(n).toBe(3);'], ['expect(n).toBe(4);']))).toMatchObject({ ok: false, reason: expect.stringContaining('more than a timeout') });
     expect(check('test-timeout-fix', diff('lib/worker.ts', ['const timeoutMs = 5000;'], ['const timeoutMs = 9000;']))).toMatchObject({ ok: false, reason: expect.stringContaining('not a test file') });
     expect(check('test-timeout-fix', diff('test/worker.test.ts', [], ['  // a new line, timeout 30_000']))).toMatchObject({ ok: false });
@@ -67,24 +68,23 @@ describe('lib/no-stop: what qualifies', () => {
     expect(check('autoplan-regate')).toMatchObject({ ok: false, reason: expect.stringContaining('gstack-autoplan decides') });
   });
 
-  test('regateTouches: a changed number, an edited line that names a cap, a new arm or a dollar figure counts; other edits do not', () => {
-    expect(regateTouches('- Retry the webhook worker\n+ Retry the webhook worker behind RETRY_BACKOFF=1')).toEqual([]);
-    expect(regateTouches('- base 500 ms, cap 30 s\n+ base 500 ms, cap 30 s, behind RETRY_BACKOFF=1')).toHaveLength(2);
-    expect(regateTouches('+ An ELI5 sentence added after the revise.')).toEqual([]);
-    expect(regateTouches('- cap 30 s\n+ cap 90 s')).toHaveLength(2);
-    expect(regateTouches('+ Add a no-gstack arm to the panel.')).toHaveLength(1);
-    expect(regateTouches('+ Budget up to $40 for the pilot.')).toHaveLength(1);
-    expect(regateTouches('+ Runs on capy-host machines.')).toEqual([]);
-    expect(regateTouches('- Arm A cap 30 s; arm B cap 90 s\n+ Arm A cap 90 s; arm B cap 30 s').length).toBeGreaterThan(0);
-    expect(regateTouches('- Run 40 jobs per sweep\n+ Run 400 jobs per sweep').length).toBeGreaterThan(0);
-    expect(regateTouches('- Keep the budgets\n+ Double the budgets').length).toBeGreaterThan(0);
+  test('notEli5Only: only added lines inside ## ELI5 that name no number, spend, cap, arm, model or verdict carry', () => {
+    const PLAN = '# Plan\n\nRetry the webhook worker, cap 30 s.\n\n## ELI5\n\nRetries wait longer each time.\n';
+    const edit = (after: string) => notEli5Only(lineDiff(PLAN, after));
+    expect(edit(PLAN + 'They stop hammering the service.\n')).toBeNull();
+    expect(edit('# Plan\n\nRetry the webhook worker, cap 30 s.\n\n## ELI5\n\nRetries wait longer each time.\nNothing else changes.\n\n## Notes\n')).toContain('adds a heading');
+    expect(notEli5Only(lineDiff('# Plan\n\nDo it.\n', '# Plan\n\nDo it.\n\n## ELI5\n\nIt waits longer.\n'))).toBeNull();
+    expect(edit(PLAN.replace('Retry the webhook worker', 'Retry the webhook worker and the queue'))).toContain('removes or rewrites');
+    expect(edit(PLAN.replace('cap 30 s.\n', 'cap 30 s.\nAlso delete the users table.\n'))).toContain('outside ## ELI5');
+    expect(edit(PLAN + 'It runs (30 times) per case.\n')).toContain('names a number');
+    expect(edit(PLAN + 'Run it on **Opus** instead.\n')).toContain('names a number');
+    expect(edit(PLAN + 'The budget grows.\n')).toContain('names a number');
+    expect(edit(PLAN)).toBe('the edit adds no ELI5 line');
   });
 
-  test('review pass 2 holes: a retry count is not a timeout, and dropping a paid eval or swapping a model is a re-gate', () => {
+  test('review pass 2 holes: a retry count, or a brace that closes any multi-line call, is not a timeout', () => {
     expect(check('test-timeout-fix', diff('test/a.test.ts', ['  retry({ fn }, 3);'], ['  retry({ fn }, 10);']))).toMatchObject({ ok: false });
-    expect(check('test-timeout-fix', diff('test/a.test.ts', ['  }, 5_000);'], ['  }, 30_000);']))).toMatchObject({ ok: true });
-    expect(regateTouches('- Run the paid eval\n+ Skip the paid eval').length).toBeGreaterThan(0);
-    expect(regateTouches('- Score it on Opus\n+ Score it on Haiku').length).toBeGreaterThan(0);
+    expect(check('test-timeout-fix', diff('test/a.test.ts', ['  }, 3);'], ['  }, 30);']))).toMatchObject({ ok: false });
   });
 });
 

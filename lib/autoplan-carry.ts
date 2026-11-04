@@ -31,7 +31,7 @@ import { FILES, RunError, journal, now, readDecisions, readJournal, readState, w
 import { appendTrailRow } from './decision-trail';
 import { decisionId, parseReply, type GateItem, type GateList } from './gate-list';
 import { readJsonl } from './headless-artifacts';
-import { appendLedger, regateTouches } from './no-stop';
+import { appendLedger, notEli5Only } from './no-stop';
 import { modelFamily } from './outside-voice-runner';
 import { release, reserve, settle } from './spend-ledger';
 
@@ -105,7 +105,7 @@ function deltaSince(state: RunState, rev: number): { diff: string; sha: string }
 
 /** `p1`: an item-token answer's own p1 choice, replayed as given. */
 interface Source { id: string; gate_rev: number; words: string; by?: string; p1?: string }
-/** noStop: K1's autoplan-regate (lib/no-stop.ts): a plan edit after the owner's answer that changes no spend, cap, arm or verdict. */
+/** noStop: K1's autoplan-regate (lib/no-stop.ts): a plan edit after the owner's answer that only adds plain ELI5 lines (notEli5Only). */
 interface NoStop { why: string }
 type Plan = { source: Source; doIt: GateItem[]; deltas: GateItem[]; noStop?: NoStop } | { reason: string; from?: number };
 
@@ -149,9 +149,9 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   if (!changed) return { source, doIt, deltas };
   const before = planFileCopy(state.out, expected);
   if (!fs.existsSync(before) || !fs.existsSync(planFile(state))) return { reason: changed, from };
-  const touched = regateTouches(lineDiff(fs.readFileSync(before, 'utf8'), fs.readFileSync(planFile(state), 'utf8')).filter(l => l.op !== ' ').map(l => `${l.op} ${l.text}`).join('\n'));
-  if (touched.length) return { reason: `${changed}; it changes spend, a cap, an arm or a verdict (${touched[0]!.slice(2, 82)})`, from };
-  return { source, doIt, deltas, noStop: { why: `${changed}, with no spend, cap, arm or verdict change` } };
+  const why = notEli5Only(lineDiff(fs.readFileSync(before, 'utf8'), fs.readFileSync(planFile(state), 'utf8')));
+  if (why) return { reason: `${changed}; ${why}`, from };
+  return { source, doIt, deltas, noStop: { why: `${changed}, adding only ELI5 lines (the reviewed plan is exported)` } };
 }
 
 /** Called by finishGate once gate_rev N+1 is written (status gate_pending): carry, set up the delta check, or say why not. */

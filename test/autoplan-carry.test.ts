@@ -140,12 +140,12 @@ describe('carry-forward', () => {
 
   test('an edit to the plan file after the revise (an ELI5-only line) carries as a no-stop re-gate (K1) and is recorded', () => {
     const edited = answeredAndRevised();
-    fs.appendFileSync(edited.v2, '\nAn ELI5 sentence added after the revise.\n');
+    fs.appendFileSync(edited.v2, '\n## ELI5\n\nAn ELI5 sentence added after the revise.\n');
     phaseVia(r, edited.out, 'ceo', NONE);
     const e = phaseVia(r, edited.out, 'eng', NONE).outside;
-    expect(e.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason=no-stop autoplan-regate: the plan file plan-v2\.md changed after the owner's answer or the revise that took it, with no spend, cap, arm or verdict change$/m);
+    expect(e.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason=no-stop autoplan-regate: the plan file plan-v2\.md changed after the owner's answer or the revise that took it, adding only ELI5 lines \(the reviewed plan is exported\)$/m);
     expect(e.stdout).toMatch(/^NO_STOP: autoplan-regate recorded /m);
-    expect(JSON.parse(fs.readFileSync(path.join(edited.out, 'no-stop.json'), 'utf8'))).toEqual([{ class: 'autoplan-regate', reason: expect.stringContaining('with no spend, cap, arm or verdict change'), evidence: `autoplan:${edited.run}@gate_rev=2` }]);
+    expect(JSON.parse(fs.readFileSync(path.join(edited.out, 'no-stop.json'), 'utf8'))).toEqual([{ class: 'autoplan-regate', reason: expect.stringContaining('adding only ELI5 lines'), evidence: `autoplan:${edited.run}@gate_rev=2` }]);
     expect(e.stdout).toMatch(/^APPROVED: gate_rev=2/m);
   });
 
@@ -154,7 +154,7 @@ describe('carry-forward', () => {
     fs.writeFileSync(edited.v2, V2.replace('cap 30 s', 'cap 90 s'));
     phaseVia(r, edited.out, 'ceo', NONE);
     const e = phaseVia(r, edited.out, 'eng', NONE).outside;
-    expect(e.stdout).toMatch(/^CARRY: no \(the plan file plan-v2\.md changed after the owner's answer or the revise that took it; it changes spend, a cap, an arm or a verdict \(/m);
+    expect(e.stdout).toMatch(/^CARRY: no \(the plan file plan-v2\.md changed after the owner's answer or the revise that took it; it removes or rewrites a line: /m);
     expect(fs.existsSync(path.join(edited.out, 'no-stop.json'))).toBe(false);
     expect(readRunJson(edited.out).status).toBe('gate_pending');
   });

@@ -618,10 +618,10 @@ then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
 all of: the earlier gate approved (`p1a` or `p1b`), no item there left
 pending, and the owner's words recorded; that gate was not itself carried; every accepted change incorporated
 or settled; the plan file's bytes equal those recorded at the gate or at the
-`revise` that took the changes, or a later edit changes no spend, cap, arm or
-verdict (K1's `autoplan-regate` no-stop: the reason says so, `NO_STOP:` names
-`<run>/no-stop.json`, and an edit whose changed words name spend, a cap, an
-arm, a verdict or a number beside one refuses; [review-policy.md#no-stop](review-policy.md#no-stop)); no urgent or
+`revise` that took the changes, or a later edit only adds ELI5 lines that name
+no number, spend, cap, arm or verdict (K1's `autoplan-regate` no-stop: the
+reason says so, `NO_STOP:` names `<run>/no-stop.json`, the reviewed plan is
+exported, and any other edit refuses; [review-policy.md#no-stop](review-policy.md#no-stop)); no urgent or
 outside-plan finding open; and every new gate item one of the cases below.
 Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
 goes to the owner as before. `--no-carry-forward` on the first `next` turns it
