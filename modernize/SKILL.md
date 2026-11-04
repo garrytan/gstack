@@ -113,6 +113,8 @@ your own; this skill is for a branch that has gone stale, often someone else's.
 - You never close a PR. CLOSE is a recommendation with reasons; the person who
   asked, or the PR's owner, closes it. Without explicit permission in this
   session, the PR stays open.
+- You never comment on the PR. A closing note or a thank-you to its author is a
+  draft in your report for the person to post.
 - Textual cleanliness is not currency. "Git reports no conflicts" says nothing
   about whether the change still makes sense; a PR that applies cleanly to code
   whose contract moved is more dangerous than one that conflicts.
@@ -233,7 +235,7 @@ remote); without permission, push to a new branch on origin and say so.
 
 ## Step 6: Report
 
-Post or hand off, in this order: the verdict and the three sentences; the
+Report or hand off, in this order: the verdict and the three sentences; the
 conceptual-conflict findings with their commits; for MODERNIZE, the range-diff
 summary, the tests run and the lease push line; for REWORK or CLOSE, the
 recommended next action and who decides it. Credit the original author in every
