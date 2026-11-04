@@ -48,7 +48,8 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
-    "  const main=g('rev-parse','refs/heads/main');let tree=g('merge-tree','--write-tree',main,want).split('\\n')[0];",
+    "  let main=g('rev-parse','refs/heads/main');if(d.raceMain){main=g('commit-tree',g('rev-parse',main+'^{tree}'),'-p',main,'-m','landed during the check');g('update-ref','refs/heads/main',main)}",
+    "  let tree=g('merge-tree','--write-tree',main,want).split('\\n')[0];",
     "  if(d.strayOnMerge){tree=g('rev-parse',main+'^{tree}')}",
     "  const sq=g('commit-tree',tree,'-p',main,'-m','squash #'+a[2]);g('update-ref','refs/heads/main',sq);",
     "  d.mergeArgs=a.slice(2);p.state='MERGED';p.mergeSha=sq;save();process.exit(0)}",
@@ -158,6 +159,21 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(moved);
     expect(fx.repo.git('rev-parse', main + '^{tree}')).toBe(fx.repo.git('rev-parse', merged + '^{tree}'));
     expect(show(fx, main + ':pr-8.txt')).toBe('8');
+  }, 90_000);
+
+  test('main moved between the stale-base check and GitHub\'s merge: land reports QUEUE_LAND_UNVERIFIED and writes no land note, and so does a rerun', () => {
+    const fx = setup();
+    const pin = openPr(fx, '81');
+    fx.write(d => { d.raceMain = true; });
+    const r = land(fx, '81', pin);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_UNVERIFIED)');
+    expect(r.err).toContain('does not contain');
+    expect(landNotes(fx)).toEqual([]);
+    const again = land(fx, '81', pin);
+    expect(again.out).toContain('already merged');
+    expect(again.err).toContain('(QUEUE_LAND_UNVERIFIED)');
+    expect(landNotes(fx)).toEqual([]);
   }, 90_000);
 
   test('a rerun after GitHub merged the PR goes straight to the tree check and lands', () => {

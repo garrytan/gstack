@@ -5265,10 +5265,15 @@ rule it names.
 
 **Meaning.** GitHub merged the PR, but the base branch's merge commit tree
 isn't the pin merged onto that commit's parent, so something besides the
-reviewed pin reached main. No land note was written.
+reviewed pin reached main, or the merge commit's parent isn't in the pin, so
+main moved between land's stale-base check and the merge and the pin's checks
+never ran on the tree that landed. No land note was written.
 
-**Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
-<pin>`, revert what doesn't belong to the PR, and report it to the Captain.
+**Fix.** For a tree mismatch, compare the merge commit with `git merge-tree
+--write-tree <parent> <pin>`, revert what doesn't belong to the PR, and report
+it to the Captain. For a parent the pin doesn't contain, run the free checks on
+main at the merge commit; if one is red, fix forward or revert the PR, and
+report it to the Captain.
 
 <a id="release-stamp-empty"></a>
 ### `RELEASE_STAMP_EMPTY`

@@ -2033,8 +2033,9 @@ still break main (#3886 pushed ship/DRIVER.md past its size cap that way), so
 the lane merges main and CI runs again. Then it runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
 reads the merge commit, and checks that its tree is the pin merged onto the
-merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
-if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
+merge commit's parent and that the pin already contains that parent, so main
+didn't move between the check and the merge
+([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified) if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
 after GitHub merged goes straight to the tree check. `--dry-run` runs every
 check and merges nothing. Under `merge: direct`, `train build` refuses and
 names this command.
