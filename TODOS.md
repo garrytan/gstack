@@ -2,6 +2,11 @@
 
 ## NEXT PRIORITY
 
+### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
+
+- **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
+- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are 3 now. Recompute the table from current rates rather than editing the count alone. `scripts/paid-test-durations.json` still records the 24-judge `test/skill-llm-eval.test.ts` duration until the next paid report rewrites it. **Effort:** S. **Priority:** P3.
+
 ### P3: screen verdict reuse lookback (filed 2026-11-02, GST-1027)
 
 - **Screen reuse sees only the newest 50 evals.yml dispatches.** `listGateRuns` (`scripts/recover-receipts.ts`) lists dispatched screens as one unfiltered page (`event=workflow_dispatch`, `per_page=50`), shared with every PR's screens and every train. At week-B traffic (220 dispatches from 2026-10-25 to 11-02, about 27 a day) that is under two days, and nothing says when a PR's earlier screen fell off the page: `gate-reuse find` prints "no earlier executed gate on this PR bound a verdict" and the full screen runs. No miss yet: the longest gap among the week-B re-screens was 44 dispatches (#3607). Page the listing until runs are older than the PR's oldest candidate head (or filter by `created>=`), and print a truncation line when the last page is full. A missed run only costs a screen, never a wrong verdict. **Effort:** S. **Priority:** P3.
