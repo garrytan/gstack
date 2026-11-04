@@ -546,4 +546,15 @@ export const RELEASE_RESULT_CODES = {
     summary: 'informational: a kept code file names an excluded folder (a directory reference, not a full file path), so its files stay excluded and readers see that code without the files it reads',
     fix: 'nothing to do for the review; if that code\'s correctness depends on the excluded files, narrow review_exclude_paths on the base so they stay in the diff',
   },
+  // The fetch rule's per-stage sweep (lib/review-sweep.ts, GST-1322).
+  FETCH_VIOLATION: {
+    anchor: 'fetch-violation',
+    summary: 'a git repository with a network remote or a file of 100 MB or more appeared during one review stage, so every reader of that stage was quarantined and verify refuses until the stage reruns clean',
+    fix: 'the pass reruns each slot once as <reader>#2 by itself; run a printed DELETE: line, check a KEEP: path by hand and never delete it unseen, then write a decision-trail row and tell your Captain',
+  },
+  FETCH_RERUN_SPENT: {
+    anchor: 'fetch-rerun-spent',
+    summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined and verify refuses',
+    fix: 'deal with the printed paths, find out why readers keep fetching, then start a fresh pass under a new --pass and --out; a third attempt is never automatic',
+  },
 } as const satisfies Record<string, ResultCode>;

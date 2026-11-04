@@ -545,8 +545,26 @@ It splits each command into words and flags only a known download tool aimed at
 a network target, so a reader that greps for `git clone` or reads the scanner's
 source is not a hit, while `bash -c`, wrappers such as `timeout` and `command:`
 strings inside a program are read through. A fetch of the checkout's own remote
-by name is a note. Today the result is recorded on the reader in the pass
-manifest as a note (`fetch_audit`, `enforced: false`).
+by name is a note. The result is recorded on the reader in the pass manifest as
+a note (`fetch_audit`, `enforced: false`): Capy gives a pass no way to read a
+reader's own tool calls, so the scanner serves hosts that can hand it a
+transcript.
+
+The rule is enforced per stage. Before a stage's readers start, the pass program
+runs `gstack-review-dispatch sweep --phase start`, an inventory of git
+repositories and files of 100 MB or more under the workspace, home and the temp
+dir (bounded at depth 6, 200,000 entries and 20 seconds; past a bound the sweep
+is `partial`, a note). After the stage's last reader is collected,
+`--phase end` diffs against it. A new repository with a network remote, or a
+new big file, is a violation. Every reader of that stage is quarantined (reply
+under `<out>/quarantine/`, findings out of `merged.jsonl`, never shown to the
+Red Team or returned), `verify` refuses with `FETCH_VIOLATION`, and each slot
+reruns once as `<reader>#2`, which is not a review round. A fetch on the rerun
+stops the pass (`FETCH_RERUN_SPENT`). Nothing is deleted for you: a delete
+command is printed only for a path provably created inside the stage window.
+Attribution is per stage until the platform exposes reader ids: a violation
+names the stage and its readers, never the one reader that fetched, and a clean
+reader of that stage reruns with the rest.
 
 What this protects: the readers' findings, the merged review and PR text never
 carry a sealed file a reader fetched or opened. What it cannot protect: data that

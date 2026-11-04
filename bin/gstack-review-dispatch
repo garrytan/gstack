@@ -12,6 +12,7 @@
  *   gstack-review-dispatch show|stage|chunk|mark --manifest <f> ...                  one manifest step
  *   gstack-review-dispatch program [--ledger <f>]                                    the checked-in Capy pass program
  *   gstack-review-dispatch audit-fetch --events <jsonl> [--manifest <f> --reader <r>] what a reader fetched (GST-1322)
+ *   gstack-review-dispatch sweep --manifest <f> --stage <s> --phase start|end          what a stage fetched; quarantine and rerun
  *
  * Logic: lib/review-brief.ts (rendering from the sections), lib/review-ledger.ts (ledger, collect, judge, verify),
  * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
@@ -30,6 +31,7 @@ import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '
 import { resolveBaseBranch } from '../lib/ship-policy';
 import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type ToolEvent } from '../lib/review-fetch';
 import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
+import { defaultRoots, foundLines, inventory, quarantineStage, sweepDiff, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
@@ -100,6 +102,14 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       readers policy (the manifest's, else the base's): one FETCH_HIT: line per hit, then FETCH_AUDIT: verdict=clean|violation
       hits=<n> notes=<n> events=<n> sha256=<h>. With --manifest it records the result on the reader as fetch_audit. A note only:
       it exits 0 whatever it finds (docs/review-policy.md#what-readers-may-fetch)
+  sweep --manifest <f> --stage <first|specialists|red-team|voices> --phase start|end
+      the fetch rule's enforcement, per stage. start records an inventory of git repositories and files of 100 MB or more under
+      the roots (the checkout's parent, home and the temp dir, or GSTACK_SWEEP_ROOTS; bounded in depth, entries and time) before the stage's readers
+      start. end, once the stage's readers are collected, diffs against it: a new repository with a network remote or a new big file
+      prints FETCH_VIOLATION: per path with a DELETE: line (only for a path provably created by the stage) or a KEEP: line,
+      quarantines every reader of the stage (reply to <out>/quarantine/, findings out of merged.jsonl), plans one rerun per slot as
+      <reader>#2 (RERUN:, not a review round) and exits 0; the same on a rerun prints FETCH_RERUN_SPENT (exit 3). A sweep that hit
+      its bounds prints FETCH_SWEEP: partial, a note. Each end appends a fetch-sweep ledger event that verify replays
   program [--ledger <f>]
       PROGRAM: v<n> sha256=… bytes=…, then lib/capy-review-pass.js as one JSON string line (see the gstack Capy skill)
 ${exitTableHelp()}`;
@@ -209,8 +219,55 @@ function auditFetch(): number {
     writeManifest(file, m);
   }
   for (const h of hits) process.stdout.write(`FETCH_HIT: ${h.severity} rule=${h.rule} tool=${h.tool} target=${JSON.stringify(h.target)}\n`);
-  process.stdout.write(`FETCH_AUDIT: verdict=${verdict} hits=${hits.filter(h => h.severity === 'violation').length} notes=${hits.filter(h => h.severity === 'note').length} events=${parsed.length} sha256=${audit.events_sha256.slice(0, 12)} ${readersLine(readers)} (recorded as a note; enforcement lands with GST-1322 PR B)\n`);
+  process.stdout.write(`FETCH_AUDIT: verdict=${verdict} hits=${hits.filter(h => h.severity === 'violation').length} notes=${hits.filter(h => h.severity === 'note').length} events=${parsed.length} sha256=${audit.events_sha256.slice(0, 12)} ${readersLine(readers)} (a note: the per-stage sweep enforces the rule, gstack-review-dispatch sweep)\n`);
   return EXIT.ok;
+}
+
+/** The stage's fetch sweep: the start inventory, or the end diff with quarantine and one rerun per slot (lib/review-sweep.ts). */
+function sweep(): number {
+  const file = flag('--manifest');
+  const stage = flag('--stage') as Stage | undefined;
+  const phase = flag('--phase');
+  if (!file || !stage || !STAGES.includes(stage) || (phase !== 'start' && phase !== 'end')) { process.stderr.write(`gstack-review-dispatch sweep: --manifest <f> --stage ${STAGES.join('|')} --phase start|end\n`); return EXIT.usage; }
+  const m = readManifest(file);
+  const checkout = checkoutRoot();
+  const s = ((m.sweeps ??= {})[stage] ??= { attempt: 1 });
+  if (phase === 'start') {
+    if (!s.start) {
+      const inv = inventory(defaultRoots(checkout), checkout);
+      const dir = path.join(m.out, 'sweep');
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const f = path.join(dir, `${stage}-${s.attempt}-start.json`);
+      fs.writeFileSync(f, JSON.stringify(inv) + '\n', { mode: 0o600 });
+      s.start = { at: new Date(inv.at).toISOString(), file: f, ...(inv.partial ? { partial: inv.partial } : {}) };
+      writeManifest(file, m);
+    }
+    process.stdout.write(`FETCH_SWEEP: start stage=${stage} attempt=${s.attempt} file=${s.start.file}${s.start.partial ? ` partial=${JSON.stringify(s.start.partial)}` : ''}\n`);
+    return EXIT.ok;
+  }
+  const readers = m.readers.filter(r => r.stage === stage && (r.attempt ?? 1) === s.attempt).map(r => r.reader);
+  if (s.end) { process.stdout.write(`FETCH_SWEEP: ${s.end.verdict} stage=${stage} attempt=${s.attempt} found=${s.end.found.length} (recorded)\n`); return EXIT.ok; }
+  let start: Inventory | null = null;
+  try { start = s.start ? JSON.parse(fs.readFileSync(s.start.file, 'utf8')) as Inventory : null; } catch { start = null; }
+  const end = start ? inventory(start.roots, checkout) : null;
+  const found = start && end ? sweepDiff(start, end, [checkout, m.out]) : [];
+  const partial = !start ? 'no start inventory' : start.partial ?? end?.partial;
+  const verdict = found.length ? 'violation' : partial ? 'partial' : 'clean';
+  s.end = { at: new Date().toISOString(), verdict, found, ...(partial ? { partial } : {}) };
+  appendEvent(m.ledger, { event: 'fetch-sweep', pass: m.pass, stage, attempt: s.attempt, verdict, found, readers, ...(partial ? { partial } : {}) });
+  const lines = [`FETCH_SWEEP: ${verdict} stage=${stage} attempt=${s.attempt} found=${found.length}${partial ? ` partial=${JSON.stringify(partial)} (a note: the sweep could not cover every root)` : ''}`];
+  if (verdict !== 'violation') { writeManifest(file, m); process.stdout.write(lines.join('\n') + '\n'); return EXIT.ok; }
+  lines.push(...foundLines(stage, s.attempt, found, readers));
+  const q = quarantineStage(m, stage, s.attempt);
+  lines.push(...q.lines);
+  const spent = s.attempt > 1;
+  if (!spent) m.sweeps[stage] = { attempt: s.attempt + 1, history: [...(s.history ?? []), { attempt: s.attempt, start: s.start, end: s.end }] };
+  writeManifest(file, m);
+  lines.push(spent
+    ? `FETCH_RERUN_SPENT: stage=${stage} (its one rerun fetched too, so the pass stops; deal with the paths above, then start a fresh pass under a new --pass and --out; docs/troubleshooting.md#fetch-rerun-spent)`
+    : `RERUN: stage=${stage} readers=${q.reruns.map(r => r.reader).join(',')} (one fresh attempt per slot, not a review round; verify refuses until they are collected and the stage sweeps clean)`);
+  process.stdout.write(lines.join('\n') + '\n');
+  return spent ? EXIT.refused : EXIT.ok;
 }
 
 const quote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
@@ -430,6 +487,7 @@ function main(): number {
   if (cmd === 'pass') return pass();
   if (cmd === 'program') return program();
   if (cmd === 'audit-fetch') return auditFetch();
+  if (cmd === 'sweep') return sweep();
   if (['show', 'stage', 'chunk', 'mark'].includes(cmd)) return passStep(cmd);
   const ledger = flag('--ledger');
   if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }
@@ -498,6 +556,7 @@ function main(): number {
     if (flag('--targeted-out')) fs.rmSync(flag('--targeted-out')!, { force: true });
     const v = verify(ledger);
     for (const r of v.rows) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
+    for (const r of v.rows.filter(x => x.kind === 'FETCH' && x.status === 'VIOLATION')) process.stdout.write(`FETCH_VIOLATION: ${r.reader} ${r.detail} (a reader of that stage fetched; its replies are quarantined and the pass cannot certify until the stage reruns clean; docs/troubleshooting.md#fetch-violation)\n`);
     if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
     const record = targetedRecord(ledger, v.rows);
     if (record) {
