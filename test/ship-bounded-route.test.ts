@@ -169,7 +169,7 @@ describe('gstack-diff-scope and gate paths for .gstack/ (GST-1276: GEVA-2 ask c)
   test('a .gstack/-only diff is config, not unmatched; .gstack/always-run.json is a gate path', () => {
     const f = fx({ '.gstack/pregate.json': '{"dependencies":{}}\n' });
     f.write({ '.gstack/pregate.json': '{"dependencies":{"src/b.ts":["test/b.test.ts"]}}\n' }); f.commit('lanes');
-    const out = spawnSync(path.join(BIN, 'gstack-diff-scope'), ['main'], { cwd: f.work, encoding: 'utf8' });
+    const out = spawnSync(path.join(BIN, 'gstack-diff-scope'), ['main'], { cwd: f.work, encoding: 'utf8', timeout: 30_000 });
     expect(out.stdout).toContain('SCOPE_CONFIG=true');
     expect(out.stdout).not.toContain('SCOPE_ERROR');
     expect(isGatePath('.gstack/always-run.json')).toBe(true);
