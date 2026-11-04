@@ -179,8 +179,8 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_TRAIN_FROZEN: {
     anchor: 'queue-train-frozen',
-    summary: 'a train stopped partway through publication, so main holds a prefix no gate covered on its own; ordinary trains are refused until a repair lands',
-    fix: 'admit one repair PR at its exact head (train build --repair --prs <n>@<sha>); the freeze clears when verify finds main’s tree after that merge in a green record',
+    summary: 'a train stopped partway through publication, or the main backstop was red, so main holds a tree no gate passed; ordinary trains and lands are refused until a repair lands',
+    fix: 'admit one repair PR at its exact head (train build --repair --prs <n>@<sha>; under merge: direct, land --pr <n> --pin <sha> --repair); the freeze clears when verify finds main’s tree after that merge in a green record, or, under merge: direct, when the main backstop is green on a main that contains it',
   },
   // Wave PRs (Garry R46, GST-574; docs/ship-policy.md#wave-prs): 3-6 same-area PRs in one train slot.
   QUEUE_WAVE_CONFLICT: {

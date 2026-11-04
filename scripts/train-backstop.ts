@@ -167,17 +167,62 @@ export function runBackstop(o: BackstopOptions): { action: BackstopAction; lines
   lines.push(`BACKSTOP: no green-train record lists main's tree modulo stamps${typeof digest === 'string' ? ` ${digest.slice(0, 12)}` : ''}; gating main`);
   const nonce = makeNonce('gate', o.sha, o.sha, o.random ?? randomBytes(3).toString('hex'), { purpose: 'backstop' });
   const run = gateMain({ repo: o.repo, branch: o.branch, sha: o.sha, gh, train, now, sleep, pollMs, deadline: now() + (o.gateDeadlineMs ?? 270 * 60_000), nonce }, lines);
-  if (run?.status === 'completed' && run.conclusion === 'success') { lines.push(`BACKSTOP: gated: run ${run.id} is green on main ${o.sha.slice(0, 12)}`); return done('gated'); }
+  if (run?.status === 'completed' && run.conclusion === 'success') { lines.push(`BACKSTOP: gated: run ${run.id} is green on main ${o.sha.slice(0, 12)}`); return clearOnGreen(o, { git, repoKey, run }, lines); }
   return freeze(o, { gh, git, repoKey, nonce, run }, lines);
+}
+
+/** The land note of a merge: direct freeze's admitted repair (gstack-ship-queue land --pin --repair), when main contains its merge. */
+function repairIn(o: BackstopOptions, git: Git, repoKey: string, f: FreezeRecord): { merge_sha: string } | string {
+  const r = f.repair;
+  if (!r) return 'no repair was admitted (gstack-ship-queue land --pr <repair-pr> --pin <sha> --repair)';
+  if (r.train) return `repair train ${r.train} holds it, and that train's verify clears it`;
+  const landed = noteRecords<{ kind: string; repo_key: string; pr: string; pin: string; merge_sha: string }>(git, 'land', repoKey).find(l => l.pr === r.pr && l.pin === r.head);
+  if (!landed || !SHA.test(landed.merge_sha ?? '')) return `repair #${r.pr} has no land note at ${r.head.slice(0, 12)}, so land never verified its merge`;
+  if (!git(['merge-base', '--is-ancestor', landed.merge_sha, o.sha]).ok) return `main ${o.sha.slice(0, 12)} does not contain repair #${r.pr}'s merge ${landed.merge_sha.slice(0, 12)}`;
+  return landed;
+}
+
+/**
+ * A green gate clears the active freeze only on evidence: main is at or after the freeze's main and contains the
+ * merge of the repair the freeze admitted (docs/ship-policy.md#direct-freeze). Anything less leaves it standing.
+ */
+function clearOnGreen(o: BackstopOptions, c: { git: Git; repoKey: string; run: Run }, lines: string[]): { action: BackstopAction; lines: string[] } {
+  fetchNotes(o.repoRoot);
+  const f = noteRecords<FreezeRecord>(c.git, 'freeze', c.repoKey).find(r => !r.cleared_at);
+  if (!f) return { action: 'gated', lines };
+  const stands = (why: string) => { lines.push(`BACKSTOP: green, but the freeze stands: ${why} (docs/troubleshooting.md#backstop-freeze-stands)`); return { action: 'gated' as const, lines }; };
+  if (!c.git(['merge-base', '--is-ancestor', f.main.sha, o.sha]).ok) return stands(`main ${o.sha.slice(0, 12)} is not at or after the freeze main ${f.main.sha.slice(0, 12)}`);
+  const repair = repairIn(o, c.git, c.repoKey, f);
+  if (typeof repair === 'string') return stands(repair);
+  f.cleared_at = nowIso();
+  f.cleared_by = `repair #${f.repair!.pr}; backstop ${c.run.id} green on ${o.sha}`;
+  f.updated_at = f.cleared_at;
+  const pushed = persist(o.repoRoot, [f]);
+  if (!pushed.pushed) { lines.push(`BACKSTOP: green and the evidence holds, but the cleared freeze did not reach origin (${pushed.detail}); the freeze stands`); return { action: 'failed', lines }; }
+  lines.push(`BACKSTOP: freeze cleared (${f.cleared_by})`);
+  return { action: 'gated', lines };
 }
 
 /** Write the freeze record (local state, then refs/notes/gstack-trains) unless a freeze is already active. */
 function freeze(o: BackstopOptions, c: { gh: GhRunner; git: Git; repoKey: string; nonce: string; run: Run | null }, lines: string[]): { action: BackstopAction; lines: string[] } {
+  const fetched = fetchNotes(o.repoRoot);
   const active = noteRecords<FreezeRecord>(c.git, 'freeze', c.repoKey).find(f => !f.cleared_at);
-  if (active) { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands`); return { action: 'frozen', lines }; }
+  if (active && !fetched.ok) { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands (${fetched.detail}, so it is not rewritten)`); return { action: 'frozen', lines }; }
+  if (active && active.train !== 'backstop') { lines.push(`BACKSTOP: red, and the queue is already frozen (${active.reason}); the existing freeze stands`); return { action: 'frozen', lines }; }
   const red = c.run?.status === 'completed' ? redCases(c.gh, o.repo, c.run) : [];
   const runText = c.run ? `run ${c.run.id} (${c.run.status}/${c.run.conclusion ?? '-'})` : 'no run';
   const cases = red.length ? red.map(r => `${r.id} (inputs ${r.inputs.slice(0, 4).join(', ') || 'none declared'})`).join('; ') : 'no red case recorded';
+  if (active) {
+    const repair = repairIn(o, c.git, c.repoKey, active);
+    const spent = typeof repair === 'string' ? '' : `; repair #${active.repair!.pr} did not turn main green, so its admission is spent: land the next repair with land --pin --repair`;
+    const issue = (active as { issue?: string | null }).issue;
+    active.reason = `backstop red on main ${o.sha.slice(0, 12)}: ${cases}; ${runText}${spent}; frozen since main ${active.main.sha.slice(0, 12)}; fix: land the revert or fix-forward${issue ? ` (${issue})` : ''}`;
+    if (spent) active.repair = null;
+    active.updated_at = nowIso();
+    const pushed = persist(o.repoRoot, [active]);
+    lines.push(`BACKSTOP: red, and the queue is already frozen; the freeze stands with its reason updated: ${active.reason}`, `BACKSTOP: freeze record ${pushed.detail}`);
+    return { action: pushed.pushed ? 'frozen' : 'failed', lines };
+  }
   const body = [`The main backstop gate is not green on ${o.sha}: ${runText}.`, '', `Red cases: ${cases}.`, '', 'gstack-ship-queue refuses ordinary trains until a repair train merges (docs/ship-policy.md#run-a-merge-train). Land the revert or fix-forward.'].join('\n');
   const issue = c.gh(['issue', 'create', '-R', o.repo, '--title', `Main backstop red on ${o.sha.slice(0, 12)}`, '--body', body], GH_MS);
   const issueUrl = issue.status === 0 ? issue.stdout.trim().split('\n').at(-1) ?? null : null;
