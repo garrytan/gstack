@@ -6673,6 +6673,50 @@ These codes come from `bin/gstack-modules` and `gen-skill-docs --loadout/--modul
 
 **Meaning.** `--out-dir` is a non-empty directory that an earlier `gstack-modules render` did not write, so replacing it could delete someone's files. **Fix.** Pass a new or empty directory, or the directory of an earlier render.
 
+## ubi-runner recovery and results sink
+
+These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, `RECOVER_GONE` and `RECOVER_FAILED` lines go to stdout, one per bundle. Every `RECOVER_FAILED` keeps its bundle, so rerunning `recover` after the fix is always safe.
+
+<a id="ubi-recovery-required"></a>
+### `UBI_RECOVERY_REQUIRED`
+
+**Meaning.** A counted run (`--counted` or `UBI_COUNTED=1`) or `recover` needs a recovery directory, and neither `UBI_RECOVERY_DIR` nor `GSTACK_CAPY_RECOVERY_DIR` (nor `recover --dir`) names one. Nothing was created. A counted rerun also refuses with this code when it would reattach to a live VM whose bundle under the recovery directory is missing or doesn't open under this secret. **Fix.** Set `UBI_RECOVERY_DIR` to a directory another controller can read (on Capy, a drive folder), then rerun. For a VM without a bundle that opens, destroy it with the printed `down` command, then rerun.
+
+<a id="ubi-recovery-unavailable"></a>
+### `UBI_RECOVERY_UNAVAILABLE`
+
+**Meaning.** The bundle can't be written or opened: `openssl` is missing, there is no secret (`UBI_RECOVERY_KEY` or `UBICLOUD_API_KEY`), or the directory isn't writable. A counted run stops: before any create when the check runs up front, or through `up`'s teardown, which destroys the VM, when a later write fails. An uncounted run prints a warning and goes on without a bundle. **Fix.** Install openssl and make the directory writable, then rerun.
+
+<a id="recover-decrypt-failed"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_DECRYPT_FAILED`
+
+**Meaning.** The bundle didn't authenticate under this machine's secret, or it was sealed for a different VM name or owner than its file name and folder say, so no state was written. Either the secret differs from the creating controller's (another `UBI_RECOVERY_KEY`, or a different Ubicloud token), or the file was changed, renamed or moved. **Fix.** Set `UBI_RECOVERY_KEY` (or `UBICLOUD_API_KEY`) to the value the creating controller used and rerun `recover`. If the secret is right, treat the bundle as tampered and destroy the VM from the Ubicloud console instead.
+
+<a id="recover-api-unavailable"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_API_UNAVAILABLE`
+
+**Meaning.** The Ubicloud API answered something other than 200 or 404 for the VM, or the VM's create was sent less than `UBI_CREATE_GRACE` seconds ago and may still be in flight. No state was written. **Fix.** Rerun `recover` once the API answers, or after the grace period.
+
+<a id="recover-exists"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_EXISTS`
+
+**Meaning.** This machine already has state for the VM, and `recover` never overwrites it. **Fix.** Use that state (`pull`, `ssh`, `down <name>`). Remove the state directory only if you know it's stale.
+
+<a id="recover-gone"></a>
+### `RECOVER_GONE: vm=<name>`
+
+**Meaning.** The VM is confirmed gone, so its bundle was deleted. **Fix.** None. Its results are wherever its sink put them, if it had one.
+
+<a id="ubi-sink-invalid"></a>
+### `UBI_SINK_INVALID`
+
+**Meaning.** `--sink` or `UBI_SINK` names something other than `https-put:<presigned https URL>`. `file:<absolute dir>` works only with `UBI_SINK_ALLOW_FILE=1`, which is meant for tests, and there is no `git:` sink because it would put a repository credential on the VM. Nothing was created, and the line never prints the URL. **Fix.** Pass a presigned PUT URL for one object.
+
+<a id="sink-flush-failed"></a>
+### `SINK_FLUSH_FAILED: vm=<name> seq=<n> last_push=<epoch|never> [sink_skipped=size|tar_failed]`
+
+**Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun. For a tiered `verify`, rerun with `--no-resume`: a plain rerun reuses the tiers that already passed under the same key, creates no VM and pushes nothing, so the sink would still hold the incomplete snapshot.
+
 ## Per-repo cleanup (gstack-clean)
 
 These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<repo>/.gstack/tmp/`, browse logs over 1 MB and, with `--audit-days N`, old browse audit entries. It changes nothing unless you pass `--apply`, and `gstack-clean --help` lists what it touches.
