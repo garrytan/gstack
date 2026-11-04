@@ -54,6 +54,14 @@ export function stoppedAtPhaseBoundary(screen: string): boolean {
   return /✻[^\n]*\bdone\b/.test(after) && !/Step\s*7|design-phase|Design\s*review/i.test(after);
 }
 
+/**
+ * Whether the run must print its journal before cleanup: any run short of four verified allows and no permission card.
+ * Main backstop 41817566885 kept four allows, but the first was unverified (journal_lag on the payload path), so the
+ * journal that names the lagging record was deleted unread.
+ */
+export const guardRunNeedsJournal = (log: Array<Record<string, any>>, promptCount: number): boolean =>
+  log.length !== 4 || promptCount > 0 || log.some(e => e.decision !== 'allow' || e.disposition !== 'allow');
+
 /** The close packet Read (step 6) came after the CEO reviewer's completion notice, so it ran in the notice's new turn. */
 export const closePacketReadAfterNotice = (afterNotice: string[]): boolean => afterNotice.some(c => /^Read .*close-packet\.md$/.test(c));
 
