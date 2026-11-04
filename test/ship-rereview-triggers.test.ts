@@ -605,6 +605,24 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     expect([wrote.status, fs.existsSync(path.join(f.work, '.git', 'gstack', `scoped-review-${head.slice(0, 12)}.md`))]).toEqual([EXIT.refused, true]);
   });
 
+  // Value: protects=the would-carry NEXT line names the push before the carry, since carry --pr refuses a HEAD that is not the
+  //   PR's pushed head (bin/gstack-ship-receipt), and the early push's secrets scan and CI wait come before the pregate;
+  //   fails_when=the NEXT line sends the agent from the pregate straight to carry; seam=gh; no_claim=the carry itself
+  test("preflight's would-carry route commits, pushes early and waits for CI before the pregate and the carry", () => {
+    const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
+    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 600;' }) });
+    const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.advanceBase({ 'lib/other.js': 'exports.other = 1;\n' });
+    mergeMain(f);
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const view = path.join(f.root, 'view.json');
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(lineOf(r.stdout, 'CARRY')).toMatch(/^CARRY: would carry/);
+    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*commit, gstack-ship-release push --branch \S+ --early, gstack-ci-carry wait --base main, gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr 9 --base main --pregate/m);
+  });
+
   // Value: protects=the dry run offers the scoped route only when nothing else would refuse the carry, so preflight never sends
   //   the agent through a commit, packet, reviewer and pregate that end in another refusal (adversarial-native#5, Step 11
   //   round 2); fails_when=the dry run returns the scoped refusal before the receipt's other carry checks; seam=gh; no_claim=none

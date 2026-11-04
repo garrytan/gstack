@@ -256,8 +256,8 @@ written, it runs `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`
 instead of another /ship; on `CARRY: would carry` it commits any fix, pushes with
 `gstack-ship-release push --branch <branch-name> --early`, waits with
 `gstack-ci-carry wait --base <base>`, runs `gstack-pregate --allow-repo-commands`
-at HEAD and reruns carry with `--pregate .gstack/tmp/pregate.json` (/ship Step 1's
-order). `CARRY: carried from <old> to <new> (<reason>)` plus the
+at HEAD and reruns carry with `--pregate .gstack/tmp/pregate.json`, the order
+`gstack-ship-preflight`'s carry route prints. `CARRY: carried from <old> to <new> (<reason>)` plus the
 `GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
