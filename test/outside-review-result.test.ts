@@ -49,6 +49,17 @@ describe('a ## Recommendation heading carries the completion recommendation (#39
     expect(result.findings.highest).toBe('P1');
   });
 
+  test('a label or verdict on the line under the heading still blocks, with or without an inline line', () => {
+    for (const [under, highest] of [['P1: Fix the race because it loses data.', 'P1'], ['Critical: the migration drops rows because it skips the copy.', 'P0'],
+      ['Verdict: not ready', 'P2']] as const) {
+      for (const inline of ['', '\n\nRecommendation: fix it because it loses data.']) {
+        const result = classifyOutsideReview({ text: `[P2] nit\n\n## Recommendation\n\n${under}${inline}`, gate: 'review' });
+        expect(result.findings.highest).toBe(highest);
+        expect(result.verdict).toBe(inline || highest !== 'P2' ? 'findings' : 'unavailable');
+      }
+    }
+  });
+
   test('a no-findings rationale under the heading concludes the review', () => {
     const result = classifyOutsideReview({ text: '### Recommendation:\nApprove because no issues were found.', gate: 'proposal' });
     expect(result.verdict).toBe('clean');
