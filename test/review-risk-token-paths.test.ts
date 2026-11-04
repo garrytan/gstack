@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { collectCommit } from '../lib/review-collect';
 import { createHash } from 'node:crypto';
 import { depthOfCommitInput, isGatePath, planReview, ROLE_EFFORT, scanNumbers } from '../lib/review-depth';
-import { matchRisk } from '../lib/review-risk';
+import { matchRisk, secretPath } from '../lib/review-risk';
 import { targetedClasses } from '../lib/review-targeted';
 
 const GODOT_TOKENS = ['class_name UIToken', 'extends RefCounted', 'const COLOR_PRIMARY := Color("#ff6a00")', 'const SPACING_MD := 12', 'const LABEL_PLAY := "Play"'];
@@ -24,7 +24,12 @@ const BENIGN: Record<string, string[]> = {
 };
 /** Built at run time so the credential scan never reads a key-shaped literal in this file. */
 const fakePat = () => ['ghp', '_', 'x7Qm2Lp9Vr4Tn8Kw3Hs6', 'Jd1Fz5Bc0YaUe4Gq'].join('');
+const googleToken = () => JSON.stringify({ token: 'ya29.' + 'x'.repeat(60), refresh_token: '1//0' + 'y'.repeat(40) });
 const NAMED: Record<string, string[]> = {
+  'token.json': [googleToken()],
+  'auth/token': ['z'.repeat(40)],
+  'config/tokens.yaml': ['primary: ff6a00'],
+  'cache/tokens.db': [],
   '.env': ['LOG_LEVEL=debug'],
   'deploy/.env.production': ['LOG_LEVEL=info'],
   '.ssh/id_rsa': ['not shown'],
@@ -58,14 +63,21 @@ describe('GST-1350: a token-named file is a secret path only on secret-shaped co
     expect(d.risk).toContain('secret');
   });
 
-  // Value: protects=secret and credential names, private keys and dotenv files stay secret by name, whatever they hold;
-  //   fails_when=narrowing the token rule drops one of them, or a key file reads as anything below gate; seam=matchRisk + classifyDiff + isGatePath
+  // Value: protects=secret and credential names, private keys, dotenv files and token files that are not source or style code
+  //   (json, yaml, no extension, binary) stay secret by name, whatever they hold; fails_when=narrowing the token rule drops one of them, or a key file reads as anything below gate; seam=matchRisk + classifyDiff + isGatePath
   test.each(Object.entries(NAMED))('%s stays secret and gate by name alone', (p, added) => {
     expect(risk(p, added).get('secret')).toBe('secret path: ' + p);
-    expect(isGatePath(p)).toBe(true);
+    expect(isGatePath(p) || secretPath(p, added)).toBe(true);
     const d = depth(p, added);
     expect(d.class).toBe('gate');
     expect(d.risk).toContain('secret');
+  });
+
+  // Value: protects=a token-named source file whose lines cannot be read (binary, no text) fails closed to a secret path;
+  //   fails_when=an empty line set reads as benign; seam=matchRisk
+  test('a token-named source file with no readable lines stays secret', () => {
+    expect(risk('theme/token.ts', []).has('secret')).toBe(true);
+    expect(matchRisk({ codePaths: ['theme/token.ts'], scopeAuth: false }).has('secret')).toBe(true);
   });
 
   // Value: protects=a dotenv template holds no secrets by convention; fails_when=.env.example raises the secret class on its name; seam=matchRisk
@@ -110,7 +122,7 @@ describe('GST-1350: founderstar#546 shape, a copy-only edit to a Godot token fil
  * exception: light's batched reader, which carries the Red Team prompt at full effort, becomes full depth's batched reader at
  * the specialist effort on the three key files that rise to full, while the Red Team keeps full effort as its own dispatch.
  */
-const MAIN_1350_PLANS = '485716e117aaa442ddbcb37ff7b0783e8ed9b172ed638777fabb6d147546309f';
+const MAIN_1350_PLANS = 'bafc2b5329237dbb994ab85d5ee0a696e7bd479615f81206c9b4ce7507af108e';
 describe('GST-1350 no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: narrowing the token name drops readers only on benign token files;
   //   fails_when=a stand-in stops matching main's plans, a token file with a secret or a secrets, credentials or key file loses a
@@ -129,6 +141,8 @@ describe('GST-1350 no-loss check', () => {
       'id-rsa': ['.ssh/id_rsa', '.ssh/id_rsa.pub', ['not shown']],
       'secrets-dir': ['secrets/prod.yaml', 'secrets/prod.yaml', ['region: us-east-1']],
       'credentials-json': ['credentials.json', 'credentials.json', ['{ "type": "service_account" }']],
+      'token-json': ['token.json', 'token.json', [googleToken()]],
+      'tokens-db': ['cache/tokens.db', 'cache/tokens.db', []],
     };
     type Row = { name: string; fullPasses: number; last: string; bits: number; adversarialRan: boolean; targeted: string[]; class: string; depth: string; step: string; dispatches: { role: string; name: string; effort: string; checklists: string[] }[] };
     const grid = (pick: 0 | 1) => {
@@ -167,9 +181,10 @@ describe('GST-1350 no-loss check', () => {
         split++;
       }
     });
-    expect([main.length, split, moves]).toEqual([2592, 252, {
+    expect([main.length, split, moves]).toEqual([3168, 252, {
       'token-gd: gate/full -> code/light': 288, 'tokens-css: gate/full -> code/light': 288, 'token-ts: gate/full -> code/light': 288, 'token-secret: gate/full -> gate/full': 288,
       'pem: code/light -> gate/full': 288, 'dotenv: code/light -> gate/full': 288, 'id-rsa: code/light -> gate/full': 288, 'secrets-dir: gate/full -> gate/full': 288, 'credentials-json: gate/full -> gate/full': 288,
+      'token-json: gate/full -> gate/full': 288, 'tokens-db: gate/full -> gate/full': 288,
     }]);
   });
 });

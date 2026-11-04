@@ -435,6 +435,18 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(p.review_exclude).toMatchObject({ excluded: 2, content: { binary: 2 } });
   }, 120_000);
 
+  // Value: protects=a binary token store under an excluded glob stays in every reader's diff (GST-1350 narrowed the token name
+  //   rule to source and style files); fails_when=a token-named binary with no text lines is excluded as content; seam=bin/gstack-review-plan
+  test('a binary token store under an excluded glob is kept as a gate path', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    for (const rel of ['assets/tokens.db', 'assets/shot.png']) fs.writeFileSync(path.join(repo.work, rel), GZ);
+    commit(repo, {});
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([{ path: 'assets/tokens.db', reason: 'gate-path' }]);
+    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
+  }, 120_000);
+
   // Value: protects=a branch's .gitattributes cannot get a matched file with a credential line excluded by making git call it
   //   binary, at the plan (live tree) and at the receipt (head blobs); fails_when=the secret-line rule reads only the
   //   collector's added lines, which git leaves empty for an attribute-binary file, so the file is excluded; why_new=GST-972
