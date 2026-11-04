@@ -352,3 +352,48 @@ describe("pii.phone.e164: run ids in a runs= list or an actions/runs/ path (GST-
     ],
   );
 });
+
+describe("pii.phone.e164: a short sha after review_loop_grant or review_loop_exception (Free Tests 41667825418, 41766865679)", () => {
+  table(
+    "pii.phone.e164",
+    "MEDIUM",
+    [
+      // The ask gstack-approvals records for the owner's grant, here with a stop head whose 12-character sha is all digits.
+      "Owner grant: one scoped fix-check after round 2 (review_loop_grant 367120488513)",
+      "Owner accepts the stop after the fix-check (review_loop_exception 367120488513)",
+      "review_loop_grant=367120488513",
+      "review_loop_grant: 3671204885",
+    ],
+    [
+      "review_loop_grant +14155552671",
+      "review_loop_grant 415-555-2671",
+      "review_loop_grant (415) 555-2671",
+      "call 367120488513 about the review_loop_grant",
+      "grant 367120488513",
+      "my_review_loop_grant 367120488513",
+      "review_loop_grant for 367120488513",
+    ],
+  );
+});
+
+describe("pii.wallet: a bc1 address needs the bech32 alphabet and checksum (Free Tests 41715139988)", () => {
+  table(
+    "pii.wallet",
+    "MEDIUM",
+    [
+      // The sha the CSO history range printed as <REDACTED-pii.wallet>..<REDACTED-pii.wallet>; it holds 1 and b, outside bech32's alphabet.
+      "bc1f7576f1eaf9d548ddb6f742b85ec11b4a3e79..bc1f7576f1eaf9d548ddb6f742b85ec11b4a3e79",
+      // A sha inside the alphabet (no 1 or b after the prefix) fails the checksum.
+      "commit bc1f7576f2eaf9d548ddf6f742c85ec22d4a3e79",
+      // A real address with its last character changed fails the checksum too.
+      "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5",
+    ],
+    [
+      "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      "send it to bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq today",
+      "wallet: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+      "0x52908400098527886E0F7030069857D2E4169EE7",
+      "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+    ],
+  );
+});

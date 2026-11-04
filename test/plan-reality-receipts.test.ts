@@ -108,7 +108,10 @@ describe('resolveReceipts', () => {
     gitOk(dir, 'add', '.');
     gitOk(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'seed');
     const sha = gitOk(dir, 'rev-parse', 'HEAD').stdout.trim();
-    const out = resolveReceipts(parseRealityLines(`REALITY: numbers pass ok ${sha.slice(0, 10)} abcdef1234`), { roots: [dir] });
+    // A bare sha is a receipt only with a hex letter in it (RECEIPT_RE reads an all-digit run as a number unless `commit ` or
+    // backticks mark it), and about one 10-character prefix in 110 is all digits (Free Tests 41669379416, 41790613651).
+    const receipt = sha.slice(0, Math.max(10, sha.search(/[a-f]/) + 1));
+    const out = resolveReceipts(parseRealityLines(`REALITY: numbers pass ok ${receipt} abcdef1234`), { roots: [dir] });
     expect(out.map(r => r.outcome)).toEqual(['resolved', 'unverifiable']);
   });
 });

@@ -167,8 +167,34 @@ function looksLikeWallet(span: string): boolean {
     const body = span.slice(2).toLowerCase();
     return !/^(.)\1{39}$/.test(body);
   }
-  // bech32 / base58 — length sanity only
+  if (span.startsWith("bc1")) return bech32ChecksumValid(span);
+  // base58 — length sanity only
   return span.length >= 26 && span.length <= 62;
+}
+
+/**
+ * A bc1 address is bech32 (BIP 173) or bech32m (BIP 350): `bc`, the separator `1`, then data from a 32-letter alphabet
+ * with no `1`, `b`, `i` or `o`, ending in a six-letter checksum. A git sha that starts with `bc1` read as a wallet and
+ * was redacted out of `<sha>..<sha>` (Free Tests 41715139988, test/cso-cli.test.ts); the alphabet in the regex refuses
+ * most such shas, and the checksum, which a random string passes about once in 500 million tries, refuses the rest. Every real
+ * address carries a valid checksum, so none is lost.
+ */
+const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+const BECH32_GENERATOR = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+function bech32ChecksumValid(address: string): boolean {
+  const sep = address.lastIndexOf("1");
+  const hrp = [...address.slice(0, sep)].map((c) => c.charCodeAt(0));
+  const data = [...address.slice(sep + 1)].map((c) => BECH32_ALPHABET.indexOf(c));
+  if (sep < 1 || data.length < 6 || data.some((v) => v < 0)) return false;
+  let chk = 1;
+  for (const v of [...hrp.map((c) => c >> 5), 0, ...hrp.map((c) => c & 31), ...data]) {
+    const top = chk >>> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    BECH32_GENERATOR.forEach((g, i) => {
+      if ((top >>> i) & 1) chk ^= g;
+    });
+  }
+  return chk === 1 || chk === 0x2bc830a3;
 }
 
 // Compact log/backup stamps (`20260727202423` = YYYYMMDDHHMMSS) are bare digit
@@ -390,6 +416,22 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
   const line = input.slice(lineStart, lineEnd < 0 ? input.length : lineEnd);
   const at = start - lineStart;
   return [...line.matchAll(CI_RUN_LIST)].some(m => m.index! < at && at + span.length <= m.index! + m[0].length);
+}
+
+/**
+ * The owner's grant of one scoped fix-check is recorded as `review_loop_grant <stop head sha>`, and an accepted stop as
+ * `review_loop_exception <sha>` (docs/review-policy.md). About one 12-character sha in 300 is all digits
+ * (`367120488513`), and pii.phone.e164 read it as a phone number, so gstack-approvals refused the owner's grant
+ * (APPROVAL_RECORD_SECRET; Free Tests 41667825418, 41766865679). Only the position decides: a digits-only span right
+ * after one of those two tokens and a space, `=` or `:`. The same digits anywhere else, or a number with a `+`,
+ * spaces or dashes after the token, still report.
+ */
+const REVIEW_LOOP_SHA_BEFORE = /\breview_loop_(?:grant|exception)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
+function isReviewLoopSha(span: string, match: RegExpExecArray): boolean {
+  if (!/^\d+$/.test(span)) return false;
+  const input = match.input ?? "";
+  const { start } = spanBounds(match);
+  return REVIEW_LOOP_SHA_BEFORE.test(input.slice(Math.max(0, start - 40), start));
 }
 
 /**
@@ -1276,8 +1318,9 @@ export const PATTERNS: RedactPattern[] = [
     // so do a county tax-map parcel ID (see looksLikeParcelId), vector
     // coordinates (looksLikeDecimalCoordinates) and seed/nonce/timestamp JSON
     // values (isNumericMetadataValue), GitHub Actions run and job ids in
-    // their id positions (isCiRunIdentifier), and bare powers of two and
-    // hash/PRNG constants (isNumericConstant).
+    // their id positions (isCiRunIdentifier), a short sha after
+    // review_loop_grant or review_loop_exception (isReviewLoopSha), and bare
+    // powers of two and hash/PRNG constants (isNumericConstant).
     validate: (span, match) =>
       !insideUuid(match) &&
       span.replace(/\D/g, "").length >= 10 &&
@@ -1286,7 +1329,8 @@ export const PATTERNS: RedactPattern[] = [
       !looksLikeParcelId(span, match) &&
       !looksLikeDecimalCoordinates(span) &&
       !isNumericMetadataValue(span, match) &&
-      !isCiRunIdentifier(span, match),
+      !isCiRunIdentifier(span, match) &&
+      !isReviewLoopSha(span, match),
   },
   {
     id: "pii.ssn",
@@ -1330,7 +1374,7 @@ export const PATTERNS: RedactPattern[] = [
     tier: "MEDIUM",
     category: "pii",
     description: "Crypto wallet address (ETH/BTC)",
-    regex: /\b(0x[a-fA-F0-9]{40}|bc1[a-z0-9]{25,39}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b/,
+    regex: /\b(0x[a-fA-F0-9]{40}|bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{25,39}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b/,
     validate: (span) => looksLikeWallet(span),
   },
 
