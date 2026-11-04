@@ -4,7 +4,7 @@ Three layers, each owned by gstack:
 
 | Layer | Where | Job |
 |---|---|---|
-| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env`; in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
+| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 4 a fresh clone or the floor fast-forward follows `stable` instead when the update channel resolves to it and `stable` meets that minimum, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
 | Full wrapper | `bin/gstack-capy-session` (moves with the checkout) | map the session start onto the installer: `--check` certifies (and reports a checkout behind origin), otherwise fast-forward a checkout behind origin (`bin/gstack-upgrade --ff-only-no-reinstall`), then install or repair |
 | Installer | `bin/gstack-capy-install` | Bun, both host profiles, the doctor, the install verdict, the launch line, the trailer |
 
@@ -232,7 +232,11 @@ rename can be broken and then publish into its successor's lock. While a live pr
 holds the lock, or it cannot be taken at all, `touch` exits 3 without writing
 (`gstack-skill-start` reports that the session holds no lease) and a reclaim
 keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
-`GSTACK_UPGRADE_FORCE=1` overrides.
+`GSTACK_UPGRADE_FORCE=1` overrides. `bin/gstack-lease open --run <id> [--pid <p> | --from <pid>]`
+answers for one run (exit 0 while it is open on a live holder);
+`gstack-ship-preflight` opens /ship runs on the project checkout's own lease and
+uses it to refuse a base merge under an open run
+([troubleshooting](troubleshooting.md#ship-preflight-run-open)).
 
 ## What the installer does
 
@@ -606,7 +610,10 @@ Wrapper 2 only added optional exports (the trailer's `latest:` note and the
 `cloned` line). Wrapper 3 answers `--check --for none` itself (a copy at 1 or 2
 prints `fail not-installed` for a coordinator machine and still works for every
 other call), so the minimum is 3: every older Drive copy prints the owner
-action until the owner recopies `capy/skill/gstack/`.
+action until the owner recopies `capy/skill/gstack/`. Wrapper 4 only adds the
+update-channel choice for the clone and the floor fast-forward
+(`GSTACK_UPDATE_CHANNEL=stable|main`, else the checkout's channel, else main);
+the minimum stays 3, so a copy at 3 keeps working.
 
 ## Exit codes
 

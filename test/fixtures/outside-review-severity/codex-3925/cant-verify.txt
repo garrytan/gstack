@@ -1,0 +1,5 @@
+I read the diff for the files I could open. `lib/sync.ts` was excluded from
+the review scope, and the four required suites could not start in the sandbox,
+so I could not run them.
+
+Verdict: Can't verify (one changed file excluded and four required suites blocked)

@@ -59,6 +59,37 @@ describe('review loop counts bind by finding id (GST-1168)', () => {
     ]);
   });
 
+  test('GBEV-3: a voided pass (its ledger never judged, no row names it) is left out by name, and the restarted pass counts alone', () => {
+    const rows = [row('review', 30, [{ fingerprint: 'src/a.ts:10:correctness', severity: 'CRITICAL', action: 'fixed', blocking: true, raised_by: 'red-team', ledger_id: 'p2/red-team#1' }], { pass: 2 })];
+    const ledgers = [[blocker('p1', 'red-team#1', 'src/a.ts:10'), blocker('p1', 'red-team#2', 'src/c.ts:5')], [blocker('p2', 'red-team#1', 'src/a.ts:10')]];
+    const passes = [{ ...pass(0, ['p1/red-team#1', 'p1/red-team#2']), name: 'p1', judged: false }, { ...pass(20, ['p2/red-team#1']), name: 'p2', judged: true }];
+    const s = summarizeReviewLoop(rows, SINCE, ledgers, passes);
+    expect({ found: s.blocking_found, fixed: s.fixed, unrecorded: s.unrecorded, unbound: s.unbound }).toEqual({ found: 1, fixed: 1, unrecorded: undefined, unbound: undefined });
+    expect(s.voided).toEqual(['pass p1: its ledger was never judged and no review-log row names it (an abandoned pass), so its 2 collected findings are left out']);
+  });
+
+  test('an unjudged fix-check ledger with no row still counts as a fix-check, never voided', () => {
+    const rows = [row('review', 20, [], { pass: 1 })];
+    const passes = [{ ...pass(0, ['p1/red-team#1']), name: 'p1', judged: true }, { ...pass(40, ['fc/fix-check#1'], true), name: 'fc', judged: false }];
+    const s = summarizeReviewLoop(rows, SINCE, [[], []], passes);
+    expect(s.voided).toBeUndefined();
+    expect(s.fix_checks).toBe(1);
+  });
+
+  test('the last pass is never voided: an unjudged pass no later pass replaced keeps its blockers', () => {
+    const ledgers = [[blocker('p1', 'red-team#1', 'src/a.ts:10')]];
+    const s = summarizeReviewLoop([], SINCE, ledgers, [{ ...pass(0, ['p1/red-team#1']), name: 'p1', judged: false }]);
+    expect(s.voided).toBeUndefined();
+    expect(s.blocking_found).toBe(1);
+  });
+
+  test('a judged pass with no row is still named unbound, never voided', () => {
+    const rows = [row('review', 30, [], { pass: 2 })];
+    const s = summarizeReviewLoop(rows, SINCE, [[blocker('p1', 'red-team#1', 'src/a.ts:10')], []], [{ ...pass(0, ['p1/red-team#1']), name: 'p1', judged: true }, { ...pass(20, []), name: 'p2', judged: true }]);
+    expect(s.voided).toBeUndefined();
+    expect(s.unbound).toEqual(['pass 1 (ledger p1): no review-log row, so its fixes and dispositions cannot be counted']);
+  });
+
   test('#3911 at 4340ed4c: a fix-check row written twice counts once, and pass 1 with no row is named', () => {
     const fc = { skill: 'review-fix-check', via: 'ship', pass: 2, commit: '4340ed4c', review_binding: { started_at: at(40) }, findings: [{ fingerprint: 'lib/p.ts:9:correctness', severity: 'CRITICAL', action: 'fixed', blocking: true, raised_by: 'fix-check', ledger_id: 'fc/fix-check#1' }] };
     const rows = [row('review', 20, [], { pass: 2, commit: '1111111' }), fc, { ...fc }];
