@@ -351,7 +351,7 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
 | `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
-| `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it |
+| `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it; or the merge's parent isn't in the pin because main moved during the merge: run the free checks on main at the merge commit, fix forward or revert if red, report it |
 | `RELEASE_STAMP_INVALID` | Captain | the `release/<version>` head is more than its stamp: close it, `gstack-release-stamp open` again |
 | `RELEASE_STAMP_EMPTY` | Captain | no fragment landed since the last release: nothing to release |
 
