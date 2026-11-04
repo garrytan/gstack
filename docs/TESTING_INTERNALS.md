@@ -1118,6 +1118,12 @@ machine swap, in this order:
 1. `scripts/ubicloud/ubi-runner.sh records` and `list --mine`: a VM listed in
    the record but absent from the project is already gone (forget it); a VM
    in the project but not in the record belongs to another owner, leave it.
+   After a machine swap, `scripts/ubicloud/ubi-runner.sh recover` rebuilds the
+   state of every VM that `up` wrote a bundle for (`UBI_RECOVERY_DIR`; `--owner
+   OLD` adopts another owner's), so `pull` and `down NAME` work again. Run it
+   only once the creating machine is dead: it cannot tell a paused one. A VM
+   started with `--sink` pushes its own results, so they land even if no
+   controller survives.
 2. Watched background operations: a runner started under `gstack-detach` keeps
    its `### gstack-detach EXIT=<code> ###` sentinel in its log; a log without
    the sentinel after the VM is gone is an interrupted run, not a pass.
@@ -1870,6 +1876,24 @@ own attempts. The arm gets:
   any other arm, per [Candidate-side blinding](#candidate-side-blinding));
 - the same budget treatment: it is priced and reserved in the pilot like every
   other arm.
+
+**Masking.** On Capy, the owner's user-scope instructions tell every session to
+load the user-drive gstack skill, and eval run agents inherit them: in one
+checkpoint (24 runs, 3 arms) every run in every arm tried to read that skill in
+its first minute. So `## No-gstack arm` also needs three lines, and `prereg
+--check` refuses a missing, blank or `none` one (`PREREG_NO_GSTACK_ARM`):
+
+- `masking:` an empty directory bind-mounted over `~/.capy/drive/user-garry-tan`
+  and `~/.capy/drive/org-gstack-gbrain` before the run agent starts, or a
+  container that sees no Capy drive;
+- `install:` no gstack on the arm's machine (`~/.local/share/gstack`,
+  `~/.claude/skills`), checked before the run;
+- `audit:` a per-arm audit of drive and skill reads.
+
+An arm that read a gstack skill file is contaminated and gets zero credit. A
+no-gstack result that ran before this rule without a mask is not evidence for
+an R48 verdict until it is re-checked; the evidence ledger records it under
+`prior` with `unmasked` ([docs/inventory.md](inventory.md)).
 
 **Reporting.** The no-gstack result is one row beside the variants in every
 results table and every verdict, including when it wins. A comparison that

@@ -16,10 +16,11 @@
  * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
-import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
+import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
 import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
@@ -56,7 +57,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
       duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
-      JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1)
+      JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1). An empty merged.jsonl needs no judged file: judge writes an
+      empty one and prints JUDGMENT: ok nothing to judge; a merge with findings and no judged file is refused (exit 2)
   verify --ledger <f> [--targeted-out <file>]
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
@@ -68,6 +70,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
       the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      <id> is letters, digits and dashes, read as lowercase (P1 is p1): the manifest, reader titles and a resume use that form.
       A fix-check reader (stage specialists) renders from decision 3.5's --fix-list, --hunks, --tests and --callers files.
       --diff-base sets every reader's base, a scoped pass's Red Team included (the targeted reader keeps the merge base).
       An existing manifest for the same --pass is reused (resumed). --extras: [{"name","prompt_file","first"?,"model"?}]
@@ -108,8 +111,9 @@ function render(): number {
   const diffBase = flag('--diff-base');
   const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'targeted' ? path.join(ROOT, 'review/specialists/targeted.md') : role === 'specialist' && name ? path.join(ROOT, 'review/specialists', `${name}.md`) : undefined);
   if (checklist && (role === 'specialist' || role === 'red-team' || role === 'targeted') && !fs.existsSync(checklist)) throw new BriefError(`checklist not found: ${checklist}`);
-  const brief = role === 'targeted' ? readFile(checklist, 'targeted brief') : undefined;
-  if (role === 'targeted') {
+  const merged = role === 'adversarial-native' && !!flag('--classes');
+  const brief = role === 'targeted' || merged ? readFile(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist, 'targeted brief') : undefined;
+  if (role === 'targeted' || merged) {
     const base = resolveBaseBranch(process.cwd(), flag('--base'));
     const mb = mergeBaseWith(base);
     const full = diffBase ? spawnSync('git', ['rev-parse', '--verify', '--quiet', `${diffBase}^{commit}`], { encoding: 'utf8', timeout: 30_000 }).stdout?.trim() : undefined;
@@ -127,11 +131,19 @@ function render(): number {
     if (over) { process.stderr.write(over.line + '\n'); return over.exit; }
     if (role === 'outside-voice') diff = branchDiff(diffBase, { exclude: flag('--exclude'), keep: keepItems });
   }
+  let diffFile: Slots = {};
+  if (diff !== undefined) {
+    fs.mkdirSync(out, { recursive: true, mode: 0o700 });
+    const f = path.join(path.resolve(out), 'outside-voice.diff');
+    const s = sliceDiff(diff, REVIEW_DIFF_MAX_BYTES);
+    fs.writeFileSync(f, s.text, { mode: 0o600 });
+    diffFile = { diff_file: f, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) };
+  }
   const slots: Slots = {
     name, diff_base: diffBase, exclude: flag('--exclude'), stack: flag('--stack'), test_fw: flag('--test-fw'),
     learnings: readFile(flag('--learnings-file'), 'learnings'), checklist, checklists: checklists?.join(','),
-    findings: readFile(flag('--findings-file'), 'findings'), specialists: flag('--specialists'), diff,
-    classes: flag('--classes'), brief,
+    findings: readFile(flag('--findings-file'), 'findings'), specialists: flag('--specialists'), ...diffFile,
+    classes: flag('--classes'), brief, ...(merged ? { checklist: path.join(ROOT, 'review/specialists/targeted.md') } : {}),
     ...(flag('--disclosure') ? { disclosure: flag('--disclosure'), policy_exclude: policyItems.map(quote).join(' ') || undefined, keep: keepItems.map(quote).join(' ') || undefined } : {}),
     fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };
@@ -144,8 +156,8 @@ function render(): number {
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
-  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}) });
+  const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}) });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }
@@ -178,14 +190,15 @@ function ceiling(context: string, base: string, outDir: string, readers: Readonl
     const at = r.diff_base ?? diffBase;
     const d = selectionOf(at, r.exclude, r.keep);
     if (!d.ok) return { exit: EXIT.fail, line: unreadableLine(context, r.reader, d, at, base, outDir) };
-    if (d.bytes > REVIEW_DIFF_MAX_BYTES) return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
+    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.reader !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
   }
   return null;
 }
 
 function pass(): number {
-  const base = flag('--base'), out = flag('--out'), id = flag('--pass');
-  if (!base || !out || !id || !/^[a-z0-9-]+$/.test(id)) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id> (lowercase letters, digits, dashes)\n'); return EXIT.usage; }
+  const base = flag('--base'), out = flag('--out'), given = flag('--pass'), id = given?.toLowerCase();
+  if (!base || !out || !id) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id>\n'); return EXIT.usage; }
+  if (!/^[a-z0-9-]+$/.test(id)) { process.stderr.write(`gstack-review-dispatch pass: --pass ${JSON.stringify(given)} is not a pass id: use letters, digits and dashes (read as lowercase, so P1 is p1)\n`); return EXIT.usage; }
   const file = manifestPath(out);
   if (fs.existsSync(file)) {
     const m = readManifest(file);
@@ -329,19 +342,21 @@ function program(): number {
  * collected, and it was rendered on a committed diff (uncommitted never proves what was read). `head` names the commit it read:
  * a later commit does not undo the read, and gstack-ship-receipt write binds the record only while that commit's product patch is
  * the receipt's (GST-986: Step 11 fixes after the read printed status=failed findings=0 for a completed reader).
+ * R65's merged reader (an adversarial-native brief rendered with --classes) is a targeted dispatch too (design C7).
  */
 function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[]; rules: string; brief_sha: string; status: 'done' | 'failed'; findings: number; raised_by: string; head: string | null } | null {
   const events = readLedger(ledger);
-  const render = events.filter(e => e.event === 'rendered' && e.reader === 'targeted').at(-1);
+  const render = events.filter(e => e.event === 'rendered' && (e.reader === 'targeted' || (e.reader === 'adversarial-native' && typeof e.brief_sha === 'string'))).at(-1);
   if (!render) return null;
-  const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === 'targeted').at(-1)?.reader;
+  const key = String(render.reader);
+  const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === key).at(-1)?.reader;
   const brief = rows.filter(r => r.kind === 'BRIEF' && r.reader === label).at(-1);
   const output = rows.filter(r => r.kind === 'OUTPUT' && r.reader === label).at(-1);
   const head = typeof render.head === 'string' && /^[0-9a-f]{40,64}$/.test(render.head) ? render.head : null;
   const committed = typeof render.patch_id === 'string' && !['uncommitted', 'none'].includes(render.patch_id) && head !== null;
   const done = brief?.status === 'MATCH' && output?.status === 'MATCH' && committed;
-  const ids = events.filter(e => e.event === 'output' && e.reader === 'targeted').at(-1)?.ids;
-  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: Array.isArray(ids) ? ids.length : 0, raised_by: 'targeted', head };
+  const ids = events.filter(e => e.event === 'output' && e.reader === key).at(-1)?.ids;
+  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: Array.isArray(ids) ? ids.length : 0, raised_by: key, head };
 }
 
 /**
@@ -413,7 +428,16 @@ function main(): number {
     const merged = flag('--merged');
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
-    const r = recordJudgment(ledger, readJsonl<MergedLine>(merged), readJsonl<JudgedLine>(judged), judged, merged);
+    const lines = readJsonl<MergedLine>(merged);
+    const nothing = !lines.length && !fs.existsSync(judged);
+    if (lines.length && !fs.existsSync(judged)) {
+      process.stderr.write(`gstack-review-dispatch judge: ${judged} does not exist; ${merged} holds ${lines.length} finding${lines.length === 1 ? '' : 's'}, so lead judgment writes one judged line per finding first\n`);
+      return EXIT.usage;
+    }
+    if (nothing) fs.writeFileSync(judged, '', { mode: 0o600 });
+    const r = recordJudgment(ledger, lines, readJsonl<JudgedLine>(judged), judged, merged);
+    if (nothing && r.ok) { process.stdout.write(`JUDGMENT: ok nothing to judge (${merged} holds no findings; wrote an empty ${judged})\n`); return EXIT.ok; }
+    if (nothing) fs.rmSync(judged, { force: true });
     process.stdout.write(r.ok ? `JUDGMENT: ok added=${r.added.length} promoted=${r.promoted.length} folded=${r.folded.length}${r.dismissed.length ? ` dismissed=${r.dismissed.length}` : ''}\n`
       : `JUDGMENT_REJECTED: dropped=${JSON.stringify(r.dropped)} downgraded=${JSON.stringify(r.downgraded)} unexplained=${JSON.stringify(r.unexplained)} invalid=${JSON.stringify(r.invalid)} (lead judgment may add or promote a finding, never drop or downgrade one; a summary_candidate line may be lowered with a reason)\n`);
     return r.ok ? EXIT.ok : EXIT.fail;

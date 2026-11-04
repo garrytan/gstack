@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, isGatePath, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, ROLE_EFFORT, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
 import { summarizeReviewLoop } from '../lib/review-scope';
 import { sectionTexts } from '../lib/review-brief';
 import { createHash } from 'node:crypto';
@@ -100,6 +100,17 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', granted: 'a-1' }).step).toBe('done');
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
   });
+  // Value: protects=a recorded grant gets its one fix-check when round 2 was itself a fix-check (GEVA-223), without restating
+  //   history as a full pass; fails_when=the planner prints stop despite the grant, runs a second granted fix-check, or grants
+  //   one with a blocker open; seam=nextStep; no_claim=the CLI's grant binding to the stop head
+  test('a recorded grant after a round-2 fix-check runs its one fix-check, and never a second (GEVA-223)', () => {
+    const h = { fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-a17f3fd0a47a', fixChecks: 1 } as const;
+    expect(nextStep(h)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-a17f3fd0a47a') });
+    expect(nextStep({ ...h, fixedBlocking: false, touchedGate: true }).step).toBe('fix-check');
+    expect(nextStep({ ...h, gate: true }).step).toBe('voices');
+    expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
+    for (const o of [{ fixChecks: 2 }, { fixChecks: undefined }, { blockingOpen: true }, { granted: undefined }, { fullPasses: FULL_PASS_CAP }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
+  });
   test('docs/review-policy.md\'s transitions table and rule 3 say both', () => {
     const doc = fs.readFileSync(path.join(ROOT, 'docs', 'review-policy.md'), 'utf8');
     const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('A **fix-check** is one reviewer'));
@@ -187,6 +198,81 @@ describe('GST-967 dispatch-superset no-loss check', () => {
     }
     expect([rows.length, voices, sha(rows)]).toEqual([1440, 71, MAIN_PLANS]);
     expect(sha(sectionTexts(ROOT))).toBe(MAIN_SECTIONS);
+  });
+});
+
+describe('GST-972 follow-up: review-exclude and default-base are gate paths; harness pins are code', () => {
+  // Value: protects=full review on edits to what reviewers never see (review-exclude) and to the diff base (default-base), and code-class review on harness pin edits; fails_when=either module plans light depth with no gate class, or a scripts/harness-pins file classifies as tests or as unconsumed data;
+  //   why_new=GST-972 item 4 and the GST-1084 pin split (#3903) dropped both to light or test-only plans; seam=classifyPath, classifyDiff, planReview; no_claim=what the reviewers find
+  test.each(['lib/review-exclude.ts', 'lib/default-base.ts'])('%s is a gate path: gate class, full depth', p => {
+    expect(isGatePath(p)).toBe(true);
+    const c = classifyDiff({ paths: [p], gateTagged: 0, perPath: [{ path: p, lines: 1, binary: false }] });
+    expect([c.class, depthFor({ cls: c.class, runtimeLines: c.runtimeLines ?? 0, errors: c.errors, risk: c.risk })]).toEqual(['gate', 'full']);
+  });
+  test('a harness pin is code, never test or data; a review pin fixture stays tests', () => {
+    expect(['scripts/harness-pins/test/helpers/e2e-gate.ts.json', 'scripts/harness-pins/scripts/lib/paid-plan.ts.json'].map(p => [classifyPath(p), dataCandidate(p)])).toEqual([['code', false], ['code', false]]);
+    expect(classifyPath('test/fixtures/review-pins/files/lib/review-depth.ts.json')).toBe('tests');
+  });
+  test('a harness helper edit with its pin plans the code-class reviewers, even when no code names the pin', () => {
+    const paths = ['test/helpers/e2e-gate.ts', 'scripts/harness-pins/test/helpers/e2e-gate.ts.json'];
+    const p = planReview(base({ paths, scope: { SCOPE_TESTS: 'true' }, diffLines: 20, consumed: [] }));
+    expect([p.class, roles(p)]).toEqual(['code', ['specialist:batched:full', 'adversarial-native:adversarial:full']]);
+    expect(batch(p)).toEqual(expect.arrayContaining(['testing', 'security']));
+  });
+});
+
+/**
+ * The GST-972 follow-up no-loss check (crew rule 2026-10-30; replay 'GST-972' in test/fixtures/review-pins/replays/GST-972.json).
+ * On the GST-967 history grid, each changed case runs on its real paths and on a stand-in (a path main and the branch both
+ * classify the way main classified the real one). Main's planReview at 1ccab0d (v1.94.24.0) on the real paths hashes to
+ * MAIN_972_PLANS, and so does the branch's on the stand-ins, so the stand-in plans are main's. On the real paths the branch only
+ * raises class and depth and keeps every reader main dispatched, at the same effort or higher, with one exception: light's
+ * batched reader, which carries the Red Team prompt at full effort, becomes full depth's batched reader at the specialist
+ * effort, while the Red Team keeps full effort as its own dispatch.
+ */
+const MAIN_972_PLANS = '798e56faf8a44c182b77e1638b9a80c554a5d727bb56a84786b1c11507b31030';
+describe('GST-972 follow-up no-loss check', () => {
+  // Value: protects=the no-loss rule for review-depth changes: the GST-972 follow-up drops no reviewer main dispatched and lowers no class, depth or effort beyond the named Red Team split; fails_when=a stand-in stops matching main's plans, a reader disappears, a class or depth falls, or an effort falls anywhere else;
+  //   why_new=GST-972 follow-up; seam=planReview; no_claim=what the added readers find (they only add coverage)
+  test('the changed cases only raise class and depth and keep every reader main dispatched', () => {
+    const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex');
+    const cases: Record<string, [string[], string[], Record<string, string>]> = {
+      'review-exclude': [['lib/review-exclude.ts'], ['lib/plain-module.ts'], { SCOPE_BACKEND: 'true' }],
+      'default-base': [['lib/default-base.ts'], ['lib/plain-module.ts'], { SCOPE_BACKEND: 'true' }],
+      'helper+pin': [['test/helpers/e2e-gate.ts', 'scripts/harness-pins/test/helpers/e2e-gate.ts.json'], ['test/helpers/e2e-gate.ts', 'test/helpers/e2e-gate.ts.json'], { SCOPE_TESTS: 'true' }],
+      pin: [['scripts/harness-pins/scripts/lib/paid-plan.ts.json'], ['scripts/lib/paid-plan.ts.json'], {}],
+    };
+    const grid = (pick: 0 | 1) => {
+      const rows: { name: string; fullPasses: number; last: string; bits: number; adversarialRan: boolean; class: string; depth: string; step: string; dispatches: { role: string; name: string; effort: string; checklists: string[] }[] }[] = [];
+      for (const [name, c] of Object.entries(cases)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
+        const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
+        const p = planReview({ paths: c[pick], scope: c[2], gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan });
+        rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, depth: p.depth, step: p.next.step, dispatches: p.dispatches.map(d => ({ role: d.role, name: d.name, effort: d.effort, checklists: d.checklists ?? [] })) });
+      }
+      return rows;
+    };
+    const main = grid(1);
+    expect(sha(main)).toBe(MAIN_972_PLANS);
+    const rank: Record<string, number> = { docs: 0, tests: 1, code: 2, gate: 3, light: 0, standard: 1, full: 2, medium: 1, host: 2 };
+    const readers = (r: (typeof main)[number]) => new Map(r.dispatches.flatMap(d => d.role === 'specialist' ? d.checklists.map(c => [c === 'red-team' ? 'red-team' : `checklist:${c}`, d.effort] as const) : [[d.role, d.effort] as const]));
+    const moves: Record<string, number> = {};
+    let split = 0;
+    grid(0).forEach((b, i) => {
+      const m = main[i]!;
+      const move = `${m.name}: ${m.class}/${m.depth} -> ${b.class}/${b.depth}`;
+      moves[move] = (moves[move] ?? 0) + 1;
+      expect([rank[b.class]! >= rank[m.class]!, rank[b.depth]! >= rank[m.depth]!]).toEqual([true, true]);
+      const mr = readers(m), br = readers(b);
+      for (const [reader, effort] of mr) {
+        expect([move, reader, br.has(reader)]).toEqual([move, reader, true]);
+        if (rank[br.get(reader)!]! >= rank[effort]!) continue;
+        expect([reader.startsWith('checklist:'), m.depth, effort, br.get(reader), mr.get('red-team'), br.get('red-team')]).toEqual([true, 'light', 'full', ROLE_EFFORT.specialist, 'full', 'full']);
+        split++;
+      }
+    });
+    expect([main.length, split, moves]).toEqual([1152, 168, {
+      'review-exclude: code/light -> gate/full': 288, 'default-base: code/light -> gate/full': 288, 'helper+pin: tests/light -> code/light': 288, 'pin: docs/light -> code/light': 288,
+    }]);
   });
 });
 

@@ -2,7 +2,7 @@
 /**
  * gstack-restamp — the whole stamp in one step (plan C2).
  *
- *   gstack-restamp --next | --version <X> | --after <pr> [--predecessor-ref <ref>]
+ *   gstack-restamp --next | --version <X> | --after <pr> [--predecessor-ref <ref>] | --release
  *                  [--base <branch>] [--bump micro|patch|minor|major] [--queue-mode stamp-at-merge|claim-at-open]
  *                  [--pr <n>] [--expect-base <sha>] [--expect-order <pr,pr,...>]
  *                  [--policy-from base|head] [--allow-repo-commands] [--dry-run] [--json]
@@ -33,6 +33,8 @@ const HELP = `gstack-restamp — stamp the version, release tool, CHANGELOG and 
   --next                     base version at origin/<base> plus the policy bump (stamp-at-merge ignores claims)
   --version <X>              stamp exactly X
   --after <pr>               gate-ahead: stamp a merge of HEAD and the predecessor's head in a throwaway worktree
+  --release                  versions at release (merge: direct): on a clean checkout of origin/<base>, fold every
+                             changelog fragment there under base + their bump (gstack-release-stamp open runs this)
   --predecessor-ref <ref>    the predecessor's head (default refs/pull/<pr>/head; fetch it first)
   --base <branch>            base branch (default: origin/HEAD, else main)
   --bump <level>             micro|patch|minor|major (default: policy bump, else micro)
@@ -101,9 +103,10 @@ function stage(root: string, written: string[] | null): Staging | null {
 function main(argv: string[]): number {
   if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
   const json = argv.includes('--json');
-  const modes = ['--next', '--version', '--after'].filter(f => argv.includes(f));
-  if (modes.length !== 1) { process.stderr.write(`gstack-restamp: pass exactly one of --next, --version <X>, --after <pr>\n${HELP}\n`); return EXIT.usage; }
+  const modes = ['--next', '--version', '--after', '--release'].filter(f => argv.includes(f));
+  if (modes.length !== 1) { process.stderr.write(`gstack-restamp: pass exactly one of --next, --version <X>, --after <pr>, --release\n${HELP}\n`); return EXIT.usage; }
   const bump = flag(argv, '--bump') as Bump | undefined;
+  if (bump && argv.includes('--release')) { process.stderr.write('gstack-restamp: --release takes its bump from the fragments; drop --bump\n'); return EXIT.usage; }
   if (bump && !['micro', 'patch', 'minor', 'major'].includes(bump)) { process.stderr.write('gstack-restamp: --bump needs micro|patch|minor|major\n'); return EXIT.usage; }
   const queueMode = flag(argv, '--queue-mode') as 'stamp-at-merge' | 'claim-at-open' | undefined;
   if (queueMode && !['stamp-at-merge', 'claim-at-open'].includes(queueMode)) { process.stderr.write('gstack-restamp: --queue-mode needs stamp-at-merge|claim-at-open\n'); return EXIT.usage; }
@@ -119,7 +122,7 @@ function main(argv: string[]): number {
     repoRoot, base, version: flag(argv, '--version'), next: argv.includes('--next'), bump, queueMode,
     after: after ? { pr: after, ref: flag(argv, '--predecessor-ref') } : undefined, pr: flag(argv, '--pr'),
     expectBase: flag(argv, '--expect-base'), was: flag(argv, '--was'), expectOrder: flag(argv, '--expect-order')?.split(',').map(s => s.trim()).filter(Boolean),
-    policyFrom, allowRepoCommands: argv.includes('--allow-repo-commands'), dryRun: argv.includes('--dry-run'),
+    policyFrom, allowRepoCommands: argv.includes('--allow-repo-commands'), dryRun: argv.includes('--dry-run'), release: argv.includes('--release'),
     failAfter: process.env.GSTACK_RESTAMP_FAIL_AFTER,
   };
   const writes = !after && !options.dryRun;

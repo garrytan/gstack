@@ -13,7 +13,9 @@ as the single source.
 
 **Versioning invariant.** VERSION is a monotonic ordered release identifier,
 not a strict semver commitment. The bump level (major/minor/patch/micro)
-expresses intent. Versions are assigned at merge, in merge order: each stamp
+expresses intent. Versions are assigned at merge, in merge order (under
+`merge: direct`, at release: one release PR folds every landed fragment under
+one new version, [ship-policy.md](ship-policy.md#release-stamp)): each stamp
 takes the version before it plus the effective bump, which is the policy's
 PATCH raised by any folded fragment's `bump:` front matter. If PR A and PR B
 both ask for MINOR and land back to back on v1.6.0.0, A lands at v1.7.0.0 and
@@ -38,7 +40,8 @@ branch that ships writes one entry as `changelog.d/<branch-slug>.md`: the entry
 text only, with no `## [x]` heading, and `bump: minor` or `bump: major` front
 matter only when the change warrants more than a PATCH. A branch never edits
 VERSION, package.json's version or a released CHANGELOG.md section. At merge,
-`train land` (or `gstack-ship-queue land`) assigns the version, folds the
+`train land` (or `gstack-ship-queue land`) assigns the version (under
+`merge: direct`, the release PR from `gstack-release-stamp open` does), folds the
 fragment into one `## [<version>] - <date>` section at the top of CHANGELOG.md
 and deletes the file. The entry describes what THIS branch adds — not what was
 already on main.

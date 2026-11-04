@@ -859,6 +859,43 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     expect(early.status).toBe(3);
   });
 
+  // Value: protects=a base merge after the granted fix-check that also edits a fix-checked file keeps that file's credit when its
+  //   patch against the base is the one the fix-check read (#3916 open note, merge 131a856); fails_when=finish compares the
+  //   fix-check commit's tree with the current tree path by path and prints FIX_CHECK: reviewed none, or credits a branch edit
+  //   made after the merge; seam=finish's route reading the review log; no_claim=a conflict resolution's meaning
+  test('a base merge that also edits a fix-checked file keeps the credit while the branch patch is unchanged', () => {
+    const f = fx({ 'src/x.ts': lines(9) }, { 'src/x.ts': lines(9, { 5: 'export const l5 = 50;' }), 'test/x.test.ts': TEST_V1 });
+    const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    f.write({ 'src/x.ts': lines(9, { 5: 'export const l5 = 51;' }), 'test/x.test.ts': TEST_V2 }); f.commit('fix the round-2 blocker and bound its case');
+    const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const post = snapshot(f);
+    const id = grant(f, passHead);
+    expect(logFixCheck(f, { completed: true, converged: true, range_base: passHead }).status).toBe(0);
+    f.advanceBase({ 'src/x.ts': lines(9, { 1: 'export const l1 = 100;' }), 'src/y.ts': 'export const y = 1;\n' });
+    mergeMain(f);
+    expect(f.git('show', 'HEAD:src/x.ts').stdout).toBe(lines(9, { 1: 'export const l1 = 100;', 5: 'export const l5 = 51;' }));
+    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}, grant ${id})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE'), lineOf(r.stdout, 'DOCS')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=1 context=0 fix_checked=2$/), expect.stringMatching(/^DOCS: fresh .*carried: tests=0 base=1 /)]);
+    f.write({ 'src/x.ts': lines(9, { 1: 'export const l1 = 100;', 5: 'export const l5 = 52;' }) }); f.commit('an edit after the merge');
+    const late = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(late.stdout, 'FIX_CHECK')).toStartWith('FIX_CHECK: reviewed test/x.test.ts (');
+    expect([late.status, late.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts)')]).toEqual([3, true]);
+  });
+
+  // Value: protects=the docs audit carries a path only on the tree finish checks, so a --build that rewrites an audited doc after
+  //   the commit check is still stale (#3970 outside voice); fails_when=the carry compares HEAD and prints DOCS: fresh;
+  //   seam=finish's docsFresh; no_claim=push's own working-tree guard
+  test('a build that rewrites an audited doc after the commit check keeps the docs audit stale', () => {
+    const f = fx({ 'README.md': '# Fx\n' }, { 'README.md': '# Fx, from the branch\n' });
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--docs-rechecked', '--build', "printf '# Generated replacement never audited\\n' > README.md"]);
+    expect([r.status, lineOf(r.stdout, 'DOCS')]).toEqual([3, 'DOCS: stale (README.md)']);
+  });
+
   test('a fix-check logged on uncommitted content is not counted', () => {
     const { f, passHead, reviewed, post } = afterFixCheck();
     f.write({ 'src/x.ts': 'export const x = 9;\n' });
@@ -867,5 +904,62 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
     const r = finish(f, reviewed, post);
     expect(lineOf(r.stdout, 'FIX_CHECK')).toBe('FIX_CHECK: not counted (the row was logged on content no branch commit holds)');
     expect(r.status).toBe(3);
+  });
+});
+
+// Value: protects=a base merge that puts lines already merged at base next to the branch's reviewed, unchanged hunk reaches
+//   the scoped read even when those base lines push a packet section past PACKET_SECTION_CAP (founderstar#515, #3923); only the
+//   branch's own lines count toward the cap; fails_when=finish forces the behavior route for a section that is over only
+//   because of base lines, or lets a section the branch's own lines push over reach the scoped read; seam=contextPacket's count
+describe('base lines do not count toward the scoped-review cap (GST-1226, founderstar#515, #3923)', () => {
+  const block = (name: string, n: number) => Array.from({ length: n }, (_, i) => `export const ${name}${i + 1} = ${i + 1};`);
+  const join = (rows: string[]) => rows.join('\n') + '\n';
+  const at = (n: number, after: number, add: string[]) => { const rows = lines(n).trimEnd().split('\n'); rows.splice(after, 0, ...add); return rows; };
+  const scoped = (r: { status: number | null; stdout: string }) => [r.status, lineOf(r.stdout, 'ROUTE').replace(/^.* behavior=/, 'behavior='), r.stdout.includes('STOP: base context moved next to the reviewed hunks in src/shots.ts'), r.stdout.includes('SCOPED_REVIEW: too large')];
+
+  test('210 lines another PR merged at base next to the branch\'s 76 reviewed lines reach the scoped read', () => {
+    const pr = block('pr', 76), other = block('other', 210);
+    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
+    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
+    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
+    mergeMain(f, { 'src/shots.ts': join(merged) });
+    expect(f.git('show', 'HEAD:src/shots.ts').stdout).toBe(join(merged));
+    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=0 docs=0 metadata=0 tests=0 base=0 context=1', true, false]);
+  });
+
+  test('a changed trailing context line with the same +/- lines reaches the scoped read beside a 221-line base rewrite', () => {
+    const pr = block('pr', 76);
+    const f = fx({ 'src/shots.ts': lines(300) }, { 'src/shots.ts': join(at(300, 10, pr)) });
+    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+    const edits: Record<number, string> = { 12: 'export const l12 = 120;' };
+    for (let i = 60; i <= 280; i++) edits[i] = `export const l${i} = ${i * 10};`;
+    f.advanceBase({ 'src/shots.ts': lines(300, edits) });
+    const merged = lines(300, edits).trimEnd().split('\n'); merged.splice(10, 0, ...pr);
+    mergeMain(f, { 'src/shots.ts': join(merged) });
+    expect(f.git('show', 'HEAD:src/shots.ts').stdout).toBe(join(merged));
+    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=0 docs=0 metadata=0 tests=0 base=0 context=1', true, false]);
+  });
+
+  test('a section the branch\'s own 230 lines push past the cap still takes the behavior route', () => {
+    const pr = block('pr', 230), other = block('other', 5);
+    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
+    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
+    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
+    mergeMain(f, { 'src/shots.ts': join(merged) });
+    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(scoped(r)).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
+    expect(r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/shots.ts)')).toBe(true);
+  });
+
+  test('a base change past BASE_SECTION_CEILING counts in full again and takes the behavior route', () => {
+    const pr = block('pr', 76), other = block('other', 2100);
+    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
+    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
+    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
+    mergeMain(f, { 'src/shots.ts': join(merged) });
+    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
   });
 });

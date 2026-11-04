@@ -138,13 +138,40 @@ describe('carry-forward', () => {
     expect(o.stdout).toContain('status=gate_pending');
   });
 
-  test('an edit to the plan file after the revise (an ELI5-only line) refuses the carry', () => {
+  test('an edit to the plan file after the revise (an ELI5-only line) carries as a no-stop re-gate (K1) and is recorded', () => {
     const edited = answeredAndRevised();
-    fs.appendFileSync(edited.v2, '\nAn ELI5 sentence added after the revise.\n');
+    fs.appendFileSync(edited.v2, '\n## ELI5\n\nAn ELI5 sentence added after the revise.\n');
     phaseVia(r, edited.out, 'ceo', NONE);
     const e = phaseVia(r, edited.out, 'eng', NONE).outside;
-    expect(e.stdout).toMatch(/^CARRY: no \(the plan file plan-v2\.md changed after the owner's answer or the revise that took it\)$/m);
+    expect(e.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason=no-stop autoplan-regate: the plan file plan-v2\.md changed after the owner's answer or the revise that took it, adding only ELI5 lines \(the reviewed plan is exported\)$/m);
+    expect(e.stdout).toMatch(/^NO_STOP: autoplan-regate recorded /m);
+    expect(JSON.parse(fs.readFileSync(path.join(edited.out, 'no-stop.json'), 'utf8'))).toEqual([{ class: 'autoplan-regate', reason: expect.stringContaining('adding only ELI5 lines'), evidence: `autoplan:${edited.run}@gate_rev=2` }]);
+    expect(e.stdout).toMatch(/^APPROVED: gate_rev=2/m);
+  });
+
+  test('an edit after the revise that moves a cap still goes to the owner', () => {
+    const edited = answeredAndRevised();
+    fs.writeFileSync(edited.v2, V2.replace('cap 30 s', 'cap 90 s'));
+    phaseVia(r, edited.out, 'ceo', NONE);
+    const e = phaseVia(r, edited.out, 'eng', NONE).outside;
+    expect(e.stdout).toMatch(/^CARRY: no \(the plan file plan-v2\.md changed after the owner's answer or the revise that took it; it removes or rewrites a line: /m);
+    expect(fs.existsSync(path.join(edited.out, 'no-stop.json'))).toBe(false);
     expect(readRunJson(edited.out).status).toBe('gate_pending');
+  });
+
+  test('an edit to the reviewed plan itself is never a no-stop, whether or not the plan file also changed', () => {
+    const drift = answeredAndRevised();
+    const active = path.join(drift.out, 'plan-active.md');
+    fs.writeFileSync(active, fs.readFileSync(active, 'utf8').replace('cap 30 s', 'cap 300 s'));
+    phaseVia(r, drift.out, 'ceo', NONE);
+    expect(phaseVia(r, drift.out, 'eng', NONE).outside.stdout).toMatch(/^CARRY: no \(the reviewed plan differs from the plan file\)$/m);
+    const both = answeredAndRevised();
+    const active2 = path.join(both.out, 'plan-active.md');
+    fs.writeFileSync(active2, fs.readFileSync(active2, 'utf8').replace('cap 30 s', 'cap 300 s'));
+    fs.appendFileSync(both.v2, '\nAn ELI5 sentence added after the revise.\n');
+    phaseVia(r, both.out, 'ceo', NONE);
+    expect(phaseVia(r, both.out, 'eng', NONE).outside.stdout).toMatch(/^CARRY: no \(the reviewed plan differs from the plan file\)$/m);
+    expect(fs.existsSync(path.join(both.out, 'no-stop.json'))).toBe(false);
   });
 
   test('a new scope challenge or an urgent finding refuses the carry', () => {

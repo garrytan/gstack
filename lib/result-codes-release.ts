@@ -392,8 +392,8 @@ export const RELEASE_RESULT_CODES = {
   },
   REVIEW_LOOP_EXCEPTION_INVALID: {
     anchor: 'review-loop-exception-invalid',
-    summary: 'write --review-loop-exception got an exception that is malformed, follows no fix-check (review_loop.fix_checks is 0 or missing), names a fix-check head that is not the receipt head or its ancestor, or is missing from the PR body',
-    fix: 'pass { accepted_by, date, via, reason, fix_check: { head, findings } } with the owner’s words, the --review-loop summary that counts the fix-check, and the printed "Review-loop exception: …" line in the body',
+    summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
+    fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
   },
   RECEIPT_CARRY_TREE_MISMATCH: {
     anchor: 'receipt-carry-tree-mismatch',
@@ -471,6 +471,48 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'queue-land-base-busy',
     summary: 'the base branch moved during the stamp commit\'s CI on each of the allowed restamp attempts, so land stopped instead of restamping again',
     fix: 'find what is merging outside land (every merge should go through it), then rerun gstack-ship-queue land --pr <n>; it resumes from its journal',
+  },
+  // gstack-ship-queue land --pin (lib/ship-queue-land-direct.ts): merge: direct refusals and its post-merge check.
+  QUEUE_LAND_STAMPED: {
+    anchor: 'queue-land-stamped',
+    summary: 'under merge: direct the PR changes VERSION, the package.json version or the CHANGELOG; versions and the CHANGELOG are set at release, so a PR carries only its changelog fragment',
+    fix: 'put the named files back to the merge base (git checkout $(git merge-base origin/main HEAD) -- <files>), keep or add the changelog.d fragment, commit, then /ship and ready at the new head',
+  },
+  QUEUE_LAND_PIN_MOVED: {
+    anchor: 'queue-land-pin-moved',
+    summary: 'the PR head is not the pin land was given, so the READY it was given does not describe what would merge',
+    fix: 'the lane runs /ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
+  },
+  QUEUE_LAND_CHECKS: {
+    anchor: 'queue-land-checks',
+    summary: 'a check at the pin is red or pending, or a required check never ran there',
+    fix: 'wait for pending checks (gstack-pr-wait <n> --until green), fix a red one at a new head, or dispatch a missing required workflow on the branch; then rerun land',
+  },
+  QUEUE_LAND_MERGED_CHECKS: {
+    anchor: 'queue-land-merged-checks',
+    summary: 'the base moved past the pin\'s merge base, and a land.merged_checks command failed on the pin merged onto the base tip (GST-1316: a stale-base PR pushed a budgeted file past its cap on main); nothing merged',
+    fix: 'merge the base into the branch, fix what the failing command names, push, wait for the required checks, run /ship and gstack-ship-queue ready at the new head, then land it',
+  },
+  QUEUE_LAND_NOT_CLEAN: {
+    anchor: 'queue-land-not-clean',
+    summary: 'GitHub does not report the PR mergeable and clean (a conflict, a branch rule, or a state GitHub is still computing)',
+    fix: 'CONFLICTING: the lane merges the base into the branch, resolves, runs /ship and ready at the new head; UNKNOWN: rerun land in a minute; BLOCKED or BEHIND: meet the branch rule it names',
+  },
+  QUEUE_LAND_UNVERIFIED: {
+    anchor: 'queue-land-unverified',
+    summary: 'after the merge, the base branch tree is not the pin merged onto the merge commit\'s parent, so something besides the reviewed pin reached main',
+    fix: 'compare the merge commit with the pin merged onto its parent, revert what does not belong to the PR, and report it to the Captain',
+  },
+  // gstack-restamp --release, gstack-release-stamp and the release route of land --pin (lib/release-stamp.ts): versions at release.
+  RELEASE_STAMP_EMPTY: {
+    anchor: 'release-stamp-empty',
+    summary: 'the base holds no changelog fragment, so there is nothing to release and no release PR was opened',
+    fix: 'nothing to do: the next release stamp folds the fragments the PRs landed since; the cut tags the current VERSION if it has no tag yet',
+  },
+  RELEASE_STAMP_INVALID: {
+    anchor: 'release-stamp-invalid',
+    summary: 'a release stamp ran off a clean checkout of the base, or a release/<version> head is more than the release stamp of its merge base',
+    fix: 'open the release again with gstack-release-stamp open (it stamps a fresh checkout of origin/main); never edit a release/<version> branch by hand',
   },
   // gstack-pr-wait (lib/pr-wait.ts): the landing-path PR watcher's two terminal codes.
   PR_WAIT_BLOCKED: {

@@ -87,7 +87,7 @@ Not every workflow writes this line or a run directory today:
 - **`/ship`** ends with `gstack-ship-receipt result --pr <n>` (or `--body
   .gstack/tmp/ship-receipt.md` after the handoff section), which binds the
   receipt to the branch head, writes the run record and prints
-  `GSTACK_RESULT: skill=ship status=complete run=<dir>`. That line and that
+  `GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>`. That line and that
   record are the machine-readable READY evidence; [What /ship leaves for a
   parent](#ship-evidence) below is the whole contract (the refused and
   incomplete lines, the one publication an unattended run may make, the
@@ -131,7 +131,7 @@ in the PR body (or the handoff file) to HEAD, writes
 `<state root>/ship/runs/<utc>-<head12>/` and prints the terminal line:
 
 ```
-GSTACK_RESULT: skill=ship status=complete run=<dir>
+GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>
 ```
 
 The run directory holds `ship-receipt.md` (the block, copied) and
@@ -255,7 +255,7 @@ When the parent merges the base in or fixes a test after the receipt was
 written, it runs `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`
 instead of another /ship; on `CARRY: would carry` it runs `gstack-pregate` at HEAD
 and reruns carry with `--pregate .gstack/tmp/pregate.json`. `CARRY: carried from <old> to <new> (<reason>)` plus the
-`GSTACK_RESULT: skill=ship status=complete run=<dir>` line means the receipt
+`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>` line means the receipt
 now names HEAD with a `carry` object holding the `git range-diff` evidence, and
 `ship-run.json` gains `carried_from` and `carry_reason`; the `review_loop`
 counters are kept, because the reviewed product diff is unchanged or its only
@@ -278,7 +278,7 @@ tree no review saw, so /ship runs again;
 | File | Schema | Contents |
 |------|--------|----------|
 | `run.json` | `run` v1 | The manifest: `run` id, `status`, `required_phases`, each phase's `native` and `outside` outcome (`status`, `model`, `provider`), input `snapshot` hashes, `counts`, every artifact's `path` (relative to the run directory) and `sha256`, `session_kind`, `gate_rev`, `deviations`, `consumed_by`. |
-| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`, plus how the owner answered: `owner_mode` (`rec`, `rec_except`, `tokens`, `as_is` or `unparsed`, parsed from the owner's own words), `owner_named` (his words named this item), `rec_hash` (the recommendations answered against) and `answered_role` (`human`, or `agent` relaying his words). |
+| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`, plus how the owner answered: `owner_mode` (`rec`, `rec_except`, `tokens`, `as_is` or `unparsed`, parsed from the owner's own words), `owner_named` (his words named this item), `rec_hash` (the recommendations answered against) and `answered_role` (`human`, or `agent` relaying his words); an agent-relayed answer adds `owner_reply`, his verbatim words, which never leave in a [public copy](#the-public-copy). |
 | `shadow/` | private, not an artifact | [Shadow mode](#shadow-mode) only: `ceo-only.r<rev>.jsonl` (one hidden prediction per gate item, written before the answer), `r<rev>.prompt.md` and one `<call>.reply.txt` per model call, the audit `salt`, and `r<rev>.pending` while a call is in flight. Never in `export --public`, the gate render or the owner brief. |
 | `findings.jsonl` | `findings` v1 | One row per reviewer finding: `id`, `phase`, `voice` (`native`/`outside`), `model`, `severity`, `title`, `disposition`, `plan_items`, `native_counterpart` (string or null), `source`. Rows share the review-log row shape, so `gstack-review-log --findings` derives review status from this file. |
 | `tasks.jsonl` | `tasks` v2 | Implementation tasks with `id`, `title`, `status`, `depends_on`, `findings` (ids in `findings.jsonl`), `blocked_by`, `acceptance`, optional `pr`/`item`/`tier`. |
@@ -291,6 +291,64 @@ Ids are run-bound: every row's `id` starts with `<run>-`, and `run.json` is the
 only place the run id is declared. `gstack-artifact schema <name>` prints the
 JSON Schema for any of `findings`, `decisions`, `tasks`, `timing`, `run`,
 `pregate` and `ship-receipt`; `schema --list` prints the names.
+
+### The public copy
+
+`gstack-autoplan export --out <dir> --public <pub>` writes a copy to commit or
+share. It rewrites the machine paths the run recorded, and it never carries the
+owner's own words: nothing a person wrote leaves without their click (GST-1243).
+
+- **Whose words.** Every owner reply the private run ever recorded: on
+  decision rows, on `run.json`'s gate, and in the journal (`attempts.jsonl`
+  keeps a reply that a later answer at the same gate replaced), the words a
+  carried gate reused, and the reason a human gave for `close --deferred --by
+  human`. A reply that parsed as gate grammar is the decision code, not owner
+  prose. An agent's own words (`answer_words`) and an agent's deferral reason
+  stay.
+- **Dropped fields.** `owner_reply` anywhere, a carry record's `words`, and a
+  human deferral's `reason` (replaced by `[owner words redacted]`). The
+  decision itself stays: `chosen`, `reply` (the gate grammar), `owner_mode`
+  and `owner_reply_parsed`.
+- **gstack's own renderings.** The human's deferral reason is also replaced
+  where gstack writes it into fixed text: the voice `detail`, the consensus
+  head, the gate item title, a blocker's `why` and the run log; carried words
+  in the `CARRIED:` line too. Each rendering is matched with its delimiters on
+  both sides, so a one-word reason never rewrites a longer one that starts
+  with it.
+- **Redacted quotes.** Every exported file, sealed reviewer results
+  (`*.bound.md`) included, is scanned for quotes. Before matching, the text is
+  normalized: JSON string escapes (`\n`, `\u2019`) and HTML entities are
+  decoded, format characters are dropped by Unicode category (`\p{Cf}`, such as
+  zero-width spaces, soft hyphens and direction marks, plus variation selectors
+  and the combining grapheme joiner), an HTML tag name reads as a space, and a
+  hyphen-newline wrap is joined. The text is read twice: as rendered (HTML
+  comments, footnote markers, reference definitions and link targets and titles
+  dropped, link text kept) and as written (all of those kept as words), so a
+  quote is found whether markup splits it or hides it. Contractions split
+  ("don't" reads "do not", "can't" and "cannot" read "can not", "it's" "it is",
+  "I'd" "I would"). A word is a run of letters and digits, and everything else
+  (spaces, line breaks, dashes, slashes, quote marks, `>` markers, JSON or
+  attribute glue) separates words.
+  Words compare case-insensitively. A reply of 3 or more words is a quote
+  wherever it appears whole; from 8 words, any 8 consecutive words of it are a
+  quote too. Replies of 1 or 2 words ("yes", "do it") are not scanned for:
+  they are codes or grammar, and the field itself is already dropped. A quote
+  extends over the neighboring words that also belong to that reply, and the
+  marker replaces the original characters from its first word to its last.
+- **Echoes stay.** Words the owner repeated from text recorded before the reply,
+  which he didn't write (the plan at an earlier gate, that gate's items, the
+  reviewer results bound before it), are not his words: they stay, and only the
+  new words around them are redacted. Every run of 3 or more words a reply adds
+  between echoes is matched on its own too (and by any 8 of its words from 8),
+  so the new words are redacted even where they are quoted without the echo.
+  Prose with no quote keeps its bytes. One
+  `OWNER_WORDS: <file> dropped=<n> redacted=<m>` line names each changed file.
+- **Refusal.** Export never rewrites code in plan.md, so a quote or rendering
+  inside a code span or fence there stops the export with
+  [`ARTIFACT_OWNER_WORDS`](troubleshooting.md#artifact-owner-words), file:line
+  and exit 3, and nothing is written. The error never prints the words.
+  `gstack-artifact validate --public <pub> --private <dir>/run.json` runs the
+  same scan, renderings included, on an existing copy.
 
 ## How a parent consumes a run
 
@@ -618,8 +676,10 @@ then the usual `APPROVED:` lines, and journals `gate_carried`. The carry needs
 all of: the earlier gate approved (`p1a` or `p1b`), no item there left
 pending, and the owner's words recorded; that gate was not itself carried; every accepted change incorporated
 or settled; the plan file's bytes equal those recorded at the gate or at the
-`revise` that took the changes (any later edit refuses, an ELI5-only one
-included); no urgent or
+`revise` that took the changes, or a later edit only adds ELI5 lines that name
+no number, spend, cap, arm or verdict (K1's `autoplan-regate` no-stop: the
+reason says so, `NO_STOP:` names `<run>/no-stop.json`, the reviewed plan is
+exported, and any other edit refuses; [review-policy.md#no-stop](review-policy.md#no-stop)); no urgent or
 outside-plan finding open; and every new gate item one of the cases below.
 Anything else prints `CARRY: no (<why>)` (journal `carry_refused`) and the gate
 goes to the owner as before. `--no-carry-forward` on the first `next` turns it
@@ -901,15 +961,19 @@ decision or action, every evidence pointer resolves and shows what the row
 claims, and a fork or abandoned approach that shaped the result but is not
 logged gets a row. The audit corrects the log, never the story: no row is
 edited or removed, an invented or wrong row stays and a new row supersedes it
-with what actually happened. Then a reviewer on a different model family from
-the one that did the work (a Capy subagent on another family, or the outside
-voice) reads the trail and the transcript and flags what the owner should look
-at: decisions with weak or missing evidence, verification claimed without
-proof, choices that look risky in hindsight, gaps a skim would miss. The run's
-final report ends with an `Attention` section that opens with `reviewed by
-<model>` on its own line and lists each flag against its rows; `No flags` is a
-valid body, a missing model line is not. Self-review does not stand in for
-this. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+with what actually happened. On a risk-class PR (the receipt's `review_depth`
+has class `gate` or a `risk` class: security, money, auth, secrets, user
+data), a reviewer on a different model family from the one that did the work
+(a Capy subagent on another family, or the outside voice) then reads the trail
+and the transcript and flags what the owner should look at: decisions with
+weak or missing evidence, verification claimed without proof, choices that
+look risky in hindsight, gaps a skim would miss. Self-review does not stand in
+for that read. Every other PR skips it: the run's own audit is the review. The
+run's final report ends with an `Attention` section that opens with `reviewed
+by <model>` (risk class) or `self-audited` (every other PR) on its own line
+and lists each flag against its rows; `No flags` is a valid body, a missing
+opening line is not. `gstack-ship-queue ready` prints the stub with the right
+opening line for the receipt it bound. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 

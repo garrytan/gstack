@@ -19,7 +19,7 @@
  * the window (7 days, 200 first-parent commits) is the candidate; a commit
  * with a check run still going is skipped, not waited for.
  *
- * Gated means one of two kinds of evidence. Either the backstop check run
+ * Gated means one of three kinds of evidence. Either the backstop check run
  * (--backstop-check, default main-backstop) succeeded: evals-main-backstop.yml
  * publishes it, success only when a green train record covers the tree or the
  * backstop gated it green, neutral when main moved past the push before it was
@@ -27,8 +27,11 @@
  * or merged) lists the commit's sha or its tree in merged[]: those entries are
  * the main commits `gstack-ship-queue verify --train` confirmed, so a neutral
  * or absent backstop run on such a commit is not held against it, and the
- * CANDIDATE line says "gated by train <nonce>". A red backstop run stays red
- * either way. A commit with neither is not green.
+ * CANDIDATE line says "gated by train <nonce>". Or a GREEN release record
+ * (kind release, lib/release-gate.ts) names the commit: "gated by release gate
+ * run <id>". A red backstop run stays red either way. A commit with none of
+ * these is not green. A RED release record with no GREEN one on a later
+ * commit that contains it holds every cut, like a freeze.
  *
  * stable moves only forward: a candidate behind the current stable is refused
  * (REFUSED non-fast-forward), as is a tag v<VERSION> that already names another
@@ -99,8 +102,8 @@ export function compareVersions(a: string, b: string): number {
 export type Verdict = { green: true; via: string } | { green: false; why: string; pending: boolean };
 interface CheckRun { name: string; status: string; conclusion: string | null }
 
-/** Main commits a green, merging or merged train record lists in merged[], by sha and by tree, each naming the train. */
-export interface TrainEvidence { bySha: Map<string, string>; byTree: Map<string, string> }
+/** Main commits a green, merging or merged train record lists in merged[], by sha and by tree, each naming the train; `release` maps a commit a green release gate passed to its run (lib/release-gate.ts). */
+export interface TrainEvidence { bySha: Map<string, string>; byTree: Map<string, string>; release?: Map<string, string> }
 export interface GateOptions { requiredCheck?: string; backstopCheck?: string; evidence?: TrainEvidence; treeOf?: (sha: string) => string | null }
 
 /** Why a commit is not releasable, or green and through which evidence. */
@@ -118,6 +121,8 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
     if (named.some(c => c.conclusion === 'success')) continue;
     const train = name === backstop && name !== required && o.evidence ? o.evidence.bySha.get(sha) ?? o.evidence.byTree.get(o.treeOf?.(sha) ?? '') : undefined;
     if (train) { via = `train ${train}`; continue; }
+    const gate = name === backstop && name !== required ? o.evidence?.release?.get(sha) : undefined;
+    if (gate) { via = `release gate run ${gate}`; continue; }
     if (named.length === 0) return { green: false, why: `no ${name} check run`, pending: false };
     return { green: false, why: `${name} concluded ${named.map(c => c.conclusion).join(',')}`, pending: false };
   }
@@ -129,14 +134,20 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
 }
 
 export interface TrainNotes { error: string | null; freeze: string | null; evidence: TrainEvidence }
-interface NoteRecord { kind?: string; state?: string; nonce?: string; merged?: Array<{ sha?: string; tree?: string }>; cleared_at?: string | null; reason?: string; train?: string }
+interface NoteRecord {
+  kind?: string; state?: string; nonce?: string; merged?: Array<{ sha?: string; tree?: string }>; cleared_at?: string | null; reason?: string; train?: string;
+  sha?: string; verdict?: string; run?: { id?: number } | null; red_cases?: string[];
+}
 
 /**
  * One read of the trains notes ref (fetched from origin): the active freeze
  * record (kind freeze, cleared_at null) and the train evidence (lib/
  * ship-queue-train-record.ts TrainRecord: kind train, state green, merging or
  * merged, merged[].sha and .tree). A fetch failure other than a missing ref is
- * an error; a missing ref holds nothing.
+ * an error; a missing ref holds nothing. Release-gate records (kind release,
+ * lib/release-gate.ts) add evidence when GREEN, and a RED one with no GREEN
+ * record on a later commit that contains it is the hold: it refuses the cut
+ * like a freeze (a train freeze, when both exist, is the one named).
  */
 export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
   const notes: TrainNotes = { error: null, freeze: null, evidence: { bySha: new Map(), byTree: new Map() } };
@@ -147,6 +158,8 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
   }
   const listed = git(['notes', `--ref=${NOTES_LOCAL}`, 'list']);
   if (!listed.ok || !listed.out.trim()) return notes;
+  const gates: Array<{ sha: string; verdict: string; red: string[] }> = [];
+  notes.evidence.release = new Map();
   for (const line of listed.out.split('\n')) {
     const blob = line.split(' ')[0];
     if (!blob) continue;
@@ -155,6 +168,10 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
     const r = parsed as NoteRecord;
     if (r.kind === 'freeze' && !r.cleared_at) notes.freeze = `queue frozen since train ${r.train ?? '?'}: ${r.reason ?? 'red backstop'}`;
+    if (r.kind === 'release' && typeof r.sha === 'string' && /^[0-9a-f]{40}$/.test(r.sha)) {
+      gates.push({ sha: r.sha, verdict: String(r.verdict), red: Array.isArray(r.red_cases) ? r.red_cases.filter(c => typeof c === 'string') : [] });
+      if (r.verdict === 'GREEN') notes.evidence.release.set(r.sha, String(r.run?.id ?? '?'));
+    }
     if (r.kind !== 'train' || typeof r.nonce !== 'string' || !r.nonce || !['green', 'merging', 'merged'].includes(r.state ?? '')) continue;
     for (const m of Array.isArray(r.merged) ? r.merged : []) {
       if (!m || typeof m !== 'object') continue;
@@ -162,6 +179,8 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
       if (typeof m.tree === 'string' && m.tree) notes.evidence.byTree.set(m.tree, r.nonce);
     }
   }
+  const held = gates.find(red => red.verdict === 'RED' && !gates.some(g => g.verdict === 'GREEN' && g.sha !== red.sha && git(['merge-base', '--is-ancestor', red.sha, g.sha]).ok));
+  if (held && !notes.freeze) notes.freeze = `release gate red on ${held.sha.slice(0, 12)} (${held.red.join(', ') || 'red cases not recorded'}) and no gate on a later commit is green; land the revert or fix-forward, then run gstack-release-gate run --ignore-cadence`;
   return notes;
 }
 

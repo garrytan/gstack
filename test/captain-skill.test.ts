@@ -15,7 +15,7 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const skill = read('captain/SKILL.md');
 const tmpl = read('captain/SKILL.md.tmpl');
 const flat = skill.replace(/\s+/g, ' ');
-const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md', 'merge-train-peer.md'];
+const TEMPLATES = ['CREW.md', 'AGENTS.md', 'NOTES.md', 'DIGEST.md', 'flaky-ledger.md', 'report.md', 'READY.md', 'slot-call.md', 'plan-ask.md', 'merge-ask.md', 'automation-flaky-pass.md', 'brief.md', 'merge-train-peer.md', 'postmortem.md'];
 
 describe('/captain skill', () => {
   test('frontmatter names the skill and its /crew alias trigger', () => {
@@ -30,6 +30,33 @@ describe('/captain skill', () => {
       expect(skill, field).toContain(field);
     }
     expect(flat).toContain('A green list state, a passing PR page, a "looks good" in chat and a cheap-tier pass are not READYs');
+  });
+
+  test('READY and report carry an Unverified line that is asked for, never refused', () => {
+    const ready = read('captain/templates/READY.md');
+    expect(ready).toMatch(/^review passes: .*\nUnverified: <none \| [^>]+>\nHead frozen from now on;/m);
+    const readyFlat = ready.replace(/\s+/g, ' ');
+    for (const s of ['a review finding set aside on an assumption nobody tested', 'it never holds a PR out of a train, does not stale READYs sent before the line existed, and needs no new `ready` or /ship run']) {
+      expect(readyFlat, s).toContain(s);
+    }
+    expect(read('captain/templates/report.md')).toMatch(/## Outcome\n\n<[^>]+>\n\nUnverified: <none \| [^>]+>\n\n## PR\n/);
+    expect(skill).toMatch(/^\| `Unverified` \| each claim the lane did not check itself, or `none` \| never refused or staled; ask for it \|$/m);
+    expect(flat).toContain('Outcome with its `Unverified:` line');
+    const docFlat = read('docs/captain.md').replace(/\s+/g, ' ');
+    expect(docFlat).toContain('The `Unverified:` line is the one exception: the controller asks for a missing line in a follow-up message, never refuses or stales a READY for it');
+    expect(read('capy/skill/gstack/captain.md').replace(/\s+/g, ' ')).toContain('an `Unverified:` line: each claim you did not check yourself and why, or `none`');
+  });
+
+  test('the postmortem template asks why every reviewer believed it, and the step ships its rule change to gstack', () => {
+    const pm = read('captain/templates/postmortem.md');
+    expect(pm).toMatch(/^## What broke$[^]*^## How it was found$[^]*^## Impact$[^]*^## Timeline$[^]*^## Root cause: why did the lane and every reviewer believe it was right\?$[^]*^## What caught it and what should have$[^]*^## Playbook or skill change$[^]*^## Links$/m);
+    expect(pm).toMatch(/^\| Believer \| What it was asked \| What it checked \| What it did not check \| Why it passed \| Source \|$/m);
+    expect(pm).toMatch(/^\| Change \| Home in gstack \| Owner \| Status \| Effectiveness check \|$/m);
+    const pmFlat = pm.replace(/\s+/g, ' ');
+    for (const s of ['not from the diff alone', 'mark any item `not retained`', 'label anything else `inferred`', 'A change kept only in a crew file is a gap']) expect(pmFlat, s).toContain(s);
+    expect(pm, 'no real PR numbers in the generic template').not.toMatch(/#\d{2,}/);
+    expect(flat).toContain('After a revert or S1 fix of a merged crew PR, the controller writes a postmortem (`captain/templates/postmortem.md`): why did the lane and every reviewer believe it was right? Its rule change ships as a gstack PR.');
+    expect(read('docs/captain.md').replace(/\s+/g, ' ')).toContain('Each rule change it names ships as a gstack PR, because gstack holds the how');
   });
 
   test('teaches the train loop, the red-train rules and the backstop', () => {

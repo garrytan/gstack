@@ -10,7 +10,8 @@ note past the cap stops.
 
 **Meter.** Read one per command:
 - Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost` (your own jam, its
-  subagents included; a root thread's is `"this"`) in the same program as the
+  subagents included; a root thread's is `"this"`; a subagent with `GSTACK_SHIP_TASK_TITLE` reads its own row of the
+  root thread's `tasks` for every reading) in the same program as the
   `gstack-ship-budget` command, never its own call: `--reading <cost.tokens> --credits <cost.credits>`.
   `--prior-reading <n>` (per-call charge; three of them price steps at the run's own median) is a reading
   your previous call already took; never spend a call only to read the meter. One older than the run's last reading is ignored.

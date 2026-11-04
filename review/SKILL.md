@@ -46,7 +46,7 @@ Finish only when each of these exists (contract v1):
 - `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
 - `review-report`: a `Pre-Landing Review` with Gate edits filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 
-`gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
+`~/.claude/skills/gstack/bin/gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `~/.claude/skills/gstack/bin/gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
 
 ## Shared preamble (load first)
 
@@ -596,7 +596,7 @@ Example:
 `[CRITICAL] (confidence: 9/10) user.rb:42 — SQL injection via string interpolation`
 
 **Calibration learning:** If the user confirms a reported finding scored < 7 is
-real, log the corrected pattern as a learning.
+real, log it per Operational Self-Improvement.
 
 ### TODOS cross-reference
 

@@ -197,11 +197,18 @@ function importsPlaywright(text: string): boolean {
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
 
-/** The run plan: the groups that can run, the files no runner claims, tools missing from PATH, and `.dart` files with no pubspec.yaml above. */
-export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: string[]; noPubspec: string[] }
+/** The run plan: the groups that can run, the files no runner claims, tools missing from PATH, `.dart` files with no pubspec.yaml above, and the files a declared runner cannot run (not run, not counted as covered). */
+export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: string[]; noPubspec: string[]; dropped?: string[] }
+
+/** The files a declared runner's test tool runs, by extension: JS/TS for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava and playwright; `.py` for pytest. A tool counts as a whole command word (`./node_modules/.bin/jest` does, `tests/node/run.sh` does not). Null for any other command (a dispatcher such as `node scripts/run-tests.js` may run any language), or one naming both kinds: it takes every file. */
+function declaredRunnerFiles(runner: string): RegExp | null {
+  const js = /(?:^|[\s;&|(])(?:\S*\/)?(?:vitest|jest|mocha|ava|playwright|bun\s+test|node\s+--test|deno\s+test)(?=$|[\s;&|)])/.test(runner);
+  const py = /(?:^|[\s;&|(])(?:\S*\/)?pytest(?=$|[\s;&|)])/.test(runner);
+  return js === py ? null : js ? /\.[cm]?[jt]sx?$/ : /\.py$/;
+}
 
 /**
- * The invocations that run `files`. A declared runner takes every file. Otherwise
+ * The invocations that run `files`. A declared runner takes every file its tool runs (`declaredRunnerFiles`); the rest are `dropped`. Otherwise
  * Dart tests run from their own package root (a sub-package's imports resolve
  * against its own pubspec); Rust tests run per crate as `cargo test -p <name>`
  * from the crate's workspace root; JS/TS tests owned by a nested package that
@@ -214,7 +221,12 @@ export interface RunPlan { groups: RunGroup[]; unclaimed: string[]; missing: str
  * crate whose name Cargo would reject, no detected runner) are `unclaimed`: the lane is `incomplete`, never a pass.
  */
 export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan {
-  if (ctx.config.runner) return { groups: [{ runner: ctx.config.runner, cwd: '', files: [...files] }], unclaimed: [], missing: [], noPubspec: [] };
+  if (ctx.config.runner) {
+    const runs = declaredRunnerFiles(ctx.config.runner);
+    const taken = runs ? files.filter(f => runs.test(f)) : [...files];
+    const dropped = files.filter(f => !taken.includes(f));
+    return { groups: taken.length ? [{ runner: ctx.config.runner, cwd: '', files: taken }] : [], unclaimed: [], missing: [], noPubspec: [], ...(dropped.length ? { dropped } : {}) };
+  }
   const groups: RunGroup[] = [];
   const dart = new Map<string, string[]>();
   const cargo = new Map<string, { name: string; cwd: string; files: string[] }>();
@@ -543,6 +555,8 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
   // Runnable groups run even when other files are unclaimed: a real failure is reported as one, and an all-green run is still incomplete.
   const plan = planRuns(ctx, sel.localTests);
   const gap = plan.unclaimed.length ? planGap(ctx, plan, sel.localTests.length) : null;
+  const dropped = plan.dropped ? `${plan.dropped.length} selected file(s) the declared runner cannot run (not run, not counted as covered): ${plan.dropped.join(' ')}` : '';
+  if (!plan.groups.length && dropped) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no selected file is one the declared runner can run; ${dropped}` };
   if (!plan.groups.length) return { ...base, status: 'incomplete', ...gap, ...(gap?.environment ? { lines: [...lines, environmentLine(gap.environment)] } : {}) };
   const { groups } = plan;
   const total = groups.reduce((n, g) => n + g.files.length, 0);
@@ -550,7 +564,7 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
   if (runtime.refusal) return { ...base, ...runtime.refusal, cause: 'environment', environment: launchCause('runtime', runtime.refusal.detail), lines: [`runtime: ${runtime.label}`, environmentLine(launchCause('runtime', runtime.refusal.detail))] };
   const r = await runLocal(ctx, runtime.env, groups);
   const adapters = [...new Set(groups.map(g => adapterFor(g.runner)).filter(Boolean))];
-  const runLines = [...lines, `runtime: ${runtime.label}`, `progress: ${adapters.join(', ') || 'none (no progress adapter for this runner; serial files and heartbeats only)'}`, `ran: ${r.command.length > 200 ? `${r.command.slice(0, 200)}…` : r.command}`, `log: ${r.log}`, ...r.tail.map(l => `  ${l}`)];
+  const runLines = [...lines, ...(dropped ? [`not run: ${dropped}`] : []), `runtime: ${runtime.label}`, `progress: ${adapters.join(', ') || 'none (no progress adapter for this runner; serial files and heartbeats only)'}`, `ran: ${r.command.length > 200 ? `${r.command.slice(0, 200)}…` : r.command}`, `log: ${r.log}`, ...r.tail.map(l => `  ${l}`)];
   const withRun = { ...base, lines: runLines, inputs: { ...inputs, command: sha256(r.command), runtime: runtime.label } };
   if (r.exit === null) {
     const why = unfinished(ctx, r, total);
@@ -568,7 +582,7 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     return { ...withRun, status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `local lane exited ${r.exit} (${r.failed ?? '?'} failed of ${r.ran ?? '?'} ran; ${total} files; pipefail)`, fix: `read ${r.log}, fix the in-branch failure, rerun gstack-pregate --stage tests` };
   }
   if (r.ran === 0) return { ...withRun, status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `ZERO-RUN: the runner reported 0 tests${r.zero ? ` in ${r.zero}` : ''} (${total} selected file(s))`, fix: 'a bad selector, a missing file or a skipped describe; exit 0 is not a pass' };
-  const detail = `${r.ran ?? 'count unavailable'} tests ran in ${total} file(s)${r.serial ? ` (${r.serial} serial)` : ''}, exit 0${sel.remote.length ? `; ${sel.remote.length} requires-remote obligation(s)` : ''}`;
+  const detail = `${r.ran ?? 'count unavailable'} tests ran in ${total} file(s)${r.serial ? ` (${r.serial} serial)` : ''}, exit 0${dropped ? `; ${dropped}` : ''}${sel.remote.length ? `; ${sel.remote.length} requires-remote obligation(s)` : ''}`;
   if (gap) return { ...withRun, status: 'incomplete', ...gap, detail: `${detail}; ${gap.detail}`, ...(gap.environment ? { lines: [...runLines, environmentLine(gap.environment)] } : {}) };
   return { ...withRun, status: sel.remote.length ? 'requires-remote' : 'pass', detail };
 }
@@ -605,7 +619,7 @@ function withNoLaneWarning(ctx: PregateContext, sel: Selection, result: CheckRes
 
 async function run(ctx: PregateContext): Promise<CheckResult> {
   const sel = selectLanes(ctx);
-  ctx.explain.push(...sel.provenance);
+  for (const line of sel.provenance) ctx.explain.push(line);
   for (const [lane, set] of Object.entries(sel.laneSets)) ctx.explain.push(`lane ${lane}: ${set === '?' ? 'file set unknown' : `${set.length} files`}`);
   const inputs = baseInputs(ctx, { selection: sha256(sel.tests.join('\n')), localTests: sha256(sel.localTests.join('\n')), remote: sha256(sel.remote.map(r => `${r.lane}:${r.tests.join(',')}`).join('\n')) });
   const declared = ctx.configKind !== 'none' && ctx.policyDeclaresLanes !== false;

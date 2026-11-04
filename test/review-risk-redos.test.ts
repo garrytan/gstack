@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { SVG_REFUSED, svgDrawing } from '../lib/review-depth';
-import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECRET_PATH, SECURITY_JOINED, SECURITY_LINE, matchRisk } from '../lib/review-risk';
+import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECRET_PATH, SECURITY_JOINED, SECURITY_LINE, USD_COMPARE, matchRisk, usdMoney } from '../lib/review-risk';
 
 const L = 100_000;
 const ms = (f: () => unknown) => { const t = performance.now(); f(); return performance.now() - t; };
@@ -27,7 +27,7 @@ describe('linear time on hostile input', () => {
     run('', 'a_'), run('', 'aU'), run('a', 'A'), run('spend', '_'), run('new Anthropic', ' '), run('.messages.create', ' '),
     run('$', 'A_'), run('${', 'A_'), run('', '$A_'), run('process.env.', 'A_'), run('process.env[', ' '), run('os.environ[', ' '), run('os.getenv(', ' '), run('ENV[', ' '),
   ];
-  test.each(Object.entries({ SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SECRET_LINE, MONEY_LINE, SECRET_PATH: [SECRET_PATH] }))('every %s pattern finishes under 100 ms on each 100k-character hostile line', (_n, patterns) => {
+  test.each(Object.entries({ SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SECRET_LINE, MONEY_LINE, USD_COMPARE, SECRET_PATH: [SECRET_PATH] }))('every %s pattern finishes under 100 ms on each 100k-character hostile line', (_n, patterns) => {
     const slow = patterns.flatMap(r => hostile.map(([label, s]) => [r.source.slice(0, 50), label, Math.round(ms(() => r.test(s)))] as const)).filter(([, , t]) => t >= 100);
     expect(slow).toEqual([]);
   }, 120_000);
@@ -36,6 +36,11 @@ describe('linear time on hostile input', () => {
     let hit = true;
     expect(ms(() => { hit = security(line); })).toBeLessThan(250);
     expect(hit).toBe(false);
+  }, 60_000);
+  test('usdMoney (GST-962) returns in under 250 ms on each 100k-character line of _usd names, comparisons and member chains', () => {
+    const lines = [run('', 'x_usd '), run('', 'aUsd '), run('', '> a.x_usd '), run('', '=> t.cost_usd '), run('>', ' '), run('> ', 'a.', 'x_usd'), run('', 'a_', 'usd'), run('', '<'), run('', 'cost_usd>'), run('', 'cost_usd: '), run('x_usd', ' '), run('x_usd:', ' ')];
+    const slow = lines.map(([label, s]) => [label, Math.round(ms(() => usdMoney(s)))] as const).filter(([, t]) => t >= 250);
+    expect(slow).toEqual([]);
   }, 60_000);
 });
 

@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { OUTSIDE_ROLE, sectionLoadFor, type Phase, type Scope } from './autoplan-prompts';
 import { RunError, type RunState } from './autoplan-state';
+import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { redactFindingSpans } from './redact-engine';
 
 export const KINDS = ['fix', 'feature'] as const;
@@ -66,8 +67,9 @@ export function captureDraft(cwd: string, dir: string, out: string, base?: strin
   const top = git(['rev-parse', '--show-toplevel']);
   if (top.status !== 0) return { base: base ?? 'origin/HEAD', none: 'not a git checkout' };
   const root = top.stdout.trim();
-  const origin = git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], root);
-  const ref = base ?? (origin.status === 0 && origin.stdout.trim() ? origin.stdout.trim() : 'origin/main');
+  const found = base ? undefined : defaultBaseBranch(root);
+  if (found && !found.branch) return { base: 'origin/HEAD', none: found.skipped ? noDefaultBaseLine(found.skipped) : 'no default base (no origin/HEAD, PR base, origin/main or origin/master); pass --base' };
+  const ref = base ?? `${found!.remote ?? 'origin'}/${found!.branch}`;
   const mb = git(['merge-base', 'HEAD', ref], root);
   if (mb.status !== 0) return { base: ref, none: `no merge base with ${ref}` };
   const mergeBase = mb.stdout.trim();

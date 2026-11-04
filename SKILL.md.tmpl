@@ -86,8 +86,8 @@ quality gates that produce better results than answering inline.
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
 - User asks to run the checks, make the tests pass, "verify my change", "check my work" while building → invoke `/verify`
 - User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
-- User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
-- User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → invoke `/modernize`
+- User asks to merge + deploy + verify as one flow → tell them to type `/land-and-deploy`; never merge or deploy by hand
+- User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → tell them to type `/modernize`
 - User asks to configure deployment for the project → invoke `/setup-deploy`
 - User asks to monitor prod after shipping, post-deploy checks → invoke `/canary`
 - User asks to update docs after shipping → invoke `/document-release`
@@ -110,6 +110,7 @@ quality gates that produce better results than answering inline.
 - User asks about page speed, web performance regression → invoke `/benchmark`; model or skill benchmarks → invoke `/benchmark-models`
 - User asks to plan, preregister, price or pilot a paid eval → invoke `/eval-plan`
 - User asks to run a suite, build or eval on Ubicloud → invoke `/ubicloud`
+- User asks to find, stop or rotate runaway agent threads, or for a token sweep → invoke `/runaway-stopper`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`{{VOICE_TRIGGER_ROUTING}}

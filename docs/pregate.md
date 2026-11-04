@@ -74,7 +74,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 
 | Key | Meaning |
 |---|---|
-| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, a type-only import (`import type …`, or one whose every specifier is `type X`) does not count, file arguments are passed as escaped regexes anchored to the path (Playwright reads them as regexes), and a run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` (a partial install, where some tests pass, stays the diff's failure); every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
+| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); set, the local lane gives it only the selected files its tool runs, judged by extension (JS/TS files for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava or playwright; `.py` files for pytest; each matched as a whole word, so `npx vitest run` counts and `tests/node/run.sh` does not; every file for any other command, such as a `node scripts/run-tests.js` dispatcher, or one naming both), and the lanes detail names each file it cannot run as not run and not counted as covered, so a `*_test.py` never reaches a local `bun test` (no Python lane runs beside a declared runner; the remote gate and `test_backend` commands still receive the whole selection); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, a type-only import (`import type …`, or one whose every specifier is `type X`) does not count, file arguments are passed as escaped regexes anchored to the path (Playwright reads them as regexes), and a run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` (a partial install, where some tests pass, stays the diff's failure); every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
 | `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
@@ -86,9 +86,9 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
-| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` and the `finish` fallback run pregate without `--timeout`, so this is how a repo with long lanes sets theirs |
+| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` forwards its own `--timeout`; without it, and in the `finish` fallback, this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
 | `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
@@ -173,7 +173,7 @@ The list lives in its own file, not in `pregate.json`, because older pregate rea
 ## `gstack-pregate`
 
 ```
-gstack-pregate [--stage preflight|tests|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
+gstack-pregate [--stage preflight|tests|guards|all] [--only <check,..>] [--allow-repo-commands] [--policy-from base|head]
                [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
 gstack-pregate verify | clear --remote <workflow.yml/job> --run-url <url> | lanes | validate | init
 ```
@@ -651,8 +651,21 @@ the VM to stop at whichever comes first, that point or the cap's wall (at most
 45 minutes, minus 3 for teardown). A deadline that leaves the VM under 300 s
 refuses before any VM (`PREGATE_REMOTE_TIMEOUT_TOO_SHORT`). At create time it
 prints the VM's name and the exact
-`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it if the
-run is killed before its teardown line. The whole script is parsed before it
+`bash scripts/ubicloud/ubi-runner.sh down <name>` line to destroy it.
+
+A run killed before its teardown line leaves its VM running. A machine restart
+kills a background pregate this way. Don't destroy the VM first: rerun the same
+`gstack-pregate` command before anything it depends on changes. The run key
+covers the tree, the planned file set, the commit `origin/HEAD` points at (a
+`git fetch` that moves it counts), `UBI_LOCATION`, the size, the environment,
+and the runner script and setup it uploads. When the rerun prints `reattaching to VM <name>` with
+the name from the create line, it finishes the run on that VM and bills from
+the VM's original create. When it creates a new VM instead (the key changed,
+or the restart came before the runner recorded the VM), destroy the old one
+with the `down` line from its create line. Use the same line when you give up
+on the run. A reattach whose billed minutes leave the cap no room
+refuses (`PREGATE_REMOTE_CAP_SPENT`) and prints both choices: destroy the VM,
+or rerun with a higher `--spend-cap`. The whole script is parsed before it
 runs, so editing it during a run changes nothing. `--timeout 2700` gives a
 whole-tier run room inside the 45-minute wall:
 
@@ -762,18 +775,28 @@ once:
   them here. A /ship lane or guard whose inventory names one carries the
   covered files and runs only the skipped ones here, through the runner its
   `ship_lanes_from` entry declares as `per_file` (a command with `{files}`,
-  such as `"per_file": "bun test --timeout=30000 {files}"`, the same form as the
-  tests stage's `runner`). That run is recorded under `<label>.skipped`, the
-  `LANE:` line adds `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row
-  is written only after it passes with a test count above zero and every carried
-  run still stands (`run_changed` otherwise). A failure there is
-  `skipped_failed` and a run of zero tests is `skipped_zero_run`; either way the
-  whole lane runs here. An entry with no `per_file` refuses as
+  such as `"per_file": "bun --no-env-file test --timeout=30000 {files}"`, the
+  same form as the tests stage's `runner`). It runs one file at a time, each path
+  anchored with `./` because Bun reads a bare relative path as a substring
+  filter. Those runs are recorded under `<label>.skipped`, the `LANE:` line adds
+  `skipped_here=<n> file(s) tests_ran_here=<n>`, and the CI row is written only
+  after four checks pass. In order, they are each file's exit
+  (`skipped_failed`), each file's test count above zero (`skipped_zero_run`),
+  every carried run again (`run_changed`), and the working tree once more
+  (`tree_changed`, for an edit made during those checks). An edit made while the
+  remainder itself runs leaves its ledger row without a tree, so it shows as
+  `skipped_zero_run`. One exception to the count check (GST-1314): a file whose
+  Bun summary registered tests and skipped every one of them here too, the way
+  an env-gated or tool-gated file skips by design, is not owed. The CI row lists
+  it under `skipped_here.not_owed` and the `LANE:` line adds
+  `not_owed_here=<n>`. A file that registers no test here still refuses, and so
+  does a file whose log hit the 2 MB cap, since a cut log's last summary may not
+  be the run's. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
-  skipped file ran tests and stays covered. gstack's own Free Tests writer does
-  not emit the list yet: it starts in the same follow-up pull request that
-  declares `per_file` for gstack's `bun run test` lane, so gstack's carry does not
-  change until both switch on together. A `tree.json`
+  skipped file ran tests and stays covered. gstack's `bun run test` lane
+  declares `per_file`, and its Free Tests writer starts emitting the list in a
+  follow-up pull request, so the runner is in place on the base before any run
+  lists a skipped file. A `tree.json`
   without the key (older writers, other repos) is read as before, with every
   listed file counted as run; add the list to your writer to close that gap.
   The remote gate's clearance does not use it: that gate runs on a Linux runner
@@ -922,8 +945,9 @@ merge path.
 **What is never reusable.** Security and advisory scans (osv, audit,
 gitleaks) depend on the day, not on the tree, so they are not run profiles:
 they run on every head as before, and `--from-run` never skips them.
-Pull-request required checks and dispatched runs always run fresh; only a
-push to main reuses ([below](#ci-reuse)).
+Dispatched runs always run fresh. A push to main reuses
+([below](#ci-reuse)), and a Free Tests pull request run reuses only a run it
+can't control ([below](#ci-reuse-pr)).
 
 <a id="from-run"></a>
 ### The tests stage from a Free Tests run (`--from-run`)
@@ -1014,11 +1038,26 @@ a branch that does not contain the base tip it tested another tree and
 `CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
 on the branch
 (`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
-and wait again. The preflight stage (generated-file freshness, secrets, strays
+and wait again. When the pull_request run tested that merge commit, the
+refusal names the command for the run's branch (`fix: gh workflow run
+free-tests.yml --ref <branch>, then gstack-ci-carry wait`). The preflight stage (generated-file freshness, secrets, strays
 and the other mechanical checks) and the sealed guard are unchanged and always
 run here. The macOS and Windows lane
 obligations still clear with `gstack-pregate clear --remote <lane> --run-url
 <url>` from their CI runs.
+
+<a id="dispatch-carry"></a>**A dispatched run can hide a red merge commit.** A
+`workflow_dispatch` run reports its checks on the head commit under the same
+job names as the `pull_request` run. So a green dispatch run of HEAD's own tree
+can stand in for a required check whose `pull_request` run failed on the merge
+commit, and without strict branch
+protection ("Require branches to be up to date before merging") the pull
+request can merge with that failure hidden (GBEV-3). Turn on strict protection
+for the base branch, or give dispatch runs distinct job names (for example a
+job `name:` that includes `github.event_name`), so a dispatch run never stands
+in for the required `pull_request` check. gstack's own merge trains test the
+merged tree before they merge, so gstack is covered; a repo that merges
+without a train is not.
 
 **/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
 `.gstack/pregate.json` maps its exact command (the evidence ledger binds the
@@ -1123,6 +1162,9 @@ As a second guard, every `record-ci` row names the policy that mapped it
 (`origin/<base>@<sha>:.gstack/pregate.json`), and `gstack-evidence carried`, which
 the ship receipt reads, lists only rows whose policy is `origin/<the receipt's
 base>`. A row written by a run against another base never lands in a receipt.
+`carried` also lists a row only when `check`'s own grading, at the 24-hour age
+limit /ship uses, calls it FRESH, so a carry that never reached FRESH (a failed
+or zero-run row, or one older than 24 hours) leaves no `ci_carried` entry.
 
 A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
 (see above for what `<n>` counts) and writes an explicit CI-sourced ledger row (`gstack-evidence record-ci
@@ -1131,7 +1173,11 @@ itself, so no caller hands it run ids or a test count: `source: "ci"`, its runs
 and profiles, the run's finish time as `ts`, bound to the clean tree), never a
 fictitious local run. `gstack-evidence check` grades it
 like any row and names `source=ci runs=…`, so `finish`'s FRESH check and the
-24-hour age limit apply to the CI run's own time. A mapped lane that cannot
+24-hour age limit apply to the CI run's own time. The ledger stores a label
+with every character outside `A-Za-z0-9._-` turned into `_` (`pnpm lint` is
+`pnpm_lint`, `db:test` is `db_test`), and `run`, `record-ci` and `check` all
+use that one spelling, so `check --label 'pnpm lint'` finds the row; `ci_carried`
+and `CI_CARRIED:` name the stored spelling. A mapped lane that cannot
 carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
 other lane runs through `gstack-evidence run --reuse`: the newest row for its
 label, command and working tree is reused when it passed with a counted run
@@ -1167,8 +1213,8 @@ prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
 
 A squash merge whose pull request head already held main produces a push with
 the identical tree, and Free Tests and Windows Free Tests used to run on it a
-second time. Now each workflow starts with a `reuse` job that runs only on a
-push to `main`, with job-level `contents: read` and `actions: read` (every other
+second time. Now each workflow starts with a `reuse` job that runs on a push
+to `main` (and, for Free Tests, on pull requests: [below](#ci-reuse-pr)), with job-level `contents: read` and `actions: read` (every other
 job keeps the workflow's `contents: read`). It runs
 `scripts/ci-tree-reuse.ts find`, which:
 
@@ -1186,8 +1232,8 @@ It writes `reused=true` with the run's id and link, or `reused=false` and the
 reason, and prints one `REUSE:` line in the step summary. Every suite job
 needs `reuse` and runs unless it succeeded with `reused=true`; their
 conditions start with `!cancelled()` because GitHub otherwise skips a job whose
-needed job was skipped, and `reuse` is skipped on every pull request and
-dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
+needed job was skipped, and `reuse` is skipped on every dispatch run (and on
+every Windows Free Tests run). The required aggregates (`free-tests`, `windows-free-tests`)
 choose a path in their first step, before any download. A verified reuse writes
 the reused run's link to the summary and passes; anything else, a failed or
 skipped `reuse` job included, takes the strict path unchanged. Only the strict
@@ -1198,6 +1244,46 @@ repository; a private fork of this setup would need `pull-requests: read`,
 and without it every push falls back to the full run. Windows Free Tests now
 runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 `reuse` job is always skipped and every nightly run takes the strict path.
+
+<a id="ci-reuse-pr"></a>
+#### Pull requests reuse only a run they can't control
+
+Free Tests' `reuse` job also runs on `pull_request`, as
+`find … --pull-request` (`findPrReuse`). On a pull request it checks out the
+base commit, never the merge commit, and runs bun with `--no-env-file
+--config=/dev/null`, so the reuse script, everything it imports and the run
+profile are main's code. Main pushes stay the only consumers
+of anything a pull request could certify for itself, so a `pull_request` run
+is never a source. A pull request run reuses a green run only when all of these
+hold:
+
+1. the pull request's head is on this repository (`fork_head`), it targets
+   main (`not_main_pr`), and this is the run's first attempt (`rerun`: a re-run
+   never reuses, so a red earlier attempt stays visible);
+2. GitHub's merge commit has exactly two parents, main and the pull request's
+   head (`merge_mismatch`);
+3. the merge commit leaves `.github/workflows/free-tests.yml`
+   (`workflow_changed`), `scripts/ci-tree-reuse.ts` and `lib/run-evidence.ts`
+   (`script_changed`) byte-identical to its main parent, so the rules that
+   decide the reuse are main's;
+4. the source is a `push` or `workflow_dispatch` run on main, or a
+   `workflow_dispatch` run on the pull request's own branch, newest first and
+   at most 10 (`no_candidate`), whose head commit has the merge commit's tree
+   (`tree_mismatch`); and
+5. `verifyRun` accepts it under `ci-reuse/free-tests` with `push` and
+   `workflow_dispatch` as the accepted events, its `tested-tree` record names
+   the merge commit's tree, and no newer red run on its head vetoes it (the
+   pull request's own run in progress is not a veto). A dispatch that
+   overrode the runner, shards or sub-shards records `sizing_experiment` in
+   its `tested-tree`, and `verifyRun` never accepts it (`sizing_experiment`),
+   for any consumer.
+
+The aggregate's route step accepts a reuse on a `pull_request` run of
+`refs/pull/<n>/merge` as it does on a push to main. A reused pull request run
+uploads no `tested-tree`, so the main push after the merge finds the source run
+on the head (a branch dispatch) or runs every job. The usual case is a branch
+that already holds main's tip. Dispatch Free Tests on the branch, and the
+pull request run that follows reuses it instead of running the suite again.
 
 <a id="flaky-exception"></a>
 ## Owner-granted flaky exception
@@ -1304,6 +1390,57 @@ guard is a *command* with its own fix line. Older gstack refuses unknown keys
 (`PREGATE_CONFIG_INVALID`), so a repo commits `guards` only after the gstack
 that reads them ships. The worked gbrain configuration is in
 [gbrain worked configs](#gbrain-worked-configs).
+
+<a id="prepush"></a>
+### Before every push: `--stage guards`
+
+Housekeeping checks cause a large share of red CI runs: a stale render or
+golden, a size ratchet, a token budget, a type error. gbrain had 64 of 93 red
+heads from these (FOUN-64), and gstack's #3908 went red on the context-budget
+ratchet. Each one is quick to run locally, so run them before the push instead
+of waiting a CI round to find out:
+
+```
+gstack-pregate --stage guards --allow-repo-commands
+```
+
+`--stage guards` runs only two checks: `regen` (generated-file freshness) and
+`guards`. Each runs only for the files the branch touched, so a docs-only
+change runs nothing. It writes `.gstack/tmp/pregate-guards.json`, so it never
+replaces the full run's `.gstack/tmp/pregate.json`. It refuses `--only`,
+`--remote` and `--from-run`.
+
+`gstack-ship-release push` runs it before every push, early or final, and
+prints `GUARDS: <verdict> (<detail>)`. A failing or unfinished guard stops the
+push with the guard's fix, and nothing is pushed. A pass already recorded at
+HEAD's exact tree is reused instead of rerun: either push's own record or
+`finish`'s preflight record. Both live under `.git`, where no commit can
+place one. The guards must have checked the tree being pushed, so uncommitted
+or untracked files that change what they saw stop the push until you commit or
+stash them. A refused run (an unreadable policy, a base that is on origin but
+not fetched, a mistyped `--base`) stops the push too; only a remote that has no branch except the one
+being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
+command above yourself before `git push`.
+
+gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
+`skill-size`, `parity-suite`, `context-budget`, `module-size`, `goldens`,
+`doc-caps` and `conflict-markers`. Generated SKILL.md freshness is the `regen`
+check's job. `conflict-markers` runs `scripts/check-conflict-markers.ts` on a
+change to code, templates or config, and reads every line the branch adds
+against its merge base with `origin/main`, both in the committed HEAD (what the
+push publishes) and in the working tree's tracked files. A line starting with
+`<<<<<<<` or `>>>>>>>` (then a space or the line end), or a line that is exactly
+`=======`, stops the push, even inside a template literal the parser accepts.
+In Markdown (`.md`, `.mdx`, `.markdown`, `.md.tmpl`) it skips fences whose info
+string is empty, `text`, `txt`, `plaintext`, `diff` or `console`, the fences a
+doc uses to show git output, and counts `=======` only between a `<<<<<<<` and
+its close, so such a code block and a heading underline both pass; a conflict
+inside a `bash` or `ts` fence is still refused. A fixture that shows markers on
+purpose puts a line that is only `gstack-conflict-markers: fixture` (a comment
+leader such as `#` or `//` is fine) in its first five lines; the phrase
+anywhere else exempts nothing. Other
+repos add their own `guards` the same way; the key needs no newer gstack than
+the one that already reads `guards`.
 
 <a id="guard-carry"></a>
 ### A guard that already passed at this tree does not run again

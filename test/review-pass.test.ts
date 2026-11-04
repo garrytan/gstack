@@ -94,20 +94,23 @@ describe('pass manifest', () => {
     expect(() => renderStage(d, 'specialists', texts, () => '')).toThrow(/cannot read audit\/plan's prompt file/);
   });
 
-  test('a brief over 1 MiB with invalid UTF-8 in its diff travels in bounded chunks that rejoin to the rendered sha', () => {
-    const m = manifest([{ role: 'outside-voice', name: 'outside-voice', effort: 'host', exclude: [] }]);
-    const diff = Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]).toString('utf8');
-    renderStage(m, 'voices', texts, () => diff);
+  // The outside voice now reads its diff from a file (test/review-depth-lean.test.ts), so a large brief here is an audit
+  // reader's prompt file carrying the same bytes.
+  test('a brief over 1 MiB with invalid UTF-8 in it travels in bounded chunks that rejoin to the rendered sha', () => {
+    const big = path.join(tmp('rp-big-'), 'plan.md');
+    fs.writeFileSync(big, Buffer.concat([Buffer.from('+line \u00e9\n'.repeat(90_000)), Buffer.from([0xff, 0xfe, 0x0a]), Buffer.from('+"quoted" \\ back\n'.repeat(20_000))]));
+    const m = manifest([], { extras: [{ name: 'plan', prompt_file: big }] });
+    renderStage(m, 'specialists', texts, () => '');
     const r = m.readers[0]!;
     const text = fs.readFileSync(r.file!, 'utf8');
     expect(Buffer.byteLength(text)).toBeGreaterThan(1024 * 1024);
     expect(r.chunks).toBe(chunkCount(text));
     let joined = '';
     for (let i = 0; i < r.chunks!; i++) {
-      const c = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['chunk', '--manifest', writeManifestFile(m), '--reader', 'outside-voice', '--index', String(i)], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+      const c = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['chunk', '--manifest', writeManifestFile(m), '--reader', 'audit/plan', '--index', String(i)], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
       expect(c.status, c.stderr).toBe(0);
       const [head, body] = c.stdout.split('\n');
-      expect(head).toBe('BRIEF_CHUNK: reader=outside-voice index=' + i + ' of=' + r.chunks + ' sha256=' + r.sha256);
+      expect(head).toBe('BRIEF_CHUNK: reader=audit/plan index=' + i + ' of=' + r.chunks + ' sha256=' + r.sha256);
       expect(Buffer.byteLength(body!)).toBeLessThan(1024 * 1024);
       joined += JSON.parse(body!);
     }
@@ -675,6 +678,29 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(bin(dir, env, ['pass', '--base', 'main', '--out', path.join(dir, '.state/run/d2'), '--pass', 'x16b', '--audit-only']).status).not.toBe(0);
   }, 240_000);
 
+  // Value: protects=a pass id typed in capitals is read as its lowercase id, so the manifest, its titles and a resume agree, and an id with other characters is still refused naming the rule; fails_when=--pass P1 is refused as a missing flag (gstack-evals#191 /ship), a capitalized resume of p1 reads as another pass, or p_1 is accepted;
+  //   why_new=the id was matched case-sensitively and its refusal read as a missing flag; seam=gstack-review-dispatch pass; no_claim=the reviewer plan, which --audit-only skips
+  test('pass reads its id as lowercase; an id with other characters is still refused with the rule', () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/docs');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'docs.prompt.md'), 'Run Step 14.5 as written.\n');
+    const extras = path.join(dir, '.state/extras.json');
+    fs.writeFileSync(extras, JSON.stringify([{ name: 'docs', prompt_file: path.join(out, 'docs.prompt.md'), first: true }]));
+    const args = (id: string) => ['pass', '--base', 'main', '--out', out, '--pass', id, '--audit-only', '--extras', extras];
+    const upper = bin(dir, env, args('Docs-P1'));
+    expect(upper.status, upper.stderr).toBe(0);
+    expect(upper.stdout).toContain(`MANIFEST: file=${path.join(out, 'pass-manifest.json')} pass=docs-p1 readers=1 audit-only`);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect([m.pass, m.readers[0].title]).toEqual(['docs-p1', 'ship docs-p1 audit/docs']);
+    const resumed = bin(dir, env, args('docs-p1'));
+    expect([resumed.status, resumed.stdout.includes('pass=docs-p1 readers=1 resumed')]).toEqual([0, true]);
+    for (const bad of ['p_1', 'p 1', 'p1/']) {
+      const r = bin(dir, env, args(bad));
+      expect([r.status, r.stderr.trim()]).toEqual([2, `gstack-review-dispatch pass: --pass ${JSON.stringify(bad)} is not a pass id: use letters, digits and dashes (read as lowercase, so P1 is p1)`]);
+    }
+  }, 120_000);
+
   test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
     const { dir, env } = repo();
     const rec = path.join(dir, '.state/rec.md');
@@ -1024,7 +1050,9 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     expect(redTeam).not.toContain(s.mergeBase);
     expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', 'voices']).status).toBe(0);
     const voices = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
-    expect(fs.readFileSync(voices.readers.find(r => r.reader === 'outside-voice')!.file!, 'utf8')).toContain('+export const v1 = 1;');
+    const outsideBrief = voices.readers.find(r => r.reader === 'outside-voice')!.file!;
+    expect(fs.readFileSync(outsideBrief, 'utf8')).toContain(`The supplied branch diff is the file ${path.join(path.dirname(outsideBrief), 'outside-voice.diff')} `);
+    expect(fs.readFileSync(path.join(path.dirname(outsideBrief), 'outside-voice.diff'), 'utf8')).toContain('+export const v1 = 1;');
     const again = bin(s.dir, s.env, s.args);
     expect(again.status, again.stdout + again.stderr).toBe(0);
     expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);

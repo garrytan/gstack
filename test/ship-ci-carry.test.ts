@@ -122,6 +122,32 @@ describe('finish, push --early and accept (A1)', () => {
   // Value: protects=finish never runs a mapped lane locally on the stamped tree: it defers it to accept and runs only pregate's preflight stage; accept carries
   //   it from the green run at the pushed head and reruns the pregate there; fails_when=the stamped tree reruns the suite, or accept trusts a run at another tree;
   //   why_new=design fix A1; seam=fake gh, gstack-evidence, gstack-pregate
+  test('accept checks a carried lane under the label it was recorded with: spaces and colons (TRUT-7)', () => {
+    const f = fx();
+    world(f);
+    expect(f.run(RELEASE, ['push', '--branch', 'feat', '--early', '--base', 'main'], unattended).status).toBe(0);
+    for (const label of ['pnpm lint', 'db:test']) {
+      const ok = f.run(RELEASE, ['accept', '--base', 'main', '--lane', `${label}=${FREE}`, '--wait', '0']);
+      expect([ok.status, ok.stdout], label).toEqual([0, expect.not.stringContaining('not FRESH')]);
+      expect(ok.stdout).toMatch(/^EVIDENCE: FRESH /m);
+    }
+    for (const label of ['pnpm lint', 'db:test']) expect(f.run(path.join(BIN, 'gstack-evidence'), ['check', '--label', label]).stdout).toMatch(/^EVIDENCE: FRESH /m);
+  });
+
+  test('a carried row that no longer grades FRESH leaves no ci_carried entry (TRUT-7: pnpm lint)', () => {
+    const f = fx();
+    world(f);
+    expect(f.run(RELEASE, ['push', '--branch', 'feat', '--early', '--base', 'main'], unattended).status).toBe(0);
+    expect(f.run(RELEASE, ['accept', '--base', 'main', '--lane', `pnpm lint=${FREE}`, '--wait', '0']).status).toBe(0);
+    const carried = () => JSON.parse(f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main', '--json']).stdout);
+    expect(carried()).toEqual([expect.objectContaining({ lane: 'pnpm_lint', run: 7, attempt: 1 })]);
+    const [ledger] = findFilesBySuffix(path.join(f.state, 'projects'), '-evidence.jsonl');
+    const rows = fs.readFileSync(ledger!, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    fs.writeFileSync(ledger!, rows.map(r => JSON.stringify(r.source === 'ci' ? { ...r, ts: at(30 * 60) } : r)).join('\n') + '\n');
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['check', '--label', 'pnpm lint', '--max-age', '24']).stdout).toMatch(/^EVIDENCE: STALE .* reason=older than 24h/m);
+    expect(carried()).toEqual([]);
+  });
+
   test('finish defers the mapped lane; accept carries it from the green run at the pushed head', () => {
     const f = fx();
     world(f);
@@ -283,6 +309,14 @@ describe('GST-1189: a lane carries by named CI jobs instead of an inventory', ()
     const f = gbrain();
     world(f, { jobs: ALL, tree: { ...NO_FILES, tree: '1'.repeat(40) } });
     expect(find(f).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch)');
+  });
+
+  test('a pull_request run whose base moved names the one-command fix (TRUT-7)', () => {
+    const f = gbrain();
+    const mergeTree = f.git('rev-parse', 'origin/main^{tree}').stdout.trim();
+    const merge = f.git('commit-tree', mergeTree, '-p', 'HEAD', '-p', 'origin/main', '-m', 'Merge origin/main into feat').stdout.trim();
+    world(f, { jobs: ALL, run: { event: 'pull_request', head_branch: 'feat' }, tree: { ...NO_FILES, tree: mergeTree, sha: merge } });
+    expect(find(f).stdout).toContain("CI_CARRY: none (no_verified_run: ci/free: run 7: tree_mismatch (the pull request's base moved after the run; fix: gh workflow run free.yml --ref feat, then gstack-ci-carry wait))");
   });
 
   test('an entry declares exactly one of inventory or jobs', () => {
@@ -492,7 +526,7 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     const out = preflight(f, [`free=${FREE}`]);
     expect(out.status, out.stdout + out.stderr).toBe(0);
     expect(lane(out.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=1 file(s) tests_ran_here=1');
-    expect([args(f), runs(f, 'free-runs')]).toEqual(['test/b.test.ts\n', 0]);
+    expect([args(f), runs(f, 'free-runs')]).toEqual(['./test/b.test.ts\n', 0]);
     const all = rows(f);
     expect(all.find(r => r.source === 'ci')).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: ['test/b.test.ts'], tests_ran: 1 } });
     expect(all.find(r => r.label === 'free.skipped')).toMatchObject({ exit: 0, tests_ran: 1 });
@@ -502,14 +536,14 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     const f = shipFixture(withRunner(1)); fixtures.push(f);
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
-    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of 1 skipped file\(s\) exited 1 \(label=free\.skipped\)$/m)]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of test\/b\.test\.ts exited 1 \(label=free\.skipped\)$/m)]);
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
     expect(preflight(f, [`free=${FREE}`]).stdout).toContain('CI_CARRY: none label=free (skipped_failed');
     expect(runs(f, 'free-runs')).toBe(1);
   });
 
-  test('a remainder that ran zero tests here carries nothing: the lane runs whole', () => {
-    const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 1 skip\\n 0 fail\\nRan 1 test across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
+  test('a remainder file that registers no test here carries nothing: the lane runs whole', () => {
+    const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
     const f = shipFixture(zero); fixtures.push(f);
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
@@ -543,6 +577,47 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify({ ...w, editWhenArmed: { marker: path.join(f.root, 'armed'), file: path.join(f.work, 'src/b.ts'), content: 'export const b = 3;\n' } }));
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
     expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: tree_changed: /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
+  // Value: protects=GST-1314: a remainder file that skips every test here too (env-gated or tool-gated by design) is recorded as not owed
+  //   instead of refusing the whole carry, while a file that registers no test, or a mixed remainder hiding one, still refuses;
+  //   fails_when=run 41754278952's six skipped files (0 pass, 20 skip locally) make every gstack carry end in skipped_zero_run again;
+  //   why_new=GST-1314 replay (L6, #3979); seam=fake gh, gstack-evidence record-ci, per_file runner printing bun's per-file summary
+  const SIX: Array<[string, number]> = [["browse/test/security-bench.test.ts",3],["test/codex-resume-flag-semantics.test.ts",2],["test/cso-docker-integration.test.ts",5],["test/cso-node-lifecycle-integration.test.ts",1],["test/cso-stack-cold-integration.test.ts",1],["test/motion-pipeline.test.ts",8]];
+  const bunSummary = (f: ShipFx, cases: Array<[string, string]>) => fs.writeFileSync(path.join(f.root, 'perfile.sh'), `printf '%s\\n' "$@" >> ../perfile-args\ncase "$1" in\n${cases.map(([pat, out]) => `  *${pat}*) printf '${out}' >&2;;\n`).join('')}esac\n`);
+  const skipsOnly = (n: number) => ` 0 pass\\n ${n} skip\\n 0 fail\\nRan ${n} test${n === 1 ? '' : 's'} across 1 file. [1.00ms]\\n`;
+  const policy = (files: string[]) => ({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: `printf '${['test/a.test.ts', ...files].join('\\n')}\\n'`, per_file: 'sh ../perfile.sh {files}' } } }, null, 2) + '\n' });
+
+  test('GST-1314: run 41754278952\'s six remainder files skip every test here too, so they are not owed and the lane carries', () => {
+    const f = shipFixture(policy(SIX.map(([p]) => p))); fixtures.push(f);
+    bunSummary(f, SIX.map(([p, n]) => [p, skipsOnly(n)]));
+    world(f, { tree: { files: ['test/a.test.ts', ...SIX.map(([p]) => p)], skipped_files: SIX.map(([p]) => p) } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect(rec.status, rec.stderr).toBe(0);
+    expect(rec.stderr).toContain('not owed here: 6 remainder file(s) skipped every test on CI and here too');
+    expect(args(f).trim().split('\n')).toEqual(SIX.map(([p]) => './' + p));
+    const ci = rows(f).find(r => r.source === 'ci');
+    expect(ci).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: SIX.map(([p]) => p), tests_ran: 0, not_owed: SIX.map(([p]) => p) } });
+    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=6 file(s) tests_ran_here=0 not_owed_here=6');
+  });
+
+  test('GST-1314: a remainder that mixes a file that ran here with one that registers no test still refuses', () => {
+    const f = shipFixture(policy(['test/b.test.ts', 'test/c.test.ts'])); fixtures.push(f);
+    bunSummary(f, [['b.test', ' 2 pass\\n 0 fail\\nRan 2 tests across 1 file. [1.00ms]\\n'], ['c.test', ' 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n']]);
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts'], skipped_files: ['test/b.test.ts', 'test/c.test.ts'] } });
+    const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: the per_file run of test\/c\.test\.ts /m)]);
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
+  test('GST-1314: a remainder file whose log hit the 2MB cap is never counted not owed from the truncated log', () => {
+    const f = shipFixture(policy(['test/b.test.ts'])); fixtures.push(f);
+    fs.writeFileSync(path.join(f.root, 'perfile.sh'), `printf '%s\\n' "$@" >> ../perfile-args\nprintf ' 0 pass\\n 5 skip\\n 0 fail\\nRan 5 tests across 1 file. [1.00ms]\\n' >&2\nhead -c 2200000 /dev/zero | tr '\\0' x >&2\nprintf '\\n 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2\n`);
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts'], skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run('sh', ['-c', '"$0" "$@" 2>../record-ci.err', path.join(BIN, 'gstack-evidence'), 'record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, fs.readFileSync(path.join(f.root, 'record-ci.err'), 'utf-8')]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: the per_file run of test\/b\.test\.ts ran 0 tests here /m)]);
+    expect(fs.readFileSync(rows(f).findLast(r => r.label === 'free.skipped').log_path, 'utf-8')).toContain('log truncated at 2MB');
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
   });
 

@@ -4,7 +4,7 @@ Three layers, each owned by gstack:
 
 | Layer | Where | Job |
 |---|---|---|
-| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env`; in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
+| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 4 a fresh clone or the floor fast-forward follows `stable` instead when the update channel resolves to it and `stable` meets that minimum, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
 | Full wrapper | `bin/gstack-capy-session` (moves with the checkout) | map the session start onto the installer: `--check` certifies (and reports a checkout behind origin), otherwise fast-forward a checkout behind origin (`bin/gstack-upgrade --ff-only-no-reinstall`), then install or repair |
 | Installer | `bin/gstack-capy-install` | Bun, both host profiles, the doctor, the install verdict, the launch line, the trailer |
 
@@ -232,7 +232,11 @@ rename can be broken and then publish into its successor's lock. While a live pr
 holds the lock, or it cannot be taken at all, `touch` exits 3 without writing
 (`gstack-skill-start` reports that the session holds no lease) and a reclaim
 keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
-`GSTACK_UPGRADE_FORCE=1` overrides.
+`GSTACK_UPGRADE_FORCE=1` overrides. `bin/gstack-lease open --run <id> [--pid <p> | --from <pid>]`
+answers for one run (exit 0 while it is open on a live holder);
+`gstack-ship-preflight` opens /ship runs on the project checkout's own lease and
+uses it to refuse a base merge under an open run
+([troubleshooting](troubleshooting.md#ship-preflight-run-open)).
 
 ## What the installer does
 
@@ -330,7 +334,19 @@ keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
    the installer prints `the install verdict at <file> keeps for=<old> and adds
    <new> (for=<list>)`, and the trailer still names this run's workflow). A
    failing run, a new HEAD or another Bun replaces the verdict, and so does any
-   workflow install over a review-voice verdict. Admission refuses a workflow whose
+   workflow install over a review-voice verdict. Each workflow install (and
+   `--check`) also writes that workflow's own verdict beside it, at
+   `<verdict>.for/<workflow>.json`, with only this run's result. When the shared
+   verdict does not admit a workflow, admission and the pregate try the
+   workflow's own record with the same checks, so a later install for another
+   workflow on a shared machine (a /ship docs child resolving another Bun, or a
+   failed child install) never drops /ship's admission (GST-1233). A new HEAD
+   still invalidates both, and a failed `./setup` (`gstack: fail setup`)
+   invalidates every workflow's record. `--check --for <workflow>` keeps the
+   Bun that workflow's own record holds. The launch file and launch directory
+   stay shared per checkout and project (GST-1239), so the pregate launches
+   from the recorded Bun's own directory when the launch directory's `bun`
+   resolves to another one. Admission refuses a workflow whose
    running Bun is not the one the verdict recorded
    ([BUN_RESOLUTION_DRIFT](troubleshooting.md#bun-resolution-drift)), and so
    do the pregate's lanes and guards, which also refuse an invalid verdict
@@ -594,7 +610,10 @@ Wrapper 2 only added optional exports (the trailer's `latest:` note and the
 `cloned` line). Wrapper 3 answers `--check --for none` itself (a copy at 1 or 2
 prints `fail not-installed` for a coordinator machine and still works for every
 other call), so the minimum is 3: every older Drive copy prints the owner
-action until the owner recopies `capy/skill/gstack/`.
+action until the owner recopies `capy/skill/gstack/`. Wrapper 4 only adds the
+update-channel choice for the clone and the floor fast-forward
+(`GSTACK_UPDATE_CHANNEL=stable|main`, else the checkout's channel, else main);
+the minimum stays 3, so a copy at 3 keeps working.
 
 ## Exit codes
 

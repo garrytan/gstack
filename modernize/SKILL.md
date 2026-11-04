@@ -2,7 +2,7 @@
 name: modernize
 preamble-tier: 2
 version: 0.1.0
-description: "Bring an aging pull request onto its current base and decide whether it should still exist: MODERNIZE, REWORK or CLOSE, with range-diff proof before any push. (gstack)"
+description: "Bring an aging PR onto its current base and decide: MODERNIZE, REWORK or CLOSE. (gstack)"
 triggers:
   - modernize this pr
   - rebase this old pr
@@ -14,6 +14,7 @@ allowed-tools:
   - Grep
   - Glob
   - AskUserQuestion
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
