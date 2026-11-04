@@ -57,7 +57,7 @@ export function writeLock(root: string, expected: string, value: LandLock | Rele
   const tree = git(root, ['mktree'], undefined, `100644 blob ${blob}\tlock.json\n`).out;
   const message = 'released' in value ? `land lock released by ${value.by}` : `land lock ${value.train ? `train ${value.train} slot ${value.slot} ` : ''}#${value.pr} ${value.phase}`;
   const commit = git(root, ['commit-tree', tree, ...(expected ? ['-p', expected] : []), '-m', message]).out;
-  if (![blob, tree, commit].every(isSha)) return { ok: false, sha: '' };
+  if (![blob, tree, commit].every(isSha)) return { ok: false, sha: '', origin: expected };
   const push = git(root, ['push', '-q', `--force-with-lease=${LAND_LOCK_REF}:${expected}`, remote, `${commit}:${LAND_LOCK_REF}`]);
   const origin = push.ok ? commit : originSha(root, remote);
   if (origin !== commit) return { ok: false, sha: commit, origin };
@@ -139,7 +139,7 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
     const next: LandLock = { pr: o.owner.pr, ...(o.owner.train ? { train: o.owner.train, slot: o.owner.slot } : {}), holder: o.holder, started_at: startedAt, phase, journal: o.journal, phase_at: o.now().toISOString(), ...always, ...extra };
     const w = write(next);
     if (!w.ok) {
-      if (w.origin === null) return { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and ${remote}'s lock could not be read, so this run cannot tell whether the push landed; nothing was merged`, fix: 'rerun the same command once origin answers; it resumes this run\'s own lock' };
+      if (w.origin === null) return { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and ${remote}'s lock could not be read, so this run cannot tell whether the push landed`, fix: 'rerun the same command once origin answers; it resumes this run\'s own lock' };
       return w.origin === sha
         ? { code: 'QUEUE_NOT_READY', message: `the land lock push to ${remote} failed and the lock there is unchanged; nothing was pushed` }
         : { code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' };

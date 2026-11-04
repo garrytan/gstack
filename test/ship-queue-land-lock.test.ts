@@ -146,6 +146,31 @@ describe('the lock module', () => {
     });
   }, 60_000);
 
+  test('GST-1344: a phase change rejected because origin holds a newer lock from this same run adopts that sha and retries once; the same journal under another holder is not adopted', () => {
+    const repo = bareRepo();
+    withRepoEnv(repo, () => {
+      const root = repo.work;
+      const got = take(root, standalone('12'), { journal: 'land/12' });
+      if (!('held' in got)) throw new Error('lock not taken');
+      const ahead = (holder: string) => {
+        const r = readLock(root);
+        const w = writeLock(root, r.sha, { ...got.held.lock, holder, phase: 'waiting' });
+        expect(w.ok).toBe(true);
+        repo.git('update-ref', LAND_LOCK_REF, r.sha);
+        return w.sha;
+      };
+      const mine = ahead('test:1');
+      expect(got.held.set('pushing')).toBeNull();
+      const after = readLock(root);
+      expect(after).toMatchObject({ state: 'held', lock: { phase: 'pushing' } });
+      expect(repo.git('rev-parse', `${after.sha}^`)).toBe(mine);
+
+      const theirs = ahead('other:2');
+      expect(got.held.set('merging')).toMatchObject({ code: 'QUEUE_LAND_LOCKED' });
+      expect(repo.git('--git-dir', repo.origin, 'rev-parse', LAND_LOCK_REF)).toBe(theirs);
+    });
+  }, 60_000);
+
   test('--break-lock prints the holder, refuses a live train run\'s lock without --break-train-lock, and keeps the staleness, mid-push, between and freeze rules', () => {
     const repo = bareRepo();
     withRepoEnv(repo, () => {
