@@ -6854,3 +6854,13 @@ These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<
 ### `gstack-clean: unexpected gstack-clean failure … (GSTACK_CLEAN_INTERNAL)`
 
 **Meaning.** gstack-clean hit an error it does not expect; the line names it. Exit 1. Changes made before the error stay made, and each was checked right before it was made. **Fix.** Rerun once; if it repeats, report the printed error to the gstack maintainers.
+
+<a id="runaway-usage"></a>
+### `RUNAWAY_USAGE: …` (gstack-runaway)
+
+**Meaning.** `gstack-runaway` got no command, an unknown one, both or neither of `--thread` and `--dir`, a flag with no value, an unparseable `--now`, or a path that does not exist. Exit 2; nothing was read. **Fix.** Run `gstack-runaway --help` and pass the files the /runaway-stopper fetch program wrote.
+
+<a id="runaway-input"></a>
+### `RUNAWAY_INPUT: file=<path> …` (gstack-runaway)
+
+**Meaning.** That thread's file is not valid JSON, or lacks `cost.tokens`, a parseable `created_at` or numeric `tasks[].cost.tokens`. The thread is skipped (never counted as OK), the rest of the sweep still runs, `SWEEP:` counts it as `unreadable`, and the exit is 1. **Fix.** Fetch that thread again with `tools.thread.get` (the whole object, not a summary) and rerun the scan.

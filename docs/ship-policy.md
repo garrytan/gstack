@@ -1166,8 +1166,10 @@ policy read, so no paid work starts and nothing is written. With the block it ru
 4. dispatches the full gate on that sha and reads its verdict and flake
    records. A case that failed once and passed its one rule-16 rerun is green
    and is listed as flaky;
-5. records GREEN, RED or INCOMPLETE. An INCOMPLETE gate is re-dispatched once
-   by the next run, then left for a person;
+5. records GREEN, RED or INCOMPLETE. GREEN needs the run's success and a
+   report that says GREEN, so a missing report artifact is INCOMPLETE. An
+   INCOMPLETE gate is re-dispatched once by the next run, then left for a
+   person;
 6. on RED, bisects the red cases over main's first-parent commits since the
    last green gate (at most 4 rounds, within the spend cap) and records the
    first bad commit;
@@ -1175,7 +1177,12 @@ policy read, so no paid work starts and nothing is written. With the block it ru
    `checks: write` and runs no repository code: success for a green gate,
    failure for a red one, and neutral when the gate has no verdict yet (still
    running at the budget, or incomplete), so a later green on the same commit
-   is not undercut by an earlier failure.
+   is not undercut by an earlier failure. A run that fails before it has a
+   commit to gate (a refused policy, unreadable notes, an unresolved branch)
+   publishes no check run, so it fails the workflow job instead. That failed
+   job is a red check run on main's head, so release-cut refuses that commit
+   until a later release-gate run on it succeeds (release-cut reads the
+   latest check run of each name).
 
 **What release-cut reads.** A GREEN release record on a commit counts as
 gated, the same as a successful `main-backstop` check run. A RED record
@@ -1233,8 +1240,8 @@ written by the pr-body section of `/ship` after the body is composed.
 The ```` ```gstack-ship-receipt ```` block is the handoff record: identifiers
 first (`pr`, `head`, `version`, `base`), then the evidence (`gate`, `ci`,
 `head_tree`, `product_patch_id`, `gstack_version`, `review_depth`, `pregate`,
-`issues`, `approval`, `docs`, `review_loop`, `review_loop_exception`, `carry`),
-validated
+`issues`, `approval`, `docs`, `review_loop`, `review_loop_exception`, `carry`,
+`no_stop`), validated
 against the `ship-receipt` schema (`gstack-artifact schema ship-receipt`) and
 read back by `gstack-ship-receipt read`, `result`, `carry` and the queue.
 
@@ -1294,6 +1301,11 @@ skips a test raises the diff to gate class), when `--head` is not the
 checked-out HEAD, when the receipt records `gstack_version` without
 `review_depth`, or when an owner exception no longer stands, each as
 [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
+
+**`no_stop`.** The routine stops the run recorded and went on past, from
+`write --no-stop <json|@file>`: an array of `{ class, reason, evidence }`, with
+`class` one of the five no-stop defaults. /ship passes the branch's
+`gstack-no-stop` ledger here ([review-policy.md#no-stop](review-policy.md#no-stop)).
 
 **`review_loop_exception`.** The owner's acceptance of a stop after a
 fix-check edit under frozen scope (#3559), from `write --review-loop-exception

@@ -234,6 +234,7 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - User asks about page speed, web performance regression → invoke `/benchmark`; model or skill benchmarks → invoke `/benchmark-models`
 - User asks to plan, preregister, price or pilot a paid eval → invoke `/eval-plan`
 - User asks to run a suite, build or eval on Ubicloud → invoke `/ubicloud`
+- User asks to find, stop or rotate runaway agent threads, or for a token sweep → invoke `/runaway-stopper`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`
