@@ -83,8 +83,9 @@ const defaultGh = (args: string[], cwd: string) => {
 };
 
 /**
- * Stamp a fresh worktree of origin/<base> with gstack-restamp --release, commit it on release/<version>, push that
- * branch and open the release PR. The Captain lands it with gstack-ship-queue land --pr <n> --pin <head> once its
+ * Stamp a fresh worktree of origin/<base> with gstack-restamp --release, commit only the stamped files (detached, so no
+ * local branch is left behind), force-push the commit to release/<version> (a reopen after RELEASE_STAMP_INVALID
+ * replaces the old release branch) and open the release PR. The Captain lands it with gstack-ship-queue land --pr <n> --pin <head> once its
  * checks are green; the stable cut then tags the new version. --dry-run stamps and prints the diff, and creates nothing.
  */
 export function openRelease(o: OpenOptions): OpenResult {
@@ -109,12 +110,12 @@ export function openRelease(o: OpenOptions): OpenResult {
     lines.push(`RELEASE: ${stamp.oldVersion} -> ${version} at origin/${o.base} ${baseSha.slice(0, 12)}`);
     if (o.dryRun) return { ok: true, version, branch, lines: [...lines, stamp.diff ?? ''] };
     const folded = /folded (.+?)(;|$)/.exec(stamp.stages.find(s => s.name === 'changelog')?.detail ?? '')?.[1] ?? 'see the CHANGELOG diff';
-    for (const step of [['checkout', '-q', '-b', branch], ['add', '-A'], ['commit', '-q', '-m', `v${version} release: fold the changelog fragments`]]) {
+    for (const step of [['add', '-A', '--', ...(stamp.files ?? [])], ['commit', '-q', '-m', `v${version} release: fold the changelog fragments`]]) {
       const r = git(dir, step);
       if (!r.ok) return fail('RELEASE_STAMP_INVALID', `git ${step[0]} failed in the release worktree: ${r.err.split('\n')[0]}`);
     }
     const head = git(dir, ['rev-parse', 'HEAD']).out;
-    const push = git(dir, ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`]);
+    const push = git(dir, ['push', '-q', '--force', 'origin', `HEAD:refs/heads/${branch}`]);
     if (!push.ok) return fail('RELEASE_STAMP_INVALID', `git push origin ${branch} failed: ${push.err.split('\n')[0]}`);
     lines.push(`PUSHED: ${branch} ${head}`);
     const body = [

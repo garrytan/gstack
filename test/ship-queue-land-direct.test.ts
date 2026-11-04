@@ -444,12 +444,13 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
   test('a release/<version> head that is exactly the release stamp lands with no /ship receipt or READY note, and main moves to the new version', () => {
     const fx = setup();
     const { pin, base } = release(fx);
+    const next = bumpVersion(show(fx, base + ':VERSION'), 'patch')!;
     const r = land(fx, '50', pin);
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
-    expect(r.out).toContain('RELEASE: v' + bumpVersion(show(fx, base + ':VERSION'), 'patch') + ' folds 1 fragment(s)');
+    expect(r.out).toContain('RELEASE: v' + next + ' folds 1 fragment(s)');
     const main = remote(fx, 'main');
-    expect(show(fx, main + ':VERSION')).toBe(bumpVersion(show(fx, base + ':VERSION'), 'patch'));
+    expect(show(fx, main + ':VERSION')).toBe(next);
     expect(show(fx, main + ':CHANGELOG.md')).toContain('- #7 change');
     expect(spawnSync('git', ['-C', fx.repo.work, 'cat-file', '-e', main + ':changelog.d/pr-7.md'], { timeout: 30_000 }).status).not.toBe(0);
   }, 120_000);

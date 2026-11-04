@@ -125,6 +125,26 @@ describe('gstack-release-stamp open', () => {
     expect(repo.git('worktree', 'list').split('\n')).toHaveLength(1);
   });
 
+  test('a checkout with node_modules commits only the stamp, and opening again at the same base replaces the release branch', () => {
+    const repo = landed();
+    fs.writeFileSync(path.join(repo.work, '.gitignore'), 'node_modules/\n');
+    repo.git('add', '.gitignore');
+    repo.git('commit', '-q', '-m', 'ignore node_modules');
+    repo.git('push', '-q', 'origin', 'HEAD:refs/heads/main');
+    fs.mkdirSync(path.join(repo.work, 'node_modules'));
+    const gh = () => ({ ok: true, out: 'https://github.com/o/r/pull/43\n', err: '' });
+    const first = openRelease({ repoRoot: repo.work, base: 'main', gh });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(repo.git('show', '--name-only', '--format=', first.head!).split('\n')).not.toContain('node_modules');
+    expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: repo.git('rev-parse', 'origin/main'), head: first.head! }).ok).toBe(true);
+    const again = openRelease({ repoRoot: repo.work, base: 'main', gh, now: new Date('2030-01-02T00:00:00Z') });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/' + again.branch)).toBe(again.head!);
+    expect(repo.git('branch', '--list', 'release/*')).toBe('');
+  });
+
   test('--dry-run creates nothing; an empty base is refused', () => {
     const repo = landed();
     const dry = openRelease({ repoRoot: repo.work, base: 'main', dryRun: true, gh: () => { throw new Error('no gh in a dry run'); } });
