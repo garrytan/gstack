@@ -2045,7 +2045,12 @@ commands are repo commands: the merged tree's `package.json` decides what
 `--allow-repo-commands`, with `PATH` and the locale as the whole environment
 and a throwaway `HOME`, so no token reaches them through the environment,
 runs git around them with hooks and fsmonitor off, and kills a command's whole
-process group when it ends or times out. It doesn't sandbox
+process group with SIGKILL when it ends or times out. A check that moves HEAD
+off the merged commit fails. Land re-reads the base policy after the locked
+fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
+merged tree's lockfile or `package.json` dependencies differ from the
+checkout's, the linked `node_modules` can't vouch for it: land refuses with
+`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
 the filesystem: a command can still write the checkout's `.git` (the worktree
 shares it) and the linked `node_modules`, so pass the flag only for a base
 policy and PRs you trust to run. A list such
