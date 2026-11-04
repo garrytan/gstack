@@ -168,6 +168,26 @@ The same floor and the same `NO FINDINGS` rule apply to `/review` on its own;
 its re-review loop keeps its three-cycle fix cap (`CYCLES`), and a pass that
 applies no edits is its exit too.
 
+<a id="no-stop"></a>
+### No-stop defaults (K1)
+
+Five routine stops don't wait for a Captain. /ship and /autoplan record each one
+as `{class, reason, evidence}` in the receipt's `no_stop` field and keep going.
+`gstack-no-stop record` (`lib/no-stop.ts`) checks each case before it records it.
+When a case doesn't qualify, it prints `NO_STOP: refused` and exits 3, and that
+stop goes to the owner as before. Every other stop still stops.
+
+| Class | Qualifies when | What happens next |
+|---|---|---|
+| `scoped-fix-check` | Round 2 stops for a fix whose range since round 2's `PASS_HEAD` is docs class only, or only raises timeout values. `--range-base` must be the commit the newest review-log pass row read. One per branch: the ledger keeps every record, so a later /ship on the branch stops for the owner. | It records the standing grant in the approval record (`by: gstack no-stop default (K1)`) and prints `GRANT:`. `gstack-review-plan --grant` plans the one scoped fix-check. A blocking finding there goes to the owner. |
+| `test-timeout-fix` | Every changed line is in a test file and only raises a timeout value: the value of a timeout key (`timeout: 5_000`, `setDefaultTimeout(5_000)`, `--timeout=5000`) or bun's and jest's trailing per-test argument, only on the line that opens the test call itself (`test('…', () => {…}, 30_000);`, likewise `it(` and `describe(`). A multi-line test's closing `}, 30_000);` does not qualify and stops for the owner. A line with `expect`, `assert` or a comparison never qualifies. | The gate scan's relaxation finding takes the printed `GATE_DISPOSITION: kept` reason instead of `open`. |
+| `pregate-flake-rerun` | One rerun of a failed pregate case at the same tree (CREW rule 16). One per branch. | Green counts as flaky. Red again is a real failure. |
+| `stamp-only-carry` | A refused carry, where the receipt head merged into the base (base side on conflict) differs from HEAD only in a version stamp: `VERSION`, the `"version"` line of `package.json`, `CHANGELOG.md`, the agents digest or `changelog.d/` fragments. | Take the carry's `RECHECK:` route instead of running Steps 2–16 again. |
+| `autoplan-regate` | An edit to the plan file made after the owner's answer, or after the revise that took their changes, while the reviewed plan itself is unchanged. The edit only adds lines, all inside the plan's `## ELI5` section (an added `## ELI5` heading opens one), and no added line holds a number or a word for spend, cost, budget, price, cap, credits, limit, max, arm, model, judge, verdict, threshold, bar, trial, sample, stop rule, paid or eval. A removed or reworded line, or a line added anywhere else, goes to the owner. The carry exports the reviewed plan, so the added explanation is never built. | `gstack-autoplan` carries the owner's words (`reason=no-stop autoplan-regate: …`) and writes `<run>/no-stop.json`. `gstack-no-stop import` adds it to the branch's ledger. |
+
+The ledger is one JSON array per branch under the checkout's git directory
+(`NO_STOP_FILE:`). /ship's receipt write passes it as `--no-stop @<file>`.
+
 <a id="review-depth"></a>
 ## Review depth by diff class
 
@@ -792,3 +812,4 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 - `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `bin/gstack-coauthor-trailers` for the contributor-credit trailers of a port.
 - `lib/ship-receipt-prose.ts`, `gstack-ship-receipt read --check-prose`: the body's quoted counters against the receipt (`RECEIPT_PROSE_MISMATCH`, [ship-policy.md](ship-policy.md#ship-receipt)).
 - `lib/ship-receipt.ts`, `lib/headless-artifacts.ts`: the `review_loop` receipt object, its schema and the summary line.
+- `lib/no-stop.ts`, `bin/gstack-no-stop`, `lib/autoplan-carry.ts`: the [no-stop defaults](#no-stop), their ledger and the autoplan re-gate (`test/no-stop.test.ts`, `test/autoplan-carry.test.ts`).
