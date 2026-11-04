@@ -20,7 +20,9 @@ import { RELEASE_GATE_EXPLANATION, releaseGateErrors, type ReleaseGatePolicy } f
 import { LAND_EXPLANATION, landPolicyErrors, type LandPolicy } from './land-merged-checks';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
+import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers';
 import { cmpVersion, parseVersion } from './version-source';
+import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED } from './ship-policy-keys';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
 export { VERSION_SLOT } from './ship-policy-stamps';
 
@@ -62,6 +64,7 @@ export interface ShipPolicy {
   /** Git glob pathspecs (root-anchored) whose data, docs, binary and log files /ship's reviewers leave out; read from the base only (docs/ship-policy.md#review-exclude-paths). */
   review_exclude_paths: string[];
   /** How much review /ship runs (docs/review-policy.md#review-depth): the panel fallback, the risk reader's model, platform review and extra risk paths; read from the base only. */ review: ReviewPolicy;
+  /** What /ship's readers may not fetch or open beyond the default fetch rule, and the one-line note every brief carries; the base governs, the head may only add (docs/ship-policy.md#readers). */ readers: ReadersPolicy;
   /** Consumed by the plan reviews (D1). */
   pr_count: { default_pr_count: number; split_requires_owner: boolean };
   /** Maintainer logins for contributor-PR mode (E3); empty means "use push permission". */
@@ -183,7 +186,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   train: null,
   docs: null,
   base_red: null, merge: 'train', land: null,
-  release_gate: null,
+  release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null },
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -205,6 +208,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   review_scope: 'frozen | diff-plus-blocking | all. frozen (default): /ship Step 9 fixes findings in the diff on pass 1, files blocking findings in code the PR did not change as issues, and later passes read only the range since the previous pass and fix only blocking findings; diff-plus-blocking: the same, but a blocking finding in code the PR did not change is fixed in this PR instead of filed; all: every finding is fixed now (the pre-1.91.249 loop).',
   review_exclude_paths: 'Git glob pathspecs, root-anchored and case-sensitive (`receipts/**`, `**/*.jsonl`; at most 64, 256 characters each, no leading `:` or `!`): /ship\'s reviewers leave out the data, docs, binary and .log files they match. Read from the base branch only, so a branch cannot exclude its own files. Code, gate paths, agent prose, config, executables, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-exclude-paths).',
   review: '{ panel?, reader_model?, platform?, risk_paths? }, read from the base branch only. panel: all (default: today\'s panel and loop everywhere) | risk (opt-in: today\'s panel at full depth on risk class, one reader on the rest) | off (one merged reader on risk class too); risk and off run one fix round. Their one-reader shape has not passed a no-loss replay yet (GSTA-258 C: FIX-METHOD). reader_model: the model of the one reader a lean depth runs, `lane` (default: the lane\'s own model, the native adversarial reader), `cross-family` or a model id. platform: off (default) | on: a docs or tests diff with no numeric, results or prereg claims whose PR carries the platform review (capy-ai[bot]) at the exact head skips /ship\'s readers (review_depth platform); never runtime code. risk_paths: globs of code paths that are risk class on top of R51\'s; data, docs and binary files under them stay out (docs/review-policy.md#review-depth).',
+  readers: READERS_EXPLANATION,
   pr_count: '{ default_pr_count, split_requires_owner }: the PR-count row in plan reviews.',
   maintainers: 'GitHub logins treated as maintainers by /review contributor mode; empty uses repository push permission.',
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
@@ -223,55 +227,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
-/**
- * The gstack release that introduced each key. Keys newer than
- * POLICY_COMPAT_FLOOR need `min_gstack_version` before they take a
- * non-default value, so a crew on mixed gstack versions sees one named
- * refusal instead of a policy each version reads differently. Unknown keys
- * always fail closed: there is no extension mechanism.
- */
-export const POLICY_COMPAT_FLOOR = '1.91.98.0';
-export const SHIP_QUEUE_KEYS_VERSION = '1.91.108.0';
-export const TRAIN_KEYS_VERSION = '1.91.146.0';
-// Each constant is the release that first reads its key: a policy declaring the key must name at least
-// that version as min_gstack_version, so an older gstack refuses the policy by name instead of failing on
-// an unknown key. review_scope shipped in 1.91.256.0 (#3481), docs.caps in 1.91.270.0 (#3487). A new key's
-// constant is written as a tentative future version clear of main's pace (the next minor, never the next patch,
-// which main takes first and the released-key test below then reds at the pin), in this exact
-// `_KEY_VERSION = '<version>'` form: this file is in .gstack/ship-policy.json stamp_paths with that form as a
-// stamp_patterns template, so the slot stamp's gstack-restamp stamp_paths stage moves the tentative value to the
-// allocated version. The stage reads lines the branch added: a tentative value newer than the fork version moves,
-// an untouched released constant stays, and a branch-added line naming the base's own version is re-read as a
-// stale stamp and moves too, so never rewrite a released constant's line. Until the tree receipt accepts a
-// stamp-form move whose old value is not the base version (#3512), the train's stamp-only check passes such a
-// move only when the tentative value equals the base version at the slot, which a next-minor value never does:
-// a PR that adds a key cannot clear the train until #3512 lands. test/gstack-ship-policy.test.ts holds
-// an unreleased constant newer than every CHANGELOG heading and a released one on a heading whose entry names
-// its key, so a value a stamp did not move fails there.
-export const REVIEW_SCOPE_KEY_VERSION = '1.91.256.0';
-export const DOCS_CAPS_KEY_VERSION = '1.91.270.0';
-export const CHANGELOG_FRAGMENTS_KEY_VERSION = '1.91.336.0';
-/** `bump: never` is a value of an older key, so the per-key floor check misses it; compatErrors checks it by value. */
-export const BUMP_NEVER_KEY_VERSION = '1.91.353.0';
-export const BASE_RED_KEY_VERSION = '1.91.374.0';
-/** `train.gates` and `train.land` are values of the older train key, so compatErrors checks them by value, as for bump: never. */
-export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
-export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.16.0';
-export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
-export const RELEASE_GATE_KEY_VERSION = '1.96.0.0';
-export const REVIEW_POLICY_KEY_VERSION = '1.94.30.0';
-export const MERGE_KEY_VERSION = '1.95.0.0';
-export const LAND_KEY_VERSION = '1.96.0.0';
-export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
-  bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
-  changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
-  pr_count: '1.91.73.0', maintainers: '1.91.73.0', stamp_files: '1.91.98.0', stamp_patterns: '1.91.98.0', restamp_command: '1.91.98.0',
-  migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
-  train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
-  changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
-  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
-  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION,
-};
+export * from './ship-policy-keys';
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
 
@@ -497,6 +453,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   oneOf('merge', ['direct', 'train']);
   if ('review_exclude_paths' in obj) excludeErrors(obj.review_exclude_paths, errors);
   if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
+  if ('readers' in obj) readersErrors(obj.readers, errors, containedRelative);
   if ('release_tool' in obj && obj.release_tool !== null) {
     const t = obj.release_tool;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'release_tool', message: 'must be a non-empty string or null' });

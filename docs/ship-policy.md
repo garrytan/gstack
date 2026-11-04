@@ -61,6 +61,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
 | `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
+| `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add entries, never remove one. Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
@@ -1483,6 +1484,37 @@ fix chosen by where the policy stands; a `git diff` that fails or runs past
 There is no override flag: the recovery is a policy PR on the base, or a split.
 
 <a id="review-scope"></a>
+## `readers`: what reviewers may not fetch or open
+
+Since the release that added it (`READERS_KEY_VERSION` in `lib/ship-policy.ts`).
+Every reader brief already carries the fetch rule. It says to review only this
+checkout and its local git history, and never to clone, fetch or download another
+repository, dataset or archive ([review-policy.md](review-policy.md#what-readers-may-fetch)).
+A repository that holds sealed data adds what no reader may reach at all:
+
+```json
+{ "readers": { "forbid_fetch": ["github.com/example-org/beam", "huggingface.co"], "forbid_paths": ["sealed/**"], "brief_note": "sealed/ is custody: never read plaintext." }, "min_gstack_version": "<the release that introduced readers>" }
+```
+
+- `forbid_fetch`: lowercase hosts (`huggingface.co`, subdomains included) or
+  `host/owner/repo` (`github.com/example-org/beam`, with or without `.git`). Every
+  brief names them, and web page reads under them are forbidden too.
+- `forbid_paths`: git glob pathspecs in the `review_exclude_paths` dialect. They
+  are cut out of every reader's diff as `:(top,exclude,glob)` items, the outside
+  voice's embedded diff included, and are never kept back the way
+  `review_exclude_paths` keeps code. Every brief says not to open them.
+- `brief_note`: one line of at most 400 characters that every brief carries,
+  for example a custody note. A credential-shaped note is `POLICY_INVALID`.
+
+**Read from the base.** `gstack-review-plan` reads the policy on the base commit
+it resolved and adds any `forbid_fetch` or `forbid_paths` entry the head's
+policy adds, so a branch can tighten the rule and never loosen it; the head's
+`brief_note` is ignored. An invalid base policy stops the plan
+(`POLICY_INVALID`), and so does a base git cannot read
+(`POLICY_SOURCE_UNAVAILABLE`). The plan prints `READERS: default (fetch rule
+only)` or `READERS: forbid_fetch=<n> forbid_paths=<n> note=yes|no head_added=<n>
+digest=<d>`, and every brief's ledger event records the digest.
+
 ## `review_scope`: how the review loop converges
 
 Since the release that added `review_scope` (`REVIEW_SCOPE_KEY_VERSION` in
