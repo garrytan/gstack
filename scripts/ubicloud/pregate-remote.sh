@@ -248,7 +248,7 @@ while :; do
   rm -f "$log.pid" "$log.timedout" "$log.left"
   t0=$(date +%s)
   vm_name="ubirun-$(bash "$here/ubi-runner.sh" owner)-$(date +%s)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')-t$(( (stop_after + 900 + 3599) / 3600 ))"
-  [ -n "$prior_vm" ] || say "VM $vm_name; if this run is killed before its teardown line, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
+  [ -n "$prior_vm" ] || say "VM $vm_name; if this run is killed before its teardown line, rerun the same command to reattach; if the rerun does not reattach to it, or you give up, destroy it with: bash scripts/ubicloud/ubi-runner.sh down $vm_name"
   UBI_LEFT_FILE="$log.left" python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
     bash -c "$vm_session" pregate-remote-vm "$stop_after" "$log" "$stream" "$here/ubi-runner.sh" "${args[@]}" -n "$vm_name" &
   vmrun=$!
