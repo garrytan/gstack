@@ -59,9 +59,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -110,13 +110,12 @@ through it to one person (the owner). The operating model below is what keeps do
 lanes merging into one base branch every day without a red base: lanes never merge, a
 READY block is the only merge trigger, every merge runs through a train, every decision
 the owner makes is recorded in their own words, and flakes are fixed daily instead of
-retried away. The guide for a team setting this up on Capy, with the drive layout and
-the templates, is `docs/captain.md` in the gstack checkout; the copy-paste files are in
-`captain/templates/` next to this skill.
+retried away. The team guide, drive layout included, is `docs/captain.md`; the copy-paste
+files are in `captain/templates/` next to this skill.
 
 Usage: `/captain [setup | ready <pr> | train | digest | approvals | flaky-pass]`; `/crew` is
-the same skill. With no argument, read the crew's rules file and the digest, then do whatever the open item at
-the top of the digest needs.
+the same skill. With no argument, read the rules file and the digest, then act on the
+digest's top open item.
 
 ## Boundaries
 
@@ -191,11 +190,10 @@ and adds the lines the tool cannot know. Validate every field before the pin goe
 | `READY_RECEIPT` | the receipt path the tool wrote (local and on the notes ref) | missing |
 | flaky cases | each one already in the ledger, with both runs | a rerun that is not logged, or a second failure called a flake |
 | lane statement | "head frozen from now on" | absent |
+| `Unverified` | each claim the lane did not check itself, or `none` | never refused or staled; ask for it |
 
-Optional lines a crew may require in its rules file: the gate run id and tree hash the
-lane's own gate covered (useful where lanes gate on their own machines), the issue the PR
-closes, and the key before/after image for the merge ask. Ship the fields as options and
-let the rules file pick; one crew's habit is not the contract.
+Optional lines a crew's rules file may require: the gate run id and tree hash of the
+lane's own gate, the issue the PR closes, and the key before/after image.
 
 After READY the head is frozen. A push drops the PR from any train and needs a new READY
 at the new head, /ship rerun included. The one exception is the stamp push below.
@@ -374,7 +372,8 @@ lane builds only after the owner's word is answered into the run and it reports 
 New scope taken on part-way gets its own plan. Read-only lanes, the flaky pass's repairs,
 slot stamps, CHANGELOG resolves, cap re-pins under a grant, S1 emergencies (broken install
 or upgrade, red main, a security bug) and fixes from an already-diagnosed, audited problem
-list are exempt; every other fix gets a one-round, eng-only plan. The brief a
+list are exempt. Other bug fixes skip plan review (`--kind fix`, R65) but carry a repro
+on current main or a failing test written first; features get the lean run (`--kind feature`). The brief a
 controller hands a lane, with its `Plan: required | approved | exempt` line, is
 `captain/templates/brief.md`; the rule is `docs/captain.md` (Plan before build).
 
@@ -415,14 +414,16 @@ occurrence escalates. Every rerun's spend is reported.
 
 ## Reports and waves
 
-A lane that finishes writes `reports/<code>.md` (`captain/templates/report.md`): Outcome,
-PR (number, head, version, checks), Needs (what the owner must do), Cost, Lesson, and
-the Approvals table. The controller reads reports before it reads chat, and turns every
-Lesson into a rule in the rules file, a line in the standing-rules file
-(`captain/templates/AGENTS.md`), or a filed tool fix. The controller's own log is
-append-only and timestamped (`captain/templates/NOTES.md`); the digest is derived from it.
+A lane that finishes writes `reports/<code>.md` (`captain/templates/report.md`): Outcome
+with its `Unverified:` line, PR (number, head, version, checks), Needs (what the owner
+must do), Cost, Lesson, and the Approvals table. The controller reads reports before
+chat and turns each Lesson into a rule, a standing-rules line (`captain/templates/AGENTS.md`)
+or a filed tool fix. Its log (`captain/templates/NOTES.md`) is append-only and timestamped;
+the digest comes from it. After a revert or S1 fix of a merged crew PR, the controller writes a
+postmortem (`captain/templates/postmortem.md`): why did the lane and every reviewer believe
+it was right? Its rule change ships as a gstack PR.
 
-Serial slots cost tens of minutes each, so PRs in one area travel together. When more
+Serial slots are slow, so PRs in one area travel together. When more
 than `WAVE_TRIGGER` (6) PRs are READY, run `gstack-ship-queue wave plan` for area groups
 of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY on the wave
 PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to

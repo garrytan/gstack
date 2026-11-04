@@ -1,0 +1,5 @@
+I read the diff, ran `bun test test/retry.test.ts`, and checked every caller of
+`retry()`. The cap is enforced and the tests cover the boundary.
+
+Verdict: ready
+END OF REPORT: 0 findings (0 blocking)

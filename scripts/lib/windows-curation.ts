@@ -51,6 +51,7 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 // when possible; this list is for environment-/runtime-specific tests where
 // the failure mode is structural rather than detectable via source-file scan.
 export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
+  { file: 'test/ship-queue-land-direct.test.ts', reason: 'the same extensionless node gh shim as test/ship-queue-land.test.ts; windows-latest launches the runner\'s gh.exe instead (no GH_TOKEN), so every land case fails (windows-scoped-shard, run 41720760327); land is a controller command run on Linux and macOS' },
   { file: 'test/ship-queue-land.test.ts', reason: 'its gh shim is an extensionless #!/usr/bin/env node script on a colon-joined PATH, which windows-latest cannot launch, so land reaches the real gh (no GH_TOKEN) and every case fails (windows-free-shard 6, run 40824965988); land is a controller command run on Linux and macOS' },
   // Like test/paid-rerun.test.ts (excluded by pattern), it replays a gate capture through the paid lane's --report and --rerun-plan CLI.
   { file: 'test/shared-libs-index-flags-readonly.test.ts', reason: 'its assume-unchanged replay seeds the review through test/helpers/shared-libs-path-fixture.ts, which launches bin/gstack-review-log (a bash script) directly; windows-latest refuses it as not found in $PATH (windows-free-shard 5, run 40727825859)' },
@@ -316,6 +317,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
   },
   {
+    file: 'test/ship-queue-land-lock.test.ts',
+    reason: 'drives land and train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train-land.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+  },
+  {
     file: 'test/ship-queue-train.test.ts',
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
@@ -385,6 +390,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns bin/gstack-ship-release (shebang) directly and writes #!/bin/sh gh stubs through test/helpers/ship-bin-fixture.ts; windows-latest exits before the bin runs (windows-free-shard 3, run 41073592483)',
   },
   {
+    file: 'test/ship-ci-carry.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-evidence, gstack-ci-carry and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
     file: 'test/ship-rereview-triggers.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-free-shard 6, run 41193336209)',
   },
@@ -402,10 +411,14 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   { file: 'test/cso-windows-docker.test.ts', reason: '/cso docker.exe discovery under known-folder roots (real path, no reparse points) and the native-transport-unsupported outcome; pure win32 path logic' },
   { file: 'test/copilot-windows-bash.test.ts', reason: 'the Copilot glossary line that runs bash blocks in Git for Windows Bash; reads host config only' },
   { file: 'test/ship-hook-windows-paths.test.ts', reason: 'runs bin/ helpers through explicit bash and Bun argv with forward-slash paths; never executes a shebang; the path-spelling simulation is skipIf win32' },
+  { file: 'test/review-scope-windows-launch.test.ts', reason: '#3541: runs gstack-review-scope through lib/script-invocation.ts, which must reach the bash gstack-review-read through Git Bash (red at main: windows-free-shard 3, run 41228091417); os.tmpdir state only' },
+  { file: 'test/jsonl-merge-encoding.test.ts', reason: '#3659: runs gstack-jsonl-merge through lib/script-invocation.ts (Git Bash on win32); the CRLF half of the bug only reproduces with a Windows Python' },
   { file: 'test/gstack-wtree-windows-paths.test.ts', reason: '#3101: runs bin/gstack-wtree through explicit bash in an os.tmpdir linked worktree with forward-slash paths; never executes a shebang; the drive-letter simulation is skipIf win32' },
   { file: 'test/setup-hook-syntax-gate.test.ts', reason: '#3088/#3100: runs bin/gstack-hook-check and the setup hook sections through explicit bash with forward-slash paths; never executes a shebang. Its Bun drive-path spelling is the Windows bug it guards' },
   { file: 'test/bun-config-shell-bins.test.ts', reason: '#3415: runs the record bins through lib/script-invocation.ts (Git Bash on Windows) with MSYS path conversion off, the case it guards; its bun and cygpath stand-ins and simulated-OSTYPE cases are skipIf win32' },
+  { file: 'test/ship-receipt-session-kind.test.ts', reason: '#3541: runs gstack-ship-receipt write through lib/script-invocation.ts, which must reach the bash gstack-session-kind through Git Bash; os.tmpdir git fixture only' },
   { file: 'test/path-spelling.test.ts', reason: 'sources bin/gstack-path-spelling.sh through explicit bash and checks lib/path-spelling.ts; on Windows it exercises the real Git Bash spellings' },
+  { file: 'test/timeline-stop-hook-stdin.test.ts', reason: '#3628: the hook runs through Bun argv with a stdin pipe held open; the return-within-budget timing must meet real Windows process startup' },
   { file: 'test/state-root-parity.test.ts', reason: 'runs the bash twin and lib/state-root.ts over an env table with PATH empty; no shebang execution, raw-string comparison is platform-neutral' },
   { file: 'test/generator-eexist.test.ts',
     reason: 'E4: runs the generators through Bun argv with the Windows EEXIST emulation preload; no shebang execution' },

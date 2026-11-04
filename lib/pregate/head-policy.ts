@@ -66,7 +66,7 @@ export function headPolicy(repoRoot: string, trusted: Loaded, mergeBase: string,
   for (const [glob, tests] of Object.entries(adds)) dependencies[glob] = [...new Set([...(dependencies[glob] ?? []), ...tests])];
   const n = Object.keys(adds).length;
   return {
-    load: { ...trusted, config: { ...trusted.config, dependencies }, kind: 'head', label: `head (unreviewed) ${PREGATE_CONFIG_PATH}: adds ${n} lane${n === 1 ? '' : 's'} over ${trusted.label}` },
+    load: { ...trusted, config: { ...trusted.config, dependencies }, declaresLanes: trusted.declaresLanes === true || head.declaresLanes === true, kind: 'head', label: `head (unreviewed) ${PREGATE_CONFIG_PATH}: adds ${n} lane${n === 1 ? '' : 's'} over ${trusted.label}` },
     explain: Object.entries(adds).map(([glob, tests]) => `head policy adds: dependencies[${JSON.stringify(glob)}] → ${tests.join(', ')}`),
   };
 }

@@ -97,6 +97,7 @@ import { writeReceipt, writeOutcome } from '../lib/egress-receipt';
 import { readConfigKey, resolveStateRoot } from '../lib/state-root';
 import { DESIGN_SLOP_CATALOG, entryForImpeccableId } from '../lib/design-catalog';
 import { isFrontendPath } from '../lib/frontend-scope';
+import { baseArg } from '../lib/gate-diff/git';
 
 // ── Environment ──────────────────────────────────────────────────────────────
 
@@ -821,7 +822,7 @@ function resolveTargets(args: ScanArgs, p: Probe): { targets: string[]; refusedB
       for (const rel of r.stdout.toString('utf-8').split('\0')) if (rel) files.add(rel);
       return true;
     };
-    if (!runZ(['diff', '-z', '--name-only', '--diff-filter=ACMR', `${base}...HEAD`])) {
+    if (!runZ(['diff', '-z', '--name-only', '--diff-filter=ACMR', `${baseArg('gstack-design-detect', base, top)}...HEAD`])) {
       // A base that does not resolve must not read as "no frontend changes".
       refuse(base, 'git diff against this base failed (unknown ref or unfetched base)');
       return { targets: out, refusedBase: true };

@@ -11,20 +11,49 @@
  * incident: a gbrain serial test landed without its manifest row and
  * passed both the isolation check and pregate; `test/cli-goldens.test.ts`
  * spawns the CLI as a subprocess, so no import graph selects it.
+ *
+ * GST-1186: a guard whose exact command already passed at this tree is not run
+ * again. #3901's carry (gstack-evidence record-ci) carries it from a verified
+ * CI run when the base's ship_lanes_from maps the command, else a counted
+ * ledger pass of the same command at the same working tree stands
+ * (gstack-evidence passed). ship_lanes_from is read from origin/<base> only, so
+ * the PR that adds a mapping cannot carry from it yet.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { laneMapping, recordCiResult } from '../../ci-carry';
 import { matchesAny } from '../../ship-policy';
 import type { Guard } from '../config';
 import { baseInputs, sha256 } from '../context';
 import { classifyCommandEnvironment, classifyEnvironment, environmentLine, environmentResult, launchCause } from '../environment';
 import { launchRuntime } from '../runtime';
 import { checkScratch } from '../run-scratch';
-import { readRange, supervise } from '../supervise';
+import { readRange, STALL_IDLE, supervise } from '../supervise';
 import type { EnvironmentCause } from '../types';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
+import { runScriptSync } from '../../script-invocation';
 
-interface GuardRun { guard: Guard; exit: number | null; timedOut: boolean; stalled: boolean; tail: string[]; log: string; environment: EnvironmentCause | null }
+interface GuardRun { guard: Guard; exit: number | null; timedOut: boolean; stalled: boolean; tail: string[]; log: string; environment: EnvironmentCause | null; prior?: string; carryNone?: string }
+
+const EVIDENCE = path.resolve(import.meta.dir, '..', '..', '..', 'bin', 'gstack-evidence');
+
+/**
+ * The pass that already covers this guard's exact command at this tree (GST-1186): a CI carry (or a CI skip the unchanged gate
+ * decided, printed as not owed), else a same-tree local ledger pass under the runtime the guard would launch with.
+ */
+function priorPass(ctx: PregateContext, guard: Guard, env: NodeJS.ProcessEnv): { prior?: string; carryNone?: string } {
+  const evidence = (args: string[]) => runScriptSync(EVIDENCE, args, { cwd: ctx.repoRoot, env, encoding: 'utf8', timeout: 600_000 });
+  let carryNone: string | undefined;
+  if (laneMapping(ctx.config.ship_lanes_from, guard.command)) {
+    const ci = evidence(['record-ci', '--label', `guard-${guard.id}`, '--base', ctx.base, '--', guard.command]);
+    const got = recordCiResult(String(ci.stderr ?? ''));
+    if (ci.status === 0 && got.runs) return { prior: got.notOwed ? `not owed: ${got.notOwed} runs=${got.runs}` : `carried runs=${got.runs}` };
+    carryNone = got.none ?? `record-ci exit ${ci.status}`;
+  }
+  const local = evidence(['passed', '--', guard.command]);
+  const hit = /^PASSED: (.+)$/m.exec(String(local.stdout ?? ''))?.[1];
+  return local.status === 0 && hit ? { prior: `reused ${hit}`, carryNone } : { carryNone };
+}
 
 async function runGuard(ctx: PregateContext, guard: Guard, env: NodeJS.ProcessEnv, dir: string): Promise<GuardRun> {
   const timeoutMs = guard.timeout_s ? guard.timeout_s * 1000 : ctx.timeoutMs;
@@ -53,10 +82,15 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   if (runtime.refusal) return { ...base, ...runtime.refusal, cause: 'environment', environment: launchCause('runtime', runtime.refusal.detail), lines: [`runtime: ${runtime.label}`, environmentLine(launchCause('runtime', runtime.refusal.detail))] };
   const dir = checkScratch(ctx.scratch, 'guards');
   const runs: GuardRun[] = [];
-  for (const g of selected) runs.push(await runGuard(ctx, g, runtime.env, dir));
+  for (const g of selected) {
+    const p = priorPass(ctx, g, runtime.env);
+    runs.push(p.prior ? { guard: g, exit: 0, timedOut: false, stalled: false, tail: [], log: '-', environment: null, ...p } : { ...(await runGuard(ctx, g, runtime.env, dir)), carryNone: p.carryNone });
+  }
   const lines = [`runtime: ${runtime.label}`];
   for (const r of runs) {
-    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s; process group killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
+    if (r.carryNone) lines.push(`CI_CARRY: none guard=${r.guard.id} (${r.carryNone})`);
+    if (r.prior) { lines.push(`GUARD: ${r.guard.id} ${r.prior}`); continue; }
+    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s${STALL_IDLE}; process group killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
     if (r.exit !== 0) lines.push(...r.tail.map(l => `  ${l}`));
     if (r.environment) lines.push(`  ${r.guard.id} ${environmentLine(r.environment)}`);
   }
@@ -68,7 +102,8 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   if (failed.length) return { ...withRuns, status: 'fail', cause: 'diff', code: 'PREGATE_GUARD_FAILED', detail: `${failed.length} guard(s) failed: ${failed.map(r => r.guard.id).join(', ')}${timedOut.length ? `; timed out: ${timedOut.map(r => r.guard.id).join(', ')}` : ''}${blocked.length ? `; blocked by the environment: ${blocked.map(r => r.guard.id).join(', ')}` : ''}`, fix: fixOf(failed) };
   if (blocked.length) return environmentResult(withRuns, blocked[0]!.environment!, `${blocked.length} guard(s) could not run on this machine: ${blocked.map(r => `${r.guard.id} (${r.environment!.kind})`).join(', ')}${timedOut.length ? `; timed out: ${timedOut.map(r => r.guard.id).join(', ')}` : ''}`);
   if (timedOut.length) return { ...withRuns, status: 'incomplete', code: timedOut.some(r => r.stalled) ? 'PREGATE_STALLED' : 'PREGATE_INCOMPLETE', detail: `${timedOut.length} guard(s) did not finish: ${timedOut.map(r => `${r.guard.id} (${r.stalled ? 'stalled' : 'timed out'})`).join(', ')}`, fix: 'fix the hang, or raise the guard\'s timeout_s, --timeout or --stall-timeout; an unfinished guard never passes' };
-  return { ...withRuns, detail: `${runs.length} guard(s) passed: ${runs.map(r => r.guard.id).join(', ')}` };
+  const prior = runs.filter(r => r.prior).length;
+  return { ...withRuns, detail: `${runs.length} guard(s) passed: ${runs.map(r => r.guard.id).join(', ')}${prior ? ` (${prior} from an earlier pass at this tree)` : ''}` };
 }
 
 export const guardsCheck: CheckDef = { id: 'guards', stage: 'preflight', tier: 2, downgradable: false, needsRepoCommands: true, run };

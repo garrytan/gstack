@@ -137,6 +137,7 @@ describe('gstack-models inspector', () => {
     [['bogus'], "unknown command 'bogus'"],
     [['resolve'], 'resolve needs --role'],
     [['resolve', '--role', 'coding'], "unknown role 'coding'"],
+    [['resolve', '--role', 'outside-voice'], "the outside voice follows the harness, not the model policy (docs/model-policy.md"],
     [['resolve', '--role', 'plan-review'], 'needs --provider'],
     [['resolve', '--role', 'plan-review', '--provider', 'claude'], "unknown provider 'claude'"],
     [['resolve', '--role', 'implementation', '--provider', 'OpenAI'], "unknown provider 'OpenAI'"],

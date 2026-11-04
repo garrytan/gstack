@@ -27,6 +27,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures in your Aside browser. |
 | [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
 | [`/ubicloud`](#ubicloud) | **Remote Runner** | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs with a reaper, quota preflight, a hang watchdog and one committed verify per repository. |
+| [`/runaway-stopper`](#runaway-stopper) | **Spend Warden** | Find runaway Capy threads and subagents, stop or rotate them at a clean point, and set the defaults that keep them from coming back. |
 | [`/cso`](#cso) | **Chief Security Officer** | Supported security findings with explicit coverage. Static assessment remains available without catalog profiles; contained runtime/scanner execution requires matching qualified profiles. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
 | [`/document-release`](#document-release) | **Technical Writer** | Audit relevant docs on every ship before final verification; standalone runs can also update docs after a PR exists. Catches stale READMEs and reports unresolved gaps. |
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
@@ -631,6 +632,8 @@ One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(d
 
 **Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (`.dart` files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
 
+**PR type.** The checklist starts by naming the kind of PR from the changed paths: docs-only, CI/infra, scripts/tooling, application or mixed, and the review's first line says which (`PR type: <type>`). Application and mixed diffs run every category as before. A CI/infra, scripts/tooling or docs-only diff always gets Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit; every other category with nothing to check is listed once, in one line, as not applicable, and never counts as passed. Repo Conventions & Platform Fit flags new files that don't match the languages and tools the repo already uses or the platforms its CI runs on, such as a `.bat` build script in a bash-and-Makefile repo.
+
 ### Example
 
 Suppose the smart listing flow is implemented and the tests are green.
@@ -656,13 +659,13 @@ I want the model imagining the production incident before it happens.
 
 When something is broken and you don't know why, `/investigate` is your systematic debugger. It follows the Iron Law: **no fixes without root cause investigation first.**
 
-Instead of guessing and patching, it traces data flow, matches against known bug patterns, and tests hypotheses one at a time. If three fix attempts fail, it stops and questions the architecture instead of thrashing. This prevents the "let me try one more thing" spiral that wastes hours.
+It leaves the order and tools to the model, keeps a few guards (stop and ask after three failed hypotheses, ask before a fix touches more than five files, lock edits to the affected module), reads a recipe for flakes, order-dependent failures, races and eval regressions, and ends with a structured debug report. It used to walk a five-phase procedure; Opus 5.5 followed none of it in 46 recorded sessions, so the procedure was dropped (GST-938).
 
 ---
 
 ## `/verify`
 
-`/verify` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/verify` predicts a green pre-gate.
+`/verify` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/verify` predicts a green pre-gate. `/health` finds its tools with the same detector (`gstack-checks detect --for health`), which adds its test, knip, shellcheck and gbrain dimensions.
 
 It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and sends a stubborn red to `/investigate`. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/ship`. It never reviews, bumps versions, pushes or opens a PR.
 
@@ -753,7 +756,7 @@ A lot of branches die when the interesting work is done and only the boring rele
 1. **`## What changed`**: one to three captioned before/after images from `gstack-pr-shots` or a UI screenshot, highest-signal first, with a collapsed text version under each.
 2. **`## Why`**: two or three sentences. The first states the problem in the person's words (the issue, the message, the failing run), then the cause and the user-visible effect.
 3. **`## Blast radius`**: what else the change touches and the one fact that makes that safe, with the evidence-ladder rung that fact reached (a test that exercises the shared path, a grep over every caller, a measured run). A change to a shared helper, a generated file, a selection list or a policy default always has one; a leaf fix says so in one line.
-4. **`## Approvals`**: the table from `gstack-approvals render`, verbatim.
+4. **`## Approvals`**: the output of `gstack-approvals render`, verbatim. On a private repository that is the table; on a public repository, or one whose visibility gh cannot read, it is only `Approved: yes|no (record <id>)`, because GitHub keeps every earlier version of a PR description.
 
 Before the body is composed, `gstack-prose-lint` reads the Why, Summary and Blast radius drafts (`--sections 'Why,Summary,Blast radius' --gate`) and the CHANGELOG entry (`--base origin/<base> --gate`), and a `PROSE_LINT_FOUND` line names the sentence to rewrite; the rest of the body is advisory. The Captain's merge-ask template (`captain/templates/merge-ask.md`) carries the same four sections, so a READY report and its PR say the same thing.
 
@@ -908,8 +911,12 @@ gstack's own templates and for any skill folder you own.
   add nothing a fresh session already does; edit the line that covers the idea instead of appending; put the fact on the
   lowest level that reaches the agent in time (description, SKILL.md, `references/`, the tool's `--help`, the tool's
   errors); write the rule and put the story in the commit message.
+- **Evidence.** A new skill, step, instruction, check or default needs evidence that it helps on frontier models, or a
+  dated plan to measure it ([ETHOS.md: 9. Earn Its Place](../ETHOS.md#9-earn-its-place)). Commits carry an `Evidence:`
+  line, and every gstack skill has a row in the evidence ledger, `docs/inventory/evidence.json`, which
+  [docs/inventory.md](inventory.md) ranks by load per run.
 - **Size.** `gstack-skill-bill` prints bytes and estimated tokens per level, and in a gstack checkout the skill's eval
-  task file (`EVAL TASKS:`). Commits carry
+  task file (`EVAL TASKS:`) and its ledger row (`EVIDENCE:`). Commits carry
   `Skill-Size: <before>→<after> bytes`; a skill more than 10% over its last `Skill-Diet:` commit is DUE, and a red
   context-budget ratchet means diet, not a higher ceiling.
 - **Drift.** `test/skill-bin-drift.test.ts` fails when a template or rendered skill calls a gstack bin or flag that
@@ -961,9 +968,16 @@ arms, decoys, stop rules, cap) and `--check` refuses to continue while a field i
 blank (`PREREG_INCOMPLETE`). `arms` resolves the `eval-arms` model role against
 `lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`
 runs every row through the stub model for $0 and flags malformed rows
-(`EVAL_DRY_RUN_FAILED`); `pilot start|settle|release|report` runs three priced
-items, records actual spend, extrapolates to the full set against the cap
-(`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question shows.
+(`EVAL_DRY_RUN_FAILED`), and refuses a plan whose every arm is Haiku or Sonnet
+unless `--tier-question` names what it asks about that tier, re-costing it on
+frontier models ([frontier models under test](TESTING_INTERNALS.md#frontier-models-under-test));
+`pilot start|settle|release|report` runs three priced
+items, records actual spend, extrapolates each priced arm to the full set against
+the cap (`EVAL_BUDGET_EXHAUSTED`) and prints the spend table the approval question
+shows. An arm on a subscription with no extra charge is declared with
+`pilot start --seat-metered <arm,...>`: it reserves $0, settles as `unknown`, and
+stays out of the projection until one of its attempts settles a real charge.
+A run stops at the first quota or rate-limit error on such an arm.
 `results --check <prereg> <results.md>` refuses a finished results file unless one
 table holds a filled row for every arm, each `<model>#no-gstack` row beside its
 variants (`EVAL_REPORT_NO_GSTACK_ROW`); no number leaves the run before it passes.
@@ -993,6 +1007,39 @@ Claude: Benchmarking 5 pages (5 runs each)...
 
 ---
 
+## `/runaway-stopper`
+
+This is my **Spend Warden**.
+
+A long-lived agent thread re-reads its whole history on every step, so its cost grows with every wake, even
+the ones that end with nothing to say. One Founderstar thread used 6.9B tokens in 13 days, about 4B of it its
+own context, and one of its /ship subagents reached 485M because it was reused for five /ship runs.
+`/runaway-stopper` finds that pattern from the host's own thread data, stops it where stopping is safe, and
+sets the defaults that keep it from coming back.
+
+- **Detect.** One program fetches each crew thread (`tools.thread.get`, with its transcript) to files, then
+  `gstack-runaway scan --dir <dir>` prints a `RUNAWAY:` line per thread and a `FLAG:` line per limit crossed:
+  own tokens past 500M or active past 3 days (rotate), a subagent past 100M (stop), empty wakes past 25% of the
+  last 40 turns, and review rounds past 2 per PR. Captains are reported, never rotated.
+- **Stop.** A live subagent past 100M is stopped with its reason. A thread is rotated at a clean point through
+  a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain. A thread
+  mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
+- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
+  PR head (metering its own row with a 100M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
+  thread per automation run.
+
+Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03 (excerpt):
+
+```
+RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B credits=2299398 age_days=13.1 active=yes ...
+FLAG: ROTATE own_tokens 4.04B > 500M (upper bound)
+FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)
+RUNAWAY: thread=FOUN-14 verdict=ROTATE own=2.02B(exact) total=2.54B ...
+RUNAWAY: thread=FOUN-71 verdict=ROTATE own=677M(exact) total=953M ...
+```
+
+---
+
 ## `/ubicloud`
 
 This is my **Remote Runner**.
@@ -1002,8 +1049,8 @@ VM. `/ubicloud` runs it there through one entry point, `bin/gstack-ubi`
 (`scripts/ubicloud/ubi-runner.sh`), with the discipline a shared quota needs:
 every VM is named `ubirun-<owner>-<epoch>-<suffix>-t<hours>`, so its owner
 (`UBI_OWNER`, required to create one) and TTL (`UBI_TTL_HOURS`, default 3) are
-visible to everyone; every `up` first reaps VMs whose TTL ended, whichever owner
-made them, and its own owner's VMs with no TTL once they are 4 hours old; every run
+visible to everyone; every `up` first reaps its own owner's VMs whose TTL ended,
+and those with no TTL once they are 4 hours old, never another owner's; every run
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
@@ -1026,7 +1073,7 @@ Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         gstack-ubi verify  (.gstack/ubicloud.json: bootstrap.sh, "bash scripts/verify.sh", standard-16)
         ubi-runner: reap: no expired VMs
         ubi-runner: creating eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3 (standard-16)
-        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (any later run of this script reaps it); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
+        ubi-runner: ubirun-lane7-1761500000-9f3a2c10-t3 carries a 3h TTL (this owner's next up or reap destroys it once it expires); if this process dies first: gstack-ubi down ubirun-lane7-1761500000-9f3a2c10-t3
         ubi-runner: heartbeat: command 300s elapsed, last output 2s ago
         ubi-runner: command exited 0 after 1140s
         ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3
@@ -1115,7 +1162,7 @@ Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs,
         [Top 3 team wins, 3 things to improve, 3 habits for next week]
 ```
 
-It saves a JSON snapshot to `.context/retros/` so the next run can show trends.
+It saves a JSON snapshot under `~/.gstack/projects/<slug>/retros/`, shared by every worktree of the repository, so the next run can show trends from any checkout. An older `.context/retros/` is moved there on the first run.
 
 ---
 
@@ -1531,7 +1578,7 @@ Install Greptile on your GitHub repo at [greptile.com](https://greptile.com) —
 
 The problem with any automated reviewer is triage. Greptile is good, but not every comment is a real issue. Some are false positives. Some flag things you already fixed three commits ago. Without a triage layer, the comments pile up and you start ignoring them — which defeats the purpose.
 
-gstack solves this. `/review` and `/ship` are now Greptile-aware. They read Greptile's comments, classify each one, and take action:
+gstack solves this. `/review` and `/ship` read your review bots' comments (Greptile, CodeRabbit, Macroscope, or any bot you name), classify each one, and take action:
 
 - **Valid issues** get added to the critical findings and fixed before shipping
 - **Already-fixed issues** get an auto-reply acknowledging the catch
@@ -1541,7 +1588,11 @@ The result is a two-layer review: Greptile catches things asynchronously on the 
 
 ### Learning from history
 
-Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. Future runs auto-skip known FP patterns for your codebase. And `/retro` tracks Greptile's batting average over time — so you can see whether the signal-to-noise ratio is improving.
+Every false positive you confirm gets saved to `~/.gstack/review-bot-history.md`, tagged with the bot that made it. Future runs auto-skip that bot's known FP patterns for your codebase. And `/retro` tracks each bot's batting average over time — so you can see whether the signal-to-noise ratio is improving.
+
+### Choosing your bots
+
+The bots are the two lists `gstack-pr-wait` uses: `gstack-config set pr_wait_gating_bots greptile,macroscope` (waited for, then triaged) and `gstack-config set pr_wait_advisory_bots coderabbit,copilot` (triaged, never waited for). Set both to `none` to turn bot triage off. Greptile's early review (`/ship` opening the PR early) runs only while `greptile` is in one of the lists.
 
 ### Example
 

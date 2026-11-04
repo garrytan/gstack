@@ -13,7 +13,7 @@ import { readJsonl } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 
 export type Voice = 'native' | 'outside';
-export interface AttemptState { attempt: string; state: 'dispatched' | 'submitted' | 'execution_unknown' | 'cancelled' | 'superseded' | 'deferred'; prompt: string; result: string; estimate_usd: number; dispatched_at: string; terminal_at?: string }
+export interface AttemptState { attempt: string; state: 'dispatched' | 'submitted' | 'execution_unknown' | 'cancelled' | 'superseded' | 'deferred'; prompt: string; result: string; estimate_usd: number; dispatched_at: string; terminal_at?: string; /** `run` set it before the paid call went out; an open attempt still carrying it was in flight when its process died. */ sent_at?: string }
 export interface VoiceState extends VoiceOutcome {
   attempt?: string; attempts?: AttemptState[]; result_sha256?: string; findings?: number; label?: string; usage?: Record<string, unknown>; detail?: string;
   /** verified: the INPUT receipt matched the snapshot; attested: a --record bound without one, on the parent's word (attest_reason). */
@@ -50,6 +50,8 @@ export interface PhaseState {
   deferred?: DeferredClose;
   /** A confirm round (r > 1): the revision this phase last reviewed. */
   confirm?: { round: number; previous_sha256?: string; added: number; removed: number };
+  /** A lean run's draft code: the diff against the base hashed in snapshot_dir/draft.diff, or why there is none (lib/autoplan-lean.ts). */
+  draft?: import('./autoplan-lean').DraftInput;
   /** Revisions bound to this phase without re-review: every incorporated decision was below High (lib/autoplan-revise.ts). */
   rebound?: Array<{ k: number; from: string; to: string; decisions: string[]; at: string }>;
 }
@@ -58,7 +60,7 @@ export interface DispatchCounts { total: number; by_phase: Record<string, Partia
 export interface RunState extends RunManifest {
   revision: number; out: string; plan_source: string; active_plan: string; restore: string; scope: Scope; phase_order: Phase[];
   phases: Record<string, PhaseState>; native_model?: string; outside_model?: string; outside_enabled: boolean; attempt_counter: number;
-  spend_cap_usd: number | null; deadline_at?: string; light?: boolean; history: Array<Record<string, unknown>>; created_at: string; updated_at: string;
+  spend_cap_usd: number | null; /** `next --estimate-usd`, kept for every later attempt. */ estimate_usd?: number; deadline_at?: string; light?: boolean; history: Array<Record<string, unknown>>; created_at: string; updated_at: string;
   /** The gstack that last wrote this run (lib/autoplan-migrate.ts); absent on runs written before 1.91.96. */
   gstack_version?: string;
   /** The --plan file the owner edits (drift hints, revise), the --plan-heading it was cut from, and the scope flags revise re-detects with. */
@@ -72,6 +74,12 @@ export interface RunState extends RunManifest {
   dispatches?: DispatchCounts; est_input_tokens?: number;
   /** Carry-forward (lib/autoplan-carry.ts): false with --no-carry-forward; the per-gate cap on the delta check; the latest carry decision. */
   carry_forward?: boolean; carry_check_cap_usd?: number; carry?: import('./autoplan-carry').CarryRecord;
+  /** `next --ceo-only` (lib/autoplan-ceo-only.ts): the CEO phase alone, no gate, ends `reviewed`; never set by a scope marker. */
+  ceo_only?: boolean;
+  /** The R65 lean run (lib/autoplan-lean.ts): eng alone, one merged native reviewer, one round, one gate revision; fixed at init. */
+  lean?: import('./autoplan-lean').LeanMode;
+  /** Shadow mode (lib/autoplan-shadow.ts): fixed at init from GSTACK_AUTOPLAN_SHADOW or autoplan_shadow and never re-read; absent reads off. */
+  shadow?: import('./autoplan-shadow').ShadowSwitch;
 }
 
 export const TERMINAL_VOICE_STATUSES = ['completed', 'disabled', 'unavailable', 'failed', 'skipped'] as const;

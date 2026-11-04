@@ -1,0 +1,4 @@
+{
+  "bytes": 96,
+  "why": "GSTA-224 B2 (#3122): Step 10 triages every bot in pr_wait_gating_bots/pr_wait_advisory_bots through gstack-review-bots; records by comment id (subagent JSON carries id and dir, parent requires both); Greptile-only prose trimmed"
+}

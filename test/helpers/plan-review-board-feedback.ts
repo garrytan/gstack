@@ -35,7 +35,8 @@ export const DESIGN_BOARD_ACTOR_PROTOCOL = [
   'If offering that optional step, ask one single-select question with header "Voices",',
   'beginning "Want outside design voices before the detailed review?" and exactly:',
   ...DESIGN_OUTSIDE_VOICE_OPTIONS.map(option => `- ${option.label}: ${option.description}`),
-  'Option order, a letter prefix, and a trailing (recommended) marker may vary.',
+  'Option order, a letter prefix, a trailing (recommended) marker, and',
+  'keeping or dropping every ✅/❌ bullet in a description may vary.',
   'Keep this choice separate from other approvals; no previews or extra actions.',
   'The fixture user chooses No, proceed without. Observe the actual native',
   'answer before continuing when this question is offered.',
@@ -60,7 +61,11 @@ export const DESIGN_BOARD_ACTOR_PROTOCOL = [
 const SUBMIT = `
 import { readStateFile, verifyIdentity, CMDLINE_MARKER } from ${JSON.stringify(path.resolve(import.meta.dir, '../../design/src/daemon-state.ts'))};
 import fs from 'node:fs';
+// Windows Free Tests 40815257995, 41185352916: the parent killed this child at its 2 s budget with no stderr. Each
+// phase is written synchronously, so a kill's stderr ends at the step that stalled (start-up, CIM query, or HTTP).
 const input = JSON.parse(await Bun.stdin.text());
+const phase = (name) => fs.writeSync(2, name + ' with ' + (input.deadlineAt - Date.now()) + ' ms left\\n');
+phase('child started');
 const state = readStateFile(input.stateFile);
 if (!fs.lstatSync(input.stateFile).isFile() || !state
   || !Number.isSafeInteger(state.pid) || state.pid <= 0
@@ -70,7 +75,9 @@ if (!fs.lstatSync(input.stateFile).isFile() || !state
 // Leave time to reap a timed-out native query before the parent kills us.
 const identityBudget = input.deadlineAt - Date.now() - 100;
 if (identityBudget <= 0) throw new Error('Design feedback deadline exhausted');
+phase('identity query');
 if (!verifyIdentity(state.pid, CMDLINE_MARKER, identityBudget)) throw new Error('No matching owned design daemon');
+phase('identity verified');
 const remaining = input.deadlineAt - Date.now();
 if (remaining <= 0) throw new Error('Design feedback deadline exhausted');
 if (input.alreadySubmitted) {
@@ -85,6 +92,7 @@ if (input.alreadySubmitted) {
 }
 const requestBudget = input.deadlineAt - Date.now();
 if (requestBudget <= 0) throw new Error('Design feedback deadline exhausted');
+phase('feedback POST');
 const response = await fetch(input.url + 'api/feedback', {
   method: 'POST', redirect: 'error', signal: AbortSignal.timeout(requestBudget),
   headers: { 'Content-Type': 'application/json' },
@@ -112,7 +120,8 @@ export function createDesignReviewPicker({ cwd, deadlineAt }: { cwd: string; dea
       || labels.includes(DESIGN_OUTSIDE_VOICE_OPTIONS[0].label);
     if (claimsVoices) {
       const voiceActions = question.options.map((option, index) => DESIGN_OUTSIDE_VOICE_OPTIONS.findIndex(expected =>
-        labels[index] === expected.label && option.description === expected.description && option.preview === undefined));
+        labels[index] === expected.label && option.preview === undefined
+        && [expected.description, expected.description.replace(/(^| )[✅❌] /g, '$1')].includes(option.description)));
       if (question.header.trim() !== 'Voices'
         || !/^(?:Want outside design voices before the detailed review|Run outside design voices before the 7 passes)\?(?:\s|$)/i.test(lead)
         || question.multiSelect || voiceActions.length !== 2 || voiceActions.includes(-1)

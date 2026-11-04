@@ -1,0 +1,9 @@
+{"severity":"INFORMATIONAL","path":"wiki/plans/p/hooks.ts.txt","line":97,"summary":"The watch still checks a path and then opens it, so a folder swapped between the two can race the check."}
+{"severity":"INFORMATIONAL","path":"wiki/plans/p/hooks.ts.txt","line":186,"summary":"lost only looks at sessions that have a delta.json, so a stopped session whose log was missed reads log_lost=no."}
+{"severity":"INFORMATIONAL","path":"wiki/plans/p/README.md","line":173,"summary":"The new sentence says a delta.json listing is enough, which does not hold when the agent can write its own state root."}
+
+I found nothing CRITICAL. I checked these and found them sound:
+- **Attachment hashes:** they match the README front matter, and the wiki check passes on this tree.
+- **Missing-list parsing:** the parse at line 187 matches the hook's trace format (stop-hook.ts:134).
+- **State root:** it's a real directory, so the realpath check doesn't refuse real logs.
+- **Dry run:** the planted-link case does catch the old behaviour.

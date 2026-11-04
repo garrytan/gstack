@@ -13,6 +13,7 @@ triggers:
   - merge and deploy
   - land the pr
   - ship to production
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -52,9 +53,9 @@ If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check). `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose `question_id` from `~/.claude/skills/gstack/scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`; for an unregistered id, write the question summary to `.gstack/tmp/qt.txt` (file-write tool) and append `--summary-file .gstack/tmp/qt.txt` (one-way keyword check); its `--signal-keys` prints an optional signal-key hint. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
+**Embed the question_id as a marker in every asked brief**, ad hoc IDs included, with one ID for check, marker and log. Include `<gstack-qid:{question_id}>` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker the hook never auto-decides.
 
 **Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses it first, falls back to "Recommendation: X" prose, and refuses when ambiguous (two labels = refuse).
 
@@ -575,8 +576,8 @@ to check next. No deploy needed: merged, verification skipped for the stated rea
 Staging-only: production remains unverified, not necessarily undeployed. Rollback
 pending: identify who must resolve conflicts, merge the revert PR, or verify its deploy.
 REVERTED: cite rollback evidence; do not claim the original branch survived cleanup.
-Offer `/canary <url>` for extended monitoring, `/benchmark <url>` when performance
-matters, and `/document-release` when docs need updating.
+Offer `/canary <url>` for extended monitoring, `/benchmark <url>` for performance,
+and `/document-release` for docs.
 
 ---
 
@@ -592,8 +593,8 @@ Recheck read-only evidence; never redo a merge/deploy because a section was miss
 ## Important Rules
 
 - Never force-push, bypass CI, replay a confirmed merge, or hide missing evidence.
-- Auto-detect facts; ask when unknown or when an explicit approval gate applies.
+- Auto-detect facts; ask when unknown or an explicit approval gate applies.
 - Step 3 is one `gstack-pr-wait` call; elsewhere poll at the stated interval (30 s for merge readback and deploy) with progress lines.
 - After merge failures, offer approved rollback when appropriate; never revert a rollback automatically.
-- Verify once; `/canary` provides extended monitoring. Rechecks require the user's choice.
+- Verify once; `/canary` does extended monitoring; rechecks need the user's choice.
 - Use `--delete-branch`; reconcile failed cleanup non-destructively with confirmation.

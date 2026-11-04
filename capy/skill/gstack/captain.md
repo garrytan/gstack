@@ -60,7 +60,8 @@ gstack-approvals render                                    # the ## Approvals se
   Drive folder. `gstack-approvals path` prints the chosen mirror and `READ_ALSO:` roots, which reads still
   merge. `GSTACK_APPROVALS_MIRROR=0` turns the mirror off, and `gstack-approvals sync` restores the local copy.
 - **The durable copies** are the `## Approvals` sections in the thread's report and in the PR body. Paste
-  `render` output into them; never type rows by hand.
+  `render` output into them; never type rows by hand. On a public repository (or unknown visibility)
+  `render` prints only `Approved: yes|no (record <id>)`; `gstack-approvals list` shows the full record.
 - **Secret-free.** Every field passes gstack's secret scanner before it is written. A hit refuses the row
   (`APPROVAL_RECORD_SECRET`, which names the field and rule, never the text). Write `[redacted]` in place of
   the secret, or ask the person to restate.
@@ -147,12 +148,16 @@ Every PR you send READY on, and the READY report itself, has:
 3. **Blast radius.** What else the change touches and the one fact that makes that safe, with the
    evidence-ladder rung that fact reached.
 4. **Approvals.** `gstack-approvals render`.
-5. **Evidence.** Checks green at the head, gate or train results, flaky cases.
+5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
+   each claim you did not check yourself and why, or `none`. You write this item; /ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
-/ship does all of this when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
+/ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
-A token cap in a brief goes to /ship as `--token-cap <n>`. When /ship stops on it (`STOP:
+A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
+`ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
+take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
+`--reading-from task`, so it caps at 100M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

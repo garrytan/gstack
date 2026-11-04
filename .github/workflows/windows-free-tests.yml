@@ -1,9 +1,15 @@
 name: Windows Free Tests
 
-# The Windows-safe subset of the free suite on GitHub's free `windows-latest`
-# runners. scripts/test-free-shards.ts --windows-only is the single source of
-# truth for which files run: POSIX-bound tests (bin/ shebang spawns, raw /tmp
-# paths, /bin/sh, mode bitmasks, the Bun-driven browse server) are excluded by
+# Nightly, not a PR gate. Windows has minimal support (docs/support-tiers.md):
+# the required Windows check is windows-smoke.yml (./setup plus the core
+# skills). This workflow runs the curated Windows-safe subset of the free suite
+# on main every night and on workflow_dispatch, and never blocks a pull
+# request. A red nightly run gets a fix only when it shows an install, startup
+# or core-workflow break; other Windows-only failures close as won't fix.
+#
+# scripts/test-free-shards.ts --windows-only is the single source of truth for
+# which files run: POSIX-bound tests (bin/ shebang spawns, raw /tmp paths,
+# /bin/sh, mode bitmasks, the Bun-driven browse server) are excluded by
 # pattern there, with explicit force-include and known-incompatible lists.
 # Every run prints the curated count and top exclusion reasons in the job
 # summary so a shrinking subset is visible.
@@ -19,27 +25,38 @@ name: Windows Free Tests
 #
 # Native browser qualification campaigns (Windows cookie extraction, launch
 # diagnostics) are dispatch-only in native-qualification.yml.
+#
+# One full suite per tree (GSTA-156, docs/pregate.md#ci-reuse), as in
+# free-tests.yml: the aggregate uploads `tested-tree` only after strict
+# verification passes, and a push to main whose merged pull request already
+# ran this workflow green on the same tree reuses that run. Pull request,
+# dispatch and duration-recording runs never consume.
 
 on:
-  pull_request:
-    branches: [main]
-  # Also on main pushes, as free-tests.yml does: trains dispatch only the
-  # Linux free workflow, so without this no Windows run ever sees a train's
-  # combined tree or main after a merge.
-  push:
-    branches: [main]
+  # 09:17 UTC, about 2 AM Pacific, on the default branch (main).
+  schedule:
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       record_durations:
         description: Record per-file Windows durations (artifact) instead of running the lane
         type: boolean
         default: false
+      windows_jobs:
+        description: 'Sub-shard experiments only: sub-shards per Windows shard (--shard-jobs), 1-4 (empty keeps WINDOWS_FREE_JOBS). Never cite such a run as a PR result.'
+        type: string
+        default: ''
   # free-durations-record.yml calls the recording path weekly.
   workflow_call:
     inputs:
       record_durations:
         type: boolean
         default: false
+
+# k in `--ci-plan --shard-jobs k`: each Windows shard runs min(k, its parallel
+# files) sandboxed sub-shards side by side (scripts/lib/shard-jobs.ts).
+env:
+  WINDOWS_FREE_JOBS: '1'
 
 concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
@@ -50,8 +67,36 @@ permissions:
   contents: read
 
 jobs:
+  # Main pushes only, and the one job with actions: read; see free-tests.yml.
+  # A skipped or failed reuse job runs every job below as before.
+  reuse:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reused: ${{ steps.find.outputs.reused }}
+      run_id: ${{ steps.find.outputs.run_id }}
+      run_url: ${{ steps.find.outputs.run_url }}
+      tree: ${{ steps.find.outputs.tree }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - id: find
+        name: Find a green pull request or dispatch run of this exact tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run scripts/ci-tree-reuse.ts find --workflow windows-free-tests.yml --profile ci-reuse/windows-free-tests
+
   windows-plan:
-    if: ${{ !inputs.record_durations }}
+    needs: reuse
+    if: ${{ !cancelled() && !inputs.record_durations && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -69,8 +114,18 @@ jobs:
         # 4-vCPU Windows runner, so the lane lands near 4 min with setup.
         env:
           GSTACK_FREE_TEST_DURATIONS: scripts/free-test-durations-windows.json
+          JOBS_OVERRIDE: ${{ inputs.windows_jobs }}
         run: |
-          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6)
+          set -euo pipefail
+          jobs="${JOBS_OVERRIDE:-$WINDOWS_FREE_JOBS}"
+          case "$jobs" in
+            ''|*[!0-9]*) echo "::error::windows_jobs '$jobs' is not a whole number"; exit 1 ;;
+          esac
+          if [ "$jobs" -lt 1 ] || [ "$jobs" -gt 4 ]; then echo "::error::windows_jobs $jobs is outside 1-4"; exit 1; fi
+          if [ "$jobs" != "$WINDOWS_FREE_JOBS" ]; then
+            echo "- Sub-shard experiment: $jobs sub-shards per Windows shard (default $WINDOWS_FREE_JOBS); not a PR Windows Free Tests result" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6 --shard-jobs "$jobs")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -79,7 +134,10 @@ jobs:
           if-no-files-found: error
 
   windows-free-shard:
-    needs: windows-plan
+    # gstack-pregate reads a job keyed on a dispatch input as manual, never a
+    # PR obligation; this lane runs only nightly or by hand.
+    needs: [windows-plan, reuse]
+    if: ${{ !cancelled() && !inputs.record_durations && needs.windows-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: windows-latest
     timeout-minutes: 15
     strategy:
@@ -104,14 +162,8 @@ jobs:
           name: windows-plan
           path: ${{ runner.temp }}
 
-      # bun's install cache lives under ~/.bun/install/cache on every platform.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.bun/install/cache
-          key: windows-bun-${{ hashFiles('bun.lock') }}
-          # A lockfile bump starts from the previous cache instead of cold.
-          restore-keys: |
-            windows-bun-
+      # No bun install cache: restoring the ~450 MB entry took 33-42 s per
+      # shard, a cold install 16-17 s (GSTA-203 PR 1 A/B, 3 runs per arm).
 
       - name: Configure git identity (required by tests that init temp repos)
         run: |
@@ -184,11 +236,33 @@ jobs:
 
   windows-free-tests:
     if: ${{ always() && !inputs.record_durations }}
-    needs: [windows-plan, windows-free-shard]
+    needs: [reuse, windows-plan, windows-free-shard]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Take the reuse path only for a verified main-push reuse
+        id: route
+        env:
+          REUSE_RESULT: ${{ needs.reuse.result }}
+          REUSED: ${{ needs.reuse.outputs.reused }}
+          REUSE_RUN_ID: ${{ needs.reuse.outputs.run_id }}
+          REUSE_RUN_URL: ${{ needs.reuse.outputs.run_url }}
+          REUSE_TREE: ${{ needs.reuse.outputs.tree }}
+        run: |
+          set -eu
+          if [ "$REUSE_RESULT" != success ] || [ "$REUSED" != true ]; then
+            echo 'reused=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/main
+          case "$REUSE_RUN_ID" in ''|*[!0-9]*) echo "::error::the reuse job named no run id"; exit 1 ;; esac
+          case "$REUSE_TREE" in ''|*[!0-9a-f]*) echo "::error::the reuse job named no tree"; exit 1 ;; esac
+          test "$REUSE_RUN_URL" = "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID"
+          echo "Reused $REUSE_RUN_URL, which passed on tree $REUSE_TREE; this push ran no suite of its own." >> "$GITHUB_STEP_SUMMARY"
+          echo 'reused=true' >> "$GITHUB_OUTPUT"
       - name: Require the plan and every Windows shard
+        if: steps.route.outputs.reused != 'true'
         env:
           PLAN_RESULT: ${{ needs.windows-plan.result }}
           SHARD_RESULT: ${{ needs.windows-free-shard.result }}
@@ -197,22 +271,40 @@ jobs:
           test "$PLAN_RESULT" = success
           test "$SHARD_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.route.outputs.reused != 'true'
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.route.outputs.reused != 'true'
         with:
           bun-version: 1.4.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.route.outputs.reused != 'true'
         with:
           name: windows-plan
           path: ${{ runner.temp }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: steps.route.outputs.reused != 'true'
         with:
           pattern: windows-result-*
           merge-multiple: true
           path: ${{ runner.temp }}/windows-results
       - name: Require exact coverage and complete strict results
+        if: steps.route.outputs.reused != 'true'
         run: bun run scripts/test-free-shards.ts --windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results "$RUNNER_TEMP/windows-results"
+      # Only after strict verification passed; the reuse path never reaches here.
+      - name: Record the tested tree
+        if: steps.route.outputs.reused != 'true'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun run scripts/ci-tree-reuse.ts record --plan "$RUNNER_TEMP/windows-plan.json" --results "$RUNNER_TEMP/windows-results" --os Windows --out "$RUNNER_TEMP/tested-tree/tree.json"
+      - name: Upload the tested tree
+        if: steps.route.outputs.reused != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tested-tree
+          path: ${{ runner.temp }}/tested-tree/tree.json
+          if-no-files-found: error
 
   windows-record-durations:
     if: ${{ inputs.record_durations }}

@@ -4,9 +4,11 @@
  * moved into the bin; each STOP is a place the prose leaves the decision to the agent.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { lineOf, PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { laneConcurrency } from '../lib/ship-bin-common';
+import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
 const fixtures: ShipFx[] = [];
@@ -56,6 +58,50 @@ describe('gstack-ship-preflight', () => {
     expect(r.status).toBe(0);
   });
 
+  // Value: protects=a failed lookup of the remote's HEAD stops with "restore access first" instead of guessing the default branch from a local origin/HEAD;
+  //   fails_when=a failed ls-remote falls back to the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature
+  //   branch a Capy checkout's origin/HEAD names is refused as the base branch; why_new=GST-511 follow-up from #3718; seam=a git wrapper on PATH that fails
+  //   ls-remote only; no_claim=which access failure it was
+  test('a failed remote HEAD lookup stops before merging, even when the fetch works', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "ls-remote: unreachable" >&2; exit 128; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    for (const r of [onDefault, onFeature]) {
+      expect(r.status).toBe(3);
+      expect(r.stdout).toContain('STOP: git ls-remote origin HEAD failed: ls-remote: unreachable; restore access first');
+      expect(r.stdout).not.toContain('MERGE:');
+    }
+  });
+
+  // Value: protects=a remote whose HEAD names no branch (detached, or a server that sends no symref) falls back to the default-base ladder, not the local origin/HEAD;
+  //   fails_when=the fallback reads the local ref, so the default branch with no local origin/HEAD merges another base and goes on, and a feature branch a
+  //   Capy checkout's origin/HEAD names is refused as the base branch; why_new=pass-1 review of the ls-remote stop; seam=a git wrapper whose ls-remote prints
+  //   only a sha; no_claim=a repository whose default is neither main nor master
+  test('with no symbolic remote HEAD, the default branch still stops and a feature branch named by a local origin/HEAD goes on', () => {
+    const f = fx();
+    fs.writeFileSync(path.join(f.root, 'stub', 'git'), `#!/bin/sh\n[ "$1" = ls-remote ] && { echo "0000000000000000000000000000000000000000\tHEAD"; exit 0; }\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+    f.git('push', '-q', 'origin', 'main:release');
+    f.git('checkout', '-q', 'main');
+    f.git('remote', 'set-head', 'origin', '-d');
+    const onDefault = f.run(PREFLIGHT, ['--base', 'release']);
+    expect(onDefault.status).toBe(3);
+    expect(onDefault.stdout).toContain('STOP: on the base branch (main)');
+    expect(onDefault.stdout).not.toContain('MERGE:');
+    f.git('checkout', '-q', 'feat');
+    f.git('update-ref', 'refs/remotes/origin/feat', 'HEAD');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat');
+    const onFeature = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(onFeature.stdout).not.toContain('STOP: on the base branch');
+    expect(onFeature.status).toBe(0);
+  });
+
   // Value: protects=Step 3 merges the base and a conflict stops with the files named, leaving the merge for the agent to resolve; fails_when=the bin resolves a conflict itself, aborts the merge, or continues to tests;
   //   why_new=moved from the Step 3 prose; seam=git merge; no_claim=which side is right
   test('a merged base is reported; a conflict stops with the conflicted files and the merge left in place', () => {
@@ -85,6 +131,52 @@ describe('gstack-ship-preflight', () => {
     expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
   });
 
+  // Value: protects=Step 1 refreshes origin/<base> itself, so a clone whose fetch refspec leaves out the base (a single-branch
+  //   clone) still diffs against the current base tip (GST-462, HARN-15); fails_when=preflight runs `git fetch origin <base>`,
+  //   which then updates only FETCH_HEAD; seam=remote.origin.fetch; no_claim=remotes other than origin
+  test('a single-branch clone: the fetch refreshes origin/<base>, so DIFF is the branch alone', () => {
+    const f = fx({ '.gstack/ship-policy.json': '{"queue_mode":"stamp-at-merge"}\n' });
+    f.git('config', 'remote.origin.fetch', '+refs/heads/feat:refs/remotes/origin/feat');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    f.git('fetch', '-q', f.origin, 'main');
+    f.git('merge', '-q', '--no-edit', 'FETCH_HEAD');
+    const stale = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(0);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).not.toBe(stale);
+    expect(lineOf(r.stdout, 'DIFF')).toMatch(/^DIFF: 1 file changed, 1 insertion\(\+\); commits=2$/);
+  });
+
+  // Value: protects=a diff far larger than the PR's own (a stale or wrong base: HARN-15 reviewed 17,000 files of main's history)
+  //   stops before any reader runs, naming the PR's base; fails_when=preflight never compares the diff with the PR's changed
+  //   files; seam=gh pr view (changedFiles, headRefOid, baseRefName); no_claim=GitHub's own count
+  test('a diff far beyond or short of the PR\'s changed files stops at the pushed head; another head or a matching size goes on', () => {
+    const files = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`src/f${i}.ts`, `export const f${i} = ${i};\n`]));
+    const f = fx({}, files);
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const stub = (changed: number, prHead: string, prBase = 'release') => f.gh(`case "$*" in *"pr list"*) echo 7 ;; *changedFiles*) echo "${changed} ${prHead} ${prBase}" ;; esac`);
+    stub(3, head);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 3 (its base is release): origin/main is not the PR\'s base; rerun with --base release after git fetch origin +refs/heads/release:refs/remotes/origin/release');
+    stub(3, head, 'main');
+    const fork = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fork.stdout).toContain('(its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    expect(fork.stdout).not.toContain('rerun with --base');
+    stub(3, head, 'x;rm');
+    expect(f.run(PREFLIGHT, ['--base', 'main']).stdout).toContain("rerun with --base 'x;rm' after git fetch origin +refs/heads/'x;rm':refs/remotes/origin/'x;rm'");
+    stub(61, head, 'main');
+    const fewer = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(fewer.status).toBe(3);
+    expect(fewer.stdout).toContain('STOP: the diff against origin/main lists 60 files but PR #7 changes 61 (its base is main): origin is not the PR\'s base repository (a fork) or its main has moved');
+    for (const [changed, prHead] of [[3, 'f'.repeat(40)], [61, 'f'.repeat(40)], [60, head], [0, head]] as const) {
+      stub(changed, prHead);
+      const go = f.run(PREFLIGHT, ['--base', 'main']);
+      expect(go.stdout).not.toContain('lists 60 files');
+      expect(lineOf(go.stdout, 'PR')).toBe('PR: #7');
+    }
+  });
+
   // Value: protects=Step 1's scope check reads the fetched origin/<base>, so a clone without a local base branch still sees frontend files; fails_when=the preflight reports frontend=false because gstack-diff-scope could not resolve a local <base>;
   //   why_new=GSTA-167 dogfood on #3633: a Capy checkout has no local main and SCOPE printed false; seam=gstack-diff-scope; no_claim=design review itself
   test('no local base branch: SCOPE still reads the fetched base', () => {
@@ -105,6 +197,47 @@ describe('gstack-ship-preflight', () => {
     const zero = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', 'tests=printf " 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [5.00ms]\\n"']);
     expect(zero.status).toBe(3);
     expect(lineOf(zero.stdout, 'LANE')).toMatch(/^LANE: tests ZERO-RUN exit=0 tests_ran=0/);
+  });
+
+  // Value: protects=Step 5 can run its lanes one at a time, and each lane keeps its own tests_ran (GST-851: GSTA-2 saw six lanes start within
+  //   60 ms on a 4-core machine on gstack-evals#115); fails_when=--lanes serial lanes overlap, a lane loses its count, or a bad --lanes value runs;
+  //   why_new=runLanes started every lane at once with no serial mode; seam=runLanes; no_claim=how long a lane takes
+  test('--lanes serial runs one lane at a time and keeps each lane\'s count; a bad --lanes value is usage', () => {
+    const f = fx();
+    const log = path.join(f.root, 'lane-order.log');
+    const lane = (n: string) => `${n}=echo start ${n} >> '${log}'; sleep 1; echo end ${n} >> '${log}'; printf " 2 pass\\n 0 fail\\nRan 2 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'serial', '--lane', lane('a'), '--lane', lane('b')]);
+    expect(r.status).toBe(0);
+    const order = fs.readFileSync(log, 'utf8').trim().split('\n');
+    expect(order.length).toBe(4);
+    expect(order.map(l => l.split(' ')[0])).toEqual(['start', 'end', 'start', 'end']);
+    expect(order[1]!.split(' ')[1]).toBe(order[0]!.split(' ')[1]);
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.replace(/ log=\S+$/, ''))).toEqual(['LANE: a pass exit=0 tests_ran=2', 'LANE: b pass exit=0 tests_ran=2']);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: serial (--lanes)');
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'fast', '--lane', LANE]).status).toBe(2);
+    expect(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE, '--lanes']).status).toBe(2);
+  });
+
+  // Value: protects=parallel lanes report in the order given even when a later lane finishes first, and an unflagged run names the core count
+  //   behind its default (GST-851); fails_when=results come back in finish order or the LANES line drops its reason; why_new=runLanes became a
+  //   worker pool; seam=runLanes, LANES line; no_claim=which default any given machine picks
+  test('--lanes parallel keeps lane order when a later lane finishes first; unflagged LANES names the core count', () => {
+    const f = fx();
+    const lane = (n: string, wait: number) => `${n}=sleep ${wait}; printf " 1 pass\\n 0 fail\\nRan 1 tests across 1 file. [5.00ms]\\n"`;
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lanes', 'parallel', '--lane', lane('slow', 1), '--lane', lane('fast', 0)]);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'LANES')).toBe('LANES: parallel (--lanes)');
+    expect(r.stdout.split('\n').filter(l => l.startsWith('LANE: ')).map(l => l.split(' ')[1])).toEqual(['slow', 'fast']);
+    expect(lineOf(f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE]).stdout, 'LANES')).toMatch(/^LANES: (serial|parallel) \(\d+ cores\)$/);
+  });
+
+  // Value: protects=a small machine runs lanes one at a time without a flag, a large one keeps running them together, and the flag overrides
+  //   either way (GST-851); fails_when=a 4-core default runs lanes at once or the flag is ignored; why_new=no default existed; seam=laneConcurrency;
+  //   no_claim=the core count of any CI runner
+  test('lane concurrency: serial on 4 cores or fewer, parallel above, --lanes overrides', () => {
+    expect([laneConcurrency(undefined, 2), laneConcurrency(undefined, 4), laneConcurrency(undefined, 8)]).toEqual([1, 1, Infinity]);
+    expect([laneConcurrency('serial', 64), laneConcurrency('parallel', 2)]).toEqual([1, Infinity]);
+    expect(laneConcurrency('fast', 8)).toBe('--lanes fast is not serial or parallel');
   });
 
   // Value: protects=Step 2's candidates and Step 1.4's carry check are reported for the agent to judge, and an open PR's carry verdict is printed; fails_when=a new bin/ artifact goes unmentioned or the carry check is skipped when a PR is open;
@@ -247,5 +380,164 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
     expect(r.status).toBe(3);
     expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: (tests |all )?incomplete/);
     expect(lineOf(r.stdout, 'PREGATE_DETAIL')).toContain('timed out after 2000 ms (timeout_s from origin/main');
+  });
+
+  // Value: protects=--timeout on preflight reaches Step 5's pregate, so a repo with no timeout_s can run lanes past 600 s without a standalone pregate; fails_when=preflight drops the flag and pregate runs at timeout_s or the 600 s default;
+  //   why_new=GST-1196 (GEVA-2, gstack-evals#176/#179): a 128-file group stopped at 600 s; seam=gstack-pregate --timeout; no_claim=the finish fallback
+  test('--timeout reaches Step 5 pregate over the policy and default, and a bad value is usage', () => {
+    const slow = "const test = require('node:test');\ntest('slow', async () => { await new Promise(r => setTimeout(r, 4000)); });\n";
+    const f = fx(base({ timeout_s: 600 }), { 'test/slow.serial.test.js': slow });
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', '2', '--lane', LANE]);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: (tests |all )?incomplete/);
+    expect(lineOf(r.stdout, 'PREGATE_DETAIL')).toContain('timed out after 2000 ms (--timeout applies');
+    for (const bad of ['0', '3601', '1.5', 'x']) {
+      const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', bad, '--lane', LANE]);
+      expect(u.status).toBe(2);
+      expect(u.stdout + u.stderr).toContain('--timeout needs whole seconds from 1 to 3600');
+    }
+  });
+});
+
+describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {
+  const CHECKOUT = { GSTACK_LEASE_DIR: '' };
+  const leaseFile = (f: ShipFx) => path.join(f.work, '.git', 'gstack-leases', String(process.pid));
+  const wtree = (f: ShipFx) => f.run(path.join(path.dirname(RELEASE), 'gstack-wtree'), [], CHECKOUT).stdout.trim();
+  /** Steps 12-16 in the fixture: the version bump, the docs snapshot and finish (the step that ends the run's hold on the base merge). */
+  const finish = (f: ShipFx) => {
+    const reviewed = wtree(f);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro'], CHECKOUT).status).toBe(0);
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(path.dirname(RELEASE), 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md'], CHECKOUT).status).toBe(0);
+    const done = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE], CHECKOUT);
+    expect(done.status, done.stdout).toBe(0);
+  };
+  const refusedUntouched = (f: ShipFx, args: string[], run: string, added = 'docs/new.md') => {
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const tracked = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, args, CHECKOUT);
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain(`STOP: /ship run ${run} is open on this checkout and past its preflight (`);
+    expect(r.stdout).toContain('rerun Step 5 with --tests-only');
+    expect(r.stdout).toMatch(/if it is no longer running, rm \S+gstack-ship-run, then rerun/);
+    expect(r.stdout).not.toContain('MERGE:');
+    expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(tracked);
+    expect(f.git('status', '--porcelain').stdout).toBe('');
+    expect(fs.existsSync(path.join(f.work, added))).toBe(false);
+  };
+
+  // Value: protects=a full preflight run again while this checkout's /ship run is open and past its own preflight stops before the fetch, so review readers never diff a tree the base merge moved;
+  //   fails_when=the rerun fetches or merges origin/<base> into the tree readers are diffing (gbrain-evals#317 voided a review pass), with or without --run; why_new=GST-1204;
+  //   seam=the run marker and gstack-lease open on the checkout's own lease; no_claim=a preflight that never passed --run
+  test('a full preflight while this checkout\'s /ship run is open and past its preflight refuses before the fetch and leaves the tree untouched', () => {
+    const f = fx();
+    const run = `${process.pid}-${Math.floor(Date.now() / 1000)}-ab12cd34`;
+    expect(f.run(PREFLIGHT, ['--base', 'main', '--run', run], CHECKOUT).status).toBe(0);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    refusedUntouched(f, ['--base', 'main', '--run', run], run);
+    refusedUntouched(f, ['--base', 'main'], run);
+  });
+
+  // Value: protects=the Capy driver's sequence (ship/DRIVER.md Phase 2: preflight with --run and lanes, then --audit; repairs rerun --tests-only) is covered, and a mid-run full preflight is refused;
+  //   fails_when=the guard needs a workflow lease the driver never takes (GBEV-3 was a Capy lane), or it blocks --audit or --tests-only; why_new=GST-1204 driver coverage;
+  //   seam=the checkout lease gstack-ship-preflight opens itself; no_claim=reader dispatch
+  test('the driver\'s sequence: Phase 2 preflight with --run, --audit and --tests-only go on; a mid-run full preflight is refused', () => {
+    const f = fx();
+    const phase2 = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7', '--lane', LANE], CHECKOUT);
+    expect(phase2.status).toBe(0);
+    expect(lineOf(phase2.stdout, 'LANE')).toMatch(/^LANE: tests pass/);
+    expect(f.run(PREFLIGHT, ['--audit', '--base', 'main', '--out', path.join(f.root, 'run')], CHECKOUT).status).toBe(0);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    refusedUntouched(f, ['--base', 'main', '--lane', LANE], 'ship-run-7');
+    refusedUntouched(f, ['--base', 'main', '--run', 'ship-run-7', '--lane', LANE], 'ship-run-7');
+    const repair = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', LANE], CHECKOUT);
+    expect(repair.status).toBe(0);
+    expect(lineOf(repair.stdout, 'LANE')).toMatch(/^LANE: tests pass exit=0 tests_ran=3/);
+  });
+
+  // Value: protects=finish ends the run's hold, and a run past the 120-minute window (GST-1205's fresh rule) no longer blocks the next preflight;
+  //   fails_when=a marker left by an earlier /ship refuses every later preflight on the checkout; why_new=GST-1204 negative control; seam=finish clears the marker, gstack-lease fresh; no_claim=dead or reused holders, covered in test/gstack-lease.test.ts
+  test('a finished or aged-out /ship run does not block a full preflight', () => {
+    const ends: Record<string, (f: ShipFx) => void> = {
+      finished: finish,
+      'aged out': f => fs.writeFileSync(leaseFile(f), fs.readFileSync(leaseFile(f), 'utf8').replace(/^(run \S+ )(\d+)$/m, (_, p, t) => `${p}${Number(t) - 7300}`)),
+    };
+    for (const [why, end] of Object.entries(ends)) {
+      const f = fx();
+      expect(f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT).status).toBe(0);
+      end(f);
+      f.advanceBase({ 'docs/new.md': '# new\n' });
+      const r = f.run(PREFLIGHT, ['--base', 'main'], CHECKOUT);
+      expect({ why, status: r.status }).toEqual({ why, status: 0 });
+      expect(lineOf(r.stdout, 'MERGE')).toMatch(/^MERGE: merged origin\/main at /);
+    }
+  });
+
+  // Value: protects=a /ship that stopped before finish does not block the next /ship from the same harness: gstack-skill-end's real release closes only the install lease, so the
+  //   new run id replaces the open one; another live holder's open run (another session) is still refused; fails_when=a stopped run blocks its own harness for 120 minutes
+  //   (#3950 review), or any new id passes another session's open run; why_new=GST-1204 review fix 1; seam=gstack-lease open --from (the caller's harness); no_claim=Capy, where every session shares capy-server
+  test('a stopped /ship (skill-end released it) does not block a new run id from the same holder; another live holder\'s run is still refused', () => {
+    const f = fx();
+    const stopped = `${process.pid}-${Math.floor(Date.now() / 1000)}-ab12cd34`;
+    expect(f.run(PREFLIGHT, ['--base', 'main', '--run', stopped], CHECKOUT).status).toBe(0);
+    const end = f.run(path.join(path.dirname(PREFLIGHT), 'gstack-skill-end'), ['--skill', 'ship', '--outcome', 'error', '--session-id', stopped, '--tel-start', '0'], { GSTACK_LEASE_DIR: path.join(f.root, 'install-leases') });
+    expect(end.status, end.stdout + end.stderr).toBe(0);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    refusedUntouched(f, ['--base', 'main', '--run', stopped], stopped);
+    const next = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-8'], CHECKOUT);
+    expect(next.status, next.stdout).toBe(0);
+    expect(lineOf(next.stdout, 'MERGE')).toMatch(/^MERGE: merged origin\/main at /);
+    const other = spawn('sleep', ['300'], { stdio: 'ignore' });
+    try {
+      const touch = spawnSync('bash', [path.join(path.dirname(PREFLIGHT), 'gstack-lease'), 'touch', '--root', f.work, '--pid', String(other.pid), '--run', 'other-session'], { encoding: 'utf8', env: { ...process.env, ...CHECKOUT }, timeout: 30_000 });
+      expect(touch.status).toBe(0);
+      fs.writeFileSync(path.join(f.work, '.git', 'gstack-ship-run'), 'other-session\n');
+      f.advanceBase({ 'docs/other.md': '# other\n' });
+      refusedUntouched(f, ['--base', 'main', '--run', 'ship-run-9'], 'other-session', 'docs/other.md');
+    } finally { other.kill('SIGKILL'); }
+  });
+
+  // Value: protects=a --run that cannot be recorded on the lease (a live process holds its lock) stops before the fetch instead of going on unprotected; fails_when=preflight exits 0
+  //   with no record, so a later full preflight merges the base under the run's reviews (#3950 outside voice); why_new=GST-1204 review fix 2; seam=gstack-lease touch exit 3; no_claim=which process holds the lock
+  test('a --run the lease cannot record stops before the fetch', () => {
+    const f = fx();
+    const lock = path.join(f.work, '.git', 'gstack-leases', '.lock');
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, 'owner'), `${process.pid} \n`);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    const tracked = f.git('rev-parse', 'origin/main').stdout.trim();
+    const r = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], { ...CHECKOUT, GSTACK_LEASE_LOCK_TRIES: '2' });
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('STOP: cannot record /ship run ship-run-7 on this checkout\'s lease (gstack-lease: the lease directory is locked by live process');
+    expect(r.stdout).not.toContain('MERGE:');
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(tracked);
+    expect(fs.existsSync(path.join(f.work, '.git', 'gstack-ship-run'))).toBe(false);
+  });
+
+  // Value: protects=/ship's own first preflight runs, and a first preflight that stopped (Step 3's conflict: commit and rerun) reruns in the same /ship run;
+  //   fails_when=the run is recorded before Steps 1-3 pass, so /ship blocks itself; why_new=GST-1204 negative control; seam=the marker is written only once Steps 1-3 pass; no_claim=conflict resolution
+  test('/ship\'s own first preflight runs, and a stopped first preflight reruns in the same run', () => {
+    const f = fx({}, { 'src/a.ts': 'export const a = 2;\n' });
+    f.advanceBase({ 'src/a.ts': 'export const a = 3;\n' });
+    const first = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT);
+    expect(first.status).toBe(3);
+    expect(first.stdout).toContain('STOP: merge conflicts in src/a.ts');
+    f.write({ 'src/a.ts': 'export const a = 4;\n' });
+    f.commit('merge main');
+    const again = f.run(PREFLIGHT, ['--base', 'main', '--run', 'ship-run-7'], CHECKOUT);
+    expect(again.status).toBe(0);
+    expect(lineOf(again.stdout, 'MERGE')).toBe('MERGE: up to date');
+  });
+
+  // Value: protects=--run takes only a plain token, so a crafted value cannot become a path or split a lease entry; fails_when=any string is recorded and looked up;
+  //   why_new=GST-1204; seam=flag parsing; no_claim=none
+  test('--run that is not a plain run id is usage', () => {
+    const f = fx();
+    for (const bad of [['--run', '../x'], ['--run', 'a b'], ['--run', '-x'], ['--run']]) {
+      const r = f.run(PREFLIGHT, ['--base', 'main', ...bad]);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain('--run needs a run id');
+    }
   });
 });

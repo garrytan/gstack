@@ -6,12 +6,12 @@
  * check run or a red one keeps a commit out; a cut that stopped half-way is
  * finished by the next run (docs/releases.md).
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
+import { gitFixtureTemplate, rebindGitDir } from './helpers/git-fixture-template';
 import {
   BACKSTOP_CHECK, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git,
@@ -55,19 +55,10 @@ function fakeGh(state: State): Gh {
   };
 }
 
-function fixture() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-release-cut-'));
-  bases.push(base);
-  const origin = path.join(base, 'origin.git');
-  const seed = path.join(base, 'seed');
-  const work = path.join(base, 'work');
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
-  fs.mkdirSync(seed);
-  git(seed, 'init', '-q', '-b', 'main');
-  git(seed, 'remote', 'add', 'origin', origin);
-  const shas: Record<string, string> = {};
-  let changelog = '# Changelog\n';
-  const release = (version: string, headline: string, o: { message?: string; files?: Record<string, string> } = {}) => {
+/** Commits a release (VERSION, a CHANGELOG headline, optional files) in seed and pushes it to origin. */
+function releaser(seed: string, shas: Record<string, string>) {
+  let changelog = fs.existsSync(path.join(seed, 'CHANGELOG.md')) ? fs.readFileSync(path.join(seed, 'CHANGELOG.md'), 'utf8') : '# Changelog\n';
+  return (version: string, headline: string, o: { message?: string; files?: Record<string, string> } = {}) => {
     changelog = changelog.replace('# Changelog\n', '# Changelog\n\n## [' + version + '] - 2026-10-2' + version.slice(-1) + '\n\n**' + headline + '**\n\n### Fixed\n- a thing\n');
     fs.writeFileSync(path.join(seed, 'VERSION'), version + '\n');
     fs.writeFileSync(path.join(seed, 'CHANGELOG.md'), changelog);
@@ -78,11 +69,39 @@ function fixture() {
     shas[version] = git(seed, 'rev-parse', 'HEAD');
     return shas[version]!;
   };
-  release('1.0.0', 'First one.');
-  release('1.0.1', 'Second: the updater no longer skips.');
-  release('1.0.2', 'Third fixes Windows.');
-  release('1.0.3', 'Fourth trims the preamble.');
-  execFileSync('git', ['clone', '-q', origin, work], { timeout: 30_000 });
+}
+
+/** origin with releases 1.0.0..1.0.3 pushed from seed, and work cloned from it; built once for this file, copied per test. */
+const template = gitFixtureTemplate({
+  prefix: 'gstack-release-cut-',
+  build: (base) => {
+    const origin = path.join(base, 'origin.git');
+    const seed = path.join(base, 'seed');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    fs.mkdirSync(seed);
+    git(seed, 'init', '-q', '-b', 'main');
+    git(seed, 'remote', 'add', 'origin', origin);
+    const shas: Record<string, string> = {};
+    const release = releaser(seed, shas);
+    release('1.0.0', 'First one.');
+    release('1.0.1', 'Second: the updater no longer skips.');
+    release('1.0.2', 'Third fixes Windows.');
+    release('1.0.3', 'Fourth trims the preamble.');
+    execFileSync('git', ['clone', '-q', origin, path.join(base, 'work')], { timeout: 30_000 });
+    return shas;
+  },
+  rebind: (copy, tpl) => { for (const repo of ['seed', 'work']) rebindGitDir(path.join(copy, repo, '.git'), tpl, copy); },
+});
+afterAll(() => template.dispose());
+
+function fixture() {
+  const { root: base, meta } = template.copy();
+  bases.push(base);
+  const origin = path.join(base, 'origin.git');
+  const seed = path.join(base, 'seed');
+  const work = path.join(base, 'work');
+  const shas: Record<string, string> = { ...meta };
+  const release = releaser(seed, shas);
   const refresh = () => { git(work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'); git(work, 'fetch', '-q', '--tags', 'origin'); };
   const state: State = { checks: {}, released: new Set(), calls: [] };
   return { base, origin, seed, work, shas, release, refresh, state, gh: fakeGh(state), git: gitIn(work), repo: 'o/r' };
@@ -227,6 +246,50 @@ describe('release-cut: planning', () => {
     const thawed = planRelease({ repo: f.repo, ref: f.shas['1.0.2'], git: f.git, gh: f.gh });
     expect(thawed.ok, JSON.stringify(thawed)).toBe(true);
     if (thawed.ok) expect(thawed.plan.via).toBe('train ok1');
+  });
+});
+
+describe('release-cut: the release gate holds and gates (lib/release-gate.ts records)', () => {
+  const release = (sha: string, verdict: string, run: number) => ({ schema: 1, kind: 'release', repo_key: 'k', sha, verdict, run: { id: run, url: 'u' }, red_cases: verdict === 'RED' ? ['case-a'] : [], created_at: 'x', updated_at: 'x' });
+  const note = (f: ReturnType<typeof fixture>, record: unknown, on: string) => {
+    git(f.seed, 'notes', '--ref=' + NOTES_REF, 'add', '-f', '-m', JSON.stringify(record), on);
+    git(f.seed, 'push', '-q', '-f', 'origin', NOTES_REF);
+  };
+
+  // Value: protects=a red release record is the freeze: every cut is refused while no green gate sits on a later commit that contains the red one,
+  // even when every check run is green, and an incomplete gate or a green gate on an older commit does not lift it; fails_when=release-cut releases a
+  // commit while the newest release gate is red, a green record anywhere clears the hold, or an INCOMPLETE gate clears it; why_new=the freeze tests know
+  // only the train freeze record; seam=none; no_claim=real refs/notes/gstack-trains content (fixture records shaped like ReleaseRecord)
+  test('a red release record refuses the cut; only a green gate on a later commit lifts it', () => {
+    const f = fixture();
+    note(f, release(f.shas['1.0.2']!, 'RED', 41), f.shas['1.0.2']!);
+    note(f, release(f.shas['1.0.1']!, 'GREEN', 40), f.shas['1.0.1']!);
+    const held = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(held.ok).toBe(false);
+    if (!held.ok) { expect(held.code).toBe('REFUSED'); expect(held.message).toContain('release gate red on ' + f.shas['1.0.2']!.slice(0, 12)); }
+    note(f, release(f.shas['1.0.3']!, 'INCOMPLETE', 42), f.shas['1.0.3']!);
+    expect(planRelease({ repo: f.repo, git: f.git, gh: f.gh }).ok).toBe(false);
+    note(f, release(f.shas['1.0.3']!, 'GREEN', 43), f.shas['1.0.3']!);
+    const lifted = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(lifted.ok, JSON.stringify(lifted)).toBe(true);
+    if (lifted.ok) expect(lifted.plan.sha).toBe(f.shas['1.0.3']);
+  });
+
+  // Value: protects=a green release record gates its commit when the main-backstop check run is absent or neutral (the check publish failed or was
+  // superseded), and the CANDIDATE line names the gate run; a red check run still keeps the commit out; fails_when=a commit the release gate passed is
+  // never released without the check, or release evidence overrides a red check run; why_new=train records were the only notes evidence; seam=none;
+  // no_claim=a live gate run
+  test('a green release record gates a commit whose main-backstop check never ran; a red check run still wins', () => {
+    const f = fixture();
+    const head = f.shas['1.0.3']!;
+    f.state.checks[head] = GREEN.filter(c => c.name !== BACKSTOP_CHECK);
+    note(f, release(head, 'GREEN', 77), head);
+    const gated = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(gated.ok, JSON.stringify(gated)).toBe(true);
+    if (gated.ok) { expect(gated.plan.sha).toBe(head); expect(gated.plan.via).toBe('release gate run 77'); }
+    f.state.checks[head] = [...GREEN.filter(c => c.name !== BACKSTOP_CHECK), { name: 'quality', status: 'completed', conclusion: 'failure' }];
+    const red = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    if (red.ok) expect(red.plan.sha).not.toBe(head);
   });
 });
 

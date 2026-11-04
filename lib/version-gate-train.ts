@@ -14,12 +14,14 @@ import * as path from 'node:path';
 import { parseChangelog } from './changelog-check';
 import { effectiveBump, readFragments } from './changelog-fragments';
 import { HistoryReadError, readHistoryFile } from './history-read';
-import { matchesAny } from './ship-policy';
+import { classifyRelease } from './release-stamp';
+import { isUnavailable, loadPolicyFromBase, matchesAny } from './ship-policy';
 
 export type TrainHead =
   | { kind: 'off' }
   | { kind: 'unstamped'; fragments?: number; entry?: 'fragment' | 'unreleased' | 'none-bot' | 'kept' }
   | { kind: 'stamped'; expected: string; fragments?: boolean }
+  | { kind: 'release'; version: string; fragments: number }
   | { kind: 'invalid'; reason: string };
 
 function git(repoRoot: string, args: string[]): string | null {
@@ -128,6 +130,13 @@ function classify(o: { repoRoot: string; baseRef: string; head: string; author?:
     // A merge-step stamp commit has parents [pin, base]: the fragments it folded are the pin's own.
     const second = git(o.repoRoot, ['rev-parse', '--verify', '--quiet', `${o.head}^2`])?.trim();
     const pin = second ? `${o.head}^1` : mergeBase;
+    if (fragDir && !second && policy.merge === 'direct') {
+      const loaded = loadPolicyFromBase(o.repoRoot, base.replace(/^origin\//, ''));
+      if (isUnavailable(loaded)) return { kind: 'invalid', reason: `cannot read the base policy to check a release stamp: ${loaded.detail}` };
+      const release = classifyRelease({ repoRoot: o.repoRoot, policy: loaded.policy, mergeBase, head: o.head });
+      if (release.ok) return { kind: 'release', version: release.version, fragments: release.fragments.length };
+      return { kind: 'invalid', reason: `under merge: direct a PR leaves VERSION, package.json and the release outputs at its merge base's values and adds a fragment; only a release PR stamps, and this head is not the release stamp of its merge base (RELEASE_STAMP_INVALID): ${release.reason}` };
+    }
     if (fragDir && (!second || git(o.repoRoot, ['merge-base', '--is-ancestor', second, base]) === null)) return { kind: 'invalid', reason: `under changelog_fragments only the merge step stamps (a commit with parents [pin, ${base}]); leave VERSION, package.json and the release outputs at the merge base's values and add a fragment` };
     const folded = fragDir ? readFragments(o.repoRoot, pin, fragDir, base, typeof policy.changelog === 'string' ? policy.changelog : 'CHANGELOG.md', 'skip') : null;
     if (folded?.errors.length) return { kind: 'invalid', reason: `${folded.errors[0]!.path}: ${folded.errors[0]!.message}` };
