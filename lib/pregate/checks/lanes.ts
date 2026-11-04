@@ -619,7 +619,7 @@ function withNoLaneWarning(ctx: PregateContext, sel: Selection, result: CheckRes
 
 async function run(ctx: PregateContext): Promise<CheckResult> {
   const sel = selectLanes(ctx);
-  ctx.explain.push(...sel.provenance);
+  for (const line of sel.provenance) ctx.explain.push(line);
   for (const [lane, set] of Object.entries(sel.laneSets)) ctx.explain.push(`lane ${lane}: ${set === '?' ? 'file set unknown' : `${set.length} files`}`);
   const inputs = baseInputs(ctx, { selection: sha256(sel.tests.join('\n')), localTests: sha256(sel.localTests.join('\n')), remote: sha256(sel.remote.map(r => `${r.lane}:${r.tests.join(',')}`).join('\n')) });
   const declared = ctx.configKind !== 'none' && ctx.policyDeclaresLanes !== false;
