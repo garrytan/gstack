@@ -714,7 +714,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    lands on the finding; a numbered item is its own finding.
    A reader's own no-defect closing sentence is no finding at the label it denies (GST-435): a prose line with no
    list, heading, bold or lead label, no `Severity` or `Blocks` field, no FIXABLE or INVESTIGATE, no file:line or path
-   and no exception clause, with no line above it in its paragraph that runs on (no closing period) or names an
+   and no exception clause, whose line directly above it neither runs on (no closing period) nor names an
    exception, and whose every labelled sentence is
    wholly a denial ("I found nothing CRITICAL.", "I found no defect that is CRITICAL.", "No P0/P1 issues.", "Neither
    finding is CRITICAL."), a count ("I found three INFORMATIONAL issues and nothing CRITICAL" collects at

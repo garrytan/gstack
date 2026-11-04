@@ -103,7 +103,7 @@ export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.t
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
 /**
  * A reader's own no-defect closing sentence (GST-435: gstack-evals #194 "I found nothing CRITICAL.", #202 "I found no defect that is
- * CRITICAL..."): a prose line whose paragraph has no line above it that runs on or names an exception, with no list, heading, bold or lead label, no
+ * CRITICAL..."): a prose line whose line directly above neither runs on nor names an exception, with no list, heading, bold or lead label, no
  * Severity or Blocks field, no FIXABLE or INVESTIGATE, no file:line or path and no exception clause, whose every labelled sentence is
  * wholly one of these clauses, its labels spelled as ALL_LABELS spells them: a denial (`no CRITICAL issues`, `no defect that is
  * CRITICAL`, `nothing at CRITICAL`, `there are no High findings`, `neither finding is CRITICAL`), a count (`I found three
