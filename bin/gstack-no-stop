@@ -13,6 +13,7 @@
  * qualify prints `NO_STOP: refused` and exits 3: that stop still goes to the owner.
  */
 import { spawnSync } from 'node:child_process';
+import * as path from 'node:path';
 import { appendRows, buildRow, locate } from '../lib/approval-record';
 import { EXIT, NO_STOP_CLASSES, exitTableHelp } from '../lib/headless-artifacts';
 import { appendLedger, checkNoStop, ledgerPath, readLedger } from '../lib/no-stop';
@@ -30,7 +31,8 @@ const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/r
                            --base origin/<base>): take the carry's RECHECK: route instead of Steps 2-16
       autoplan-regate      gstack-autoplan records it; import --from <run>/no-stop.json adds it here
       Step 19's receipt write adds --no-stop @<NO_STOP_FILE> when list shows records.
-      --range-base: the commit the fix or change is measured from (round 2's PASS_HEAD for scoped-fix-check,
+      --range-base: the commit the fix or change is measured from (round 2's PASS_HEAD for scoped-fix-check, which must be
+      the newest review-log pass row's commit,
       the commit before the fix for test-timeout-fix, the receipt head for stamp-only-carry); required for those three
       --base <ref> (stamp-only-carry): compare HEAD with the receipt head merged into <ref> (base side on conflict),
       so a base merge plus a stamp qualifies and a product conflict resolution does not
@@ -42,6 +44,14 @@ ${exitTableHelp()}`;
 const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const git = (args: string[]) => spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
 const NEEDS_RANGE = ['scoped-fix-check', 'test-timeout-fix', 'stamp-only-carry'];
+
+/** The commit the newest full or scoped pass reviewed (its review-log row's commit_full): round 2's PASS_HEAD. */
+function lastPassHead(): string | null {
+  const r = spawnSync(path.join(import.meta.dir, 'gstack-review-read'), [], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const rows = (r.stdout ?? '').split('---CONFIG---')[0]!.split('\n').flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
+  const pass = rows.filter(x => x.skill === 'review' && typeof x.commit_full === 'string').at(-1);
+  return pass ? pass.commit_full : null;
+}
 
 function grant(head: string, detail: string, ledger: string): string | { error: string } {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
@@ -64,6 +74,14 @@ function record(args: string[], json: boolean): number {
   if (NEEDS_RANGE.includes(cls) && !rangeBase) { process.stderr.write(`gstack-no-stop record: --class ${cls} needs --range-base <sha>\n`); return EXIT.usage; }
   const file = ledgerPath(process.cwd());
   if (!file) { process.stderr.write('gstack-no-stop record: not inside a git checkout\n'); return EXIT.fail; }
+  if (cls === 'scoped-fix-check') {
+    const pass = lastPassHead();
+    const base = git(['rev-parse', '--verify', `${rangeBase}^{commit}`]).stdout.trim();
+    if (!pass || pass !== base) {
+      process.stderr.write(`NO_STOP: refused ${cls} (--range-base ${rangeBase} is not the commit the last review pass read (${pass ? pass.slice(0, 12) : 'no review-log row'}), so the checked range would not be the range the fix-check covers); stop for the owner\n`);
+      return EXIT.refused;
+    }
+  }
   let diff: string | undefined;
   if (rangeBase) {
     const base = cls === 'stamp-only-carry' ? flag(args, '--base') : undefined;

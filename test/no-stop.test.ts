@@ -40,7 +40,15 @@ describe('lib/no-stop: what qualifies', () => {
     expect(check('test-timeout-fix', diff('test/worker.test.ts', [], ['  // a new line, timeout 30_000']))).toMatchObject({ ok: false });
   });
 
-  test('pregate-flake-rerun: one rerun per run; a second stops', () => {
+  test('review pass 1 holes: an assertion bound, a name that only contains "timeout", and a "-- " line inside a hunk are not timeout-only', () => {
+    expect(check('test-timeout-fix', diff('test/perf.test.ts', ['  expect(elapsedMs).toBeLessThan(timeoutMs + 100);'], ['  expect(elapsedMs).toBeLessThan(timeoutMs + 5000);']))).toMatchObject({ ok: false });
+    expect(check('scoped-fix-check', diff('lib/retry.ts', ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 3;'], ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 30;']))).toMatchObject({ ok: false });
+    expect(check('test-timeout-fix', diff('test/x.test.ts', ['  setDefaultTimeout(5_000);'], ['  setDefaultTimeout(30_000);']))).toMatchObject({ ok: true });
+    const hidden = 'diff --git a/test/x.test.ts b/test/x.test.ts\n--- a/test/x.test.ts\n+++ b/test/x.test.ts\n@@ -1,2 +1,1 @@\n--- guard\n-  }, 5000);\n+  }, 50000);\n';
+    expect(check('test-timeout-fix', hidden)).toMatchObject({ ok: false });
+  });
+
+  test('pregate-flake-rerun: one rerun per branch; a second stops', () => {
     expect(check('pregate-flake-rerun')).toMatchObject({ ok: true });
     expect(check('pregate-flake-rerun', undefined, [{ class: 'pregate-flake-rerun', reason: 'x', evidence: 'y' }])).toMatchObject({ ok: false });
   });
@@ -59,13 +67,17 @@ describe('lib/no-stop: what qualifies', () => {
     expect(check('autoplan-regate')).toMatchObject({ ok: false, reason: expect.stringContaining('gstack-autoplan decides') });
   });
 
-  test('regateTouches: a changed number next to a cap, a new arm or a dollar figure counts; kept words and other edits do not', () => {
-    expect(regateTouches('- base 500 ms, cap 30 s\n+ base 500 ms, cap 30 s, behind RETRY_BACKOFF=1')).toEqual([]);
+  test('regateTouches: a changed number, an edited line that names a cap, a new arm or a dollar figure counts; other edits do not', () => {
+    expect(regateTouches('- Retry the webhook worker\n+ Retry the webhook worker behind RETRY_BACKOFF=1')).toEqual([]);
+    expect(regateTouches('- base 500 ms, cap 30 s\n+ base 500 ms, cap 30 s, behind RETRY_BACKOFF=1')).toHaveLength(2);
     expect(regateTouches('+ An ELI5 sentence added after the revise.')).toEqual([]);
     expect(regateTouches('- cap 30 s\n+ cap 90 s')).toHaveLength(2);
     expect(regateTouches('+ Add a no-gstack arm to the panel.')).toHaveLength(1);
     expect(regateTouches('+ Budget up to $40 for the pilot.')).toHaveLength(1);
     expect(regateTouches('+ Runs on capy-host machines.')).toEqual([]);
+    expect(regateTouches('- Arm A cap 30 s; arm B cap 90 s\n+ Arm A cap 90 s; arm B cap 30 s').length).toBeGreaterThan(0);
+    expect(regateTouches('- Run 40 jobs per sweep\n+ Run 400 jobs per sweep').length).toBeGreaterThan(0);
+    expect(regateTouches('- Keep the budgets\n+ Double the budgets').length).toBeGreaterThan(0);
   });
 });
 
@@ -85,10 +97,17 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
   fs.writeFileSync(path.join(work, 'lib.ts'), 'export const a = 1;\n');
   git('add', '-A'); git('commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
+  const slug = Object.fromEntries(spawnSync(path.join(ROOT, 'bin', 'gstack-slug'), [], { cwd: work, encoding: 'utf8', timeout: 30_000, env }).stdout.trim().split('\n').map(l => l.split('=') as [string, string]));
+  const reviewLog = path.join(state, 'projects', slug.SLUG!, `${slug.BRANCH}-reviews.jsonl`);
+  fs.mkdirSync(path.dirname(reviewLog), { recursive: true });
+  fs.writeFileSync(reviewLog, JSON.stringify({ skill: 'review', commit_full: base }) + '\n');
 
   test('a docs-only round-2 fix records the class, prints the grant, and the ledger is a valid receipt no_stop', () => {
     fs.writeFileSync(path.join(work, 'docs', 'guide.md'), 'new wording\n');
     git('commit', '-qam', 'docs fix');
+    const narrow = run('record', '--class', 'scoped-fix-check', '--range-base', 'HEAD~0', '--reason', 'r', '--evidence', 'e');
+    expect(narrow.status).toBe(3);
+    expect(narrow.stderr).toContain('is not the commit the last review pass read');
     const r = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'round-2 fix reworded docs/guide.md', '--evidence', `commit ${git('rev-parse', 'HEAD').slice(0, 12)}`);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toMatch(/^NO_STOP: scoped-fix-check recorded \(docs-only fix in docs\/guide\.md\)$/m);
@@ -108,7 +127,7 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
     const before = run('list', '--json');
     const second = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'again', '--evidence', 'commit x');
     expect(second.status).toBe(3);
-    expect(second.stderr).toMatch(/^NO_STOP: refused scoped-fix-check \(one scoped-fix-check per run is recorded already; a second goes to the owner\); stop for the owner$/m);
+    expect(second.stderr).toMatch(/^NO_STOP: refused scoped-fix-check \(one scoped-fix-check per branch is recorded already; a second goes to the owner\); stop for the owner$/m);
     fs.writeFileSync(path.join(work, 'lib.ts'), 'export const a = 2;\n');
     git('commit', '-qam', 'code fix');
     const code = run('record', '--class', 'test-timeout-fix', '--range-base', 'HEAD~1', '--reason', 'r', '--evidence', 'e');

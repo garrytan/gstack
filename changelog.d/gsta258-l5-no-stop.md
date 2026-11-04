@@ -2,15 +2,15 @@
 
 ### Added
 - **`gstack-no-stop record --class <class> --reason <text> --evidence <ref>`** (`lib/no-stop.ts`) checks a stop and appends `{class, reason, evidence}` to the branch's ledger, or prints `NO_STOP: refused` and exits 3. The five classes:
-  - `scoped-fix-check`: one scoped fix-check past R51's two-round cap, when the round-2 fix is docs class only or only raises timeouts. It records the standing grant in the approval record and prints `GRANT:` for `gstack-review-plan --grant`.
-  - `test-timeout-fix`: a fix whose every changed line is in a test file and only raises a timeout. Its gate finding takes a printed `kept` reason instead of `open`.
-  - `pregate-flake-rerun`: one rerun of a failed pregate case at the same tree (rule 16).
+  - `scoped-fix-check`: one scoped fix-check past R51's two-round cap, when the round-2 fix is docs class only or only raises timeouts. The range must start at the commit the last review pass read. It records the standing grant in the approval record and prints `GRANT:` for `gstack-review-plan --grant`. One per branch.
+  - `test-timeout-fix`: a fix whose every changed line is in a test file and only raises a timeout value. A line with an assertion or a comparison never qualifies. Its gate finding takes a printed `kept` reason instead of `open`.
+  - `pregate-flake-rerun`: one rerun of a failed pregate case at the same tree (rule 16). One per branch.
   - `stamp-only-carry`: a refused carry where HEAD differs from the receipt head merged into the base only in a version stamp. /ship then takes the carry's `RECHECK:` route instead of running Steps 2–16 again.
   - `autoplan-regate`: see below.
 - **`gstack-no-stop import` and `list`** add an autoplan run's records to the branch and print the ledger. /ship's receipt write passes it as `--no-stop @<file>`.
 
 ### Changed
-- **An autoplan plan edit made after the owner's answer carries their words when it changes no spend, cap, arm or verdict.** A word only one side of the edit has counts as changed. So does a number on a line that names spend, a cap, an arm or a verdict. An edit with neither carries as `reason=no-stop autoplan-regate: …` and is written to `<run>/no-stop.json`. Moving "cap 30 s" to "cap 90 s" still goes to the owner. The run keeps a copy of each plan file it hashes, so the edit is diffed against what the owner answered.
+- **An autoplan plan edit made after the owner's answer carries their words when it changes no spend, cap, arm or verdict.** Each edited line is compared word by word with the line it replaced. Any changed number counts, and so does any edit to a line that names spend, a budget, a cap, a limit, an arm, a model, a judge or a verdict. An edit with none of those carries as `reason=no-stop autoplan-regate: …` and is written to `<run>/no-stop.json`. Moving "cap 30 s" to "cap 90 s", swapping two arms' caps, or an edit to the reviewed plan itself still goes to the owner. The run keeps a copy of each plan file it hashes, so the edit is diffed against what the owner answered.
 - docs/review-policy.md#no-stop has the table. docs/ship-policy.md lists the receipt's `no_stop` field, and docs/unattended.md describes the carry-forward change.
 
 ### Tests

@@ -24,7 +24,7 @@ import * as path from 'node:path';
 import { attemptEstimate } from './autoplan-budget';
 import { lineDiff } from './autoplan-confirm';
 import { answerGate } from './autoplan-gate';
-import { driftLine } from './autoplan-plan-text';
+import { driftLine, reviewHash } from './autoplan-plan-text';
 import { BOUNDARY, RESULT_FORMAT, REVIEWER_TRAILER } from './autoplan-prompts';
 import { parseReviewResult } from './autoplan-reconcile';
 import { FILES, RunError, journal, now, readDecisions, readJournal, readState, writeDecisions, writeState, type RunState } from './autoplan-state';
@@ -129,10 +129,12 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   const journalRows = readJournal(state.out);
   const at = journalRows.map(r => r.event === 'gate_written' && r.gate_rev === from).lastIndexOf(true);
   let expected: string | undefined = at >= 0 ? journalRows[at]!.source_file_sha256 : undefined;
-  for (const r of journalRows.slice(at + 1)) if (r.event === 'plan_revised') expected = r.source_file_sha256;
+  const hashOf = (file: string) => { try { return reviewHash(fs.readFileSync(file, 'utf8')); } catch { return undefined; } };
+  let reviewed: string | undefined = hashOf(atGateCopy(state.out, from));
+  for (const r of journalRows.slice(at + 1)) if (r.event === 'plan_revised') { expected = r.source_file_sha256; reviewed = r.new_plan_sha256; }
   if (!expected) return { reason: 'no plan evidence recorded for the gate or the revise (a run written before carry-forward)', from };
-  const changed = fileSha(planFile(state)) !== expected ? `the plan file ${path.basename(planFile(state))} changed after the owner's answer or the revise that took it`
-    : driftLine(state, 'PLAN_SOURCE_CHANGED') ? 'the reviewed plan differs from the plan file' : undefined;
+  const changed = fileSha(planFile(state)) !== expected ? `the plan file ${path.basename(planFile(state))} changed after the owner's answer or the revise that took it` : undefined;
+  if ((!changed && driftLine(state, 'PLAN_SOURCE_CHANGED')) || (changed && (!reviewed || hashOf(state.active_plan) !== reviewed))) return { reason: 'the reviewed plan differs from the plan file', from };
   const urgent = readJsonl(path.join(state.out, 'findings.jsonl')).rows.find(r => (r.urgent === true || r.outside_plan === true) && !r.settled_by);
   if (urgent) return { reason: `urgent finding open: ${String(urgent.title ?? urgent.id)}`, from };
   const doIt: GateItem[] = []; const deltas: GateItem[] = [];
