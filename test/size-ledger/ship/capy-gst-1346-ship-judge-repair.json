@@ -1,4 +1,4 @@
 {
-  "bytes": -8,
-  "why": "GST-1346: ship workflow judge repair (Step 11 follows the plan's DISPATCH lines; one-call Steps 12/16; CI-carry draft PR; exit 3 terminal), net -8 bytes"
+  "bytes": -11,
+  "why": "GST-1346: ship workflow judge repair (one-call Steps 12/16; CI-carry draft PR and Greptile-only consent; exit 3 terminal), net -11 bytes"
 }

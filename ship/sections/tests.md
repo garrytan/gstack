@@ -232,11 +232,10 @@ Before the first push that lane runs only targeted tests and the repro (the full
 merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
 `scripts/lib/shard-engine.ts`). Push early so CI runs beside the review: commit, `gstack-ship-release push
 --branch <branch> --early` (sealed, secrets and guards first; Step 6.5 asks only for Greptile), open a draft PR
-(`gstack-post pr-create --draft`; title as Step 6.5 item 2), then `gstack-ci-carry wait` in
+(`gstack-post pr-create --draft`), then `gstack-ci-carry wait` in
 the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
 run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
-label=<l> (<reason>)` names why a mapped lane ran here (a dirty tree, no green run at HEAD yet, a fork or stale
-run, a newer red run, a tree.json that misses an inventory file). Any other lane that already passed at this
+label=<l> (<reason>)` names why a mapped lane ran here. Any other lane that already passed at this
 tree, command and runtime is reused (`reused=<time>`), never run twice. In Step 16, `finish` defers a mapped
 lane it cannot carry (`EVIDENCE: DEFERRED`); after Step 17's push, `gstack-ship-release accept --base <base>
 --lane …` carries it from the green run at the final head and reruns the pregate there.

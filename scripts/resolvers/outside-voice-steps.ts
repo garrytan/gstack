@@ -144,7 +144,7 @@ If the subagent fails or times out, record native coverage as incomplete. Contin
 }
 
 function adversarialOutsideChallenge(ctx: TemplateContext, isShip: boolean): string {
-  return `### ${outsideVoiceFor(ctx).label} adversarial challenge (${isShip ? 'on \`DISPATCH: outside-voice\`' : 'runs whenever \`CODEX_MODE\` is \`ready\` or \`unverified\`'})
+  return `### ${outsideVoiceFor(ctx).label} adversarial challenge (runs whenever \`CODEX_MODE\` is \`ready\` or \`unverified\`)
 
 If \`CODEX_MODE\` is \`ready\` or \`unverified\`:
 
@@ -161,15 +161,15 @@ ${outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-covera
 
 
 
-For other modes, retain ${isShip ? 'any planned native pass' : 'the native pass above'}; do not dispatch it again.
+For other modes, retain the native pass above; do not dispatch it again.
 
 ---`;
 }
 
 function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): string {
-  return `### ${outsideVoiceFor(ctx).label} structured review (${isShip ? 'on \`DISPATCH: outside-voice\`, ' : 'large diffs only, '}200+ lines)
+  return `### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
-If ${isShip ? 'the plan lists \`DISPATCH: outside-voice\`, ' : ''}\`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
+If \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -195,7 +195,7 @@ Read stderr for errors (same error handling as ${outsideVoiceFor(ctx).label} adv
 
 
 
-If \`DIFF_TOTAL < 200\` without that override, skip structured review; the ${isShip ? 'planned ' : ''}adversarial passes still run.
+If \`DIFF_TOTAL < 200\` without that override, skip structured review; the adversarial passes still run.
 
 ---`;
 }
@@ -252,11 +252,11 @@ echo "DIFF_SIZE: $DIFF_TOTAL"
 
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'codex-only', nativeReview: true })}
 
-${isShip ? '' : `\`CODEX_MODE: disabled\` means skip the ${outsideVoiceFor(ctx).label} passes ONLY.
-\`ready\` and \`unverified\` run them; every other mode skips them with the printed reason.
-The ${outsideVoiceFor(ctx).nativeLabel} adversarial subagent always runs.
+\`CODEX_MODE: disabled\` means skip the ${outsideVoiceFor(ctx).label} passes ONLY.
+\`ready\` and \`unverified\` run them; every other mode skips them with the printed reason.${isShip ? '' : `
+The ${outsideVoiceFor(ctx).nativeLabel} adversarial subagent always runs.`}
 
-`}**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the ${outsideVoiceFor(ctx).label} structured review regardless of diff size (still requires \`CODEX_MODE: ready\` (or \`unverified\`)).
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the ${outsideVoiceFor(ctx).label} structured review regardless of diff size (still requires \`CODEX_MODE: ready\` (or \`unverified\`)).
 
 ---
 

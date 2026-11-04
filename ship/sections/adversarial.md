@@ -73,16 +73,19 @@ echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
 Branch on the echoed `CODEX_MODE`:
-- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the Claude pass below runs only on its `DISPATCH:` line. Print: "Codex passes skipped (codex_reviews disabled)."
-- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
-- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
+- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
+- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
-- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
-- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Retain the Claude pass the plan dispatched; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
-- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
-- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Retain the Claude pass the plan dispatched; do not dispatch a duplicate.
+- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
+- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
+
+`CODEX_MODE: disabled` means skip the Codex passes ONLY.
+`ready` and `unverified` run them; every other mode skips them with the printed reason.
 
 **User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires `CODEX_MODE: ready` (or `unverified`)).
 
@@ -113,7 +116,7 @@ If the subagent fails or times out, record native coverage as incomplete. Contin
 
 ---
 
-### Codex adversarial challenge (on `DISPATCH: outside-voice`)
+### Codex adversarial challenge (runs whenever `CODEX_MODE` is `ready` or `unverified`)
 
 If `CODEX_MODE` is `ready` or `unverified`:
 
@@ -173,13 +176,13 @@ Present the full output verbatim. A Critical, High or `Blocks: yes` finding is C
 
 
 
-For other modes, retain any planned native pass; do not dispatch it again.
+For other modes, retain the native pass above; do not dispatch it again.
 
 ---
 
-### Codex structured review (on `DISPATCH: outside-voice`, 200+ lines)
+### Codex structured review (large diffs only, 200+ lines)
 
-If the plan lists `DISPATCH: outside-voice`, `CODEX_MODE` is `ready` or `unverified` and either `DIFF_TOTAL >= 200` or the user requested the override above:
+If `CODEX_MODE` is `ready` or `unverified` and either `DIFF_TOTAL >= 200` or the user requested the override above:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -246,7 +249,7 @@ Read stderr for errors (same error handling as Codex adversarial above).
 
 
 
-If `DIFF_TOTAL < 200` without that override, skip structured review; the planned adversarial passes still run.
+If `DIFF_TOTAL < 200` without that override, skip structured review; the adversarial passes still run.
 
 ---
 
