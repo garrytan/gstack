@@ -25,6 +25,11 @@ const done = (r: { status: number | null; stdout?: string | Buffer | null; stder
 export function git(cwd: string, args: string[], timeout = 120_000): Run {
   return done(spawnSync('git', args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }));
 }
+/** GST-1204: the /ship run that passed Steps 1-3 on this checkout, recorded in its own git dir (per worktree) until finish clears it; empty outside a checkout. */
+export function shipRunMarker(cwd: string): string {
+  const p = git(cwd, ['rev-parse', '--git-path', 'gstack-ship-run']);
+  return p.status === 0 && p.stdout.trim() ? path.resolve(cwd, p.stdout.trim()) : '';
+}
 export function bin(cwd: string, name: string, args: string[], timeout = 600_000): Run {
   return done(runScriptSync(path.join(BIN_DIR, name), args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 }));
 }

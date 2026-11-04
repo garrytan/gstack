@@ -406,6 +406,44 @@ describe('gstack-capy-install', () => {
     expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
   });
 
+  // GST-1233 (TRUT-26): the union above needs the same Bun and an ok run, so a child whose shell
+  // resolves another Bun, or whose install fails, still replaced the shared verdict and /ship's
+  // finish pregate reported INSTALL_UNVERIFIED. Each workflow keeps its own verdict as well.
+  test('--for ship then --for document-release with another Bun or a failed run: ship stays admitted; another HEAD invalidates both', () => {
+    const f = fixture();
+    const env = { HOME: f.home, GSTACK_HOME: path.join(f.home, '.gstack-state') };
+    const admits = (skill: string) => verdictProblem(skill, f.root, env, '', '1.4.2', f.home);
+    const ship = run(f, ['--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(ship.status, ship.stdout + ship.stderr).toBe(0);
+    const file = ship.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1]!;
+    const childBin = path.join(f.base, 'child-bin');
+    script(path.join(childBin, 'bun'), ['[ "$1" = --version ] && { echo 1.4.2; exit 0; }', 'exit 0']);
+    const docs = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', PATH: `${childBin}${path.delimiter}${f.env.PATH}` });
+    expect(docs.status, docs.stdout + docs.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', bun_path: path.join(childBin, 'bun') });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
+    const shipBun = JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path;
+    expect(shipBun).not.toBe(path.join(childBin, 'bun'));
+    const check = run(f, ['--check', '--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.for/ship.json'), 'utf8')).bun_path).toBe(shipBun);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'ship', bun_path: shipBun });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
+    const failed = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', STUB_DOCTOR_FAIL: '1' });
+    expect(failed.status).not.toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', ok: false });
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')?.detail).toContain('the install verdict says: gstack: fail');
+    sh('git -c user.email=t@t -c user.name=t commit -q --allow-empty -m next', f.root);
+    expect(admits('ship')?.detail).toMatch(/^the install verdict says: gstack: fail/);
+    const moved = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime' });
+    expect(moved.status, moved.stdout + moved.stderr).toBe(0);
+    expect(admits('document-release')).toBeNull();
+    expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
+  });
+
   test('--root clones when the directory is absent and refuses a non-gstack directory', () => {
     const f = fixture();
     const clone = path.join(f.base, 'clone');

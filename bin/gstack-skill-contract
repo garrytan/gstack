@@ -21,6 +21,7 @@ import {
   EXIT, StateError, UnknownShape, blockMessage, checkContract, isMiss, lookupContract, parseTranscript, readAllRecords,
   readTranscriptFile, reportRows, type CheckResult,
 } from '../lib/skill-contract';
+import { fileURLToPath } from 'node:url';
 import { installedSkillsDir } from '../lib/skill-route';
 
 const USAGE = `Usage:
@@ -56,7 +57,7 @@ function printCheck(result: CheckResult, json: boolean, code: number): void {
   }
   const head = result.met
     ? `SKILL_CONTRACT_MET ${result.skill} (contract v1)${result.waived.length ? ` with waivers: ${result.waived.join(', ')} (misses for follow)` : ''}`
-    : blockMessage(result);
+    : blockMessage(result, fileURLToPath(import.meta.url));
   const lines = result.items.map(i => `  ${i.status.padEnd(7)} ${i.id}: ${i.detail}${i.reason ? ` (waived: ${i.reason})` : ''}`);
   process.stdout.write(`${[head, ...lines].join('\n')}\n`);
 }

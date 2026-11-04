@@ -68,6 +68,11 @@ export const GATE_OUTCOMES = {
     summary: 'the review labels a finding with a P0-P3 severity in a form the parser cannot read',
     fix: 'read the quoted line and the full reply above and decide; it is not a pass. Re-run the review asking for [P0]-[P3] or "P1:" labels, or re-check a corrected reply with bun lib/outside-review-result.ts --verdict <gate> <reply-file> from your gstack checkout (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-unparsed-severity)',
   },
+  unverified_verdict: {
+    state: 'ran', anchor: 'outside-review-unverified-verdict',
+    summary: "the reviewer's own verdict does not say the change is ready",
+    fix: 'read the quoted verdict and the full reply above and decide; it is not a pass. Fix what the verdict names (an excluded file, a suite that could not run), then re-run the review (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-unverified-verdict)',
+  },
   model_unusable: {
     state: 'unavailable', anchor: 'codex-model-unusable',
     summary: 'Codex could not use the selected model',
