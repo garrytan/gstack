@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DESIGN_CRAFT_RULE, DESIGN_PERSUADE_CHECKS } from '../scripts/resolvers/design-craft';
 import { selectTests } from './helpers/test-selection';
-import { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
+import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import type { TemplateContext } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -81,7 +81,6 @@ describe('design-shotgun to design-html handoff', () => {
   test('a change to the craft resolvers selects the design-review and plan-design-review cases that render them', () => {
     const e2e = selectTests(['scripts/resolvers/design-craft.ts'], E2E_TOUCHFILES).selected;
     for (const name of ['design-review-fix', 'design-review-detector-shim', 'design-review-detector-shim-dom', 'design-review-plugin-handoff', 'plan-design-review-plan-mode']) expect(e2e).toContain(name);
-    expect(selectTests(['scripts/resolvers/design-craft.ts'], LLM_JUDGE_TOUCHFILES).selected).toContain('plan-design-review/SKILL.md passes');
   });
 
   // Value: protects=design-html runs the lint and keeps waivers in the page, with no finalized.json exception record left behind; fails_when=the prose names the deleted checker, --accepted or craft_exceptions again; why_new=option (a) replaced craft_exceptions with in-page waivers; seam=none; no_claim=that an agent writes good waiver reasons (paid case)

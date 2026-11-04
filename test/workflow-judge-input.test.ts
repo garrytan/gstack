@@ -1,60 +1,14 @@
-/** Free regression coverage for the file bundle sent to workflow judges. */
+/** Free regression coverage for the skill file bundle readWorkflowJudgeInput builds. */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
-import { readWorkflowJudgeInput, buildWorkflowJudgePrompt, QA_DISCOVERY_REFERENCES, WORKFLOW_JUDGE_RESPONSE_SCHEMA, WORKFLOW_JUDGE_REASONING_WORD_LIMIT } from './helpers/workflow-judge-input';
+import { readWorkflowJudgeInput } from './helpers/workflow-judge-input';
 import { ASK_QUESTIONS_HEADING, ENG_REVIEW_EXCERPT } from './helpers/workflow-excerpt';
 import { readSkillStartup, SHARED_PREAMBLE_FILE } from './helpers/skill-startup';
 
 const ROOT = resolve(import.meta.dir, '..');
 const scratchRoots: string[] = [];
-
-test('cache extraction preserves every byte of the original workflow request and rubric', () => {
-  // Captured from runWorkflowJudge's pre-cache template literal, not from the
-  // new builder: moving request construction must not change the paid metric.
-  const prompt = buildWorkflowJudgePrompt({ judgeContext: 'test workflow', judgeGoal: 'test goal' },
-    { files: [], text: 'full prompt\nincluding lines' });
-  expect(createHash('sha256').update(prompt).digest('hex')).toBe('71cc9c777bf28ff0efd610259b411e3539852f83a0888fa0e92469331f8b9a43');
-});
-
-test.each(['ship', 'review'])('%s clarity targets frontier readers without excusing missing decisions or authority', skill => {
-  const source = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-  const registration = source.match(new RegExp(`testIfSelected\\('${skill}/SKILL\\.md workflow',[\\s\\S]*?await runWorkflowJudge\\(\\{([\\s\\S]*?)\\n    \\}\\);`));
-  expect(registration).not.toBeNull();
-  const options = new Function('QA_DISCOVERY_REFERENCES', `return ({${registration![1]}});`)(QA_DISCOVERY_REFERENCES);
-  expect(options.agentCapability).toBe('frontier');
-  expect(options.thresholds).toBeUndefined();
-  const input = readWorkflowJudgeInput({ root: ROOT, ...options });
-  const prompt = buildWorkflowJudgePrompt(options, input);
-  expect(prompt).toContain('GPT-5.6 Sol-level capability or stronger');
-  expect(prompt).toContain('Length, technical vocabulary and multiple explicit recovery paths alone are not clarity defects');
-  expect(prompt).toContain('Do not invent missing policies, permissions or evidence');
-  expect(prompt).toContain('Clarity 4 means the target agent can determine the next permitted action on each applicable path');
-  expect(prompt).toContain('Score clarity 3 or lower when execution still requires guessing');
-  expect(prompt).toContain('conflicting order, undefined decisions, unclear authority or missing input/output handling');
-  expect(prompt).toContain('cite the specific file/step and explain the competing actions or missing decision');
-  expect(prompt.endsWith(input.text)).toBe(true);
-  expect(prompt).toContain('"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"');
-});
-
-test('frontier calibration bounds reporting without reducing the evaluated source bundle', () => {
-  const input = { files: [], text: 'Entire source bundle remains present.' };
-  const prompt = buildWorkflowJudgePrompt({ judgeContext: 'a workflow', judgeGoal: 'how to finish', agentCapability: 'frontier' }, input);
-  expect(prompt).toContain('Evaluate the whole workflow, but keep the JSON reasoning under 120 words with at most two decisive examples');
-  expect(prompt).toContain('For a clarity defect, cite the specific file/step and explain the competing actions or missing decision');
-  expect(prompt).not.toContain('For each clarity defect');
-  expect(prompt.endsWith(input.text)).toBe(true);
-});
-
-test('judges are asked for 120 words while the enforced reasoning limit stays below 150', () => {
-  const prompt = buildWorkflowJudgePrompt({ judgeContext: 'a workflow', judgeGoal: 'how to finish', agentCapability: 'frontier' }, { files: [], text: '' });
-  expect(prompt).toContain('keep the JSON reasoning under 120 words');
-  expect(prompt).not.toContain('150 words');
-  expect(WORKFLOW_JUDGE_RESPONSE_SCHEMA.properties.reasoning.description).toStartWith('Under 120 words');
-  expect(WORKFLOW_JUDGE_REASONING_WORD_LIMIT).toBe(150);
-});
 
 afterEach(() => {
   for (const root of scratchRoots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -74,7 +28,7 @@ function occurrences(text: string, needle: string): number {
   return text.split(needle).length - 1;
 }
 
-/** The judge's bundle: every generated section except runner-only profiles (manifest `runner_only`, plan B4). */
+/** The bundle: every generated section except runner-only profiles (manifest `runner_only`, plan B4). */
 function sectionPaths(skill: string): string[] {
   const runnerOnly = new Set((JSON.parse(readFileSync(join(ROOT, skill, 'sections', 'manifest.json'), 'utf8')).sections as Array<{ file: string; runner_only?: boolean }>)
     .filter(section => section.runner_only).map(section => section.file));
@@ -84,12 +38,9 @@ function sectionPaths(skill: string): string[] {
     .map(name => `${skill}/sections/${name}`);
 }
 
-describe('workflow judge file bundle', () => {
-  test('the actual Eng judge registration includes authorization and the referenced final gate', () => {
-    const source = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-    const registration = source.match(/testIfSelected\('plan-eng-review\/SKILL\.md sections',[\s\S]*?await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/);
-    expect(registration).not.toBeNull();
-    const options = new Function('ENG_REVIEW_EXCERPT', `return ({${registration![1]}});`)(ENG_REVIEW_EXCERPT);
+describe('skill file bundle', () => {
+  test('the Eng bundle includes authorization and the referenced final gate', () => {
+    const options = { skillPath: ENG_REVIEW_EXCERPT.skillPath, startMarker: '# Plan Review Mode', endMarker: null };
     const input = readWorkflowJudgeInput({ root: ROOT, ...options });
     const entry = input.files.find(file => file.kind === 'entrypoint')!;
     const complete = readSkillStartup(join(ROOT, options.skillPath));
@@ -167,38 +118,6 @@ describe('workflow judge file bundle', () => {
     expect(() => readWorkflowJudgeInput({ ...options, references: ['shared/missing.md'] })).toThrow();
     expect(() => readWorkflowJudgeInput({ ...options, references: ['../outside.md'] })).toThrow('Reference outside root');
   });
-
-  for (const skill of ['ship', 'qa-only', 'document-release', 'review']) {
-    test(`actual ${skill} judge includes all referenced QA or documentation sections`, () => {
-      const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-      const name = `${skill}/SKILL.md workflow`;
-      const start = caller.indexOf(`testIfSelected('${name}'`);
-      expect(start).toBeGreaterThanOrEqual(0);
-      const registration = caller.slice(start).match(/await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/);
-      expect(registration).not.toBeNull();
-      const options = new Function('QA_DISCOVERY_REFERENCES', `return ({${registration![1]}});`)(QA_DISCOVERY_REFERENCES);
-      const input = readWorkflowJudgeInput({ root: ROOT, ...options });
-      for (const file of options.references ?? []) {
-        expect(input.files.find(item => item.path === file)?.content).toBe(readFileSync(join(ROOT, file), 'utf8'));
-      }
-      if (skill === 'ship') {
-        expect(input.files.map(file => file.path)).toContain('ship/sections/documentation.md');
-        expect(input.files.map(file => file.path)).toContain('qa/sections/exploratory.md');
-      } else if (skill === 'qa-only') {
-        expect(input.files.map(file => file.path)).toContain('qa/sections/system-functional.md');
-        expect(input.files.filter(file => file.path.endsWith('/exploratory.md'))).toHaveLength(1);
-        expect(input.files.find(file => file.kind === 'entrypoint')?.content).toContain('Never fix bugs or write product tests');
-      } else if (skill === 'document-release') {
-        expect(input.files.map(file => file.path)).toContain('document-release/sections/audit-scope.md');
-        expect(input.text).toContain('Ship-owned documentation mode');
-      } else {
-        expect(input.files.map(file => file.path)).toContain('qa/sections/exploratory.md');
-        expect(input.files.map(file => file.path)).toContain('review/checklist.md');
-        expect(input.text).toContain('test_stub');
-        expect(input.text).toContain('## Step 5: Fix-First Review');
-      }
-    });
-  }
 
   test('retains section prelude and suffix exactly once when both markers are inside a section', () => {
     // Generated comments made the old 120-character prefix heuristic append
@@ -280,13 +199,10 @@ describe('workflow judge file bundle', () => {
   test('generated ship includes base-branch initialization and every lazy section once', () => {
     const skillPath = 'ship/SKILL.md';
     const source = readFileSync(join(ROOT, skillPath), 'utf8');
-    // Bind to the paid caller's actual slice and retain both the opening contract
-    // and initialization, regardless of their ordering in the authored workflow.
-    const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-    const markers = caller.match(/skillPath: 'ship\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
-    expect(markers).not.toBeNull();
-    const [, startMarker, endMarker] = markers!;
-    expect(startMarker).toBe('# Ship:');
+    // Retain both the opening contract and initialization, regardless of their
+    // ordering in the authored workflow.
+    const startMarker = '# Ship:';
+    const endMarker = '## Important Rules';
     const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
     const entrypoint = input.files.find(file => file.kind === 'entrypoint');
     expect(entrypoint?.content).toBe(source.slice(source.indexOf(startMarker), source.indexOf(endMarker, source.indexOf(startMarker))));
@@ -317,11 +233,8 @@ describe('workflow judge file bundle', () => {
 
   test('generated engineering review includes the scope choices and readiness probe its steps reference', () => {
     const skillPath = 'plan-eng-review/SKILL.md';
-    const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-    const registration = caller.match(/testIfSelected\('plan-eng-review\/SKILL\.md sections',[\s\S]*?await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/);
-    expect(registration).not.toBeNull();
-    const options = new Function('ENG_REVIEW_EXCERPT', `return ({${registration![1]}});`)(ENG_REVIEW_EXCERPT);
     expect(ENG_REVIEW_EXCERPT.skillPath).toBe(skillPath);
+    const options = { skillPath, startMarker: '# Plan Review Mode', endMarker: null };
     const input = readWorkflowJudgeInput({ root: ROOT, ...options });
     const entrypoint = input.files.find(file => file.kind === 'entrypoint')!;
     expect(entrypoint.content).toContain('B) A plan or design doc');
@@ -346,10 +259,8 @@ describe('workflow judge file bundle', () => {
 
   test('generated design consultation includes the prechecks its proposal and preview reference', () => {
     const skillPath = 'design-consultation/SKILL.md';
-    const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-    const markers = caller.match(/skillPath: 'design-consultation\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
-    expect(markers).not.toBeNull();
-    const [, startMarker, endMarker] = markers!;
+    const startMarker = '## Phase 0:';
+    const endMarker = '## Phase 4:';
     const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
     const entrypoint = input.files.find(file => file.kind === 'entrypoint')!;
     for (const prerequisite of ['## Phase 0: Pre-checks', 'DESIGN_MD_FORMAT:', 'DESIGN_READY', 'DESIGN_NOT_AVAILABLE']) {

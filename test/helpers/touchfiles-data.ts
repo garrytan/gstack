@@ -1664,60 +1664,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
  * LLM-judge test touchfiles — keyed by test description string.
  */
 export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
-  'review/SKILL.md workflow': ['review/**', 'qa/**', 'scripts/resolvers/qa.ts', 'scripts/resolvers/review-army.ts', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/sections.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/skill-startup.ts'],
-  'setup-browser-cookies/SKILL.md workflow': ['setup-browser-cookies/SKILL.md.tmpl', 'setup-browser-cookies/SKILL.md', 'BROWSER.md', 'test/helpers/cookie-workflow-judge-input.ts',  'test/helpers/cookie-workflow-manual-review.ts',  'test/helpers/manual-judge-review-fixture.ts', '.github/cookie-workflow-manual-review.json', 'test/helpers/workflow-judge-input.ts', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/skill-startup.ts'],
-  'browse/SKILL.md reference':        ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'browse/sections/**', 'browse/SKILL.md', 'browse/SKILL.md.tmpl', 'browse/src/**', 'test/skill-llm-eval.test.ts', 'SKILL.md', 'SKILL.md.tmpl', 'gstack/llms.txt', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
-  'setup block':                      ['browse/SKILL.md', 'browse/SKILL.md.tmpl', 'scripts/resolvers/aside.ts', 'scripts/resolvers/browse.ts', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
-  'qa/SKILL.md workflow':             ['qa/**', 'qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'scripts/resolvers/qa.ts', 'scripts/resolvers/utility.ts', 'scripts/resolvers/sections.ts', 'test/helpers/workflow-judge-input.ts', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/skill-startup.ts'],
-  'qa/SKILL.md health rubric':        ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
-  'qa/SKILL.md anti-refusal':         ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
-  'cross-skill greptile consistency': ['review/SKILL.md', 'review/SKILL.md.tmpl', 'ship/SKILL.md', 'ship/SKILL.md.tmpl', 'review/greptile-triage.md', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
-
-  // Ship & Release
-  'ship/SKILL.md workflow':               ['ship/SKILL.md', 'ship/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',   'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts',
-       'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts',
-    'scripts/resolvers/testing.ts', 'ship/sections/**', 'qa/**', 'scripts/resolvers/qa.ts', 'scripts/resolvers/review-army.ts',  'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'document-release/SKILL.md workflow':   ['document-release/**', 'document-release/SKILL.md', 'document-release/SKILL.md.tmpl', 'scripts/resolvers/sections.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // Plan Reviews
-  'plan-ceo-review/SKILL.md modes':       [ 'ETHOS.md','plan-ceo-review/sections/**', 'plan-ceo-review/SKILL.md', 'plan-ceo-review/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts',
-    'scripts/resolvers/preamble/generate-ask-user-format.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'plan-eng-review/SKILL.md sections':    [
-     'scripts/resolvers/gbrain.ts',
-    'scripts/resolvers/learnings.ts',
-    
-    "test/fixtures/plan-scope-recovery-av.json",  'plan-eng-review/SKILL.md', 'plan-eng-review/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts',
-     "scripts/resolvers/preamble/generate-preamble-bash.ts", "scripts/resolvers/preamble/generate-completion-status.ts",
-    'scripts/resolvers/testing.ts', 'plan-eng-review/sections/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts',  'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // /spec authored-spec quality (paid LLM-judge — periodic-tier).
-  'plan-design-review/SKILL.md passes':   [
-    
-    "test/fixtures/plan-scope-recovery-av.json",
-    "test/fixtures/design-scope-checkpoint-at.json",'plan-design-review/SKILL.md', 'plan-design-review/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts',
-    
-
-     "scripts/resolvers/preamble/generate-preamble-bash.ts", "scripts/resolvers/preamble/generate-completion-status.ts",
-    'plan-design-review/sections/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/design.ts', 'scripts/resolvers/design-craft.ts', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // Design skills
-  'design-review/SKILL.md fix loop':      ['design-review/SKILL.md', 'design-review/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'design-consultation/SKILL.md research': ['design-consultation/SKILL.md', 'design-consultation/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'scripts/resolvers/design.ts', 'scripts/resolvers/outside-voice.ts', 'design-consultation/sections/**',  'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // Deploy skills
-  'land-and-deploy/SKILL.md workflow':    ['land-and-deploy/SKILL.md', 'land-and-deploy/SKILL.md.tmpl', 'land-and-deploy/sections/**', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'canary/SKILL.md monitoring loop':      ['canary/SKILL.md', 'canary/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'benchmark/SKILL.md perf collection':   ['benchmark/SKILL.md', 'benchmark/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'setup-deploy/SKILL.md platform setup': ['setup-deploy/SKILL.md', 'setup-deploy/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // Other skills
-  'retro/SKILL.md instructions':          ['retro/sections/**', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'qa-only/SKILL.md workflow':            ['qa-only/**', 'qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'qa/**', 'scripts/resolvers/qa.ts', 'scripts/resolvers/utility.ts', 'scripts/resolvers/sections.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'gstack-upgrade/SKILL.md upgrade flow': ['gstack-upgrade/SKILL.md', 'gstack-upgrade/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/helpers/workflow-excerpt.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'sync-gbrain/SKILL.md read-only readiness': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'sync-gbrain/SKILL.md', 'sync-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-read-capability.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts',  'scripts/eval-input-cache.ts',   'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/skill-startup.ts'],
+  'qa/SKILL.md anti-refusal':         ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
+  'cross-skill greptile consistency': ['review/SKILL.md', 'review/SKILL.md.tmpl', 'ship/SKILL.md', 'ship/SKILL.md.tmpl', 'review/greptile-triage.md', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
 
   // Voice directive
-  'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-llm-eval.test.ts', 'test/fixtures/eval-baselines.json', 'test/helpers/cookie-workflow-judge-input.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-excerpt.ts', 'test/helpers/workflow-judge-cache.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/skill-startup.ts'],
+  'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
 };
 
 /**
@@ -2044,29 +1995,8 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'router-failure-contradicted-cause': 'rule',
   'router-failure-triage-resolves': 'rule',
   'router-failure-triage-unclear': 'rule',
-  'review/SKILL.md workflow': 'judge',
-  'setup-browser-cookies/SKILL.md workflow': 'judge',
-  'browse/SKILL.md reference': 'judge',
-  'setup block': 'judge',
-  'qa/SKILL.md workflow': 'judge',
-  'qa/SKILL.md health rubric': 'judge',
   'qa/SKILL.md anti-refusal': 'judge',
   'cross-skill greptile consistency': 'judge',
-  'ship/SKILL.md workflow': 'judge',
-  'document-release/SKILL.md workflow': 'judge',
-  'plan-ceo-review/SKILL.md modes': 'judge',
-  'plan-eng-review/SKILL.md sections': 'judge',
-  'plan-design-review/SKILL.md passes': 'judge',
-  'design-review/SKILL.md fix loop': 'judge',
-  'design-consultation/SKILL.md research': 'judge',
-  'land-and-deploy/SKILL.md workflow': 'judge',
-  'canary/SKILL.md monitoring loop': 'judge',
-  'benchmark/SKILL.md perf collection': 'judge',
-  'setup-deploy/SKILL.md platform setup': 'judge',
-  'retro/SKILL.md instructions': 'judge',
-  'qa-only/SKILL.md workflow': 'judge',
-  'gstack-upgrade/SKILL.md upgrade flow': 'judge',
-  'sync-gbrain/SKILL.md read-only readiness': 'judge',
   'voice directive tone': 'judge',
 };
 

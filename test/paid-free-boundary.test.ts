@@ -11,7 +11,7 @@ import { normalizeRelativePath as freeNormalize } from '../scripts/test-free-sha
 import { PAID_TEST_GLOBS } from './helpers/paid-test-set';
 import { E2E_TIERS, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectTests } from './helpers/test-selection';
-import { workflowJudgeDependencies } from './helpers/workflow-judge-cache';
+import { sourceDependencyClosure } from '../scripts/eval-input-cache';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -62,7 +62,10 @@ describe('paid/free dependency boundary', () => {
     const runner = runnerDependencies(ROOT, ['scripts/test-paid-shards.ts', 'scripts/eval-select.ts']);
     const paid = [...new Set(PAID_TEST_GLOBS.flatMap(pattern => [...new Bun.Glob(pattern).scanSync(ROOT)]))];
     expect(paid.length).toBeGreaterThan(0);
-    const all = workflowJudgeDependencies(ROOT, paid);
+    const all = sourceDependencyClosure(ROOT, ['test/helpers/llm-judge.ts', 'lib/eval-model.ts', 'test/helpers/eval-budgets.ts',
+      'scripts/test-paid-shards.ts', 'scripts/test-strict-output.ts', 'scripts/eval-select.ts',
+      'scripts/test-pr-profile.ts', '.github/workflows/evals.yml',
+      'package.json', 'bun.lock', '.github/docker/Dockerfile.ci', ...paid]);
     for (const dependencies of [runner, all]) {
       expect(dependencies).toContain('scripts/lib/shard-engine.ts');
       expect(dependencies).toContain('test/helpers/test-selection.ts');
@@ -115,13 +118,13 @@ describe('paid/free dependency boundary', () => {
       expect(result.coverage?.unknownFiles, file).toEqual([]);
       expect(result.selection, file).toEqual({ e2e: [], judges: [] });
     }
-    // ETHOS.md is read by the /office-hours and /plan-ceo-review prompts, so it selects their cases and judge, not the whole gate.
+    // ETHOS.md is read by the /office-hours and /plan-ceo-review prompts, so it selects their cases, not the whole gate.
     const ethos = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['ETHOS.md', 'NOTICE.md'] });
     expect(ethos.coverage?.mode).toBe('pr');
     expect(ethos.coverage?.unknownFiles).toEqual([]);
     expect(ethos.selection.e2e).toContain('plan-ceo-review-plan-mode');
     expect(ethos.selection.e2e).toContain('office-hours-auto-mode');
-    expect(ethos.selection.judges).toEqual(['plan-ceo-review/SKILL.md modes']);
+    expect(ethos.selection.judges).toEqual([]);
     expect(ethos.selection.e2e!.length).toBeLessThan(10);
   });
 
@@ -220,10 +223,10 @@ describe('paid/free dependency boundary', () => {
       expect(result.judges).toEqual(category === 'e2e' ? [] : ['quality']);
     }
     const real = computePaidCaseSelection({ profile: 'pr', env: {},
-      changedFiles: [file, 'plan-ceo-review/SKILL.md.tmpl'] });
+      changedFiles: [file, 'plan-ceo-review/SKILL.md.tmpl', 'retro/SKILL.md'] });
     expect(real.coverage?.mode).toBe('pr');
     expect(real.selection.e2e).toContain('auq-format-gate');
-    expect(real.selection.judges).toContain('plan-ceo-review/SKILL.md modes');
+    expect(real.selection.judges).toContain('cross-skill greptile consistency');
     expect(real.selection.e2e?.every(id => PR_PROFILE_CASE_IDS.includes(id as typeof PR_PROFILE_CASE_IDS[number]))).toBe(true);
   });
 });

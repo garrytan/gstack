@@ -1,6 +1,6 @@
 /**
- * Verified first-attempt reuse for PR-lane E2E shards, on the same receipts as
- * the workflow-judge reuse (scripts/eval-input-cache.ts).
+ * Verified first-attempt reuse for PR-lane E2E shards, on the receipts of
+ * scripts/eval-input-cache.ts.
  *
  * A PR-profile shard (a file, or one case of a case-sharded file) is reused
  * only when every consumed input is byte-identical to a fresh pass recorded in
@@ -309,8 +309,8 @@ export function compareReceiptSources(a: { runId: string; completedAt: number },
 /**
  * Planner-side selection: copy `from` into `to`, dropping every pass or panel
  * receipt that has a same-or-newer negative receipt for its identity, and
- * every panel receipt that is not a whole PASS panel. Workflow-judge and
- * other receipts pass through for their own validation at lookup.
+ * every panel receipt that is not a whole PASS panel. Other receipts pass
+ * through for their own validation at lookup.
  */
 export function selectPlanReceipts(from: string, to: string, now = Date.now()): { shipped: number; blocked: string[] } {
   fs.mkdirSync(to, { recursive: true });

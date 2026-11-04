@@ -133,7 +133,7 @@ describe('per-kind batches decided by the measurement bar, with fake runners (EN
   });
 
   test('standalone judge ids resolve to the one paid file that names them', () => {
-    expect(judgeFile('review/SKILL.md workflow')).toBe('test/skill-llm-eval.test.ts');
+    expect(judgeFile('voice directive tone')).toBe('test/skill-llm-eval.test.ts');
     expect(() => judgeFile('no-such-judge-id')).toThrow('no paid file names it');
   });
 });
