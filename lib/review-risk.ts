@@ -66,12 +66,12 @@ export const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
 export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain)([._/-]|$)|(^|\/)(\.env(\.(?!(example|sample|template)$)[^/]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.pgpass|\.htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|ppk)$/i;
 /** A token name (design, lexer and LLM tokens as well as auth tokens, GST-1350: founderstar's scripts/ui/token.gd): a secret path by name unless it is a TOKEN_SOURCE file, which its changed lines decide. */
 export const TOKEN_PATH = /(^|\/)tokens?([._/-]|$)/i;
-/** Source and style extensions: a token-named file of one of these holds design, lexer or LLM tokens as often as a credential. Any other token file (json, txt, yaml, no extension, binary) stays a secret path by name. */
-export const TOKEN_SOURCE = /\.(gd|css|scss|sass|less|styl|[cm]?[jt]sx?|py|rb|go|rs|java|kt|swift|dart|cs|c|h|cpp|hpp|lua|vue|svelte)$/i;
+/** Style and engine extensions: a token-named file of one of these holds design tokens. Any other token file (code, json, yaml, no extension, binary) stays a secret path by name. */
+export const TOKEN_SOURCE = /\.(gd|css|scss|sass|less|styl)$/i;
 /** The secret-category patterns of the credential scanner pregate's secrets check runs (lib/redact-engine.ts): RISK_RULES and TARGETED_RULES hash them. */
 export const SECRET_SCAN = PATTERNS.filter(r => r.category === 'secret').map(r => [r.id, r.tier, '/' + r.regex.source + '/' + r.regex.flags]);
 const secretShaped = (p: string, lines: readonly string[]) => scan(lines.join('\n'), { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW');
-/** Whether a changed path is a secret path: by name, or a token-named source or style file whose added or deleted lines hold a secret-shaped value or cannot be read (no text lines fails closed). */
+/** Whether a changed path is a secret path: by name, or a token-named style or engine file whose added or deleted lines hold a secret-shaped value or cannot be read (no text lines fails closed). */
 export const secretPath = (p: string, lines: readonly string[] = []) => SECRET_PATH.test(p) || (TOKEN_PATH.test(p) && (!TOKEN_SOURCE.test(p) || !lines.length || secretShaped(p, lines)));
 /** An environment name whose underscore-separated segments include a key word: OPENAI_API_KEY, GH_TOKEN; never MAX_TOKENS. */
 export const KEY_NAME = String.raw`(?:[A-Z0-9]+_)*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS?)(?:_[A-Z0-9]+)*\b`;

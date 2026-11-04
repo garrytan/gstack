@@ -20,7 +20,6 @@ const BENIGN: Record<string, string[]> = {
   'scripts/ui/token.gd': GODOT_TOKENS,
   'design-tokens.json': ['{ "color": { "primary": "#ff6a00" }, "space": { "md": 12 } }'],
   'ui/tokens.css': [':root { --color-primary: #ff6a00; --space-md: 12px; }'],
-  'theme/token.ts': ['export const token = { colorPrimary: "#ff6a00", spaceMd: 12 };'],
 };
 /** Built at run time so the credential scan never reads a key-shaped literal in this file. */
 const fakePat = () => ['ghp', '_', 'x7Qm2Lp9Vr4Tn8Kw3Hs6', 'Jd1Fz5Bc0YaUe4Gq'].join('');
@@ -30,6 +29,8 @@ const NAMED: Record<string, string[]> = {
   'auth/token': ['z'.repeat(40)],
   'config/tokens.yaml': ['primary: ff6a00'],
   'cache/tokens.db': [],
+  'theme/token.ts': ['export const token = { colorPrimary: "#ff6a00", spaceMd: 12 };'],
+  'lib/token.ts': ['const API_TOKEN = "' + ['Zx9Qw8Er7Ty6Ui5Op4', 'As3Df2Gh1Jk0Lm'].join('') + '";'],
   '.env': ['LOG_LEVEL=debug'],
   'deploy/.env.production': ['LOG_LEVEL=info'],
   '.ssh/id_rsa': ['not shown'],
@@ -42,7 +43,7 @@ const risk = (p: string, added: string[]) => matchRisk({ codePaths: [p], added: 
 const depth = (p: string, added: string[]) => depthOfCommitInput({ paths: [p], added: { [p]: added }, removed: {}, gateTagged: 0, scope: {} });
 
 describe('GST-1350: a token-named file is a secret path only on secret-shaped content', () => {
-  // Value: protects=design-token files (token.gd, design-tokens.json, tokens.css, token.ts) review at the depth their content earns;
+  // Value: protects=design-token files (token.gd, design-tokens.json, tokens.css) review at the depth their content earns;
   //   fails_when=the token name alone raises the secret class, the gate class or a kept gate path; seam=matchRisk + classifyDiff + isGatePath
   test.each(Object.entries(BENIGN))('%s with design tokens is not secret, not gate', (p, added) => {
     expect(risk(p, added).has('secret')).toBe(false);
@@ -54,7 +55,7 @@ describe('GST-1350: a token-named file is a secret path only on secret-shaped co
 
   // Value: protects=a token file that carries a credential still gets the secret class and the gate class;
   //   fails_when=the content check misses a key-shaped value on an added or a removed line; seam=matchRisk + classifyDiff
-  test.each(['scripts/ui/token.gd', 'ui/tokens.css', 'theme/token.ts'])('%s holding a secret-shaped value stays secret and gate', p => {
+  test.each(['scripts/ui/token.gd', 'ui/tokens.css'])('%s holding a secret-shaped value stays secret and gate', p => {
     const line = `const API_TOKEN := "${fakePat()}"`;
     expect(risk(p, [...BENIGN[p]!, line]).get('secret')).toBe('secret path: ' + p);
     expect(matchRisk({ codePaths: [p], added: {}, removed: { [p]: [line] }, scopeAuth: false }).has('secret')).toBe(true);
@@ -63,8 +64,8 @@ describe('GST-1350: a token-named file is a secret path only on secret-shaped co
     expect(d.risk).toContain('secret');
   });
 
-  // Value: protects=secret and credential names, private keys, dotenv files and token files that are not source or style code
-  //   (json, yaml, no extension, binary) stay secret by name, whatever they hold; fails_when=narrowing the token rule drops one of them, or a key file reads as anything below gate; seam=matchRisk + classifyDiff + isGatePath
+  // Value: protects=secret and credential names, private keys, dotenv files and token files that are not style or engine files
+  //   (code such as token.ts, json, yaml, no extension, binary) stay secret by name, whatever they hold; fails_when=narrowing the token rule drops one of them, or a key file reads as anything below gate; seam=matchRisk + classifyDiff + isGatePath
   test.each(Object.entries(NAMED))('%s stays secret and gate by name alone', (p, added) => {
     expect(risk(p, added).get('secret')).toBe('secret path: ' + p);
     expect(isGatePath(p) || secretPath(p, added)).toBe(true);
@@ -73,11 +74,11 @@ describe('GST-1350: a token-named file is a secret path only on secret-shaped co
     expect(d.risk).toContain('secret');
   });
 
-  // Value: protects=a token-named source file whose lines cannot be read (binary, no text) fails closed to a secret path;
+  // Value: protects=a token-named style or engine file whose lines cannot be read (binary, no text) fails closed to a secret path;
   //   fails_when=an empty line set reads as benign; seam=matchRisk
-  test('a token-named source file with no readable lines stays secret', () => {
-    expect(risk('theme/token.ts', []).has('secret')).toBe(true);
-    expect(matchRisk({ codePaths: ['theme/token.ts'], scopeAuth: false }).has('secret')).toBe(true);
+  test('a token-named style or engine file with no readable lines stays secret', () => {
+    expect(risk('scripts/ui/token.gd', []).has('secret')).toBe(true);
+    expect(matchRisk({ codePaths: ['ui/tokens.css'], scopeAuth: false }).has('secret')).toBe(true);
   });
 
   // Value: protects=a dotenv template holds no secrets by convention; fails_when=.env.example raises the secret class on its name; seam=matchRisk
@@ -117,7 +118,7 @@ describe('GST-1350: founderstar#546 shape, a copy-only edit to a Godot token fil
  * On the GST-967 history grid (288 histories per case), each case runs on its real path and on a stand-in (a path main and the
  * branch both classify the way main classified the real one). Main's planReview at b244e6d (v1.95.5.0) on the real paths, with
  * targetedClasses as the planner computes them, hashes to MAIN_1350_PLANS, and so does the branch's on the stand-ins. On the
- * real paths the branch lowers exactly the three benign token-named cases (gate/full to code/light, the fix) and only raises
+ * real paths the branch lowers exactly the two benign token-named style and engine cases (gate/full to code/light, the fix) and only raises
  * or keeps every other case, keeping every reader main dispatched there at the same effort or higher, with GST-972's one
  * exception: light's batched reader, which carries the Red Team prompt at full effort, becomes full depth's batched reader at
  * the specialist effort on the three key files that rise to full, while the Red Team keeps full effort as its own dispatch.
@@ -163,7 +164,7 @@ describe('GST-1350 no-loss check', () => {
     expect(sha(main)).toBe(MAIN_1350_PLANS);
     const rank: Record<string, number> = { docs: 0, tests: 1, code: 2, gate: 3, light: 0, standard: 1, full: 2 };
     const effort: Record<string, number> = { medium: 1, full: 2, host: 2 };
-    const lowered = new Set(['token-gd', 'tokens-css', 'token-ts']);
+    const lowered = new Set(['token-gd', 'tokens-css']);
     const moves: Record<string, number> = {};
     let split = 0;
     grid(0).forEach((b, i) => {
@@ -182,7 +183,7 @@ describe('GST-1350 no-loss check', () => {
       }
     });
     expect([main.length, split, moves]).toEqual([3168, 252, {
-      'token-gd: gate/full -> code/light': 288, 'tokens-css: gate/full -> code/light': 288, 'token-ts: gate/full -> code/light': 288, 'token-secret: gate/full -> gate/full': 288,
+      'token-gd: gate/full -> code/light': 288, 'tokens-css: gate/full -> code/light': 288, 'token-ts: gate/full -> gate/full': 288, 'token-secret: gate/full -> gate/full': 288,
       'pem: code/light -> gate/full': 288, 'dotenv: code/light -> gate/full': 288, 'id-rsa: code/light -> gate/full': 288, 'secrets-dir: gate/full -> gate/full': 288, 'credentials-json: gate/full -> gate/full': 288,
       'token-json: gate/full -> gate/full': 288, 'tokens-db: gate/full -> gate/full': 288,
     }]);
