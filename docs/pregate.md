@@ -789,7 +789,9 @@ once:
   Bun summary registered tests and skipped every one of them here too, the way
   an env-gated or tool-gated file skips by design, is not owed. The CI row lists
   it under `skipped_here.not_owed` and the `LANE:` line adds
-  `not_owed_here=<n>`. A file that registers no test here still refuses. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
+  `not_owed_here=<n>`. A file that registers no test here still refuses, and so
+  does a file whose log hit the 2 MB cap, since a cut log's last summary may not
+  be the run's. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
   skipped file ran tests and stays covered. gstack's `bun run test` lane
   declares `per_file`, and its Free Tests writer starts emitting the list in a
