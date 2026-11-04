@@ -60,7 +60,7 @@ Install check, this file.
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --lane <label>=<command>...` (repo test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+`gstack-ship-preflight --base <base> --run <run dir name> --lane <label>=<command>...` (repo test commands). `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. `ship_lanes_from`: push early (`sections/tests.md#ci-carry`). A lane passes on `tests_ran: N` with exit 0; `0` is ZERO-RUN (failed); `unknown`
 is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval

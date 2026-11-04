@@ -15,11 +15,14 @@ import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { bin, carryNoneLine, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, short } from './ship-bin-common';
+import { bin, carryNoneLine, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
   gstack-ship-preflight --base <base> [--lane <label>=<command>]...   Steps 1-3; with lanes also Step 5
+      --run <id>           the /ship run (SESSION_ID, or the driver's run dir name): once Steps 1-3 pass it is recorded in
+                           this checkout's git dir and opened on its lease, and a later full preflight stops until finish
+                           clears it or 120 minutes pass, because its merge would move the tree the run's readers diff (GST-1204)
   gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...   Step 5 only (after a repair)
       --lanes serial|parallel   how Step 5 runs its lanes; unset, one at a time on 4 or fewer cores, all at once above
       --policy-from head   Step 5's pregate reads the branch's .gstack/pregate.json, which may only add test lanes
@@ -42,11 +45,35 @@ passed at this tree, command and runtime is reused: reused=<original time>), the
 decide or repair; nothing after it ran. Exit codes: 0 ok · 2 usage · 3 STOP`;
 
 const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|package\.json)$/;
+const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-function integrate(cwd: string, base: string, r: Report): boolean {
+/**
+ * GST-1204: a full preflight merges the base, so it stops while the /ship run that already passed Steps 1-3 on this checkout
+ * is open: its marker is in the git dir (finish removes it) and its run is open on the checkout's own lease (gstack-lease
+ * open: GST-1205's released, 120-minute and dead-holder rules). The run's readers diff this tree. A different --run whose
+ * caller is the open run's holder (the harness behind preflight: the Claude Code session, or Capy's one capy-server) is a
+ * new /ship after one that stopped before finish, so it goes on; the same id, no --run, or another live holder's run stops.
+ * A --run is opened on the lease here, before the fetch, and one that cannot be is a STOP, never an unprotected run.
+ */
+function shipRunClear(cwd: string, base: string, run: string | undefined, r: Report): boolean {
+  const marker = shipRunMarker(cwd);
+  const open = marker && fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : '';
+  const lease = (verb: string, id: string, from = false) => bin(cwd, 'gstack-lease', [verb, '--root', cwd, '--run', id, ...(from ? ['--from', String(process.ppid)] : [])], 60_000);
+  if (RUN_ID.test(open) && lease('open', open).status === 0 && !(run && run !== open && lease('open', open, true).status === 0)) {
+    r.stop(`/ship run ${open} is open on this checkout and past its preflight (${marker}; open until its finish or for 120 minutes): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish; if it is no longer running, rm ${marker}, then rerun`);
+    return false;
+  }
+  const touch = run ? lease('touch', run, true) : undefined;
+  if (!touch || touch.status === 0) return true;
+  r.stop(`cannot record /ship run ${run} on this checkout's lease (${firstLine(touch.stderr) || `gstack-lease touch exit ${touch.status}`}): unrecorded, a later full preflight could merge origin/${base} under this run's reviews; fix that, then rerun`);
+  return false;
+}
+
+function integrate(cwd: string, base: string, run: string | undefined, r: Report): boolean {
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
   r.add(`BRANCH: ${branch || '(detached)'} base=${base}`);
   if (!branch || branch === base) { r.stop(`on the base branch (${branch || 'detached HEAD'}): ship from a feature branch`); return false; }
+  if (!shipRunClear(cwd, base, run, r)) return false;
   const status = git(cwd, ['status', '--porcelain']).stdout.split('\n').filter(Boolean);
   r.add(`STATUS: modified=${status.filter(l => !l.startsWith('??')).length} untracked=${status.filter(l => l.startsWith('??')).length} (uncommitted changes ship with this run)`);
   const fetch = git(cwd, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], 300_000);
@@ -87,7 +114,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
   const scopeError = /^SCOPE_ERROR=(?!unmatched)(\S+)/m.exec(scope)?.[1];
   if (scopeError) r.add(`SCOPE: unknown (gstack-diff-scope origin/${base}: SCOPE_ERROR=${scopeError})`);
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the design lite check; mention /design-review when no design review exists)' : ''}`);
-  return merge(cwd, base, r);
+  if (!merge(cwd, base, r)) return false;
+  const marker = run && shipRunMarker(cwd);
+  try { if (marker) fs.writeFileSync(marker, `${run}\n`); } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }
+  return true;
 }
 
 /** The diff against origin/<base> must be about the PR's size: far more files (a stale or wrong base, HARN-15's 17,000-file review of main's history) or fewer (a fork's origin ahead of the PR's base, which would leave commits out of the gate scan) stops before any reader runs. Checked only when HEAD is the PR's pushed head. */
@@ -228,13 +258,15 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   const timeout = flag('--timeout');
   if (has('--timeout') && !(timeout && /^[1-9]\d*$/.test(timeout) && Number(timeout) <= 3600)) return { text: 'gstack-ship-preflight: --timeout needs whole seconds from 1 to 3600\n', exit: 2 };
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
+  const run = flag('--run');
+  if (has('--run') && !(run && RUN_ID.test(run))) return { text: 'gstack-ship-preflight: --run needs a run id: letters, digits, dot, underscore or dash, at most 128\n', exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
   if (has('--simulate')) return has('--tests-only') && policyFrom === 'head' && list.length ? simulate(cwd, base, list, has('--allow-repo-commands')) : { text: 'gstack-ship-preflight: --simulate needs --tests-only --policy-from head and at least one --lane <label>=<command>\n', exit: 2 };
   const mode = flag('--lanes');
   const concurrency = has('--lanes') && mode === undefined ? '--lanes needs serial or parallel' : laneConcurrency(mode);
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
-  if (has('--tests-only') || integrate(cwd, base, r)) {
+  if (has('--tests-only') || integrate(cwd, base, run, r)) {
     if (list.length) await tests(cwd, base, list, policyFrom, timeout, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
