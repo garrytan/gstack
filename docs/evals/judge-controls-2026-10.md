@@ -1,5 +1,7 @@
 # Workflow-judge control bundles (C1), pre-registered 2026-10-04
 
+> Historical record. The workflow clarity judges and `scripts/judge-controls.ts` were removed in GST-1371 (2026-11-04); the evals that check real outcomes replace them.
+
 Purpose: learn whether the workflow judges that produced low samples in the eight
 wave censuses (37174266054 … 37198445662) can separate a sound workflow from a
 broken one. Score compression at 4 is a hypothesis; these controls test it.

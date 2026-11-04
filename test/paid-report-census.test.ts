@@ -201,17 +201,18 @@ describe('record builders attach ledger sessions and failure causes (plan 0.1/0.
 });
 
 describe('red lines carry their values, evidence and a one-case command (plan 0.3)', () => {
-  const QA_ONLY = 'qa-only/SKILL.md workflow';
+  const QA_ONLY = 'voice directive tone';
   const addJudgeRed = (dir: string) => {
     const shard = path.join(dir, 'paid-slice-1-a1', 'shards', 'skill-llm-eval');
     fs.mkdirSync(shard, { recursive: true });
     const message = 'expect(received).toBeGreaterThanOrEqual(expected)\n\nExpected: &gt;= 4\nReceived: 3.6666666666666665\n';
     fs.writeFileSync(path.join(shard, 'junit.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites><testsuite name="test/skill-llm-eval.test.ts">`
-      + `<testcase name="${QA_ONLY}" classname="Other skill evals" time="34.8" file="test/skill-llm-eval.test.ts" line="9">`
+      + `<testcase name="${QA_ONLY}" classname="Voice directive eval" time="34.8" file="test/skill-llm-eval.test.ts" line="9">`
       + `<failure type="AssertionError" message="${message.replace(/\n/g, '&#10;')}" /></testcase></testsuite></testsuites>\n`);
-    // Trimmed from census 37198445662's paid-slice-5-a1 qa-only record.
+    // Trimmed from census 37198445662's paid-slice-5-a1 qa-only record, relabeled as a kept judge case
+    // after the workflow clarity judges were removed.
     fs.writeFileSync(path.join(shard, '1.91.19-x-llm-judge-2026-10-04-1129.json'), JSON.stringify({ tier: 'llm-judge', total_cost_usd: 0.06, tests: [{
-      name: QA_ONLY, suite: 'Other skill evals', tier: 'llm-judge', passed: false, duration_ms: 34829, cost_usd: 0.06, execution: 'executed',
+      name: QA_ONLY, suite: 'Voice directive eval', tier: 'llm-judge', passed: false, duration_ms: 34829, cost_usd: 0.06, execution: 'executed',
       judge_scores: { clarity: 3.6666666666666665, completeness: 4.333333333333333, actionability: 3.6666666666666665 },
       judge_reasoning: '[sample 1] The bundle is thorough. Clarity suffers from extreme density and cross-file indirection. Two actionability concerns: Browser Quick allots 30 seconds.\n[sample 2] Deliverables are concrete.\n[sample 3] Execution is feasible.',
       exit_reason: 'validation_failed', error: message.replace('&gt;', '>') }] }));
@@ -232,9 +233,9 @@ describe('red lines carry their values, evidence and a one-case command (plan 0.
     expect(line).toContain('FAIL  assertion — expect(received).toBeGreaterThanOrEqual(expected)');
     expect(line).toContain('· cause assertion  clarity 3.67 < 4 (3 samples) "Clarity suffers from extreme density and cross-file indirection."; '
       + 'actionability 3.67 < 4 (3 samples) "Two actionability concerns: Browser Quick allots 30 seconds."');
-    expect(line).toContain('evidence: paid-slice-1-a1/shards/skill-llm-eval (fetch: bun run eval:pass-rates --run 37198445662 --case \'qa-only/SKILL.md workflow\')');
+    expect(line).toContain('evidence: paid-slice-1-a1/shards/skill-llm-eval (fetch: bun run eval:pass-rates --run 37198445662 --case \'voice directive tone\')');
     expect(line).toContain(`after a repair: EVALS=1 EVALS_TIER=gate EVALS_JUDGE_SELECTION_JSON='{"version":1,"selected":["${QA_ONLY}"],"reason":"after a repair"}' `
-      + `bun test test/skill-llm-eval.test.ts -t '(?:^|\\s)(?:qa-only/SKILL\\.md workflow)$'`);
+      + `bun test test/skill-llm-eval.test.ts -t '(?:^|\\s)(?:voice directive tone)$'`);
     expect(line).not.toContain('rerun:');
     const record = r.history.find(x => x.case === QA_ONLY);
     expect(record).toMatchObject({ failure_class: 'assertion', error: 'expect(received).toBeGreaterThanOrEqual(expected)', failure_cause: 'assertion',

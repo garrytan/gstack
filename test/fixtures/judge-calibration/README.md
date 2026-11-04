@@ -22,6 +22,11 @@ and priced usage, and `comparison-1.result.json` holds the flip rates, agreement
 false passes, error rates, p95 latency, landing decision and the UC3 prose-step
 trigger. `manifest.json` prices every planned call before dispatch.
 
+The `qa-workflow`, `qa-health-rubric`, `workflow-default` and `cookie-workflow`
+configurations and their corpora were removed with the skill-text clarity judges
+(GST-1371, 2026-11-04). Their rows below, and their entries in `manifest.json`, are the
+historical record of the comparison.
+
 ## Comparison (1) results (2026-10-03, `claude-fable-5-1`, unless the row says otherwise)
 
 Flips are panel-verdict differences on items where both panels completed: old-vs-old

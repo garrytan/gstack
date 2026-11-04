@@ -62,7 +62,6 @@ const BASELINE = [
   'test/codex-eval-recording.test.ts',
   'test/codex-resume-flag-semantics.test.ts',
   'test/context-restore-fragment-verdict.test.ts', // GSTA-91: replays three captured false reds (0/3 on main cb99df4) through the paid context-restore-fragment-match case's fragmentRestoreVerdict
-  'test/cookie-workflow-judge-input.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/cso-ntfs-fixture.test.ts',
   'test/cso-windows-build-contract.test.ts',
   'test/dependency-security.test.ts',
@@ -243,8 +242,6 @@ const BASELINE = [
   'test/ubicloud-runner-reattach.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
   'test/ubicloud-runner-recovery.test.ts', // GST-1220: recovery bundle and results sink; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
   'test/ubicloud-runner-tiers.test.ts', // GSTA-151: split from test/ubicloud-runner.test.ts for shard time; runs scripts/ubicloud/ubi-runner.sh through test/helpers/ubi-runner-fake-vm.ts
-  'test/workflow-judge-cache.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
-  'test/workflow-judge-input.test.ts', // slices test/skill-llm-eval.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
 ];
 
 function freeTests(): string[] {

@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { callJudge } from './helpers/llm-judge';
-import { WORKFLOW_JUDGE_RESPONSE_SCHEMA } from './helpers/workflow-judge-input';
 
 const scores = { clarity: 4, completeness: 4, actionability: 4, reasoning: 'Complete workflow with explicit gates.' };
+const score = { type: 'integer', enum: [1, 2, 3, 4, 5] };
+const SCORE_SCHEMA = {
+  type: 'object',
+  properties: { clarity: score, completeness: score, actionability: score, reasoning: { type: 'string' } },
+  required: ['clarity', 'completeness', 'actionability', 'reasoning'],
+  additionalProperties: false,
+};
 let originalKey: string | undefined;
 let transport: ReturnType<typeof spyOn>;
 let diagnostics: ReturnType<typeof spyOn>;
@@ -48,12 +54,12 @@ test('the pinned SDK refuses a default nonstreaming 64k request before network a
 test('effort reaches the wire beside the response schema and is absent unless requested', async () => {
   transport.mockImplementation(async () => response());
   await callJudge('score the whole bundle', 'claude-fable-5-1', {
-    max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA, effort: 'medium',
+    max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA, effort: 'medium',
   });
   await callJudge('score the whole bundle', 'claude-fable-5-1', { max_tokens: 65_536, stream: true, effort: 'medium' });
   await callJudge('score the whole bundle', 'claude-fable-5-1', { max_tokens: 65_536, stream: true });
   const bodies = transport.mock.calls.map((call: any[]) => JSON.parse(call[1].body));
-  expect(bodies[0].output_config).toEqual({ format: { type: 'json_schema', schema: WORKFLOW_JUDGE_RESPONSE_SCHEMA }, effort: 'medium' });
+  expect(bodies[0].output_config).toEqual({ format: { type: 'json_schema', schema: SCORE_SCHEMA }, effort: 'medium' });
   expect(bodies[1].output_config).toEqual({ effort: 'medium' });
   expect(bodies[2]).not.toHaveProperty('output_config');
   for (const body of bodies) expect(body).not.toHaveProperty('thinking');
@@ -62,12 +68,12 @@ test('effort reaches the wire beside the response schema and is absent unless re
 test('the real SDK streams 64k requests and parses only completed public text', async () => {
   transport.mockResolvedValue(response());
   expect(await callJudge('score the whole bundle', 'claude-fable-5-1', {
-    max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA,
+    max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA,
   })).toEqual(scores);
   expect(transport).toHaveBeenCalledTimes(1);
   const request = transport.mock.calls[0][1];
   expect(JSON.parse(request.body)).toEqual({ model: 'claude-fable-5-1', max_tokens: 65_536,
-    output_config: { format: { type: 'json_schema', schema: WORKFLOW_JUDGE_RESPONSE_SCHEMA } },
+    output_config: { format: { type: 'json_schema', schema: SCORE_SCHEMA } },
     messages: [{ role: 'user', content: 'score the whole bundle' }], stream: true });
   expect(new Headers(request.headers).has('anthropic-beta')).toBe(false);
   expect(diagnostics).not.toHaveBeenCalled();
@@ -77,7 +83,7 @@ test('streamed truncation and refusal retain public evidence but never partial s
   for (const [stopReason, text] of [['max_tokens', '{"clarity":4'], ['max_tokens', null], ['refusal', null]] as const) {
     transport.mockResolvedValue(response(stopReason, text));
     await expect(callJudge('score the whole bundle', 'claude-fable-5-1', {
-      max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA,
+      max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA,
     })).rejects.toThrow(stopReason === 'max_tokens' ? 'truncated at max_tokens=65536' : 'provider refused');
     const diagnostic = diagnostics.mock.calls.at(-1)![0];
     expect(diagnostic).not.toContain('PRIVATE_');
@@ -94,7 +100,7 @@ test('streaming retains the caller abort signal instead of extending its deadlin
   }));
   const controller = new AbortController();
   const pending = callJudge('score the whole bundle', 'claude-fable-5-1', {
-    max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA, signal: controller.signal,
+    max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA, signal: controller.signal,
   });
   const failure = new Error('Original workflow walltime elapsed');
   const rejected = pending.catch(error => error);
@@ -129,7 +135,7 @@ test('a judge aborted mid-stream retains what it had received, as counts without
   });
   const controller = new AbortController();
   const rejected = callJudge('score the whole bundle', 'claude-fable-5-1', {
-    max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA, signal: controller.signal,
+    max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA, signal: controller.signal,
   }).catch(error => error);
   await received;
   const failure = new Error('ship/SKILL.md workflow exceeded its workflow judge work deadline');
@@ -209,7 +215,7 @@ test('an event the diagnostic cannot read never changes the judge result', async
   const body = (await unreadable.text()).replace('"thinking":"PRIVATE_THINKING"', '"thinking":null');
   transport.mockResolvedValue(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
   expect(await callJudge('score the whole bundle', 'claude-fable-5-1', {
-    max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA,
+    max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA,
   })).toEqual(scores);
 });
 
@@ -249,7 +255,7 @@ test('pings after the last SDK event show a live connection; a silent socket sho
     }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream', 'request-id': 'req_quiet' } }));
     const controller = new AbortController();
     const rejected = callJudge('score the whole bundle', 'claude-fable-5-1', {
-      max_tokens: 65_536, stream: true, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA, signal: controller.signal,
+      max_tokens: 65_536, stream: true, jsonSchema: SCORE_SCHEMA, signal: controller.signal,
     }).catch(error => error);
     await received;
     const failure = new Error('review/SKILL.md workflow exceeded its workflow judge work deadline');
