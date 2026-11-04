@@ -29,7 +29,7 @@ export function readWorkflowJudgeInput(opts: {
     kind: 'entrypoint' as const,
     content: readSkillStartup(path.join(opts.root, opts.skillPath)),
   }];
-  const sectionDir = path.join(path.dirname(opts.skillPath), 'sections');
+  const sectionDir = path.posix.join(path.posix.dirname(opts.skillPath), 'sections');
   const sectionRoot = path.join(opts.root, sectionDir);
   // Runner-profile sections (manifest `runner_only`, plan B4) are read by
   // bin/gstack-autoplan alone; the bundle holds the interactive workflow.
@@ -40,7 +40,7 @@ export function readWorkflowJudgeInput(opts: {
   const sections = fs.existsSync(sectionRoot)
     ? fs.readdirSync(sectionRoot).sort().filter(name => name.endsWith('.md') && !runnerOnly.has(name) && name !== SHARED_PREAMBLE_FILE)
       .map(name => ({
-        path: path.join(sectionDir, name),
+        path: path.posix.join(sectionDir, name),
         kind: 'section' as const,
         content: fs.readFileSync(path.join(sectionRoot, name), 'utf8'),
       }))
