@@ -2019,7 +2019,7 @@ reports the PR clean, land merges it as it is. Then it runs `gh pr merge
 reads the merge commit, and checks that its tree is the pin merged onto the
 merge commit's parent ([`QUEUE_LAND_UNVERIFIED`](troubleshooting.md#queue-land-unverified)
 if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
-after GitHub merged goes straight to the tree check; for a release PR it fetches the pin first and reads the pin's parent, the base commit it was stamped on, and a parent it cannot read is `QUEUE_NOT_READY` (cannot verify), not a pass. `--dry-run` runs every
+after GitHub merged goes straight to the tree check. `--dry-run` runs every
 check and merges nothing. Under `merge: direct`, `train build` refuses and
 names this command.
 
@@ -2053,8 +2053,7 @@ ships under a version its fragment missed): every fragment there folded and
 none added, the version equal to the base's plus their bump, every
 other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
 changed release output equal to what the release tool generates at the new
-version, and no release output deleted (a release regenerates its outputs, and
-the refusal names the deleted path before the release tool runs). Anything more is
+version. Anything more is
 [`RELEASE_STAMP_INVALID`](troubleshooting.md#release-stamp-invalid), and
 nothing merges. The Version Gate (`Check VERSION is not stale vs queue`)
 applies the same test, so a release head passes it while any other PR that
