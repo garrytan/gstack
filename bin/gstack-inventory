@@ -1,0 +1,54 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+// gstack-inventory — every gstack part, its load per run and its evidence (ETHOS.md: 9. Earn Its Place). Logic: lib/inventory.ts.
+import { spawnSync } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { buildInventory, checkInventory, DOC_PATH, installReason, LEDGER_PATH, renderInventory } from "../lib/inventory";
+
+const USAGE = `Usage: gstack-inventory [--root <gstack checkout>] [--check | --json]
+       gstack-inventory --help
+
+Joins the evidence ledger (${LEDGER_PATH}) with gstack-context-bill's sizes and writes ${DOC_PATH}:
+parts ranked by load per run, each part's evidence status, a "measure next" order (largest untested
+first), shared-part sizes, paid dispatches per run for /ship and /autoplan, and the key list.
+--check validates the ledger (every key has one row; each row has its status's fields), the quoted
+dispatch sources and the shared-part files, and writes nothing. --json prints the inventory.
+The root defaults to the git repo you run it in; it never writes into a gstack install.
+Exit 0 when clean; 1 with one "<key>: <problem> (<CODE>)" line per problem; 2 on a bad argument.`;
+
+const args = process.argv.slice(2);
+if (args.includes("--help") || args.includes("-h")) { console.log(USAGE); process.exit(0); }
+const rootAt = args.indexOf("--root");
+const rootArg = rootAt >= 0 ? args[rootAt + 1] : undefined;
+const unknown = args.find((a, i) => !["--check", "--json", "--root"].includes(a) && !(rootAt >= 0 && i === rootAt + 1));
+if (unknown !== undefined || (rootAt >= 0 && (!rootArg || rootArg.startsWith("--"))) || (args.includes("--check") && args.includes("--json"))) {
+  console.error(unknown !== undefined ? `gstack-inventory: unknown argument '${unknown}'; valid: --root <dir> --check --json --help` : USAGE);
+  process.exit(2);
+}
+const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 10_000 });
+const root = resolve(rootArg ?? (top.status === 0 ? top.stdout.trim() : process.cwd()));
+if (rootArg === undefined && !existsSync(join(root, LEDGER_PATH))) {
+  console.error(`gstack-inventory: ${root} is not a gstack checkout (no ${LEDGER_PATH}); run it in your gstack checkout or pass --root <dir>`);
+  process.exit(2);
+}
+const report = (problems: { key: string; code: string; message: string }[]) => {
+  for (const p of problems) console.error(`gstack-inventory: ${p.key}: ${p.message} (${p.code})`);
+};
+if (args.includes("--check")) {
+  const checked = checkInventory(root);
+  report(checked.problems);
+  if (checked.problems.length) process.exit(1);
+  console.log(`INVENTORY: ok keys=${checked.keys.length} ledger=${LEDGER_PATH} dispatch_sources=${checked.dispatches.length}`);
+  process.exit(0);
+}
+const inv = buildInventory(root);
+report(inv.problems);
+if (args.includes("--json")) { console.log(JSON.stringify(inv, null, 2)); process.exit(inv.problems.length ? 1 : 0); }
+if (inv.problems.length) { console.error(`gstack-inventory: ${DOC_PATH} not written; fix the problems above, then rerun`); process.exit(1); }
+const installed = installReason(root);
+if (installed) {
+  console.error(`gstack-inventory: refusing to write ${DOC_PATH} into ${root}: it is ${installed}, which gstack-upgrade owns; run it in your gstack checkout or pass --root <dir>`);
+  process.exit(2);
+}
+writeFileSync(join(root, DOC_PATH), renderInventory(inv));
+console.log(`INVENTORY: wrote ${DOC_PATH} keys=${inv.keys.length} commit=${inv.commit}`);

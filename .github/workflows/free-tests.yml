@@ -20,9 +20,14 @@ name: Free Tests
 # passes. A push to main first runs `reuse`: when the merged pull request's
 # head has the pushed tree and a green pull_request or workflow_dispatch run of
 # this workflow verifies (lib/run-evidence.ts), every suite job is skipped and
-# the aggregate links that run instead. Any other answer, a reuse failure
-# included, runs every job as before. Pull request and dispatch runs never
-# consume; reused runs never upload a record, so they are never reused.
+# the aggregate links that run instead. A pull request run reuses too, but
+# only a run the pull request cannot control: a green push or dispatch run on
+# main, or a dispatch run on its own branch, at the merge commit's exact tree,
+# while the merge commit leaves this file, scripts/ci-tree-reuse.ts and
+# lib/run-evidence.ts byte-identical to main. A pull_request run is never a
+# source. Any other answer, a reuse failure included, runs every job as before.
+# Dispatch runs never consume; reused runs never upload a record, so they are
+# never reused.
 
 on:
   pull_request:
@@ -77,14 +82,14 @@ permissions:
   contents: read
 
 jobs:
-  # Main pushes only, and the one job with actions: read (it reads this
-  # repository's runs and their tested-tree artifacts). Every suite job below
-  # runs unless this job succeeded and reused a run; a skipped or failed reuse
-  # job runs them all. Their conditions start with !cancelled() because a
-  # skipped needed job would otherwise skip its dependents on pull_request and
-  # dispatch runs, where reuse never runs.
+  # Main pushes and pull requests only, and the one job with actions: read (it
+  # reads this repository's runs and their tested-tree artifacts). Every suite
+  # job below runs unless this job succeeded and reused a run; a skipped or
+  # failed reuse job runs them all. Their conditions start with !cancelled()
+  # because a skipped needed job would otherwise skip its dependents on dispatch
+  # runs, where reuse never runs.
   reuse:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -96,17 +101,21 @@ jobs:
       run_url: ${{ steps.find.outputs.run_url }}
       tree: ${{ steps.find.outputs.tree }}
     steps:
+      # On a pull request this checks out main (the base commit), never the
+      # merge commit, so the reuse script, its imports and the run profile are
+      # main's code; bun ignores any .env or bunfig.toml in the checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - id: find
-        name: Find a green pull request or dispatch run of this exact tree
+        name: Find a green run of this exact tree that this run's pull request cannot control
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bun run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests
+        run: bun --no-env-file --config=/dev/null run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests --pull-request
 
   free-plan:
     needs: reuse
@@ -252,7 +261,7 @@ jobs:
           test "$resolved" != "${tmp%/}"
           files=(test/gstack-design-detect.test.ts browse/test/chromium-profile-isolation.test.ts test/cso-git-hardening.test.ts test/plan-count-file-permission.test.ts test/spec-quality-gate-secret-sink.test.ts test/gstack-memory-ingest.test.ts test/regression-issue3024-zsh-sourced-helpers.test.ts test/codex-probe-subcommands.test.ts browse/test/proxy-env-daemon.test.ts browse/test/proxy-direct-launch-args.test.ts test/regression-issue3680-ubicloud-bsd-userland.test.ts)
           for file in "${files[@]}"; do test -f "$file"; done
-          bun test "${files[@]}"
+          bun test --timeout=30000 "${files[@]}"
 
   cso-windows-launcher:
     needs: reuse
@@ -669,7 +678,7 @@ jobs:
   # stable name as an always-running aggregate so every platform-specific CSO
   # gate is merge-blocking without a separate branch-protection migration.
   # Its first step picks one of two exclusive paths before any download: a
-  # verified reuse (main pushes only) links the reused run and passes; anything
+  # verified reuse (main pushes and pull requests) links the reused run and passes; anything
   # else takes the strict path below unchanged, which alone uploads tested-tree.
   free-tests:
     if: always()
@@ -677,7 +686,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Take the reuse path only for a verified main-push reuse
+      - name: Take the reuse path only for a verified main-push or pull request reuse
         id: route
         env:
           REUSE_RESULT: ${{ needs.reuse.result }}
@@ -691,8 +700,10 @@ jobs:
             echo 'reused=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          test "$GITHUB_EVENT_NAME" = push
-          test "$GITHUB_REF" = refs/heads/main
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/heads/main|pull_request:refs/pull/*/merge) ;;
+            *) echo "::error::reuse claimed on a $GITHUB_EVENT_NAME run of $GITHUB_REF"; exit 1 ;;
+          esac
           case "$REUSE_RUN_ID" in ''|*[!0-9]*) echo "::error::the reuse job named no run id"; exit 1 ;; esac
           case "$REUSE_TREE" in ''|*[!0-9a-f]*) echo "::error::the reuse job named no tree"; exit 1 ;; esac
           test "$REUSE_RUN_URL" = "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID"
@@ -756,6 +767,7 @@ jobs:
         if: steps.route.outputs.reused != 'true'
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SIZING_OVERRIDE: ${{ inputs.free_runner }}${{ inputs.free_shards }}${{ inputs.free_jobs }}
         run: bun run scripts/ci-tree-reuse.ts record --plan "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results" --os Linux,macOS,Windows --out "$RUNNER_TEMP/tested-tree/tree.json"
       - name: Upload the tested tree
         if: steps.route.outputs.reused != 'true'

@@ -37,6 +37,33 @@ export function promptHash(text: string): string {
 
 export class BriefError extends Error {}
 
+/**
+ * The outside voice's diff within a byte cap (FOUN-32 §3): whole per-file sections in diff order while they fit, so a reader past
+ * the cap still starts on a path-scoped slice and the brief names what it left out, instead of failing to start on a 3-4 MB brief.
+ */
+export function sliceDiff(text: string, cap: number): { text: string; sliced: boolean; files: number; kept: number; bytes: number; total: number; left: string[] } {
+  const total = Buffer.byteLength(text);
+  const starts = [...text.matchAll(/^diff --git (.*)$/gm)];
+  const name = (rest: string) => {
+    const quoted = /^"a\/((?:[^"\\]|\\.)*)"/.exec(rest);
+    if (quoted) return `"${quoted[1]}"`;
+    const half = (rest.length - 1) / 2;
+    if (rest.startsWith('a/') && rest.slice(half) === ` b/${rest.slice(2, half)}`) return rest.slice(2, half);
+    return rest.startsWith('a/') ? rest.slice(2).split(' b/')[0]! : rest;
+  };
+  if (total <= cap || !starts.length) return { text, sliced: false, files: starts.length, kept: starts.length, bytes: total, total, left: [] };
+  let out = '', bytes = 0;
+  const left: string[] = [];
+  starts.forEach((m, k) => {
+    const section = text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length);
+    const n = Buffer.byteLength(section);
+    if (bytes + n <= cap) { out += section; bytes += n; } else left.push(name(m[1]!));
+  });
+  return { text: out, sliced: true, files: starts.length, kept: starts.length - left.length, bytes, total, left };
+}
+/** The brief's line for a sliced diff: what was read and what was left out (at most 50 paths named). */
+export const sliceNote = (s: ReturnType<typeof sliceDiff>, cap: number) => `This is a path-scoped slice: ${s.kept} of ${s.files} files, ${s.bytes} of ${s.total} bytes (the cap is ${cap} bytes). Not in the slice, so not reviewed here: ${s.left.slice(0, 50).join(', ')}${s.left.length > 50 ? ` and ${s.left.length - 50} more` : ''}.`;
+
 /** The text strictly between start and end, end searched after start; both anchors are required. */
 function between(text: string, start: string, end: string, what: string): string {
   const i = text.indexOf(start);
@@ -134,12 +161,21 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
         ['{red-team checklist path}', need(slots, 'checklist')], ['<diff-base>', diffBase]], role);
       return fixtures(`${t.framing}\n\n${t.fixtures}\n\n${body}`);
     }
-    case 'adversarial-native':
-      return fixtures(fill(t.native, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role));
+    case 'adversarial-native': {
+      const native = fixtures(fill(t.native, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role));
+      const lists = (slots.checklists ?? '').split(',').map(s => s.trim()).filter(Boolean);
+      const merged = lists.length ? `${native}\n\nIn the same read, apply each checklist at ${lists.join(', ')} to the diff, and tag each finding's "specialist" with the name of the checklist it came from (adversarial for your own).` : native;
+      if (!slots.classes) return merged;
+      const classes = parseClassList(slots.classes);
+      if (!classes?.length) throw new BriefError(`slot classes must list money, gate, auth or secret, got ${JSON.stringify(slots.classes)}`);
+      try { return `${targetedBrief(need(slots, 'brief'), classes)}\n\n${merged}\n\nApply the targeted brief above (${need(slots, 'checklist')}: ${classes.join(', ')}) in the same read; your reply is this diff's targeted pass.`; } catch (e) { throw e instanceof BriefError ? e : new BriefError((e as Error).message); }
+    }
     case 'outside-voice': {
       const filled = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
       const body = slots.policy_exclude ? filled.split('git diff "$DIFF_BASE".').join(`git diff "$DIFF_BASE" -- . ${slots.policy_exclude}${slots.keep ? ` and git diff "$DIFF_BASE" -- ${slots.keep}` : ''}.`) : filled;
-      return [body, '', ...(slots.disclosure ? [slots.disclosure, ''] : []), `## Branch diff (git diff ${diffBase})`, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
+      const head = [body, '', ...(slots.disclosure ? [slots.disclosure, ''] : []), `## Branch diff (git diff ${diffBase})`];
+      if (slots.diff_file) return [...head, `The supplied branch diff is the file ${slots.diff_file} (${need(slots, 'diff_bytes')} bytes, sha256 ${need(slots, 'diff_sha256')}). Read it from disk; it is ${slots.diff_slice ? 'the part of the diff under review' : 'the whole diff under review'}.`, ...(slots.diff_slice ? [slots.diff_slice] : [])].join('\n');
+      return [...head, FENCE + 'diff', (slots.diff ?? '').trim(), FENCE].join('\n');
     }
     case 'targeted': {
       const classes = parseClassList(need(slots, 'classes'));

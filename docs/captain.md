@@ -271,6 +271,33 @@ the same product diff; any other rebase is a full /ship
 ([ship-policy.md](ship-policy.md#receipt-carry)). A controller never asks a lane to
 rebase a reviewed branch.
 
+## Direct land (`merge: direct`)
+
+When the base policy sets `"merge": "direct"`, there are no trains, slot calls or stamp
+commits. Each PR merges at its own green head, and versions are set at release
+([ship-policy.md](ship-policy.md#land-direct)):
+
+1. Lane: /ship, then `gstack-ship-queue ready --pr <n> --no-screen` at the pinned head,
+   then READY to the Captain with that pin. The PR carries a `changelog.d` fragment and
+   leaves VERSION, the `package.json` version and CHANGELOG.md alone.
+2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>`. It merges with
+   `--match-head-commit`, checks main's tree and writes a land note.
+3. Release: the release gate stamps the version and folds the fragments.
+
+What to do with each refusal (nothing was merged unless the code says so):
+
+| Code | Who acts | Action |
+|---|---|---|
+| `QUEUE_LAND_STAMPED` | lane | run the printed `git checkout $(git merge-base origin/main HEAD) -- …`, keep the fragment, commit, /ship and `ready` again |
+| `QUEUE_LAND_PIN_MOVED` | lane | /ship and `ready` at the new head, new READY |
+| `QUEUE_RECEIPT_MISSING` / `QUEUE_RECEIPT_STALE` | lane | /ship at the pin |
+| `QUEUE_NOT_READY` | lane, or Captain | no READY note: `ready --pr <n> --no-screen` at the pin; `merge: train`: use the train; closed or retargeted PR: as named |
+| `QUEUE_LAND_CHECKS` | Captain, then lane | pending: `gstack-pr-wait <n> --until green` and rerun; red: back to the lane (rule 16 rerun for a flaky case); missing: dispatch the workflow on the branch |
+| `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
+| `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
+| `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
+| `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent: revert the stray change, report it |
+
 ## Merge trains
 
 gstack's queue tool drives trains when the repository's `.gstack/ship-policy.json` carries
