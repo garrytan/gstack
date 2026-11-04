@@ -88,7 +88,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` forwards its own `--timeout`; without it, and in the `finish` fallback, this is how a repo with long lanes sets theirs |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | name → `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the main-push reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
 | `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
@@ -924,8 +924,9 @@ merge path.
 **What is never reusable.** Security and advisory scans (osv, audit,
 gitleaks) depend on the day, not on the tree, so they are not run profiles:
 they run on every head as before, and `--from-run` never skips them.
-Pull-request required checks and dispatched runs always run fresh; only a
-push to main reuses ([below](#ci-reuse)).
+Dispatched runs always run fresh. A push to main reuses
+([below](#ci-reuse)), and a Free Tests pull request run reuses only a run it
+can't control ([below](#ci-reuse-pr)).
 
 <a id="from-run"></a>
 ### The tests stage from a Free Tests run (`--from-run`)
@@ -1191,8 +1192,8 @@ prints `CI_WAIT: green|red|running|none`, then `find`'s verdict on green.
 
 A squash merge whose pull request head already held main produces a push with
 the identical tree, and Free Tests and Windows Free Tests used to run on it a
-second time. Now each workflow starts with a `reuse` job that runs only on a
-push to `main`, with job-level `contents: read` and `actions: read` (every other
+second time. Now each workflow starts with a `reuse` job that runs on a push
+to `main` (and, for Free Tests, on pull requests: [below](#ci-reuse-pr)), with job-level `contents: read` and `actions: read` (every other
 job keeps the workflow's `contents: read`). It runs
 `scripts/ci-tree-reuse.ts find`, which:
 
@@ -1210,8 +1211,8 @@ It writes `reused=true` with the run's id and link, or `reused=false` and the
 reason, and prints one `REUSE:` line in the step summary. Every suite job
 needs `reuse` and runs unless it succeeded with `reused=true`; their
 conditions start with `!cancelled()` because GitHub otherwise skips a job whose
-needed job was skipped, and `reuse` is skipped on every pull request and
-dispatch run. The required aggregates (`free-tests`, `windows-free-tests`)
+needed job was skipped, and `reuse` is skipped on every dispatch run (and on
+every Windows Free Tests run). The required aggregates (`free-tests`, `windows-free-tests`)
 choose a path in their first step, before any download. A verified reuse writes
 the reused run's link to the summary and passes; anything else, a failed or
 skipped `reuse` job included, takes the strict path unchanged. Only the strict
@@ -1222,6 +1223,46 @@ repository; a private fork of this setup would need `pull-requests: read`,
 and without it every push falls back to the full run. Windows Free Tests now
 runs nightly and by hand only (docs/support-tiers.md), never on a push, so its
 `reuse` job is always skipped and every nightly run takes the strict path.
+
+<a id="ci-reuse-pr"></a>
+#### Pull requests reuse only a run they can't control
+
+Free Tests' `reuse` job also runs on `pull_request`, as
+`find … --pull-request` (`findPrReuse`). On a pull request it checks out the
+base commit, never the merge commit, and runs bun with `--no-env-file
+--config=/dev/null`, so the reuse script, everything it imports and the run
+profile are main's code. Main pushes stay the only consumers
+of anything a pull request could certify for itself, so a `pull_request` run
+is never a source. A pull request run reuses a green run only when all of these
+hold:
+
+1. the pull request's head is on this repository (`fork_head`), it targets
+   main (`not_main_pr`), and this is the run's first attempt (`rerun`: a re-run
+   never reuses, so a red earlier attempt stays visible);
+2. GitHub's merge commit has exactly two parents, main and the pull request's
+   head (`merge_mismatch`);
+3. the merge commit leaves `.github/workflows/free-tests.yml`
+   (`workflow_changed`), `scripts/ci-tree-reuse.ts` and `lib/run-evidence.ts`
+   (`script_changed`) byte-identical to its main parent, so the rules that
+   decide the reuse are main's;
+4. the source is a `push` or `workflow_dispatch` run on main, or a
+   `workflow_dispatch` run on the pull request's own branch, newest first and
+   at most 10 (`no_candidate`), whose head commit has the merge commit's tree
+   (`tree_mismatch`); and
+5. `verifyRun` accepts it under `ci-reuse/free-tests` with `push` and
+   `workflow_dispatch` as the accepted events, its `tested-tree` record names
+   the merge commit's tree, and no newer red run on its head vetoes it (the
+   pull request's own run in progress is not a veto). A dispatch that
+   overrode the runner, shards or sub-shards records `sizing_experiment` in
+   its `tested-tree`, and `verifyRun` never accepts it (`sizing_experiment`),
+   for any consumer.
+
+The aggregate's route step accepts a reuse on a `pull_request` run of
+`refs/pull/<n>/merge` as it does on a push to main. A reused pull request run
+uploads no `tested-tree`, so the main push after the merge finds the source run
+on the head (a branch dispatch) or runs every job. The usual case is a branch
+that already holds main's tip. Dispatch Free Tests on the branch, and the
+pull request run that follows reuses it instead of running the suite again.
 
 <a id="flaky-exception"></a>
 ## Owner-granted flaky exception
