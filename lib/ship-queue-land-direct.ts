@@ -94,17 +94,19 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (!havePin(root, o.pr, o.pin, info.headRefName)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch the pin ${o.pin.slice(0, 12)} from ${info.headRefName} or refs/pull/${o.pr}/head`, fix: 'fix the fetch, then rerun land' });
   const mergeBase = git(root, ['merge-base', `origin/${ctx.base}`, o.pin]).out;
   if (!isSha(mergeBase)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot compute the merge base of the pin ${o.pin.slice(0, 12)} and origin/${ctx.base}, so the release-file check cannot run`, fix: `git fetch origin ${ctx.base} and the PR head (an unshallow clone), then rerun land` });
-  const release = RELEASE_BRANCH.test(info.headRefName) ? classifyRelease({ repoRoot: root, policy, mergeBase, head: o.pin }) : null;
+  const named = RELEASE_BRANCH.exec(info.headRefName)?.[1];
+  const release = named ? classifyRelease({ repoRoot: root, policy, mergeBase, head: o.pin }) : null;
+  if (release?.ok && release.version !== named) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `${info.headRefName} stamps v${release.version}, not the version its branch names`, fix: 'close it and run gstack-release-stamp open again' });
   if (release && !release.ok) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `${info.headRefName} is not the release stamp of its merge base ${mergeBase.slice(0, 12)}: ${release.reason}`, fix: 'close it and run gstack-release-stamp open again; never edit a release branch by hand' });
   const tip = git(root, ['rev-parse', `origin/${ctx.base}`]).out;
   if (release && mergeBase !== tip) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `origin/${ctx.base} moved to ${tip.slice(0, 12)} since ${info.headRefName} was stamped on ${mergeBase.slice(0, 12)}; the PRs that landed since would ship under this version while their fragments wait for the next release`, fix: 'run gstack-release-stamp open again (it replaces the release branch), then land the new head' });
   const keys = repoIdentity(root).keys;
+  rebuildFromNotes(root, ctx.remote ?? 'origin');
   if (release) lines.push(`RELEASE: v${release.version} folds ${release.fragments.length} fragment(s) and changes nothing but the stamp, so it needs no /ship receipt or READY note`);
   else {
     const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [o.pin]);
     lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
     if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: `run /ship at the pin, then gstack-ship-queue ready --pr ${o.pr}` });
-    rebuildFromNotes(root, ctx.remote ?? 'origin');
     if (!loadReady(keys, o.pr, o.pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY note for #${o.pr} at the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs gstack-ship-queue ready --pr ${o.pr} --no-screen at the pin` });
   }
   const freeze = activeFreeze(keys);

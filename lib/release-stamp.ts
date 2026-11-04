@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { parseChangelog } from './changelog-check';
 import { effectiveBump, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef, type RestampResult } from './restamp';
 import { matchesAny, type ShipPolicy } from './ship-policy';
@@ -59,7 +60,18 @@ export function classifyRelease(o: { repoRoot: string; policy: ShipPolicy; merge
   const residual = receipt.files.filter(f => f.verdict === 'changed');
   const outside = residual.filter(f => !matchesAny(o.policy.release_outputs, f.path));
   if (outside.length) return no(`more than the stamp changed: ${outside.map(f => `${f.path} (${f.residual ?? f.rule})`).join(', ')}`);
-  const outputs = residual.map(f => f.path);
+  const manifest = (rev: string) => { const r = git(o.repoRoot, ['show', `${rev}:package.json`]); try { return r.ok ? (JSON.parse(r.out).version as string | undefined) ?? null : null; } catch { return null; } };
+  const npmWas = manifest(o.mergeBase);
+  const npmWant = npmWas === null ? null : expected.split('.').slice(0, npmWas.split('.').length).join('.');
+  if (now.rel !== 'package.json' && manifest(o.head) !== npmWant) return no(`package.json carries version ${manifest(o.head)}; the release sets ${npmWant}`);
+  const lock = git(o.repoRoot, ['show', `${o.head}:package-lock.json`]);
+  if (lock.ok) { try { const l = JSON.parse(lock.out); if (l.version !== npmWant || (l.packages?.[''] && l.packages[''].version !== npmWant)) return no(`package-lock.json's root version is not ${npmWant}`); } catch { return no('package-lock.json at the head is not JSON'); } }
+  if (o.policy.changelog) {
+    const sections = (rev: string) => { const r = git(o.repoRoot, ['show', `${rev}:${o.policy.changelog}`]); return r.ok ? parseChangelog(r.out).sections : []; };
+    const [before, after] = [sections(o.mergeBase).filter(s => !s.unreleased).map(s => s.version), sections(o.head).map(s => s.unreleased ? 'Unreleased' : s.version)];
+    if (after[0] !== now.version || after.slice(1).join(' ') !== before.join(' ')) return no(`${o.policy.changelog} must add one [${now.version}] heading on top of the released headings it had (${after.slice(0, 3).join(', ')} …)`);
+  }
+  const outputs = o.policy.release_tool ? git(o.repoRoot, ['ls-tree', '-r', '--name-only', o.head]).out.split('\n').filter(f => f && matchesAny(o.policy.release_outputs, f)) : residual.map(f => f.path);
   if (outputs.length) {
     if (!o.policy.release_tool) return no(`${outputs.join(', ')} changed and the policy names no release_tool to regenerate them`);
     const regen = regeneratedAtBase({ repoRoot: o.repoRoot, head: o.head, baseVersion: now.version, tool: o.policy.release_tool, outputs });
@@ -95,8 +107,8 @@ export function openRelease(o: OpenOptions): OpenResult {
   const fetch = git(o.repoRoot, ['fetch', '-q', 'origin', o.base]);
   if (!fetch.ok) return fail('RELEASE_STAMP_INVALID', `git fetch origin ${o.base} failed: ${fetch.err.split('\n')[0]}`);
   const baseSha = git(o.repoRoot, ['rev-parse', `origin/${o.base}`]).out;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-release-stamp-'));
-  fs.rmSync(dir, { recursive: true, force: true });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-release-stamp-'));
+  const dir = path.join(tmp, 'worktree');
   const add = git(o.repoRoot, ['worktree', 'add', '--detach', '-q', dir, baseSha]);
   if (!add.ok) return fail('RELEASE_STAMP_INVALID', `cannot create the release worktree: ${add.err}`);
   try {
@@ -123,7 +135,8 @@ export function openRelease(o: OpenOptions): OpenResult {
       '', `Folds: ${folded}`, '',
       `Land it with \`gstack-ship-queue land --pr <this PR> --pin ${head}\` once its checks are green. land checks that this head is exactly the release stamp of its merge base (RELEASE_STAMP_INVALID otherwise), so a release PR needs no /ship receipt.`,
     ].join('\n');
-    const pr = gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', body], dir);
+    const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""'], dir);
+    const pr = open.ok && open.out.trim() ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', body], dir);
     if (!pr.ok) return fail('RELEASE_STAMP_INVALID', `gh pr create failed (${pr.err.trim().split('\n')[0]}); ${branch} is pushed, so open its PR by hand`);
     const url = pr.out.trim().split('\n').pop() ?? '';
     const n = /\/pull\/(\d+)/.exec(url)?.[1];
@@ -131,7 +144,7 @@ export function openRelease(o: OpenOptions): OpenResult {
     return { ok: true, version, branch, head, pr: n, url, lines };
   } finally {
     git(o.repoRoot, ['worktree', 'remove', '--force', dir]);
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
     git(o.repoRoot, ['worktree', 'prune']);
   }
 }

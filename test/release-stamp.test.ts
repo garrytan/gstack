@@ -87,6 +87,9 @@ describe('classifyRelease and the Version Gate', () => {
     ['a fragment stays unfolded', (w: string) => fs.writeFileSync(path.join(w, 'changelog.d', 'a.md'), '- a change\n'), 'changelog.d/a.md'],
     ['the CHANGELOG entry is edited', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('- a change', '- a rewritten change')), 'CHANGELOG.md'],
     ['the release output is hand-edited', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.3.0.0\nedited\n'), 'generated/digest.md'],
+    ['package.json keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'package.json'), fs.readFileSync(path.join(w, 'package.json'), 'utf8').replace('"version": "1.3.0"', '"version": "1.2.3"')), 'package.json'],
+    ['the CHANGELOG heading names another version', (w: string) => fs.writeFileSync(path.join(w, 'CHANGELOG.md'), fs.readFileSync(path.join(w, 'CHANGELOG.md'), 'utf8').replace('## [1.3.0.0]', '## [9.0.0.0]')), 'CHANGELOG.md'],
+    ['the release output keeps the old version', (w: string) => fs.writeFileSync(path.join(w, 'generated', 'digest.md'), '# digest v1.2.3.0\nbody\n'), 'generated/digest.md'],
     ['the version is not base + the fragments\' bump', (w: string) => fs.writeFileSync(path.join(w, 'VERSION'), '1.4.0.0\n'), 'is 1.3.0.0'],
   ])('refuse a release head where %s', (_name, tamper, named) => {
     const repo = landed();
@@ -111,14 +114,15 @@ describe('gstack-release-stamp open', () => {
     const repo = landed();
     repo.git('checkout', '-q', '-b', 'elsewhere');
     const calls: string[][] = [];
-    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: 'https://github.com/o/r/pull/42\n', err: '' }; } });
+    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: args[1] === 'list' ? '' : 'https://github.com/o/r/pull/42\n', err: '' }; } });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.branch).toBe('release/1.3.0.0');
     expect(r.pr).toBe('42');
     expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/release/1.3.0.0')).toBe(r.head!);
     expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/main')).toBe(repo.git('rev-parse', 'origin/main'));
-    expect(calls[0]!.slice(0, 7)).toEqual(['pr', 'create', '--base', 'main', '--head', 'release/1.3.0.0', '--title']);
+    expect(calls.map(a => a[1])).toEqual(['list', 'create']);
+    expect(calls[1]!.slice(0, 7)).toEqual(['pr', 'create', '--base', 'main', '--head', 'release/1.3.0.0', '--title']);
     expect(r.lines.join('\n')).toContain('NEXT: gstack-ship-queue land --pr 42 --pin ' + r.head);
     expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: repo.git('rev-parse', 'origin/main'), head: r.head! }).ok).toBe(true);
     expect(repo.git('branch', '--show-current')).toBe('elsewhere');
