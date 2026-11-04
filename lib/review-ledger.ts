@@ -74,7 +74,7 @@ const STATED_SEVERITY = new RegExp(`(?<![A-Za-z0-9])Severity\\**\\s*:?\\s*\\**\\
  * ("1. Drops rows (q.ts:7). Severity: Low", "(t.md:3) Severity: Low", "- Severity: P0"), its label closing the clause. With one present a severity word in the body never raises the label (GST-976); prose that mentions a
  * severity ("pass 1 had Severity: Low", "filed at severity low", "(Severity: Low in pass 1)") is not a field.
  */
-const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])|(?:[.;,|()]\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks)))`, 'gi');
+const SEVERITY_FIELD = new RegExp(`(?:^(?:[-*+>]\\s+|\\d+[.)]\\s+)?\\**\\s*Severity\\**\\s*:?\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])|(?:[.;,|()]["'”’\`]*\\s*|\\s[—–-]\\s*)\\**\\s*Severity\\**\\s*:\\s*\\**\\s*((?:${LABELS})(?:\\s*[/→]\\s*\\**\\s*(?:${LABELS}))*)(?![A-Za-z0-9])(?=\\**\\s*(?:$|[.;,|()*—–]|-\\s|Blocks)))`, 'gi');
 /**
  * A label leading its line past list, quote, heading, emphasis and emoji marks (one mark per step, so a long divider stays linear)
  * and an optional file:line, closed by a mark or a separator, or by a space, comma or parenthesis after an all-caps word ("[P0] …",
@@ -101,6 +101,14 @@ const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|z
 export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.test(t.replace(DENIED_OR_FIXED, ' ')) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
+/**
+ * The native reader's own verdict line (GSTA-258 L4: #3901 "There are three low-severity findings, all FIXABLE, and none blocks."): a prose
+ * line, no list item, heading, lead label, file:line, Severity or Blocks field, whose only labels are FIXABLE or INVESTIGATE and which says
+ * nothing blocks. It collects at FIXABLE as written, never raised to CRITICAL; the findings it summarizes collect on their own lines.
+ */
+const NONE_BLOCKS = /(?<![A-Za-z])(?:(?:none|nothing|neither)(?:\s+of\s+(?:them|these|those))?\s+(?:blocks?|is\s+blocking|are\s+blocking|would\s+block)|no\s+(?:finding|issue|one)s?\s+(?:blocks?|would\s+block)|no\s+blocking\s+(?:defects?|findings?|issues?))(?![A-Za-z])/i;
+const quietSummary = (t: string) => ANY_LABEL.test(t) && NONE_BLOCKS.test(t) && !LOCUS.test(t) && !PATH_LOCUS.test(t) && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
+  && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => rank(m[1]) === 0);
 export function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
   const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
@@ -144,6 +152,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string) => {
+    if (role === 'adversarial-native' && quietSummary(t)) return 'FIXABLE';
     const field = fieldOf(t);
     if (field === undefined) return strongest(t);
     return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
@@ -343,7 +352,7 @@ const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { ret
  * included) so the summary can find its row.
  * A ledger, merged file or judged set it cannot read, or a judged set changed since judge, throws: the count is never a guess.
  */
-export interface LedgerBlocker { id: string; locus: string | null }
+export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string }
 function lineLocus(raw: string): string | null {
   try {
     const o = JSON.parse(raw);

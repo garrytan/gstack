@@ -72,6 +72,10 @@ function integrate(cwd: string, base: string, r: Report): boolean {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
       return false;
     }
+    if (line === 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)' && /^RECHECK: eligible /m.test(carry.stderr ?? '')) {
+      r.next(`carry route (Step 1.4, J1): the product changed since the receipt within the scoped re-check cap: gstack-ship-receipt carry --pr ${n} --base ${base} writes the re-check packet; one reader reads it; gstack-pregate --allow-repo-commands, then carry again with --recheck <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
+      return false;
+    }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
       r.next(`carry route (Step 1.4): the base edited context next to reviewed hunks: fix what the base merge broke (CHANGELOG, size caps), commit and push; then gstack-ship-receipt carry --pr ${n} --base ${base} writes the packet for that head; one fix-check reviewer reads it; gstack-pregate --allow-repo-commands, then carry again with --scoped-review <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;
@@ -148,7 +152,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
   let runtime = 'unknown';
   try {
     const j = JSON.parse(plan.stdout);
-    const c = classifyDiff({ paths: j.paths, perPath: j.per_path, stampOnly: j.stamp_only, registry: j.registry, consumed: j.consumed, drawings: j.drawings, root: cwd, gateTagged: 0 });
+    const c = classifyDiff({ paths: j.paths, perPath: j.per_path, stampOnly: j.stamp_only, registry: j.registry, consumed: j.consumed, drawings: j.drawings, executables: j.executables, root: cwd, gateTagged: 0 });
     runtime = String(c.runtimeLines ?? 'unknown');
   } catch { /* unknown */ }
   r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 9 and 12 boundaries)`);

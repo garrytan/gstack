@@ -89,6 +89,7 @@ export interface ShipPolicy {
   base_red: BaseRedPolicy | null;
   /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
   release_gate: ReleaseGatePolicy | null;
+  /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
@@ -179,7 +180,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null,
+  base_red: null, merge: 'train',
   release_gate: null,
 };
 
@@ -215,6 +216,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   docs: '{ caps: [{ path, max_bytes }] } or null: documentation files with a byte cap. /ship Step 14.5 runs `gstack-ship-receipt docs-caps` before the verification gate and prints one DOCS_CAP: line per cap; a file over its cap (or absent) blocks the ship until the doc is trimmed or the cap raised on the base branch. null declares none.',
   base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
   release_gate: RELEASE_GATE_EXPLANATION,
+  merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
 
@@ -253,8 +255,9 @@ export const BASE_RED_KEY_VERSION = '1.91.374.0';
 export const TRAIN_GATES_KEY_VERSION = '1.92.0.0';
 export const STAMP_PLACEHOLDERS_KEY_VERSION = '1.94.16.0';
 export const REVIEW_EXCLUDE_KEY_VERSION = '1.93.33.0';
-export const RELEASE_GATE_KEY_VERSION = '1.95.0.0';
+export const RELEASE_GATE_KEY_VERSION = '1.96.0.0';
 export const REVIEW_POLICY_KEY_VERSION = '1.94.30.0';
+export const MERGE_KEY_VERSION = '1.95.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -263,7 +266,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
   base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
-  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION,
+  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -487,6 +490,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   oneOf('queue_mode', ['claim-at-open', 'stamp-at-merge']);
   oneOf('history', ['merge-only', 'squash-ok']);
   oneOf('review_scope', ['frozen', 'diff-plus-blocking', 'all']);
+  oneOf('merge', ['direct', 'train']);
   if ('review_exclude_paths' in obj) excludeErrors(obj.review_exclude_paths, errors);
   if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
   if ('release_tool' in obj && obj.release_tool !== null) {

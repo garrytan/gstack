@@ -210,7 +210,9 @@ content rules: data and config files (JSON, YAML, TOML, CSV and the like) and an
 scripts under `docs/`, `results/`, `benchmarks/`, `analysis/` or `notebooks/` are
 judged by their path, so a `lease_usd` value or an `os.path.join(sys.argv[1], …)` in a
 stats script names no class (HARN-1, harness-evals#231), and binary data such as
-`*.sqlite` is data wherever it sits; a docs line that can print a credential (an
+`*.sqlite` is data wherever it sits, unless the file has the exec bit or starts with
+`#!`: an executable stays code whatever its name or directory (`scripts/logs/prune`,
+a runnable `*.out`); a docs line that can print a credential (an
 `Authorization:` header, a bearer or key-shaped value, an environment key set to a value,
 a get or show command for auth config such as `mcp get`) is security (gbrain#8417); code
 that reserves, binds, leases or settles spend against a ledger, budget or cap (`bindCheck(ledger, …)`,
@@ -281,7 +283,9 @@ pairs: usage beside a token or cost word, proxy beside billing, and a client
 beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
 (GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
 `required=none`). **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
-consent, escape) or line (`shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
+consent, escape, and sealed custody or egress: seal, sealed, custody, egress) or line (a
+redaction call, an import of a redaction or outside-voice module, a `SECRET` or `CREDENTIAL`
+constant set to a regex, since that code decides what reaches an outside model, GST-1177; `shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
 raw HTML sinks, a shell run through argv, recursive deletes), any call to an
 outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
 `requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
@@ -504,7 +508,10 @@ puts in the receipt:
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: all`) |
 | `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
 | `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
+| `review_loop.unbound` | what could not bind (GST-1168), each printed as `REVIEW_SCOPE_UNBOUND: <what>: <why>`: a row with no start token and no readable time, a `pN` ledger with no review row of pass N, a row finding's `ledger_id` no ledger collected, a `Review-Finding` trailer naming nothing; absent when 0 |
 | `review_loop.ledgers_read` | dispatch ledgers the count read; absent under `--no-ledger` |
+
+Findings bind by id first (GST-1168). A row finding that came from a dispatched reader carries `ledger_id` (`<pass dir>/<merged.jsonl id>`, such as `p2/adversarial-native#3`) and pairs with that ledger entry whatever its path:line says, so a native finding with no path:line, or a row logged after its fix moved the line, still pairs. Each fix commit names what it fixed in a `Review-Finding: <ledger_id or fingerprint> reader=<raised_by>` trailer, and a trailer counts the finding as fixed. A late defer re-logs its finding under the same id, so it counts once. Rows that record their head dedupe by kind, pass, head and finding ids, so a logger command run twice counts once. Rows and findings without an id keep the path:line pairing above. The native reader's own verdict line ("all FIXABLE, and none blocks", with no file:line, list mark, lead label or Severity/Blocks field) collects at FIXABLE, not CRITICAL; the findings it summarizes collect on their own lines.
 | `review_loop.deferred` | blocking findings in unchanged code filed as issues (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |
