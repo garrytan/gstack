@@ -438,7 +438,8 @@
       },
       "caveats": [
         "one unit: /review and the contract Stop hook were measured together, and neither gets credit alone; 42 of 66 gstack sessions ran the review readers only after the hook blocked them (24 unprompted), and that split is not randomized",
-        "home-field bias in gstack's favor: 41 of the 42 blocking bugs in stacks-r1 came from gstack-family reviews, so +22.6 may run high; a suite seeded from other reviewers' bugs would remove the bias (GEVA-2 lists it as future work)"
+        "home-field bias in gstack's favor: 41 of the 42 blocking bugs in stacks-r1 came from gstack-family reviews, so +22.6 may run high; a suite seeded from other reviewers' bugs would remove the bias (GEVA-2 lists it as future work)",
+        "development suite: stacks-r1 is a development suite, so the result makes no release claim and holds only for these 33 units at these settings"
       ],
       "prior": [
         {
