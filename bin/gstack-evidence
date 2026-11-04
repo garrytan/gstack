@@ -185,6 +185,15 @@ const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const strip = (l: string) => l.replace(ANSI, "").replace(/\r$/, "");
 const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) ${word}\\b`).exec(text)?.[1] ?? 0);
 
+/** The tests bun's last terminal summary in a run's log registered, skips included ("Ran N tests across M files"); 0 when the log or the summary is missing, or the log is incomplete (capped at LOG_MAX_BYTES or cut by a write failure), since its last summary need not be the run's. */
+function registeredBunTests(logPath: string | undefined): number {
+  let text = "";
+  try { text = logPath ? readFileSync(logPath, "utf8") : ""; } catch { return 0; }
+  if (/^\[gstack-evidence: log (truncated at 2MB|ended early)/m.test(text)) return 0;
+  const last = text.split("\n").map(strip).findLast((l) => /^Ran \d+ tests? across \d+ files?\. \[/.test(l));
+  return Number(/^Ran (\d+)/.exec(last ?? "")?.[1] ?? 0);
+}
+
 /**
  * Bun: the last "Ran N tests across M files" block; executed = its " N pass" +
  * " N fail" lines. When that block ends a `bun test --shard=i/N` process (bun's
@@ -199,14 +208,6 @@ const count = (text: string, word: string): number => Number(new RegExp(`(\\d+) 
  * shard runner spoke: a forwarded "Ran 0 tests across 1 file" is one shard's
  * empty file, not the run.
  */
-/** The tests bun's last terminal summary in a run's log registered, skips included ("Ran N tests across M files"); 0 when the log or the summary is missing. */
-function registeredBunTests(logPath: string | undefined): number {
-  let text = "";
-  try { text = logPath ? readFileSync(logPath, "utf8") : ""; } catch { return 0; }
-  const last = text.split("\n").map(strip).findLast((l) => /^Ran \d+ tests? across \d+ files?\. \[/.test(l));
-  return Number(/^Ran (\d+)/.exec(last ?? "")?.[1] ?? 0);
-}
-
 async function bunTestsRan(lines: string[]): Promise<{ at: number; ran: number } | null> {
   let isTerminal = (l: string) => /^Ran \d+ tests? across \d+ files?\. \[/.test(l);
   try {

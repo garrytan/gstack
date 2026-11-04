@@ -611,6 +611,16 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
   });
 
+  test('GST-1314: a remainder file whose log hit the 2MB cap is never counted not owed from the truncated log', () => {
+    const f = shipFixture(policy(['test/b.test.ts'])); fixtures.push(f);
+    fs.writeFileSync(path.join(f.root, 'perfile.sh'), `printf '%s\\n' "$@" >> ../perfile-args\nprintf ' 0 pass\\n 5 skip\\n 0 fail\\nRan 5 tests across 1 file. [1.00ms]\\n' >&2\nhead -c 2200000 /dev/zero | tr '\\0' x >&2\nprintf '\\n 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2\n`);
+    world(f, { tree: { files: ['test/a.test.ts', 'test/b.test.ts'], skipped_files: ['test/b.test.ts'] } });
+    const rec = f.run('sh', ['-c', '"$0" "$@" 2>../record-ci.err', path.join(BIN, 'gstack-evidence'), 'record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
+    expect([rec.status, fs.readFileSync(path.join(f.root, 'record-ci.err'), 'utf-8')]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_zero_run: the per_file run of test\/b\.test\.ts ran 0 tests here /m)]);
+    expect(fs.readFileSync(rows(f).findLast(r => r.label === 'free.skipped').log_path, 'utf-8')).toContain('log truncated at 2MB');
+    expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
+  });
+
   test('per_file is validated: it needs {files} and an inventory entry', async () => {
     const { shipLanesErrors } = await import('../lib/ci-carry');
     expect(shipLanesErrors({ x: { profiles: ['p'], inventory: 'ls', per_file: 'bun test {files}' } }, ['p'])).toEqual([]);
