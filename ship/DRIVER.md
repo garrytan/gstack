@@ -12,9 +12,9 @@ that runs the bins, reads, dispatches and waits, returning only result lines and
 outputs, printed verbatim. The model keeps only lead judgment, fixes, CHANGELOG, PR prose,
 gates, the report. `STOP:` (exit 3) means nothing after it ran; `NEXT:` names
 the next act. Read a section only when a phase or the list below sends you, never
-up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish it
-there, come back. Unattended, take a question's recommended option (log it); gate
-dispositions and approvals stay pending and end the run, except `gstack-no-stop`. Keep a private invocation record (`--record`): write its six headings at Phase 1, fill each as its phase ends: **Checks**
+up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish
+there, return. Unattended, take a question's recommended option (log it); gate
+dispositions and approvals stay pending and end the run, except `gstack-no-stop`. Keep an invocation record (`--record`): write its six headings at Phase 1, fill each per phase: **Checks**
 (Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
 phase: each answered or auto-taken question, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
