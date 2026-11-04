@@ -714,12 +714,15 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    lands on the finding; a numbered item is its own finding.
    A reader's own no-defect closing sentence is no finding at the label it denies (GST-435): a prose line with no
    list, heading, bold or lead label, no `Severity` or `Blocks` field, no FIXABLE or INVESTIGATE, no file:line or path
-   and no exception clause, whose every labelled sentence is wholly a denial ("I found nothing CRITICAL.", "I found no
-   defect that is CRITICAL.", "No P0/P1 issues.", "Neither finding is CRITICAL."), a count ("I found three
-   INFORMATIONAL issues and nothing CRITICAL" collects at INFORMATIONAL) or "nothing blocks". A quantifier that points
-   at a finding elsewhere ("nothing else", "no other", "remaining", "new"), a named defect ("No auth check guards the
-   admin route, so nothing CRITICAL") or any other labelled sentence on the line keeps the whole line at its label, and a
-   reply whose only text is such a sentence, with no clean marker, is still no review. Any other negated severity word
+   and no exception clause, that does not continue a sentence from the line above, and whose every labelled sentence is
+   wholly a denial ("I found nothing CRITICAL.", "I found no defect that is CRITICAL.", "No P0/P1 issues.", "Neither
+   finding is CRITICAL."), a count ("I found three INFORMATIONAL issues and nothing CRITICAL" collects at
+   INFORMATIONAL) or "nothing blocks", with labels spelled as collect spells them. Such a line collects nothing when it
+   is only those sentences; when it also holds an unlabelled sentence ("Here is what I checked:", or one that may
+   describe a defect) it stays on record at INFORMATIONAL, never as a blocker. A quantifier that points at a finding
+   elsewhere ("nothing else", "no other", "remaining", "new"), a named defect in the same sentence ("No auth check
+   guards the admin route, so nothing CRITICAL") or any other labelled sentence on the line keeps the whole line at its
+   label, and a reply whose only text is a no-defect sentence, with no clean marker, is still no review. Any other negated severity word
    still collects at its label, so a closing summary with a clause of its own ("I checked these against the post and
    found nothing CRITICAL") is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
    `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is

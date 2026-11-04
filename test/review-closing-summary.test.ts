@@ -16,16 +16,18 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
   //   refuses to lower a collected CRITICAL; seam=parseFindings and collect; no_claim=that every summary shape is recognized (one
   //   that opens with a defect clause, "None of them breaks a caller, so there's nothing at CRITICAL", still collects as a candidate)
   test('the quoted closing sentences and plain negations collect nothing', () => {
-    for (const line of ['I found nothing CRITICAL.', 'I found nothing CRITICAL', 'I found no defect that is CRITICAL.', 'I found no defect that is CRITICAL...',
-      'I found no CRITICAL defects. Here is what I checked:', 'I found nothing CRITICAL. I checked these and found them sound:', 'Neither finding is CRITICAL.',
+    for (const line of ['I found nothing CRITICAL.', 'I found nothing CRITICAL', 'I found no defect that is CRITICAL.', 'I found no defect that is CRITICAL...', 'Neither finding is CRITICAL.',
       'No CRITICAL issues.', 'no CRITICAL issues', 'Nothing blocking, nothing CRITICAL.', 'Nothing blocking; no CRITICAL issues.', 'There are no CRITICAL findings.',
       'No CRITICAL or High findings to report.', "So there's nothing at CRITICAL.", 'Nothing here is CRITICAL.', 'Neither fix is CRITICAL.', 'Nothing in this diff is CRITICAL.',
       'No CRITICAL findings remain.', 'We found no P0 or P1 issues.', 'None of the fixes blocks landing, and nothing is CRITICAL.'])
       expect([line, labels(line)]).toEqual([line, []]);
+    for (const line of ['I found no CRITICAL defects. Here is what I checked:', 'I found nothing CRITICAL. I checked these and found them sound:',
+      'No CRITICAL issues. The webhook signature check was removed entirely.', 'The admin route never checks the session token. I found nothing CRITICAL.'])
+      expect([line, labels(line)]).toEqual([line, ['INFORMATIONAL']]);
   });
 
-  test('the #194 and #202 fix-check replies collect only their structured findings, and nothing blocks', () => {
-    for (const [name, json] of [['gst-435-closing-nothing-critical.txt', 3], ['gst-435-closing-no-defect.txt', 2]] as const) {
+  test('the #194 and #202 fix-check replies collect no blocker: the closing line stays on record as a note', () => {
+    for (const [name, json] of [['gst-435-closing-nothing-critical.txt', 4], ['gst-435-closing-no-defect.txt', 3]] as const) {
       const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst435-'));
       const ledger = path.join(d, 'l.jsonl');
       const merged = path.join(d, 'm.jsonl');
@@ -40,7 +42,8 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst435-'));
     const merged = path.join(d, 'm.jsonl');
     const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fixture('geva-77-fix-check.txt'), merged);
-    expect(r.lines.map(l => [l.id, l.label])).toEqual([['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]);
+    expect(r.lines.map(l => [l.id, l.label])).toEqual([['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL'], ['fix-check#3', 'INFORMATIONAL']]);
+    expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
     expect(judge(readJsonl<MergedLine>(merged), r.lines.map(l => ({ id: l.id, severity: l.label }))).ok).toBe(true);
     fs.rmSync(d, { recursive: true, force: true });
   });
@@ -51,9 +54,21 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     expect(labels('None of the fixes blocks landing; I found four INFORMATIONAL defects and no CRITICAL.')).toEqual(['INFORMATIONAL']);
   });
 
-  test('a summary-only reply with no clean marker is still no review', () => {
+  // Value: protects=collect stays linear on a crafted reply: a long run of joined labels that ends in a non-matching token parses in
+  //   milliseconds; fails_when=the summary grammar backtracks exponentially (each label matching two ways), which made 24 labels take 19 s;
+  //   why_new=GST-435 pass-1 red team measured it; seam=parseFindings; no_claim=a timing bound on any other parser path
+  test('a long run of joined labels parses in linear time', () => {
+    for (const join of [' and ', ' or ', ', ', '/']) {
+      const line = 'No ' + Array(40).fill('CRITICAL').join(join) + ' x';
+      const t = performance.now();
+      expect(labels(line)).toEqual(['CRITICAL']);
+      expect(performance.now() - t).toBeLessThan(250);
+    }
+  });
+
+  test('a reply whose only text is a no-defect sentence, with no clean marker, is still no review', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst435-'));
-    const r = collect(path.join(d, 'l.jsonl'), 'fix-check', 'Both fixes hold. I found nothing CRITICAL.\n', path.join(d, 'm.jsonl'));
+    const r = collect(path.join(d, 'l.jsonl'), 'fix-check', 'I found nothing CRITICAL.\n', path.join(d, 'm.jsonl'));
     expect([r.review, r.lines]).toEqual([false, []]);
     fs.rmSync(d, { recursive: true, force: true });
   });
@@ -78,8 +93,13 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     expect(labels('1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.')).toEqual(['CRITICAL']);
     expect(labels('The token leak blocks the merge.\nNo other issue is CRITICAL.')).toEqual(['CRITICAL']);
     expect(labels('## CRITICAL\n- No CRITICAL issues in the fix.')).toEqual(['CRITICAL']);
-    expect(labels('I found nothing CRITICAL. Here is what I checked:\n- **Auth:** the token check at auth.ts:9 is CRITICAL and missing.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing CRITICAL. Here is what I checked:\n- **Auth:** the token check at auth.ts:9 is CRITICAL and missing.')).toEqual(['INFORMATIONAL', 'CRITICAL']);
     expect(labels('No FIXABLE findings.', 'adversarial-native')).toEqual(['CRITICAL']);
+    expect(labels('Apart from the SQL injection in db.ts:40, I found\nnothing CRITICAL.')).toEqual(['CRITICAL']);
+    expect(labels('The webhook check is gone and I found\nno CRITICAL issues.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing CRITICAL and two high issues.')).toEqual(['CRITICAL']);
+    expect(labels('## Summary\nI found nothing CRITICAL.')).toEqual([]);
+    expect(labels('High risk in the retry path. No CRITICAL issues.')).toEqual(['CRITICAL']);
     expect(summaryCandidate('No auth check guards the admin route, so nothing CRITICAL.')).toBe(true);
   });
 });

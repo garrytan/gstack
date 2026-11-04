@@ -21,7 +21,7 @@ const NO_DEFECT_SUMMARIES: Record<string, string[]> = {
   'Nothing CRITICAL to report.': [], 'No CRITICAL/HIGH findings.': [], 'No P0/P1 issues.': [], 'No CRITICAL, HIGH or MEDIUM issues.': [],
   '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.': ['LOW'], 'There are no CRITICAL findings.': [], 'No CRITICAL or High findings to report.': [],
   'I found nothing CRITICAL.': [], "So there's nothing at CRITICAL.": [], 'Neither finding is CRITICAL.': [], 'Nothing here is CRITICAL.': [], 'Neither fix is CRITICAL.': [],
-  'Nothing in this diff is CRITICAL.': [], 'review-ledger/geva-77-fix-check.txt': ['INFORMATIONAL', 'INFORMATIONAL'],
+  'Nothing in this diff is CRITICAL.': [], 'review-ledger/geva-77-fix-check.txt': Array(3).fill('INFORMATIONAL'),
   'review-ledger/harn15-ship2-p2-red-team.txt': Array(4).fill('INFORMATIONAL'), 'review-ledger/harn15-ship2-p2-fix-check.txt': Array(5).fill('INFORMATIONAL'),
 };
 

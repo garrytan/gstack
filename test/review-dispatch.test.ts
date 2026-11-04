@@ -640,7 +640,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const d = tmp();
     const merged = path.join(d, 'merged.jsonl');
     const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fc, merged);
-    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]]);
+    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL'], ['fix-check#3', 'INFORMATIONAL']]]);
+    expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
     const phantom = collect(path.join(d, 'l2.jsonl'), 'fix-check', fixture('harn15-152-p2-fix-check.txt'), path.join(d, 'm2.jsonl'));
     fs.writeFileSync(path.join(d, 'j2.jsonl'), phantom.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
     expect(judge(readJsonl<MergedLine>(path.join(d, 'm2.jsonl')), readJsonl(path.join(d, 'j2.jsonl'))).ok).toBe(false);
