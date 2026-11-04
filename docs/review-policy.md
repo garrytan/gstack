@@ -662,7 +662,7 @@ difference passed a scoped review.
 `diff-plus-blocking` is the fallback for a repository where deferred issues pile
 up; `all` is the loop as it ran before the key existed. A value other than
 `frozen` needs `min_gstack_version` at or past the release that added the key
-(`REVIEW_SCOPE_KEY_VERSION` in `lib/ship-policy.ts`) so an older gstack refuses
+(`REVIEW_SCOPE_KEY_VERSION` in `lib/ship-policy-keys.ts`) so an older gstack refuses
 the file by name instead of ignoring the key.
 
 ## Reviewer fan-out
