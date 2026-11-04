@@ -251,8 +251,19 @@ if (j.session_id !== undefined) {
   if (j.session_id.length > 64) j.session_id = j.session_id.slice(0, 64);
 }
 
-// Inject timestamp if not present.
-if (!j.ts) j.ts = new Date().toISOString();
+// Stamp ts ourselves so a caller cannot backdate rows into extra per-day
+// bounds (see #3445). Preserve a valid caller-supplied value as ts_source
+// for backfill/audit; drop invalid values instead of letting Date roll them.
+if (j.ts !== undefined) {
+  const m = typeof j.ts === 'string' ? /^(\d{4}-\d\d-\d\d)(?:[Tt ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)(Z|z|[+-]\d\d:\d\d)?)?$/.exec(j.ts) : null;
+  const when = m ? new Date(m[2] ? m[1] + 'T' + m[2] + (m[3] || 'Z').toUpperCase() : m[1]) : null;
+  if (m && when && !Number.isNaN(when.getTime())) {
+    j.ts_source = j.ts;
+  } else {
+    delete j.ts;
+  }
+}
+j.ts = new Date().toISOString();
 
 console.log(JSON.stringify(j));
 " 2>"$TMPERR")
