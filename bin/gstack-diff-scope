@@ -287,6 +287,7 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     Gemfile|Gemfile.lock) m_config=true ;;
     *.yml|*.yaml) m_config=true ;;
     .github/*) m_config=true ;;
+    .gstack/*) m_config=true ;;
     requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) m_config=true ;;
     pubspec.lock|*/pubspec.lock) m_config=true ;;
   esac

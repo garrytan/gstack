@@ -3136,6 +3136,27 @@ table above and end each error line with a code in parentheses. The policy
 file is described in [docs/ship-policy.md](ship-policy.md); the queue flow in
 [docs/ship-policy.md#stamp-at-merge](ship-policy.md#stamp-at-merge).
 
+<a id="route-bounded-refused"></a>
+### `ROUTE_BOUNDED_REFUSED: <path> <reason> (fix: …)`
+
+**Meaning.** `gstack-ship-release finish` found a post-review edit of a
+bounded kind (audit prose, a `.gstack/pregate.json` lane change, or a
+declared bookkeeping file) that failed one of its proofs, so the path stays
+behavior and finish stops for Steps 5–11.5
+([review-policy.md#bounded-post-review-edits](review-policy.md#bounded-post-review-edits)).
+The reason names the failed proof: `needs --reviewed-base`, `changed <n>
+lines since review (at most 20)`, `is binary or unreadable`, `carries a
+hunk the gate scan tagged`, `is not a doc the Step 14.5 audit snapshot
+recorded`, `is not the bytes the post-audit snapshot recorded (edited after
+the audit)`, `does not parse at both the reviewed and the current tree`,
+`loosens the reviewed policy: <what>` or `adds no lane`.
+
+**Fix.** Do what the line's `fix:` says. Rerun finish with the merge base
+saved with the reviewed tree. Restore the audited bytes, or the mapping a
+lane change removed (a `[]` declaration lands on the base first). Or take
+Steps 5–11.5 for the edit. Never shrink an edit to get under the cap by
+moving its lines into another file.
+
 <a id="policy-source-unavailable"></a>
 ### `policy source unavailable — fix: git fetch origin <base> --depth=1 (POLICY_SOURCE_UNAVAILABLE)`
 

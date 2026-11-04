@@ -446,7 +446,7 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     f.write({ 'test/b.test.ts': `${spec('b')}test('b is even', () => expect(2 % 2).toBe(0));\n` }); f.commit('test: add a case');
     const ask = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect(lineOf(ask.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=1 /);
-    expect([ask.status, lineOf(ask.stdout, 'STOP')]).toEqual([3, expect.stringContaining('STOP: test code changed since review in test/b.test.ts: one fix-check reviewer reads ')]);
+    expect([ask.status, lineOf(ask.stdout, 'STOP')]).toEqual([3, expect.stringContaining('STOP: test code changed since review in test/b.test.ts: one scoped reader (not a review round) reads ')]);
     const packet = /reads (\S+\.md), then/.exec(ask.stdout)![1]!;
     expect(fs.readFileSync(packet, 'utf8')).toContain("test('b is even'");
     const record = path.join(f.root, 'tests-reviewed.json');
@@ -464,7 +464,7 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
       const pw = snapshot(w);
       w.write({ 'test/gate.test.ts': after }); w.commit(`test: ${name}`);
       const out = finish(w, rw, pw, ['--reviewed-base', mergeBase(w)]);
-      expect([name, out.status, lineOf(out.stdout, 'STOP')]).toEqual([name, 3, expect.stringContaining('STOP: test code changed since review in test/gate.test.ts: one fix-check reviewer reads ')]);
+      expect([name, out.status, lineOf(out.stdout, 'STOP')]).toEqual([name, 3, expect.stringContaining('STOP: test code changed since review in test/gate.test.ts: one scoped reader (not a review round) reads ')]);
     }
 
     const long = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/b.test.ts': spec('b') });

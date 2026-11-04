@@ -49,7 +49,7 @@ import {
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
-import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, scopedReadCovers, touchedPaths } from '../lib/ship-patch';
 import { planRecheck, readRecheck, recheckPacket } from '../lib/ship-recheck';
 import { deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
@@ -271,8 +271,15 @@ function cmdWrite(rest: string[], json: boolean): number {
   }
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
+  let rebound = '';
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    const scoped = (read: string) => {
+      const spec = productSpec(repoRoot, productRules(repoRoot, base, verifiedOutputs(repoRoot, base, pregateFile)), read, headSha ?? head);
+      rebound = !!spec && scopedReadCovers(repoRoot, headSha ?? head, spec.changed.filter(c => c.class !== 'metadata').map(c => c.path)) ? read : '';
+      return !!rebound;
+    };
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head), scoped); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    if (targeted?.ok && rebound) process.stderr.write(`TARGETED_REBOUND: ${targeted.targeted.classes.join(',') || 'none'} read at ${rebound.slice(0, 12)}, carried to ${(headSha ?? head).slice(0, 12)} by finish's bound scoped read of every product path changed since (GST-1276)\n`);
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });

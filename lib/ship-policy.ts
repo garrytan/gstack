@@ -22,6 +22,7 @@ import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
 import { cmpVersion, parseVersion } from './version-source';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
+import { bookkeepingGlobError, globError } from './ship-policy-bookkeeping';
 export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
@@ -90,6 +91,7 @@ export interface ShipPolicy {
   base_red: BaseRedPolicy | null;
   /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
   release_gate: ReleaseGatePolicy | null;
+  /** Bookkeeping tables (`.tsv`, `.csv`, `.txt` globs) whose small post-review edits take /ship finish's scoped reader (docs/ship-policy.md#bookkeeping); read from the base only. */ bookkeeping: string[];
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
 }
@@ -182,7 +184,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null, merge: 'train', land: null,
+  base_red: null, merge: 'train', land: null, bookkeeping: [],
   release_gate: null,
 };
 
@@ -219,6 +221,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   base_red: '{ setup, select, timeout_sec } or null: how /ship Step 5 proves a failure is the base branch\'s own (docs/ship-policy.md#base-red). gstack-base-red checks out the base head and the PR head in scratch worktrees, runs setup (dependency install, or null), then select with the failing test files in its {files} slot; only the same failures in both, in files the PR does not touch, are base-red, and /ship then pauses before READY instead of failing. Read from the base branch only. null keeps every failure in-branch.',
   release_gate: RELEASE_GATE_EXPLANATION,
   land: LAND_EXPLANATION,
+  bookkeeping: 'Root-anchored globs of bookkeeping tables, each ending in .tsv, .csv or .txt and never under .gstack/ or .github/, for example ["scripts/*-baseline.tsv"]. An edit of at most 20 lines to a matching file after review binds, first touched or not, takes /ship finish\'s scoped reader instead of Steps 5–11.5; the reader still reads every changed row. Read from the base branch only. Empty (default) declares none.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
@@ -262,6 +265,7 @@ export const RELEASE_GATE_KEY_VERSION = '1.96.0.0';
 export const REVIEW_POLICY_KEY_VERSION = '1.94.30.0';
 export const MERGE_KEY_VERSION = '1.95.0.0';
 export const LAND_KEY_VERSION = '1.96.0.0';
+export const BOOKKEEPING_KEY_VERSION = '1.96.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -270,7 +274,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
   base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
-  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION,
+  stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION, bookkeeping: BOOKKEEPING_KEY_VERSION,
 };
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
@@ -342,13 +346,6 @@ function listErrors(key: string, value: unknown, out: PolicyError[], check: (ite
     const why = check(item);
     if (why) out.push({ code: 'POLICY_CONTAINMENT', path: `${key}[${i}]`, message: `${JSON.stringify(item)} ${why}` });
   });
-}
-
-function globError(g: string): string | null {
-  const why = containedRelative(g);
-  if (why) return why;
-  try { globToRegExp(g); } catch (e: any) { return e.message; }
-  return null;
 }
 
 /** `review_exclude_paths`: git glob pathspecs, each one repo-relative line with no pathspec magic of its own; every error is POLICY_INVALID at its index. */
@@ -507,6 +504,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('stamp_files' in obj) listErrors('stamp_files', obj.stamp_files, errors, globError);
   if ('stamp_patterns' in obj) templateErrors(obj.stamp_patterns, errors);
   if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
+  if ('bookkeeping' in obj) listErrors('bookkeeping', obj.bookkeeping, errors, g => globError(g) ?? bookkeepingGlobError(g));
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'restamp_command', message: 'must be a non-empty string or null' });

@@ -595,6 +595,48 @@ refuses a `review-fix-check` row without boolean `completed` and `converged`,
 before it consumes the start token, because without them the row reads
 `UNVERIFIED` and finish cannot count it.
 
+<a id="bounded-post-review-edits"></a>
+### Bounded post-review edits (GST-1276, GST-1311)
+
+Some edits are required after the review binds: the Step 14.5 docs audit
+corrects stale policy text, pregate asks for a lane mapping, and a verify
+step renames rows in a size baseline. Finish proves each one's kind from
+the diff and sends it to one scoped reader instead of Steps 5–11.5. That
+read is not a review round under R51 (Garry, 2026-11-04: "Do it."), so it
+needs no grant. It is the same stage 2.1 reader that test code changed
+after review already takes. A path is bounded when finish runs with
+`--reviewed-base`, the path changed at most 20 lines since review, its
+diff is readable text, the gate scan tags none of its hunks, and it is one
+of these kinds:
+
+- **audit prose**: `docs/*.md` or the root `AGENTS.md` or `CLAUDE.md`,
+  never a gate path, whose bytes now are the ones the post-audit snapshot
+  (`--docs-post`) recorded. An edit made after the snapshot isn't the
+  audit's.
+- **lanes**: `.gstack/pregate.json` changes that pregate's own
+  `headPolicyDiff` reads as added tests only, over the reviewed copy. A
+  removed mapping, a new `[]` declaration or any other key stops.
+- **bookkeeping**: a path matching a `bookkeeping` glob in the base
+  branch's ship policy ([ship-policy.md#bookkeeping](ship-policy.md#bookkeeping)),
+  first touched after review or not.
+
+`ROUTE:` prints `bounded=<n>`, and finish writes the packet with every
+bounded hunk, a reading note per kind and the targeted brief for every
+class. The reader's clean record must carry the packet's `packet_sha256`,
+which the STOP line prints. A candidate that fails a proof stays behavior,
+and finish prints `ROUTE_BOUNDED_REFUSED: <path> <reason> (fix: …)`
+([troubleshooting](troubleshooting.md#route-bounded-refused)). Once the
+record passes, finish saves it beside the packet (`SCOPED_RECORD:`), and
+`gstack-ship-receipt write` rebinds a targeted record read before those
+edits (`TARGETED_REBOUND:`). It does that only when every product or test
+path changed since the targeted read is in that record and has a section
+in its packet, the packet still hashes to the record, and the targeted
+classes since the read can be computed. A test file whose only removed
+lines are swapped one for one with lines that differ inside quoted strings,
+and that has no assertion or test call, takes the plain test route (the
+scoped reader) instead of behavior. A changed expected value or a deleted
+assertion still stops.
+
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A
 receipt carried across a base merge or a test-only fix
