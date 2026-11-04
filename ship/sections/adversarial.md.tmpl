@@ -9,7 +9,8 @@ reserve the planned voices as one batch (`gstack-ship-budget check --next dispat
 and add `--reservation <id>` to the `--start adversarial-review` call below.
 After `NEXT: voices` (gate class: Step 11 before any stop), Finish the adversarial phase takes neither
 decision 2 nor 3: rerun Step 9's repeat decision with `--adversarial-ran` (a queued blocking finding as
-`--blocking-open`); its `NEXT:` (the stop, or the owner's granted fix-check) stands.
+`--blocking-open`); its `NEXT:` stands: only `stop` (Step 9.4's decision 2)
+or a granted fix-check (item 3.5, then Step 11.5) follows voices.
 
 {{ADVERSARIAL_STEP}}
 
@@ -22,14 +23,13 @@ decision 2 nor 3: rerun Step 9's repeat decision with `--adversarial-ran` (a que
 Step 8 used broad release terms. Before VERSION/CHANGELOG, search for versioning
 or changelog pitfalls tied to this branch's headline feature.
 
-Use ONE noun naming the skill, module, feature or changed binary. The keyword must
-be alphanumeric or hyphen only; simplify other characters. For example, use
-`token-or-search`, not `feat: token-or search`.
+Use ONE alphanumeric-or-hyphen noun naming the skill, module, feature or changed
+binary: `token-or-search`, not `feat: token-or search`.
 
 ```bash
 { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 [ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
-Name an applicable learning and its effect on the version bump or CHANGELOG in
-one sentence. If none applies, continue without a reference.
+Name an applicable learning and its effect on the bump or CHANGELOG in
+one sentence, or continue without one.
