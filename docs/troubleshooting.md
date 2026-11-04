@@ -5126,6 +5126,32 @@ reviewed pin reached main. No land note was written.
 **Fix.** Compare the merge commit with `git merge-tree --write-tree <parent>
 <pin>`, revert what doesn't belong to the PR, and report it to the Captain.
 
+<a id="release-stamp-empty"></a>
+### `RELEASE_STAMP_EMPTY`
+
+**Meaning.** `gstack-release-stamp open` (or `gstack-restamp --release`) found
+no changelog fragment on the base, so there's nothing to release. No branch or
+PR was created.
+
+**Fix.** Nothing to do. The next release stamp folds whatever fragments PRs
+land in the meantime. The stable cut still tags the current VERSION if that
+version has no tag yet.
+
+<a id="release-stamp-invalid"></a>
+### `RELEASE_STAMP_INVALID`
+
+**Meaning.** One of two things. A release stamp was asked to run somewhere other
+than a clean checkout of `origin/<base>`, or the base policy has no
+`changelog_fragments`. Or `land --pin` (or the Version Gate) was given a
+`release/<version>` head that is more than the release stamp of its merge base:
+it changes a file outside the stamp, skips or adds a fragment, or carries a
+version other than the base's plus the fragments' bump. Nothing was written or
+merged.
+
+**Fix.** Close the bad release PR and run `gstack-release-stamp open` again.
+It stamps a fresh checkout of `origin/main`. Never edit a `release/<version>`
+branch by hand.
+
 <a id="queue-train-stamp-mismatch"></a>
 ### `QUEUE_TRAIN_STAMP_MISMATCH`
 

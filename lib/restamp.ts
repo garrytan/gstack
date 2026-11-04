@@ -58,6 +58,8 @@ export interface RestampOptions {
   after?: { pr: string; ref?: string }; pr?: string; expectBase?: string; expectOrder?: string[]; was?: string;
   policyFrom: 'base' | 'head'; allowRepoCommands: boolean; dryRun: boolean; now?: Date; env?: NodeJS.ProcessEnv;
   gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string; baseRef?: string;
+  /** Versions at release (merge: direct): run on a checkout of the base, fold every fragment there, move tentative stamp_paths mentions added since the last version change. */
+  release?: boolean;
 }
 export interface RestampResult {
   status: 'stamped' | 'noop' | 'dry-run' | 'refused' | 'failed' | 'gate-ahead';
@@ -197,7 +199,7 @@ function planVersions(o: RestampOptions, loaded: LoadedPolicy, policyLabel: stri
   } else if (o.version) {
     if (!parseVersion(o.version)) throw new Refusal('RESTAMP_VERSION_SOURCE', `--version ${o.version} is not MAJOR.MINOR.PATCH[.MICRO]; nothing written`);
     newVersion = o.version;
-  } else if (queueMode === 'stamp-at-merge') {
+  } else if (queueMode === 'stamp-at-merge' || o.release) {
     newVersion = bumped(atBase.version, level);
     claims = 'ignored (stamp-at-merge)';
   } else {
@@ -471,7 +473,7 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
     const date = (o.now ?? new Date()).toISOString().slice(0, 10);
     const from = o.was ?? plan.branchStamp;
     const dir = plan.policy.changelog_fragments?.dir;
-    const frags = dir ? readFragments(staging, null, dir, plan.baseSha, clRel) : null;
+    const frags = dir ? readFragments(staging, null, dir, o.release ? null : plan.baseSha, clRel) : null;
     if (frags?.errors.length) { cl.status = 'failed'; cl.detail = `${frags.errors[0]!.path}: ${frags.errors[0]!.message}`; throw new Refusal('CHANGELOG_FRAGMENT_INVALID', `${cl.detail}; nothing written to the branch`); }
     for (const f of frags?.fragments ?? []) fs.rmSync(path.join(staging, f.path));
     const r = reheadChangelog(foldIntoUnreleased(fs.readFileSync(clPath, 'utf8'), frags?.fragments ?? []), { from, to: plan.newVersion, date, file: clRel! });
@@ -522,7 +524,7 @@ function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since
     const why = assertInsideRoot(staging, rel);
     if (why) throw new Refusal('POLICY_CONTAINMENT', `${why}; nothing written`);
   }
-  const baseAdded = branchAddedLines(o.repoRoot, since, files, plan.baseSha);
+  const baseAdded = o.release ? new Map<string, AddedLines>() : branchAddedLines(o.repoRoot, since, files, plan.baseSha);
   const added = branchAddedLines(staging, since, files, undefined, baseAdded);
   const explicit = new Set([...(o.was ? [o.was] : []), ...(plan.branchStamp ? [plan.branchStamp] : [])].filter(v => v !== plan.newVersion));
   const tentative = new Set(tentativeMentions(new Map([...added].map(([rel, own]) => [rel, own.text])), plan.forkVersion, plan.newVersion, templates).filter(v => !explicit.has(v)));
@@ -641,6 +643,15 @@ function fragmentsOf(o: RestampOptions, dir: string, changelog: string | null): 
   return set;
 }
 
+/** A release stamp runs on a clean checkout of origin/<base> under changelog_fragments, so the release PR carries only the stamp. */
+function releasePreconditions(o: RestampOptions, fragDir: string | null): void {
+  if (!fragDir) throw new Refusal('RELEASE_STAMP_INVALID', '--release needs changelog_fragments in the base policy (a release folds the fragments); nothing written');
+  const base = git(o.repoRoot, ['rev-parse', '--verify', '--quiet', `${o.baseRef ?? `origin/${o.base}`}^{commit}`]).out;
+  if (!base || git(o.repoRoot, ['rev-parse', 'HEAD']).out !== base) throw new Refusal('RELEASE_STAMP_INVALID', `--release runs on a checkout of origin/${o.base} (${base.slice(0, 12) || 'unresolved'}), not on ${git(o.repoRoot, ['rev-parse', '--short', 'HEAD']).out}; nothing written`, { fix: `git fetch origin ${o.base} && git checkout --detach origin/${o.base}` });
+  const dirty = git(o.repoRoot, ['status', '--porcelain', '--untracked-files=no']).out.trim();
+  if (dirty) throw new Refusal('RELEASE_STAMP_INVALID', `--release needs a clean checkout; commit or stash: ${dirty.split('\n').slice(0, 5).map(l => l.slice(3)).join(', ')}; nothing written`);
+}
+
 function removeWorktree(repoRoot: string, dir: string): void {
   git(repoRoot, ['worktree', 'remove', '--force', dir]);
   fs.rmSync(dir, { recursive: true, force: true });
@@ -659,7 +670,9 @@ export function restamp(o: RestampOptions): RestampResult {
       throw new Refusal('REPO_COMMANDS_NOT_ALLOWED', `repo commands not executed (pass --allow-repo-commands): ${commands.map(c => `${c.key}: ${c.command}`).join('; ')}; nothing written`, { commands });
     }
     const fragDir = loaded.policy.changelog_fragments?.dir ?? null;
-    const frags = fragDir ? fragmentsOf(o, fragDir, loaded.policy.changelog) : null;
+    if (o.release) releasePreconditions(o, fragDir);
+    const frags = !fragDir ? null : o.release ? readFragments(o.repoRoot, 'HEAD', fragDir, null, loaded.policy.changelog) : fragmentsOf(o, fragDir, loaded.policy.changelog);
+    if (o.release && !frags!.fragments.length) throw new Refusal('RELEASE_STAMP_EMPTY', `${fragDir} holds no fragment at origin/${o.base}, so there is nothing to release; nothing written`);
     const plan = planVersions(frags && !o.bump ? { ...o, bump: effectiveBump(loaded.policy.bump === 'patch' ? 'patch' : 'micro', frags.fragments) } : o, loaded, label);
     const headSha = git(o.repoRoot, ['rev-parse', 'HEAD']).out;
     const common: Partial<RestampResult> = {
@@ -694,7 +707,8 @@ export function restamp(o: RestampOptions): RestampResult {
     if (!seed.ok) throw new Refusal('RESTAMP_CONFLICT', `cannot seed the staging worktree: ${seed.err}; nothing written`);
     linkIgnoredDeps(o.repoRoot, staging);
 
-    runStages(o, plan, staging, git(o.repoRoot, ['merge-base', plan.baseRef, 'HEAD']).out || plan.baseSha, stages);
+    const since = o.release ? git(o.repoRoot, ['log', '-1', '--format=%H', plan.baseSha, '--', plan.versionRel]).out : git(o.repoRoot, ['merge-base', plan.baseRef, 'HEAD']).out;
+    runStages(o, plan, staging, since || plan.baseSha, stages);
     const files = changedPaths(staging).sort();
     git(staging, ['add', '-A']);
     const diff = git(staging, ['diff', '--cached', wtree]).out;

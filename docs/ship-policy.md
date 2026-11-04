@@ -1908,9 +1908,11 @@ at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
 is the head the READY names. There's no train, no stamp commit, no base merge
 and no extra CI round. GitHub's required checks plus `--match-head-commit`
 stay the gate. Versions aren't set per PR: a PR carries only its
-`changelog.d` fragment, VERSION stays where it is, and the release stamps the
-version and folds the fragments. Land refuses, and merges nothing, unless all
-of these hold:
+`changelog.d` fragment, VERSION stays where it is, and the
+[release PR](#release-stamp) stamps the version and folds the fragments. Land
+refuses, and merges nothing, unless all of these hold (a `release/<version>`
+head is checked by the release rules below instead of the receipt, READY and
+release-file rows):
 
 | Check | Refusal |
 |---|---|
@@ -1935,6 +1937,41 @@ if not). Last, it writes a `land` note on `refs/notes/gstack-trains`. A rerun
 after GitHub merged goes straight to the tree check. `--dry-run` runs every
 check and merges nothing. Under `merge: direct`, `train build` refuses and
 names this command.
+
+<a id="release-stamp"></a>
+### Versions at release: the release PR (`merge: direct`)
+
+Under `merge: direct`, VERSION, the `package.json` version, CHANGELOG.md, the
+release outputs and the `stamp_paths` constants move only in a release PR.
+Before each stable cut, the Captain runs:
+
+```bash
+gstack-release-stamp open            # --dry-run prints the stamp and creates nothing
+```
+
+It stamps a fresh worktree of `origin/main` with `gstack-restamp --release`,
+commits the result on `release/<version>`, pushes that branch and opens its PR.
+The release stamp folds every fragment in `changelog.d/` under one new CHANGELOG
+heading and deletes the files. The new version is the base's plus the highest
+bump any fragment declares (the policy `bump` when none does). It reruns the
+release tool, and it moves a tentative `stamp_paths` mention (a `*_KEY_VERSION`
+a PR wrote ahead of its release) on lines added since the last version change.
+With no fragment on main it refuses with
+[`RELEASE_STAMP_EMPTY`](troubleshooting.md#release-stamp-empty).
+
+When the release PR's checks are green, the Captain lands it like any other PR:
+`gstack-ship-queue land --pr <n> --pin <head>`. On a `release/<version>`
+branch, land needs no /ship receipt or READY note. Instead it checks that the
+head is exactly the release stamp of its merge base: every fragment there
+folded and none added, the version equal to the base's plus their bump, every
+other change a stamp by the [tree receipt](#tree-receipt)'s rules, and a
+changed release output equal to what the release tool generates at the new
+version. Anything more is
+[`RELEASE_STAMP_INVALID`](troubleshooting.md#release-stamp-invalid), and
+nothing merges. The Version Gate (`Check VERSION is not stale vs queue`)
+applies the same test, so a release head passes it while any other PR that
+changes VERSION still fails it. Once the release PR lands, the next stable cut
+tags `v<version>` ([releases.md](releases.md)).
 
 <a id="migrating-to-fragments"></a>
 ### Migrating to fragments

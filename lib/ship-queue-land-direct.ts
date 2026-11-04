@@ -8,6 +8,7 @@
  * merge commit's tree is the pin merged onto that commit's parent, and a land note on refs/notes/gstack-trains. A rerun
  * after GitHub merged goes straight to the tree check.
  */
+import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
@@ -91,20 +92,25 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.headRefOid !== o.pin) return fail(lines, { code: 'QUEUE_LAND_PIN_MOVED', message: `#${o.pr}'s head is ${info.headRefOid.slice(0, 12)}, not the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs /ship and gstack-ship-queue ready --pr ${o.pr} at the new head and reports READY with it` });
 
   if (!havePin(root, o.pr, o.pin, info.headRefName)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch the pin ${o.pin.slice(0, 12)} from ${info.headRefName} or refs/pull/${o.pr}/head`, fix: 'fix the fetch, then rerun land' });
-  const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [o.pin]);
-  lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
-  if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: `run /ship at the pin, then gstack-ship-queue ready --pr ${o.pr}` });
+  const mergeBase = git(root, ['merge-base', `origin/${ctx.base}`, o.pin]).out;
+  if (!isSha(mergeBase)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot compute the merge base of the pin ${o.pin.slice(0, 12)} and origin/${ctx.base}, so the release-file check cannot run`, fix: `git fetch origin ${ctx.base} and the PR head (an unshallow clone), then rerun land` });
+  const release = RELEASE_BRANCH.test(info.headRefName) ? classifyRelease({ repoRoot: root, policy, mergeBase, head: o.pin }) : null;
+  if (release && !release.ok) return fail(lines, { code: 'RELEASE_STAMP_INVALID', message: `${info.headRefName} is not the release stamp of its merge base ${mergeBase.slice(0, 12)}: ${release.reason}`, fix: 'close it and run gstack-release-stamp open again; never edit a release branch by hand' });
   const keys = repoIdentity(root).keys;
-  rebuildFromNotes(root, ctx.remote ?? 'origin');
-  if (!loadReady(keys, o.pr, o.pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY note for #${o.pr} at the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs gstack-ship-queue ready --pr ${o.pr} --no-screen at the pin` });
+  if (release) lines.push(`RELEASE: v${release.version} folds ${release.fragments.length} fragment(s) and changes nothing but the stamp, so it needs no /ship receipt or READY note`);
+  else {
+    const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [o.pin]);
+    lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
+    if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: `run /ship at the pin, then gstack-ship-queue ready --pr ${o.pr}` });
+    rebuildFromNotes(root, ctx.remote ?? 'origin');
+    if (!loadReady(keys, o.pr, o.pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY note for #${o.pr} at the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs gstack-ship-queue ready --pr ${o.pr} --no-screen at the pin` });
+  }
   const freeze = activeFreeze(keys);
   if (freeze) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})` });
   const lock = readLock(root, ctx.remote ?? 'origin');
   if (lock.state === 'held') return fail(lines, { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(lock.lock)} holds the land lock; a direct land would race it onto main` });
 
-  const mergeBase = git(root, ['merge-base', `origin/${ctx.base}`, o.pin]).out;
-  if (!isSha(mergeBase)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot compute the merge base of the pin ${o.pin.slice(0, 12)} and origin/${ctx.base}, so the release-file check cannot run`, fix: `git fetch origin ${ctx.base} and the PR head (an unshallow clone), then rerun land` });
-  const stamped = stampedFiles(root, policy, mergeBase, o.pin);
+  const stamped = release ? [] : stampedFiles(root, policy, mergeBase, o.pin);
   if ('error' in stamped) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot read the version at the pin or its merge base: ${stamped.error}` });
   if (stamped.length) {
     const files = stamped.filter(f => f !== 'package.json version');

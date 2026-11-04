@@ -1,8 +1,15 @@
 # Releases and update channels
 
-gstack stamps a version at every merge to main, about a dozen a day. Since
-late October 2026 there is also a tagged release, cut twice a week, and
-team-mode installs follow it instead of every merge.
+gstack used to stamp a version at every merge to main. Under `merge: direct`
+PRs land unstamped, with a `changelog.d` fragment each, and the version moves
+only when the Captain lands a release PR (`gstack-release-stamp open`, see
+[ship-policy.md](ship-policy.md#release-stamp)). Since late October 2026 there
+is also a tagged release, cut twice a week, and team-mode installs follow it
+instead of every merge.
+
+Land a release PR before each cut. The cut tags the VERSION it finds, and a
+version is tagged once: if no release PR landed since the last cut, the next
+cut finds that version's tag on an older commit and refuses.
 
 ## What a release is
 
