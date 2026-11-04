@@ -1750,7 +1750,8 @@ carried receipt like any other.
 the carry when the branch has an open PR, in this order, and never reruns the
 review loop or Step 14.5's docs audit for a carried receipt:
 
-1. `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
+1. At the pushed HEAD (carry refuses an unpushed one, `--dry-run` included),
+   `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
    carry` is eligibility only; a refusal continues the full ship, except
    `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
    `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
@@ -1759,8 +1760,8 @@ review loop or Step 14.5's docs audit for a carried receipt:
    finding continues the full ship.
 2. Fix what the base merge broke (the CHANGELOG, the size caps the policy
    declares) and commit, `gstack-ship-release push --branch <branch-name> --early`,
-   `gstack-ci-carry wait --base <base>`, then `gstack-pregate --allow-repo-commands`
-   at that pinned HEAD (the remote tests stage when `requires_remote` asks for it).
+   `gstack-ci-carry wait --base <base>` (`CI_CARRY: none` is not a stop), then
+   `gstack-pregate --allow-repo-commands` at that pinned HEAD (the remote tests stage when `requires_remote` asks for it).
    A failing check, or HEAD moving after the pregate, continues the full ship
    from Step 2.
 3. `gstack-ship-receipt carry --pr <n> --base <base> --pregate <pregate.json>`

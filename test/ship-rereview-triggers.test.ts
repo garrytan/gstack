@@ -620,7 +620,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toMatch(/^CARRY: would carry/);
-    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*commit, gstack-ship-release push --branch \S+ --early, gstack-ci-carry wait --base main, gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr 9 --base main --pregate/m);
+    expect(r.stdout).toMatch(/^NEXT: carry route \(Step 1\.4\): .*commit, gstack-ship-release push --branch \S+ --early, gstack-ci-carry wait --base main \(CI_CARRY: none is not a stop\), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr 9 --base main --pregate/m);
   });
 
   // Value: protects=the dry run offers the scoped route only when nothing else would refuse the carry, so preflight never sends
