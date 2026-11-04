@@ -1278,8 +1278,9 @@ unreadable base policy is `POLICY_SOURCE_UNAVAILABLE`); one
 (`absent/<max> over` for a path the tree lacks), exit 1 on any `over`, whose
 repair is trimming the file, never raising the cap in the same PR.
 
-**`review_depth` and `gstack_version`.** `write` records the gstack that
-wrote the receipt and the review depth at the checked-out head
+**`review_depth` and `gstack_version`.** `write` records the gstack release
+that wrote the receipt (its `VERSION` file, never the newer policy-key version
+an unstamped tree reads policies as) and the review depth at the checked-out head
 ([review-policy.md#review-depth](review-policy.md#review-depth)):
 `{ depth, class, runtime_lines, rules, base, registry, gate_scan: { tagged, head }, reasons, risk, mode }`
 (`mode` is lean, panel or platform; `declared` and `detected` appear with `write --declare-risk`, and the platform depth adds `platform_review`, see [review-policy.md](review-policy.md#review-depth)),

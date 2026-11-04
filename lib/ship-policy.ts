@@ -275,14 +275,19 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
 
 const newer = (a: string, b: string): boolean => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
 
+/** The release this checkout installs: its VERSION file, the version a ship receipt records (GST-1366). */
+export function installedGstackVersion(): string {
+  try { return fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim(); } catch { return '0.0.0.0'; }
+}
+
 /**
  * The release this checkout reads policies as: its VERSION file, or the
  * newest key it knows when that is later (an unstamped tree that carries a
- * new key already reads policies written for it).
+ * new key already reads policies written for it). Never a recorded version:
+ * that is installedGstackVersion().
  */
 export function runningGstackVersion(): string {
-  let own = '0.0.0.0';
-  try { own = fs.readFileSync(path.resolve(import.meta.dir, '..', 'VERSION'), 'utf8').trim(); } catch {}
+  const own = installedGstackVersion();
   const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
   return parseVersion(own) && !newer(known, own) ? own : known;
 }

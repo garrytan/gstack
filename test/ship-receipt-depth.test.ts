@@ -9,10 +9,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
 import { bindShippedReceipt, receiptDepthAtHead, receiptDepthVerdict, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
-import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
+import { bunIsolationArgs } from '../lib/bun-isolation';
+import { runScriptSync } from '../lib/script-invocation';
+import { BUMP_NEVER_KEY_VERSION, POLICY_KEY_INTRODUCED, TRAIN_GATES_KEY_VERSION } from '../lib/ship-policy';
+import { cmpVersion, parseVersion } from '../lib/version-source';
+import { cleanup, commit, makeFixtureRepo, ROOT, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
@@ -54,6 +59,27 @@ describe('write records the review depth at the checked-out head', () => {
     expect(bad.err).toContain('(RECEIPT_INVALID)');
     expect(fs.existsSync(other)).toBe(false);
   }, 60_000);
+
+  // Value: protects=a receipt names the gstack release that wrote it, never a newer policy key its tree carries, so a
+  // version check against a receipt cannot be passed by an older build (GST-1366); fails_when=write records the
+  // key-inflated version policy reading uses, or policy reading stops seeing the newest key; seam=none
+  test('a gstack whose VERSION is older than its newest policy key records that VERSION; policy reading still reads at the key', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    commit(repo, { 'lib/util.js': lines(3) });
+    const installed = path.join(repo.root, 'installed-gstack');
+    const sourceOnly = { recursive: true, filter: (file: string) => path.basename(file) !== 'node_modules' };
+    for (const dir of ['bin', 'lib', 'scripts']) fs.cpSync(path.join(ROOT, dir), path.join(installed, dir), sourceOnly);
+    fs.writeFileSync(path.join(installed, 'VERSION'), '1.0.0.0\n');
+    const body = path.join(repo.root, 'body.md');
+    const write = runScriptSync(path.join(installed, 'bin', 'gstack-ship-receipt'), ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body],
+      { cwd: repo.work, encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...repo.env } });
+    expect(write.status, write.stderr).toBe(EXIT.ok);
+    expect(receiptIn(body).gstack_version).toBe('1.0.0.0');
+    const newestKey = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (cmpVersion(parseVersion(b)!, parseVersion(a)!) > 0 ? b : a));
+    const reader = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', `console.log((await import(${JSON.stringify(path.join(installed, 'lib', 'ship-policy.ts'))})).runningGstackVersion())`],
+      { cwd: repo.work, encoding: 'utf8', timeout: 60_000 });
+    expect(reader.stdout.trim(), reader.stderr).toBe(newestKey);
+  }, 120_000);
 });
 
 describe('the queue refuses a receipt below the depth its head needs', () => {
