@@ -365,5 +365,5 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
     expect(r.out).toContain('keeps running the broken file until it is fixed');
     expect(r.out).not.toContain('previous install is still active');
     expect(registeredCommands(fx)).toEqual(before);
-  });
+  }, 30_000); // Two setup hook passes, each resolving every gate switch.
 });

@@ -41,6 +41,12 @@ export function runBin(name: string, args: string[], opts: SpawnSyncOptions) {
   });
 }
 
+/** gstack-session-kind's verdict (unattended, spawned, headless or interactive), or '' when it fails. */
+export function sessionKind(timeoutMs: number): string {
+  const r = runBin('gstack-session-kind', [], { encoding: 'utf8', timeout: timeoutMs, windowsHide: true });
+  return String(r.stdout ?? '').trim();
+}
+
 /** Claude Code's timeout for a gstack hook, as setup registers it (`--timeout 5`). */
 export const HOOK_TIMEOUT_MS = 5000;
 /** Kept back from HOOK_TIMEOUT_MS so a hook logs and exits before Claude Code kills it. */

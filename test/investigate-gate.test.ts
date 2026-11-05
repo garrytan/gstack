@@ -265,6 +265,42 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
     expect(git('status', '--porcelain')).toBe('');
   });
 
+  test('a fix committed on a branch behind the baseline HEAD is undone: that branch goes back to its own tip (fc#1)', () => {
+    const mainTip = git('rev-parse', 'HEAD');
+    git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
+    git('add', '-A');
+    commit('feature');
+    const featureTip = git('rev-parse', 'HEAD');
+    const { after } = bash(LOADED, "git checkout -q main && sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -qam fix");
+    const out = json(after.stdout);
+    expect(out.decision).toBe('block');
+    expect(out.reason).toContain(`moved the branch back to ${mainTip.trim().slice(0, 12)}`);
+    expect(git('rev-parse', 'main')).toBe(mainTip);
+    expect(git('rev-parse', 'feature')).toBe(featureTip);
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 1;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
+  test('amending the tip of a branch behind the baseline HEAD is undone to that tip, keeping its own commit (fc#1)', () => {
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 3;\n');
+    git('add', '-A');
+    commit('main second');
+    const mainTip = git('rev-parse', 'HEAD');
+    git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(repo, 'README.md'), '# fixture, feature\n');
+    git('add', '-A');
+    commit('feature');
+    const { after } = bash(LOADED, "git checkout -q main && sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -q --amend -a --no-edit");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(git('rev-parse', 'main')).toBe(mainTip);
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 3;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
   test('amending the baseline HEAD with a fix moves the branch back to the baseline commit, not its parent', () => {
     fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
     git('add', '-A');
@@ -373,6 +409,67 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
     expect(after.stdout).toBe('');
     bash(LOADED, 'ls', 'tu2');
     expect(log().match(/ event=skipped skill=investigate reason=no-git/g)?.length).toBe(1);
+  });
+});
+
+describe('a rollback restores bytes, index and mode exactly, and reads attributes from the baseline', () => {
+  test('two dirty files that differ only in line endings keep their own bytes (ov#1)', () => {
+    fs.writeFileSync(path.join(repo, '.gitattributes'), '*.sh text\n');
+    fs.writeFileSync(path.join(repo, 'a.sh'), 'echo 0\n');
+    fs.writeFileSync(path.join(repo, 'b.sh'), 'echo 0\n');
+    git('add', '-A');
+    commit('scripts');
+    fs.writeFileSync(path.join(repo, 'a.sh'), 'echo 1\n');
+    fs.writeFileSync(path.join(repo, 'b.sh'), 'echo 1\r\n');
+    const { after } = bash(LOADED, "printf 'echo 2\\n' > a.sh && printf 'echo 2\\n' > b.sh");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('a.sh')).toBe('echo 1\n');
+    expect(read('b.sh')).toBe('echo 1\r\n');
+  });
+
+  test('a rejected edit that was staged leaves the index at the baseline too (ov#2)', () => {
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts && git add src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(git('show', ':src/total.ts')).toBe(SRC);
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
+  test('a file staged at the baseline gets its staged entry back, not HEAD (ov#2)', () => {
+    const staged = '// staged note\n' + SRC;
+    fs.writeFileSync(path.join(repo, 'src', 'total.ts'), staged);
+    git('add', 'src/total.ts');
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts && git add src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(staged);
+    expect(git('show', ':src/total.ts')).toBe(staged);
+  });
+
+  test('a change staged at the baseline whose worktree matches HEAD keeps its staged entry', () => {
+    const staged = '// staged only\n' + SRC;
+    fs.writeFileSync(path.join(repo, 'src', 'total.ts'), staged);
+    git('add', 'src/total.ts');
+    fs.writeFileSync(path.join(repo, 'src', 'total.ts'), SRC);
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(git('show', ':src/total.ts')).toBe(staged);
+  });
+
+  test.skipIf(process.platform === 'win32')('a file clean at the baseline keeps its own permissions (ov#3)', () => {
+    fs.chmodSync(path.join(repo, 'src', 'total.ts'), 0o600);
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(fs.statSync(path.join(repo, 'src', 'total.ts')).mode & 0o777).toBe(0o600);
+  });
+
+  test('a new worktree .gitattributes cannot mark source generated (ov#4)', () => {
+    const { after } = bash(LOADED, "printf '*.ts linguist-generated\\n' > .gitattributes && sed -i 's/a - b/a + b/' src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(SRC);
+    const r = pre(LOADED, 'Edit', { file_path: path.join(repo, 'src', 'total.ts'), old_string: 'a - b', new_string: 'a + b' }, 'tu9');
+    expect(json(r.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
   });
 });
 

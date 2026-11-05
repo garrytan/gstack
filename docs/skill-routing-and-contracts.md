@@ -1,6 +1,6 @@
 # Skill routing and skill contracts
 
-Two Claude Code hooks that help a model actually run gstack's skills (GST-1088). Each has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts`; `gstack-config defaults` prints it. With both off nothing changes. The opt-in gates that hold one skill rule mid-run (the /investigate gate) are in [skill-gates.md](skill-gates.md).
+Two Claude Code hooks that help a model actually run gstack's skills (GST-1088). Each has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts`; `gstack-config defaults` prints it. With both off nothing changes. The opt-in gates that hold one skill rule mid-run (the /investigate and /plan-ceo-review gates) are in [skill-gates.md](skill-gates.md).
 
 - **Skill routing** (`skill_routing`, a UserPromptSubmit hook). When a prompt matches an installed skill's `triggers:`, the hook adds one line of context naming that skill, for example "this request fits /investigate. Run /investigate with the Skill tool before you start".
 - **Skill contracts** (`skill_contracts`, a Stop hook). A skill can declare the outputs that must exist before it is done. When the model tries to stop without them, the hook blocks once and names what is missing.

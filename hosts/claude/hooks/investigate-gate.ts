@@ -134,7 +134,6 @@ function handle(p: GatePayload): HookOutput | undefined {
         ...(check.saved.length ? [`The content it replaced is saved: ${check.saved.map(s => `${s.path} at ${s.file}`).join(', ')}.`] : []),
         ...(check.reset ? [`It also moved the branch back to ${check.reset.slice(0, 12)}; the new commit stays in the reflog.`] : []),
         ...(check.staged.length ? [`The commit's other changes are still staged: ${check.staged.join(', ')}.`] : []),
-        ...(check.kept.length ? [`The new commit rewrote history from before /investigate loaded, on a different branch, so the gate did not undo it: ${check.kept.join(', ')} stay committed.`] : []),
         ...(failed.length ? [`These could not be put back and are in an unknown state: ${failed.join(', ')}. Run git diff HEAD -- ${failed.join(' ')} to see them.`] : []),
         howToRelease(),
       ].join('\n');
@@ -154,7 +153,7 @@ function handle(p: GatePayload): HookOutput | undefined {
       if (target) {
         const abs = path.resolve(p.cwd, target);
         const rel = path.relative(base!.root, fs.existsSync(path.dirname(abs)) ? path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs)) : abs).split(path.sep).join('/');
-        if (!rel.startsWith('..') && !path.isAbsolute(rel) && isGatedTracked(base!.root, rel)) {
+        if (!rel.startsWith('..') && !path.isAbsolute(rel) && isGatedTracked(base!.root, rel, base!.head)) {
           return block('edit', [rel], `This session loaded /investigate and has not stated a root cause, so edits to tracked source (${rel}) are blocked.\n${howToRelease(cause.rejected)}`);
         }
       }
