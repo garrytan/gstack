@@ -20,11 +20,18 @@
  * characters cannot widen or empty a comparison.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { EMPTY_PROJECT_CONFIG, scanCandidate } from './gate-diff/index';
 import { parseUnifiedDiff } from './gate-diff/git';
 import { CARRY_TEST_CODE_GLOBS } from './ship-receipt';
 import { matchesAny } from './ship-policy';
+import { isGatePath } from './review-depth';
+import { TARGETED_BRIEF_FILE, TARGETED_CLASSES, targetedBrief } from './review-targeted';
+import { parseConfig, PREGATE_CONFIG_PATH } from './pregate/config';
+import { headPolicyDiff } from './pregate/head-policy';
+import { CHECK_IDS } from './pregate/index';
 
 export interface PatchSides { reviewedBase: string; reviewed: string; currentBase: string; current: string }
 export type PathVerdict = 'same' | 'context' | 'changed';
@@ -135,24 +142,36 @@ export const BASE_SECTION_CEILING = 2000;
  * cannot be shown all of it, so the caller sends it to the full loop. The base's +/- lines, already merged at base, are
  * shown but do not count toward the cap (GST-1226) until that section passes BASE_SECTION_CEILING lines.
  */
-export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = []): { text: string; over: string[] } {
+export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = [], bounded: Readonly<Record<string, BoundedKind>> = {}): { text: string; over: string[]; sha256: string } {
   const over = new Set<string>();
   let current = '';
   const fence = (label: string, body: string, counts: (line: string) => boolean = () => true) => {
     if (body.split('\n').filter(counts).length > PACKET_SECTION_CAP) over.add(current);
     return `${label}\n\`\`\`diff\n${body.trimEnd()}\n\`\`\`\n`;
   };
-  const parts = [`# Scoped review: base context moved next to the reviewed hunks\n\nreviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}. The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`];
+  const late = Object.keys(bounded).sort();
+  const sides = `reviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}.`;
+  const parts = [paths.length || !late.length
+    ? `# Scoped review: base context moved next to the reviewed hunks\n\n${sides} The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`
+    : `# Scoped review: edits that landed after the review bound\n\n${sides}\n`];
+  if (late.length) parts.push(`Bounded edits since review in ${late.map(p => `${p} (${bounded[p]})`).join(', ')}: each landed after the review bound, and its kind was proven from the diff; this one read replaces another review round (docs/review-policy.md#bounded-post-review-edits). Read every line under "Changed since review" as gate code. Audit prose is policy text agents follow: flag any change to what a gate, cap, reviewer, approval or exception does. A lanes edit maps files to tests: flag a glob that marks files covered by tests that do not exercise them. A bookkeeping row is an exemption or a limit: flag a row that moves an exemption onto code it should not cover, or raises a limit without a reason in the diff. Read them through the targeted brief at the end for money, gate, auth and secret wording. Report clean, or findings at the blocking floor.\n`);
   if (tests.length) parts.push(`Test code changed since review in ${tests.join(', ')}: read whether each test still checks what it did (no weakened or bypassed assertion, early return, new exemption, skip or mock). Report clean, or findings at the blocking floor.\n`);
-  for (const rel of [...paths, ...tests]) {
+  for (const rel of [...paths, ...tests, ...late]) {
     current = rel;
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     const b = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('');
-    parts.push(`## ${rel}\n`, fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
+    parts.push(`## ${rel}\n`, ...(rel in bounded ? [fence('Changed since review', pathDiff(repoRoot, s.reviewed, s.current, rel, 3) ?? '')] : []), fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
       fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : l => !/^[+-]/.test(l)));
   }
-  return { text: parts.join('\n'), over: [...over] };
+  if (late.length) parts.push(`## Targeted brief (${TARGETED_CLASSES.join(', ')})\n\n${packetBrief()}\n`);
+  const text = parts.join('\n');
+  return { text, over: [...over], sha256: createHash('sha256').update(text).digest('hex') };
+}
+
+/** The targeted brief with every class's block, as a bounded packet carries it; receipt write checks a packet holds it. */
+export function packetBrief(): string {
+  return targetedBrief(fs.readFileSync(TARGETED_BRIEF_FILE, 'utf8'), TARGETED_CLASSES);
 }
 
 /**
@@ -167,25 +186,120 @@ export function isTestCode(rel: string): boolean {
 
 /**
  * Test paths whose change from..to needs review: any removed or changed line (a weakened assertion or a changed
- * expected value carries no gate tag), a gate edit lib/gate-diff tags (a skipped test, a snapshot, a relaxed gate
- * value), or a diff the scan cannot read. The rest still get the scoped fix-check of their test hunks (lib/ship-release.ts route).
+ * expected value carries no gate tag) except a literal-only rewrite, a gate edit lib/gate-diff tags (a skipped test, a
+ * snapshot, a relaxed gate value), or a diff the scan cannot read. The rest still get the scoped reader of their test
+ * hunks (lib/ship-release.ts route).
  */
 export function gateEditedPaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> | null {
-  if (!paths.length) return new Set();
-  const diff = git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', from, to, '--', ...paths]);
-  if (diff === null) return null;
-  const files = parseUnifiedDiff(diff);
-  const scan = scanCandidate({ files, commits: [], project: EMPTY_PROJECT_CONFIG, specIsTestPath: true, candidate: 'route', artifact: '' });
+  const tagged = gateTaggedPaths(repoRoot, from, to, paths);
+  if (!tagged) return null;
   const removed = paths.filter(p => {
     const d = pathDiff(repoRoot, from, to, p, 0);
     if (d === null || /^(Binary files |GIT binary patch)/m.test(d)) return true;
     const at = d.search(/^@@ /m);
-    return at >= 0 && d.slice(at).split('\n').some(l => l.startsWith('-'));
+    return at >= 0 && d.slice(at).split('\n').some(l => l.startsWith('-')) && !literalOnly(d, git(repoRoot, ['show', `${to}:${p}`]));
   });
-  return new Set([...scan.hunks.filter(h => h.tags.length > 0).map(h => h.path), ...scan.unsupportedPaths.map(u => u.path), ...removed]);
+  return new Set([...tagged, ...removed]);
 }
 
-export interface ScopedReview { paths: string[]; reviewer: string; verdict: 'clean'; head?: string; tree?: string }
+/** Paths with a hunk lib/gate-diff tags, or a diff its scan cannot read; null when git cannot diff them. */
+function gateTaggedPaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> | null {
+  if (!paths.length) return new Set();
+  const diff = git(repoRoot, ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', from, to, '--', ...paths]);
+  if (diff === null) return null;
+  const scan = scanCandidate({ files: parseUnifiedDiff(diff), commits: [], project: EMPTY_PROJECT_CONFIG, specIsTestPath: true, candidate: 'route', artifact: '' });
+  return new Set([...scan.hunks.filter(h => h.tags.length > 0).map(h => h.path), ...scan.unsupportedPaths.map(u => u.path)]);
+}
+
+const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|describe|bench)\b|\.to[A-Z]/;
+const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
+const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
+const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$/;
+/**
+ * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, in
+ * statements with no assertion or test call (the changed line and the lines above it back to the previous statement's end in
+ * `after`, blank lines included, outside any template literal): a test literal changed (a fixture value the secrets scan flagged, GST-1276 instance 5), never a check or an
+ * expected value. Template literals, interpolated strings and prefixed (f, r, b) strings do not count, since they can hold code.
+ */
+function literalOnly(diff: string, after: string | null): boolean {
+  const hunks = zeroHunks(diff);
+  if (!hunks?.length || after === null) return false;
+  const text = after.split('\n');
+  const statement = (n: number) => { const out = [text[n - 1] ?? '']; for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!); return out; };
+  const inTemplate = (n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
+  return hunks.every(h => {
+    const lines = h.body.split('\n');
+    const minus = lines.filter(l => l.startsWith('-')).map(l => l.slice(1));
+    const plus = lines.filter(l => l.startsWith('+')).map(l => l.slice(1));
+    const bare = (l: string) => l.replace(QUOTED, '$1$1');
+    return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && !CODE_IN_STRING.test(m + plus[i]) && bare(m) === bare(plus[i]!)
+      && !CHECK_CALL.test(bare(m)) && !inTemplate(h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
+  });
+}
+
+export type BoundedKind = 'audit prose' | 'lanes' | 'bookkeeping';
+/** The most lines (added plus removed) one bounded path may change since review. */
+export const BOUNDED_LINES = 20;
+export interface BoundedInput {
+  sides?: PatchSides; reviewed: string; now: string; base: string; candidates: readonly string[];
+  /** The Step 14.5 post-audit snapshot's `hashes` (path -> blob), or null when finish could not read it. */
+  audited: Readonly<Record<string, string | null>> | null;
+  /** origin/<base>'s ship-policy `bookkeeping` globs. */
+  bookkeeping: readonly string[];
+}
+export interface BoundedRefusal { path: string; reason: string; fix: string }
+
+/** Policy prose an agent reads that a docs audit may correct: docs/*.md and the root AGENTS.md or CLAUDE.md, never a gate path. */
+export const auditProse = (p: string) => (/^docs\/[^/]+\.md$/.test(p) || /^(AGENTS|CLAUDE)\.md$/.test(p)) && !isGatePath(p);
+
+/**
+ * The post-review edits finish may send to one scoped reader instead of Steps 5–11.5 (GST-1276, GST-1311), each kind proven
+ * from the diff: audit prose whose bytes now are the ones the post-audit snapshot recorded; a .gstack/pregate.json change that
+ * only adds lanes over the reviewed copy (pregate's own headPolicyDiff); a file the base policy declares bookkeeping. Every
+ * kind needs both base sides, at most BOUNDED_LINES changed lines, readable text and no gate-scan tag. A candidate of a kind
+ * that fails a proof is refused with the reason and the fix; any other path is not a candidate.
+ */
+export function boundedPaths(repoRoot: string, i: BoundedInput): { kinds: Record<string, BoundedKind>; refused: BoundedRefusal[] } {
+  const kinds: Record<string, BoundedKind> = {};
+  const refused: BoundedRefusal[] = [];
+  const full = 'take Steps 5–11.5';
+  const kindOf = (p: string): BoundedKind | null => auditProse(p) ? 'audit prose' : p === PREGATE_CONFIG_PATH ? 'lanes' : matchesAny([...i.bookkeeping], p) ? 'bookkeeping' : null;
+  const candidates = i.candidates.filter(p => kindOf(p));
+  const tagged = candidates.length ? gateTaggedPaths(repoRoot, i.reviewed, i.now, candidates) : new Set<string>();
+  const blob = (tree: string, p: string) => git(repoRoot, ['rev-parse', '--verify', '--quiet', `${tree}:${p}`])?.trim() ?? null;
+  for (const p of candidates) {
+    const kind = kindOf(p)!;
+    const refuse = (reason: string, fix: string) => refused.push({ path: p, reason, fix });
+    if (!i.sides) { refuse('needs --reviewed-base', 'rerun finish with --reviewed-base <the merge base saved with the reviewed tree>'); continue; }
+    const stat = git(repoRoot, ['--literal-pathspecs', 'diff', '--numstat', '--no-renames', i.reviewed, i.now, '--', p])?.trim().split(/\s+/) ?? [];
+    const lines = Number(stat[0]) + Number(stat[1]);
+    if (!Number.isFinite(lines)) { refuse('is binary or unreadable', full); continue; }
+    if (lines > BOUNDED_LINES) { refuse(`changed ${lines} lines since review (at most ${BOUNDED_LINES})`, full); continue; }
+    if (!tagged || tagged.has(p)) { refuse(tagged ? 'carries a hunk the gate scan tagged' : 'could not be gate-scanned', full); continue; }
+    if (kind === 'bookkeeping' && (isGatePath(p) || /^\.(gstack|github)\//.test(p))) { refuse('is a gate path or under .gstack/ or .github/, never bookkeeping', full); continue; }
+    if (kind === 'audit prose') {
+      const recorded = i.audited?.[p];
+      if (!recorded) { refuse('is not a doc the Step 14.5 audit snapshot recorded', 'include it in the audit (--docs), or ' + full); continue; }
+      if (blob(i.now, p) !== recorded) { refuse('is not the bytes the post-audit snapshot recorded (edited after the audit)', 'restore the audited bytes, or ' + full); continue; }
+    }
+    if (kind === 'lanes') {
+      const [refText, headText] = [i.reviewed, i.now].map(tree => git(repoRoot, ['show', `${tree}:${p}`]));
+      const [ref, head] = [refText, headText].map(t => t === null ? null : parseConfig(t, CHECK_IDS));
+      if (!ref || !head || ref.errors.length || head.errors.length) { refuse('does not parse at both the reviewed and the current tree', full); continue; }
+      const canon = (v: unknown): string => Array.isArray(v) ? `[${v.map(canon)}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`)}}` : JSON.stringify(v);
+      const [was, now] = [refText!, headText!].map(t => JSON.parse(t) as Record<string, unknown>);
+      const moved = [...new Set([...Object.keys(was), ...Object.keys(now)])].find(k => k !== 'dependencies' && canon(was[k]) !== canon(now[k]));
+      if (moved) { refuse(`changes ${moved}; a lanes edit changes only dependencies`, full); continue; }
+      const d = headPolicyDiff(ref.config, head.config, i.base);
+      if (d.loosens.length) { refuse(`loosens the reviewed policy: ${d.loosens[0]}`, 'restore what it removed (a [] declaration lands on the base first), or ' + full); continue; }
+      if (!Object.keys(d.adds).length) { refuse('adds no lane', full); continue; }
+    }
+    kinds[p] = kind;
+  }
+  return { kinds, refused };
+}
+
+export interface ScopedReview { paths: string[]; reviewer: string; verdict: 'clean'; head?: string; tree?: string; packet_sha256?: string }
 
 /** A clean scoped review that covers every context path at this head or tree, or why it does not stand. */
 export function readScopedReview(file: string, bind: { head?: string; tree?: string }, paths: readonly string[]): { ok: true; review: ScopedReview } | { ok: false; message: string } {
@@ -200,5 +314,5 @@ export function readScopedReview(file: string, bind: { head?: string; tree?: str
   const covered = Array.isArray(v.paths) ? v.paths.filter((p: unknown) => typeof p === 'string') : [];
   const missing = paths.filter(p => !covered.includes(p));
   if (missing.length) return { ok: false, message: `the scoped review does not cover ${missing.slice(0, 5).join(', ')}` };
-  return { ok: true, review: { paths: covered, reviewer: v.reviewer.trim(), verdict: 'clean', ...(v.head ? { head: v.head } : {}), ...(v.tree ? { tree: v.tree } : {}) } };
+  return { ok: true, review: { paths: covered, reviewer: v.reviewer.trim(), verdict: 'clean', ...(v.head ? { head: v.head } : {}), ...(v.tree ? { tree: v.tree } : {}), ...(typeof v.packet_sha256 === 'string' ? { packet_sha256: v.packet_sha256 } : {}) } };
 }

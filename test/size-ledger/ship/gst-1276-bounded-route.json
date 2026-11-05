@@ -1,0 +1,4 @@
+{
+  "bytes": -1,
+  "why": "GST-1276: a scoped-review STOP takes one reader (no round), not a fix-check"
+}

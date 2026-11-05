@@ -14,7 +14,8 @@ import * as path from 'node:path';
 import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
-import { comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type PatchSides } from './ship-patch';
+import { matchesAny } from './ship-policy';
+import { boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
 import { locate, readRecord } from './approval-record';
 import { reviewFreshness } from './review-evidence';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
@@ -199,8 +200,9 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'accepted' | 'fix_checked', string[]>;
-function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException }, r: Report): Routed | null {
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'accepted' | 'fix_checked', string[]>;
+type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException; audited: Record<string, string | null> | null; bookkeeping: readonly string[] };
+function route(cwd: string, base: string, reviewed: string, reviewedBase: string | undefined, release: string[], opts: RouteOpts, r: Report): Routed | null {
   const now = bin(cwd, 'gstack-wtree', [], 60_000).stdout.trim();
   if (!/^[0-9a-f]{40,64}$/.test(now)) { r.stop('gstack-wtree printed no tree; the stage 2 comparison is blocked'); return null; }
   const changedSet = touchedPaths(cwd, reviewed, now);
@@ -219,20 +221,23 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     sides = { reviewedBase: rb, reviewed, currentBase: cb, current: now };
     touched = new Set([...a, ...b]);
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], accepted: [], fix_checked: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], accepted: [], fix_checked: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
-    by[verdict === 'same' ? 'base' : release.includes(p) || harnessRepin(cwd, reviewed, now, p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+    by[verdict === 'same' ? 'base' : release.includes(p) || harnessRepin(cwd, reviewed, now, p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' && !matchesAny(opts.bookkeeping, p) ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
   by.behavior.push(...by.tests.filter(p => gated.has(p)));
   by.tests = by.tests.filter(p => !gated.has(p));
-  const packetBody = sides && (by.context.length || by.tests.length) ? contextPacket(cwd, sides, by.context, by.tests) : null;
+  const bounded = boundedPaths(cwd, { sides, reviewed, now, base: baseRef, candidates: by.behavior, audited: opts.audited, bookkeeping: opts.bookkeeping });
+  by.bounded = Object.keys(bounded.kinds).sort();
+  by.behavior = by.behavior.filter(p => !by.bounded.includes(p));
+  const late = (): Record<string, BoundedKind> => Object.fromEntries(by.bounded.map(p => [p, bounded.kinds[p]!]));
+  const packetBody = sides && (by.context.length || by.tests.length || by.bounded.length) ? contextPacket(cwd, sides, by.context, by.tests, late()) : null;
   if (packetBody?.over.length) {
     r.add(`SCOPED_REVIEW: too large for the scoped review (over ${PACKET_SECTION_CAP} lines in a section): ${short(packetBody.over)}`);
     by.behavior.push(...packetBody.over);
-    by.context = by.context.filter(p => !packetBody.over.includes(p));
-    by.tests = by.tests.filter(p => !packetBody.over.includes(p));
+    for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
   const fixRow = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
     .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } }).at(-1);
@@ -256,8 +261,8 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     if (!range || !after) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
     const fixSides = { reviewedBase: git(cwd, ['merge-base', baseRef, fixCommit]).stdout.trim(), reviewed: fixCommit, currentBase: sides?.currentBase ?? git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim(), current: now };
     const unmoved = (p: string) => !after.has(p) || (!!fixSides.reviewedBase && !!fixSides.currentBase && comparePath(cwd, fixSides, p) === 'same');
-    by.fix_checked = [...by.behavior, ...by.tests, ...by.context].filter(p => range.has(p) && unmoved(p)).sort();
-    for (const k of ['behavior', 'tests', 'context'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
+    by.fix_checked = [...by.behavior, ...by.tests, ...by.context, ...by.bounded].filter(p => range.has(p) && unmoved(p)).sort();
+    for (const k of ['behavior', 'tests', 'context', 'bounded'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
     r.add(`FIX_CHECK: reviewed ${by.fix_checked.length ? short(by.fix_checked) : 'none'} (fix-check at ${fixCommit.slice(0, 12)}, range from ${fixFrom.slice(0, 12)}, grant ${grant!.id})`);
   }
   const loop = opts.loop;
@@ -274,26 +279,30 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}`);
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}`);
   if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
+  for (const x of bounded.refused) if (by.behavior.includes(x.path)) r.add(`ROUTE_BOUNDED_REFUSED: ${x.path} ${x.reason} (fix: ${x.fix}; docs/troubleshooting.md#route-bounded-refused)`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
-  const scoped = [...by.context, ...by.tests].sort();
+  const scoped = [...by.context, ...by.tests, ...by.bounded].sort();
   if (scoped.length && sides) {
+    const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
+    const built = contextPacket(cwd, sides, by.context, by.tests, late());
     if (!opts.contextReviewed) {
-      const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
-      const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : ''].filter(Boolean).join('; ');
+      const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : '',
+        by.bounded.length ? `bounded edits since review in ${by.bounded.map(p => `${p} (${bounded.kinds[p]})`).join(', ')}` : ''].filter(Boolean).join('; ');
       try {
         fs.mkdirSync(path.dirname(packet), { recursive: true });
-        fs.writeFileSync(packet, contextPacket(cwd, sides, by.context, by.tests).text);
+        fs.writeFileSync(packet, built.text);
       } catch (e) {
         r.stop(`${why}, but the scoped-review packet ${packet} cannot be written (${firstLine((e as Error).message)}): make its directory writable, then rerun finish (stage 2.1)`);
         return null;
       }
-      r.stop(`${why}: one fix-check reviewer reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding is a behavior change (stage 2.1)`);
+      r.stop(`${why}: one scoped reader (not a review round) reads ${packet}, then rerun with --context-reviewed <record.json> written beside the packet, outside the worktree ({"tree":"${now}","paths":[…],"reviewer":"<model>","verdict":"clean","packet_sha256":"${built.sha256}"}); a blocking finding is a behavior change (stage 2.1)`);
       return null;
     }
     const review = readScopedReview(opts.contextReviewed, { tree: now }, scoped);
     if (!review.ok) { r.stop(`--context-reviewed: ${review.message}`); return null; }
+    if (by.bounded.length && review.review.packet_sha256 !== built.sha256) { r.stop(`--context-reviewed: the record's packet_sha256 is ${review.review.packet_sha256?.slice(0, 12) ?? 'missing'}, not ${built.sha256.slice(0, 12)}: bounded edits need a record bound to the packet the reader read (${packet}); rerun the reader on it (stage 2.1)`); return null; }
     r.add(`SCOPED_REVIEW: clean by ${review.review.reviewer} (${short(scoped)})`);
   }
   if (by.docs.length && !opts.docsRechecked) { r.stop(`authored docs changed since review (${short(by.docs)}): recheck the plan items they touch (stage 2.2), then rerun with --docs-rechecked`); return null; }
@@ -422,7 +431,10 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   }
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
-  const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop }, r);
+  let audited: Record<string, string | null> | null = null;
+  try { const h = JSON.parse(fs.readFileSync(flag('--docs-post')!, 'utf8')).hashes; audited = h && typeof h === 'object' && !Array.isArray(h) ? h : null; } catch { audited = null; }
+  const bookkeeping = Array.isArray(policy?.bookkeeping) ? policy!.bookkeeping.filter((g: unknown): g is string => typeof g === 'string') : [];
+  const routed = route(cwd, base, flag('--reviewed-tree')!, flag('--reviewed-base'), release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping }, r);
   if (!routed) return r;
   if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
