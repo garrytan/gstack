@@ -61,6 +61,23 @@ describe('tree receipt: a release output release_tool regenerates (GST-1176)', (
     expect(todos.residual).toContain('release_tool');
   });
 
+  test('a release output the tool adds for the first time is a stamp when the rerun writes the same bytes', () => {
+    const repo = makeFixtureRepo({ prefix: 'tree-receipt-release-tool-', policy: POLICY });
+    repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'todos.d'));
+    fs.writeFileSync(path.join(repo.work, 'fold.js'), FOLD);
+    fs.writeFileSync(path.join(repo.work, 'todos.d', 'new.md'), '- new todo\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'merge: the first todos.d file, TODOS.md not rendered yet');
+    const merged = repo.git('rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(repo.work, 'VERSION'), '1.2.4.0\n');
+    expect(spawnSync('node', ['fold.js'], { cwd: repo.work, timeout: 30_000 }).status).toBe(0);
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'stamp 1.2.4.0');
+    expect(receipt(repo, ['--gated', merged, '--current', 'HEAD']).out).toMatch(/^  changed TODOS\.md \(path: added\)$/m);
+    const r = receipt(repo, ['--gated', merged, '--current', 'HEAD', '--allow-repo-commands']);
+    expect(r.out).toMatch(/^  stamp   TODOS\.md \(release_tool\)$/m);
+    expect(r.out).toMatch(/^TREE: same-modulo-stamps$/m);
+  });
+
   test('a release_tool that fails leaves the release output changed, with its exit named', () => {
     const { repo, merged, stamped } = harn7({ ...POLICY, release_tool: 'node fold.js && exit 3' });
     const j = JSON.parse(receipt(repo, ['--gated', merged, '--current', stamped, '--allow-repo-commands', '--json']).out);

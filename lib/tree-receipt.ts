@@ -185,7 +185,7 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
   }
   const diffText = d.stdout.replace(/\n$/, '');
   const classified = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV, o.baseRef && oldV ? branchSides(o.repoRoot, o.baseRef, gatedHead, oldV) : undefined);
-  const rendered = o.regenerate && o.policy.release_tool && newV ? classified.filter(f => f.verdict === 'changed' && f.rule === 'release_outputs').map(f => f.path) : [];
+  const rendered = o.regenerate && o.policy.release_tool && newV ? classified.filter(f => f.verdict === 'changed' && (f.rule === 'release_outputs' || (f.rule === 'path' && f.residual === 'added' && matchesAny(o.policy.release_outputs, f.path) && (!o.policy.stamp_files.length || matchesAny(o.policy.stamp_files, f.path))))).map(f => f.path) : [];
   const regen = rendered.length ? regeneratedAtBase({ repoRoot: o.repoRoot, head: currentHead, baseVersion: blob(o.repoRoot, currentHead, 'VERSION') ?? newV!, tool: o.policy.release_tool!, outputs: rendered }) : null;
   const files = classified.map((f): FileVerdict => {
     if (!regen || !rendered.includes(f.path)) return f;

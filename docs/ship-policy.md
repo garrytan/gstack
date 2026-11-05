@@ -2267,7 +2267,8 @@ minor, #3512; a version older than the gated one, or of another width, is a
 hand edit), and the replacement the current one, so a dependency pin
 that happens to equal the old version is `changed`; `stamp_patterns`
 templates count as stamp forms too). A `release_outputs` file that is more than
-those rewrites (a release tool that renders content, GST-1176) is a stamp, rule
+those rewrites (a release tool that renders content, GST-1176), or that the
+stamp adds, is a stamp, rule
 `release_tool`, when the policy's `release_tool`, rerun on the current head at
 its version, writes it byte for byte: the release PR's and the Version Gate's
 rule. The tool is repo code, so the receipt reruns it only with
