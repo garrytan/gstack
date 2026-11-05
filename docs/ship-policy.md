@@ -2099,7 +2099,14 @@ the filesystem: a command can still write the checkout's `.git` (the worktree
 shares it) and the linked `node_modules`, so pass the flag only for a base
 policy and PRs you trust to run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
-merge, a CI round and a new receipt per PR. Without the key, land prints
+merge, a CI round and a new receipt per PR. gstack's own policy runs
+typecheck, the generated-docs freshness check, and the size and budget guards
+plus the core files of `test:quick` through the strict free runner on
+`test/land-merged-checks.txt` (`test/ship-driver.test.ts` holds the
+`ship/DRIVER.md` cap #3886 broke). Raw `bun test` exits 0 when a test calls
+`process.exit(0)` or a listed file is missing; the runner fails both. It
+doesn't run `test:quick` itself, because its browser tests find no Chromium
+under the throwaway `HOME`. Without the key, land prints
 `STALE_BASE: warn … no land.merged_checks configured` and merges the stale
 base untested, as it did before the key. Then land runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),

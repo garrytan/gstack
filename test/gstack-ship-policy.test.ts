@@ -188,6 +188,17 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
+  // Value: protects=land.merged_checks on gstack itself (GST-1332): its tests run through the strict free runner on a committed list that keeps the ship/DRIVER.md cap guard (#3886), so an early exit or a missing file fails instead of passing; fails_when=a command goes back to raw bun test (which exits 0 when a test calls process.exit(0) and skips a missing file), test/ship-driver.test.ts leaves the list, or a listed file is gone; why_new=gstack's own policy gained the land key; seam=the policy file and test/land-merged-checks.txt; no_claim=that the commands pass on a merged tree (ship-queue-land-direct covers the engine)
+  test('land.merged_checks runs its tests through the strict runner on a list that exists and keeps the ship/DRIVER.md cap guard', () => {
+    const root = path.join(import.meta.dir, '..');
+    const checks: string[] = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8')).land.merged_checks;
+    expect(checks.filter(c => /\bbun test\b/.test(c))).toEqual([]);
+    expect(checks).toContain('bun run scripts/test-free-shards.ts --files-from test/land-merged-checks.txt --wall-timeout 600');
+    const files = fs.readFileSync(path.join(root, 'test', 'land-merged-checks.txt'), 'utf8').split('\n').filter(Boolean);
+    expect(files).toContain('test/ship-driver.test.ts');
+    expect(files.filter(f => !fs.existsSync(path.join(root, f)))).toEqual([]);
+  });
+
   // Value: protects=the fill rule the coordinator relies on: a train dispatches at 5 READY PRs or one hour after the first READY, whichever comes first
   // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day, so the fill went to 3 PRs / 1 hour; 2026-10-31: Garry's B1 raised the size back to 5, keeping the 1-hour fill); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
   test('fills a train at 5 READY PRs or one hour after the first READY, whichever comes first', () => {
