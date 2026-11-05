@@ -420,6 +420,21 @@ describe('ubi-runner money path: an API error is never read as success (GST-1441
     }
   }, 60_000);
 
+  // Value: protects=the ownership proof counts only this call's generated key, so a holder VM that accepts a key from the controller's ssh agent or ~/.ssh is never armed and destroyed; fails_when=ssh offers agent or default identities beside -i and the proof passes on the holder's key; why_new=the holder-key test's fake offered only the -i key; seam=the fake agent holds the holder's key and ssh offers it unless IdentitiesOnly=yes; no_claim=which keys a real agent holds
+  test('the ownership proof ignores keys the controller\'s ssh agent holds: a holder VM that accepts one is not armed or destroyed', () => {
+    const f = make();
+    const name = 'ubirun-thrd1-1000000000-cccccccc-t3';
+    flag(f, 'create-status', '000');
+    flag(f, 'create-lands', '0');
+    flag(f, 'holder-key', 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHolderKeyOfAnotherCaller0000000000000000 other-caller\n');
+    flag(f, 'agent-holds-holder-key', '1');
+    const r = run(f, ['run', '-n', name, '-l', 'eu-central-h1', '--src', gitSrc(f), '--', 'true'], { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0', UBI_CREATE_GRACE: '5', UBI_SSH_WAIT: '3', UBI_DOWN_TIMEOUT: '2' });
+    expect(r.exitCode, out(r)).not.toBe(0);
+    expect(out(r)).toContain('UBI_CREATE_UNKNOWN');
+    expect(f.calls()).not.toContain('"destroy"');
+    expect(f.listed()).toContain(name);
+  }, 60_000);
+
   // Value: protects=an ambiguous create that landed as this call's own VM is still torn down once its key proves it, so the ownership check never orphans our own VM; fails_when=teardown stays off after the key opens the VM and run leaves it billing; why_new=no test ran a full run on a VM adopted after an ambiguous create; seam=none; no_claim=real ssh timing
   test('an ambiguous create that landed as this call\'s own VM arms teardown once its key opens it: run destroys it, left=0', () => {
     const f = make();
