@@ -917,7 +917,9 @@ fix, each with its reason in the closing comment. An issue we intend to fix
 later stays open under the `parked` label with one comment saying where it is
 tracked (a TODOS.md theme or a tracking issue) and what fixes it. An agent
 triaging for the maintainer posts these comments under its bot identity
-(`capy-ai[bot]` on Capy), never the maintainer's own account. The full rule,
+(`capy-ai[bot]` on Capy), never the maintainer's own account. On Capy, comment only through
+`tools.pr.comment`, never `gh pr comment`, `gh issue comment` or `gh api`, because
+`gh` runs as the maintainer. The full rule,
 including the labels and the close reasons, is in [docs/triage.md](docs/triage.md).
 
 ## Community PR triage (wave process)

@@ -832,7 +832,7 @@ Claude: Claim: #2187 caches the skill census so `bun run skill:check` stops
 
         Verdict: CLOSE. The base solves the problem another way (a2f9c01). Nothing
         was pushed and the PR stays open; say "close it" and I will post the reason
-        and the superseding commit, with thanks to its author.
+        and the superseding commit from the bot account, with thanks to its author.
 ```
 
 Three verdicts, one chosen before anything is pushed. **MODERNIZE**: the claim still

@@ -7,12 +7,17 @@ feature requests into TODOS.md themes with a "not rejected" note, and reporters
 still saw a closed issue with no fix. Those were reopened on 2026-10-25 under
 the `parked` label, and this page is the rule going forward.
 
-An agent triaging for the maintainer may post every comment this page
-describes, tag people, request reviews and leave short notes for outside
-authors, but only under its bot identity (`capy-ai[bot]` on Capy), never the
-maintainer's own GitHub account. An agent with no bot identity writes the
-comment as a draft for the maintainer instead. GitHub comments are the only way
-an agent reaches people for the maintainer: it never sends them email, chat
+An agent triaging for the maintainer may post every comment this page describes,
+tag people, request reviews and leave short notes for outside authors, but only
+under its bot identity (`capy-ai[bot]` on Capy), never the maintainer's own
+GitHub account. On Capy, comment and tag people only through Capy's PR comment
+tool (`tools.pr.comment`), and request reviews only through `tools.pr.edit`;
+both act as `capy-ai[bot]`. Never comment, tag or request a review with
+`gh pr comment`, `gh issue comment`, `gh api` or `gstack-post` on a Capy
+machine: `gh` there runs as the maintainer's own account. Elsewhere, comment through `gh` only
+when `gh api user --jq .type` prints `Bot`. A comment no bot-identity tool can
+post is a draft for the maintainer instead. GitHub comments are the only way an
+agent reaches people for the maintainer: it never sends them email, chat
 messages, DMs or social posts, and never reads the maintainer's inbox (Garry,
 2026-11-04: "never send emails or messages to human beings on my behalf ever";
 amended 2026-11-05: "Oh you can leave comments on GitHub").
