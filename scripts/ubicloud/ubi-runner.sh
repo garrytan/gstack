@@ -1413,8 +1413,10 @@ cmd_up() {
 
   load "$name"
   deadline=$(( $(date +%s) + SSH_WAIT ))
+  local proof=()
+  [ -n "$UP_NAME" ] || proof=(-F /dev/null)
   # shellcheck disable=SC2046
-  until ssh $(ssh_opts) "ubi@$IP" true 2>/dev/null; do
+  until ssh ${proof[@]+"${proof[@]}"} $(ssh_opts) "ubi@$IP" true 2>/dev/null; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       [ -z "$UP_NAME" ] || die "SSH did not come up on $IP"
       die "UBI_CREATE_UNKNOWN: $location/$name answers its name after a create that answered HTTP $code, but this call's key did not open it in ${SSH_WAIT}s, so it may be another caller's; nothing destroys it, its record and recovery bundle stay, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 list"
