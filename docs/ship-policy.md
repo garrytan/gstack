@@ -1683,7 +1683,26 @@ child made before its receipt brought it in) unless HEAD changed it against the
 base (GST-1214): an equal
 patch-id carries with reason `stack parent <sha12> landed`, base context next
 to the child's unchanged hunks is `RECEIPT_CARRY_SCOPED_REVIEW`, and any other
-difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`.
+difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`. When merging the commit
+into the current base conflicts because the base edited the landed lines
+afterwards, the base commits since the fork that touched every path of its
+change are tried newest first (at most 200), so the squash itself still counts
+(GST-1399).
+
+**finish after a stack parent lands (GST-1399).** A child reviewed against its
+parent branch passes the parent's head to `gstack-ship-release finish
+--reviewed-base`, even after the parent squash-merged and the child merged the
+base. finish takes it when the branch contains it and a base commit holds its
+change outside release metadata, found as the carry finds a landed parent, and
+prints `REVIEWED_BASE: stack parent <sha12> landed on origin/<base> at <sha12>`.
+The route, a granted fix-check's sides, the scoped-review packet and the docs
+carry then compare each commit's patch from that parent, so the parent's and the
+base's edits route as `base=`. A path the child no longer changes against the
+base routes as base only when the base already holds the reviewed change to it
+(a three-way merge of the reviewed change into the base leaves the base's
+bytes); a post-review revert to the base's content still stops. Any other commit
+off the base, a parent the base never received included, stops with
+`--reviewed-base <sha> is not on origin/<base>, nor a landed stack parent`.
 
 Since the release that added `review_scope`. A `/ship` receipt names the head it
 reviewed, so a conflict-only merge of the base or a test-only fix used to
