@@ -930,9 +930,10 @@ function stringSpans(text: string, lang: "py" | "dart"): Spans {
 /**
  * JS template literals and block comments, from one pass over the whole input:
  * the context a line cannot show on its own. A quote ends at its line end, a
- * line comment is skipped, `${…}` stays template text and a regex literal is
- * not recognized, so a wrong guess puts a span inside a recorded span, where
- * it still reports. Cached and cleared with stringSpans.
+ * line comment is skipped, and `${…}` stays template text. A regex literal is
+ * not recognized, so a `//` or quote inside one can hide a template that opens
+ * later on its line, and a host in that template is exempt as it was before
+ * jsSpans. Cached and cleared with stringSpans.
  */
 function jsSpans(text: string): Spans {
   if (stringSpansCache?.text === text && stringSpansCache.lang === "js") return stringSpansCache.spans;
@@ -1017,6 +1018,8 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
   return !insideString(match.input, start, sourcePath);
 }
 
+/** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
+const PROPERTY_READ_SOURCE = /\.(?:[cm]?ts|dart|pyi?)$/i;
 /** How far back on its line isPropertyRead reads from a span. A span further from its line start than this is never exempted. */
 const PROPERTY_READ_LINE_CHARS = 1000;
 /** The object chain in front of a span (`this.`, `ctx.`, `a!.`), skipped before the lead is read. Matched against the last 80 characters only, so a longer chain leaves a name as the lead, which never qualifies. */
@@ -1115,8 +1118,9 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
  * object with a property of that name reported, and the pregate secrets stage
  * warned on every one in a pushed diff.
  *
- * Exempts only when all of these hold: the scan has a code file's path
- * (CODE_SOURCE; without one nothing is exempt), the span starts with an
+ * Exempts only when all of these hold: the scan has a TS, Dart or Python
+ * file's path (PROPERTY_READ_SOURCE; without one nothing is exempt, and .tsx
+ * and .jsx report as before), the span starts with an
  * identifier, it sits outside every string and comment on its line (and, in
  * Python and Dart, outside every string of the file: insideString), and the
  * line shows code syntax on both sides of it: an operator, bracket or one of
@@ -1124,16 +1128,15 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
  * start, when a call, index or assignment follows), and a bracket, operator,
  * method call or line end after it. A quoted host, a host in a comment,
  * `db.internal:5432`, `build-7.internal`, `proxy.corp/api`, prose, and every
- * host in a config, dotenv or Markdown file still report. In JS, a span
+ * host in a config, dotenv or Markdown file still report. In TS, a span
  * inside a template literal or block comment of the scanned text (jsSpans) is
- * never exempt, nor is one in JSX text in a .tsx or .jsx file (after a `>` on
- * its line with no `{` since). A scan of added lines only cannot see a
+ * never exempt. A scan of added lines only cannot see a
  * template literal that opened above them, so in JS a line that is only a key
  * and `:` or `=` before the span (`host: db.internal`, `DB_HOST=db.internal`)
  * is never exempt either.
  */
 function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
+  if (!sourcePath || !PROPERTY_READ_SOURCE.test(sourcePath)) return false;
   const input = match.input ?? "";
   const { start, end } = spanBounds(match);
   if (!/^[A-Za-z_$][\w$]*\./.test(input.slice(start, end))) return false;
@@ -1143,10 +1146,6 @@ function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined):
   const lineStart = codeLineStart(input, start, lang);
   if (lineStart < 0) return false;
   const before = input.slice(lineStart, start);
-  if (/\.[jt]sx$/i.test(sourcePath)) {
-    const jsx = before.replaceAll("=>", "  ");
-    if (jsx.lastIndexOf(">") > jsx.lastIndexOf("{")) return false;
-  }
   let k = before.length - (PROPERTY_READ_CHAIN.exec(before.slice(-80))?.[0].length ?? 0);
   while (k > 0 && before[k - 1] === "!") k -= 1;
   while (k > 0 && (before[k - 1] === " " || before[k - 1] === "\t")) k -= 1;
