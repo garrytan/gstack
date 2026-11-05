@@ -2,12 +2,12 @@
 /**
  * gstack-skill-gates — the opt-in enforcement hooks' helper (GST-1461).
  *
- *   gstack-skill-gates settings --investigate
- *     Print a Claude Code settings JSON that registers the /investigate gate
- *     and turns its switch on, for \`claude -p --settings <file>\` or the Agent
+ *   gstack-skill-gates settings [--investigate] [--ceo-review]
+ *     Print a Claude Code settings JSON that registers the named gates (the
+ *     /investigate gate, the /plan-ceo-review gate) and turns their switches on, for \`claude -p --settings <file>\` or the Agent
  *     SDK's settings, so a headless run needs no settings.json edit.
  *   gstack-skill-gates report [--session <id>] [--expect armed] [--json]
- *     Count fired, blocked, released, observed and error markers per session
+ *     Count fired, blocked, released, exhausted, observed and error markers per session
  *     from $GSTACK_STATE_ROOT/skill-gates/<session>/record.json.
  *
  * Exit codes: 0 ok · 1 usage (SKILL_GATES_USAGE) · 2 GATE_NOT_ARMED (--expect
@@ -19,7 +19,7 @@ import * as path from 'path';
 import { gatesRoot, readGateRecord, recordPath, type GateHook, type GateRecord } from '../lib/skill-gates';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const USAGE = 'Usage: gstack-skill-gates settings --investigate\n       gstack-skill-gates report [--session <id>] [--expect armed] [--json]';
+const USAGE = 'Usage: gstack-skill-gates settings [--investigate] [--ceo-review]\n       gstack-skill-gates report [--session <id>] [--expect armed] [--json]';
 const HOOKS: Record<string, { env: string; source: GateHook; events: Array<{ event: string; shim: string; matcher?: string }> }> = {
   '--investigate': {
     env: 'GSTACK_INVESTIGATE_GATE',
@@ -29,6 +29,14 @@ const HOOKS: Record<string, { env: string; source: GateHook; events: Array<{ eve
       { event: 'PostToolUse', shim: 'investigate-gate-post', matcher: 'Bash' },
       { event: 'PostToolUseFailure', shim: 'investigate-gate-post-failure', matcher: 'Bash' },
       { event: 'Stop', shim: 'investigate-gate-stop' },
+    ],
+  },
+  '--ceo-review': {
+    env: 'GSTACK_CEO_REVIEW_GATE',
+    source: 'ceo-review-gate',
+    events: [
+      { event: 'Stop', shim: 'ceo-review-gate-stop' },
+      { event: 'SubagentStop', shim: 'ceo-review-gate-subagent-stop' },
     ],
   },
 };
@@ -81,6 +89,7 @@ const rows = records.flatMap(({ session_id: session, hooks }) => Object.entries(
   return {
     session, hook, runs: runs.length, fired: runs.length,
     blocked: runs.reduce((n, r) => n + r.blocked, 0), released: runs.filter(r => r.released_at).length,
+    exhausted: runs.filter(r => r.exhausted_at).length,
     observed: runs.reduce((n, r) => n + r.observed, 0), errors: h!.errors.length, error_codes: [...new Set(h!.errors.map(e => e.code))],
     skipped: Object.keys(h!.skipped ?? {}),
   };
@@ -90,7 +99,7 @@ if (asJson) process.stdout.write(`${JSON.stringify({ rows }, null, 2)}\n`);
 else {
   process.stdout.write(`skill gates: ${rows.length} session-hook row(s) under ${gatesRoot()}\n`);
   for (const r of rows) {
-    process.stdout.write(`  ${r.session} ${r.hook} fired=${r.fired} blocked=${r.blocked} released=${r.released} observed=${r.observed} errors=${r.errors}${r.error_codes.length ? ` (${r.error_codes.join(',')})` : ''}${r.skipped.length ? ` skipped=${r.skipped.join(',')}` : ''}\n`);
+    process.stdout.write(`  ${r.session} ${r.hook} fired=${r.fired} blocked=${r.blocked} released=${r.released} exhausted=${r.exhausted} observed=${r.observed} errors=${r.errors}${r.error_codes.length ? ` (${r.error_codes.join(',')})` : ''}${r.skipped.length ? ` skipped=${r.skipped.join(',')}` : ''}\n`);
   }
 }
 

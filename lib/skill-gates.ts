@@ -18,7 +18,7 @@ import { atomicWriteSync } from './fs-atomic';
 import { resolveStateRoot } from './state-root';
 import { appendHookTrace, readStdinBounded, type TraceHook } from './skill-route';
 
-export type GateHook = 'investigate-gate';
+export type GateHook = 'investigate-gate' | 'ceo-review-gate';
 export type GateEvent = 'fired' | 'blocked' | 'released' | 'observed' | 'exhausted' | 'skipped' | 'error';
 export const GATE_DOC = 'docs/skill-gates.md';
 export const DEADLINE_MS = 5000;
@@ -55,6 +55,10 @@ export interface GateRun {
   fired_at: string;
   released_at?: string;
   cause?: string;
+  /** the output file that met the gate (ceo-review-gate) */
+  file?: string;
+  /** the subagent transcript's basename, for a run gated at SubagentStop */
+  agent?: string;
   blocked: number;
   observed: number;
   exhausted_at?: string;

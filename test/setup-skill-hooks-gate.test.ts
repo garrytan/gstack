@@ -34,6 +34,8 @@ const GATES = {
   skill_contracts: 'GSTACK_SKILL_CONTRACTS Stop "$2/hosts/claude/hooks/skill-contract-stop-hook" gstack-skill-contract 10 "contract check"',
   investigate_gate: 'GSTACK_INVESTIGATE_GATE PreToolUse "$2/hosts/claude/hooks/investigate-gate-pre" gstack-investigate-gate 10 "investigate gate" "Edit|Write|MultiEdit|NotebookEdit|Bash"'
     + ' PostToolUse "$2/hosts/claude/hooks/investigate-gate-post" Bash PostToolUseFailure "$2/hosts/claude/hooks/investigate-gate-post-failure" Bash Stop "$2/hosts/claude/hooks/investigate-gate-stop" ""',
+  ceo_review_gate: 'GSTACK_CEO_REVIEW_GATE Stop "$2/hosts/claude/hooks/ceo-review-gate-stop" gstack-ceo-review-gate 10 "ceo review gate" ""'
+    + ' SubagentStop "$2/hosts/claude/hooks/ceo-review-gate-subagent-stop" ""',
 };
 
 /** Run one gate once from the checkout at root: mode is the flag value ("" = none). */
@@ -191,13 +193,13 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect(config()).toBe('');
   }
 
-  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 40 and this pin)', () => {
-    expect(original.split('\n')[39]).toBe("  skill_routing: 'off',");
+  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 41 and this pin)', () => {
+    expect(original.split('\n')[40]).toBe("  skill_routing: 'off',");
     expect(SWITCH_DEFAULT.skill_routing).toBe('off');
   });
 
-  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 41 and this pin)', () => {
-    expect(original.split('\n')[40]).toBe("  skill_contracts: 'off',");
+  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 42 and this pin)', () => {
+    expect(original.split('\n')[41]).toBe("  skill_contracts: 'off',");
     expect(SWITCH_DEFAULT.skill_contracts).toBe('off');
   });
 
@@ -276,5 +278,55 @@ describe('setup: the investigate_gate switch (GST-1461) registers one shim per e
     expect(gate('', {}, 0, ROOT, 'investigate_gate')).toEqual({ code: 0, out: '' });
     gate('off', {}, 0, ROOT, 'investigate_gate');
     for (const [event] of EVENTS) expect(ours(event)).toEqual([]);
+  });
+});
+
+describe('setup: the ceo_review_gate switch (GST-1461) registers Stop and SubagentStop', () => {
+  const EVENTS: Array<[string, string]> = [
+    ['Stop', 'ceo-review-gate-stop'],
+    ['SubagentStop', 'ceo-review-gate-subagent-stop'],
+  ];
+  const ours = (event: string) => registered(event).filter(e => e.hooks.some(h => h.command.includes('ceo-review-gate')));
+
+  test('flags parse, appear in --help and the typo list, and each shim has a KNOWN_HOOKS row with its event', () => {
+    for (const flag of ['--ceo-review-gate)', '--no-ceo-review-gate)', '--ceo-review-gate=*)']) expect(setupSrc).toContain(`    ${flag}`);
+    expect(setupSrc).toContain('--ceo-review-gate / --no-ceo-review-gate');
+    expect(setupSrc).toContain('--ceo-review-gate --no-ceo-review-gate');
+    for (const [event, shim] of EVENTS) {
+      expect(setupSrc).toContain(`_hook_command_path hosts/claude/hooks/${shim} ||`);
+      const row = settingsHookSrc.slice(settingsHookSrc.indexOf(`"${shim}":`), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf(`"${shim}":`)));
+      expect(row).toContain('source: "gstack-ceo-review-gate"');
+      expect(row).toContain(`event: "${event}"`);
+      expect(row).toContain('matcher: ""');
+    }
+  });
+
+  test('pin: ceo_review_gate defaults to off, so with no flag, env or config nothing registers', () => {
+    expect(SWITCH_DEFAULT.ceo_review_gate).toBe('off');
+    expect(gate('', {}, 0, ROOT, 'ceo_review_gate')).toEqual({ code: 0, out: '' });
+    for (const [event] of EVENTS) expect(ours(event)).toEqual([]);
+  });
+
+  test('flag on: persists and registers both events; a re-run is quiet; off removes both', () => {
+    const first = gate('on', {}, 0, ROOT, 'ceo_review_gate');
+    expect(first.code).toBe(0);
+    expect(first.out).toContain('registered Stop hook: ceo review gate (on via flag; turn off: gstack-config set ceo_review_gate off, or ./setup --no-ceo-review-gate');
+    expect(first.out).toContain('registered SubagentStop hook: ceo review gate');
+    expect(config()).toMatch(/^ceo_review_gate: on$/m);
+    for (const [event, shim] of EVENTS) {
+      const entries = ours(event) as Array<{ matcher?: string; hooks: Array<{ command: string; timeout?: number }> }>;
+      expect(entries).toHaveLength(1);
+      expect(entries[0].matcher ?? undefined).toBeUndefined();
+      expect(entries[0].hooks[0].command).toEndWith(`hosts/claude/hooks/${shim}`);
+      expect(entries[0].hooks[0].timeout).toBe(10);
+    }
+    expect(gate('', {}, 0, ROOT, 'ceo_review_gate')).toEqual({ code: 0, out: '' });
+    gate('off', {}, 0, ROOT, 'ceo_review_gate');
+    for (const [event] of EVENTS) expect(ours(event)).toEqual([]);
+  });
+
+  test('gstack-config knows the key and its default', () => {
+    const r = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['defaults'], { env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 30_000 });
+    expect(r.stdout).toMatch(/^ {2}ceo_review_gate: +off$/m);
   });
 });

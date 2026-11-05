@@ -64,6 +64,10 @@ Claude Code hooks (docs/skill-routing-and-contracts.md):
                     After /investigate loads, block changes to tracked source
                     (Edit, Write and Bash) until a root cause is stated
                     (docs/skill-gates.md). Saved as investigate_gate.
+  --ceo-review-gate / --no-ceo-review-gate
+                    After /plan-ceo-review loads, block its final stop (and a
+                    review subagent's) until the output file ranks the top
+                    risks (docs/skill-gates.md). Saved as ceo_review_gate.
 
 Model selection:
   --model <id>      Codex model profile override. Otherwise reads Codex config.
@@ -198,6 +202,7 @@ TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explici
 SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 INVESTIGATE_GATE_MODE=""    # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
+CEO_REVIEW_GATE_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 CLAUDE_MODEL_ARG=""
@@ -212,7 +217,7 @@ _setup_unknown_option() {
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
     --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
-    --investigate-gate --no-investigate-gate \
+    --investigate-gate --no-investigate-gate --ceo-review-gate --no-ceo-review-gate \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
@@ -264,6 +269,9 @@ while [ $# -gt 0 ]; do
     --investigate-gate)    INVESTIGATE_GATE_MODE="on"; shift ;;
     --no-investigate-gate) INVESTIGATE_GATE_MODE="off"; shift ;;
     --investigate-gate=*)  INVESTIGATE_GATE_MODE="${1#--investigate-gate=}"; shift ;;
+    --ceo-review-gate)     CEO_REVIEW_GATE_MODE="on"; shift ;;
+    --no-ceo-review-gate)  CEO_REVIEW_GATE_MODE="off"; shift ;;
+    --ceo-review-gate=*)   CEO_REVIEW_GATE_MODE="${1#--ceo-review-gate=}"; shift ;;
     --refresh-registered) REFRESH_REGISTERED=1; shift ;;
     --no-browser) export GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_SKIP_FONTS=1; shift ;;
     --no-harness-auto) HARNESS_AUTO=0; shift ;;
@@ -4977,6 +4985,14 @@ _skill_hook_gate investigate_gate "$INVESTIGATE_GATE_MODE" GSTACK_INVESTIGATE_GA
   PostToolUse "$INVESTIGATE_GATE_POST" Bash \
   PostToolUseFailure "$INVESTIGATE_GATE_POST_FAILURE" Bash \
   Stop "$INVESTIGATE_GATE_STOP" ""
+# The /plan-ceo-review gate (GST-1461) holds the final stop of a session or a
+# review subagent: Stop plus SubagentStop, one shim each.
+CEO_REVIEW_GATE_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-stop || true)"
+CEO_REVIEW_GATE_SUBAGENT_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-subagent-stop || true)"
+_skill_hook_gate ceo_review_gate "$CEO_REVIEW_GATE_MODE" GSTACK_CEO_REVIEW_GATE Stop \
+  "$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate 10 \
+  "after /plan-ceo-review loads, its final stop waits for ranked top risks in the output file" "" \
+  SubagentStop "$CEO_REVIEW_GATE_SUBAGENT_STOP" ""
 
 # Also tear down plan-tune + timeline hooks on --no-team (matches the existing pattern).
 # Tag-only remove-source misses untagged entries (Claude Code strips

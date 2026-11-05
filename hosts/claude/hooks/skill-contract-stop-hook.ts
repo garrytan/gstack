@@ -28,12 +28,12 @@
  *   - Every decision is one line in $GSTACK_STATE_ROOT/hooks/skill-contract.log.
  * Docs: docs/skill-routing-and-contracts.md.
  */
-import { binPath, runBin } from './spawn-bin';
+import { binPath, sessionKind } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, lookupContract, nextOutcome, parseTranscript,
+  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome, parseTranscript,
   readRecord, readTranscriptFile, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, withFinalMessage, writeRecord,
-  type CheckResult, type Contract, type Transcript,
+  type Contract, type Transcript,
 } from '../../../lib/skill-contract';
 
 export const DEADLINE_MS = 5000;
@@ -70,15 +70,6 @@ function target(t: Transcript): { skill: string; contract: Contract } | null {
   return null;
 }
 
-/** A STATUS line, a session no human answers, or a turn that does not end on a question. */
-function isFinalTurn(result: CheckResult): boolean {
-  if (result.statusLine && result.statusLine !== 'NEEDS_CONTEXT') return true;
-  if (!result.pendingQuestion) return true;
-  const r = runBin('gstack-session-kind', [], { encoding: 'utf8', timeout: SESSION_KIND_TIMEOUT_MS, windowsHide: true });
-  const kind = String(r.stdout ?? '').trim();
-  return kind === 'headless' || kind === 'unattended';
-}
-
 async function main(): Promise<void> {
   setTimeout(() => { failOpen('<hook>', `timed out after ${DEADLINE_MS} ms`); process.exit(0); }, DEADLINE_MS);
   if (!readSkillSwitch('skill_contracts').on) return;
@@ -111,7 +102,7 @@ async function main(): Promise<void> {
   const record = readRecord(file) ?? { version: 1 as const, session_id: sessionId, transcript_path: transcriptPath, runs: {} };
   const key = runKey(t.skill, result.load);
   const prev = record.runs[key];
-  if (!isFinalTurn(result)) return trace({ event: 'not-final-turn', skill: t.skill });
+  if (!isFinalTurn(result, () => sessionKind(SESSION_KIND_TIMEOUT_MS))) return trace({ event: 'not-final-turn', skill: t.skill });
   const pending = [...result.pendingAgents].sort();
   if (pending.length) {
     const sameSet = pending.join(',') === (prev?.deferred_agents ?? []).join(',') && !!prev?.deferred_at;

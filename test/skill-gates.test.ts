@@ -43,6 +43,30 @@ describe('settings', () => {
     }
   });
 
+  test('--ceo-review registers Stop and SubagentStop on the ceo-review-gate shims with no matcher and turns its switch on', () => {
+    const r = cli('settings', '--ceo-review');
+    expect(r.status).toBe(0);
+    const s = JSON.parse(r.stdout);
+    expect(s.env).toEqual({ GSTACK_CEO_REVIEW_GATE: 'on' });
+    expect(Object.keys(s.hooks).sort()).toEqual(['Stop', 'SubagentStop']);
+    for (const [event, shim] of [['Stop', 'ceo-review-gate-stop'], ['SubagentStop', 'ceo-review-gate-subagent-stop']]) {
+      expect(s.hooks[event]).toHaveLength(1);
+      expect(s.hooks[event][0].matcher).toBeUndefined();
+      const cmd = s.hooks[event][0].hooks[0].command;
+      expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', shim));
+      expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+    }
+  });
+
+  test('--investigate --ceo-review together: both switches on, Stop runs both gates', () => {
+    const r = cli('settings', '--investigate', '--ceo-review');
+    expect(r.status).toBe(0);
+    const s = JSON.parse(r.stdout);
+    expect(s.env).toEqual({ GSTACK_INVESTIGATE_GATE: 'on', GSTACK_CEO_REVIEW_GATE: 'on' });
+    expect(Object.keys(s.hooks).sort()).toEqual(['PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop']);
+    expect(s.hooks.Stop.map((e: { hooks: Array<{ command: string }> }) => path.basename(e.hooks[0].command))).toEqual(['investigate-gate-stop', 'ceo-review-gate-stop']);
+  });
+
   test('no hook named is a usage error', () => {
     const r = cli('settings');
     expect(r.status).toBe(1);
@@ -55,7 +79,18 @@ describe('report', () => {
     seed('s1', { blocked: 2, released_at: '2026-11-05T00:01:00Z' });
     const r = cli('report', '--json');
     expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout).rows).toEqual([{ session: 's1', hook: 'investigate-gate', runs: 1, fired: 1, blocked: 2, released: 1, observed: 0, errors: 0, error_codes: [], skipped: [] }]);
+    expect(JSON.parse(r.stdout).rows).toEqual([{ session: 's1', hook: 'investigate-gate', runs: 1, fired: 1, blocked: 2, released: 1, exhausted: 0, observed: 0, errors: 0, error_codes: [], skipped: [] }]);
+  });
+
+  test('counts a ceo-review-gate run that was exhausted after its three blocks', () => {
+    const dir = path.join(state, 'skill-gates', 's5');
+    fs.mkdirSync(dir, { recursive: true });
+    const run = { skill: 'plan-ceo-review', load_line: 3, fired_at: '2026-11-05T00:00:00Z', blocked: 3, observed: 0, exhausted_at: '2026-11-05T00:03:00Z' };
+    fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify({ version: 1, session_id: 's5', transcript_path: '/t', hooks: { 'ceo-review-gate': { runs: { 'plan-ceo-review@3': run }, errors: [], skipped: {} } } }));
+    const r = cli('report', '--json');
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).rows).toEqual([{ session: 's5', hook: 'ceo-review-gate', runs: 1, fired: 1, blocked: 3, released: 0, exhausted: 1, observed: 0, errors: 0, error_codes: [], skipped: [] }]);
+    expect(cli('report').stdout).toContain('s5 ceo-review-gate fired=1 blocked=3 released=0 exhausted=1 observed=0 errors=0');
   });
 
   test('--expect armed exits 2 GATE_NOT_ARMED for a session with no record or no fired run', () => {

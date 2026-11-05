@@ -29,7 +29,7 @@ const HEDGE = /^(?:unknown|unclear|not (?:sure|known|yet known|clear)|undetermin
 const EVIDENCE_TOOLS = /^(?:Read|Grep|Glob|Bash|LS|NotebookRead|WebFetch)$/;
 export const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 
-function git(root: string, args: string[], opts: { input?: string; allowFail?: boolean } = {}): { ok: boolean; out: Buffer } {
+export function git(root: string, args: string[], opts: { input?: string; allowFail?: boolean } = {}): { ok: boolean; out: Buffer } {
   const r = spawnSync('git', args, { cwd: root, input: opts.input, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, timeout: Math.min(GIT_TIMEOUT_MS, remainingMs()), maxBuffer: 64 * 1024 * 1024 });
   const ok = r.status === 0;
   if (!ok && !opts.allowFail) {

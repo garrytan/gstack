@@ -170,10 +170,11 @@ function blockText(content: unknown): string {
 }
 
 /**
- * Main-thread events of a Claude Code transcript JSONL. Sidechain (subagent) records are skipped; unparseable
- * lines (a partial last line) are skipped. Throws UnknownShape when the file is not a transcript this parser knows.
+ * Main-thread events of a Claude Code transcript JSONL. Sidechain (subagent) records are skipped unless
+ * includeSidechain is set (a subagent's own agent-<id>.jsonl holds only sidechain records); unparseable lines (a
+ * partial last line) are skipped. Throws UnknownShape when the file is not a transcript this parser knows.
  */
-export function parseTranscript(text: string): Transcript {
+export function parseTranscript(text: string, opts: { includeSidechain?: boolean } = {}): Transcript {
   const events: TranscriptEvent[] = [];
   let sessionId: string | null = null;
   let lines = 0;
@@ -192,7 +193,7 @@ export function parseTranscript(text: string): Transcript {
     const content = rec.message.content;
     if (typeof content !== 'string' && !Array.isArray(content)) throw new UnknownShape(`line ${line}: message content is neither text nor a block list`);
     messages++;
-    if (rec.isSidechain === true) continue;
+    if (rec.isSidechain === true && !opts.includeSidechain) continue;
     if (typeof rec.sessionId === 'string') sessionId = rec.sessionId;
     const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
     for (const block of blocks) {
@@ -466,11 +467,7 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const results = new Map<string, ToolResult>();
   for (const e of run) if (e.kind === 'tool_result') results.set(e.id, e);
   const waived = load ? waivers(run, skill, results) : new Map<string, string>();
-  const lastPrompt = events.map(e => e.kind).lastIndexOf('prompt');
-  const turn = events.slice(lastPrompt + 1).filter(e => e.kind === 'text' || e.kind === 'tool_use');
-  const final = turn[turn.length - 1];
-  const finalText = [...turn].reverse().find(e => e.kind === 'text') as { text: string } | undefined;
-  const statusLine = finalText ? STATUS_RE.exec(finalText.text)?.[1] ?? null : null;
+  const { statusLine, pendingQuestion, finalText } = turnEnd(t);
   const exitMarker = new RegExp(`^[ \\t>*_-]*${markerPattern(DEFAULT_MATCHERS.earlyExit).source}`, 'im');
   const endedEarly = !!finalText && run.includes(finalText as TranscriptEvent) && exitMarker.test(finalText.text);
   const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
@@ -481,9 +478,6 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
     const reason = waived.get(item.id);
     return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };
   }) : [];
-  const lastParagraph = (finalText?.text ?? '').trim().split(/\n\s*\n/).pop() ?? '';
-  const pendingQuestion = statusLine === 'NEEDS_CONTEXT' || (final !== undefined && isToolUse(final) && /AskUserQuestion$/.test(final.name)) ||
-    (final !== undefined && final.kind === 'text' && /\?[\s*_)"']*$/.test(lastParagraph));
   const pendingAgents = run.flatMap((e, i) => {
     if (!isToolUse(e) || !AGENT_TOOLS.test(e.name)) return [];
     const result = results.get(e.id);
@@ -501,6 +495,29 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
     met: !!load && missing.length === 0, follow: !!load && missing.length === 0 && waivedIds.length === 0,
     statusLine, pendingQuestion, pendingAgents,
   };
+}
+
+export interface TurnEnd { statusLine: string | null; pendingQuestion: boolean; finalText?: { text: string } }
+
+/** How the last turn ends: its last text's STATUS line, and whether it waits on the user (NEEDS_CONTEXT, an AskUserQuestion call, or a closing question). */
+export function turnEnd(t: Transcript): TurnEnd {
+  const lastPrompt = t.events.map(e => e.kind).lastIndexOf('prompt');
+  const turn = t.events.slice(lastPrompt + 1).filter(e => e.kind === 'text' || e.kind === 'tool_use');
+  const final = turn[turn.length - 1];
+  const finalText = [...turn].reverse().find(e => e.kind === 'text') as { text: string } | undefined;
+  const statusLine = finalText ? STATUS_RE.exec(finalText.text)?.[1] ?? null : null;
+  const lastParagraph = (finalText?.text ?? '').trim().split(/\n\s*\n/).pop() ?? '';
+  const pendingQuestion = statusLine === 'NEEDS_CONTEXT' || (final !== undefined && isToolUse(final) && /AskUserQuestion$/.test(final.name)) ||
+    (final !== undefined && final.kind === 'text' && /\?[\s*_)"']*$/.test(lastParagraph));
+  return { statusLine, pendingQuestion, finalText };
+}
+
+/** A final turn: a STATUS line other than NEEDS_CONTEXT, a turn that does not wait on the user, or a session no human answers. sessionKind runs only in the last case. */
+export function isFinalTurn(end: Pick<TurnEnd, 'statusLine' | 'pendingQuestion'>, sessionKind: () => string): boolean {
+  if (end.statusLine && end.statusLine !== 'NEEDS_CONTEXT') return true;
+  if (!end.pendingQuestion) return true;
+  const kind = sessionKind();
+  return kind === 'headless' || kind === 'unattended';
 }
 
 /** The one agent-facing block text (gate rev 2, E1). It never names the off switch: that is for humans, in the docs and setup. */
