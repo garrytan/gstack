@@ -351,7 +351,7 @@ on a few points. Ship the one that fits the repository; both are supported.
 | Small fixes | one PR each, batched by the train | batched into wave PRs, since serial slots cost about 30 minutes each |
 | After the merge | the main backstop gates any push a train did not cover, and freezes the queue on red | the controller watches main's test, e2e and release runs until the release publishes; a red main freezes the queue until root-caused |
 | Severe triage | the Captain watches issues and PRs and starts a thread per unowned severe item | a scheduled severe sweep (every 4 to 8 hours) with a fixed severity bar, dedupe against owned lanes, one hotfix thread per batch |
-| Contributor PRs | ported onto a crew branch with the author's commits kept and `Co-authored-by`; the fork PR is closed with a thank-you that links the port, posted under the bot identity (`capy-ai[bot]`) | landed through a wave PR with "Contributed by @handle", `Co-Authored-By` and `Supersedes` lines |
+| Contributor PRs | ported onto a crew branch with the author's commits kept and `Co-authored-by`; the fork PR is closed with a thank-you that links the port, posted as `capy-ai[bot]` through `tools.pr.comment`, never `gh` | landed through a wave PR with "Contributed by @handle", `Co-Authored-By` and `Supersedes` lines |
 | Privacy | the pregate's sealed-output and secret scans before every push | plus a per-user denylist grep (names, hostnames, identifying counts from private sources) before any public artifact |
 
 ## Known Capy limits

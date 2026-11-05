@@ -248,8 +248,9 @@ dependencies, CI permissions and weakened tests before anything runs it, and do 
 a fork's "tests pass": run a focused review and the free tier at the port head before the
 port opens. When the contributor's fix is right, land it with their authorship kept
 (cherry-pick, `Co-authored-by`, the lane's own fixes as separate commits on top of
-theirs) and close the original with a specific thank-you that links the port, posted under
-the lane's bot identity (`capy-ai[bot]`), never the owner's own account. Closing a
+theirs) and close the original with a specific thank-you that links the port, posted as
+`capy-ai[bot]` through `tools.pr.comment`, never `gh pr comment`, `gh issue comment` or `gh api` (`gh` runs
+as the owner). Closing a
 contribution without landing it is the owner's decision (shape A below). The repository's
 own statement of the porting steps is [CONTRIBUTING.md](../CONTRIBUTING.md#porting-a-contributors-pr).
 

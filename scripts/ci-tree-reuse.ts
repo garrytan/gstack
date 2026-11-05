@@ -6,7 +6,8 @@
  *       The producer. A Free Tests or Windows Free Tests aggregate runs it only after its strict verification
  *       passed, and uploads the file as the `tested-tree` artifact: run_id, run_attempt, event, sha (GITHUB_SHA),
  *       head_sha (the pull request head for pull_request, else GITHUB_SHA), tree (git's tree of GITHUB_SHA),
- *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan) and tests, plus
+ *       workflow, os (the OSes the run's test jobs ran on), files (every test file in the plan), tests and, from complete
+ *       per-file counts, skipped_files (the planned files whose every test skipped on the runner; GST-1190), plus
  *       sizing_experiment: true when a dispatch overrode the runner, shards or sub-shards (SIZING_OVERRIDE), which
  *       verifyRun never accepts as evidence.
  *
@@ -134,7 +135,8 @@ export function findPrReuse(deps: PrReuseDeps, o: { repo: string; base: string; 
 }
 
 /** tree.json for the `tested-tree` artifact; throws on any missing or malformed input, so a broken record fails the aggregate instead of uploading. */
-export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ files: string[] }> }; results: Array<{ outcome?: { summary?: { testsRan?: number } } }>; os: string[]; tree: string }) {
+type FileCounts = { tests: number; pass: number; fail: number };
+export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ files: string[] }> }; results: Array<{ outcome?: { summary?: { testsRan?: number }; counts?: { complete?: boolean; files?: Record<string, FileCounts> } } }>; os: string[]; tree: string }) {
   const int = (name: string) => { const v = Number(env[name]); if (!Number.isSafeInteger(v) || v < 1) throw new Error(`${name} is not a positive integer`); return v; };
   const sha = env.GITHUB_SHA ?? '';
   const event = env.GITHUB_EVENT_NAME ?? '';
@@ -149,7 +151,11 @@ export function treeRecord(env: NodeJS.ProcessEnv, o: { plan: { shards: Array<{ 
   if (!files.length) throw new Error('the plan lists no test files');
   const counts = o.results.map(r => r.outcome?.summary?.testsRan);
   const tests = o.results.length && counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce((a, b) => a! + b!, 0)! : files.length;
-  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests, ...(env.SIZING_OVERRIDE ? { sizing_experiment: true } : {}) };
+  // skipped_files (GST-1190): planned files whose every test skipped on this runner, so a carry runs them where they might not
+  // skip. A partly skipped file ran tests and stays covered. Only from complete per-file counts; otherwise left out (unknown).
+  const counted = o.results.length > 0 && o.results.every(r => r.outcome?.counts?.complete === true && r.outcome.counts.files);
+  const skipped_files = counted ? files.filter(f => o.results.some(r => { const c = r.outcome!.counts!.files![f]; return !!c && c.tests > 0 && c.pass === 0 && c.fail === 0; })) : undefined;
+  return { run_id: int('GITHUB_RUN_ID'), run_attempt: int('GITHUB_RUN_ATTEMPT'), event, sha, head_sha: head, tree: o.tree, workflow, os: o.os, files, tests, ...(skipped_files ? { skipped_files } : {}), ...(env.SIZING_OVERRIDE ? { sizing_experiment: true } : {}) };
 }
 
 function flag(args: string[], name: string): string | undefined { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
@@ -164,7 +170,7 @@ function record(args: string[]): number {
   const out = need(args, '--out');
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
   fs.writeFileSync(out, JSON.stringify(rec, null, 2) + '\n');
-  console.log(`TESTED_TREE: run ${rec.run_id}/${rec.run_attempt} ${rec.event} head ${rec.head_sha.slice(0, 12)} tree ${rec.tree.slice(0, 12)} files=${rec.files.length} tests=${rec.tests} os=${rec.os.join(',')}`);
+  console.log(`TESTED_TREE: run ${rec.run_id}/${rec.run_attempt} ${rec.event} head ${rec.head_sha.slice(0, 12)} tree ${rec.tree.slice(0, 12)} files=${rec.files.length} tests=${rec.tests} skipped_files=${rec.skipped_files?.length ?? 'unknown'} os=${rec.os.join(',')}`);
   return 0;
 }
 
