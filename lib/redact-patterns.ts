@@ -792,6 +792,7 @@ let stringSpansCache: { text: string; lang: string; spans: Array<[number, number
 /** Drops the cached text once a scan ends, so a long-lived process holds no scanned input. */
 export function clearStringSpanCache(): void {
   stringSpansCache = null;
+  codeLineCache = null;
 }
 
 /** The index after the comment at `i`: a line comment ends at its newline, a Dart block comment at its matching `*\/` (they nest). */
@@ -926,9 +927,40 @@ function stringSpans(text: string, lang: "py" | "dart"): Spans {
   return spans;
 }
 
-function insideString(text: string, offset: number, sourcePath: string): boolean {
-  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
-  const spans = stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py");
+/**
+ * JS template literals and block comments, from one pass over the whole input:
+ * the context a line cannot show on its own. A quote ends at its line end, a
+ * line comment is skipped, and `${…}` stays template text. A regex literal is
+ * not recognized, so a `//` or quote inside one can hide a template that opens
+ * later on its line, and a host in that template is exempt as it was before
+ * jsSpans. Cached and cleared with stringSpans.
+ */
+function jsSpans(text: string): Spans {
+  if (stringSpansCache?.text === text && stringSpansCache.lang === "js") return stringSpansCache.spans;
+  const spans: Spans = [];
+  const n = text.length;
+  for (let i = 0; i < n; ) {
+    const c = text[i]!;
+    if (text.startsWith("//", i)) {
+      const newline = text.indexOf("\n", i);
+      i = newline < 0 ? n : newline;
+    } else if (text.startsWith("/*", i)) {
+      const close = text.indexOf("*/", i + 2);
+      const end = close < 0 ? n : close + 2;
+      spans.push([i, end]);
+      i = end;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < n && text[j] !== c && (c === "`" || text[j] !== "\n")) j += text[j] === "\\" ? 2 : 1;
+      if (c === "`") spans.push([i, Math.min(j + 1, n)]);
+      i = j + 1;
+    } else i += 1;
+  }
+  stringSpansCache = { text, lang: "js", spans };
+  return spans;
+}
+
+function inSpans(spans: Spans, offset: number): boolean {
   let lo = 0;
   let hi = spans.length - 1;
   while (lo <= hi) {
@@ -938,6 +970,11 @@ function insideString(text: string, offset: number, sourcePath: string): boolean
     else return true;
   }
   return false;
+}
+
+function insideString(text: string, offset: number, sourcePath: string): boolean {
+  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  return inSpans(stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py"), offset);
 }
 
 /** The rest of a name's expression on its line, up to the comma, semicolon, bracket or comment that ends it; null when it continues on the next line. */
@@ -979,6 +1016,143 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     }
   }
   return !insideString(match.input, start, sourcePath);
+}
+
+/** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
+const PROPERTY_READ_SOURCE = /\.(?:[cm]?ts|dart|pyi?)$/i;
+/** How far back on its line isPropertyRead reads from a span. A span further from its line start than this is never exempted. */
+const PROPERTY_READ_LINE_CHARS = 1000;
+/** The object chain in front of a span (`this.`, `ctx.`, `a!.`), skipped before the lead is read. Matched against the last 80 characters only, so a longer chain leaves a name as the lead, which never qualifies. */
+const PROPERTY_READ_CHAIN = /(?:[\w$#]+[!?]?\.)+$/;
+/** The token that opens an expression in front of the chain: an operator or bracket, or one of the language's expression keywords. Matched against the last 7 characters of the lead. */
+const PROPERTY_READ_LEAD = /(?:[([{,;?:=+]|=>|&&|\|\||\.\.\.)$/;
+const PROPERTY_READ_KEYWORD = {
+  js: /(?<![\w$])(?:return|await|typeof|yield|case|of|in)$/,
+  dart: /(?<![\w$])(?:return|await|yield|case|in)$/,
+  py: /(?<![\w$])(?:return|await|yield|not|and|or|in|if|elif|while|assert|else)$/,
+};
+/** After a span at the very start of its line, only a call, index or assignment shows code: a line holding just a host, or a host and a comma, is a list in a multi-line string. */
+const PROPERTY_READ_LINE_START_TAIL = /^(?:[ \t]*[([=]|\.[A-Za-z_$][\w$]*[ \t]*\()/;
+/** A line that is only a key and `:` or `=` before the span, the shape of YAML or dotenv text inside a JS template literal. */
+const PROPERTY_READ_BARE_KEY = /^[ \t]*[\w$.-]+[ \t]*[:=]$/;
+/** What closes or continues an expression after the span: a bracket, separator, operator, method call, cast, Python keyword, comment or line end. A `:` before a digit or `/` is a port or URL. */
+const PROPERTY_READ_TAIL = /^(?:[ \t]*(?:[()[\],;?=!]|&&|\|\||:(?![\d/])|\/\/|#|\r?$)|\.[A-Za-z_$][\w$]*[ \t]*\(|[ \t]+(?:as|and|or|if|else|for|instanceof)\b)/;
+
+/**
+ * codeLineStart's place in the text it last read: the next index, the start of
+ * that line, and what is open there. A scan checks its spans in order, so the
+ * next span resumes from here and the text is read once.
+ */
+let codeLineCache: {
+  text: string;
+  at: number;
+  lineStart: number;
+  indent: boolean;
+  quote: string;
+  comment: "" | "line" | "block";
+  slash: boolean;
+} | null = null;
+
+/**
+ * The start of `offset`'s line when `offset` is code, else -1: inside a quote
+ * opened on the line, after a line comment, inside a block comment opened on
+ * the line, on a block comment's `*` continuation line, or more than
+ * PROPERTY_READ_LINE_CHARS from the line start, or, in JS, after a `/` in
+ * code on the line (a regex literal can hold a quote, which would turn the
+ * quote tracking around). Each line is read on its own
+ * (a quote or comment never carries over a newline), so a span's answer
+ * depends only on its own line, whichever spans were checked before it.
+ */
+function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart"): number {
+  const cap = PROPERTY_READ_LINE_CHARS;
+  let s = codeLineCache;
+  if (!s || s.text !== text || s.at > offset || offset - s.at > cap) {
+    const head = text.slice(Math.max(0, offset - cap - 1), offset);
+    const newline = head.lastIndexOf("\n");
+    if (newline < 0 && offset > cap) return -1;
+    const lineStart = offset - head.length + newline + 1;
+    s = codeLineCache = { text, at: lineStart, lineStart, indent: true, quote: "", comment: "", slash: false };
+  }
+  let i = s.at;
+  while (i < offset) {
+    const c = text[i]!;
+    if (c === "\n") {
+      Object.assign(s, { lineStart: i + 1, indent: true, quote: "", comment: "", slash: false });
+      i += 1;
+      continue;
+    }
+    if (s.indent) {
+      if (c === " " || c === "\t") { i += 1; continue; }
+      s.indent = false;
+      if (c === "*" && lang !== "py") s.comment = "line";
+    }
+    if (s.comment === "line") {
+      i += 1;
+    } else if (s.comment === "block") {
+      if (text.startsWith("*/", i)) { s.comment = ""; i += 2; } else i += 1;
+    } else if (s.quote) {
+      if (c === "\\" && text[i + 1] !== "\n") i += 2;
+      else if (text.startsWith(s.quote, i)) { i += s.quote.length; s.quote = ""; }
+      else i += 1;
+    } else if (lang === "py" ? c === "#" : text.startsWith("//", i)) {
+      s.comment = "line";
+    } else if (lang !== "py" && text.startsWith("/*", i)) {
+      s.comment = "block";
+      i += 2;
+    } else if (c === '"' || c === "'" || (c === "`" && lang === "js")) {
+      s.quote = lang !== "js" && text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+      i += s.quote.length;
+    } else {
+      if (c === "/" && lang === "js") s.slash = true;
+      i += 1;
+    }
+  }
+  s.at = Math.max(i, offset);
+  return s.quote || s.comment || s.slash || offset - s.lineStart > cap ? -1 : s.lineStart;
+}
+
+/**
+ * True when an `internal.hostname` span is a property read in source code
+ * (`server.local('/x')`, `if (config.prod)`, `if settings.internal:`) rather
+ * than a host (#3987). The pattern ends in `.local|.prod|.staging|…`, so any
+ * object with a property of that name reported, and the pregate secrets stage
+ * warned on every one in a pushed diff.
+ *
+ * Exempts only when all of these hold: the scan has a TS, Dart or Python
+ * file's path (PROPERTY_READ_SOURCE; without one nothing is exempt, and .tsx
+ * and .jsx report as before), the span starts with an
+ * identifier, it sits outside every string and comment on its line (and, in
+ * Python and Dart, outside every string of the file: insideString), and the
+ * line shows code syntax on both sides of it: an operator, bracket or one of
+ * the language's expression keywords before its object chain (or the line
+ * start, when a call, index or assignment follows), and a bracket, operator,
+ * method call or line end after it. A quoted host, a host in a comment,
+ * `db.internal:5432`, `build-7.internal`, `proxy.corp/api`, prose, and every
+ * host in a config, dotenv or Markdown file still report. In TS, a span
+ * inside a template literal or block comment of the scanned text (jsSpans) is
+ * never exempt. A scan of added lines only cannot see a
+ * template literal that opened above them, so in JS a line that is only a key
+ * and `:` or `=` before the span (`host: db.internal`, `DB_HOST=db.internal`)
+ * is never exempt either.
+ */
+function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !PROPERTY_READ_SOURCE.test(sourcePath)) return false;
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  if (!/^[A-Za-z_$][\w$]*\./.test(input.slice(start, end))) return false;
+  const after = input.slice(end, end + 40).split("\n", 1)[0]!;
+  if (!PROPERTY_READ_TAIL.test(after)) return false;
+  const lang = /\.pyi?$/i.test(sourcePath) ? "py" : /\.dart$/i.test(sourcePath) ? "dart" : "js";
+  const lineStart = codeLineStart(input, start, lang);
+  if (lineStart < 0) return false;
+  const before = input.slice(lineStart, start);
+  let k = before.length - (PROPERTY_READ_CHAIN.exec(before.slice(-80))?.[0].length ?? 0);
+  while (k > 0 && before[k - 1] === "!") k -= 1;
+  while (k > 0 && (before[k - 1] === " " || before[k - 1] === "\t")) k -= 1;
+  const lead = before.slice(Math.max(0, k - 7), k);
+  if (lang === "js" && PROPERTY_READ_BARE_KEY.test(before.slice(0, k))) return false;
+  if (k === 0 ? !PROPERTY_READ_LINE_START_TAIL.test(after) : !PROPERTY_READ_LEAD.test(lead) && !PROPERTY_READ_KEYWORD[lang].test(lead)) return false;
+  return lang === "js" ? !inSpans(jsSpans(input), start) : !insideString(input, start, sourcePath);
 }
 
 export const PATTERNS: RedactPattern[] = [
@@ -1386,8 +1560,10 @@ export const PATTERNS: RedactPattern[] = [
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
     // `.env.local`, `CLAUDE.local.md` and friends are filenames, not hosts.
-    // See isDotenvFilename and isLocalConfigFilename.
-    validate: (_span, match) => !isDotenvFilename(match) && !isLocalConfigFilename(match),
+    // See isDotenvFilename and isLocalConfigFilename. A property read in
+    // code (`config.prod`) is not a host either: see isPropertyRead (#3987).
+    validate: (_span, match, opts) =>
+      !isDotenvFilename(match) && !isLocalConfigFilename(match) && !isPropertyRead(match, opts?.sourcePath),
   },
   {
     id: "internal.url_private",
