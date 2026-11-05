@@ -210,6 +210,35 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, expect.stringContaining('nor a landed stack parent')]);
   });
 
+  // Value: protects=a landed parent whose tentative VERSION the train restamped in the squash itself is still landed: a
+  //   merge-tree conflict only on excluded release metadata does not count against the parent (specialist p2 on #4021);
+  //   fails_when=heldBy rejects any conflicted merge, not only one conflicted inside its pathspec; seam=lib/ship-receipt.ts heldBy
+  test('a parent whose VERSION the train restamped at landing is still landed', () => {
+    const { f, parent, reviewed, post } = stacked({
+      parentFiles: { ...PARENT, VERSION: '1.0.1.0\n' },
+      land: false,
+      afterLand: g => g.advanceBase({ ...PARENT, VERSION: '1.0.2.0\n' }),
+    });
+    expect(f.git('show', 'HEAD:VERSION').stdout).toBe('1.0.2.0\n');
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
+    expect(lineOf(r.stdout, 'REVIEWED_BASE')).toBe(`REVIEWED_BASE: stack parent ${parent.slice(0, 12)} landed on origin/main at ${f.git('rev-parse', 'origin/main').stdout.trim().slice(0, 12)}`);
+    expect(lineOf(r.stdout, 'STOP')).not.toContain('nor a landed stack parent');
+  });
+
+  // Value: protects=a review-loop exception whose fix-check head comes after the child merged main cannot accept a
+  //   main-only file edited after it: the "touched at the fix-check head" set starts at the parent only when that head
+  //   forked before the parent landed (red-team p2 on #4021); fails_when=the loop's fork is the parent whenever the parent
+  //   is an ancestor of the head; seam=route's review-loop exception via patchBase
+  test('a loop exception at a post-merge fix-check head does not accept a main-only file edited after it', () => {
+    const { f, parent, reviewed, post } = stacked({ base: { ...BASE, 'src/other.ts': lines(5) }, mainLater: { ...MAIN_LATER, 'src/other.ts': lines(5, { 2: 'export const l2 = 20;' }) } });
+    const merged = head(f);
+    f.write({ 'src/other.ts': lines(5, { 2: 'export const l2 = 20;', 4: 'export const l4 = 40;' }) }); f.commit('edit a main-only file after the fix-check');
+    const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-05', via: 'test', reason: 'fixture', fix_check: { head: merged, findings: 0 } });
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent, '--review-loop-exception', exception]);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toContain('accepted none');
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('src/other.ts')]);
+  });
+
   // Value: protects=a reviewed executable bit reverted to main's mode after review is not held by main, so it stops
   //   (outside voice on #4013); fails_when=baseHolds compares blob bytes only; seam=lib/ship-patch.ts baseHolds
   test('a reverted mode change stops', () => {

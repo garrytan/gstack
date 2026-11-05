@@ -329,7 +329,8 @@ export const HELD_WALK = 200;
  * `pathspec`. The current base is tried first. When that merge conflicts (the base edited the landed lines afterwards),
  * the commits on its first-parent history since the fork that touched every path of the change are tried newest first,
  * so a squash the base later edited is still found. A change with no path of its own is held by no commit (any base
- * trivially holds it), and a conflicted path is never held. Null when none within HELD_WALK holds it or git cannot tell.
+ * trivially holds it), and a conflict inside `pathspec` is never held (one only in excluded release metadata, like a
+ * train's VERSION restamp, is). Null when none within HELD_WALK holds it or git cannot tell.
  */
 export function heldBy(repoRoot: string, commit: string, currentBase: string, pathspec: readonly string[]): string | null {
   const run = (args: string[]) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
@@ -338,9 +339,12 @@ export function heldBy(repoRoot: string, commit: string, currentBase: string, pa
   const paths = own?.status === 0 ? own.stdout.split('\0').filter(Boolean) : [];
   if (!paths.length) return null;
   const holds = (at: string): 'held' | 'conflict' | 'no' => {
-    const merged = run(['merge-tree', '--write-tree', '--no-messages', at, commit]);
-    const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
-    if (merged.status === 0 && tree && run(['diff', '--quiet', at, tree, '--', ...pathspec]).status === 0) return 'held';
+    const merged = run(['merge-tree', '--write-tree', '--no-messages', '--name-only', at, commit]);
+    const [tree, ...conflicted] = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n').filter(Boolean) : [];
+    const mb = conflicted.length ? run(['merge-base', at, commit]).stdout.trim() : '';
+    const theirs = mb ? run(['diff', '-z', '--name-only', '--no-renames', mb, commit, '--', ...pathspec]) : null;
+    const clean = !conflicted.length || (theirs?.status === 0 && !theirs.stdout.split('\0').some(p => conflicted.includes(p)));
+    if (tree && clean && run(['diff', '--quiet', at, tree, '--', ...pathspec]).status === 0) return 'held';
     return merged.status === 1 ? 'conflict' : 'no';
   };
   const tip = holds(currentBase);
