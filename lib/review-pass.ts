@@ -71,13 +71,13 @@ export interface Manifest {
 }
 export interface FixCheckFiles { fix_list: string; hunks: string; tests: string; callers?: string }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
-/** Step 14.5's docs audit model when no preference is set (its pre-GST-1439 hard-code). */
-export const DOCS_AUDIT_DEFAULT: PassModel = { model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' };
+/** The audit readers' model when no preference is set (their pre-GST-1439 hard-code). */
+export const AUDIT_DEFAULT: PassModel = { model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' };
 
-/** The model an audit-only extra runs on when it names none (GST-1439): the owner's agent_model at low effort,
- * DOCS_AUDIT_DEFAULT with no preference or an unusable one; agent_model host leaves it to the lane's own model. */
+/** The model an audit extra (Steps 7, 8, 14.5) runs on when it names none (GST-1439, GST-1449): the owner's agent_model at low effort,
+ * AUDIT_DEFAULT with no preference or an unusable one; agent_model host leaves it to the lane's own model. */
 export function auditModel(env: NodeJS.ProcessEnv = process.env): { model?: PassModel; line: string } {
-  const fallback = (why: string) => ({ model: DOCS_AUDIT_DEFAULT, line: `AUDIT_MODEL: ${DOCS_AUDIT_DEFAULT.model_id} reasoning=low (default; ${why})` });
+  const fallback = (why: string) => ({ model: AUDIT_DEFAULT, line: `AUDIT_MODEL: ${AUDIT_DEFAULT.model_id} reasoning=low (default; ${why})` });
   let s;
   try { s = resolveAgentModel({ env }); } catch (error) {
     if (!(error instanceof AgentModelError)) throw error;
@@ -86,6 +86,12 @@ export function auditModel(env: NodeJS.ProcessEnv = process.env): { model?: Pass
   if (s.source.kind === 'default') return fallback('no agent_model set');
   if (!s.id) return { line: `AUDIT_MODEL: host (agent_model host in ${s.source.path}: the lane's own model)` };
   return { model: { model_id: s.id, reasoning_mode: 'low' }, line: `AUDIT_MODEL: ${s.id} reasoning=low (agent_model ${s.value} in ${s.source.path})` };
+}
+
+/** Fills auditModel() into the extras that name no model, and the AUDIT_MODEL: line for the plan when any did. */
+export function withAuditModel(given: Extra[], env: NodeJS.ProcessEnv = process.env): { extras: Extra[]; lines: string[] } {
+  const audit = given.some(e => !e.model) ? auditModel(env) : null;
+  return { extras: given.map(e => (e.model || !audit?.model ? e : { ...e, model: audit.model })), lines: audit ? [audit.line] : [] };
 }
 /** Step 9.2.1's own first line: its probes are the parent's, so a QA subagent only refuses (C4-36, C5-36: "parent-only"). */
 export const PARENT_ONLY_QA = 'Only the parent runs report-only discovery.';
