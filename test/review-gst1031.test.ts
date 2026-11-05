@@ -118,6 +118,23 @@ describe('lead judgment may lower a native finding to the Severity its reader st
     expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace('Severity: Medium', 'Severity: FIXABLE'), 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
   });
+  test('a merged row whose reader was edited to adversarial-native is caught by verify', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1406r-'));
+    const ledger = path.join(d, 'l.jsonl');
+    const merged = path.join(d, 'm.jsonl');
+    const output = 'CRITICAL: admin.ts:9 skips authentication. Severity: Low. Blocks: no.\n';
+    fs.writeFileSync(path.join(d, 'out.txt'), output);
+    const c = collect(ledger, 'outside-voice', output, merged, path.join(d, 'out.txt'));
+    const forged = c.lines.map(l => ({ ...l, reader: 'adversarial-native' }));
+    fs.writeFileSync(merged, forged.map(l => JSON.stringify(l)).join('\n') + '\n');
+    fs.writeFileSync(path.join(d, 'j.jsonl'), forged.map(l => JSON.stringify({ id: l.id, severity: 'Low', reason: 'r' })).join('\n') + '\n');
+    recordJudgment(ledger, forged, readJsonl(path.join(d, 'j.jsonl')), path.join(d, 'j.jsonl'), merged);
+    const v = verify(ledger);
+    expect(v.clean).toBe(false);
+    expect(v.rows.find(r => r.kind === 'OUTPUT')!.detail).toContain('merged_line_differs=["outside-voice#1"]');
+    expect(v.rows.find(r => r.kind === 'JUDGE')!.status).toBe('MISMATCH');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
 });
 
 describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {

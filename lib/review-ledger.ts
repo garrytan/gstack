@@ -422,7 +422,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
       ranks.set(id, rank(line.label) ?? 0);
       if (statesNoBlocks(line.raw)) unblocking.set(id, rank(line.label) ?? 0);
       raws.set(id, line.raw);
-      readers.set(id, line.reader);
+      readers.set(id, String(o.reader));
       loci.set(id, lineLocus(line.raw));
     }
   }
@@ -517,14 +517,14 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
     try { lines = typeof o.merged === 'string' ? readJsonl<MergedLine>(o.merged).filter(l => ids.includes(l.id)) : []; } catch { notes.push('merged_unreadable'); status = 'MISMATCH'; }
     if (lines.length !== ids.length) { status = 'MISMATCH'; notes.push(`merged_lines=${lines.length}/${ids.length}`); }
     if (lines.some(l => l.output_sha256 !== o.sha256)) { status = 'MISMATCH'; notes.push('merged_line_from_other_output'); }
-    // Each merged row must be the finding collect parses at that id's index from the unchanged output, label and raw text byte for byte.
+    // Each merged row must be the finding collect parses at that id's index from the unchanged output, its reader, label and raw text byte for byte.
     if (text === undefined) {
       status = 'MISMATCH';
       notes.push(typeof o.file === 'string' ? 'output_file_missing' : 'output_file_unrecorded');
       differs.push(...ids);
     } else if (promptHash(text) === o.sha256) {
       const parsed = parseFindings(reader, text, o.fixable_raises !== false);
-      const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
+      const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || m.reader !== reader || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw; });
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
       else if (!unavailableOutput(o)) {
         if (off.length) { status = 'MISMATCH'; notes.push(`merged_line_differs=${JSON.stringify(off)}`); differs.push(...off); }
