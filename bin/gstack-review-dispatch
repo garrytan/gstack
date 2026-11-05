@@ -26,6 +26,7 @@ import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, ch
 import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
+import { REVIEW_PLAN_TIMEOUT_MS } from '../lib/review-collect';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '../lib/review-targeted';
@@ -278,8 +279,6 @@ const wrongTree = (reader: string, t: TreeCheck) => `${t.moved ? 'COLLECT_TREE_M
 
 const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
 const PROGRAM_VERSION = 1;
-/** How long the pass waits for each gstack-review-plan call (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the pass stops with REVIEW_PLAN_STOPPED. */
-const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 const git = (a: string[]) => { const r = spawnSync('git', a, { encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
 const mergeBaseWith = (base: string) => [`origin/${base}`, base].map(ref => git(['merge-base', ref, 'HEAD'])?.trim()).find(Boolean);
 const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;

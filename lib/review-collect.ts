@@ -119,6 +119,8 @@ export const CONSUMER_SCAN_DEPTH = 4;
  * a plan that also scans a fix range (--range-base) runs a second scan and can still reach that limit, which fails the plan.
  */
 export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
+/** How long gstack-review-dispatch pass waits for each gstack-review-plan call (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the pass stops with REVIEW_PLAN_STOPPED. */
+export const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 /** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 /** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
