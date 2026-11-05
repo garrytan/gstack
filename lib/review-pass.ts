@@ -107,7 +107,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check'
 /** The manifest for one pass from the plan's dispatches. A fix-check reader needs decision 3.5's files. `voices` keeps only Step 11's readers. */
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
-  dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
+  dispatches: Array<Dispatch & { excerpt?: string[] }>; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
   targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders; voices?: boolean;
 }): Manifest {
   if (o.voices && o.extras?.length) throw new BriefError(`Step 11's voices pass sends no audit reader, so it takes no --extras: ${o.extras.map(e => e.name).join(', ')}`);

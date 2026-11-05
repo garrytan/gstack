@@ -191,7 +191,7 @@ function main(): number {
   if (exclusion.state === 'refused') { for (const l of exclusion.lines) process.stderr.write(l + '\n'); return exclusion.code === 'REVIEW_DIFF_UNREADABLE' ? EXIT.fail : EXIT.refused; }
   const active = exclusion.state === 'active' ? exclusion : null;
   const kept = <T,>(rec: Record<string, T>) => (active ? Object.fromEntries(Object.entries(rec).filter(([p]) => !active.excluded.has(p))) : rec);
-  const exclusionInput = active ? { excluded: active.excluded, exclusion: { specs: active.specs, keep: active.keep, excerpt: active.excerpt } } : {};
+  const exclusionInput = active ? { excluded: active.excluded, exclusion: { specs: active.specs, keep: active.keep } } : {};
   const force = flag('--force') === 'all' ? 'all' as const : list('--force');
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
   const auditEffort = has('--no-tiers') || (tiersSetting.stdout ?? '').trim() === 'off' ? 'host' : 'light';
@@ -224,7 +224,8 @@ function main(): number {
     if (d.role === 'fix-check') continue;
     d.exclude.push(...forbidSpecs(readers).filter(s => !d.exclude.includes(s)));
     if (d.keep && forbidden.length) d.keep = d.keep.filter(k => !forbiddenPath(forbidden, k.replace(/^:\(top,literal\)/, '')));
-    if (d.excerpt) d.excerpt = d.excerpt.filter(k => d.keep?.includes(k));
+    const excerpt = active?.excerpt.filter(k => d.keep?.includes(k)) ?? [];
+    if (excerpt.length) Object.assign(d, { excerpt });
   }
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {

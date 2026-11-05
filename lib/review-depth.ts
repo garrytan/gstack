@@ -473,14 +473,14 @@ export interface PlanInput extends ClassInput {
   /** The targeted classes (lib/review-targeted.ts) and whether the targeted reader already read this product patch. */
   targeted?: { classes: readonly string[]; ran?: boolean };
   /** The base policy's exclusion: one `:(top,exclude,glob)` pathspec per applied pattern, added to every reader, and the kept files under them as `:(top,literal)` pathspecs. */
-  exclusion?: { specs: readonly string[]; keep: readonly string[]; excerpt?: readonly string[] };
+  exclusion?: { specs: readonly string[]; keep: readonly string[] };
   /** The base policy's review key and the platform evidence at HEAD; absent plans today's panel (review.panel all). */
   shape?: ReviewShape;
 }
 /** How much review a repo runs (lib/ship-policy-review.ts) plus HEAD and the platform review found at it (lib/review-platform.ts). */
 export interface ReviewShape { panel: 'off' | 'risk' | 'all'; readerModel: string; platform: 'off' | 'on'; head: string; platformReview: { id: string; head: string; reviewer: string } | null }
 /** One reviewer. `exclude` holds git pathspec argv items the reviewer's diff leaves out; `checklists` names what the batched specialist reads. */
-export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string; keep?: string[]; excerpt?: string[]; model?: string; classes?: string[] }
+export interface Dispatch { role: Role; name: string; effort: Effort; exclude: string[]; checklists?: string[]; reason?: string; keep?: string[]; model?: string; classes?: string[] }
 /** lean: R65's one reviewer; panel: today's panel (review.panel); platform: the platform review at HEAD stands in for every reader. */
 export type ReviewMode = 'lean' | 'panel' | 'platform';
 export interface ReviewPlan extends DepthResult {
@@ -578,7 +578,7 @@ export function planReview(i: PlanInput): ReviewPlan {
   const dispatches: Dispatch[] = [];
   const x = i.exclusion;
   const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) =>
-    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}), ...(x?.excerpt?.length ? { excerpt: [...x.excerpt] } : {}) });
+    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
   const docsAndOutputs = i.paths.filter(p => !i.excluded?.has(p) && ((pathClass(i, p) === 'docs' && !(i.numbers.publishes && DOC_PATH.test(p))) || isOutput(i, p))).map(excludeSpec);
   const numbersChanged = i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint;
   const firstVoices = h.fullPasses === 0 || !i.adversarialRan;
@@ -663,7 +663,7 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
   const dispatches: Dispatch[] = [];
   const x = i.exclusion;
   const add = (role: Role, name: string, effort: Effort, exclude: string[] = [], extra: Partial<Dispatch> = {}) =>
-    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}), ...(x?.excerpt?.length ? { excerpt: [...x.excerpt] } : {}) });
+    dispatches.push({ role, name, effort, exclude: x ? [...exclude, ...x.specs] : exclude, ...extra, ...(x?.keep.length ? { keep: [...x.keep] } : {}) });
   const plan = (n: NextStep, mode: ReviewMode): ReviewPlan => ({ ...depth, stepDepth: depth.depth, depthReasons: depth.reasons, reasons: c.reasons, next: n, numbers: i.numbers, dispatches, skipped, mode });
   const pr = sh.platformReview;
   const platformFit = !risky && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
