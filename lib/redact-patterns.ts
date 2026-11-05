@@ -593,6 +593,37 @@ export function isLocalConfigFilename(match: RegExpExecArray): boolean {
   return LOCAL_CONFIG_EXTENSIONS.test((match.input ?? "").slice(end, end + 8));
 }
 
+/** Text before a span that puts it in expression position: a control-flow
+ * keyword or logical operator, then only spaces, opening parens and the dotted
+ * object chain (`if (!cfg.`), with nothing else between. */
+const EXPRESSION_LEAD =
+  /(?:\b(?:return|if|elif|while|assert|not|and|or)\b|&&|\|\||!)[ \t(!]*(?:[\w$]+\.)*$/;
+
+/** Text after a span that closes an expression: `)`, `]`, `;`, `:`, `{`, `?`,
+ * `,`, a logical operator, `and`/`or`, or the end of the line. */
+const EXPRESSION_TAIL = /^(?:[ \t]*(?:[)\];:{?,]|&&|\|\||\r?$)|[ \t]+(?:and|or)\b)/;
+
+/**
+ * True when an `internal.hostname` span is a property read in source code
+ * (`return m.local;`, `if (config.prod) start();`, `if settings.internal:`)
+ * rather than a host (#3987). The pattern ends in `.local|.prod|.staging|…`, so
+ * any object with a property of that name reports.
+ *
+ * Needs evidence on BOTH sides: the span follows a keyword or logical operator
+ * directly and is closed by an expression terminator, so a host in a sentence
+ * (`if api.corp is down`), a URL, an assignment (`HOST=db.internal`) or a quoted
+ * string (`return "nas.lan"`) still reports.
+ */
+export function isPropertyAccess(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  const lineEnd = input.indexOf("\n", end);
+  const before = input.slice(lineStart, start);
+  const after = input.slice(end, lineEnd === -1 ? input.length : lineEnd);
+  return EXPRESSION_LEAD.test(before) && EXPRESSION_TAIL.test(after);
+}
+
 /**
  * True when the matched span sits ENTIRELY inside a UUID.
  *
@@ -1386,8 +1417,10 @@ export const PATTERNS: RedactPattern[] = [
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
     // `.env.local`, `CLAUDE.local.md` and friends are filenames, not hosts.
-    // See isDotenvFilename and isLocalConfigFilename.
-    validate: (_span, match) => !isDotenvFilename(match) && !isLocalConfigFilename(match),
+    // See isDotenvFilename and isLocalConfigFilename. `config.prod` read in
+    // code is a property, not a host: see isPropertyAccess.
+    validate: (_span, match) =>
+      !isDotenvFilename(match) && !isLocalConfigFilename(match) && !isPropertyAccess(match),
   },
   {
     id: "internal.url_private",
