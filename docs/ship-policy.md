@@ -2076,7 +2076,7 @@ release-file rows):
 | the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
 | the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
 | a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
-| no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
+| no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; a backstop freeze left from before `release_gate` only warns; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
