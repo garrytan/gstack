@@ -20,6 +20,7 @@ import { parseUnifiedDiff, versionAtRef, type FileDiff, type GateAheadRecord } f
 import { branchSides, stampOnlyLine, type BranchSide } from './stamp-only';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny, type ShipPolicy } from './ship-policy';
+import { regeneratedAtBase } from './version-gate-train';
 
 export type HunkClass = 'stamp' | 'changed';
 export interface FileVerdict { path: string; rule: string; verdict: HunkClass; residual?: string; line?: number }
@@ -143,6 +144,8 @@ export interface ReceiptOptions {
   baseRef?: string;
   predecessor?: { pr: string | null; recordedHead: string | null; ref?: string | null; currentHead?: string | null };
   bundlePath?: string; gh?: (args: string[]) => { ok: boolean; out: string }; env?: NodeJS.ProcessEnv; rerunCommand?: string;
+  /** Rerun the policy's release_tool (repo code: only under --allow-repo-commands) on the current head at its version; a release output it regenerates byte for byte is a stamp (GST-1176). */
+  regenerate?: boolean;
 }
 
 export function fromGateAhead(file: string): GateAheadRecord {
@@ -181,7 +184,14 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
     return { error: `git diff ${gatedHead.slice(0, 12)} ${currentHead.slice(0, 12)} failed (${why}), so the changed files cannot be classified (GST-448)`, code: 'EVIDENCE_IDENTITY_UNKNOWN' };
   }
   const diffText = d.stdout.replace(/\n$/, '');
-  const files = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV, o.baseRef && oldV ? branchSides(o.repoRoot, o.baseRef, gatedHead, oldV) : undefined);
+  const classified = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV, o.baseRef && oldV ? branchSides(o.repoRoot, o.baseRef, gatedHead, oldV) : undefined);
+  const rendered = o.regenerate && o.policy.release_tool && newV ? classified.filter(f => f.verdict === 'changed' && (f.rule === 'release_outputs' || (f.rule === 'path' && f.residual === 'added' && matchesAny(o.policy.release_outputs, f.path) && (!o.policy.stamp_files.length || matchesAny(o.policy.stamp_files, f.path))))).map(f => f.path) : [];
+  const regen = rendered.length ? regeneratedAtBase({ repoRoot: o.repoRoot, head: currentHead, baseVersion: blob(o.repoRoot, currentHead, 'VERSION') ?? newV!, tool: o.policy.release_tool!, outputs: rendered }) : null;
+  const files = classified.map((f): FileVerdict => {
+    if (!regen || !rendered.includes(f.path)) return f;
+    if (regen.kind === 'same' || (regen.kind === 'differs' && !regen.files.includes(f.path))) return { path: f.path, rule: 'release_tool', verdict: 'stamp' };
+    return { ...f, residual: `${f.residual}; ${regen.kind === 'error' ? regen.reason : `not what release_tool generates at ${newV}`}` };
+  });
   const residual = files.filter(f => f.verdict === 'changed').map(f => f.path);
   const stampFiles = files.filter(f => f.verdict === 'stamp').map(f => f.path);
   const stampDiff = stampFiles.length ? (git(o.repoRoot, ['diff', '--no-color', '--no-ext-diff', gatedHead, currentHead, '--', ...stampFiles]) ?? '') : '';
