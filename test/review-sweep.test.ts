@@ -6,13 +6,14 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BIG_BYTES, foundLines, inventory, quarantineStage, sweepDiff, sweepResult } from '../lib/review-sweep';
+import { BIG_BYTES, foundLines, inventory, quarantineStage, redactUrl, sweepDiff, sweepResult } from '../lib/review-sweep';
 import { collect, ledgerBlockers } from '../lib/review-ledger';
 import { ledgerPass } from '../lib/review-scope';
 import type { Manifest } from '../lib/review-pass';
 import { RELEASE_RESULT_CODES } from '../lib/result-codes-release';
 
 const made: string[] = [];
+const FAKE = 'FAKETOKEN';
 const tmp = () => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep-'))); made.push(d); return d; };
 afterAll(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
 const repoAt = (dir: string, remote?: string) => {
@@ -128,19 +129,31 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     expect([fix.includes('DELETE'), /inspect/.test(fix), /leave it alone/.test(fix)]).toEqual([false, true, true]);
   });
 
-  // Value: protects=a clone whose remote URL carries credentials (https://user:TOKEN@host/…) never puts them in a FETCH_VIOLATION line, the found record verify replays, or the start inventory;
+  // Value: protects=a clone whose remote URL carries credentials (https://user:PASSWORD@host/…) never puts them in a FETCH_VIOLATION line, the found record verify replays, or the start inventory;
   //   fails_when=the sweep prints or records the remote verbatim and the token reaches the transcript; why_new=ship-c-p1 outside-voice#1 (High; the Captain's grant on #4011); seam=remotes, sweepDiff, foundLines; no_claim=that other tools print remotes safely
   test('a remote with user:token@ prints and records without its userinfo', async () => {
     const root = tmp();
     const checkout = path.join(root, 'checkout');
-    repoAt(checkout, 'https://ci-bot:ghp_SECRET123@github.com/me/app.git');
+    repoAt(checkout, `https://ci-bot:${FAKE}@github.com/me/app.git`);
     const start = inventory([root], checkout, []);
     await Bun.sleep(30);
-    repoAt(path.join(root, 'BEAM'), 'https://x-access-token:ghp_SECRET456@github.com/sealed-org/BEAM.git');
+    repoAt(path.join(root, 'BEAM'), `https://x-access-token:${FAKE}@github.com/sealed-org/BEAM.git`);
     const end = inventory([root], checkout, []);
     const found = sweepDiff(start, end);
     const lines = foundLines('specialists', 1, found, ['specialist/security']);
     expect(lines[0]).toContain(' remote=https://github.com/sealed-org/BEAM.git ');
-    expect(JSON.stringify([start, end, found, lines])).not.toMatch(/SECRET|ci-bot|x-access-token/);
+    expect(JSON.stringify([start, end, found, lines])).not.toMatch(/FAKETOKEN|ci-bot|x-access-token/);
+  });
+// Value: protects=a remote value that is not a URL (or git's user@host:path form) is recorded and printed as <redacted>, never raw;
+  //   fails_when=an unparseable value with credentials (a git transport form, a broken authority) is stored verbatim; why_new=GSTA-297 (fail-closed redaction on #4011); seam=redactUrl; no_claim=that <redacted> remotes are detected as network clones
+  test('remote values redact fail-closed: userinfo and query go, unparseable values read <redacted>, plain URLs and scp forms stay', () => {
+    expect(redactUrl(`https://bot:${FAKE}@github.com/sealed-org/BEAM.git#x`)).toBe('https://github.com/sealed-org/BEAM.git#x');
+    expect(redactUrl('https://FAKETOKEN@github.com/x/y.git')).toBe('https://github.com/x/y.git');
+    expect(redactUrl(`ssh://git:${FAKE}@example.com:2222/x/y.git`)).toBe('ssh://example.com:2222/x/y.git');
+    expect(redactUrl('https://github.com/x/y.git?private_token=FAKETOKEN')).toBe('https://github.com/x/y.git?<redacted>');
+    expect(redactUrl(`persistent-https::https://bot:${FAKE}@github.com/x/y.git`)).toBe('<redacted>');
+    expect(redactUrl(`https://bot:${FAKE}@x@[bad/x`)).toBe('<redacted>');
+    expect(redactUrl('/srv/mirror/app.git')).toBe('<redacted>');
+    for (const plain of ['https://github.com/sealed-org/BEAM.git', 'https://github.com/sealed-org/PLAIN.git#x', 'git@github.com:sealed-org/BEAM.git', 'file:///srv/mirror/app.git']) expect(redactUrl(plain)).toBe(plain);
   });
 });

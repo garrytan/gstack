@@ -40,9 +40,26 @@ export interface StageSweep {
 export const defaultRoots = (checkout: string) => process.env.GSTACK_SWEEP_ROOTS?.split(path.delimiter).filter(Boolean) ?? [path.dirname(checkout), os.homedir(), os.tmpdir()];
 export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive')];
 
-/** A repository's remote URLs without their userinfo (`https://user:TOKEN@host/…` reads `https://host/…`), so no credential is ever recorded or printed. */
+/**
+ * A remote URL with nothing that can carry a credential: userinfo removed and a query read as `?<redacted>`
+ * (`https://user:PASSWORD@host/r.git#x` reads `https://host/r.git#x`). git's `user@host:path` form has no password and stays
+ * as it is. Anything else, a value the URL parser rejects included, reads `<redacted>`: it is never recorded or printed raw.
+ */
+export function redactUrl(v: string): string {
+  if (/^[\w.-]+@[\w.-]+:[\w./-]+$/.test(v)) return v;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return '<redacted>';
+  try {
+    const u = new URL(v);
+    if (!u.username && !u.password && !u.search) return v;
+    return `${u.protocol}//${u.host}${u.pathname}${u.search ? '?<redacted>' : ''}${u.hash}`;
+  } catch { return '<redacted>'; }
+}
+
+/** A repository's remote URLs as git itself reads its config (quoted values, escapes and `#` included), each through redactUrl. */
 function remotes(gitDir: string): string[] {
-  try { return [...fs.readFileSync(path.join(gitDir, 'config'), 'utf8').matchAll(/^\s*url\s*=\s*(.+?)\s*$/gm)].map(m => m[1]!.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1')); } catch { return []; }
+  const r = spawnSync('git', ['config', '--file', path.join(gitDir, 'config'), '--null', '--get-regexp', '\\.url$'], { encoding: 'utf8', timeout: 5_000 });
+  if (r.status !== 0 || !r.stdout) return [];
+  return r.stdout.split('\0').flatMap(e => { const i = e.indexOf('\n'); return i < 0 ? [] : [redactUrl(e.slice(i + 1))]; });
 }
 
 /** The git directory a directory holds: its `.git` (a directory, or a file naming one), or itself when it is a bare repository. */

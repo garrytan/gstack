@@ -563,7 +563,7 @@ reruns once as `<reader>#2`, which is not a review round. The rerun starts only
 once every path the first attempt found is gone: while one exists, a rerun reader
 could open it and still sweep clean, so no reader of any stage, Step 11's voices included, starts and the pass stops
 (`FETCH_RERUN_BLOCKED`). A fetch on the rerun stops the pass (`FETCH_RERUN_SPENT`), and resuming it starts no later stage. Nothing is deleted for you, and no delete
-command is printed: each found path gets a `KEEP:` line to inspect and leave alone. A remote URL is printed and recorded without its `user:token@` part.
+command is printed: each found path gets a `KEEP:` line to inspect and leave alone. A remote URL is read through git's own config parser and printed and recorded without its `user:token@` part or query; a value that does not parse as a URL reads `<redacted>`.
 Attribution is per stage until the platform exposes reader ids: a violation
 names the stage and its readers, never the one reader that fetched, and a clean
 reader of that stage reruns with the rest.

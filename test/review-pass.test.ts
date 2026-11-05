@@ -1383,5 +1383,27 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(res).toMatch(/STOP: gstack-review-dispatch sweep --stage voices --phase start exited 3/);
     expect(h.creates.length).toBe(before);
   }, 240_000);
+// Value: protects=a remote URL git writes quoted (one holding '#') with credentials never reaches the printed FETCH_VIOLATION, the start inventory, the manifest or the ledger, while a remote without userinfo prints exactly as configured;
+  //   fails_when=the sweep scans raw config text, so the quoted value skips the userinfo strip and FAKETOKEN is printed and recorded; why_new=ship-c-v2 outside-voice#1 (High, lib/review-sweep.ts:45; GSTA-297 on #4011);
+  //   seam=lib/review-sweep.ts remotes (git config --null); no_claim=that other tools print remotes safely
+  test('a quoted remote URL with userinfo prints and records without it; a remote without userinfo prints unchanged', async () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const out = path.join(dir, '.state/run/p1');
+    const FAKE = 'FAKETOKEN';
+    const OLD = 'FAKETOKEN-old';
+    const at = (p: string, url: string) => { fs.mkdirSync(p, { recursive: true }); expect(spawnSync('bash', ['-c', 'git init -q && git remote add origin "$1"', '_', url], { cwd: p, encoding: 'utf8', timeout: 30_000 }).status).toBe(0); };
+    at(path.join(dir, '.state/OLD'), `https://ci-bot:${OLD}@github.com/me/old.git#main`);
+    expect(fs.readFileSync(path.join(dir, '.state/OLD/.git/config'), 'utf8')).toContain(`url = "https://ci-bot:${OLD}@github.com/me/old.git#main"`);
+    const h = host(dir, env, { output: t => { if (t === 'ship f6p1 specialist-batched') { at(path.join(dir, '.state/BEAM'), `https://bot:${FAKE}@github.com/sealed-org/BEAM.git#x`); at(path.join(dir, '.state/PLAIN'), 'https://github.com/sealed-org/PLAIN.git#x'); } return 'NO FINDINGS'; } });
+    const res = await runPass(h, { base: 'main', out, pass: 'f6p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toMatch(/^FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path='[^']*\/BEAM' remote=https:\/\/github\.com\/sealed-org\/BEAM\.git#x bytes=/m);
+    expect(res).toMatch(/^FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path='[^']*\/PLAIN' remote=https:\/\/github\.com\/sealed-org\/PLAIN\.git#x bytes=/m);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    const inventories = fs.readdirSync(path.join(out, 'sweep')).map(f => fs.readFileSync(path.join(out, 'sweep', f), 'utf8'));
+    expect(inventories.join('')).toContain('https://github.com/me/old.git#main');
+    const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    for (const text of [res, v.stdout, ...inventories, fs.readFileSync(m.ledger, 'utf8'), fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')]) expect(text).not.toMatch(/FAKETOKEN|ci-bot|bot:/);
+  }, 240_000);
 });
 const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');
