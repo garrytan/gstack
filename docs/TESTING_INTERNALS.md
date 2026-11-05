@@ -1691,6 +1691,43 @@ per file inside a multi-file child and leaves the console stream unchanged.
 up to bun's own test count. Counts are evidence for comparing k values; they
 never decide a verdict.
 
+### Trunk Dynamic CI (learning only)
+
+Since GST-1400, free-tests.yml has a `trunk-dynamic-ci` job ("Trunk Dynamic CI
+(learning only)") that runs Trunk's `trunk-io/dynamic-ci` action on every
+pull request from a branch in this repository. For each run, Trunk records
+whether it would have run or skipped `free-suite` and
+`macos-named-regressions`, and why. It is one verdict per job, so the ten
+free-suite shards share one verdict. The verdicts show up in the job summary,
+on the pull request's Dynamic CI tab and at app.trunk.io/dynamic-ci.
+
+It never skips anything. No job needs the observer, no condition reads its
+verdicts, and it exports no outputs. Switching Trunk to enforcement in its
+dashboard would still skip nothing, because nothing in this workflow reads
+the verdicts. Every test runs, and every required check keeps its name and
+its result. Merge evidence never reads Trunk: the `free-tests` aggregate,
+the CI reuse profile, `gstack-ci-carry`, the pregate, the train gate
+(evals.yml), the main backstop, the release gate and windows-smoke are
+unchanged.
+
+A Trunk problem never turns CI red. The action never fails its own step. The
+step also continues on error and has a 3-minute timeout, and the job
+continues on error. Fork pull requests, pushes, dispatches and a missing token
+skip the job. It is the only job in the workflow that sees a secret
+(`TRUNK_API_TOKEN`), so it checks out nothing and runs none of the pull
+request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`), and its
+only network call is a request for verdicts to
+`api.trunk.io/v2/dynamic-ci/generate-plan`, retried at most twice.
+Telemetry is off, and Trunk reads the diff itself through its GitHub App.
+`test/free-tests-workflow-wiring.test.ts` and
+`test/ci-reuse-workflow-wiring.test.ts` lock that shape in place.
+
+**Review date: one week after it merges (2026-11-12 if it merges on
+2026-11-05).** Compare Trunk's would-skip verdicts with what the skipped jobs
+actually found, and look hardest at any would-skip on a run where that job
+failed. Turning on skipping is a separate decision for Garry, made after that
+review.
+
 ### Windows free lane
 
 Windows has minimal support ([support tiers](support-tiers.md)). The required
