@@ -116,7 +116,9 @@ your own; this skill is for a branch that has gone stale, often someone else's.
 - A comment you post on the PR (a closing note, a thank-you to its author) goes
   under your bot identity (`capy-ai[bot]` on Capy), never the maintainer's own
   account; with no bot identity, it is a draft in your report for the person to
-  post. Never email, chat or DM its author.
+  post. On Capy, post through `tools.pr.comment` (it posts as `capy-ai[bot]`),
+  never `gh pr comment`, `gh issue comment` or `gh api`, which run as the
+  maintainer. Never email, chat or DM its author.
 - Textual cleanliness is not currency. "Git reports no conflicts" says nothing
   about whether the change still makes sense; a PR that applies cleanly to code
   whose contract moved is more dangerous than one that conflicts.
@@ -181,7 +183,7 @@ Pick exactly one and state it with the evidence from Steps 1 and 2:
 
 Show the table row you chose and the three sentences from Step 1, then STOP and
 ask (AskUserQuestion) before any push, close or comment. If the session is
-unattended, the verdict and its evidence are the handoff and nothing is pushed.
+unattended, the verdict and its evidence are the handoff and nothing is pushed, closed or posted.
 
 ## Step 4 (MODERNIZE only): Rebase and prove intent survived
 
