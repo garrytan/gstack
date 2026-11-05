@@ -116,6 +116,12 @@ describe('lead judgment may lower a native finding to the Severity its reader st
     expect(run('adversarial-native', OUT.replace('Blocks: no', 'Blocks: yes'), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace(' Blocks: no, because a reader still reads it.', ''), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace('Severity: Medium', 'Severity: FIXABLE'), 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+  });
+  test('fields written in the heading paragraph after prose stay on the heading record, which keeps its label, so it can be lowered', () => {
+    const same = '**1. Title (FIXABLE).** body in lib/x.ts.\nMore prose. Severity: Medium. Blocks: no.\n';
+    expect(run('adversarial-native', same, 'Medium', 'its reader stated Severity: Medium, Blocks: no')).toEqual({ labels: ['CRITICAL'], ok: true, dismissed: 1, blockers: 0 });
+    expect(run('red-team', '**1. Title (CRITICAL).** body in lib/x.ts.\nMore prose. Severity: Low. Blocks: no.\n', 'CRITICAL')).toMatchObject({ labels: ['CRITICAL', 'Low'] });
   });
 });
 

@@ -89,7 +89,7 @@ const BLOCKS_FIELD = /(?<![A-Za-z0-9])Blocks\**\s*:\s*\**\s*(yes|no)(?![A-Za-z0-
 /** A native voice's finding whose reader stated `Blocks: no` and one Severity (GST-1031 ruling A): lead judgment may lower it to that Severity, never below, on record with a reason (GST-1406). */
 const statedLowering = (reader: string, raw: string, to: number) => {
   const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!);
-  return reader.split('/')[0] === 'adversarial-native' && statesNoBlocks(raw) && ls.length === 1 && to >= (rank(ls[0]!) ?? Infinity);
+  return reader.split('/')[0] === 'adversarial-native' && statesNoBlocks(raw) && ls.length === 1 && to >= (rank(ls[0]!) || Infinity);
 };
 export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOCKS_YES.test(raw)) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
@@ -243,6 +243,12 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
+    if (role === 'adversarial-native' && current?.heading && !current.fields.size && !blocks && fieldOf(t) !== undefined && statesNoBlocks(t) && !LEAD_LABEL.test(t) && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t)) {
+      current.fields.add('severity');
+      current.label = stronger(current.label, label!);
+      current.raw += ` | ${t}`;
+      continue;
+    }
     if (current?.heading && !current.fields.size && !label && !blocks && !/^#{1,6}\s/.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) { current.raw += ` | ${t}`; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {
