@@ -35,7 +35,8 @@ import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
 import { platformReviewAt } from '../lib/review-platform';
 import { loadPolicyAt } from '../lib/ship-policy-at';
-import { forbidSpecs, forbiddenPath, loadReaders, readersLine } from '../lib/review-fetch';
+import { loadReaders, readersLine } from '../lib/review-fetch';
+import { policySelection, selectFor } from '../lib/review-selection';
 import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-readers';
 import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
@@ -219,14 +220,8 @@ function main(): number {
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
     history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate, pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks: has('--fix-checks') ? fixChecks : undefined },
   });
-  const forbidden = readers.forbid_paths.map(g => new Bun.Glob(g.replace(/\/+$/, '')));
-  for (const d of plan.dispatches) {
-    if (d.role === 'fix-check') continue;
-    d.exclude.push(...forbidSpecs(readers).filter(s => !d.exclude.includes(s)));
-    if (d.keep && forbidden.length) d.keep = d.keep.filter(k => !forbiddenPath(forbidden, k.replace(/^:\(top,literal\)/, '')));
-    const excerpt = active?.excerpt.filter(k => d.keep?.includes(k)) ?? [];
-    if (excerpt.length) Object.assign(d, { excerpt });
-  }
+  const selection = policySelection(active && { state: 'active', specs: active.specs, keep: active.keep, excerpt: active.excerpt }, readers);
+  plan.dispatches.forEach((d, i) => { if (d.role !== 'fix-check') plan.dispatches[i] = selectFor(d, selection); });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;

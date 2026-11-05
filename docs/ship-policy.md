@@ -1465,6 +1465,21 @@ whole through its keep command. Results PRs that capture model requests need
 this: their system prompts name `${…_API_KEY}` variables and keychain commands
 (harness-evals #269: 75 such files, 12.9 MB whole).
 
+<a id="one-selection-every-reader"></a>
+**One selection for every reader (GST-1476).** Every path that renders a
+reader's brief builds its diff from the same selection: the policy's
+`:(top,exclude,glob)` items, the readers policy's `forbid_paths`, the kept files
+and the secret-line excerpts. That covers the pass manifest's stages, a fresh
+pass after a failed reader, and a standalone `gstack-review-dispatch render` (a
+reader rendered on its own, or rendered again after a failed dispatch). A
+standalone render reads the selection from `gstack-review-plan --json` when the
+base may declare `review_exclude_paths`, adds whatever its `--exclude` and
+`--keep` lack, writes the excerpt beside the brief and carries the disclosure
+line, so its ceiling check counts the same bytes as the pass's readers. A plan
+that fails stops the render. Before this, the Red Team's own render on
+harness-evals #269 counted the whole 30.3 MB diff while the pass's readers read
+2 MB.
+
 **Depth, numbers and the targeted pass.** Excluded paths count as docs for the
 review depth everywhere it is computed (`gstack-review-plan`, the receipt
 writer, carry and the queue), and their lines never trigger the numeric-claim
