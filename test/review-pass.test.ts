@@ -129,7 +129,7 @@ function writeManifestFile(m: Manifest): string {
 /** A repository on a feature branch with enough runtime lines for a full plan. */
 function repo(): { dir: string; env: NodeJS.ProcessEnv } {
   const dir = tmp('rp-repo-');
-  const env = { ...process.env, PATH: BIN + path.delimiter + process.env.PATH, GSTACK_STATE_ROOT: path.join(dir, '.state'), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const env = { ...process.env, PATH: BIN + path.delimiter + process.env.PATH, GSTACK_STATE_ROOT: path.join(dir, '.state'), GSTACK_SWEEP_ROOTS: dir, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
   const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); };
   sh("git init -q -b main && echo '{}' > package.json && mkdir src && echo 'export const a = 1;' > src/a.ts && echo .state > .gitignore && git add -A && git commit -qm base && git checkout -qb feat");
   sh('for i in $(seq 1 80); do echo "export const v$i = $i;" >> src/a.ts; done && git commit -qam feat');
@@ -1251,6 +1251,60 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).toContain('NEXT: judge the voices');
     const v = bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
     expect(v).toMatch(/^BRIEF outside-voice UNAVAILABLE /m);
+  }, 240_000);
+});
+
+describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () => {
+  const clone = (at: string) => { fs.mkdirSync(at, { recursive: true }); expect(spawnSync('bash', ['-c', 'git init -q && git remote add origin https://github.com/sealed-org/BEAM.git'], { cwd: at, encoding: 'utf8', timeout: 30_000 }).status).toBe(0); };
+  // Value: protects=a stage whose reader cloned a network repository is quarantined (reply out of merged.jsonl and the Red Team brief), reruns once as <reader>#2, and verifies clean only after the rerun sweeps clean; fails_when=the sweep runs outside the stage window, the quarantined findings reach the Red Team, or verify certifies the first attempt;
+  //   why_new=gbrain-evals #362 (an unprompted 4.2 GB clone by a reader); seam=lib/capy-review-pass.js stage boundaries; no_claim=which reader of the stage fetched (Capy exposes no reader id)
+  test('a clone during the specialists stage quarantines it, reruns each slot once, and verify is clean after the clean rerun', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const beam = path.join(dir, '.state/BEAM');
+    const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return 'High: src/a.ts:3 SEALED-QUOTE leaked from the clone'; } return 'NO FINDINGS'; } });
+    const res = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=' + "'" + fs.realpathSync(beam) + "'");
+    expect(res).toContain('KEEP: ' + "'" + fs.realpathSync(beam) + "'");
+    expect(res).toMatch(/^RERUN: stage=specialists readers=\S*specialist-batched#2/m);
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    const first = m.readers.find(r => r.reader === 'specialist-batched')!;
+    expect(first.superseded_by).toBe('specialist-batched#2');
+    expect(fs.statSync(first.quarantined!.file).mode & 0o777).toBe(0o600);
+    expect(h.creates.map(c => c.title)).toContain('ship f1p1 specialist-batched#2');
+    expect(fs.existsSync(m.merged) ? fs.readFileSync(m.merged, 'utf8') : '').not.toContain('SEALED-QUOTE');
+    expect(h.creates.find(c => c.title === 'ship f1p1 red-team')!.prompt).not.toContain('SEALED-QUOTE');
+    expect(res).not.toContain('SEALED-QUOTE');
+    expect(m.sweeps?.specialists).toMatchObject({ attempt: 2, end: { verdict: 'clean' } });
+    expect(bin(dir, env, ['judge', '--ledger', m.ledger, '--merged', m.merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
+    const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    expect(v.stdout).toMatch(/^FETCH f1p1\/specialists#1 RESOLVED found=1/m);
+    expect(v.stdout).toMatch(/^BRIEF specialist-batched SUPERSEDED .* quarantined$/m);
+    expect(v.stdout, v.stdout).toContain('VERIFY: clean');
+  }, 240_000);
+
+  // Value: protects=a fetch on the stage's one rerun stops the pass and verify refuses with FETCH_VIOLATION; a path that holds an older one is reported, never given a delete command; fails_when=the program reruns again, returns NEXT: judge, or prints rm -rf for the sweep root;
+  //   why_new=GST-1322 d3 (no unattended rm -rf) and d5 (one rerun per slot); seam=gstack-review-dispatch sweep --phase end; no_claim=who created the reported path
+  test('a fetch on the rerun stops the pass, verify refuses, and a root-level repository gets KEEP, never a delete command', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { output: t => { if (t === 'ship f2p1 specialist-batched') clone(path.join(dir, '.state/BEAM')); if (t === 'ship f2p1 specialist-batched#2') clone(path.join(dir, '.state')); return 'NO FINDINGS'; } });
+    let res = await runPass(h, { base: 'main', out, pass: 'f2p1', planFlags: ['--depth-floor', 'full'] });
+    for (let i = 0; i < 4 && res.includes('NEXT: poll'); i++) res = await runPass(h, { base: 'main', out, pass: 'f2p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('FETCH_RERUN_SPENT: stage=specialists');
+    expect(res).toMatch(/STOP: gstack-review-dispatch sweep --stage specialists --phase end exited 3/);
+    expect(res).not.toContain('NEXT: judge');
+    const state = fs.realpathSync(path.join(dir, '.state'));
+    expect(res).toContain("KEEP: '" + state + "' (no transcript attributes it to a reader");
+    expect(res).not.toContain("rm -rf -- '" + state + "'");
+    expect(h.creates.filter(c => c.title.endsWith('#3'))).toHaveLength(0);
+    expect(h.creates.some(c => c.title === 'ship f2p1 red-team')).toBe(false);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    expect(v.status).toBe(1);
+    expect(v.stdout).toMatch(/^FETCH_VIOLATION: f2p1\/specialists#2 found=1/m);
+    expect(v.stdout).toContain('VERIFY: dirty');
   }, 240_000);
 });
 const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');
