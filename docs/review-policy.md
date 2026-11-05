@@ -798,7 +798,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    byte-exact before anything was collected is void and counted (`voided=N` on the
    verdict line); one that produced an output stays `MISMATCH`. Then output hashes
    against the merged lines they produced, and each merged line against the finding collect
-   parses at that id's index from the unchanged output file, label and raw text byte for byte
+   parses at that id's index from the unchanged output file, its reader, label and raw text byte for byte
    (`merged_line_differs` on the OUTPUT and JUDGE rows otherwise, GST-541), so an edited
    merged.jsonl cannot lower a finding or swap its text. A recorded output file that is missing
    (`output_file_missing`), a judgment run on a merged file collect did not write
