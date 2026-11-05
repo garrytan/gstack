@@ -7037,7 +7037,7 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 <a id="ubi-create-unknown"></a>
 ### `UBI_CREATE_UNKNOWN`
 
-**Meaning.** `up` or `run` sent a create that Ubicloud answered with a 5xx or not at all, then looked the VM up by name for `UBI_CREATE_GRACE` seconds and could not settle whether it exists. It also prints when the VM shows up but the check before the create got no answer, so the VM may not be this call's. The VM's record and recovery bundle stay, and nothing is destroyed in the second case. **Fix.** Run `scripts/ubicloud/ubi-runner.sh list` or the printed `down <name>` command to find out, then rerun. This owner's reap destroys an unconfirmed VM once its `-t<hours>` TTL ends.
+**Meaning.** `up` or `run` sent a create that Ubicloud answered with a 5xx or not at all, then looked the VM up by name for `UBI_CREATE_GRACE` seconds and could not settle whether it exists. The name answered 404 to the check before the create, so a VM that shows up is this call's. The VM's record and recovery bundle stay. **Fix.** Run `scripts/ubicloud/ubi-runner.sh list` or the printed `down <name>` command to find out, then rerun. This owner's reap destroys an unconfirmed VM once its `-t<hours>` TTL ends.
 
 <a id="ubi-attach-unknown"></a>
 ### `UBI_ATTACH_UNKNOWN`

@@ -16,8 +16,8 @@ export const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
  * 192.0.2.1 while listed, destroy unlists. Flag files beside listed change one
  * answer: listed.create-status answers every create with that HTTP status, and
  * with listed.create-lands (a count N) the VM still lands, listed from the Nth
- * show on; listed.list-fails, listed.show-fails and listed.destroy-fails answer
- * 503 or 500; listed.list-body is the list's 200 body. The fake VM is the directory vm/:
+ * show on (0: listed at once, as a holder that took the name first), and with listed.show-fails-after-create every later show answers 503;
+ * listed.list-fails, listed.show-fails and listed.destroy-fails answer 503 or 500; listed.list-body is the list's 200 body. The fake VM is the directory vm/:
  * the fake ssh records every remote command in ssh.log, keeps copies of
  * ~/.ubirun-env and ~/.ubirun-setup.sh under the fixture root, serves pulls
  * from remote-fs/ (a pull's existence check matches only what remote-fs/ holds), and runs every other command there for real (HOME=vm/,
@@ -41,7 +41,7 @@ export function fakeVm(opts: { listed?: string; refuse?: string } = {}) {
     'loc=$(printf \'%s\' "$body" | sed -n \'s/.*"vm", *"\\([^/"]*\\)\\/[^"]*".*/\\1/p\')\n' +
     'name=$(printf \'%s\' "$body" | sed -n \'s/.*"vm", *"[^/"]*\\/\\([^"]*\\)".*/\\1/p\')\n' +
     'case "$body" in\n' +
-    '  *\'"create"\'*) if [ -f "$listed.create-status" ]; then : > "$out"; [ ! -f "$listed.create-lands" ] || echo "$loc $name" > "$listed.pending"; cat "$listed.create-status"; elif [ -n ' + JSON.stringify(opts.refuse ?? '') + ' ]; then printf \'%s\' ' + JSON.stringify(opts.refuse ?? '') + ' > "$out"; printf 400; else echo "$loc $name" >> "$listed"; : > "$out"; printf 200; fi ;;\n' +
+    '  *\'"create"\'*) if [ -f "$listed.create-status" ]; then : > "$out"; if [ -f "$listed.create-lands" ]; then if [ "$(cat "$listed.create-lands")" = 0 ]; then echo "$loc $name" >> "$listed"; else echo "$loc $name" > "$listed.pending"; fi; fi; [ ! -f "$listed.show-fails-after-create" ] || : > "$listed.show-fails"; cat "$listed.create-status"; elif [ -n ' + JSON.stringify(opts.refuse ?? '') + ' ]; then printf \'%s\' ' + JSON.stringify(opts.refuse ?? '') + ' > "$out"; printf 400; else echo "$loc $name" >> "$listed"; : > "$out"; printf 200; fi ;;\n' +
     '  *destroy*) : > "$out"; if [ -f "$listed.destroy-fails" ]; then printf 500; else grep -v " $name$" "$listed" > "$listed.tmp"; mv "$listed.tmp" "$listed"; printf 200; fi ;;\n' +
     '  *\'"list"\'*) if [ -f "$listed.list-fails" ]; then echo down > "$out"; printf 503; elif [ -f "$listed.list-body" ]; then cat "$listed.list-body" > "$out"; printf 200; else cat "$listed" "$listed.ghost" > "$out" 2>/dev/null; printf 200; fi ;;\n' +
     '  *\'"show"\'*) [ -z "${FAKE_SHOW_DELAY:-}" ] || sleep "$FAKE_SHOW_DELAY"; if [ -f "$listed.pending" ]; then n=$(( $(cat "$listed.shows" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$listed.shows"; if [ "$n" -ge "$(cat "$listed.create-lands")" ]; then cat "$listed.pending" >> "$listed"; rm -f "$listed.pending"; fi; fi; if [ -f "$listed.show-fails" ]; then echo down > "$out"; printf 503; elif grep -q " $name$" "$listed"; then printf \'state: running\\nsize: standard-16\\nip4: 192.0.2.1\\n\' > "$out"; printf 200; else : > "$out"; printf 404; fi ;;\n' +

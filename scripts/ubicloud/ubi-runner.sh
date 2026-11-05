@@ -35,13 +35,13 @@
 # confirmed gone or provably never existed, waiting out a create that may still
 # be in flight. An interrupted `up` or `run` (EXIT, INT, TERM, QUIT, and HUP
 # until a remote phase is live) runs that `down`; further signals are ignored
-# until it finishes. A name another VM already answers to is refused before
-# any create is sent. Teardown is armed only once this call's create request is
+# until it finishes. A create is sent only after a show of the name answers
+# 404: a name another VM answers to, or a check with no answer, is refused
+# before any request. Teardown is armed only once this call's create request is
 # sent, and disarmed when Ubicloud refuses it (HTTP 4xx, a 409 name collision
 # included), so it never destroys a VM this call did not create. A 5xx or no
 # answer is not a refusal: `up` looks the VM up by name for UBI_CREATE_GRACE
-# seconds, adopting it only when the name was free just before the create,
-# and when that cannot settle it either, it keeps the record and the recovery
+# seconds, and when that cannot settle it either, it keeps the record and the recovery
 # bundle and exits UBI_CREATE_UNKNOWN. `down` counts a VM as gone only
 # on a readable answer: a failed or unreadable VM list or show is unknown, so
 # down exits non-zero and keeps the recovery bundle. The API key reaches curl
@@ -1309,7 +1309,11 @@ cmd_up() {
   probe=$(mktemp)
   pre=$(api "$probe" vm "$location/$name" show)
   rm -f "$probe"
-  [ "$pre" != 200 ] || die "create refused: $location/$name already exists; nothing was created, and that VM is not this call's to adopt or destroy"
+  case $pre in
+    404) ;;
+    200) die "create refused: $location/$name already exists; nothing was created, and that VM is not this call's to adopt or destroy" ;;
+    *) die "create refused: could not check that $location/$name is free (HTTP $pre); nothing was created, rerun once the API answers" ;;
+  esac
 
   local dir create_at
   dir=$(state_dir "$name")
@@ -1364,16 +1368,14 @@ cmd_up() {
     done
     rm -f "$dir/lookup.out"
     case $seen_code in
-      200) if [ "$pre" = 404 ]; then created=yes; else UP_NAME=""; fi ;;
+      200) created=yes ;;
       404) created=no ;;
     esac
     write_state "$name" "$location" "$size" "" "$created" "$create_at"
     case $created in
       yes) bundle_save "$name"; log "create of $location/$name went through; continuing" ;;
       no) cat "$dir/create.err" >&2; die "create failed (HTTP $code): $location/$name was still absent ${CREATE_GRACE}s after the request" ;;
-      unknown)
-        [ -n "$UP_NAME" ] || die "UBI_CREATE_UNKNOWN: $location/$name exists, but the check before the create got no answer (HTTP $pre), so it may not be this call's; nothing destroyed, its record and recovery bundle stay; check with: $0 list"
-        die "UBI_CREATE_UNKNOWN: could not tell whether $location/$name exists (create answered HTTP $code, its lookup HTTP $seen_code); its record and recovery bundle stay, teardown destroys it if it shows up, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 down $name" ;;
+      unknown) die "UBI_CREATE_UNKNOWN: could not tell whether $location/$name exists (create answered HTTP $code, its lookup HTTP $seen_code); its record and recovery bundle stay, teardown destroys it if it shows up, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 down $name" ;;
     esac
   fi
   if [ "$created" = no ]; then
