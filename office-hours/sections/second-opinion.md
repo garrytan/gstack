@@ -54,7 +54,7 @@ OUTSIDE_PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-outside-oh-XXXXXXXX") || { 
 ```
 
 Write the full prompt to this file. **Always start with the filesystem boundary:**
-"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\n"
+"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\n"
 Then add the context block and mode-appropriate instructions:
 
 **Startup mode instructions:** "You are an independent technical advisor reading a transcript of a startup brainstorming session. [CONTEXT BLOCK HERE]. Your job: 1) What is the STRONGEST version of what this person is trying to build? Steelman it in 2-3 sentences. 2) What is the ONE thing from their answers that reveals the most about what they should actually build? Quote it and explain why. 3) Name ONE agreed premise you think is wrong, and what evidence would prove you right. 4) If you had 48 hours and one engineer to build a prototype, what would you build? Be specific — tech stack, features, what you'd skip. Be direct. Be terse. No preamble."

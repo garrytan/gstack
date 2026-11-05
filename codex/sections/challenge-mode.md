@@ -10,12 +10,12 @@ from the skill's Filesystem Boundary section (always-loaded skeleton). If the us
 (e.g., `/codex challenge security`), include it after the boundary:
 
 Default prompt (no focus):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
 
 With focus (e.g., "security"):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. Do not invoke any installed skill (Codex home skills/, .agents/); answer directly. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 

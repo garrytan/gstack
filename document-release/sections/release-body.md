@@ -319,7 +319,7 @@ just edited) PLUS any doc claims affected by the diff range — do NOT hard-code
 list (a fixed README/ARCHITECTURE/CHANGELOG list misses generated skill docs, package docs,
 and command-specific docs). **Always start with the filesystem boundary instruction:**
 
-"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\nYou are reviewing documentation changes against the code that shipped on this
+"Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\n\nYou are reviewing documentation changes against the code that shipped on this
 branch. Review the supplied release diff (git diff <diff-base> HEAD) and the current updated working-tree docs
 (the files this release touched, plus any docs whose claims the diff affects). Find: doc
 claims that no longer match the code, new public surface (commands, flags, config keys,

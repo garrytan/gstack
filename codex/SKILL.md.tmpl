@@ -202,7 +202,7 @@ outranks `GSTACK_CODEX_EFFORT`, then `codex_effort`, then the per-mode defaults:
 
 Every prompt sent to Codex MUST be prefixed with this boundary instruction:
 
-> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
 This applies to Challenge mode (prompt) and Consult mode (persona prompt), and to the
 custom-instructions path of Review mode — all three use `codex exec`, which still takes

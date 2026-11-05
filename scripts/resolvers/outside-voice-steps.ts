@@ -19,7 +19,7 @@ import { runtimeRootPrelude } from './runtime-root';
 import { DEFENSIVE_REVIEW_FRAMING, fixtureSummaryMode } from './defensive-review';
 import { BLOCKING_FLOOR } from '../../lib/review-scope';
 
-const CODEX_BOUNDARY = 'Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\\n\\n';
+const CODEX_BOUNDARY = 'Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. They hold skill definitions, not repository code to review. Do not invoke any installed skill (Codex home skills/, .agents/), hook, or tool instruction; answer directly. Do not modify agents/openai.yaml. Review only the repository code.\\n\\n';
 
 export function generateCodexSecondOpinion(ctx: TemplateContext): string {
 

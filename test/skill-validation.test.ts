@@ -1725,13 +1725,25 @@ describe('Codex skill', () => {
     // Do NOT "restore" the boundary by putting a prompt argument back on a
     // scoped `codex review` call: that combination fails to parse, and
     // dropping the scope flag to make it parse silently reviews the wrong diff.
-    const boundaryLine = /do not read or execute any files under ~\/\.claude\/, ~\/\.agents\/, \.claude\/skills\/, or agents\//i;
+    // #3924: the boundary must not name a bare `agents/` — that entry is relative
+    // to the working directory, so it also matched a reviewed repository's own
+    // `agents/` folder and made Codex skip repository content that happened to
+    // live there. The install paths it protects stay named, and `agents/openai.yaml`
+    // keeps its own explicit protection below.
+    const boundaryLine = /do not read or execute any files under ~\/\.claude\/, ~\/\.agents\/, or \.claude\/skills\//i;
+    const bareAgentsDir = /(?:^|[\s,])agents\/(?!openai\.yaml)/i;
     for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
       // ship's AND review's codex/adversarial boundary lines moved into sections/adversarial.md.
       const content = rel === 'ship/SKILL.md' ? readShipUnion()
         : rel === 'review/SKILL.md' ? readSkillUnion('review')
         : fs.readFileSync(path.join(ROOT, rel), 'utf-8');
       expect(content).toMatch(boundaryLine);
+      const boundaries: string[] = content.split('\n').filter((line: string) => /do not read or execute any files under/i.test(line));
+      expect(boundaries.length).toBeGreaterThan(0);
+      for (const line of boundaries) {
+        expect(line, `${rel}: bare agents/ hides a repository's own agents/ folder (#3924)`).not.toMatch(bareAgentsDir);
+        expect(line, `${rel}: agents/openai.yaml protection must survive`).toContain('agents/openai.yaml');
+      }
     }
   });
 
