@@ -91,6 +91,23 @@ describe('loadConfigFromUser', () => {
   });
 });
 
+describe('fixture origin', () => {
+  // Value: protects=a push into the fixture's bare origin starts no detached auto-maintenance there, so copying the template never races
+  //   a repack (ENOENT lstat origin.git/objects/1d, Free Tests 41760556132); fails_when=the origin loses maintenance.auto=false;
+  //   why_new=local transport drops the runner's GIT_CONFIG_COUNT backstop, so only the origin's own config reaches receive-pack;
+  //   seam=none; no_claim=which maintenance task removed the object directory on the CI runner's git
+  test('a push into the origin starts no auto-maintenance even when the runner backstop is dropped', () => {
+    const { repo } = setup();
+    const trace = path.join(repo.root, 'trace2.txt');
+    const backstop = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'gc.auto', GIT_CONFIG_VALUE_1: '0' };
+    const push = spawnSync('git', ['push', '-q', 'origin', 'HEAD:refs/heads/probe'], { cwd: repo.work, encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...repo.env, ...backstop, GIT_TRACE2: trace } });
+    expect(push.status, push.stderr).toBe(0);
+    const events = fs.readFileSync(trace, 'utf8');
+    expect(events).toContain('receive-pack');
+    expect(events.split('\n').filter(l => l.includes('child_start') && l.includes('maintenance'))).toEqual([]);
+  });
+});
+
 describe('gstack-pregate with a user-owned policy', () => {
   // Value: protects=with no base copy the user file is the policy and its `local` lanes run here, while an unnamed platform lane stays
   //   requires-remote; fails_when=the user fallback or the `local` branch in selectLanes is dropped; why_new=both are new;

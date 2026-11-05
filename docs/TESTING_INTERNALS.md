@@ -1556,7 +1556,10 @@ Free-suite flake rules:
   replacement env never sees the backstop. Neither does the receiving side of
   a push to a local path: git's local transport drops `GIT_CONFIG_*` from the
   `receive-pack` it starts, so every push into a fixture's bare origin still
-  leaves a detached maintenance run in that origin. A fixture that clones such
+  leaves a detached maintenance run in that origin unless the origin's own
+  config turns it off (`maintenance.auto=false` and `gc.auto=0` on the bare
+  origin, as `test/helpers/pregate-fixture.ts` and
+  `test/helpers/restamp-fixture.ts` do). A fixture that clones such
   an origin passes `--no-local` (`coordinatorClone` in
   `test/helpers/ship-queue-fixture.ts`), so the clone reads it through git's
   transport instead of copying `objects/` entry by entry.
