@@ -2144,7 +2144,9 @@ active (`QUEUE_TRAIN_FROZEN`), and `train build --repair` is off with the
 trains. Once main's policy declares [`release_gate`](#release-gate) the
 backstop stands down and writes no freeze, so `land --pin` prints a
 `FREEZE: warn only:` line for a backstop freeze left from before and lands;
-a train's freeze still refuses. Otherwise the repair goes through land:
+a train's freeze still refuses. `release-cut` keeps refusing on that freeze
+until a green release gate sits on a commit that contains its main
+(`gstack-release-gate run --ignore-cadence` runs one now). Otherwise the repair goes through land:
 
 1. `gstack-ship-queue land --pr <n> --pin <sha> --repair` admits exactly one PR.
    It runs every check in the table above. Then, under the land lock and after

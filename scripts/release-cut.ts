@@ -136,7 +136,7 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
 export interface TrainNotes { error: string | null; freeze: string | null; evidence: TrainEvidence }
 interface NoteRecord {
   kind?: string; state?: string; nonce?: string; merged?: Array<{ sha?: string; tree?: string }>; cleared_at?: string | null; reason?: string; train?: string;
-  sha?: string; verdict?: string; run?: { id?: number } | null; red_cases?: string[];
+  sha?: string; verdict?: string; run?: { id?: number } | null; red_cases?: string[]; main?: { sha?: string } | null;
 }
 
 /**
@@ -147,7 +147,10 @@ interface NoteRecord {
  * an error; a missing ref holds nothing. Release-gate records (kind release,
  * lib/release-gate.ts) add evidence when GREEN, and a RED one with no GREEN
  * record on a later commit that contains it is the hold: it refuses the cut
- * like a freeze (a train freeze, when both exist, is the one named).
+ * like a freeze (a train freeze, when both exist, is the one named). A backstop
+ * freeze clears for the cut once a GREEN release record sits on a commit that
+ * contains its main: under release_gate the backstop stands down and never
+ * clears it itself.
  */
 export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
   const notes: TrainNotes = { error: null, freeze: null, evidence: { bySha: new Map(), byTree: new Map() } };
@@ -159,6 +162,7 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
   const listed = git(['notes', `--ref=${NOTES_LOCAL}`, 'list']);
   if (!listed.ok || !listed.out.trim()) return notes;
   const gates: Array<{ sha: string; verdict: string; red: string[] }> = [];
+  let backstopMain: string | null = null;
   notes.evidence.release = new Map();
   for (const line of listed.out.split('\n')) {
     const blob = line.split(' ')[0];
@@ -167,7 +171,10 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
     try { parsed = JSON.parse(git(['cat-file', 'blob', blob]).out); } catch { continue; }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
     const r = parsed as NoteRecord;
-    if (r.kind === 'freeze' && !r.cleared_at) notes.freeze = `queue frozen since train ${r.train ?? '?'}: ${r.reason ?? 'red backstop'}`;
+    if (r.kind === 'freeze' && !r.cleared_at) {
+      notes.freeze = `queue frozen since train ${r.train ?? '?'}: ${r.reason ?? 'red backstop'}`;
+      backstopMain = r.train === 'backstop' && typeof r.main?.sha === 'string' && /^[0-9a-f]{40}$/.test(r.main.sha) ? r.main.sha : null;
+    }
     if (r.kind === 'release' && typeof r.sha === 'string' && /^[0-9a-f]{40}$/.test(r.sha)) {
       gates.push({ sha: r.sha, verdict: String(r.verdict), red: Array.isArray(r.red_cases) ? r.red_cases.filter(c => typeof c === 'string') : [] });
       if (r.verdict === 'GREEN') notes.evidence.release.set(r.sha, String(r.run?.id ?? '?'));
@@ -179,6 +186,8 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
       if (typeof m.tree === 'string' && m.tree) notes.evidence.byTree.set(m.tree, r.nonce);
     }
   }
+  const main = backstopMain;
+  if (main && gates.some(g => g.verdict === 'GREEN' && git(['merge-base', '--is-ancestor', main, g.sha]).ok)) notes.freeze = null;
   const held = gates.find(red => red.verdict === 'RED' && !gates.some(g => g.verdict === 'GREEN' && g.sha !== red.sha && git(['merge-base', '--is-ancestor', red.sha, g.sha]).ok));
   if (held && !notes.freeze) notes.freeze = `release gate red on ${held.sha.slice(0, 12)} (${held.red.join(', ') || 'red cases not recorded'}) and no gate on a later commit is green; land the revert or fix-forward, then run gstack-release-gate run --ignore-cadence`;
   return notes;

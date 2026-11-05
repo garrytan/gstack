@@ -247,6 +247,19 @@ describe('release-cut: planning', () => {
     expect(thawed.ok, JSON.stringify(thawed)).toBe(true);
     if (thawed.ok) expect(thawed.plan.via).toBe('train ok1');
   });
+
+  test('GST-1133: a backstop freeze left from before release_gate stands until a GREEN release gate on a commit that contains its main; a train freeze ignores the gate', () => {
+    const f = fixture();
+    const add = (record: unknown, on: string) => { git(f.seed, 'notes', '--ref=' + NOTES_REF, 'add', '-f', '-m', JSON.stringify(record), on); git(f.seed, 'push', '-q', '-f', 'origin', NOTES_REF); };
+    const freeze = { schema: 1, kind: 'freeze', train: 'backstop', reason: 'backstop red', main: { sha: f.shas['1.0.1'] }, cleared_at: null };
+    add(freeze, f.shas['1.0.1']!);
+    add({ schema: 1, kind: 'release', sha: f.shas['1.0.0'], verdict: 'GREEN', run: { id: 1 } }, f.shas['1.0.0']!);
+    expect(readTrainNotes(f.git).freeze).toBe('queue frozen since train backstop: backstop red');
+    add({ schema: 1, kind: 'release', sha: f.shas['1.0.2'], verdict: 'GREEN', run: { id: 2 } }, f.shas['1.0.2']!);
+    expect(readTrainNotes(f.git).freeze).toBeNull();
+    add({ ...freeze, train: 'ok1' }, f.shas['1.0.1']!);
+    expect(readTrainNotes(f.git).freeze).toBe('queue frozen since train ok1: backstop red');
+  });
 });
 
 describe('release-cut: the release gate holds and gates (lib/release-gate.ts records)', () => {
