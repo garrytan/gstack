@@ -757,7 +757,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    found nothing CRITICAL") is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
    `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is
    CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
-   with a reason, which judge records as `dismissed` (GST-1031); otherwise lead judgment can fold it only into a finding
+   with a reason, which judge records as `dismissed` (GST-1031). A native adversarial finding whose own text states
+   `Blocks: no` and one `Severity` field may also be lowered with a reason to that Severity, never below it, and is
+   recorded as `dismissed` too (GST-1406): collect keeps the FIXABLE raise when those fields follow prose, because it
+   can't tell a finding's own fields from another subject's. Otherwise lead judgment can fold it only into a finding
    at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Each prose finding's line also
