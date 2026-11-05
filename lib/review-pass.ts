@@ -56,6 +56,8 @@ export interface Manifest {
   review_exclude?: Record<string, unknown>; disclosure?: string;
   /** Decision 3.5's files for a fix-check reader: the fix list, touched hunks, test results and callers. */
   fix_check?: FixCheckFiles;
+  /** Step 11's own pass (`pass --voices`): the plan's voices only, so nothing is rendered that the voices program never sends. */
+  voices_only?: true;
   /** The plan's readers policy (lib/review-fetch.ts): what every brief says readers may not fetch or open; absent means the default rule. */
   fetch_policy?: EffectiveReaders;
 }
@@ -93,16 +95,18 @@ const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
 const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check': 'specialists', 'red-team': 'red-team', 'adversarial-native': 'voices', 'outside-voice': 'voices', targeted: 'voices' };
 
-/** The manifest for one pass from the plan's dispatches. A fix-check reader needs decision 3.5's files. */
+/** The manifest for one pass from the plan's dispatches. A fix-check reader needs decision 3.5's files. `voices` keeps only Step 11's readers. */
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders; voices?: boolean;
 }): Manifest {
+  if (o.voices && o.extras?.length) throw new BriefError(`Step 11's voices pass sends no audit reader, so it takes no --extras: ${o.extras.map(e => e.name).join(', ')}`);
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
     const stage = STAGE_OF[d.role];
     if (!stage) throw new BriefError(`a pass dispatches no ${d.role} reader`);
+    if (o.voices && stage !== 'voices') continue;
     if (d.role === 'fix-check' && !o.fixCheck) throw new BriefError('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests (decision 3.5\'s files; --callers optional)');
     const role: BriefRole = d.role === 'specialist' && d.checklists ? 'specialist-batched' : d.role as BriefRole;
     const name = role === 'specialist' ? d.name : undefined;
@@ -128,7 +132,7 @@ export function buildManifest(o: {
   return {
     version: 1, pass: o.pass, out, ledger: path.resolve(o.ledger), merged: path.join(out, 'merged.jsonl'), base: o.base, diff_base: o.diffBase,
     stack: detectStack(o.root), test_fw: detectTestFw(o.root), learnings: o.learnings ?? null, checklist_root: o.checklistRoot,
-    next: o.next, plan_lines: o.planLines, readers, ...(o.reviewExclude ? { review_exclude: o.reviewExclude } : {}), ...(o.disclosure ? { disclosure: o.disclosure } : {}), ...(o.readers ? { fetch_policy: o.readers } : {}),
+    next: o.next, plan_lines: o.planLines, readers, ...(o.voices ? { voices_only: true as const } : {}), ...(o.reviewExclude ? { review_exclude: o.reviewExclude } : {}), ...(o.disclosure ? { disclosure: o.disclosure } : {}), ...(o.readers ? { fetch_policy: o.readers } : {}),
     ...(o.fixCheck ? { fix_check: Object.fromEntries(Object.entries(o.fixCheck).filter(([, v]) => v).map(([k, v]) => [k, path.resolve(v as string)])) as unknown as FixCheckFiles } : {}),
   };
 }
