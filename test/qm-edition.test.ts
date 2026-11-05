@@ -14,6 +14,9 @@ const skillFiles = (id: string) => new Map([...edition].filter(([f]) => f.starts
 describe('QM edition (hosts/qm.ts)', () => {
   test('committed qm/ matches the generator (run: bun run scripts/gen-qm-edition.ts)', () => {
     expect(staleQmFiles()).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'qm/edition.json'), 'utf-8')).edition).toBe('gstack-qm');
+    expect(fs.readFileSync(path.join(ROOT, 'qm/sandbox/skills/gstack-review/scripts/diff-base.sh'), 'utf-8'))
+      .toBe(fs.readFileSync(path.join(ROOT, 'hosts/qm/scripts/diff-base.sh'), 'utf-8'));
   });
 
   test('every shipped file fits QM\'s inline read cap, and descriptions fit its skills index', () => {
