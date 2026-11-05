@@ -831,9 +831,8 @@ Claude: Claim: #2187 caches the skill census so `bun run skill:check` stops
         already memoizes per process. The cache the PR adds would be a second one.
 
         Verdict: CLOSE. The base solves the problem another way (a2f9c01). Nothing
-        was pushed and the PR stays open; say "close it" and I will close it with no
-        comment, and draft the reason, the superseding commit and a thank-you to
-        its author for you to post.
+        was pushed and the PR stays open; say "close it" and I will post the reason
+        and the superseding commit, with thanks to its author.
 ```
 
 Three verdicts, one chosen before anything is pushed. **MODERNIZE**: the claim still

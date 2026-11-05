@@ -915,9 +915,9 @@ This affects all projects. To revert: `git checkout main && git pull && bun run 
 An issue is open, parked or closed, and closed means fixed, duplicate or won't
 fix, each with its reason in the closing comment. An issue we intend to fix
 later stays open under the `parked` label with one comment saying where it is
-tracked (a TODOS.md theme or a tracking issue) and what fixes it. Those comments
-are a maintainer's to post: an agent triaging for the maintainer closes or labels
-with no comment and writes each note as a draft for the maintainer. The full rule,
+tracked (a TODOS.md theme or a tracking issue) and what fixes it. An agent
+triaging for the maintainer posts these comments under its bot identity
+(`capy-ai[bot]` on Capy), never the maintainer's own account. The full rule,
 including the labels and the close reasons, is in [docs/triage.md](docs/triage.md).
 
 ## Community PR triage (wave process)
@@ -931,9 +931,8 @@ When community PRs accumulate, batch them into themed waves:
    conflicts for dirty ones, verify with `bun run test && bun run build`
 4. **Close with context** — every closed PR gets a comment explaining
    why and what (if anything) supersedes it. Contributors did real work;
-   respect that with clear communication. A maintainer posts these notes and
-   comments; an agent running the wave closes with no comment and writes each
-   one as a draft for the maintainer to send.
+   respect that with clear communication. An agent running the wave posts
+   these notes under its bot identity, never the maintainer's own account.
 5. **Ship as one PR** — single PR to main with all attributions preserved
    in merge commits. Include a summary table of what merged and what closed.
 
@@ -970,19 +969,17 @@ follows ([docs/captain.md](docs/captain.md#contributions-from-outside-the-crew))
    port's `## Approvals` section (when the repo uses one) records who asked for
    the port.
 5. **Close the original with a specific thank-you.** After the port lands,
-   a maintainer comments on their PR with what landed (the port's number and
-   version), what you changed and why, and thanks them by name for the
-   specific thing they fixed, then closes it. An agent doing the port closes
-   their PR with no comment and writes that thank-you as a draft for the
-   maintainer to send; the credit stays in the port's PR body and its
-   `Co-authored-by:` lines. Closing a contribution without landing it is a
-   maintainer's call, never a lane's: ask first, and when the answer is no,
-   the reason goes in the same comment or draft.
+   comment on their PR with what landed (the port's number and version), what
+   you changed and why, and thank them by name for the specific thing they
+   fixed. Then close it. An agent posts that comment under its bot identity,
+   never the maintainer's own account. Closing a contribution without landing
+   it is a maintainer's call, never a lane's: ask first, and when the answer is
+   no, say why in the same comment.
 
 A port is not a rewrite. If the contributor's approach is one you would not
-land, say that on their PR (an agent drafts the note for the maintainer
-instead) and close or park it under [Issue triage](#issue-triage) instead of
-shipping a different change under their name.
+land, say that on their PR and close or park it under
+[Issue triage](#issue-triage) instead of shipping a different change under
+their name.
 
 ## Upgrade migrations
 

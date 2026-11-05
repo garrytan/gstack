@@ -7,12 +7,15 @@ feature requests into TODOS.md themes with a "not rejected" note, and reporters
 still saw a closed issue with no fix. Those were reopened on 2026-10-25 under
 the `parked` label, and this page is the rule going forward.
 
-Every comment this page describes is a maintainer's to post. An agent triaging
-for the maintainer never comments to a person, not even a thank-you, a "fixed
-in" note, an ask for more information or a won't-fix note (Garry, 2026-11-04:
-"never send emails or messages to human beings on my behalf ever"). It closes or
-labels with no comment and writes each comment as a draft for the maintainer to
-send. Credit stays in PR bodies and `Co-authored-by:` lines.
+An agent triaging for the maintainer may post every comment this page
+describes, tag people, request reviews and leave short notes for outside
+authors, but only under its bot identity (`capy-ai[bot]` on Capy), never the
+maintainer's own GitHub account. An agent with no bot identity writes the
+comment as a draft for the maintainer instead. GitHub comments are the only way
+an agent reaches people for the maintainer: it never sends them email, chat
+messages, DMs or social posts, and never reads the maintainer's inbox (Garry,
+2026-11-04: "never send emails or messages to human beings on my behalf ever";
+amended 2026-11-05: "Oh you can leave comments on GitHub").
 
 ## The three states
 
