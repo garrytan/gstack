@@ -194,7 +194,7 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
       const nl = r.stdout.indexOf(10, at);
       const [name, type, size] = nl < 0 ? [] : r.stdout.subarray(at, nl).toString().split(' ');
       if (name !== sha || type !== 'blob' || size === undefined) break;
-      heads.set(sha, r.stdout.subarray(nl + 1, nl + 1 + Math.min(Number(size), 8000)));
+      heads.set(sha, Buffer.from(r.stdout.subarray(nl + 1, nl + 1 + Math.min(Number(size), 8000))));
       at = nl + 1 + Number(size) + 1;
     }
   }
