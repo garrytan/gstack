@@ -192,4 +192,18 @@ describe('files kept only for a secret line go to readers as excerpts', () => {
       expect(x.whole.includes('r/x.json') || x.text.includes('after-split')).toBe(true);
     }
   });
+
+  // Value: protects=a secret the scanner finds only with its nearby label (an AWS secret key) reaches readers; fails_when=the
+  //   scanner reads changed lines alone or in chunks without overlap, so a label on a context line or across a chunk
+  //   boundary hides the value; why_new=GST-1447 /ship outside-voice finding; seam=none
+  test('a secret whose label sits on a context line or across a scan chunk is in the excerpt', () => {
+    const value = 'wJ' + 'alrXUtnFEMI/K7MDENG/bPxRfiCYzQ9wQ3eR5t';
+    const head = ['diff --git a/r/x.yml b/r/x.yml', '--- a/r/x.yml', '+++ b/r/x.yml'];
+    const pad = Array.from({ length: 20 }, (_, i) => `+filler ${i}`);
+    const context = [...head, '@@ -1,1 +1,23 @@', '+uses ${OPENAI_API_KEY}', ...pad, ' aws_secret_access_key:', `+  ${value}`, ''].join('\n');
+    expect(secretExcerpt(context, ['r/x.yml']).text).toContain(value);
+    const fill = Array.from({ length: 511 }, () => `+${'f'.repeat(1023)}`);
+    const boundary = [...head, '@@ -0,0 +1,515 @@', '+uses ${OPENAI_API_KEY}', ...fill, `+${'x'.repeat(980)} aws_secret_access_key:`, `+${value}`, ''].join('\n');
+    expect(secretExcerpt(boundary, ['r/x.yml']).text).toContain(value);
+  });
 });

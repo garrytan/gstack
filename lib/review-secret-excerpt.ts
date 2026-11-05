@@ -17,6 +17,8 @@ export const EXCERPT_LINE_MAX = 400;
 export const EXCERPT_WINDOW = 160;
 /** The most bytes one scanner call reads; a single changed line past the scanner's own 1 MiB cap sends its file whole. */
 const SCAN_CHUNK_BYTES = 512 * 1024;
+/** Lines each chunk after the first repeats from the one before, so a label the scanner needs nearby is read with its value. */
+const SCAN_OVERLAP_BYTES = 1024;
 
 /** `text` is the excerpt readers get ('' when no file was excerpted); `whole` lists the paths it could not excerpt and `wholeText` their diff sections. */
 export interface SecretExcerpt { text: string; files: Array<{ path: string; text: string }>; whole: string[]; wholeText: string }
@@ -66,20 +68,25 @@ function hits(lines: readonly Line[], file: string): Map<number, Hit> {
       }
     }
   }
-  for (let from = 0; from < changed.length;) {
+  const size = (k: number) => Buffer.byteLength(lines[k]!.text) + 1;
+  for (let from = 0; from < lines.length;) {
     let to = from, bytes = 0;
-    while (to < changed.length && (to === from || bytes + Buffer.byteLength(lines[changed[to]!]!.text) + 1 <= SCAN_CHUNK_BYTES)) bytes += Buffer.byteLength(lines[changed[to++]!]!.text) + 1;
-    const chunk = changed.slice(from, to);
-    for (const f of scan(chunk.map(k => lines[k]!.text).join('\n'), { processEnv: {}, sourcePath: file }).findings) {
+    while (to < lines.length && (to === from || bytes + size(to) <= SCAN_CHUNK_BYTES)) bytes += size(to++);
+    const chunk = lines.slice(from, to);
+    for (const f of scan(chunk.map(l => l.text).join('\n'), { processEnv: {}, sourcePath: file }).findings) {
       if (f.id.startsWith('engine.')) throw new Error(`the credential scanner did not read ${file}: ${f.id}`);
       if (f.category !== 'secret' || f.severity === 'LOW') continue;
-      const k = chunk[f.line - 1];
-      if (k === undefined) throw new Error(`a scanner finding in ${file} names line ${f.line} of ${chunk.length}`);
+      if (!chunk[f.line - 1]) throw new Error(`a scanner finding in ${file} names line ${f.line} of ${chunk.length}`);
+      const k = from + f.line - 1;
+      if (lines[k]!.kind === ' ') continue;
       const h = at(k);
       h.shaped = true;
       h.spans.push([f.col - 1 - EXCERPT_WINDOW, f.col - 1 + 2 * EXCERPT_WINDOW]);
     }
-    from = to;
+    if (to >= lines.length) break;
+    let back = to, overlap = 0;
+    while (back - 1 > from && overlap < SCAN_OVERLAP_BYTES) overlap += size(--back);
+    from = back;
   }
   return out;
 }
