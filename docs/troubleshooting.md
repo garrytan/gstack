@@ -3474,6 +3474,10 @@ run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
 
+The queue's check skips a receipt with `recorded=none` (written before the base gained
+`review_exclude_paths`) when no file the head changes matches any current pattern, so
+this line then means the PR touches a pattern, or the recorded digest differs.
+
 <a id="review-diff-too-large"></a>
 ### `REVIEW_DIFF_TOO_LARGE`
 

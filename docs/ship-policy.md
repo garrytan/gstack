@@ -1466,6 +1466,7 @@ checks the digest against the base policy, so a stale selection cannot be
 recorded by accident, but it does not read the review ledger: a write given the
 `expected=` digest passes without a review, and only the review run shows that
 the reviewers read that selection.
+The queue makes one exception (GST-1408): a receipt with no `review_exclude`, written before the base gained the key, still binds when no file the head changes matches any current pattern, excluded or kept, because its reviewers read the same full diff; a recorded digest that differs, a matched file and an unreadable base policy still refuse, and carry still compares digests.
 
 **Adopting it.** (1) Open a PR on the base that adds the patterns and
 `min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any
