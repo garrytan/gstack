@@ -773,12 +773,42 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect(x.excluded.has('receipts/bulk/7/result.json')).toBe(true);
     const greps = fs.readFileSync(trace, 'utf8').split('\n').filter(l => /built-in: git( -c \S+)* grep /.test(l));
     expect(greps.length).toBeGreaterThan(0);
-    const read = greps.map(l => [...(l.split(' -- ')[1] ?? '').matchAll(/:\(top,literal\)([^' ]+)/g)].map(m => m[1]!));
-    expect(read.every(paths => paths.length > 0)).toBe(true);
-    const all = new Set(read.flat());
-    expect(['lib/reader.js', 'test/d.test.js'].every(p => all.has(p))).toBe(true);
-    expect([...all].filter(p => p.startsWith('receipts/') && p !== 'receipts/run.sh')).toEqual([]);
+    expect(greps.filter(l => / -- /.test(l))).toEqual([]);
   }, 120_000);
+
+  // Value: protects=the plan's consumer scan and binary read finish in a fixed number of git calls however many files the tree
+  //   and the PR hold, so a results PR cannot push the plan past gstack-review-dispatch's 180 s limit; fails_when=the scan greps
+  //   in pathspec chunks (one call per 24 KB of consumer names) or reads one blob per git call, so the count grows with the
+  //   tree; why_new=GST-1442 (harness-evals #269: 363 greps over a 192k-file tree, 2 min 38 s on a Capy machine);
+  //   seam=reviewExclude in head and live mode, git processes counted through GIT_TRACE; no_claim=wall-clock time
+  test('the consumer scan and the binary read take the same git calls for 20 or 1,200 files', () => {
+    const calls = (n: number, live: boolean) => {
+      const repo = census();
+      const files: Record<string, string> = {};
+      for (let k = 0; k < n; k++) {
+        files[`receipts/many/${k}/result.json`] = `{"k": ${k}}\n`;
+        files[`lib/generated/a-consumer-module-with-a-long-enough-name-${k}.ts`] = `export const k${k} = ${k};\n`;
+      }
+      files['lib/generated/reads.ts'] = "export const p = 'receipts/many/3/result.json';\n";
+      for (let k = 0; k < n; k++) write(repo.work, `receipts/shots/${k}.png`, `\x89PNG\0${k}`);
+      commit(repo, files, 'many receipts');
+      const baseSha = repo.git('rev-parse', 'origin/main');
+      const head = repo.git('rev-parse', 'HEAD');
+      const c = live ? collectLive(repo.work, 'origin/main') : collectCommit(repo.work, baseSha, head);
+      const trace = path.join(repo.root, 'git-trace.log');
+      const prior = process.env.GIT_TRACE;
+      process.env.GIT_TRACE = trace;
+      let x: ReturnType<typeof reviewExclude>;
+      try { x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, ...(live ? {} : { head }), perPath: c.perPath, added: c.added, classRoot: live ? repo.work : c.root ?? [], gateTagged: new Set(), context: 'test' }); }
+      finally { if (prior === undefined) delete process.env.GIT_TRACE; else process.env.GIT_TRACE = prior; }
+      expect(x.state).toBe('active');
+      if (x.state !== 'active') return -1;
+      expect(x.kept).toContainEqual({ path: 'receipts/many/3/result.json', reason: 'named-by-code' });
+      expect([`receipts/many/${n - 1}/result.json`, `receipts/shots/${n - 1}.png`].every(p => x.excluded.has(p))).toBe(true);
+      return fs.readFileSync(trace, 'utf8').split('\n').filter(l => /trace: built-in: git /.test(l)).length;
+    };
+    for (const live of [false, true]) expect({ live, calls: calls(1200, live) }).toEqual({ live, calls: calls(20, live) });
+  }, 240_000);
 
   // GST-1435 review (outside-voice#1): a consumer whose name is not valid UTF-8 comes back from ls-tree as U+FFFD, so its literal
   //   pathspec matches nothing; fails_when=the scan treats that as no match and excludes the data the file names instead of keeping

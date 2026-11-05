@@ -541,6 +541,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'git could not read a reviewer\'s diff (reason=timeout after timeout_ms, or reason=git-exit with git\'s exit code), so /ship stopped; the full stderr, with remote URLs redacted, is in the log= file',
     fix: 'timeout: rerun once unchanged, then split the PR or exclude its largest data folders on the base; git exit 128: git fetch origin <base>, then rerun once; anything else: stop and ask a person',
   },
+  REVIEW_PLAN_STOPPED: {
+    anchor: 'review-plan-stopped',
+    summary: 'gstack-review-plan did not finish inside the pass (reason=timeout after timeout_ms, reason=signal when something killed it, reason=spawn when it could not start), so gstack-review-dispatch pass stopped before writing a manifest or dispatching a reader',
+    fix: 'rerun the pass once unchanged; if it stops again, report this line and the repository\'s file count (git ls-files | wc -l) to your Captain; reason=signal: check the machine\'s free memory first',
+  },
   REVIEW_EXCLUDE_REFERENCE: {
     anchor: 'review-exclude-reference',
     summary: 'informational: a kept code file names an excluded folder (a directory reference, not a full file path), so its files stay excluded and readers see that code without the files it reads',

@@ -3549,6 +3549,21 @@ exclude its largest data folders on the base; git exit 128 (a missing object or
 an unfetched base), `git fetch origin <base>` and rerun once; anything else, stop
 and ask a person with the log file.
 
+<a id="review-plan-stopped"></a>
+### `REVIEW_PLAN_STOPPED`
+
+**Meaning.** `gstack-review-dispatch pass` runs `gstack-review-plan` before it
+writes a manifest, and that run did not finish, so the pass stopped (exit 1)
+without dispatching a reader. The line names the step (the plan command),
+`reason=timeout` with `timeout_ms` (180,000 ms; `GSTACK_REVIEW_PLAN_TIMEOUT_MS`
+sets it in milliseconds), `reason=signal` with the signal when something else
+killed it, or `reason=spawn` when it could not start. Before this line existed, a
+plan that ran past the limit was killed with no output (GST-1442).
+
+**Fix.** Rerun the pass once unchanged. If it stops again, report the line and the
+repository's file count (`git ls-files | wc -l`) to your Captain. For
+`reason=signal`, check the machine's free memory first.
+
 <a id="review-exclude-reference"></a>
 ### `REVIEW_EXCLUDE_REFERENCE`
 

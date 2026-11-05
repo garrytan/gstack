@@ -26,6 +26,8 @@ import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, ch
 import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
+import { REVIEW_PLAN_TIMEOUT_MS } from '../lib/review-collect';
+import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '../lib/review-targeted';
 import { resolveBaseBranch } from '../lib/ship-policy';
@@ -332,10 +334,20 @@ function pass(): number {
     process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
-  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 * 1024 * 1024 });
+  const limit = Number(process.env.GSTACK_REVIEW_PLAN_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REVIEW_PLAN_TIMEOUT_MS;
+  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+  const stopped = (r: ReturnType<typeof plan>, json: boolean) => {
+    if (r.status !== null || (!r.signal && !r.error)) return false;
+    const reason = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? 'timeout' : r.signal ? 'signal' : 'spawn';
+    process.stderr.write(`${r.stderr ?? ''}${resultLine('gstack-review-dispatch pass', 'REVIEW_PLAN_STOPPED', `step="gstack-review-plan --base ${base}${json ? ' --json' : ''}" reason=${reason} timeout_ms=${timeoutMs} signal=${r.signal ?? 'none'}`)}\n`);
+    return true;
+  };
   const text = plan(false);
+  if (stopped(text, false)) return EXIT.fail;
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
   const j = plan(true);
+  if (stopped(j, true)) return EXIT.fail;
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
   const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown }; readers?: EffectiveReaders };
   const step = p.next.step;
