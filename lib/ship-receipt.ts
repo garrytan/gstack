@@ -340,7 +340,7 @@ export function heldBy(repoRoot: string, commit: string, currentBase: string, pa
   const holds = (at: string): 'held' | 'conflict' | 'no' => {
     const merged = run(['merge-tree', '--write-tree', '--no-messages', at, commit]);
     const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
-    if (tree && run(['diff', '--quiet', at, tree, '--', ...pathspec]).status === 0) return 'held';
+    if (merged.status === 0 && tree && run(['diff', '--quiet', at, tree, '--', ...pathspec]).status === 0) return 'held';
     return merged.status === 1 ? 'conflict' : 'no';
   };
   const tip = holds(currentBase);

