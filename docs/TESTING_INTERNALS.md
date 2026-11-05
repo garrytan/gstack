@@ -1710,10 +1710,15 @@ the CI reuse profile, `gstack-ci-carry`, the pregate, the train gate
 (evals.yml), the main backstop, the release gate and windows-smoke are
 unchanged.
 
-A Trunk problem never turns CI red. The action never fails its own step. The
-step also continues on error and has a 3-minute timeout, and the job
-continues on error. Fork pull requests, pushes, dispatches and a missing token
-skip the job. It is the only job in the workflow that sees a secret
+A Trunk problem never turns the run or any required check red. The action
+never fails its own step. The step also continues on error and has a 3-minute
+timeout, and the job continues on error, so the run's conclusion and the
+`free-tests` aggregate keep their own results. One case still shows red: if
+GitHub can't fetch the pinned action at "Set up job" (the action's repository
+or commit disappears), the observer's own check reports failure, and
+`gstack-ship-queue ready` counts every check at the head. Rerun it once;
+if it fails again, delete the job. Fork pull requests, pushes, dispatches
+and a missing token skip the job. It is the only job in the workflow that sees a secret
 (`TRUNK_API_TOKEN`), so it checks out nothing and runs none of the pull
 request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`), and its
 only network call is a request for verdicts to
@@ -1723,10 +1728,14 @@ Telemetry is off, and Trunk reads the diff itself through its GitHub App.
 `test/ci-reuse-workflow-wiring.test.ts` lock that shape in place.
 
 **Review date: one week after it merges (2026-11-12 if it merges on
-2026-11-05).** Compare Trunk's would-skip verdicts with what the skipped jobs
-actually found, and look hardest at any would-skip on a run where that job
-failed. Turning on skipping is a separate decision for Garry, made after that
-review.
+2026-11-05).** Compare Trunk's would-skip verdicts with what the jobs it
+would have skipped actually found, and look hardest at any would-skip on a run
+where that job failed. Trunk's `required-check` vote treats both jobs as not
+required, because branch protection names the `free-tests` aggregate and
+not the jobs under it. But `free-tests` needs both jobs and every shard
+receipt, so discount that vote when you judge the would-skip rate. Any skip
+added later also has to pass the aggregate's receipt check. Turning on
+skipping is a separate decision for Garry, made after that review.
 
 ### Windows free lane
 
