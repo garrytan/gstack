@@ -134,6 +134,7 @@ function handle(p: GatePayload): HookOutput | undefined {
         ...(check.saved.length ? [`The content it replaced is saved: ${check.saved.map(s => `${s.path} at ${s.file}`).join(', ')}.`] : []),
         ...(check.reset ? [`It also moved the branch back to ${check.reset.slice(0, 12)}; the new commit stays in the reflog.`] : []),
         ...(check.staged.length ? [`The commit's other changes are still staged: ${check.staged.join(', ')}.`] : []),
+        ...(check.kept.length ? [`The new commit rewrote history from before /investigate loaded, on a different branch, so the gate did not undo it: ${check.kept.join(', ')} stay committed.`] : []),
         ...(failed.length ? [`These could not be put back and are in an unknown state: ${failed.join(', ')}. Run git diff HEAD -- ${failed.join(' ')} to see them.`] : []),
         howToRelease(),
       ].join('\n');

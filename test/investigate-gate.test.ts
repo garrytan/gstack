@@ -265,6 +265,29 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
     expect(git('status', '--porcelain')).toBe('');
   });
 
+  test('amending the baseline HEAD with a fix moves the branch back to the baseline commit, not its parent', () => {
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
+    git('add', '-A');
+    commit('second');
+    const head = git('rev-parse', 'HEAD');
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -q --amend -a --no-edit");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(git('rev-parse', 'HEAD')).toBe(head);
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 2;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
+  test('a fix commit in a repo with hundreds of refs on distinct commits is still undone inside the deadline', () => {
+    const head = git('rev-parse', 'HEAD');
+    const stream = Array.from({ length: 300 }, (_, i) => `commit refs/tags/t${i}\ncommitter x <x@x.test> 1700000000 +0000\ndata ${String(i).length}\n${i}\nfrom ${head.trim()}\n`).join('');
+    expect(spawnSync('git', ['fast-import', '--quiet'], { cwd: repo, input: stream, timeout: 10_000 }).status).toBe(0);
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -qam fix");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(git('rev-parse', 'HEAD')).toBe(head);
+    expect(read('src/total.ts')).toBe(SRC);
+  }, 30_000);
+
   test('pulling or merging upstream commits fetched after the baseline is not undone', () => {
     const origin = path.join(work, 'origin.git');
     const up = path.join(work, 'up');
