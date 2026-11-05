@@ -795,10 +795,9 @@ once:
   does a file whose log hit the 2 MB cap, since a cut log's last summary may not
   be the run's. Any of these refusals runs the whole lane here. An entry with no `per_file` refuses as
   `inventory_skipped`, naming the files, and the lane runs here whole. A partly
-  skipped file ran tests and stays covered. gstack's `bun run test` lane
-  declares `per_file`, and its Free Tests writer starts emitting the list in a
-  follow-up pull request, so the runner is in place on the base before any run
-  lists a skipped file. A `tree.json`
+  skipped file ran tests and stays covered. gstack's own Free Tests writer
+  (`scripts/ci-tree-reuse.ts record`) emits the list from complete per-file
+  counts, and gstack's `bun run test` lane declares `per_file`. A `tree.json`
   without the key (older writers, other repos) is read as before, with every
   listed file counted as run; add the list to your writer to close that gap.
   The remote gate's clearance does not use it: that gate runs on a Linux runner
