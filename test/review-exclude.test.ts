@@ -780,6 +780,23 @@ describe('a branch cannot hide code under a base pattern', () => {
     expect([...all].filter(p => p.startsWith('receipts/') && p !== 'receipts/run.sh')).toEqual([]);
   }, 120_000);
 
+  // GST-1435 review (outside-voice#1): a consumer whose name is not valid UTF-8 comes back from ls-tree as U+FFFD, so its literal
+  //   pathspec matches nothing; fails_when=the scan treats that as no match and excludes the data the file names instead of keeping
+  //   every candidate; seam=reviewExclude in head mode
+  test.skipIf(process.platform === 'win32' || process.platform === 'darwin')('a consumer whose name is not valid UTF-8 keeps the candidates, not excludes them', () => {
+    const repo = census();
+    commit(repo, { 'receipts/z/result.json': '{}\n' }, 'receipt');
+    fs.writeFileSync(Buffer.concat([Buffer.from(path.join(repo.work, 'lib/reader-')), Buffer.from([0xff]), Buffer.from('.js')]), "read('receipts/z/result.json')\n");
+    commit(repo, {}, 'reader with a non-UTF-8 name');
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    expect(x.state).toBe('active');
+    if (x.state !== 'active') return;
+    expect(x.excluded.has('receipts/z/result.json')).toBe(false);
+  }, 120_000);
+
   test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('a live binary file whose bytes cannot be read is kept, not excluded', () => {
     const repo = census();
     const gz = path.join(repo.work, 'receipts/a/shot.png');

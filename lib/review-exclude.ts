@@ -242,7 +242,8 @@ const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =
 
 /**
  * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
- * holding it; null when git could not list a tree or git grep failed (a timeout included). Each tree's file list is filtered to
+ * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding (its literal pathspec would
+ * match nothing), or git grep failed (a timeout included). Each tree's file list is filtered to
  * consumers first and grepped through literal pathspecs, so the data under the patterns is never read (GST-1435: a whole-tree
  * grep for 4,354 candidate paths through 30 MB of receipts ran 278 s).
  */
@@ -257,6 +258,7 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
       const ls = git(i.root, at ? ['ls-tree', '-r', '-z', '--name-only', at] : ['ls-files', '-z']);
       if (!ls.ok) return null;
       const files = [...new Set(ls.out.split('\0'))].filter(f => f && consumer(i, f, candidates));
+      if (files.some(f => f.includes('\uFFFD'))) return null;
       for (const chunk of argChunks(files)) {
         const r = git(i.root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list, ...(at ? [at] : []), '--', ...chunk.map(literal)]);
         if (r.status !== 0 && r.status !== 1) return null;
