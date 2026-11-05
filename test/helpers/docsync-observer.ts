@@ -258,6 +258,10 @@ export function docsCommandAllowed(command: string, fixture: ReturnType<typeof f
   const insert = /^cat (['"]?)([^\s'"]+)\1 >> (['"]?)([^\s'"]+)\3$/.exec(text);
   if (insert) return [insert[2], insert[4]].every(file => path.isAbsolute(file) && /\.md$/i.test(file) &&
     !/[\x00-\x1f\x7f;&|<>`$\\()*?\[\]{}~#]/.test(file) && docsPrivateArtifact(file, fixture, scripts));
+  // The interface lets a private artifact live "in a new directory you create there" (under the home), and snapshot --out
+  // does not create its parent (gate 41817566885: the parent ran `mkdir -p <home>/ship2` before its snapshot).
+  const directory = /^mkdir (?:-p )?(['"]?)([^\s'"]+)\1$/.exec(text);
+  if (directory) return docsPrivateDirectory(directory[2]!, fixture);
   // Harmless wrappers are accepted on read-only commands only; lifecycle and
   // script calls must stay literal so their failures are not suppressed.
   const unwrapped = unwrapHarmlessRead(text, fixture);
@@ -459,6 +463,15 @@ function docsPrivateArtifact(file: string, fixture: ReturnType<typeof fixtureDoc
     !protectedRoots.some(root => within(file, root) || within(actual, actualWritePath(root) ?? root)) &&
     !scripts.some(script => file === script || actual === actualWritePath(script)) &&
     path.basename(file) !== 'actor-state.json' && path.basename(actual) !== 'actor-state.json';
+}
+
+/** True when `dir` is one new directory directly under the fixture home, clear of the repository and every protected root. */
+function docsPrivateDirectory(dir: string, fixture: ReturnType<typeof fixtureDocs>): boolean {
+  if (!path.isAbsolute(dir) || path.normalize(dir) !== dir || path.dirname(dir) !== fixture.home ||
+      /[\x00-\x1f\x7f;&|<>`$\\()*?\[\]{}~#]/.test(dir)) return false;
+  const roots = [fixture.repo, fixture.skills, fixture.env.CLAUDE_CONFIG_DIR, fixture.env.GSTACK_HOME, path.join(fixture.home, 'remote.git')];
+  return actualWritePath(dir) === path.join(fs.realpathSync(fixture.home), path.basename(dir)) &&
+    !roots.some(root => within(dir, root) || within(root, dir));
 }
 
 /**

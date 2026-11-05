@@ -250,6 +250,15 @@ describe('touch input', () => {
     expect(await page().evaluate(() => (window as any).__log.at(-1).type)).toBe('touchcancel');
   });
 
+  test('a page that replaces requestAnimationFrame still gets its tap, and the next gesture runs', async () => {
+    await freshTouchTab();
+    await page().evaluate(() => { window.requestAnimationFrame = () => 0; });
+    const within = (p: Promise<unknown>) => Promise.race([p.then(() => 'done'), new Promise((resolve) => setTimeout(() => resolve('hung'), 10_000))]);
+    expect(await within(run('tap', ['#fire']))).toBe('done');
+    expect(await within(run('tap', ['#fire']))).toBe('done');
+    expect(await data('#fire', 'shots')).toBe('2');
+  });
+
   test('touch cancel with no finger held is a no-op, not a protocol error', async () => {
     await freshTouchTab();
     expect(await run('touch', ['cancel'])).toContain('nothing to cancel');

@@ -350,8 +350,9 @@ it; `gstack-outside-voice run` sends that default to Anthropic only.
 ### `... outside review unavailable: the response lacks the markers this gate requires (...)`
 
 **Meaning.** The answer did not contain what the gate checks: a
-`Recommendation: ... because ...` line, a `SCORE:`/`AMBIGUITIES:` pair, or
-severity tags.
+`Recommendation: ... because ...` line (or a `## Recommendation` heading whose
+next non-blank line is a plain sentence with a `because` reason), a
+`SCORE:`/`AMBIGUITIES:` pair, or severity tags.
 
 **Fix.** Re-run the review.
 
@@ -2807,6 +2808,12 @@ exact tokens it finds in these positions:
 
 - a 12-digit value right after `tree`, `gated_tree`, `head` or `predecessor`
   with `=` or a space (`tree=704992822996`, `tree 704992822996`);
+- an all-digit sha right after `review_loop_grant` or `review_loop_exception`
+  with a space, `=` or `:` (`review_loop_grant 367120488513`), so the owner's
+  grant records through `gstack-approvals add`. The scanner itself exempts it
+  (`isReviewLoopSha` in `lib/redact-patterns.ts`), and only that position
+  counts: the same digits elsewhere, or a number with a `+`, spaces or dashes
+  after the token, still report;
 - an 11-digit id inside an `/actions/runs/<id>` URL or as that link's text;
 - any id inside an `actions/runs/<id>` path, with or without a host, when
   `actions/runs/` starts the line or follows whitespace, `/`, `(`, `[`,

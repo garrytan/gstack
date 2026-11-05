@@ -1,0 +1,190 @@
+{
+  "note": "Every tool call of the ship-docsync-current parent in main backstop gate 41817566885 (main b244e6d1, paid-slice-5-a1), red on \"command outside declared docs observation interface\" and green on its in-run rerun. {home} is the fixture home and {shard} its shard root. Inputs keep only command, file_path or run_in_background; outputs are kept only for installed gstack helper calls and failed calls. Call 10 is mkdir -p {home}/ship2: the interface lets a private artifact live in a new directory the agent creates under the home, and the next call snapshots into it.",
+  "sourceRun": "41817566885 slice 5 ship-docsync-current (main backstop gate.backstop-b244e6d11a64)",
+  "scenario": "current",
+  "sourceFileSha256": "8515e5e5e437f06597dad4bd0f110f5bb0254eee79bee8b70beecbd82cae63ed",
+  "calls": [
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat {home}/phase.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat {home}/.claude/skills/gstack/ship/sections/documentation.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat {home}/fixture-interface.md | head -c 400; echo; ls -la {home} {home}/.claude/skills/gstack/document-release {home}/.claude/skills/gstack/bin"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Read",
+      "input": {
+        "file_path": "{home}/.claude/skills/gstack/document-release/SKILL.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "ls -la {home}/.claude/skills/gstack/document-release/sections; git status; git log --oneline --all; git diff main...HEAD --stat; ls -la; find . -path ./.git -prune -o -type f -print"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Read",
+      "input": {
+        "file_path": "{home}/.claude/skills/gstack/document-release/sections/audit-scope.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "git diff main...HEAD; cat handbook/reference/commands/widget.md.tmpl; cat README.md AGENTS.md CHANGELOG.md TODOS.md VERSION; git branch -a -v; git merge-base main HEAD; git rev-parse origin/main main HEAD"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p \"$(dirname \"$_EX\")\" && { grep -qxF '/.gstack/tmp/' \"$_EX\" 2>/dev/null || echo '/.gstack/tmp/' >> \"$_EX\"; }"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "rm -f .gstack/tmp/docs-audit.json"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate --help"
+      },
+      "output": "usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]\n       gstack-docs-candidate compare <candidate.json>\n       gstack-docs-candidate attempt <child-output> --state <attempts.json>"
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "mkdir -p {home}/ship2"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/ship2/ship2-docs-a1.json --audit-id ship2-docs-a1 --mode edit --base b0dca411d5ad6012553218e04861917e7c3eef5c --docs handbook --docs README.md --docs AGENTS.md"
+      },
+      "output": "CANDIDATE: {home}/ship2/ship2-docs-a1.json\nbase=b0dca411d5ad6012553218e04861917e7c3eef5c head=5b0984bee296e78b007eac9afa366df4c3dcf07b branch=feature/docs mode=edit\ncommitted=1 staged=0 unstaged=0 untracked=1 selected=2 docs=3 hashed=4\ncommitted: \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"README.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat personal-note.txt; cat {home}/ship2/ship2-docs-a1.json"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Agent",
+      "input": {
+        "run_in_background": false
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate compare {home}/ship2/ship2-docs-a1.json"
+      },
+      "output": "{\"audit_id\":\"ship2-docs-a1\",\"head_changed\":false,\"index_changed\":false,\"content_changed\":[],\"newly_dirty\":[]}"
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat app.ts package.json; git status --porcelain; git rev-parse HEAD; git diff --cached --stat; sha256sum personal-note.txt; git hash-object personal-note.txt"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "{home}/.claude/skills/gstack/bin/gstack-ship-receipt docs-caps --base main"
+      },
+      "output": "DOCS_CAP: none declared"
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "{home}/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out {home}/ship2/ship2-docs-a1-post.json --audit-id ship2-docs-a1 --mode edit --base b0dca411d5ad6012553218e04861917e7c3eef5c --docs handbook --docs README.md --docs AGENTS.md"
+      },
+      "output": "CANDIDATE: {home}/ship2/ship2-docs-a1-post.json\nbase=b0dca411d5ad6012553218e04861917e7c3eef5c head=5b0984bee296e78b007eac9afa366df4c3dcf07b branch=feature/docs mode=edit\ncommitted=1 staged=0 unstaged=0 untracked=1 selected=2 docs=3 hashed=4\ncommitted: \"handbook/reference/commands/widget.md.tmpl\"\nuntracked: \"personal-note.txt\"\ndocs: \"AGENTS.md\" \"README.md\" \"handbook/reference/commands/widget.md.tmpl\""
+    },
+    {
+      "tool": "Write",
+      "input": {
+        "file_path": "{home}/ship2/ship2-docs-a1-result.json"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Write",
+      "input": {
+        "file_path": "{home}/ship2/ship2-docs-a1-documentation.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Write",
+      "input": {
+        "file_path": "{home}/repo/.gstack/tmp/docs-audit.json"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "git check-ignore -v .gstack/tmp/docs-audit.json; git status --porcelain; cat {home}/fixture-publish.ts"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Write",
+      "input": {
+        "file_path": "{home}/ship-report.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "cat {home}/ship2/ship2-docs-a1-documentation.md >> {home}/ship-report.md"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "bun {home}/fixture-publish.ts"
+      },
+      "output": ""
+    },
+    {
+      "tool": "Bash",
+      "input": {
+        "command": "ls -la {home}/publication.json; git status --porcelain"
+      },
+      "output": ""
+    }
+  ]
+}

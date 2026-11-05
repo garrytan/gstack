@@ -117,6 +117,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/docsync-invalid-first-attempt-public.json': ['test/ship-document-release-dispatch.test.ts'],
   'test/fixtures/docsync-observer-commands.json': ['test/docsync-lifecycle-interface.test.ts'],
   'test/fixtures/docsync-phase-read-aborted-public.json': ['test/docsync-authority.test.ts'],
+  'test/fixtures/docsync-private-mkdir-public.json': ['test/docsync-command-grammar.test.ts'],
   'test/fixtures/docsync-read-help-public.json': ['test/docsync-command-grammar.test.ts'],
   'test/fixtures/docsync-replay/37237194905-late-result-calls.json': ['test/docsync-authority.test.ts'],
   'test/fixtures/docsync-replay/37239016858-completion-native.json': ['test/docsync-nested-writes.test.ts'],
