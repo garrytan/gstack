@@ -927,9 +927,39 @@ function stringSpans(text: string, lang: "py" | "dart"): Spans {
   return spans;
 }
 
-function insideString(text: string, offset: number, sourcePath: string): boolean {
-  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
-  const spans = stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py");
+/**
+ * JS template literals and block comments, from one pass over the whole input:
+ * the context a line cannot show on its own. A quote ends at its line end, a
+ * line comment is skipped, `${…}` stays template text and a regex literal is
+ * not recognized, so a wrong guess puts a span inside a recorded span, where
+ * it still reports. Cached and cleared with stringSpans.
+ */
+function jsSpans(text: string): Spans {
+  if (stringSpansCache?.text === text && stringSpansCache.lang === "js") return stringSpansCache.spans;
+  const spans: Spans = [];
+  const n = text.length;
+  for (let i = 0; i < n; ) {
+    const c = text[i]!;
+    if (text.startsWith("//", i)) {
+      const newline = text.indexOf("\n", i);
+      i = newline < 0 ? n : newline;
+    } else if (text.startsWith("/*", i)) {
+      const close = text.indexOf("*/", i + 2);
+      const end = close < 0 ? n : close + 2;
+      spans.push([i, end]);
+      i = end;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < n && text[j] !== c && (c === "`" || text[j] !== "\n")) j += text[j] === "\\" ? 2 : 1;
+      if (c === "`") spans.push([i, Math.min(j + 1, n)]);
+      i = j + 1;
+    } else i += 1;
+  }
+  stringSpansCache = { text, lang: "js", spans };
+  return spans;
+}
+
+function inSpans(spans: Spans, offset: number): boolean {
   let lo = 0;
   let hi = spans.length - 1;
   while (lo <= hi) {
@@ -939,6 +969,11 @@ function insideString(text: string, offset: number, sourcePath: string): boolean
     else return true;
   }
   return false;
+}
+
+function insideString(text: string, offset: number, sourcePath: string): boolean {
+  if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  return inSpans(stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py"), offset);
 }
 
 /** The rest of a name's expression on its line, up to the comma, semicolon, bracket or comment that ends it; null when it continues on the next line. */
@@ -1089,12 +1124,13 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
  * start, when a call, index or assignment follows), and a bracket, operator,
  * method call or line end after it. A quoted host, a host in a comment,
  * `db.internal:5432`, `build-7.internal`, `proxy.corp/api`, prose, and every
- * host in a config, dotenv or Markdown file still report. A JS template
- * literal or block comment that opened on an earlier line is not seen, so in
- * JS a line that is only a key and `:` or `=` before the span
- * (`host: db.internal`, `DB_HOST=db.internal`) is never exempt, and any
- * other host on such a line is exempt only when code syntax sits on both
- * sides of it, as in `(db.internal)`.
+ * host in a config, dotenv or Markdown file still report. In JS, a span
+ * inside a template literal or block comment of the scanned text (jsSpans) is
+ * never exempt, nor is one in JSX text in a .tsx or .jsx file (after a `>` on
+ * its line with no `{` since). A scan of added lines only cannot see a
+ * template literal that opened above them, so in JS a line that is only a key
+ * and `:` or `=` before the span (`host: db.internal`, `DB_HOST=db.internal`)
+ * is never exempt either.
  */
 function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
@@ -1107,13 +1143,17 @@ function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined):
   const lineStart = codeLineStart(input, start, lang);
   if (lineStart < 0) return false;
   const before = input.slice(lineStart, start);
+  if (/\.[jt]sx$/i.test(sourcePath)) {
+    const jsx = before.replaceAll("=>", "  ");
+    if (jsx.lastIndexOf(">") > jsx.lastIndexOf("{")) return false;
+  }
   let k = before.length - (PROPERTY_READ_CHAIN.exec(before.slice(-80))?.[0].length ?? 0);
   while (k > 0 && before[k - 1] === "!") k -= 1;
   while (k > 0 && (before[k - 1] === " " || before[k - 1] === "\t")) k -= 1;
   const lead = before.slice(Math.max(0, k - 7), k);
   if (lang === "js" && PROPERTY_READ_BARE_KEY.test(before.slice(0, k))) return false;
   if (k === 0 ? !PROPERTY_READ_LINE_START_TAIL.test(after) : !PROPERTY_READ_LEAD.test(lead) && !PROPERTY_READ_KEYWORD[lang].test(lead)) return false;
-  return !insideString(input, start, sourcePath);
+  return lang === "js" ? !inSpans(jsSpans(input), start) : !insideString(input, start, sourcePath);
 }
 
 export const PATTERNS: RedactPattern[] = [
