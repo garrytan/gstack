@@ -135,6 +135,18 @@ describe('Stop is blocked until the output file ranks the top risks', () => {
     expect(after.reason).toContain(`in the review's output file: ${planFile()}`);
   });
 
+  test('a repo skills/ file holding a sample Findings list does not release the gate', () => {
+    put(path.join(repo, 'skills', 'example', 'review-sections.md'), RANKED);
+    expect(json(stop([...LOADED, DONE]).stdout).decision).toBe('block');
+  });
+
+  test('a project that itself sits under a skills/ folder still has its written review found', () => {
+    const project = path.join(work, 'skills', 'app');
+    const file = put(path.join(project, 'review.md'), RANKED);
+    const payload = { session_id: 'sess-1', transcript_path: transcript([...LOADED, ...wrote(file), DONE]), cwd: project, hook_event_name: 'Stop', stop_hook_active: false };
+    expect(json(runHook(HOOK, JSON.stringify(payload), baseEnv()).stdout).decision).toBeUndefined();
+  });
+
   test('a candidate whose mtime predates the load is blocked even with a ranked list', () => {
     put(planFile(), RANKED);
     const before = new Date(Date.parse(LOAD_TIME) - 60_000);

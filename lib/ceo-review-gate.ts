@@ -7,10 +7,12 @@
  * level) and, inside that section, a numbered list that starts at 1 with at
  * least one item that is not a placeholder: the ranked top risks. Candidates,
  * in order: GSTACK_CEO_REVIEW_OUTPUT; files the run wrote with Write, Edit or
- * MultiEdit outside any skills/ tree (an installed skill is never the output); changed or untracked (not ignored) .md files in the git repo at
+ * MultiEdit; changed or untracked (not ignored) .md files in the git repo at
  * cwd; $GSTACK_STATE_ROOT/projects/<slug>/ceo-plans/*.md. Bash commands are
  * never parsed: a file written through the shell is found by the repo and
- * ceo-plans scans.
+ * ceo-plans scans. A file in a skills/ directory (judged from the repo root,
+ * else cwd) is never a candidate or the place the block names: the review's
+ * own methodology sections are not its output.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -74,8 +76,7 @@ export interface OutputCheck {
 
 export interface OutputContext { cwd: string; since: number; envOutput: string | undefined; slug: () => string }
 
-function changedMarkdown(cwd: string, since: number): string[] {
-  const root = repoRoot(cwd);
+function changedMarkdown(root: string | null, since: number): string[] {
   if (!root) return [];
   const list = (args: string[]) => git(root, args, { allowFail: true }).out.toString('utf8').split('\0').filter(Boolean);
   const rels = [...new Set([...list(['diff', 'HEAD', '--name-only', '-z', '--no-renames', '--', '*.md']), ...list(['ls-files', '-o', '--exclude-standard', '-z', '--', '*.md'])])];
@@ -103,10 +104,12 @@ export function checkOutput(t: Transcript, load: SkillLoad, ctx: OutputContext):
   const run = t.events.slice(load.at + 1, next?.at);
   const paths = (re: RegExp) => run.flatMap(e => (e.kind === 'tool_use' && re.test(e.name) && typeof e.input.file_path === 'string' ? [path.resolve(ctx.cwd, e.input.file_path)] : []));
   const env = ctx.envOutput?.trim() ? path.resolve(ctx.cwd, ctx.envOutput.trim()) : undefined;
-  const written = paths(WRITE_TOOLS).filter(f => !SKILL_TREE.test(f));
-  const reviewed = paths(/^Read$/).filter(f => f.endsWith('.md') && !SKILL_TREE.test(f)).pop();
+  const repo = repoRoot(ctx.cwd);
+  const inSkillTree = (f: string) => SKILL_TREE.test(path.relative(repo ?? ctx.cwd, f));
+  const written = paths(WRITE_TOOLS).filter(f => !inSkillTree(f));
+  const reviewed = paths(/^Read$/).filter(f => f.endsWith('.md') && !inSkillTree(f)).pop();
   const dest = env ?? written.filter(f => f.endsWith('.md')).pop() ?? reviewed ?? 'the plan file you reviewed';
-  const sources: Array<() => string[]> = [() => (env ? [env] : []), () => written, () => changedMarkdown(ctx.cwd, ctx.since), () => ceoPlans(ctx.slug(), ctx.since)];
+  const sources: Array<() => string[]> = [() => (env ? [env] : []), () => written, () => changedMarkdown(repo, ctx.since).filter(f => !inSkillTree(f)), () => ceoPlans(ctx.slug(), ctx.since)];
   const result: OutputCheck = { met: null, checked: [], missing: [], dest };
   const seen = new Set<string>();
   for (const source of sources) {
