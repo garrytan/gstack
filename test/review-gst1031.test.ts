@@ -39,19 +39,6 @@ describe('one record per native finding at its stated severity (GST-1031 case 1,
     }
     expect(labels('adversarial-native', '## FIXABLE\n1. Leak in a.ts:3\n2. Race in b.ts:4. Blocks: no', true)).toEqual(['CRITICAL', 'CRITICAL']);
   });
-  test('fields that follow body prose on their line still count as the fields (GST-1406)', () => {
-    // Value: protects=ruling A when the reader writes its Severity and Blocks: no after prose on the same line, in the heading's
-    //   paragraph or after a blank line; fails_when=the heading's FIXABLE collects CRITICAL (an unlowerable blocker that stops Step
-    //   11.5) or the field line splits off as a second record; why_new=GSTA-275 GST-1276 v4 native pass, finding 1; seam=parseFindings
-    const head = '**1. Title (FIXABLE).** body in lib/x.ts.';
-    for (const raises of [true, false]) {
-      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium. Blocks: no.'].join('\n'), raises)).toEqual(['Medium']);
-      expect(labels('adversarial-native', [head, '- a', '- b', '', 'More prose. Severity: Medium. Blocks: no, because a reader still reads it.'].join('\n'), raises)).toEqual(['Medium']);
-      expect(labels('adversarial-native', [head, 'More prose. Severity: Medium. Blocks: no.'].join('\n'), raises)).toEqual(['Medium']);
-      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium.'].join('\n'), raises)).toEqual(['CRITICAL']);
-      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium. Blocks: yes.'].join('\n'), raises)).toEqual(['CRITICAL']);
-    }
-  });
   test('collect records the stated severity beside the one record', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031-'));
     const c = collect(path.join(dir, 'l.jsonl'), 'adversarial-native', fixture('gst-1031-native.txt'), path.join(dir, 'm.jsonl'));
@@ -98,6 +85,37 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
     }
     const lowered = judge([{ id: 'r#1', reader: 'r', label: 'CRITICAL', raw: 'No CRITICAL issues except the token leak in log.ts:3.', output_sha256: 'x' }], [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'summary' }]);
     expect(lowered).toMatchObject({ ok: false, downgraded: ['r#1'] });
+  });
+});
+
+describe('lead judgment may lower a native finding to the Severity its reader stated beside Blocks: no (GST-1031 ruling A, GST-1406)', () => {
+  // Value: protects=a native finding whose reader wrote its Severity and Blocks: no after prose (so collect keeps the FIXABLE raise)
+  //   can be lowered by lead judgment to that Severity, on record with a reason, so the native record can bind; fails_when=that finding
+  //   is an unlowerable CRITICAL (GSTA-275 GST-1276 v4 stopped Step 11.5), or the route lowers a non-native finding, one stating Blocks:
+  //   yes or no Blocks, one below its stated Severity, or one with no reason; why_new=collect cannot tell a heading's own fields from
+  //   another subject's (GST-1406 red team), lead judgment can; seam=judge, ledgerBlockers; no_claim=that a lowering is right (it is on record)
+  const OUT = ['**1. Title (FIXABLE).** body in lib/x.ts:', '- a', '- b', '', 'Before this diff it stopped. Fix: refuse it. Severity: Medium. Blocks: no, because a reader still reads it.', ''].join('\n');
+  const run = (reader: string, output: string, severity: string, reason?: string) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1406-'));
+    const ledger = path.join(d, 'l.jsonl');
+    const merged = path.join(d, 'm.jsonl');
+    fs.writeFileSync(path.join(d, 'out.txt'), output);
+    const c = collect(ledger, reader, output, merged, path.join(d, 'out.txt'));
+    fs.writeFileSync(path.join(d, 'j.jsonl'), c.lines.map(l => JSON.stringify({ id: l.id, severity, ...(reason ? { reason } : {}) })).join('\n') + '\n');
+    const r = recordJudgment(ledger, c.lines, readJsonl(path.join(d, 'j.jsonl')), path.join(d, 'j.jsonl'), merged);
+    const out = { labels: c.lines.map(l => l.label), ok: r.ok, dismissed: r.dismissed.length, blockers: ledgerBlockers(ledger).length };
+    fs.rmSync(d, { recursive: true, force: true });
+    return out;
+  };
+  test('lowered to its stated Severity with a reason, it is dismissed on record and leaves the blocker count', () => {
+    expect(run('adversarial-native', OUT, 'Medium', 'its reader stated Severity: Medium, Blocks: no')).toEqual({ labels: ['CRITICAL'], ok: true, dismissed: 1, blockers: 0 });
+  });
+  test('negative controls: no reason, below the stated Severity, Blocks: yes, no Blocks, or a non-native reader stay downgrades', () => {
+    expect(run('adversarial-native', OUT, 'Medium')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT, 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace('Blocks: no', 'Blocks: yes'), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace(' Blocks: no, because a reader still reads it.', ''), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
   });
 });
 
