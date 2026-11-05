@@ -1693,7 +1693,8 @@ change are tried newest first (at most 200), so the squash itself still counts
 parent branch passes the parent's head to `gstack-ship-release finish
 --reviewed-base`, even after the parent squash-merged and the child merged the
 base. finish takes it when the branch contains it and a base commit holds its
-change outside release metadata, found as the carry finds a landed parent, and
+change outside release metadata and changelog fragments (a release folds every
+fragment on the base), found as the carry finds a landed parent, and
 prints `REVIEWED_BASE: stack parent <sha12> landed on origin/<base> at <sha12>`.
 The route, a granted fix-check's sides, the scoped-review packet and the docs
 carry then compare each commit's patch from that parent, so the parent's and the

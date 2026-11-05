@@ -206,16 +206,17 @@ type ReviewedBase = { commit: string; parent: boolean };
 /**
  * The --reviewed-base commit: one on the base, or a landed stack parent (GST-1399). A child reviewed against its parent
  * branch saves the parent's head; once the parent squash-merges and the child merges the base, that head is on no base
- * history, but the branch contains it and a base commit holds its change outside release metadata (heldBy).
+ * history, but the branch contains it and a base commit holds its change outside release metadata (heldBy), changelog
+ * fragments included, since a release folds every fragment on the base.
  * Each side's patch then runs from the parent, so the parent's and the base's edits are base, and a parent the base never
  * received, or any other commit off the base, still stops.
  */
-function reviewedBaseCommit(cwd: string, baseRef: string, reviewedBase: string, release: string[], r: Report): ReviewedBase | null {
+function reviewedBaseCommit(cwd: string, baseRef: string, reviewedBase: string, metadata: string[], r: Report): ReviewedBase | null {
   const rb = git(cwd, ['rev-parse', '--verify', '--quiet', `${reviewedBase}^{commit}`]).stdout.trim();
   if (!rb) { r.stop(`--reviewed-base ${reviewedBase.slice(0, 40)} is not a commit in this clone: pass the merge base saved with the reviewed tree (git merge-base ${baseRef} HEAD at Step 11)`); return null; }
   if (git(cwd, ['merge-base', '--is-ancestor', rb, baseRef]).status === 0) return { commit: rb, parent: false };
   const cb = git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim();
-  const at = cb && git(cwd, ['merge-base', '--is-ancestor', rb, 'HEAD']).status === 0 ? heldBy(cwd, rb, cb, ['.', ...release.map(p => `:(exclude,literal)${p}`)]) : null;
+  const at = cb && git(cwd, ['merge-base', '--is-ancestor', rb, 'HEAD']).status === 0 ? heldBy(cwd, rb, cb, ['.', ...metadata]) : null;
   if (at) {
     r.add(`REVIEWED_BASE: stack parent ${rb.slice(0, 12)} landed on ${baseRef} at ${at.slice(0, 12)}`);
     return { commit: rb, parent: true };
@@ -454,7 +455,8 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   if (!all('--build').length) r.add('BUILD: none passed (record the inspected sources, or pass --build per declared command)');
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
   const reviewedBaseArg = flag('--reviewed-base');
-  const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, release, r);
+  const fragments = typeof policy?.changelog_fragments?.dir === 'string' ? [`:(exclude,glob)${policy.changelog_fragments.dir.replace(/\/+$/, '')}/*.md`] : [];
+  const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...release.map(p => `:(exclude,literal)${p}`), ...fragments], r);
   if (reviewedBase === null) return r;
   const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop }, r);
   if (!routed) return r;

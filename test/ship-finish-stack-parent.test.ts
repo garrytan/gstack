@@ -46,8 +46,9 @@ function mergeMain(f: ShipFx): void {
  * main <- parent (pushed as origin/parent) <- child, reviewed against the parent branch; then the parent squash-merges into
  * main (`land`: false keeps it off main), main moves on, and the child merges main.
  */
-function stacked(opts: { land?: boolean; child?: Record<string, string>; beforeMerge?: (f: ShipFx) => void } = {}) {
-  const f = shipFixture(BASE, PARENT); ships.push(f);
+function stacked(opts: { land?: boolean; base?: Record<string, string>; parentFiles?: Record<string, string>; child?: Record<string, string>; beforeMerge?: (f: ShipFx) => void; mainLater?: Record<string, string>; afterLand?: (f: ShipFx) => void } = {}) {
+  const parentFiles = opts.parentFiles ?? PARENT;
+  const f = shipFixture(opts.base ?? BASE, parentFiles); ships.push(f);
   const parent = head(f);
   expect(f.git('push', '-q', 'origin', 'feat:parent').status).toBe(0);
   f.write(opts.child ?? CHILD); f.commit('child');
@@ -58,8 +59,9 @@ function stacked(opts: { land?: boolean; child?: Record<string, string>; beforeM
   opts.beforeMerge?.(f);
   const post = path.join(f.root, 'post.json');
   expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
-  if (opts.land !== false) f.advanceBase(PARENT);
-  f.advanceBase(opts.land === false ? { 'docs/other.md': '# main without the parent\n' } : MAIN_LATER);
+  if (opts.land !== false) f.advanceBase(parentFiles);
+  f.advanceBase(opts.land === false ? { 'docs/other.md': '# main without the parent\n' } : opts.mainLater ?? MAIN_LATER);
+  opts.afterLand?.(f);
   mergeMain(f);
   return { f, parent, fork, passHead, reviewed, post };
 }
@@ -78,6 +80,30 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=5 context=0$/);
     expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: fresh against the Step 14.5 post-audit snapshot (carried: tests=1 base=4 requested=0)');
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([0, '']);
+  });
+
+  // Value: protects=a release that folded the parent's changelog fragment on main (merge: direct deletes every fragment)
+  //   does not hide the landed parent (red-team p1 on #4013); fails_when=the landed check counts the parent's fragment,
+  //   which main no longer holds, as an unlanded change; seam=reviewedBaseCommit's pathspec; no_claim=gstack-release-stamp
+  test('a release that folded the parent\'s changelog fragment still finds the landed parent', () => {
+    const policy = JSON.stringify({ min_gstack_version: '1.95.0.0', changelog_fragments: { dir: 'changelog.d', required_checks: ['free-tests'] } });
+    const { f, parent, reviewed, post } = stacked({
+      base: { ...BASE, '.gstack/ship-policy.json': policy },
+      parentFiles: { ...PARENT, 'changelog.d/parent.md': '- the parent\n' },
+      mainLater: { 'docs/other.md': '# main moves on\n' },
+      afterLand: g => {
+        g.git('fetch', '-q', 'origin');
+        expect(g.git('checkout', '-q', '--detach', 'origin/main').status).toBe(0);
+        expect(g.git('rm', '-q', 'changelog.d/parent.md').status).toBe(0);
+        g.write({ 'CHANGELOG.md': '# Changelog\n\n## [1.0.1.0]\n\n- the parent\n' });
+        g.commit('release: fold the changelog fragments');
+        expect(g.git('push', '-q', 'origin', 'HEAD:main').status).toBe(0);
+        expect(g.git('checkout', '-q', 'feat').status).toBe(0);
+      },
+    });
+    expect(f.git('cat-file', '-e', 'origin/main:changelog.d/parent.md').status).not.toBe(0);
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
+    expect([r.status, lineOf(r.stdout, 'STOP'), lineOf(r.stdout, 'REVIEWED_BASE')]).toEqual([0, '', expect.stringContaining(`stack parent ${parent.slice(0, 12)} landed on origin/main`)]);
   });
 
   // Value: protects=negative control: a child edit after the review still stops with the landed parent as the base;
