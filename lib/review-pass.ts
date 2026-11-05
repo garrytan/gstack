@@ -18,6 +18,7 @@ import { AgentModelError, resolveAgentModel } from './agent-model';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
+import { policySelection, selectFor } from './review-selection';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
 import type { FetchHit } from './review-fetch';
@@ -135,7 +136,9 @@ export function buildManifest(o: {
 }): Manifest {
   if (o.voices && o.extras?.length) throw new BriefError(`Step 11's voices pass sends no audit reader, so it takes no --extras: ${o.extras.map(e => e.name).join(', ')}`);
   const readers: PassReader[] = [];
-  for (const d of o.dispatches) {
+  const selection = policySelection(o.reviewExclude, o.readers);
+  for (const planned of o.dispatches) {
+    const d = planned.role === 'fix-check' ? planned : selectFor(planned, selection);
     const stage = STAGE_OF[d.role];
     if (!stage) throw new BriefError(`a pass dispatches no ${d.role} reader`);
     if (o.voices && stage !== 'voices') continue;

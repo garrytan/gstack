@@ -782,7 +782,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 1. `render --role <role> [--name <n>] --out <dir>` cuts the brief out of
    `ship/sections/review-army.md` or `ship/sections/adversarial.md` (the fix-check
    from `scripts/resolvers/fix-check.ts`) and fills only declared slots: the
-   literal diff base, the plan's `DIFF_CMD` excludes, stack, test framework,
+   literal diff base, the plan's `DIFF_CMD` excludes (with the base policy's
+   selection added, [as the pass's readers get it](ship-policy.md#one-selection-every-reader)), stack, test framework,
    learnings, checklist paths, the Red Team's merged findings and specialist count,
    and the outside voice's branch diff. A section that lost an anchor or placeholder
    refuses (`BRIEF_RENDER_FAILED`) instead of rendering something else, and so does
