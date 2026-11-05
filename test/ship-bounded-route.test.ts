@@ -11,10 +11,6 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { isGatePath } from '../lib/review-depth';
 import { BOOKKEEPING_KEY_VERSION } from '../lib/ship-policy';
-import { parseReviewTargeted } from '../lib/ship-receipt-depth';
-import { TARGETED_RULES, targetedBriefSha } from '../lib/review-targeted';
-import { packetBrief, scopedReadCovers } from '../lib/ship-patch';
-import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
@@ -65,10 +61,6 @@ describe('docs-audit edits to code-classed policy prose (GST-1276: #3970, #3985)
     const ok = finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record(f, [rel], packet)]);
     expect(lineOf(ok.stdout, 'SCOPED_REVIEW'), ok.stdout).toBe(`SCOPED_REVIEW: clean by anthropic/claude-opus-5-5 (${rel})`);
     expect(lineOf(ok.stdout, 'DOCS')).toContain('fresh');
-    expect(lineOf(ok.stdout, 'SCOPED_RECORD')).toContain('receipt write rebinds');
-    expect(scopedReadCovers(f.work, 'HEAD', [rel], reviewed)).toBe(true);
-    expect(scopedReadCovers(f.work, 'HEAD', [rel, 'src/other.ts'], reviewed)).toBe(false);
-    expect(scopedReadCovers(f.work, 'HEAD', [rel], reviewedBase)).toBe(false);
   });
 
   test('docs/pregate.md and AGENTS.md take the same route', () => {
@@ -224,61 +216,4 @@ describe('gstack-diff-scope and gate paths for .gstack/ (GST-1276: GEVA-2 ask c)
     expect(out.stdout).not.toContain('SCOPE_ERROR');
     expect(isGatePath('.gstack/always-run.json')).toBe(true);
   });
-});
-
-describe('the targeted record rebinds only from a bound scoped read (GST-1276: #3970 receipt write)', () => {
-  const v = { classes: ['money'], rules: 'r1', brief_sha: 'b'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted reader', head: 'a'.repeat(40) };
-  test('a product change after the read is refused unless the scoped read covers it, with computed classes', () => {
-    const patchOf = () => 'old-patch';
-    expect(parseReviewTargeted(v, 'new-patch', patchOf, () => ['money'], () => false).ok).toBe(false);
-    expect(parseReviewTargeted(v, 'new-patch', patchOf, () => ['money'], () => false, () => true).ok).toBe(true);
-    expect(parseReviewTargeted(v, 'new-patch', patchOf, () => null, () => false, () => true).ok).toBe(false);
-    expect(parseReviewTargeted(v, 'new-patch', patchOf, () => ['money'], () => false, () => false).ok).toBe(false);
-  });
-});
-describe('receipt write rebinds the targeted record from the scoped read finish saved (GST-1276: #3970)', () => {
-  const repos: FixtureRepo[] = [];
-  afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
-  const setup = () => {
-    const repo = makeFixtureRepo({ prefix: 'targeted-scoped-' });
-    repos.push(repo);
-    repo.git('checkout', '-q', '-b', 'feat');
-    fs.mkdirSync(path.join(repo.work, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(repo.work, 'docs'), { recursive: true });
-    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 5;\n');
-    fs.writeFileSync(path.join(repo.work, 'docs', 'review-policy.md'), '# Review policy\n\nThe money reader reads every spend cap change.\n');
-    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'charge');
-    const read = repo.git('rev-parse', 'HEAD');
-    fs.writeFileSync(path.join(repo.work, 'docs', 'review-policy.md'), '# Review policy\n\nThe money reader reads every spend cap change, binary files excluded.\n');
-    repo.git('commit', '-qam', 'docs: the audit corrects the policy text');
-    const record = JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted', head: read });
-    const write = () => runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', record, '--json']);
-    const save = (paths: string[], packetText = '# Scoped review\n\n## docs/review-policy.md\n' + packetBrief() + '\n', sha?: string, reviewedTree?: string) => {
-      const tree = repo.git('rev-parse', 'HEAD^{tree}');
-      const dir = path.join(repo.work, '.git', 'gstack');
-      fs.mkdirSync(dir, { recursive: true });
-      const packet = path.join(dir, 'scoped-review-' + tree.slice(0, 12) + '.md');
-      fs.writeFileSync(packet, packetText);
-      fs.writeFileSync(path.join(dir, 'scoped-review-' + tree.slice(0, 12) + '.json'), JSON.stringify({ tree, reviewed: reviewedTree ?? repo.git('rev-parse', read + '^{tree}'), paths, reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean', packet, packet_sha256: sha ?? createHash('sha256').update(packetText).digest('hex') }));
-    };
-    return { repo, read, write, save };
-  };
-
-  test('a policy edit with money wording after the read rebinds only with a covering, intact scoped record', () => {
-    const { repo, read, write, save } = setup();
-    const refused = write();
-    expect([refused.status === 0, refused.err.includes('the targeted reader read ' + read.slice(0, 12))]).toEqual([false, true]);
-    save(['docs/review-policy.md']);
-    const ok = write();
-    expect([ok.status, ok.err], ok.err).toEqual([0, expect.stringContaining('TARGETED_REBOUND: money read at ' + read.slice(0, 12))]);
-    expect(JSON.parse(ok.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
-    save([]);
-    expect(write().status).not.toBe(0);
-    save(['docs/review-policy.md'], '# Scoped review\n\n## docs/review-policy.md\n(no brief)\n');
-    expect(write().status).not.toBe(0);
-    save(['docs/review-policy.md'], undefined, 'f'.repeat(64));
-    expect(write().status).not.toBe(0);
-    save(['docs/review-policy.md'], undefined, undefined, repo.git('rev-parse', 'HEAD^{tree}'));
-    expect(write().status).not.toBe(0);
-  }, 120_000);
 });

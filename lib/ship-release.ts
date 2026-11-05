@@ -285,8 +285,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests, ...by.bounded].sort();
   if (scoped.length && sides) {
-    const at = (ext: string) => path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.${ext}`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.${ext}`);
-    const packet = at('md');
+    const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
     const built = contextPacket(cwd, sides, by.context, by.tests, late());
     if (!opts.contextReviewed) {
       const why = [by.context.length ? `base context moved next to the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : '',
@@ -305,15 +304,6 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
     if (!review.ok) { r.stop(`--context-reviewed: ${review.message}`); return null; }
     if (by.bounded.length && review.review.packet_sha256 !== built.sha256) { r.stop(`--context-reviewed: the record's packet_sha256 is ${review.review.packet_sha256?.slice(0, 12) ?? 'missing'}, not ${built.sha256.slice(0, 12)}: bounded edits need a record bound to the packet the reader read (${packet}); rerun the reader on it (stage 2.1)`); return null; }
     r.add(`SCOPED_REVIEW: clean by ${review.review.reviewer} (${short(scoped)})`);
-    if (by.bounded.length) {
-      const saved = at('json');
-      try {
-        fs.mkdirSync(path.dirname(packet), { recursive: true });
-        fs.writeFileSync(packet, built.text);
-        fs.writeFileSync(saved, JSON.stringify({ ...review.review, tree: now, reviewed, paths: scoped, packet }) + '\n');
-        r.add(`SCOPED_RECORD: ${saved} (receipt write rebinds a targeted record from it)`);
-      } catch (e) { r.add(`SCOPED_RECORD: none (${firstLine((e as Error).message)}); receipt write cannot rebind a targeted record`); }
-    }
   }
   if (by.docs.length && !opts.docsRechecked) { r.stop(`authored docs changed since review (${short(by.docs)}): recheck the plan items they touch (stage 2.2), then rerun with --docs-rechecked`); return null; }
   return by;

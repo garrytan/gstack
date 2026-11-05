@@ -299,26 +299,6 @@ export function boundedPaths(repoRoot: string, i: BoundedInput): { kinds: Record
   return { kinds, refused };
 }
 
-/**
- * Whether the scoped read finish saved for `head`'s tree (gstack/scoped-review-<tree>.json, written once a clean record bound
- * to its packet's hash passed) covers `need`: the record and packet are intact, the packet carries the targeted brief for every
- * class, each needed path is in the record and has its own section in the packet, and the packet's reviewed side is the
- * tree the targeted reader read at `read`, so no hunk between that read and the review bound escapes both (GST-1276).
- */
-export function scopedReadCovers(repoRoot: string, head: string, need: readonly string[], read: string): boolean {
-  const tree = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${head}^{tree}`])?.trim();
-  const readTree = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${read}^{tree}`])?.trim();
-  const rel = tree && git(repoRoot, ['rev-parse', '--git-path', `gstack/scoped-review-${tree.slice(0, 12)}.json`])?.trim();
-  if (!tree || !rel) return false;
-  try {
-    const v = JSON.parse(fs.readFileSync(path.resolve(repoRoot, rel), 'utf8'));
-    if (v?.tree !== tree || !readTree || v.reviewed !== readTree || v.verdict !== 'clean' || typeof v.reviewer !== 'string' || !v.reviewer.trim() || typeof v.packet !== 'string' || !Array.isArray(v.paths)) return false;
-    const packet = fs.readFileSync(v.packet, 'utf8');
-    if (createHash('sha256').update(packet).digest('hex') !== v.packet_sha256 || !packet.includes(packetBrief())) return false;
-    return need.every(p => v.paths.includes(p) && packet.includes(`\n## ${p}\n`));
-  } catch { return false; }
-}
-
 export interface ScopedReview { paths: string[]; reviewer: string; verdict: 'clean'; head?: string; tree?: string; packet_sha256?: string }
 
 /** A clean scoped review that covers every context path at this head or tree, or why it does not stand. */

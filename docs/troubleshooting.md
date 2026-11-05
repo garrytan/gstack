@@ -3156,8 +3156,9 @@ lines since review (at most 20)`, `is binary or unreadable`, `carries a
 hunk the gate scan tagged`, `is not a doc the Step 14.5 audit snapshot
 recorded`, `is not the bytes the post-audit snapshot recorded (edited after
 the audit)`, `does not parse at both the reviewed and the current tree`,
-`loosens the reviewed policy: <what>`, `adds no lane`, or `is a gate path or
-under .gstack/ or .github/, never bookkeeping`.
+`loosens the reviewed policy: <what>`, `changes <key>; a lanes edit changes
+only dependencies`, `adds no lane`, or `is a gate path or under .gstack/ or
+.github/, never bookkeeping`.
 
 **Fix.** Do what the line's `fix:` says. Rerun finish with the merge base
 saved with the reviewed tree. Restore the audited bytes, or the mapping a

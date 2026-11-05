@@ -655,14 +655,10 @@ bounded hunk, a reading note per kind and the targeted brief for every
 class. The reader's clean record must carry the packet's `packet_sha256`,
 which the STOP line prints. A candidate that fails a proof stays behavior,
 and finish prints `ROUTE_BOUNDED_REFUSED: <path> <reason> (fix: …)`
-([troubleshooting](troubleshooting.md#route-bounded-refused)). Once the
-record passes, finish saves it beside the packet (`SCOPED_RECORD:`), and
-`gstack-ship-receipt write` rebinds a targeted record read before those
-edits (`TARGETED_REBOUND:`). It does that only when every product or test
-path changed since the targeted read is in that record and has a section
-in its packet, the packet's reviewed side is the tree the targeted reader
-read, the packet still hashes to the record, and the targeted classes since
-the read can be computed. A test file whose only removed lines are swapped
+([troubleshooting](troubleshooting.md#route-bounded-refused)). A lane
+change whose other top-level keys differ from the reviewed copy stops too. A
+targeted record read before the edits does not carry to the new head:
+receipt write still asks for the targeted reader on HEAD. A test file whose only removed lines are swapped
 one for one with lines that differ inside plain quoted strings, in
 statements with no assertion or test call, takes the plain test route (the
 scoped reader) instead of behavior. A changed expected value in the
