@@ -239,6 +239,60 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
       expect(json(after.stdout)?.decision).toBeUndefined();
     }
     expect(log()).not.toContain('event=blocked');
+  }, 30_000);
+
+  test('the bytes a restore replaces are saved in the session directory and named in the block', () => {
+    const out = json(bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts").after.stdout);
+    const saved = /The content it replaced is saved: src\/total\.ts at (\S+)\.$/m.exec(out.reason)?.[1];
+    expect(saved).toBeDefined();
+    expect(fs.readFileSync(saved!, 'utf8')).toBe(FIXED);
+    expect(read('src/total.ts')).toBe(SRC);
+  });
+
+  test('a fix committed on another branch moves that branch back to its own tip, not to the baseline HEAD', () => {
+    git('checkout', '-q', '-b', 'side');
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
+    git('add', '-A');
+    commit('side');
+    const side = git('rev-parse', 'HEAD');
+    git('checkout', '-q', 'main');
+    const { after } = bash(LOADED, "git checkout -q side && sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -qam fix");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(git('rev-parse', 'side')).toBe(side);
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('side');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 2;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
+  test('pulling or merging upstream commits fetched after the baseline is not undone', () => {
+    const origin = path.join(work, 'origin.git');
+    const up = path.join(work, 'up');
+    git('clone', '-q', '--bare', repo, origin);
+    git('remote', 'add', 'origin', origin);
+    git('fetch', '-q', 'origin');
+    bash(LOADED, 'ls', 'tu0');
+    git('clone', '-q', origin, up);
+    fs.writeFileSync(path.join(up, 'src', 'total.ts'), FIXED);
+    fs.writeFileSync(path.join(up, 'test', 'total.test.ts'), 'expect(total(2, 2)).toBe(4);\n');
+    for (const args of [['-c', 'user.name=x', '-c', 'user.email=x@x.test', 'commit', '-qam', 'upstream'], ['push', '-q', 'origin', 'main']]) {
+      expect(spawnSync('git', args, { cwd: up, timeout: 10_000 }).status).toBe(0);
+    }
+    const pulled = bash(LOADED, 'git pull -q --ff-only origin main', 'tu1');
+    expect(json(pulled.after.stdout)?.decision).toBeUndefined();
+    expect(read('src/total.ts')).toBe(FIXED);
+    fs.writeFileSync(path.join(up, 'src', 'other.ts'), 'export const other = 3;\n');
+    for (const args of [['-c', 'user.name=x', '-c', 'user.email=x@x.test', 'commit', '-qam', 'upstream 2'], ['push', '-q', 'origin', 'main']]) {
+      expect(spawnSync('git', args, { cwd: up, timeout: 10_000 }).status).toBe(0);
+    }
+    fs.writeFileSync(path.join(repo, 'README.md'), '# fixture, local\n');
+    git('add', '-A');
+    commit('local');
+    const merged = bash(LOADED, 'git fetch -q origin && git -c user.name=x -c user.email=x@x.test merge -q --no-edit origin/main', 'tu2');
+    expect(json(merged.after.stdout)?.decision).toBeUndefined();
+    expect(git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ')).toHaveLength(3);
+    expect(read('src/other.ts')).toBe('export const other = 3;\n');
+    expect(git('status', '--porcelain')).toBe('');
   });
 
   test('a background write after the command returned is caught at the next call, and at Stop', () => {

@@ -16,11 +16,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { atomicWriteSync } from './fs-atomic';
 import { resolveStateRoot } from './state-root';
-import { appendHookTrace, readSkillSwitch, readStdinBounded, type SwitchName, type TraceHook } from './skill-route';
+import { appendHookTrace, readStdinBounded, type TraceHook } from './skill-route';
 
 export type GateHook = 'investigate-gate';
 export type GateEvent = 'fired' | 'blocked' | 'released' | 'observed' | 'exhausted' | 'skipped' | 'error';
-export const GATE_SWITCH: Record<GateHook, SwitchName> = { 'investigate-gate': 'investigate_gate' };
 export const GATE_DOC = 'docs/skill-gates.md';
 export const DEADLINE_MS = 5000;
 const STDIN_CAP_BYTES = 1024 * 1024;
@@ -161,7 +160,7 @@ export interface GatePayload { raw: Record<string, unknown>; sessionId: string; 
  * The hook entry point: switch check, bounded stdin, payload shape, deadline,
  * then handler. Any GateError or throw becomes an error marker and exit 0.
  */
-export async function runGateHook(hook: GateHook, handler: (p: GatePayload) => HookOutput | undefined): Promise<void> {
+export async function runGateHook(hook: GateHook, isOn: () => boolean, handler: (p: GatePayload) => HookOutput | undefined): Promise<void> {
   let sessionId = 'unknown';
   let done = false;
   const fail = (code: string, why: string) => {
@@ -185,7 +184,7 @@ export async function runGateHook(hook: GateHook, handler: (p: GatePayload) => H
   deadlineAt = Date.now() + deadlineMs;
   const timer = setTimeout(() => { fail('GATE_TIMEOUT', `timed out after ${deadlineMs} ms`); process.exit(0); }, deadlineMs);
   try {
-    if (!readSkillSwitch(GATE_SWITCH[hook]).on) return;
+    if (!isOn()) return;
     const stdin = await readStdinBounded(STDIN_CAP_BYTES, STDIN_DEADLINE_MS);
     if (stdin.overCap) throw new GateError('GATE_BAD_PAYLOAD', `hook payload over ${STDIN_CAP_BYTES} bytes`);
     let raw: unknown;

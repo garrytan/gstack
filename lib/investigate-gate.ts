@@ -146,6 +146,9 @@ function existedBefore(root: string, base: Baseline, commit: string): boolean {
   return ct < Math.floor(base.taken_at / 1000);
 }
 
+/** Whether a remote-tracking ref holds the commit (a fetched upstream commit a merge brings in). */
+const onRemote = (root: string, commit: string) => text(git(root, ['for-each-ref', '--count=1', '--contains', commit, 'refs/remotes'], { allowFail: true }).out).trim() !== '';
+
 function inStash(root: string, base: Baseline, rel: string, id: string): boolean {
   return base.stashes.some(s => {
     const r = git(root, ['rev-parse', '-q', '--verify', `${s}:${rel}`], { allowFail: true });
@@ -176,62 +179,75 @@ function safeRestore(root: string, rel: string, content: Buffer | null, mode: nu
   fs.renameSync(tmp, abs);
 }
 
-export interface CheckResult { baseline: Baseline; violations: string[]; observed: string[]; restored: string[]; failed: Array<{ path: string; why: string }>; reset: string | null }
+export interface CheckResult { baseline: Baseline; violations: string[]; observed: string[]; restored: string[]; failed: Array<{ path: string; why: string }>; reset: string | null; staged: string[]; saved: Array<{ path: string; file: string }> }
 
 /** Compare the tree with the baseline, put back fix writes, and return the next baseline. */
 export function checkTree(base: Baseline, blobs: string): CheckResult {
   const root = base.root;
   const head = headOf(root);
   if (!head) throw new GateError('GATE_GIT', 'HEAD no longer resolves');
-  const changed = changedVsHead(root);
-  const cand = [...new Set([...changed, ...Object.keys(base.entries)])];
-  const result: CheckResult = { baseline: base, violations: [], observed: [], restored: [], failed: [], reset: null };
-  const moved = head !== base.head;
-  const newCommit = moved && !existedBefore(root, base, head);
-  let committed: string[] = [];
-  if (newCommit) {
-    const touched = nulList(git(root, ['diff', '--name-only', '-z', '--no-renames', base.head, head]).out);
-    const tTree = touched.length ? treeEntries(root, base.head, touched) : new Map<string, TreeEntry>();
-    const tGen = touched.length ? generatedPaths(root, touched) : new Set<string>();
-    committed = touched.filter(p => excludedReason(p, tTree.get(p)?.mode, tGen.has(p)) === null && (tTree.has(p) || base.entries[p] !== undefined));
+  const result: CheckResult = { baseline: base, violations: [], observed: [], restored: [], failed: [], reset: null, staged: [], saved: [] };
+  let target = head;
+  const merged: string[] = [];
+  const upstream = (c: string) => existedBefore(root, base, c) || onRemote(root, c);
+  if (head !== base.head) {
+    while (!upstream(target)) {
+      const parents = text(git(root, ['rev-list', '--parents', '-n', '1', target]).out).trim().split(' ').slice(1);
+      if (!parents.length) throw new GateError('GATE_GIT', `no commit under ${head.slice(0, 12)} existed before the baseline`);
+      merged.push(...parents.slice(1).filter(upstream));
+      target = parents[0];
+    }
   }
-  if (!cand.length && !committed.length && !moved) return result;
-  const all = [...new Set([...cand, ...committed])];
-  const ids = worktreeIds(root, all);
-  const baseTree = treeEntries(root, base.head, all);
-  const curTree = moved ? treeEntries(root, head, all) : baseTree;
-  const generated = generatedPaths(root, all);
+  const newCommit = target !== head;
+  const moved = target !== base.head;
+  const committed = newCommit ? nulList(git(root, ['diff', '--name-only', '-z', '--no-renames', target, head]).out) : [];
+  const cand = [...new Set([...changedVsHead(root), ...Object.keys(base.entries), ...committed])];
+  if (!cand.length && head === base.head) return result;
+  const ids = worktreeIds(root, cand);
+  const baseTree = treeEntries(root, base.head, cand);
+  const refTree = moved ? treeEntries(root, target, cand) : baseTree;
+  const headTree = newCommit ? treeEntries(root, head, cand) : refTree;
+  const mergedTrees = merged.map(m => treeEntries(root, m, cand));
+  const generated = generatedPaths(root, cand);
   const fix = new Set<string>();
-  for (const p of all) {
+  for (const p of cand) {
     const baseEntry = base.entries[p];
-    const baseId = baseEntry ? baseEntry.id : baseTree.get(p)?.oid;
-    if (baseId === undefined) continue;
+    const want = baseEntry ? baseEntry.id : refTree.get(p)?.oid;
+    if (want === undefined) continue;
+    const known = (id: string | null) => id === want || (id !== null && (id === baseTree.get(p)?.oid || id === refTree.get(p)?.oid || mergedTrees.some(t => t.get(p)?.oid === id)));
     const curId = ids.get(p) ?? null;
-    if (curId === baseId && !committed.includes(p)) continue;
-    if (excludedReason(p, baseTree.get(p)?.mode ?? curTree.get(p)?.mode, generated.has(p)) !== null) { if (curId !== baseId) result.observed.push(p); continue; }
-    if (curId !== baseId && !newCommit && curTree.get(p)?.oid === curId) continue;
-    if (curId !== baseId && curId && inStash(root, base, p, curId)) continue;
+    const committedFix = committed.includes(p) && !known(headTree.get(p)?.oid ?? null);
+    if (!committedFix && (known(curId) || (curId !== null && inStash(root, base, p, curId)))) continue;
+    if (excludedReason(p, baseTree.get(p)?.mode ?? refTree.get(p)?.mode ?? headTree.get(p)?.mode, generated.has(p)) !== null) { result.observed.push(p); continue; }
     fix.add(p);
   }
   result.violations = [...fix].sort();
   if (newCommit && committed.some(p => fix.has(p))) {
-    git(root, ['reset', '-q', '--soft', base.head]);
-    git(root, ['reset', '-q', base.head, '--', ...committed.filter(p => fix.has(p))], { allowFail: true });
-    result.reset = base.head;
+    git(root, ['reset', '-q', '--soft', target]);
+    git(root, ['reset', '-q', target, '--', ...committed.filter(p => fix.has(p))], { allowFail: true });
+    result.reset = target;
+    result.staged = committed.filter(p => !fix.has(p));
   }
   for (const p of result.violations) {
     const baseEntry = base.entries[p];
     const curId = ids.get(p) ?? null;
-    const baseId = baseEntry ? baseEntry.id : baseTree.get(p)!.oid;
-    if (curId === baseId) continue;
+    if (curId === (baseEntry ? baseEntry.id : refTree.get(p)!.oid)) continue;
     try {
+      if (curId && /^[0-9a-f]+$/.test(curId)) {
+        const keep = path.join(blobs, curId);
+        if (!fs.existsSync(keep)) {
+          fs.mkdirSync(blobs, { recursive: true, mode: 0o700 });
+          fs.copyFileSync(path.join(root, p), keep);
+          fs.chmodSync(keep, 0o600);
+        }
+        result.saved.push({ path: p, file: keep });
+      }
       if (baseEntry) {
         if (baseEntry.id === null) safeRestore(root, p, null, 0);
         else if (baseEntry.id.startsWith('symlink:')) safeRestore(root, p, null, 0, baseEntry.id.slice(8));
         else safeRestore(root, p, fs.readFileSync(path.join(blobs, baseEntry.id)), baseEntry.mode);
       } else {
-        const entry = baseTree.get(p)!;
-        safeRestore(root, p, git(root, ['cat-file', '--filters', `${base.head}:${p}`]).out, entry.mode === '100755' ? 0o755 : 0o644);
+        safeRestore(root, p, git(root, ['cat-file', '--filters', `${target}:${p}`]).out, refTree.get(p)!.mode === '100755' ? 0o755 : 0o644);
       }
       result.restored.push(p);
     } catch (e) {

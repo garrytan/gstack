@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EDIT_TOOLS, armBaseline, checkTree, isGatedTracked, repoRoot, rootCause, type Baseline } from '../../../lib/investigate-gate';
 import { StateError, UnknownShape, parseTranscript, readTranscriptFile, sameSkill, skillLoads, type Transcript } from '../../../lib/skill-contract';
+import { readSkillSwitch } from '../../../lib/skill-route';
 import {
   GateError, blockWith, denyTool, hookRecord, note, pruneSessionDirs, readGateRecord, recordPath, remainingMs, runGateHook, sessionDir, systemMessage,
   withSessionLock, writeGateRecord, type GatePayload, type HookOutput,
@@ -130,7 +131,9 @@ function handle(p: GatePayload): HookOutput | undefined {
       const body = [
         `This session loaded /investigate and has not stated a root cause, so changes to tracked source are not allowed yet. A command changed ${check.violations.join(', ')}.`,
         ...(check.restored.length ? [`The gate put these back to how they were: ${check.restored.join(', ')}.`] : []),
+        ...(check.saved.length ? [`The content it replaced is saved: ${check.saved.map(s => `${s.path} at ${s.file}`).join(', ')}.`] : []),
         ...(check.reset ? [`It also moved the branch back to ${check.reset.slice(0, 12)}; the new commit stays in the reflog.`] : []),
+        ...(check.staged.length ? [`The commit's other changes are still staged: ${check.staged.join(', ')}.`] : []),
         ...(failed.length ? [`These could not be put back and are in an unknown state: ${failed.join(', ')}. Run git diff HEAD -- ${failed.join(' ')} to see them.`] : []),
         howToRelease(),
       ].join('\n');
@@ -159,4 +162,4 @@ function handle(p: GatePayload): HookOutput | undefined {
   });
 }
 
-runGateHook(HOOK, handle).finally(() => process.exit(0));
+runGateHook(HOOK, () => readSkillSwitch('investigate_gate').on, handle).finally(() => process.exit(0));
