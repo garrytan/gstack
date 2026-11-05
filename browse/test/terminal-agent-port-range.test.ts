@@ -77,4 +77,19 @@ describe('terminal-agent uses the shared allocator (static tripwire)', () => {
     expect(src).toContain("from './port-allocator'");
     expect(src).toMatch(/findAvailablePort\(BROWSE_PORT\)/);
   });
+
+  // Value: protects=the daemon probes its port after Chromium has launched, so the launch's seconds are not a window in which
+  //   another process takes it (Free Tests 41951644962: "Failed to start server. Is port 43780 in use?"); fails_when=findPort()
+  //   moves back ahead of the launch; why_new=nothing pinned the order; seam=none; no_claim=the probe-to-bind gap that remains
+  test('start() picks its port after the browser launch, right before the bind', () => {
+    const src = fs.readFileSync(SERVER_TS, 'utf-8');
+    const body = src.slice(src.indexOf('export async function start()'));
+    const launch = body.indexOf('await browserManager.launch();');
+    const pick = body.indexOf('const port = await findPort();');
+    const bind = body.indexOf('const server = Bun.serve({');
+    expect(launch).toBeGreaterThan(0);
+    expect(pick).toBeGreaterThan(launch);
+    expect(bind).toBeGreaterThan(pick);
+    expect(body.slice(pick, bind)).not.toMatch(/\bawait\b(?! findPort\(\))/);
+  });
 });

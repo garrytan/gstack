@@ -1472,8 +1472,11 @@ subcmd_once() {
   # Push. On reject, fetch + merge (merge driver handles JSONL) + retry once.
   local push_err
   push_err=$(git -C "$GSTACK_HOME" push origin HEAD 2>&1 >/dev/null) || {
-    # Check if this is an auth error first — no point retrying.
-    if echo "$push_err" | grep -qiE "auth|permission|403|401|forbidden"; then
+    # Check if this is an auth error first — no point retrying. The remote's
+    # URL or path (git's "To <url>" line and every quoted '<url>') is not
+    # evidence: a remote under /tmp/x403y or named author-notes would read as
+    # an auth failure and skip the fetch-and-merge retry.
+    if printf '%s\n' "$push_err" | grep -v '^To ' | sed "s/'[^']*'//g" | grep -qiE "auth|permission|403|401|forbidden"; then
       local hint
       hint=$(remote_auth_hint)
       write_status "push_failed" "push failed: auth error; commit retained locally, will retry next run. fix: $hint"

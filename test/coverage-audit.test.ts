@@ -229,6 +229,7 @@ mock.module(path.join(root, 'test/helpers/session-runner.ts'), () => ({ runSkill
   expect(opts.allowedTools).toEqual(['Bash','Read','Write','Edit','Glob','Grep']);
   expect(opts.signal).toBeInstanceOf(AbortSignal);
   expect(opts.prompt).not.toContain('Step 4.75'); expect(opts.prompt).not.toContain('Step 3.4'); expect(opts.prompt).not.toContain('coverage-read-evidence:');
+  if (opts.testName !== 'ship-coverage-audit') expect(opts.prompt).toContain("Read those two files only after the skill files above, and read them the way the skill's own read step says.");
   if (opts.testName === 'review-coverage-audit') expect(opts.prompt).toContain('review/specialists/testing.md');
   else if (opts.testName === 'plan-eng-coverage-audit') { expect(opts.prompt).toContain('plan-eng-review/sections/review-sections.md'); expect(opts.prompt).toContain('3. Test review'); }
   else { expect(opts.testName).toBe('ship-coverage-audit'); expect(opts.prompt).toContain('Step 7'); expect(opts.prompt).toContain('ship/sections/test-coverage.md'); }

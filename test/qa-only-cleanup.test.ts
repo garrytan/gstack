@@ -113,7 +113,7 @@ Bun.spawnSync = (...args) => {
     const started = performance.now();
     const errors = { 'ack-only': 'settlement deadline exceeded', 'replaced-state': 'daemon state was replaced',
       'terminal-mismatch': 'terminal ownership is unconfirmed', 'chromium-mismatch': 'Chromium ownership is unconfirmed',
-      'missing-terminal': 'terminal identity is unavailable', 'blocked-identity': 'owned worker settlement deadline exceeded' };
+      'missing-terminal': 'terminal identity is unavailable (record absent; terminal-port', 'blocked-identity': 'owned worker settlement deadline exceeded' };
     await expect(stopQaOnlyBrowser(dir, 1000)).rejects.toThrow(errors[scenario]);
     expect(performance.now() - started).toBeLessThan(2000);
     expect(daemon.exitCode).toBeNull();

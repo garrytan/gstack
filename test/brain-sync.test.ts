@@ -1015,6 +1015,41 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(statusJson().message).not.toContain('unmerged');
       expect(statusJson().message).toContain(`Merge conflict in ${SHARED}`);
     });
+
+    // Value: protects=a rejected push still fetches and merges when the remote's path reads like an auth failure (8 tests red at
+    //   once in Free Tests 41847262176 shard 3: the shard's TMPDIR named it); fails_when=the classifier greps git's "To <url>" line
+    //   or a quoted '<url>'; why_new=no test put an auth word in the remote path; seam=none; no_claim=real network auth failures
+    test('a rejected push to a remote whose path reads like an auth failure still merges', () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-oauth-403-permission-'));
+      fs.rmSync(bareRemote, { recursive: true, force: true });
+      bareRemote = path.join(parent, 'author-401-forbidden.git');
+      try {
+        expect(spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote], { timeout: 30_000 }).status).toBe(0);
+        setup();
+        peerCommit(SHARED, '{"note":"shared from the peer"}\n');
+        write(CLEAN, '# a plan\n');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        expect(remoteFiles()).toContain(CLEAN);
+        expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    // Value: protects=a real auth refusal still stops before the retry merge, with the keyword after git's quoted URL;
+    //   fails_when=the URL strip also drops the rest of git's line; why_new=the auth branch had no test; seam=git PATH shim;
+    //   no_claim=which wording each forge prints, the shim stands in for the server
+    test('a push refused for auth is still reported as an auth error', () => {
+      setup();
+      write(CLEAN, '# a plan\n');
+      const shim = gitShim(`case " $* " in *" push "*) echo "fatal: unable to access '${bareRemote}/': The requested URL returned error: 403" >&2; exit 128;; esac`);
+      expect(drain(shim.env).status).toBe(0);
+      const s = statusJson();
+      expect(s.status).toBe('push_failed');
+      expect(s.message).toContain('push failed: auth error');
+      expect(shim.calls().some(call => /(^| )fetch( |$)/.test(call))).toBe(false);
+    });
   });
 
   test('a git add failure is reported, never swallowed', () => {

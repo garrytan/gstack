@@ -57,6 +57,8 @@ beforeAll(() => {
   origin = path.join(scratch, 'origin.git');
   git(scratch, 'init', '-q', '--bare', origin);
   git(origin, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+  git(origin, 'config', 'maintenance.auto', 'false');
+  git(origin, 'config', 'gc.auto', '0');
   const work = path.join(scratch, 'work');
   git(scratch, 'clone', '-q', origin, work);
   const policy = fs.readFileSync(path.join(ROOT, '.gstack/ship-policy.json'), 'utf8');
@@ -183,6 +185,23 @@ function find(head: string, runs: WorkflowRun[], bindings: Record<number, GateBi
     gh: fakeGh(runs, bindings, over.failList, over.jobs, over.failCompare, over.prCommits) });
   return { ...result, out, text: result.lines.join('\n') };
 }
+
+describe('fixture origin', () => {
+  // Value: protects=a push into the bare origin starts no detached auto-maintenance there, so a later push never writes into an
+  //   object directory a repack just removed (unable to write ./objects/3f/…, Free Tests 41980850843 shard 5); fails_when=the origin
+  //   loses maintenance.auto=false; why_new=local transport drops the runner's GIT_CONFIG_COUNT backstop; seam=none;
+  //   no_claim=which maintenance task removed the directory on the CI runner's git
+  test('a push into the origin starts no auto-maintenance even when the runner backstop is dropped', () => {
+    const trace = path.join(scratch, 'trace2.txt');
+    const backstop = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'gc.auto', GIT_CONFIG_VALUE_1: '0' };
+    const push = spawnSync('git', ['push', '-q', 'origin', 'HEAD:refs/heads/maintenance-probe'],
+      { cwd: path.join(scratch, 'work'), encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...backstop, GIT_TRACE2: trace } });
+    expect(push.status, push.stderr).toBe(0);
+    const events = fs.readFileSync(trace, 'utf8');
+    expect(events).toContain('receive-pack');
+    expect(events.split('\n').filter(line => line.includes('child_start') && line.includes('maintenance'))).toEqual([]);
+  });
+});
 
 describe('find: the positive case', () => {
   test('a restamp of a GREEN head on the same base yields a candidate with the receipt', () => {

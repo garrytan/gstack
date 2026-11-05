@@ -706,3 +706,21 @@ test.skipIf(process.platform === 'win32')('the captured private-directory mkdir 
     } finally { fs.rmSync(outside, { recursive: true, force: true }); }
   } finally { fixture.clean(); }
 });
+
+// Value: protects=the interface says how the private directory it offers is made, the form the observer admits; fails_when=the
+//   sentence stops naming the own-call mkdir; why_new=ship-docsync-store went red twice (#3997 screen 41850017482 slice 2, census
+//   41987975678 slice 4) on one read line each that carried a no-op mkdir stand-in; seam=none; no_claim=that the model now never
+//   probes, which only paid runs measure
+test('the interface names its one mkdir form, and both captured mkdir stand-ins stay refused', () => {
+  const fixture = fixtureDocs('store');
+  try {
+    const publish = path.join(fixture.home, 'fixture-publish.ts');
+    const sentence = docsNativeInterface(fixture, [publish]).split(/(?<=\.)\s+/).find(part => part.startsWith('A private JSON/Markdown artifact'));
+    expect(sentence).toContain(`(with one mkdir ${fixture.home}/<name>, optionally -p, as its own Bash call: the only mkdir this interface admits`);
+    expect(docsCommandAllowed(`mkdir ${fixture.home}/docs-store`, fixture, [publish])).toBe(true);
+    for (const line of [
+      `git rev-parse HEAD; git merge-base main HEAD; git rev-parse origin/main; mkdir -p /dev/null 2>/dev/null; ls ${fixture.home}/state`,
+      `git tag --list; git log --oneline --all; mkdir_check=1; ls ${fixture.home}`,
+    ]) expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(false);
+  } finally { fixture.clean(); }
+});

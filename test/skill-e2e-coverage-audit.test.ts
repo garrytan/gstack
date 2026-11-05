@@ -63,6 +63,7 @@ You are on the feature/billing branch. The base branch is main.
 This is a test project — there is no remote, no PR to create.
 The source code is in ${cwd}/src/billing.ts.
 Existing tests are in ${cwd}/test/billing.test.ts.
+Read those two files only after the skill files above, and read them the way the skill's own read step says.
 
 Produce the ASCII coverage diagram showing which code paths are tested and which have gaps.
 Output the diagram directly, name both billing functions, and include a coverage summary.
