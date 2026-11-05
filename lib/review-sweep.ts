@@ -24,6 +24,7 @@ export const SWEEP_MAX_ENTRIES = 200_000;
 export const SWEEP_BUDGET_MS = 20_000;
 export const BIG_BYTES = 100 * 1024 * 1024;
 const SKIP = new Set(['node_modules', '.git']);
+const SCP = /^(?:[\w.-]+@)?[\w.-]+:(?!\/\/)[\w./-]+$/;
 
 export interface Inventory { at: number; roots: string[]; repos: Record<string, string[]>; big: Record<string, number>; partial?: string }
 export interface Found { path: string; kind: 'repo' | 'download'; remote?: string; bytes: number | null }
@@ -42,11 +43,11 @@ export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive')];
 
 /**
  * A remote URL with nothing that can carry a credential: userinfo removed and a query read as `?<redacted>`
- * (`https://user:PASSWORD@host/r.git#x` reads `https://host/r.git#x`). git's `user@host:path` form has no password and stays
+ * (`https://user:PASSWORD@host/r.git#x` reads `https://host/r.git#x`). git's `[user@]host:path` form has no password and stays
  * as it is. Anything else, a value the URL parser rejects included, reads `<redacted>`: it is never recorded or printed raw.
  */
 export function redactUrl(v: string): string {
-  if (/^[\w.-]+@[\w.-]+:[\w./-]+$/.test(v)) return v;
+  if (SCP.test(v)) return v;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return '<redacted>';
   try {
     const u = new URL(v);
@@ -55,11 +56,23 @@ export function redactUrl(v: string): string {
   } catch { return '<redacted>'; }
 }
 
-/** A repository's remote URLs as git itself reads its config (quoted values, escapes and `#` included), each through redactUrl. */
+/**
+ * Whether git would reach a remote over the network: any `scheme://` but `file:`, a `<transport>::` helper, or git's
+ * `[user@]host:path` form (a colon with no slash before it; one letter before it is a Windows drive).
+ */
+export function networkRemote(v: string): boolean {
+  if (/^file:/i.test(v)) return false;
+  return networkTarget(v) !== null || /^[a-z][a-z0-9+.-]*:(?::|\/\/)/i.test(v) || /^(?:[^@/]+@)?(?:\[[^\]/]+\]|[^/:@[]{2,}):(?!\/\/)/.test(v);
+}
+
+/**
+ * A repository's network remotes as git itself reads its config (quoted values, escapes and `#` included), classified on
+ * the raw value and recorded only through redactUrl.
+ */
 function remotes(gitDir: string): string[] {
   const r = spawnSync('git', ['config', '--file', path.join(gitDir, 'config'), '--null', '--get-regexp', '\\.url$'], { encoding: 'utf8', timeout: 5_000 });
   if (r.status !== 0 || !r.stdout) return [];
-  return r.stdout.split('\0').flatMap(e => { const i = e.indexOf('\n'); return i < 0 ? [] : [redactUrl(e.slice(i + 1))]; });
+  return r.stdout.split('\0').flatMap(e => { const i = e.indexOf('\n'); const v = e.slice(i + 1); return i >= 0 && networkRemote(v) ? [redactUrl(v)] : []; });
 }
 
 /** The git directory a directory holds: its `.git` (a directory, or a file naming one), or itself when it is a bare repository. */
@@ -76,7 +89,7 @@ function gitDirOf(dir: string, names: Set<string>): string | null {
 }
 
 /**
- * Git repositories (with their remote URLs) and files of BIG_BYTES or more under the roots, to SWEEP_DEPTH, without following
+ * Git repositories (with their redacted network remotes) and files of BIG_BYTES or more under the roots, to SWEEP_DEPTH, without following
  * symlinks or entering node_modules, .git or a repository other than the checkout. Past SWEEP_MAX_ENTRIES entries or
  * SWEEP_BUDGET_MS the inventory stops and says so in `partial`.
  */
@@ -117,7 +130,7 @@ function du(p: string): number | null {
 export function sweepDiff(start: Inventory, end: Inventory): Found[] {
   const found: Found[] = [];
   for (const [p, urls] of Object.entries(end.repos)) {
-    const remote = urls.find(u => networkTarget(u));
+    const remote = urls[0];
     if (p in start.repos || !remote) continue;
     found.push({ path: p, kind: 'repo', remote, bytes: du(p) });
   }
@@ -186,8 +199,8 @@ export function quarantineStage(m: Manifest, stage: Stage, attempt: number): { q
     let ids: string[] = [];
     if (!r.prompt_file && r.role) {
       const key = readerKey(r.role, r.name);
-      const out = events.filter(e => e.reader === key && (e.event === 'output' || e.event === 'rendered')).at(-1);
-      ids = out?.event === 'output' && Array.isArray(out.ids) ? (out.ids as string[]) : [];
+      const mine = events.filter(e => e.reader === key && (e.event === 'output' || e.event === 'rendered'));
+      ids = mine.slice(mine.findLastIndex(e => e.event === 'rendered') + 1).flatMap(e => (Array.isArray(e.ids) ? (e.ids as string[]) : []));
       const gone = new Set(ids);
       if (gone.size && fs.existsSync(m.merged)) {
         const kept = fs.readFileSync(m.merged, 'utf8').split('\n').filter(l => { if (!l.trim()) return false; try { return !gone.has((JSON.parse(l) as { id: string }).id); } catch { return true; } });

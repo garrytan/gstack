@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BIG_BYTES, foundLines, inventory, quarantineStage, redactUrl, sweepDiff, sweepResult } from '../lib/review-sweep';
+import { BIG_BYTES, foundLines, inventory, networkRemote, quarantineStage, redactUrl, sweepDiff, sweepResult } from '../lib/review-sweep';
 import { collect, ledgerBlockers } from '../lib/review-ledger';
 import { ledgerPass } from '../lib/review-scope';
 import type { Manifest } from '../lib/review-pass';
@@ -34,6 +34,7 @@ describe('review-sweep inventory diff', () => {
     await Bun.sleep(30);
     repoAt(path.join(root, 'BEAM'), 'https://github.com/sealed-org/BEAM.git');
     repoAt(path.join(root, 'scp'), 'git@github.com:sealed-org/BEAM.git');
+    repoAt(path.join(root, 'scp-nouser'), 'github.com:sealed-org/BEAM.git');
     repoAt(path.join(root, 'local'));
     repoAt(path.join(root, 'filecopy'), 'file:///srv/mirror/app.git');
     repoAt(path.join(checkout, 'vendor', 'nested'), 'https://example.com/n.git');
@@ -42,8 +43,9 @@ describe('review-sweep inventory diff', () => {
     fs.truncateSync(path.join(root, 'dl', 'chats.tar'), BIG_BYTES);
     const found = sweepDiff(start, inventory([root], checkout, []));
     expect(found.map(f => [path.relative(root, f.path), f.kind]).sort()).toEqual([
-      ['BEAM', 'repo'], ['checkout/vendor/nested', 'repo'], ['dl/chats.tar', 'download'], ['scp', 'repo'],
+      ['BEAM', 'repo'], ['checkout/vendor/nested', 'repo'], ['dl/chats.tar', 'download'], ['scp', 'repo'], ['scp-nouser', 'repo'],
     ]);
+    expect(found.find(f => f.path.endsWith('scp-nouser'))!.remote).toBe('github.com:sealed-org/BEAM.git');
     expect(found.find(f => f.path.endsWith('BEAM'))!.remote).toBe('https://github.com/sealed-org/BEAM.git');
   });
 
@@ -103,6 +105,24 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     expect(ledgerPass(ledger).ids).toEqual([]);
   });
 
+  // Value: protects=a reader collected twice in one dispatch (a pass resumed after collect but before mark) is quarantined whole: neither collection's findings stay in merged.jsonl;
+  //   fails_when=quarantine removes only the newest output event's ids and the first collection's finding reaches the Red Team and verify; why_new=ship-d-p1 outside-voice#1 (High; GSTA-297 on #4011);
+  //   seam=quarantineStage; no_claim=that a duplicate collection is otherwise harmless
+  test('a reader collected twice before quarantine leaves neither collection in merged.jsonl', () => {
+    const out = tmp();
+    const ledger = path.join(out, 'review-ledger.jsonl');
+    const merged = path.join(out, 'merged.jsonl');
+    const reply = path.join(out, 'security.txt');
+    fs.writeFileSync(reply, '1. **CRITICAL**: a.ts:3 SEALED-QUOTE read from the clone\nBlocks: yes\n');
+    collect(ledger, 'specialist/security', fs.readFileSync(reply, 'utf8'), merged, reply);
+    expect(collect(ledger, 'specialist/security', fs.readFileSync(reply, 'utf8'), merged, reply).lines.map(l => l.id)).toEqual(['specialist/security#2.1']);
+    const m = { pass: 'p1', out, ledger, merged, readers: [{ reader: 'specialist/security', role: 'specialist', name: 'security', title: 'security', stage: 'specialists', state: 'rendered', output: reply }] } as unknown as Manifest;
+    expect(quarantineStage(m, 'specialists', 1).lines[0]).toContain('findings_removed=2');
+    expect(fs.readFileSync(merged, 'utf8')).not.toContain('SEALED-QUOTE');
+    expect(ledgerBlockers(ledger)).toEqual([]);
+    expect(ledgerPass(ledger).ids).toEqual([]);
+  });
+
   // Value: protects=a found path with a newline or other control character can never print a line of its own, and never gets a DELETE line;
   //   fails_when=a reader-made directory name injects a "DELETE: rm -rf -- …" line the lane is told to run; why_new=ship-b-p1 specialist-batched#2 (security);
   //   seam=foundLines; no_claim=that a KEEP path is safe
@@ -154,6 +174,21 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     expect(redactUrl(`persistent-https::https://bot:${FAKE}@github.com/x/y.git`)).toBe('<redacted>');
     expect(redactUrl(`https://bot:${FAKE}@x@[bad/x`)).toBe('<redacted>');
     expect(redactUrl('/srv/mirror/app.git')).toBe('<redacted>');
-    for (const plain of ['https://github.com/sealed-org/BEAM.git', 'https://github.com/sealed-org/PLAIN.git#x', 'git@github.com:sealed-org/BEAM.git', 'file:///srv/mirror/app.git']) expect(redactUrl(plain)).toBe(plain);
+    for (const plain of ['https://github.com/sealed-org/BEAM.git', 'https://github.com/sealed-org/PLAIN.git#x', 'git@github.com:sealed-org/BEAM.git', 'github.com:sealed-org/BEAM.git', 'file:///srv/mirror/app.git']) expect(redactUrl(plain)).toBe(plain);
+  });
+
+  // Value: protects=a remote is classified as network on its raw value, so a form redaction shows as <redacted> still counts as a fetch;
+  //   fails_when=a clone whose remote is `user@host:~/repo`, `host:path`, `[::1]:path`, a `<transport>::` helper or an unlisted scheme is treated as local; why_new=ship-d-p1 outside-voice#2 (High) and adversarial-native#5; seam=networkRemote, remotes; no_claim=that every git transport is listed
+  test('remotes are classified on the raw value: every ssh, helper and scheme form is network, local paths and file: are not', async () => {
+    for (const net of ['github.com:sealed-org/BEAM.git', 'git@host:~/repo', `bot:${FAKE}@host:r.git`, '[::1]:r.git', 'persistent-https::https://github.com/x/y.git', 'git+ssh://host/r.git', 'https://github.com/x/y.git']) expect([net, networkRemote(net)]).toEqual([net, true]);
+    for (const local of ['/srv/mirror/app.git', '../app.git', './a:b', 'C:/repos/app.git', 'file:///srv/mirror/app.git', 'FILE:/x']) expect([local, networkRemote(local)]).toEqual([local, false]);
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout);
+    const start = inventory([root], checkout, []);
+    await Bun.sleep(30);
+    repoAt(path.join(root, 'tilde'), `bot:${FAKE}@host:~/sealed.git`);
+    const found = sweepDiff(start, inventory([root], checkout, []));
+    expect(found.map(f => [path.relative(root, f.path), f.remote])).toEqual([['tilde', '<redacted>']]);
   });
 });
