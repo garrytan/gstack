@@ -19,7 +19,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 
 - No Windows-only or Gemini-only features, parity work, tuning or polish.
 - No new Windows or Gemini CI jobs or eval cells, apart from the path-scoped Windows checks under Windows CI below (ship-90-90 plan D). Other Windows CI tuning stops.
-- A Windows-only or Gemini-only report that doesn't break install, startup or a core workflow closes as won't fix ([triage rules](triage.md#closing-an-issue)), with a link to this page in the closing comment (a maintainer's to post; an agent drafts it). A report that does break one of them gets a small fix.
+- A Windows-only or Gemini-only report that doesn't break install, startup or a core workflow closes as won't fix ([triage rules](triage.md#closing-an-issue)), with a link to this page. A report that does break one of them gets a small fix.
 
 ## Windows CI
 
