@@ -18,7 +18,7 @@
  * lib/ship-receipt.ts so that module stays under the size ratchet.
  */
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseContainsHead } from './default-base';
@@ -306,41 +306,70 @@ const treatment = (x: ActiveExclusion, p: string) => (x.excluded.has(p) ? 'exclu
  * the review, so a docs file it adds, edits or removes under a pattern can change HEAD's selection (GST-1429). With `docsPost`
  * (the audit's post snapshot, gstack-docs-candidate) the reviewed digest still binds when every file under a pattern that changed
  * since the snapshot's HEAD was uncommitted in the snapshot with the content HEAD holds, the reviewed digest is HEAD's selection
- * with those files reset to the snapshot's HEAD, each of them is excluded or kept only because code names it, and every other
- * file is selected alike on both sides. Anything else, an unreadable snapshot included, refuses with `why`.
+ * with the audit's files reset to their content before the audit, each of them is excluded or kept only because code names it,
+ * and every other file is selected alike on both sides. The audit's files are those whose content differs between `docsPre`
+ * (the Prepare snapshot) and the post snapshot, reset to the Prepare content, so uncommitted docs the reviewers read stay; without
+ * it every such file is an audit file, reset to the snapshot's HEAD. Content compares as git stores it or as it checks out
+ * (autocrlf, filters). Anything else, an unreadable snapshot included, refuses with `why`.
  */
-export function writeExcludeBinds(root: string, base: string, head: string, review: { exclude: Exclusion; tagged: ReadonlySet<string> | null }, given: string, docsPost: string | undefined): { ok: true; line?: string } | { ok: false; why?: string } {
+export function writeExcludeBinds(root: string, base: string, head: string, review: { exclude: Exclusion; tagged: ReadonlySet<string> | null }, given: string, docsPost: string | undefined, docsPre?: string): { ok: true; line?: string } | { ok: false; why?: string } {
   const x = review.exclude;
   if ((x.state === 'active' ? x.record.digest : 'none') === given) return { ok: true };
   if (docsPost === undefined || x.state !== 'active') return { ok: false };
   const no = (why: string) => ({ ok: false as const, why: `--docs-post ${docsPost}: ${why}` });
-  let post: { head?: unknown; staged?: unknown; unstaged?: unknown; untracked?: unknown; hashes?: unknown };
-  try { post = JSON.parse(fs.readFileSync(docsPost, 'utf8')); } catch (e) { return no(`cannot be read (${(e as Error).message.split('\n')[0]})`); }
   const list = (v: unknown): v is string[] => Array.isArray(v) && v.every(p => typeof p === 'string');
-  const hashes = post?.hashes as Record<string, unknown> | undefined;
-  if (typeof post?.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(post.head) || !list(post.staged) || !list(post.unstaged) || !list(post.untracked) || !hashes || typeof hashes !== 'object' || Array.isArray(hashes)) return no('is not a gstack-docs-candidate snapshot (head, staged, unstaged, untracked, hashes)');
+  const snapshot = (file: string): { head: string; audit_id?: unknown; staged: string[]; unstaged: string[]; untracked: string[]; hashes: Record<string, unknown> } | string => {
+    let s: { head?: unknown; audit_id?: unknown; staged?: unknown; unstaged?: unknown; untracked?: unknown; hashes?: unknown };
+    try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return `cannot be read (${(e as Error).message.split('\n')[0]})`; }
+    const h = s?.hashes;
+    if (typeof s?.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(s.head) || !list(s.staged) || !list(s.unstaged) || !list(s.untracked) || !h || typeof h !== 'object' || Array.isArray(h)) return 'is not a gstack-docs-candidate snapshot (head, staged, unstaged, untracked, hashes)';
+    return { head: s.head, audit_id: s.audit_id, staged: s.staged, unstaged: s.unstaged, untracked: s.untracked, hashes: h as Record<string, unknown> };
+  };
+  const post = snapshot(docsPost);
+  if (typeof post === 'string') return no(post);
+  const pre = docsPre === undefined ? null : snapshot(docsPre);
+  if (typeof pre === 'string') return no(`--docs-pre ${docsPre} ${pre}`);
+  if (pre && (pre.head !== post.head || pre.audit_id !== post.audit_id)) return no(`--docs-pre ${docsPre} is not this audit's Prepare snapshot (its HEAD or audit_id differs)`);
   const at = post.head;
   if (!git(root, ['merge-base', '--is-ancestor', at, head]).ok) return no(`its HEAD ${short(at)} is not ${short(head)} or an ancestor of it`);
   const diff = spawnSync('git', ['diff', '--name-only', '-z', '--no-renames', at, head, '--', ...x.record.patterns.map(p => `:(top,glob)${p}`)], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (diff.status !== 0) return no(`git could not list the files under review_exclude_paths that changed since ${short(at)}`);
   const changed = diff.stdout.split('\0').filter(Boolean).sort();
   if (!changed.length) return no(`no file under review_exclude_paths changed since its HEAD ${short(at)}, so the docs audit did not change the selection`);
+  const blob = (rev: string, p: string) => { const b = git(root, ['rev-parse', '--verify', '--quiet', `${rev}:${p}`]); return b.ok ? b.out : null; };
+  const holds = (rev: string, p: string, want: unknown) => {
+    const id = blob(rev, p);
+    if (id === want) return true;
+    if (id === null || typeof want !== 'string') return false;
+    const out = spawnSync('git', ['cat-file', '--filters', `${rev}:${p}`], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return out.status === 0 && createHash('sha1').update(`blob ${out.stdout.length}\0`).update(out.stdout).digest('hex') === want;
+  };
   const named = new Set([...post.staged, ...post.unstaged, ...post.untracked]);
   for (const p of changed) {
     if (!named.has(p)) return no(`${p} changed after the snapshot's HEAD ${short(at)}, and the snapshot does not name it as an uncommitted audit file`);
-    const blob = git(root, ['rev-parse', '--verify', '--quiet', `${head}:${p}`]);
-    if ((blob.ok ? blob.out : null) !== hashes[p]) return no(`${p} at HEAD is not the content the snapshot recorded (an edit after the audit)`);
+    if (!holds(head, p, post.hashes[p] ?? null)) return no(`${p} at HEAD is not the content the snapshot recorded (an edit after the audit)`);
   }
+  const auditFiles = pre ? changed.filter(p => !(p in pre.hashes) || pre.hashes[p] !== post.hashes[p]) : changed;
+  if (!auditFiles.length) return no(`--docs-pre ${docsPre}: the audit changed none of ${changed.join(',')}, so it did not change the selection`);
   const gitDir = git(root, ['rev-parse', '--absolute-git-dir']).out;
   const index = path.join(gitDir, `gstack-receipt-${process.pid}-${randomBytes(4).toString('hex')}.index`);
   const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
   const run = (args: string[], input?: string) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000 }); return { ok: r.status === 0, out: (r.stdout ?? '').trim() }; };
+  const treeEntry = (rev: string, p: string) => run(['ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
   let reset: string;
   try {
-    const entries = changed.map(p => { const e = run(['ls-tree', '-z', '--full-tree', at, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`)); return e ? `${e}\0` : `0 ${'0'.repeat(at.length)}\t${p}\0`; });
+    const entries: string[] = [];
+    for (const p of auditFiles) {
+      const want = pre ? pre.hashes[p] : undefined;
+      const atEntry = treeEntry(at, p);
+      if (want === undefined || (atEntry && holds(at, p, want))) entries.push(atEntry ? `${atEntry}\0` : `0 ${'0'.repeat(at.length)}\t${p}\0`);
+      else if (want === null) entries.push(`0 ${'0'.repeat(at.length)}\t${p}\0`);
+      else if (typeof want === 'string' && run(['cat-file', '-e', `${want}^{blob}`]).ok) entries.push(`${(treeEntry(head, p) ?? atEntry ?? '100644').split(' ')[0]} blob ${want}\t${p}\0`);
+      else return no(`${p}'s content before the audit (${short(String(want))} in --docs-pre ${docsPre}) is not in git's object store, so the selection the reviewers read cannot be rebuilt`);
+    }
     const tree = run(['read-tree', head]).ok && run(['update-index', '-z', '--index-info'], entries.join('')).ok ? run(['write-tree']) : { ok: false, out: '' };
     const c = tree.ok ? run(['commit-tree', '--no-gpg-sign', tree.out, '-p', head, '-m', 'gstack-ship-receipt: HEAD before the docs audit']) : tree;
-    if (!c.ok) return no(`git could not build HEAD with ${changed.join(',')} reset to ${short(at)}`);
+    if (!c.ok) return no(`git could not build HEAD with ${auditFiles.join(',')} reset to before the audit`);
     reset = c.out;
   } finally { fs.rmSync(index, { force: true }); }
   const branch = base.replace(/^origin\//, '');
@@ -348,17 +377,17 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
   const ref = baseSha.ok ? `origin/${branch}` : branch;
   const sha = baseSha.ok ? baseSha.out : (git(root, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`]).out || null);
   const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? branch, reset), review.tagged, 'gstack-ship-receipt');
-  if (before.state !== 'active') return no(`the selection with ${changed.join(',')} reset to ${short(at)} cannot be read`);
-  if (before.record.digest !== given) return no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${short(at)} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`);
-  for (const p of changed) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
+  if (before.state !== 'active') return no(`the selection with ${auditFiles.join(',')} reset to before the audit cannot be read`);
+  if (before.record.digest !== given) return no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`);
+  for (const p of auditFiles) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
     const t = treatment(s, p);
     if (!['absent', 'excluded', 'named-by-code'].includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides or keeps because code names them`);
   }
-  const audit = new Set(changed);
+  const audit = new Set(auditFiles);
   for (const p of new Set([...before.excluded, ...x.excluded, ...before.kept.map(k => k.path), ...x.kept.map(k => k.path)])) {
     if (!audit.has(p) && treatment(before, p) !== treatment(x, p)) return no(`${p} is ${treatment(before, p)} at the review and ${treatment(x, p)} at HEAD`);
   }
-  return { ok: true, line: `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${changed.join(',')} (the selection changed only by the Step 14.5 docs audit's files under review_exclude_paths; the receipt records HEAD's)` };
+  return { ok: true, line: `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${auditFiles.join(',')} (the selection changed only by the Step 14.5 docs audit's files under review_exclude_paths; the receipt records HEAD's)` };
 }
 export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
   const expected = x.state === 'active' ? x.record.digest : 'none';

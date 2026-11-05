@@ -1,4 +1,4 @@
 {
-  "bytes": 185,
-  "why": "GST-1429: pr-body.md names --docs-post for the docs-audit exclusion exception"
+  "bytes": 225,
+  "why": "GST-1429: pr-body.md names --docs-post and --docs-pre for the docs-audit exclusion exception"
 }

@@ -497,28 +497,36 @@ describe('the receipt binds the selection the reviewers read', () => {
   // Value: protects=a receipt write after /ship's Step 14.5 docs audit binds the digest the reviewers read when the only change to
   //   the selection since the review is files under review_exclude_paths that the audit's post snapshot names (GST-1429: gbrain
   //   #8627's audit added a key-files entry, a docs file code names, and write refused with RECEIPT_INVALID field=review_exclude,
-  //   forcing a third review pass), while a selection change from anything else, an audit file the exclusion reads as code, an
+  //   forcing a third review pass), a docs edit the review read uncommitted stays when --docs-pre names the Prepare snapshot and
+  //   checkout line endings compare as committed (the #4034 review), while a selection change from anything else, an audit file the exclusion reads as code, an
   //   edit after the snapshot and a missing snapshot still refuse; fails_when=write accepts a changed selection without the
   //   snapshot, or the exception spreads to files the snapshot does not name or the exclusion does not hide or keep as docs;
   //   why_new=GST-1429; seam=gstack-docs-candidate snapshot, then gstack-ship-receipt write --review-exclude --docs-post;
   //   no_claim=what the docs audit itself may edit (ship/sections/documentation.md)
   describe('a docs audit after the review (GST-1429)', () => {
     const BRANCH = { 'lib/reader.js': "exports.p = 'docs/parity.md';\n", 'docs/parity.md': '# parity\n', 'docs/old.md': '# old\n' };
-    /** A branch reviewed at its head (the plan's digest is what verify prints), then audited: `audit` edits the tree, the post snapshot is saved, `after` edits more, and everything is committed. */
-    const audited = (audit: Record<string, string | null>, after: Record<string, string | null> = {}, branch: Record<string, string> = BRANCH) => {
+    /** A branch reviewed at its head with `dirty` uncommitted (the plan's digest is what verify prints), then audited: the Prepare snapshot is saved, `audit` edits the tree, the post snapshot is saved, `after` edits more, and everything is committed. */
+    const audited = (audit: Record<string, string | null>, after: Record<string, string | null> = {}, branch: Record<string, string> = BRANCH, opts: { dirty?: Record<string, string>; autocrlf?: boolean } = {}) => {
       const repo = makeFixtureRepo({ prefix: 'gstack-exclude-audit-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/**', 'test/fixtures/goldens/**']), 'docs/key-files.md': '# key files\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
       repos.push(repo);
       commit(repo, branch);
+      if (opts.autocrlf) repo.git('config', 'core.autocrlf', 'true');
+      for (const [rel, text] of Object.entries(opts.dirty ?? {})) write(repo.work, rel, text);
       const reviewed = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest as string;
+      const snapshot = (out: string) => {
+        const snap = runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', out, '--audit-id', 'a1', '--mode', 'edit', '--base', repo.git('rev-parse', 'origin/main'), '--docs', 'docs']);
+        expect({ status: snap.status, err: snap.err }).toMatchObject({ status: 0 });
+      };
+      const pre = path.join(repo.root, 'a1.json');
+      snapshot(pre);
       for (const [rel, text] of Object.entries(audit)) { if (text === null) fs.rmSync(path.join(repo.work, rel), { force: true }); else write(repo.work, rel, text); }
       const post = path.join(repo.root, 'a1-post.json');
-      const snap = runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', repo.git('rev-parse', 'origin/main'), '--docs', 'docs']);
-      expect({ status: snap.status, err: snap.err }).toMatchObject({ status: 0 });
+      snapshot(post);
       commit(repo, after, 'docs audit and release');
-      return { repo, reviewed, post, body: path.join(repo.root, 'body.md') };
+      return { repo, reviewed, pre, post, body: path.join(repo.root, 'body.md') };
     };
-    const writeWith = (a: ReturnType<typeof audited>, post: string | null = a.post) =>
-      writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, ...(post === null ? [] : ['--docs-post', post]), ...targetedAtHead(a.repo)]);
+    const writeWith = (a: ReturnType<typeof audited>, post: string | null = a.post, pre: string | null = null) =>
+      writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, ...(post === null ? [] : ['--docs-post', post]), ...(pre === null ? [] : ['--docs-pre', pre]), ...targetedAtHead(a.repo)]);
     const refusedWith = (w: { status: number | null; err: string }, a: ReturnType<typeof audited>, why: string) => {
       expect({ status: w.status, written: fs.existsSync(a.body) }).toEqual({ status: EXIT.fail, written: false });
       expect(w.err).toContain(`field=review_exclude expected=`);
@@ -564,6 +572,17 @@ describe('the receipt binds the selection the reviewers read', () => {
       const unnamed = audited({}, { 'docs/new.md': '# new\n' });
       refusedWith(writeWith(unnamed), unnamed, 'docs/new.md changed after the snapshot');
       refusedWith(writeWith(unnamed, path.join(unnamed.repo.root, 'missing-post.json')), unnamed, 'missing-post.json: cannot be read');
+    }, 240_000);
+
+    test('a docs edit the review read uncommitted stays with the Prepare snapshot, and checkout line endings compare as committed', () => {
+      const dirty = audited({ 'docs/new.md': '# new\n' }, {}, BRANCH, { dirty: { 'docs/key-files.md': '# key files\n- lib/reader.js: the parity guard\n' } });
+      refusedWith(writeWith(dirty), dirty, 'is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset');
+      const kept = writeWith(dirty, dirty.post, dirty.pre);
+      expect({ status: kept.status, err: kept.status === EXIT.ok ? '' : kept.err }).toEqual({ status: EXIT.ok, err: '' });
+      expect(kept.err + kept.out).toContain('files=docs/new.md ');
+      const crlf = audited({ 'docs/new.md': '# new\r\n' }, {}, BRANCH, { autocrlf: true });
+      const w = writeWith(crlf, crlf.post, crlf.pre);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
     }, 240_000);
   });
 });
