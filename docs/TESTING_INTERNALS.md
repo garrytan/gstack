@@ -1717,8 +1717,9 @@ timeout, and the job continues on error, so the run's conclusion and the
 GitHub can't fetch the pinned action at "Set up job" (the action's repository
 or commit disappears), the observer's own check reports failure, and
 `gstack-ship-queue ready` counts every check at the head. Rerun it once;
-if it fails again, delete the job. Fork pull requests, pushes, dispatches
-and a missing token skip the job. It is the only job in the workflow that sees a secret
+if it fails again, delete the job. Fork pull requests, pushes and dispatches
+skip the job. A missing token skips only its step, so the job still fetches
+the action. It is the only job in the workflow that sees a secret
 (`TRUNK_API_TOKEN`), so it checks out nothing and runs none of the pull
 request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`), and its
 only network call is a request for verdicts to

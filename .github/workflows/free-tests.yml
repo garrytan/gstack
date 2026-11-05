@@ -93,8 +93,9 @@ jobs:
   # pull-request code: one pinned action and nothing else, with no GITHUB_TOKEN
   # scopes (Trunk reads the diff itself) and telemetry off. It never fails the
   # run: the action never fails its step, the step continues on error and has
-  # its own timeout, and the job continues on error. Fork pull requests, pushes,
-  # dispatches and a missing token skip it. Review: docs/TESTING_INTERNALS.md.
+  # its own timeout, and the job continues on error. Fork pull requests, pushes
+  # and dispatches skip the job; a missing token skips its step. Review:
+  # docs/TESTING_INTERNALS.md.
   trunk-dynamic-ci:
     name: Trunk Dynamic CI (learning only)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
