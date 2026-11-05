@@ -188,6 +188,15 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
+  // Value: protects=land.merged_checks on gstack itself (GST-1332): every test file its bun test commands name exists, and the ship/DRIVER.md cap guard (#3886) stays listed; fails_when=a listed test file is renamed or deleted, which bun skips silently while the other files pass, or test/ship-driver.test.ts leaves the list; why_new=gstack's own policy gained the land key; seam=the policy file; no_claim=that the commands pass on a merged tree (ship-queue-land-direct covers the engine)
+  test('land.merged_checks names only test files that exist, with the ship/DRIVER.md cap guard among them', () => {
+    const root = path.join(import.meta.dir, '..');
+    const raw = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
+    const files: string[] = raw.land.merged_checks.flatMap((c: string) => c.split(/\s+/).filter(t => t.endsWith('.test.ts')));
+    expect(files).toContain('./test/ship-driver.test.ts');
+    expect(files.filter(f => !fs.existsSync(path.join(root, f)))).toEqual([]);
+  });
+
   // Value: protects=the fill rule the coordinator relies on: a train dispatches at 5 READY PRs or one hour after the first READY, whichever comes first
   // (2026-10-26: 5 PRs / 3 hours left READY PRs waiting most of a day, so the fill went to 3 PRs / 1 hour; 2026-10-31: Garry's B1 raised the size back to 5, keeping the 1-hour fill); fails_when=the live block drifts back to a larger or slower fill; why_new=the values were unpinned; seam=the policy file; no_claim=fillDue's arithmetic (ship-queue-train-logic)
   test('fills a train at 5 READY PRs or one hour after the first READY, whichever comes first', () => {
