@@ -127,7 +127,7 @@ export function secretExcerpt(diff: string, paths: readonly string[]): SecretExc
   const want = new Set(paths);
   const unattributed: string[] = [];
   const byFile = new Map<string, { sections: string[]; text: string | null }>();
-  for (const section of diff.split(/^(?=diff --git )/m).filter(Boolean)) {
+  for (const section of diff.split(/(?<=\n)(?=diff --git )/).filter(Boolean)) {
     const lines = section.split('\n');
     const h = lines.findIndex(l => l.startsWith('@@'));
     const file = section.startsWith('diff --git ') ? sectionPath(h < 0 ? lines : lines.slice(0, h)) : null;

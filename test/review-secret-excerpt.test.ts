@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { REVIEW_DIFF_MAX_BYTES, readSelection, reviewExclude } from '../lib/review-exclude';
 import { collectCommit } from '../lib/review-collect';
+import { secretExcerpt } from '../lib/review-secret-excerpt';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -179,4 +180,16 @@ describe('files kept only for a secret line go to readers as excerpts', () => {
     expect(reader.excerpt).not.toContain(lit(big));
     expect(reader.excerpt_file.files).toBe(10);
   }, 240_000);
+
+  // Value: protects=every matched line of an excerpted file reaches readers; fails_when=a CR, U+2028 or U+2029 followed by
+  //   `diff --git ` inside a changed line splits the file's section, so the lines after it leave the excerpt while the file
+  //   stays excluded from the reader's own diff; why_new=GST-1447 /ship red-team finding; seam=none
+  test('a line separator inside a changed line does not cut the file section short', () => {
+    for (const sep of ['\r', '\u2028', '\u2029']) {
+      const pad = Array.from({ length: 20 }, (_, i) => `+filler ${i}`);
+      const diff = ['diff --git a/r/x.json b/r/x.json', '--- a/r/x.json', '+++ b/r/x.json', '@@ -0,0 +1,23 @@', '+uses ${OPENAI_API_KEY}', ...pad, `+note${sep}diff --git a/zz b/zz`, '+run security find-generic-password -s after-split', ''].join('\n');
+      const x = secretExcerpt(diff, ['r/x.json']);
+      expect(x.whole.includes('r/x.json') || x.text.includes('after-split')).toBe(true);
+    }
+  });
 });
