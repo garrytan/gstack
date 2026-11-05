@@ -528,7 +528,11 @@ describe('the receipt binds the selection the reviewers read', () => {
 
     test('the #8627 shape: an audit edit to a docs file code names binds the reviewed digest with the post snapshot only', () => {
       const a = audited({ 'docs/key-files.md': '# key files\n- lib/reader.js: the parity guard\n' }, {}, { 'lib/reader.js': BRANCH['lib/reader.js'], 'docs/parity.md': BRANCH['docs/parity.md'] });
-      const head = receiptReviewAtHead(a.repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), a.repo.git('rev-parse', 'HEAD')).exclude;
+      const prior = process.env.GSTACK_STATE_ROOT;
+      process.env.GSTACK_STATE_ROOT = path.join(a.repo.root, 'receipt-state');
+      let head: ReturnType<typeof receiptReviewAtHead>['exclude'];
+      try { head = receiptReviewAtHead(a.repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), a.repo.git('rev-parse', 'HEAD')).exclude; }
+      finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
       expect(head.state === 'active' ? head.kept.map(k => [k.path, k.reason]) : head.state).toEqual([['docs/key-files.md', 'named-by-code'], ['docs/parity.md', 'named-by-code']]);
       expect(head.state === 'active' && head.record.digest).not.toBe(a.reviewed);
       refusedWith(writeWith(a, null), a, '(write compares the argument, not the review ledger)');
