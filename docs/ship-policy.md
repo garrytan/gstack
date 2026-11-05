@@ -1699,10 +1699,13 @@ prints `REVIEWED_BASE: stack parent <sha12> landed on origin/<base> at <sha12>`.
 The route, a granted fix-check's sides, the scoped-review packet and the docs
 carry then compare each commit's patch from that parent, so the parent's and the
 base's edits route as `base=`. The route also reads every path the branch ships
-against the base, changed since review or not, and judges its release-metadata
-class against the base, so a parent change the base never received (a
-`package.json` script) or a merge that kept a line the base changed since still
-stops. A path the child no longer changes against the base routes as base only
+against the base, changed since review or not, and judges every shipped path's
+release-metadata class against the base, so a parent change the base never
+received (a `package.json` script, even after the child's version bump) or a
+merge that kept a line the base changed since still stops. Both the landed check
+and this class count a `stamp_paths` or `release_outputs` file as metadata only
+while its edit is a version stamp, as `stamp_files` are; any other edit to one
+must be held by the base or stop. A path the child no longer changes against the base routes as base only
 when the base already holds the reviewed change to it (a three-way merge of the
 reviewed change into the base leaves the base's bytes, and a reviewed mode change
 is the base's mode); a post-review revert to the base's content or mode still

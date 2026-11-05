@@ -257,7 +257,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   const onlyShipped = new Set(parent ? [...shipped].filter(p => !changedSet.has(p)) : []);
   for (const p of [...changedSet, ...onlyShipped].sort()) {
     const verdict = sides ? (!touched.has(p) || (parent && !shipped.has(p) && baseHolds(cwd, sides, p)) ? 'same' : comparePath(cwd, sides, p)) : 'changed';
-    const metadata = onlyShipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
+    const metadata = parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
     by[verdict === 'same' ? 'base' : metadata ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const shippedTests = by.tests.filter(p => onlyShipped.has(p));
@@ -461,9 +461,9 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
   const reviewedBaseArg = flag('--reviewed-base');
   const fragments = typeof policy?.changelog_fragments?.dir === 'string' ? [`:(top,exclude,glob)${policy.changelog_fragments.dir.replace(/\/+$/, '')}/*.md`] : [];
-  const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...release.map(p => `:(top,exclude,literal)${p}`), ...fragments], r);
+  const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...releasePaths(policy, cwd, flag('--reviewed-tree')!, base, true).map(p => `:(top,exclude,literal)${p}`), ...fragments], r);
   if (reviewedBase === null) return r;
-  const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base) : undefined;
+  const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base, true) : undefined;
   const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, baseRelease }, r);
   if (!routed) return r;
   if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, reviewedBase?.parent ? reviewedBase.commit : undefined, r)) return r;
