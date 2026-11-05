@@ -342,6 +342,83 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect({ where, says: text.includes('does not read the review ledger') }).toEqual({ where, says: true });
     }
   }, 240_000);
+
+  // Value: protects=a base policy that gains review_exclude_paths does not void a receipt whose PR touches none of the new
+  //   patterns, while a recorded digest that differs, a PR touching a pattern (an excluded or a kept file) and an unreadable base
+  //   policy still refuse; fails_when=the queue compares recorded=none to the new digest without asking whether any changed
+  //   file matches (GST-1408: harness-evals #264 stopped 9 receipted PRs), or the acceptance spreads to any of the four
+  //   refusals; why_new=GST-1408; seam=bindShippedReceipt, which gstack-ship-queue ready, train build and land call, on receipts
+  //   gstack-ship-receipt write produced; no_claim=carry (bin/gstack-ship-receipt carry keeps its own comparison)
+  describe('a base policy that gains review_exclude_paths after the receipt (GST-1408)', () => {
+    const policyOnBaseOnly = (repo: FixtureRepo, text: string) => {
+      repo.git('checkout', '-q', 'main');
+      commit(repo, { '.gstack/ship-policy.json': text }, 'base policy change');
+      repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', 'feature');
+      repo.git('fetch', '-q', 'origin');
+    };
+    const shipped = (files: Record<string, string>, basePolicy: string[] | null = null) => {
+      const repo = makeFixtureRepo({ prefix: 'gstack-exclude-late-', baseFiles: basePolicy ? { '.gstack/ship-policy.json': policyText(basePolicy) } : {} });
+      repos.push(repo);
+      commit(repo, files);
+      const body = path.join(repo.root, 'body.md');
+      const extra = [...targetedAtHead(repo)];
+      if (basePolicy) {
+        const expected = writeReceipt(repo, body, extra).err.match(/field=review_exclude expected=([0-9a-f]{64}) /)?.[1];
+        expect(expected).toBeDefined();
+        extra.push('--review-exclude', expected!);
+      }
+      const w = writeReceipt(repo, body, extra);
+      expect({ status: w.status, err: w.err }).toMatchObject({ status: EXIT.ok });
+      return { repo, body };
+    };
+    const bind = (repo: FixtureRepo, body: string) => {
+      const head = repo.git('rev-parse', 'HEAD');
+      return bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), undefined, [head]);
+    };
+    const CODE = { 'lib/reader.js': 'exports.p = 1;\n', 'docs/guide.md': '# guide\n' };
+
+    test('a receipt with no digest binds when the PR touches none of the new patterns', () => {
+      const { repo, body } = shipped(CODE);
+      expect(receiptIn(body).review_exclude).toBeUndefined();
+      policyOnBaseOnly(repo, policyText(['receipts/**', '**/*.jsonl']));
+      const b = bind(repo, body);
+      expect({ ok: b.ok, message: b.ok ? '' : b.message }).toEqual({ ok: true, message: '' });
+    }, 240_000);
+
+    test('a receipt with no digest still refuses when the PR touches a new pattern, excluded or kept', () => {
+      for (const touched of [{ 'receipts/a/result.json': '{"ok": true}\n' }, { 'receipts/run.js': 'exports.run = 1;\n' }]) {
+        const { repo, body } = shipped({ ...CODE, ...touched });
+        policyOnBaseOnly(repo, policyText(['receipts/**']));
+        const b = bind(repo, body);
+        expect(b.ok).toBe(false);
+        if (b.ok) continue;
+        expect(b.code).toBe('RECEIPT_INVALID');
+        expect(b.message).toMatch(/^field=review_exclude expected=[0-9a-f]{64} recorded=none /);
+      }
+    }, 240_000);
+
+    test('a recorded digest that differs from the current one still refuses, though the PR touches no pattern', () => {
+      const { repo, body } = shipped(CODE, ['receipts/**']);
+      const recorded = receiptIn(body).review_exclude!.digest;
+      expect(bind(repo, body).ok).toBe(true);
+      policyOnBaseOnly(repo, policyText(['receipts/**', 'results/**']));
+      const b = bind(repo, body);
+      expect(b.ok).toBe(false);
+      if (b.ok) return;
+      expect(b.code).toBe('RECEIPT_INVALID');
+      expect(b.message).toMatch(new RegExp(`^field=review_exclude expected=[0-9a-f]{64} recorded=${recorded} `));
+    }, 240_000);
+
+    test('an unreadable base policy still refuses a receipt with no digest', () => {
+      const { repo, body } = shipped(CODE);
+      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+      const b = bind(repo, body);
+      expect(b.ok).toBe(false);
+      if (b.ok) return;
+      expect(b.code).toBe('POLICY_INVALID');
+    }, 240_000);
+  });
 });
 
 describe('a branch cannot hide code under a base pattern', () => {
