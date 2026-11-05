@@ -7,7 +7,7 @@
  * level) and, inside that section, a numbered list that starts at 1 with at
  * least one item that is not a placeholder: the ranked top risks. Candidates,
  * in order: GSTACK_CEO_REVIEW_OUTPUT; files the run wrote with Write, Edit or
- * MultiEdit; changed or untracked (not ignored) .md files in the git repo at
+ * MultiEdit outside any skills/ tree (an installed skill is never the output); changed or untracked (not ignored) .md files in the git repo at
  * cwd; $GSTACK_STATE_ROOT/projects/<slug>/ceo-plans/*.md. Bash commands are
  * never parsed: a file written through the shell is found by the repo and
  * ceo-plans scans.
@@ -27,7 +27,7 @@ const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)[ \t#]*$/;
 const RISK_HEADING = /findings|top risks/i;
 const ITEM = /^ {0,3}(\d{1,9})[.)][ \t]+(.*)$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-const SKILL_FILE = /(?:^|[\\/])skills[\\/](?:.*[\\/])?SKILL\.md$/;
+const SKILL_TREE = /(?:^|[\\/])skills[\\/]/;
 
 /** Why markdown does not rank the top risks, or null when it does. */
 export function rankedRisksGap(md: string): string | null {
@@ -103,8 +103,8 @@ export function checkOutput(t: Transcript, load: SkillLoad, ctx: OutputContext):
   const run = t.events.slice(load.at + 1, next?.at);
   const paths = (re: RegExp) => run.flatMap(e => (e.kind === 'tool_use' && re.test(e.name) && typeof e.input.file_path === 'string' ? [path.resolve(ctx.cwd, e.input.file_path)] : []));
   const env = ctx.envOutput?.trim() ? path.resolve(ctx.cwd, ctx.envOutput.trim()) : undefined;
-  const written = paths(WRITE_TOOLS);
-  const reviewed = paths(/^Read$/).filter(f => f.endsWith('.md') && !SKILL_FILE.test(f)).pop();
+  const written = paths(WRITE_TOOLS).filter(f => !SKILL_TREE.test(f));
+  const reviewed = paths(/^Read$/).filter(f => f.endsWith('.md') && !SKILL_TREE.test(f)).pop();
   const dest = env ?? written.filter(f => f.endsWith('.md')).pop() ?? reviewed ?? 'the plan file you reviewed';
   const sources: Array<() => string[]> = [() => (env ? [env] : []), () => written, () => changedMarkdown(ctx.cwd, ctx.since), () => ceoPlans(ctx.slug(), ctx.since)];
   const result: OutputCheck = { met: null, checked: [], missing: [], dest };

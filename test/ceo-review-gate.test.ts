@@ -120,6 +120,21 @@ describe('Stop is blocked until the output file ranks the top risks', () => {
     expect(json(stop([...LOADED, ...wrote(planFile()), DONE]).stdout).decision).toBe('block');
   });
 
+  test('a skill file read after the plan is never named as the place to write, and a write into a skills tree does not release', () => {
+    put(planFile(), PLAN);
+    git('add', 'plan.md');
+    commit('plan');
+    const sections = put(path.join(work, '.claude', 'skills', 'gstack', 'plan-ceo-review', 'sections', 'review-sections.md'), RANKED);
+    const lines = [...LOADED, ...READ_PLAN(), tool('r2', 'Read', { file_path: sections }), result('r2', '# Review sections'), DONE];
+    const out = json(stop(lines).stdout);
+    expect(out.decision).toBe('block');
+    expect(out.reason).toContain(`in the review's output file: ${planFile()}`);
+    expect(out.reason).not.toContain(sections);
+    const after = json(stop([...lines.slice(0, -1), ...wrote(sections, 'w2'), DONE]).stdout);
+    expect(after.decision).toBe('block');
+    expect(after.reason).toContain(`in the review's output file: ${planFile()}`);
+  });
+
   test('a candidate whose mtime predates the load is blocked even with a ranked list', () => {
     put(planFile(), RANKED);
     const before = new Date(Date.parse(LOAD_TIME) - 60_000);
