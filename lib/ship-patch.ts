@@ -22,6 +22,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { EMPTY_PROJECT_CONFIG, scanCandidate } from './gate-diff/index';
 import { parseUnifiedDiff } from './gate-diff/git';
@@ -125,6 +126,31 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const map = mapper(b0);
   if (!r0.every((h, i) => sameSpot(h, c0[i]!, map))) return 'changed';
   return ids[0] === ids[1] ? 'same' : 'context';
+}
+
+/**
+ * Whether the current base already holds the reviewed change to a path the branch no longer changes (GST-1399): a
+ * three-way merge of reviewedBase -> reviewed into currentBase leaves currentBase's bytes, as when the base absorbed the
+ * child's hunk. A post-review revert to the base's content leaves the reviewed change out of the base, so it is not held,
+ * and a reviewed mode change (executable bit, symlink) is held only when the base has the reviewed mode. A path missing on
+ * any side is not held.
+ */
+export function baseHolds(repoRoot: string, s: PatchSides, rel: string): boolean {
+  const blobs = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => {
+    const r = spawnSync('git', ['cat-file', 'blob', `${ref}:${rel}`], { cwd: repoRoot, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  });
+  if (blobs.some(b => b === null)) return false;
+  const [mc, mb, mr] = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => git(repoRoot, ['ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0]);
+  if (!mc || !mr || (mr !== mb && mr !== mc)) return false;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-'));
+  try {
+    const files = blobs.map((b, i) => { const f = path.join(dir, String(i)); fs.writeFileSync(f, b!); return f; });
+    const merged = spawnSync('git', ['merge-file', '-p', '-q', ...files], { cwd: repoRoot, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    return merged.status === 0 && merged.stdout.equals(blobs[0]!);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function hunkTexts(diff: string): string[] {

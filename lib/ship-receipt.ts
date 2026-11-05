@@ -321,12 +321,50 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
   };
 }
 
+/** How many base commits since the fork heldBy tries after a conflicted base tip, newest first. */
+export const HELD_WALK = 200;
+
+/**
+ * The base commit that holds `commit`'s own change (GST-1199, GST-1399; finish's landed stack parent and landedStackParent): merging `commit` into it changes no path in
+ * `pathspec`. The current base is tried first. When that merge conflicts (the base edited the landed lines afterwards),
+ * the commits on its first-parent history since the fork that touched every path of the change are tried newest first,
+ * so a squash the base later edited is still found. A change with no path of its own is held by no commit (any base
+ * trivially holds it), and a conflict inside `pathspec` is never held (one only in excluded release metadata, like a
+ * train's VERSION restamp, is). Null when none within HELD_WALK holds it or git cannot tell.
+ */
+export function heldBy(repoRoot: string, commit: string, currentBase: string, pathspec: readonly string[]): string | null {
+  const run = (args: string[]) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const fork = run(['merge-base', currentBase, commit]).stdout.trim();
+  const own = fork ? run(['diff', '-z', '--name-only', '--no-renames', fork, commit, '--', ...pathspec]) : null;
+  const paths = own?.status === 0 ? own.stdout.split('\0').filter(Boolean) : [];
+  if (!paths.length) return null;
+  const holds = (at: string): 'held' | 'conflict' | 'no' => {
+    const merged = run(['merge-tree', '--write-tree', '--no-messages', '--name-only', '-z', at, commit]);
+    const [tree, ...conflicted] = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\0').filter(Boolean) : [];
+    const mb = conflicted.length ? run(['merge-base', at, commit]).stdout.trim() : '';
+    const theirs = mb ? run(['diff', '-z', '--name-only', '--no-renames', mb, commit, '--', ...pathspec]) : null;
+    const clean = !conflicted.length || (theirs?.status === 0 && !theirs.stdout.split('\0').some(p => conflicted.includes(p)));
+    if (tree && clean && run(['diff', '--quiet', at, tree, '--', ...pathspec]).status === 0) return 'held';
+    return merged.status === 1 ? 'conflict' : 'no';
+  };
+  const tip = holds(currentBase);
+  if (tip !== 'conflict') return tip === 'held' ? currentBase : null;
+  const log = run(['log', '--first-parent', '-z', '--format=%x01%H', '--name-only', '--no-renames', `--max-count=${HELD_WALK}`, `${fork}..${currentBase}`, '--', ...paths.map(p => `:(top,literal)${p}`)]);
+  if (log.status !== 0) return null;
+  for (const entry of log.stdout.split('\x01').filter(Boolean)) {
+    const [at, ...names] = entry.split(/[\n\0]/).filter(Boolean);
+    if (at && at !== currentBase && paths.every(p => names.includes(p)) && holds(at) === 'held') return at;
+  }
+  return null;
+}
+
 /** How many commits of the reviewed range landedStackParent tries, newest first. */
 export const STACK_PARENT_WALK = 100;
 
 /**
  * The newest commit inside the reviewed range (rangeBase..reviewed, the reviewed head itself excluded) whose product
- * change the current base already holds: merging it into currentBase changes no product path. That is a stack parent
+ * change the current base already holds: merging it into currentBase, or into the base commit that landed it when the
+ * base edited those lines since (heldBy, GST-1399), changes no product path. That is a stack parent
  * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
  * product change of its own (a test-first commit) is no parent, since any base trivially holds it. Null when no
  * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
@@ -337,9 +375,7 @@ export function landedStackParent(repoRoot: string, s: { rangeBase: string; revi
   if (commits.status !== 0) return null;
   for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
     if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
-    const merged = run(['merge-tree', '--write-tree', '--no-messages', s.currentBase, commit]);
-    const tree = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n')[0]?.trim() : undefined;
-    if (tree && run(['diff', '--quiet', s.currentBase, tree, '--', ...product]).status === 0) return commit;
+    if (heldBy(repoRoot, commit, s.currentBase, product)) return commit;
   }
   return null;
 }

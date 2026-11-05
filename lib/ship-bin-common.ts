@@ -102,14 +102,16 @@ export function versionOnlyEdit(cwd: string, ref: string, p: string): boolean {
 /**
  * Release metadata a version stamp and Steps 13-14 write, compared against `ref`: the release commit's paths,
  * never a behavior change. A manifest counts only while its edit is version-only (a dependency, script or
- * lockfile change is a build input); bun.lock never counts.
+ * lockfile change is a build input); bun.lock never counts. `stampOnly` (a landed stack parent's checks, GST-1399)
+ * counts a `stamp_paths` or `release_outputs` file only while its edit is a version stamp, as `stamp_files` are.
  */
-export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string, base: string): string[] {
+export function releasePaths(policy: Record<string, any> | null, cwd: string, ref: string, base: string, stampOnly = false): string[] {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
   const fragment = fragmentPath(policy, cwd);
+  const declared = [...list(policy?.release_outputs), ...list(policy?.stamp_paths)];
   return [...new Set(['VERSION', 'CHANGELOG.md', 'TODOS.md', 'agents-digest/gstack-AGENTS.md', ...VERSIONED_MANIFESTS.filter(p => versionOnlyEdit(cwd, ref, p)),
-    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...list(policy?.release_outputs), ...list(policy?.stamp_paths),
-    ...stampedFiles(policy, cwd, ref, base)])];
+    ...(typeof policy?.changelog === 'string' ? [policy.changelog] : []), ...(fragment ? [fragment] : []), ...(stampOnly ? [] : declared),
+    ...stampedFiles(stampOnly ? { ...policy, stamp_files: [...list(policy?.stamp_files), ...declared] } : policy, cwd, ref, base)])];
 }
 
 /**
