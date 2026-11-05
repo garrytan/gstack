@@ -35,7 +35,15 @@
 # confirmed gone or provably never existed, waiting out a create that may still
 # be in flight. An interrupted `up` or `run` (EXIT, INT, TERM, QUIT, and HUP
 # until a remote phase is live) runs that `down`; further signals are ignored
-# until it finishes. A create refused
+# until it finishes. Teardown is armed only once this call's create request is
+# sent, and disarmed when Ubicloud refuses it (HTTP 4xx, a 409 name collision
+# included), so it never destroys a VM this call did not create. A 5xx or no
+# answer is not a refusal: `up` looks the VM up by name for UBI_CREATE_GRACE
+# seconds, and when that cannot settle it either, it keeps the record and the
+# recovery bundle and exits UBI_CREATE_UNKNOWN. `down` counts a VM as gone only
+# on a readable answer: a failed or unreadable VM list or show is unknown, so
+# down exits non-zero and keeps the recovery bundle. The API key reaches curl
+# as a header file on a pipe, never in its argv. A create refused
 # for vCPU quota prints the project's usage per owner.
 #
 # The owner-age sweep is off by default (the TTL reap below always runs). With UBI_GC_HOURS set to a positive
@@ -225,7 +233,7 @@ api() {
   shift
   code=$(python3 -c 'import json,sys; print(json.dumps({"argv": sys.argv[1:]}))' "$@" \
     | curl -sS -o "$out" -w '%{http_code}' --max-time "$API_TIMEOUT" -X POST \
-        -H "Authorization: Bearer $UBICLOUD_API_KEY" \
+        -H @<(printf 'Authorization: Bearer %s\n' "$UBICLOUD_API_KEY") \
         -H 'Accept: text/plain' -H 'Content-Type: application/json' \
         -H 'X-Ubi-Version: 1.0.0' --data @- "$API/cli") || true
   echo "${code:-000}"
@@ -552,6 +560,8 @@ lease_busy() {
 
 # vm_alive NAME: the recorded VM still answers show. One confirmed gone is
 # cleaned up (state dir and scratch record), so its record is never tried again.
+# Returns 2 when the API gives no answer either way: the caller must not start a
+# second VM beside one that may still be running.
 vm_alive() {
   local n=$1 out code
   ( load "$n"; [ "$CREATED" = yes ] && [ -n "$IP" ] ) 2>/dev/null || return 1
@@ -561,7 +571,7 @@ vm_alive() {
   case $code in
     200) return 0 ;;
     404) log "run record for $n: the VM is gone; starting a new one"; cmd_down "$n" >/dev/null 2>&1 || true; return 1 ;;
-    *) return 1 ;;
+    *) log "run record for $n: could not check the VM (HTTP $code)"; return 2 ;;
   esac
 }
 
@@ -603,7 +613,8 @@ find_record() {
     [ -f "$f" ] || continue
     grep -qx "RUN_KEY=$RUN_KEY" "$f" || continue
     n=$(basename "$(dirname "$f")")
-    if vm_alive "$n"; then echo "$n"; return 0; fi
+    vm_alive "$n" && { echo "$n"; return 0; }
+    [ $? -ne 2 ] || return 2
   done
 }
 
@@ -775,8 +786,13 @@ run_tiers() {
 # did not name; expires is the epoch the name's -t<hours> TTL ends at, or "-";
 # created is the name's epoch, or "-".
 vm_rows() {
-  local loc name owner created expires
-  cli vm list -N -f location,name | while read -r loc name; do
+  local loc name owner created expires list
+  list=$(cli vm list -N -f location,name) || return 1
+  if grep -Evq '^[[:blank:]]*([a-z0-9-]+[[:blank:]]+[a-z0-9-]+)?[[:blank:]]*$' <<<"$list"; then
+    log "the VM list answer is unreadable (a line is not 'location name')"
+    return 1
+  fi
+  while read -r loc name; do
     [ -n "$name" ] || continue
     owner=. created="" expires=-
     if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,11})-([0-9]{10})- ]]; then
@@ -788,7 +804,7 @@ vm_rows() {
       expires=$(( 10#$created + 10#${BASH_REMATCH[1]} * 3600 ))
     fi
     echo "$loc $name $owner $expires ${created:--}"
-  done
+  done <<<"$list"
 }
 
 # reap: destroy the caller's own VMs whose TTL ended more than REAP_GRACE
@@ -823,18 +839,20 @@ cmd_reap() {
 }
 
 cmd_gc() {
-  local hours=${1:-$GC_HOURS} now loc name owner
+  local hours=${1:-$GC_HOURS} now rows loc name owner failed=0
   [[ "$hours" =~ ^[0-9]+$ ]] || die "gc: HOURS must be a whole number (or set UBI_GC_HOURS)"
   if [ "$hours" -eq 0 ]; then log "gc: no sweep (give HOURS > 0 or set UBI_GC_HOURS); nothing listed, nothing destroyed"; return 0; fi
   now=$(date +%s)
-  vm_rows | while read -r loc name owner _; do
+  rows=$(vm_rows) || { log "gc: could not list the project's VMs; nothing destroyed"; return 1; }
+  while read -r loc name owner _; do
     [ "$owner" = "$OWNER" ] || continue
     [[ "$name" =~ -([0-9]{10})- ]] || continue
     if [ $(( (now - BASH_REMATCH[1]) / 3600 )) -ge "$hours" ]; then
       log "destroying stale $loc/$name (owner $OWNER, older than ${hours}h)"
-      cmd_down "$name" -l "$loc" || log "failed to destroy $loc/$name"
+      cmd_down "$name" -l "$loc" || { failed=$(( failed + 1 )); log "failed to destroy $loc/$name"; }
     fi
-  done
+  done <<<"$rows"
+  [ "$failed" -eq 0 ] || { log "gc: $failed stale VMs could not be destroyed"; return 1; }
 }
 
 cmd_list() {
@@ -1296,25 +1314,63 @@ cmd_up() {
   [ -z "$storage" ] || args+=(-S "$storage")
   args+=("$(cat "$dir/key.pub")")
   create_at=$(date +%s)
+  log "creating $location/$name ($size)"
+  # Signals are held from before the create request until its answer is
+  # recorded. Teardown is armed (UP_NAME) only once the request is on its way
+  # and disarmed when Ubicloud refuses it (HTTP 4xx): a refused create made
+  # nothing, and a VM that answers to the name (a 409) is not this call's.
+  local interrupted="" created code err refusal need used max
+  trap 'interrupted=1' INT TERM HUP QUIT
   write_state "$name" "$location" "$size" "" unknown "$create_at"
   bundle_save "$name"
   record_vm "$name" "$location"
   UP_NAME=$name
-  log "creating $location/$name ($size)"
-  # Hold signals until the create answer is recorded, so teardown knows
-  # whether the VM exists instead of waiting out UBI_CREATE_GRACE.
-  local interrupted="" created=yes refusal need used max
-  trap 'interrupted=1' INT TERM HUP QUIT
-  cli "${args[@]}" >/dev/null 2>"$dir/create.err" || created=no
-  write_state "$name" "$location" "$size" "" "$created" "$create_at"
-  [ "$created" = no ] || bundle_save "$name"
+  code=$(api "$dir/create.err" "${args[@]}")
+  case $code in
+    200) created=yes ;;
+    4[0-9][0-9]) created=no ;;
+    *) created=unknown ;;
+  esac
+  if [ "$created" = no ]; then
+    UP_NAME=""
+    err=$(cat "$dir/create.err")
+    rm -rf "$dir"
+    forget_vm "$name"
+    [ -z "$RECOVERY_DIR" ] || rm -f "$RECOVERY_DIR/$OWNER/$name.bundle"
+  else
+    write_state "$name" "$location" "$size" "" "$created" "$create_at"
+    [ "$created" = unknown ] || bundle_save "$name"
+  fi
   trap 'exit 130' INT TERM HUP QUIT
   [ -z "$interrupted" ] || exit 130
+  if [ "$created" = unknown ]; then
+    # A 5xx or no answer (000) is not a refusal: the VM may exist. Look it up
+    # by name until it shows or UBI_CREATE_GRACE has passed.
+    log "create of $location/$name answered HTTP $code; looking it up by name before deciding"
+    local seen_code
+    while :; do
+      seen_code=$(api "$dir/lookup.out" vm "$location/$name" show)
+      [ "$seen_code" != 200 ] || break
+      [ $(( $(date +%s) - create_at )) -lt "$CREATE_GRACE" ] || break
+      sleep "$POLL"
+    done
+    rm -f "$dir/lookup.out"
+    case $seen_code in
+      200) created=yes ;;
+      404) created=no ;;
+    esac
+    write_state "$name" "$location" "$size" "" "$created" "$create_at"
+    case $created in
+      yes) bundle_save "$name"; log "create of $location/$name went through; continuing" ;;
+      no) cat "$dir/create.err" >&2; die "create failed (HTTP $code): $location/$name was still absent ${CREATE_GRACE}s after the request" ;;
+      unknown) die "UBI_CREATE_UNKNOWN: could not tell whether $location/$name exists (create answered HTTP $code, its lookup HTTP $seen_code); its record and recovery bundle stay, teardown destroys it if it shows up, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 down $name" ;;
+    esac
+  fi
   if [ "$created" = no ]; then
-    refusal=$(sed -n 's/.*Requested vCPU count: \([0-9]*\), currently used vCPU count: \([0-9]*\), maximum allowed vCPU count: \([0-9]*\).*/\1 \2 \3/p' "$dir/create.err")
+    refusal=$(sed -n 's/.*Requested vCPU count: \([0-9]*\), currently used vCPU count: \([0-9]*\), maximum allowed vCPU count: \([0-9]*\).*/\1 \2 \3/p' <<<"$err")
     if [ -z "$refusal" ]; then
-      cat "$dir/create.err" >&2
-      die "create failed"
+      printf '%s\n' "$err" >&2
+      die "create failed (HTTP $code); nothing was created"
     fi
     read -r need used max <<<"$refusal"
     echo "$max" >"$STATE_ROOT/quota-max"
@@ -1380,14 +1436,20 @@ cmd_down() {
     fi
   fi
 
-  local deadline=$(( $(date +%s) + DOWN_TIMEOUT )) seen=0 asked=0 out code now
+  local deadline=$(( $(date +%s) + DOWN_TIMEOUT )) seen=0 asked=0 out code now rows unlisted=0
   out=$(mktemp)
   while :; do
     now=$(date +%s)
     if [ -z "$loc" ]; then
-      loc=$(vm_rows 2>/dev/null | awk -v n="$name" '$2==n {print $1}') || loc=""
-      code=404
-      [ -z "$loc" ] || code=$(api "$out" vm "$loc/$name" show)
+      if rows=$(vm_rows 2>/dev/null); then
+        loc=$(awk -v n="$name" '$2==n {print $1}' <<<"$rows")
+        code=404
+        [ -z "$loc" ] || code=$(api "$out" vm "$loc/$name" show)
+      else
+        code=unlisted
+        [ "$unlisted" = 1 ] || log "could not read the project's VM list; $name is not counted as gone"
+        unlisted=1
+      fi
     else
       code=$(api "$out" vm "$loc/$name" show)
     fi
@@ -1541,12 +1603,14 @@ cmd_sync() {
 # Relative remote paths start at /home/ubi. A glob that matches nothing (for
 # example an optional flake ledger) is reported and skipped, not a failure.
 cmd_pull() {
-  local name=$1 from=$2 to=$3 dir
+  local name=$1 from=$2 to=$3 dir rc=0
   dir=$(printf %q "$(dirname "$from")")
-  if ! remote "$name" "cd $dir 2>/dev/null && ls -d -- $(basename "$from") >/dev/null 2>&1"; then
-    log "pull: nothing matches $from"
-    return 0
-  fi
+  remote "$name" "cd $dir 2>/dev/null || exit 3; ls -d -- $(basename "$from") >/dev/null 2>&1 || exit 3" || rc=$?
+  case $rc in
+    0) ;;
+    3) log "pull: nothing matches $from"; return 0 ;;
+    *) log "pull failed: could not check $from on $name (exit $rc)"; return 1 ;;
+  esac
   mkdir -p "$to"
   remote "$name" "cd $dir && tar -czf - $(basename "$from")" | tar -xzf - -C "$to"
 }
@@ -1602,13 +1666,14 @@ PULL_ROOT=""
 run_teardown() {
   local rc=$1 rows left others
   trap "" INT TERM HUP QUIT
-  cmd_down "$RUN_VM" || log "WARNING: failed to destroy $RUN_VM; run: $0 down $RUN_VM"
+  [ -z "$UP_NAME" ] || cmd_down "$RUN_VM" || log "WARNING: failed to destroy $RUN_VM; run: $0 down $RUN_VM"
   if rows=$(vm_rows 2>/dev/null); then
     left=$(awk -v n="$RUN_VM" '$2==n' <<<"$rows" | grep -c . || true)
     others=$(awk -v n="$RUN_VM" -v o="$OWNER" '$3==o && $2!=n' <<<"$rows" | grep -c . || true)
   else
     left=unknown others=unknown
   fi
+  [ -n "$UP_NAME" ] || left=0
   leftover "left=$left owner=$OWNER vm=$RUN_VM others=$others"
   if [ "$left" = 0 ]; then
     [[ "$SINK_FLUSH_FAILED" != *" $RUN_VM "* ]] || [ "$rc" -ne 0 ] || exit 1
@@ -1691,10 +1756,10 @@ cmd_run() {
 
   local attach=""
   if [ -n "$FORCE_ATTACH" ]; then
-    vm_alive "$FORCE_ATTACH" || die "attach: $FORCE_ATTACH no longer exists; rerun the original command to start fresh"
+    vm_alive "$FORCE_ATTACH" || { [ $? -ne 2 ] || die "UBI_ATTACH_UNKNOWN: could not check whether $FORCE_ATTACH still exists; nothing created, rerun"; die "attach: $FORCE_ATTACH no longer exists; rerun the original command to start fresh"; }
     attach=$FORCE_ATTACH
   else
-    attach=$(find_record)
+    attach=$(find_record) || die "UBI_ATTACH_UNKNOWN: a run record for this key names a VM the Ubicloud API could not check; nothing created (a new VM would leave that one billing), rerun"
   fi
   if [ "$probe" = 1 ]; then
     if [ -z "$attach" ]; then echo "UBI_ATTACH_INFO: none key=${RUN_KEY:0:12}"
@@ -1750,6 +1815,7 @@ cmd_run() {
   trap 'exit 130' INT TERM QUIT
   trap on_hup HUP
   if [ -n "$attach" ]; then
+    UP_NAME=$name
     load "$name"
     log "reattached to $name created_at=$CREATE_AT key=${RUN_KEY:0:12}"
     if [ -n "$sink" ]; then
@@ -1821,7 +1887,7 @@ cmd_run() {
       [ "$rc" -ne 0 ] || rc=1
       continue
     fi
-    cmd_pull "$name" "${p%%:*}" "${p#*:}" || log "pull failed: $p"
+    cmd_pull "$name" "${p%%:*}" "${p#*:}" || { log "pull failed: $p"; [ "$rc" -ne 0 ] || rc=1; }
   done
   [ ${#TIER_NAMES[@]} -eq 0 ] || verify_line
   return "$rc"

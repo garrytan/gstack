@@ -314,3 +314,110 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(await a.exited).toBe(0);
   }, 90_000);
 });
+
+describe('ubi-runner money path: an API error is never read as success (GST-1441)', () => {
+  const rd = (f: FakeVm) => join(f.root, 'rd');
+  const bundle = (f: FakeVm, name: string) => join(rd(f), 'thrd1', name + '.bundle');
+  const recorded = (f: FakeVm, name: string) => existsSync(f.record) && readFileSync(f.record, 'utf8').includes(name);
+  const flag = (f: FakeVm, file: string, body = '') => writeFileSync(join(f.root, 'listed.' + file), body);
+  const NAME = 'ubirun-thrd1-1000000000-aaaaaaaa-t3';
+
+  // Value: protects=a refused create never arms teardown, so up and run never destroy a VM another caller owns under the same name; fails_when=teardown runs down on a name whose create Ubicloud refused (409); why_new=every fake create succeeded or answered the quota 400 on a name nobody held; seam=none; no_claim=the real API's 409 body
+  test('a refused create (409, the name is taken) disarms teardown: the VM holding the name is never destroyed', () => {
+    const f = make();
+    writeFileSync(join(f.root, 'listed'), 'eu-central-h1 ' + NAME + '\n');
+    flag(f, 'create-status', '409');
+    const repo = gitSrc(f);
+    for (const args of [['up', '-n', NAME, '-l', 'eu-central-h1'], ['run', '-n', NAME, '-l', 'eu-central-h1', '--src', repo, '--', 'true']]) {
+      const r = run(f, args, { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0' });
+      expect(r.exitCode, out(r)).not.toBe(0);
+      expect(out(r)).toContain('create failed (HTTP 409); nothing was created');
+      expect(f.calls()).not.toContain('"destroy"');
+      expect(f.listed()).toContain(NAME);
+      expect(existsSync(join(f.state, NAME))).toBe(false);
+      expect(recorded(f, NAME)).toBe(false);
+      expect(existsSync(bundle(f, NAME))).toBe(false);
+      if (args[0] === 'run') expect(out(r)).toContain('UBICLOUD: left=0 owner=thrd1 vm=' + NAME);
+    }
+  }, 60_000);
+
+  // Value: protects=down settles a VM as gone only on a readable list, so a caller settling a reserve on down's exit never leaves a live VM billing; fails_when=a failed or unreadable list counts as gone again and the bundle is deleted; why_new=down was only tested with a working list; seam=none; no_claim=the real API's error bodies
+  test('down with no local state: a failed or unreadable VM list is unknown, never gone; exit non-zero and the bundle stays', () => {
+    const f = make();
+    writeFileSync(join(f.root, 'listed'), 'eu-central-h1 ' + NAME + '\n');
+    mkdirSync(join(rd(f), 'thrd1'), { recursive: true });
+    writeFileSync(bundle(f, NAME), 'sealed');
+    for (const [file, body] of [['list-fails', ''], ['list-body', '<html>upstream error</html>\n']]) {
+      flag(f, file, body);
+      const r = run(f, ['down', NAME], { UBI_RECOVERY_DIR: rd(f), UBI_DOWN_TIMEOUT: '2' });
+      expect(r.exitCode, out(r)).not.toBe(0);
+      expect(out(r)).not.toContain('gone: ');
+      expect(existsSync(bundle(f, NAME))).toBe(true);
+      expect(f.listed()).toContain(NAME);
+      rmSync(join(f.root, 'listed.' + file));
+    }
+    const ok = run(f, ['down', NAME], { UBI_RECOVERY_DIR: rd(f) });
+    expect(ok.exitCode, out(ok)).toBe(0);
+    expect(existsSync(bundle(f, NAME))).toBe(false);
+  }, 60_000);
+
+  // Value: protects=a 5xx or timed-out create is looked up by name, so a VM Ubicloud created anyway is adopted instead of orphaned until its TTL; fails_when=a 502/503/000 create is treated as a refusal and the first 404 settles it as gone; why_new=no fake create ever failed and landed; seam=none; no_claim=how late a real 5xx create appears
+  test('a 5xx or unanswered create that lands anyway is found by name and adopted, not orphaned', () => {
+    for (const status of ['503', '000']) {
+      const f = make();
+      flag(f, 'create-status', status);
+      flag(f, 'create-lands', '2');
+      const r = run(f, ['up'], { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0', UBI_CREATE_GRACE: '20' });
+      expect(r.exitCode, out(r)).toBe(0);
+      const name = r.stdout.toString().trim();
+      expect(out(r)).toContain('answered HTTP ' + status + '; looking it up by name');
+      expect(f.listed()).toContain(name);
+      expect(recorded(f, name)).toBe(true);
+      expect(existsSync(bundle(f, name))).toBe(true);
+      expect(readFileSync(join(f.state, name, 'env'), 'utf8')).toContain('CREATED=yes');
+    }
+  }, 60_000);
+
+  // Value: protects=a create nobody can confirm either way keeps its record and bundle for the reaper and recovery; fails_when=an unconfirmable 5xx create is settled as refused and its bundle dropped; why_new=no fake create ever failed; seam=none; no_claim=real outage shapes
+  test('a 5xx create the lookup cannot settle is UBI_CREATE_UNKNOWN: record and bundle kept, exit non-zero, nothing destroyed', () => {
+    const f = make();
+    flag(f, 'create-status', '502');
+    flag(f, 'show-fails');
+    const r = run(f, ['up'], { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0', UBI_CREATE_GRACE: '2', UBI_DOWN_TIMEOUT: '2' });
+    expect(r.exitCode, out(r)).not.toBe(0);
+    expect(out(r)).toContain('UBI_CREATE_UNKNOWN');
+    const name = vmDirs(f)[0]!;
+    expect(readFileSync(join(f.state, name, 'env'), 'utf8')).toContain('CREATED=unknown');
+    expect(recorded(f, name)).toBe(true);
+    expect(existsSync(bundle(f, name))).toBe(true);
+    expect(f.calls()).not.toContain('"destroy"');
+  }, 60_000);
+
+  // Value: protects=gc reports a stale VM it could not destroy; fails_when=gc exits 0 after a failed destroy; why_new=gc's destroy failure was only logged; seam=none; no_claim=real destroy failures
+  test('gc exits non-zero when a stale VM of this owner could not be destroyed', () => {
+    const f = make();
+    writeFileSync(join(f.root, 'listed'), 'eu-central-h1 ' + NAME + '\n');
+    flag(f, 'destroy-fails');
+    const r = run(f, ['gc', '1'], { UBI_DOWN_TIMEOUT: '2' });
+    expect(r.exitCode, out(r)).not.toBe(0);
+    expect(out(r)).toContain('gc: 1 stale VMs could not be destroyed');
+  }, 60_000);
+
+  // Value: protects=a run record whose VM the API cannot check is never abandoned for a second VM; fails_when=an unanswered show reads as "VM gone" and run creates another VM beside the live one; why_new=reattach was only tested with a working show; seam=none; no_claim=real API outages
+  test('run: a recorded VM the API cannot check refuses with UBI_ATTACH_UNKNOWN instead of creating a second VM', async () => {
+    const f = make();
+    const repo = gitSrc(f);
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 3\n');
+    const args = ['run', '--src', repo, '--', 'make test'];
+    const a = f.spawn(args, { UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    process.kill(a.pid, 'SIGKILL');
+    await a.exited;
+    flag(f, 'show-fails');
+    const b = run(f, args, { UBI_REAP: '0' });
+    expect(b.exitCode, out(b)).not.toBe(0);
+    expect(out(b)).toContain('UBI_ATTACH_UNKNOWN');
+    expect(creates(f)).toBe(1);
+  }, 90_000);
+});
+
