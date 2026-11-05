@@ -36,6 +36,8 @@ import {
 } from './ship-queue-train-record';
 
 export const RELEASE_TRIAL_RESERVATION_USD = 1.5;
+/** A bisect case runs one trial and, on a VERDICT failure, its one rule-16 rerun (scripts/train-gate.ts runBisectPrefix). */
+export const RELEASE_TRIALS_PER_CASE = 2;
 /** The gate plus the one re-dispatch EVAL_POLICY.infraRedispatch allows an incomplete census. */
 export const MAX_RELEASE_ATTEMPTS = 2;
 /** Cron start jitter the cadence forgives. */
@@ -296,7 +298,7 @@ export function runGate(env: GateEnv, o: RunOptions): GateOut {
 }
 
 function finishRed(env: GateEnv, c: Context, rec: ReleaseRecord, lines: string[], out: (a: GateAction, s: string | null) => GateOut): GateOut {
-  bisectRecord(env, c, rec, { spendCap: c.gate.bisect_spend_cap_usd, dryRun: false }, lines);
+  bisectRecord(env, c, rec, { dryRun: false }, lines);
   lines.push(`RELEASE: red sha=${rec.sha} first_bad=${rec.bisect?.first_bad ?? 'unknown'} run=${rec.run?.id ?? '-'}`,
     `RELEASE: hold: scripts/release-cut.ts refuses to move ${c.gate.stable_ref} until a gate on a later commit is green (red: ${rec.red_cases.join(', ')}); land the revert or the fix-forward`);
   return out('held', rec.sha);
@@ -304,17 +306,19 @@ function finishRed(env: GateEnv, c: Context, rec: ReleaseRecord, lines: string[]
 
 /**
  * Collect a bisect round's prefix records into its results. Each case on each prefix adds its reported cost to the spend, or
- * RELEASE_TRIAL_RESERVATION_USD when the cost is null or the prefix record is missing, so the cap holds across rounds.
+ * RELEASE_TRIAL_RESERVATION_USD for each trial it ran when the cost is null: two for a VERDICT failure or a flaky pass (the
+ * rule-16 rerun), one otherwise, and two when the prefix record is missing, so the cap holds across rounds.
  */
 function collectRound(env: GateEnv, b: ReleaseBisect, round: ReleaseBisectRound, run: Run): void {
   for (const p of round.prefixes) {
     const text = artifactFile(env, run.id, `${RELEASE_BISECT_ARTIFACT}-bisect-${p.sha.slice(0, 12)}`, 'bisect-prefix.json');
-    let rec: { kind?: string; nonce?: string; prefix_sha?: string; checked_out_sha?: string; panels?: Array<{ case: string; status: string; red_class: string | null; cost_usd: number | null }> } | null = null;
+    let rec: { kind?: string; nonce?: string; prefix_sha?: string; checked_out_sha?: string; panels?: Array<{ case: string; status: string; red_class: string | null; cost_usd: number | null; flaky?: unknown }> } | null = null;
     try { rec = text ? JSON.parse(text) : null; } catch { rec = null; }
     const valid = rec && rec.kind === 'train-bisect-prefix' && rec.nonce === round.nonce && rec.prefix_sha === p.sha && rec.checked_out_sha === p.sha && Array.isArray(rec.panels);
     for (const c of b.cases) {
       const panel = valid ? rec!.panels!.find(x => x.case === c) : undefined;
-      b.spent_usd = Math.round((b.spent_usd + (typeof panel?.cost_usd === 'number' ? panel.cost_usd : RELEASE_TRIAL_RESERVATION_USD)) * 100) / 100;
+      const trials = !panel || panel.flaky || (panel.status === 'FAIL' && panel.red_class === 'VERDICT') ? RELEASE_TRIALS_PER_CASE : 1;
+      b.spent_usd = Math.round((b.spent_usd + (typeof panel?.cost_usd === 'number' ? panel.cost_usd : trials * RELEASE_TRIAL_RESERVATION_USD)) * 100) / 100;
       if (!panel) continue;
       if (panel.status === 'PASS') p.results[panel.case] = 'green';
       else if (panel.status === 'FAIL' && panel.red_class === 'VERDICT') p.results[panel.case] = 'red';
@@ -326,13 +330,17 @@ function collectRound(env: GateEnv, b: ReleaseBisect, round: ReleaseBisectRound,
  * Bisect a red record (resumable): finish a round still running, then narrow
  * (good, bad] with up to MAX_PREFIXES commits a round until they are adjacent,
  * the pattern is not monotone, the cap is spent, or MAX_BISECT_ROUNDS pass.
+ * Without o.spendCap the bisect runs under the policy's current cap (stored as spend_cap), so lowering the policy stops further
+ * rounds and raising it lets `bisect` resume; a one-off `bisect --spend-cap` (o.spendCap) applies to that invocation only and is never stored.
  */
-export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { spendCap: number; dryRun: boolean }, lines: string[]): void {
-  const b: ReleaseBisect = rec.bisect ?? { cases: rec.red_cases, good: rec.since, bad: rec.sha, first_bad: null, spend_cap: o.spendCap, spent_usd: 0, state: 'running', detail: '', rounds: [] };
-  b.spend_cap = Math.max(b.spend_cap, o.spendCap);
+export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { spendCap?: number; dryRun: boolean }, lines: string[]): void {
+  const policyCap = c.gate.bisect_spend_cap_usd;
+  const b: ReleaseBisect = rec.bisect ?? { cases: rec.red_cases, good: rec.since, bad: rec.sha, first_bad: null, spend_cap: policyCap, spent_usd: 0, state: 'running', detail: '', rounds: [] };
+  b.spend_cap = policyCap;
+  const cap = o.spendCap ?? policyCap;
   const stop = (state: ReleaseBisect['state'], detail: string) => { Object.assign(b, { state, detail }); };
   if (!o.dryRun) rec.bisect = b;
-  if (b.state === 'running' && o.spendCap <= 0 && !b.rounds.length) stop('unknown', 'bisect_spend_cap_usd is 0: no bisect');
+  if (b.state === 'running' && cap <= 0 && !b.rounds.length) stop('unknown', 'bisect_spend_cap_usd is 0: no bisect');
   else if (b.state === 'running' && (!b.cases.length || b.cases.length > MAX_BISECT_CASES || b.cases.some(id => !CASE_ID.test(id)))) stop('unknown', `the red cases cannot be bisected (${b.cases.length} case ids, at most ${MAX_BISECT_CASES})`);
   else if (b.state === 'running' && !b.good) stop('unknown', 'no green gate and no stable branch before the red commit to bisect from');
   while (b.state === 'running') {
@@ -355,10 +363,10 @@ export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { 
     interior.pop();
     if (!interior.length) { b.first_bad = b.bad; stop('found', `${short(b.bad)} is the first red commit after green ${short(b.good)}`); break; }
     if (b.rounds.length >= MAX_BISECT_ROUNDS) { stop('unknown', `${MAX_BISECT_ROUNDS} rounds left ${interior.length} commit(s) between ${short(b.good)} and ${short(b.bad)}`); break; }
-    const perPrefix = b.cases.length * RELEASE_TRIAL_RESERVATION_USD;
-    const fits = Math.floor((b.spend_cap - b.spent_usd + 1e-9) / perPrefix);
+    const perPrefix = b.cases.length * RELEASE_TRIALS_PER_CASE * RELEASE_TRIAL_RESERVATION_USD;
+    const fits = Math.max(0, Math.floor((cap - b.spent_usd + 1e-9) / perPrefix));
     const prefixes = planPrefixes(interior, Math.min(MAX_PREFIXES, fits));
-    if (!prefixes.length) { stop('capped', `the next round needs $${perPrefix.toFixed(2)} a prefix; $${(b.spend_cap - b.spent_usd).toFixed(2)} of the $${b.spend_cap.toFixed(2)} cap is left`); break; }
+    if (!prefixes.length) { stop('capped', `the next round needs $${perPrefix.toFixed(2)} a prefix; $${Math.max(0, cap - b.spent_usd).toFixed(2)} of the $${cap.toFixed(2)} cap is left`); break; }
     lines.push(`RELEASE: bisect round ${b.rounds.length + 1}: ${b.cases.length} case(s) on ${prefixes.length} of ${interior.length} commit(s) between ${short(b.good)} and ${short(b.bad)}, $${(perPrefix * prefixes.length).toFixed(2)} reserved`);
     if (o.dryRun) { lines.push('RELEASE: dry run: nothing dispatched'); return; }
     const nonce = makeNonce('gate', b.bad, b.good!, env.random(), { purpose: 'bisect' });
@@ -372,7 +380,7 @@ export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { 
     }) : `git push ${ref} failed: ${pushed.out.slice(0, 120)}`;
     if (failed) { round.run = { id: -1, url: '' }; env.git(['push', '-q', env.remote, '--delete', `refs/heads/${ref}`]); stop('unknown', `round ${b.rounds.length} dispatch failed: ${failed}`); }
   }
-  lines.push(`RELEASE: bisect ${b.state}: ${b.detail} (spent $${b.spent_usd.toFixed(2)} of $${b.spend_cap.toFixed(2)})`);
+  lines.push(`RELEASE: bisect ${b.state}: ${b.detail} (spent $${b.spent_usd.toFixed(2)} of $${cap.toFixed(2)})`);
   if (!o.dryRun) save(env, rec, lines);
 }
 
@@ -385,8 +393,8 @@ export function bisectGate(env: GateEnv, o: { gate: ReleaseGatePolicy | null; la
   const rec = o.sha ? c.records.find(r => r.sha === o.sha) : c.records.find(r => r.verdict === 'RED');
   if (!rec || rec.verdict !== 'RED') { lines.push(`RELEASE: no red release record${o.sha ? ` at ${o.sha}` : ''} to bisect`); return { action: 'failed', sha: o.sha ?? null, lines }; }
   ensureHistory(env, o.gate, rec.sha);
-  if (rec.bisect?.state === 'capped' && (o.spendCap ?? 0) > rec.bisect.spend_cap) rec.bisect.state = 'running';
-  bisectRecord(env, c, rec, { spendCap: o.spendCap ?? o.gate.bisect_spend_cap_usd, dryRun: o.dryRun }, lines);
+  if (rec.bisect?.state === 'capped' && (o.spendCap ?? o.gate.bisect_spend_cap_usd) > rec.bisect.spent_usd) rec.bisect.state = 'running';
+  bisectRecord(env, c, rec, { spendCap: o.spendCap, dryRun: o.dryRun }, lines);
   lines.push(`RELEASE: red sha=${rec.sha} first_bad=${rec.bisect?.first_bad ?? 'unknown'} run=${rec.run?.id ?? '-'}`);
   return { action: o.dryRun ? 'dry-run' : 'held', sha: rec.sha, lines };
 }

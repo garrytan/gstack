@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { LAND_KEY_VERSION, MERGE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { LAND_KEY_VERSION, MERGE_KEY_VERSION, RELEASE_GATE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { persist, repoIdentity } from '../lib/ship-queue-train-record';
@@ -849,6 +849,18 @@ function backstopOn(fx: Fx, gate: 'success' | 'failure' | 'cancelled', run: numb
 const DIRECT_TRAIN = { ...POLICY, train: TRAIN_BLOCK };
 
 describe('land --pin --repair: the one way through a backstop freeze under merge: direct (GST-1354)', () => {
+  test('GST-1133: with release_gate on the base the backstop stands down, so a backstop freeze left from before adoption warns instead of refusing: a plain land merges and the record is left as it was', () => {
+    const fx = setup({ ...DIRECT_TRAIN, release_gate: { cadence_hours: 8, gate_workflow: 'evals.yml', branch: 'main', stable_ref: 'stable', check_name: 'main-backstop', on_red: 'hold-release', bisect_spend_cap_usd: 40 }, min_gstack_version: RELEASE_GATE_KEY_VERSION });
+    freezeMain(fx);
+    const pin = openPr(fx, '7');
+    const r = land(fx, '7', pin);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toMatch(/^FREEZE: warn only: train backstop froze main \(backstop red on main [0-9a-f]{12}: .*\); the base policy declares release_gate/m);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin]);
+    expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: null, cleared_at: null });
+  }, 90_000);
+
   test('a freeze refuses a plain land and names --repair; --repair with no freeze refuses; nothing merges', () => {
     const fx = setup();
     const pin8 = openPr(fx, '8');

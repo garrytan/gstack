@@ -23,5 +23,6 @@
       "bun run scripts/test-free-shards.ts --files-from test/land-merged-checks.txt --wall-timeout 600"
     ]
   },
+  "release_gate": { "cadence_hours": 8, "gate_workflow": "evals.yml", "branch": "main", "stable_ref": "stable", "check_name": "main-backstop", "on_red": "hold-release", "bisect_spend_cap_usd": 80 },
   "min_gstack_version": "1.96.0.0"
 }

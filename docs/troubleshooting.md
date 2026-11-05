@@ -5738,6 +5738,7 @@ normal pin check, then records the repair on the freeze under the land lock
 (`REPAIR: #<n>@<sha> admitted under the land lock`) and lands it; the freeze
 stays active. The next main backstop clears it when its gate is green on that
 main (`BACKSTOP: freeze cleared (repair #<n>; backstop <run> green on <sha>)`).
+Once main's policy declares `release_gate`, the backstop stands down: `land --pin` only warns (`FREEZE: warn only:`) about a backstop freeze left from before and lands, and `release-cut` lets that freeze go once a green release gate sits on a commit that contains the freeze's main ([release_gate](ship-policy.md#direct-freeze)).
 A second `--repair` is refused while the admitted one has merged at its
 recorded pin and no backstop has judged it; one that never merged there gives
 way. See

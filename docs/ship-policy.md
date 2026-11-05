@@ -67,6 +67,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
 | `land` | `{ merged_checks }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. Read from the base revision only. Needs `min_gstack_version`. |
+| `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
 | `bookkeeping` | glob list | `[]` | <a id="bookkeeping"></a>Root-anchored globs of bookkeeping tables a verify or ratchet step rewrites (size baselines, serial lists, limits), each ending in `.tsv`, `.csv` or `.txt` and never under `.gstack/` or `.github/` (`["scripts/*-baseline.tsv"]`). A matching file changed at most 20 lines after review binds, first touched or not, takes finish's [one scoped reader](review-policy.md#bounded-post-review-edits) instead of Steps 5–11.5; the reader still reads every changed row. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
@@ -1151,7 +1152,13 @@ block, with `min_gstack_version` at least the release that introduced the key
 Every field is required. `cadence_hours` runs from 8 (the workflow's
 schedule) to 168. `check_name` is the check run release-cut reads as gated,
 so gstack keeps `main-backstop`. `bisect_spend_cap_usd` caps one red gate's
-bisect (0 skips it).
+bisect (0 skips it). Each case reserves two trials on every prefix, one trial
+and its one rule-16 rerun, and books the trials it ran at $1.50 each, since
+prefix records carry no cost. So the cap bounds trials at that price, not
+the bill: trials that cost more can carry a bisect past it. A running bisect
+follows the policy's cap (lowering it to 0 stops it, and `bisect` resumes a
+capped one once the cap exceeds what it spent); `bisect --spend-cap` applies
+to that one run only.
 
 **What runs.** `.github/workflows/release-gate.yml` fires every 8 hours and
 on a manual dispatch from main. Without the block it stops after a git-and-jq
@@ -2099,7 +2106,7 @@ release-file rows):
 | the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
 | the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
 | a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
-| no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
+| no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; a backstop freeze left from before `release_gate` only warns; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
@@ -2167,7 +2174,12 @@ While main's policy keeps a `train` block, the main backstop gates every push
 to main, and a red gate writes a freeze record (`train backstop`) to
 `refs/notes/gstack-trains`. `land --pin` and `release-cut` refuse while it is
 active (`QUEUE_TRAIN_FROZEN`), and `train build --repair` is off with the
-trains. So the repair goes through land:
+trains. Once main's policy declares [`release_gate`](#release-gate) the
+backstop stands down and writes no freeze, so `land --pin` prints a
+`FREEZE: warn only:` line for a backstop freeze left from before and lands;
+a train's freeze still refuses. `release-cut` keeps refusing on that freeze
+until a green release gate sits on a commit that contains its main
+(`gstack-release-gate run --ignore-cadence` runs one now). Otherwise the repair goes through land:
 
 1. `gstack-ship-queue land --pr <n> --pin <sha> --repair` admits exactly one PR.
    It runs every check in the table above. Then, under the land lock and after

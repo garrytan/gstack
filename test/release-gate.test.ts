@@ -13,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import {
-  MAX_RELEASE_ATTEMPTS, OPEN_GATE_CADENCES, activeHold, bisectGate, classifyRun, gateStatus, loadReleaseGate, narrow, parseReport, planPrefixes, releaseRecords, runGate,
+  MAX_RELEASE_ATTEMPTS, OPEN_GATE_CADENCES, RELEASE_TRIAL_RESERVATION_USD, activeHold, bisectGate, classifyRun, gateStatus, loadReleaseGate, narrow, parseReport, planPrefixes, releaseRecords, runGate,
   type GateEnv, type Run,
 } from '../lib/release-gate';
 import { RELEASE_GATE_SCHEDULE_HOURS, releaseGateErrors, type ReleaseGatePolicy } from '../lib/release-gate-policy';
@@ -310,7 +310,7 @@ describe('release gate: red, bisect and the hold', () => {
     const g = fixture();
     const fake2 = fakeGh((inputs) => (inputs.prefix_shas ? { conclusion: 'success', artifacts: {} } : { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT', 'case-b  judge  FAIL']) }));
     const capped = runGate(envFor(g, fake2.gh), { gate: { ...GATE, bisect_spend_cap_usd: 2 }, label: 'test', dryRun: false, ignoreCadence: true });
-    expect(capped.lines.some(l => l.includes('bisect capped: the next round needs $3.00 a prefix'))).toBe(true);
+    expect(capped.lines.some(l => l.includes('bisect capped: the next round needs $6.00 a prefix'))).toBe(true);
     expect(fake2.dispatches).toHaveLength(1);
     const plan = bisectGate(envFor(g, fake2.gh), { gate: GATE, label: 'test', spendCap: 30, dryRun: true });
     expect(plan.lines.some(l => l.startsWith('RELEASE: bisect round 1: 2 case(s) on 4 of 4 commit(s)'))).toBe(true);
@@ -339,10 +339,91 @@ describe('release gate: the bisect cap with unknown costs', () => {
     const out = runGate(envFor(f, fake.gh), { gate: { ...GATE, bisect_spend_cap_usd: 4 }, label: 'test', dryRun: false, ignoreCadence: true });
     expect(out.action, out.lines.join('\n')).toBe('held');
     const bisect = records(f)[0]!.bisect!;
-    expect(bisect).toMatchObject({ state: 'capped', spent_usd: 3 });
+    expect(bisect).toMatchObject({ state: 'capped', spent_usd: 1.5 });
     expect(bisect.spent_usd).toBeLessThanOrEqual(4);
     expect(fake.dispatches).toHaveLength(2);
-    expect(fake.dispatches[1]!.inputs.prefix_shas!.split(',')).toHaveLength(2);
+    expect(fake.dispatches[1]!.inputs.prefix_shas!.split(',')).toHaveLength(1);
+  });
+  // Value: protects=a red prefix runs its case twice (one trial plus its one rule-16 rerun in scripts/train-gate.ts runBisectPrefix),
+  // so each prefix reserves both trials and books the trials it ran, and the bisect ends capped at or under its dollar cap;
+  // fails_when=a round reserves one trial a prefix, dispatches more prefixes than the cap pays for once they rerun, and books
+  // half of what ran; why_new=GSTA-36 condition before adoption (l1 fix-check open note); seam=fake gh; no_claim=real case prices
+  test('a red case and its rule-16 rerun count against the cap: the bisect ends capped at or under bisect_spend_cap_usd', () => {
+    const f = fixture();
+    [6, 7, 8, 9, 10, 11, 12].forEach(i => f.commit('c' + i));
+    const fake = fakeGh((inputs) => {
+      if (!inputs.prefix_shas) return { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) };
+      const files: Record<string, Record<string, string>> = {};
+      for (const sha of inputs.prefix_shas.split(',')) {
+        files['gstack-release-record-bisect-' + sha.slice(0, 12)] = { 'bisect-prefix.json': JSON.stringify({ schema: 1, kind: 'train-bisect-prefix', nonce: inputs.nonce, prefix_sha: sha, checked_out_sha: sha,
+          panels: [{ case: 'case-a', kind: 'rule', status: 'FAIL', red_class: 'VERDICT', cost_usd: null }] }) };
+      }
+      return { conclusion: 'success', artifacts: files };
+    });
+    const cap = 4;
+    const out = runGate(envFor(f, fake.gh), { gate: { ...GATE, bisect_spend_cap_usd: cap }, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(out.action, out.lines.join('\n')).toBe('held');
+    const bisect = records(f)[0]!.bisect!;
+    const prefixesRun = fake.dispatches.slice(1).reduce((n, d) => n + d.inputs.prefix_shas!.split(',').length, 0);
+    const trialsRun = prefixesRun * 2;
+    expect(bisect.state).toBe('capped');
+    expect(bisect.spent_usd).toBe(trialsRun * RELEASE_TRIAL_RESERVATION_USD);
+    expect(trialsRun * RELEASE_TRIAL_RESERVATION_USD).toBeLessThanOrEqual(cap);
+    expect(prefixesRun).toBeGreaterThan(0);
+  });
+  // Value: protects=a running release bisect never spends past the current policy cap: a scheduled resume takes the current policy cap, so
+  // lowering bisect_spend_cap_usd (to 0 here) stops further rounds, and a one-off bisect --spend-cap applies to that invocation only and is not
+  // stored as a floor; fails_when=the stored cap only rises (Math.max), so a lowered policy keeps dispatching and a one-off raise keeps
+  // spending on every later scheduled run; why_new=GSTA-36 condition before adoption (targeted reader at 598467d); seam=fake gh; no_claim=real case prices
+  test('lowering the cap mid-bisect stops further spend, and a one-off --spend-cap is not stored', () => {
+    const f = fixture();
+    [6, 7, 8, 9, 10, 11, 12].forEach(i => f.commit('c' + i));
+    let roundStatus = 'in_progress';
+    const fake = fakeGh((inputs) => {
+      if (!inputs.prefix_shas) return { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) };
+      const files: Record<string, Record<string, string>> = {};
+      for (const sha of inputs.prefix_shas.split(',')) {
+        files['gstack-release-record-bisect-' + sha.slice(0, 12)] = { 'bisect-prefix.json': JSON.stringify({ schema: 1, kind: 'train-bisect-prefix', nonce: inputs.nonce, prefix_sha: sha, checked_out_sha: sha,
+          panels: [{ case: 'case-a', kind: 'rule', status: 'PASS', red_class: null, cost_usd: null }] }) };
+      }
+      return { conclusion: roundStatus === 'in_progress' ? '' : 'success', status: roundStatus, artifacts: files };
+    });
+    const env = envFor(f, fake.gh);
+    runGate({ ...env, deadline: 0 }, { gate: { ...GATE, bisect_spend_cap_usd: 7 }, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(fake.dispatches).toHaveLength(2);
+    expect(records(f)[0]!.bisect!.state).toBe('running');
+    Object.assign(fake.runs[1]!, { status: 'completed', conclusion: 'success' });
+    roundStatus = 'completed';
+
+    const lowered = bisectGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 0 }, label: 'test', dryRun: false });
+    const afterLower = records(f)[0]!.bisect!;
+    expect(fake.dispatches, lowered.lines.join('\n')).toHaveLength(2);
+    expect(afterLower.state).toBe('capped');
+    expect(afterLower.spend_cap).toBe(0);
+
+    const oneOff = bisectGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 0 }, label: 'test', spendCap: 40, dryRun: false });
+    expect(fake.dispatches.length, oneOff.lines.join('\n')).toBeGreaterThan(2);
+    expect(records(f)[0]!.bisect!.spend_cap).toBe(0);
+  });
+  test('a bisect capped under a lower cap resumes once bisect runs under a raised policy cap above what it spent', () => {
+    const f = fixture();
+    [6, 7, 8, 9, 10, 11, 12].forEach(i => f.commit('c' + i));
+    const fake = fakeGh((inputs) => {
+      if (!inputs.prefix_shas) return { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) };
+      const files: Record<string, Record<string, string>> = {};
+      for (const sha of inputs.prefix_shas.split(',')) {
+        files['gstack-release-record-bisect-' + sha.slice(0, 12)] = { 'bisect-prefix.json': JSON.stringify({ schema: 1, kind: 'train-bisect-prefix', nonce: inputs.nonce, prefix_sha: sha, checked_out_sha: sha,
+          panels: [{ case: 'case-a', kind: 'rule', status: 'FAIL', red_class: 'VERDICT', cost_usd: null }] }) };
+      }
+      return { conclusion: 'success', artifacts: files };
+    });
+    const env = envFor(f, fake.gh);
+    runGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 4 }, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(records(f)[0]!.bisect!).toMatchObject({ state: 'capped', spent_usd: 3 });
+    expect(fake.dispatches).toHaveLength(2);
+    const raised = bisectGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 80 }, label: 'test', dryRun: false });
+    expect(fake.dispatches.length, raised.lines.join('\n')).toBe(3);
+    expect(records(f)[0]!.bisect!.spend_cap).toBe(80);
   });
 });
 
