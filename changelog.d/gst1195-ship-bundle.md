@@ -1,9 +1,0 @@
-**/ship loses less review credit to merges and docs commits, and an owner can accept an open finding after the second full pass (GST-1195, GST-1130).**
-
-### Fixed
-- **A granted fix-check keeps its credit across a base merge that edits the same file.** `gstack-ship-release finish` now credits a fix-checked path when its change against the base is the one the fix-check read, even if the base moved under it. Before, it compared file contents, so a merge that also touched the file printed `FIX_CHECK: reviewed none` and sent the path back through review (#3916). The docs audit carries such a path too. An edit made after the merge still stops.
-- **A recorded grant gets its fix-check when round 2 was itself a fix-check** (GEVA-223). `gstack-review-plan --grant <id> --fix-checks 1` now plans the one granted fix-check after a round-2 fix-check that found or fixed a blocker, instead of `NEXT: stop`. A second granted fix-check is still refused.
-- **A targeted reader's record carries across a plain docs commit made after the read** (TRUT-26, truther#1168). `gstack-ship-receipt write --review-targeted` refused the record on any product change, so the Step 14 and 14.5 docs commits cost another reader run. A docs-only change now carries the record, unless it adds a numeric claim, touches a results, prereg or eval path, or mentions money, security, secrets or auth. Code changes still need the reader again.
-
-### Added
-- **`review_loop_exception.second_pass`** (TRUT-7, truther#1169). An owner who accepts an open finding after the second full pass records `{ accepted_by, date, via, reason, second_pass: { head, deferred: [<finding id>] } }`. It needs `--review-loop` with at least two passes and one deferred finding, plus the printed `Review-loop exception: …` line in the body. A stop with no fix-check and fewer than two full passes is still refused.
