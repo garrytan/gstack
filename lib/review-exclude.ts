@@ -37,6 +37,8 @@ export const KEEP_ARG_MAX_BYTES = 24_000;
 /** How long one reader's `git diff` may run. */
 export const REVIEW_DIFF_TIMEOUT_MS = 120_000;
 const MAX_BUFFER = 256 * 1024 * 1024;
+const BLOB_BATCH_MAX_BYTES = 1024 * 1024;
+const BLOB_BATCH_BYTES = 64 * 1024 * 1024;
 export const KEPT_REASONS = ['policy-dir', 'gate-path', 'executable', 'agent-prose', 'config', 'gate-tagged', 'code', 'secret-line', 'named-by-code', 'consumer-scan-unavailable', 'gate-scan-unavailable', 'link'] as const;
 export type KeptReason = (typeof KEPT_REASONS)[number];
 
@@ -92,8 +94,8 @@ function argChunks(paths: readonly string[]): string[][] {
   return chunks;
 }
 
-function git(root: string, args: string[], input?: string): { ok: boolean; status: number | null; out: string; err: string } {
-  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 120_000, maxBuffer: MAX_BUFFER });
+function git(root: string, args: string[], input?: string, env?: NodeJS.ProcessEnv): { ok: boolean; status: number | null; out: string; err: string } {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, env, encoding: 'utf8', timeout: 120_000, maxBuffer: MAX_BUFFER });
   return { ok: r.status === 0, status: r.status, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 
@@ -160,6 +162,8 @@ const nativeImage = (b: Buffer) => NATIVE_MAGIC.some(m => m.every((x, k) => b[k]
  * The claimed paths (git calls them binary under the branch's attributes or under none: bytesBinary) whose bytes hold a NUL
  * in their first 8,000 (git's own test), read from the head blob, the file on a live tree, or the old blob for a deletion.
  * A branch's .gitattributes can make git call a text file binary; only real bytes make it binary content here. A binary file that starts with executable image magic also goes in `native`.
+ * Blobs up to BLOB_BATCH_MAX_BYTES come through `git cat-file --batch` in groups of up to BLOB_BATCH_BYTES, so the git calls
+ * follow the bytes and not the file count; a larger blob, or one a batch did not return, is read alone (its first 8,000 bytes).
  */
 function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, claimed: ReadonlySet<string>, unread: Set<string>, native: Set<string>): Set<string> {
   const out = new Set<string>();
@@ -176,10 +180,29 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
     const sha = real(m.newSha) ? m.newSha : real(m.oldSha) ? m.oldSha : '';
     if (sha) bySha.set(sha, [...(bySha.get(sha) ?? []), p]);
   }
+  const heads = new Map<string, Buffer>();
+  const sizes = bySha.size ? git(i.root, ['cat-file', '--batch-check=%(objectname) %(objectsize)'], [...bySha.keys()].join('\n') + '\n') : null;
+  const small = (sizes?.ok ? sizes.out.split('\n') : []).map(l => l.split(' ')).filter(([s, n]) => bySha.has(s ?? '') && Number(n) <= BLOB_BATCH_MAX_BYTES).map(([s, n]) => [s!, Number(n)] as const);
+  for (let k = 0; k < small.length;) {
+    const group: string[] = [];
+    let bytes = 0;
+    while (k < small.length && (!group.length || bytes + small[k]![1] <= BLOB_BATCH_BYTES)) { group.push(small[k]![0]); bytes += small[k]![1]; k++; }
+    const r = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: group.join('\n') + '\n', timeout: 120_000, maxBuffer: bytes + group.length * 200 });
+    if (r.status !== 0) continue;
+    let at = 0;
+    for (const sha of group) {
+      const nl = r.stdout.indexOf(10, at);
+      const [name, type, size] = nl < 0 ? [] : r.stdout.subarray(at, nl).toString().split(' ');
+      if (name !== sha || type !== 'blob' || size === undefined) break;
+      heads.set(sha, r.stdout.subarray(nl + 1, nl + 1 + Math.min(Number(size), 8000)));
+      at = nl + 1 + Number(size) + 1;
+    }
+  }
   for (const [sha, paths] of bySha) {
-    const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd: i.root, timeout: 30_000, maxBuffer: 8000 });
-    const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
-    const head = (r.stdout ?? Buffer.alloc(0)).subarray(0, 8000);
+    const batched = heads.get(sha);
+    const r = batched ? null : spawnSync('git', ['cat-file', 'blob', sha], { cwd: i.root, timeout: 30_000, maxBuffer: 8000 });
+    const read = !r || r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
+    const head = batched ?? (r?.stdout ?? Buffer.alloc(0)).subarray(0, 8000);
     for (const p of paths) if (!read) unread.add(p); else sniff(p, head);
   }
   return out;
@@ -242,10 +265,12 @@ const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =
 
 /**
  * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
- * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding (its literal pathspec would
- * match nothing), or git grep failed (a timeout included). Each tree's file list is filtered to
- * consumers first and grepped through literal pathspecs, so the data under the patterns is never read (GST-1435: a whole-tree
- * grep for 4,354 candidate paths through 30 MB of receipts ran 278 s).
+ * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding, or git could not build
+ * the scratch index or grep it (a timeout included). Each tree's file list is filtered to consumers first, so the data under
+ * the patterns is never read (GST-1435: a whole-tree grep for 4,354 candidate paths through 30 MB of receipts ran 278 s), and
+ * the consumers go into a scratch index that one git grep reads, so the git calls stay fixed however many files there are
+ * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). On a live tree, an entry git reads from its blob
+ * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
 function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
@@ -254,20 +279,33 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
   try {
     const list = path.join(dir, 'patterns');
     fs.writeFileSync(list, strings.join('\n') + '\n');
+    let n = 0;
     for (const at of [i.head ?? '', ...revs]) {
-      const ls = git(i.root, at ? ['ls-tree', '-r', '-z', '--name-only', at] : ['ls-files', '-z']);
+      const ls = git(i.root, at ? ['ls-tree', '-r', '-z', at] : ['ls-files', '-s', '-v', '-z']);
       if (!ls.ok) return null;
-      const files = [...new Set(ls.out.split('\0'))].filter(f => f && consumer(i, f, candidates));
-      if (files.some(f => f.includes('\uFFFD'))) return null;
-      for (const chunk of argChunks(files)) {
-        const r = git(i.root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list, ...(at ? [at] : []), '--', ...chunk.map(literal)]);
+      const worktree: string[] = [];
+      const cached: string[] = [];
+      for (const entry of ls.out.split('\0')) {
+        const tab = entry.indexOf('\t');
+        const f = entry.slice(tab + 1);
+        if (tab < 0 || !consumer(i, f, candidates)) continue;
+        if (f.includes('\uFFFD')) return null;
+        const meta = entry.slice(0, tab).split(' ');
+        if (at) { if (meta[1] === 'blob') cached.push(`${meta[0]} ${meta[2]}\t${f}`); continue; }
+        const [tag = '', mode, sha, stage] = meta;
+        (tag === 'S' || tag !== tag.toUpperCase() ? cached : worktree).push(`${mode} ${sha} ${stage}\t${f}`);
+      }
+      for (const [entries, flags] of [[worktree, []], [cached, ['--cached']]] as const) {
+        if (!entries.length) continue;
+        const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, `index-${n++}`) };
+        if (!git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok) return null;
+        const r = git(i.root, ['grep', ...flags, '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list], undefined, env);
         if (r.status !== 0 && r.status !== 1) return null;
         for (const line of r.out.split('\n')) {
           const parts = line.split('\0');
-          const where = parts[0];
+          const file = parts[0];
           const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
-          if (!where || !match) continue;
-          const file = at ? where.slice(at.length + 1) : where;
+          if (!file || !match) continue;
           (found.get(match) ?? found.set(match, new Set()).get(match)!).add(file);
         }
       }
