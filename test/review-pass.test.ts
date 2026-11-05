@@ -730,7 +730,16 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(audit('d-none', noFile).model).toEqual({ model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' });
     const given = { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' };
     expect(audit('d-given', { ...env, GSTACK_PREFERENCES_FILE: prefs }, given).model).toEqual(given);
-  });
+    // Value: protects=agent_model host leaves the model to the lane and an unusable value falls back to Sonnet 5.5 low; fails_when=host is sent as a model or a bad value aborts the pass; why_new=only opus/none/given rows existed; seam=none; no_claim=none beyond protects
+    fs.writeFileSync(prefs, 'agent_model: host\n');
+    const host = audit('d-host', { ...env, GSTACK_PREFERENCES_FILE: prefs });
+    expect(host.model).toBeUndefined();
+    expect(host.stdout).toContain('AUDIT_MODEL: host');
+    fs.writeFileSync(prefs, 'agent_model: not a model!\n');
+    const bad = audit('d-bad', { ...env, GSTACK_PREFERENCES_FILE: prefs });
+    expect(bad.model).toEqual({ model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' });
+    expect(bad.stdout).toContain('ignored)');
+  }, 240_000);
 
   // Value: protects=a pass id typed in capitals is read as its lowercase id, so the manifest, its titles and a resume agree, and an id with other characters is still refused naming the rule; fails_when=--pass P1 is refused as a missing flag (gstack-evals#191 /ship), a capitalized resume of p1 reads as another pass, or p_1 is accepted;
   //   why_new=the id was matched case-sensitively and its refusal read as a missing flag; seam=gstack-review-dispatch pass; no_claim=the reviewer plan, which --audit-only skips
