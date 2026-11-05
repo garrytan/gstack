@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import { baseContainsHead } from './default-base';
 import type { ShipReceipt } from './headless-artifacts';
 import { collectCommit } from './review-collect';
-import { reviewExclude, type Exclusion } from './review-exclude';
+import { recordSelectsNoFile, reviewExclude, type Exclusion } from './review-exclude';
 import { isUnavailable } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
 import { classifyPath, depthOfCommitInput, gateScanNeeded, platformFits, scanNumbers, type Depth } from './review-depth';
@@ -285,11 +285,23 @@ function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt
  * or kept (GST-1408): the selection then equals the full diff that receipt's review read, so a pattern the base gained later
  * changes nothing the reviewers saw.
  */
+/** No file the head changed matches any pattern the base policy declares, so each reviewer reads the full diff (GST-1408). */
+const selectsNoFile = (x: Exclusion) => x.state === 'none' || x.state === 'head-only' || (x.state === 'active' && x.record.unmatched.length === x.record.patterns.length);
+/**
+ * Carry's exclusion check: the recorded digest against the one HEAD has under the current base policy, except that a policy
+ * change alone does not void the receipt (GST-1415): when neither the receipt's selection nor HEAD's holds a file the PR
+ * changed, each reviewer read the full diff and still would, whatever the patterns. A policy that cannot be read never binds.
+ */
+export function carryExcludeBinds(x: Exclusion, r: ShipReceipt): boolean {
+  if (x.state === 'refused') return false;
+  const e = r.review_exclude;
+  return (x.state === 'active' ? x.record.digest : 'none') === (e?.digest ?? 'none') || (selectsNoFile(x) && (!e || recordSelectsNoFile(e)));
+}
 export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
   const expected = x.state === 'active' ? x.record.digest : 'none';
   const recorded = r.review_exclude?.digest ?? 'none';
   if (expected === recorded) return null;
-  if (recorded === 'none' && x.state === 'active' && x.record.unmatched.length === x.record.patterns.length) return null;
+  if (recorded === 'none' && selectsNoFile(x)) return null;
   const source = x.state === 'active' ? x.record.source : r.review_exclude?.source ?? base;
   const h = head.slice(0, 12);
   return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;

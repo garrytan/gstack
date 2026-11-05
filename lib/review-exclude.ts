@@ -72,6 +72,10 @@ export interface ExcludeInput {
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+/** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
+const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
+/** A recorded selection holds no file only when its list hash is the empty list's and its digest is built from that hash. */
+export const recordSelectsNoFile = (r: Pick<ExcludeRecord, 'patterns_sha256' | 'list_sha256' | 'digest'>) => r.list_sha256 === EMPTY_LIST_SHA256 && r.digest === sha256(`${r.patterns_sha256}\n${EMPTY_LIST_SHA256}`);
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
