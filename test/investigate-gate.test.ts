@@ -265,6 +265,42 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
     expect(git('status', '--porcelain')).toBe('');
   });
 
+  test('a fix committed on a branch behind the baseline HEAD is undone: that branch goes back to its own tip (fc#1)', () => {
+    const mainTip = git('rev-parse', 'HEAD');
+    git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
+    git('add', '-A');
+    commit('feature');
+    const featureTip = git('rev-parse', 'HEAD');
+    const { after } = bash(LOADED, "git checkout -q main && sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -qam fix");
+    const out = json(after.stdout);
+    expect(out.decision).toBe('block');
+    expect(out.reason).toContain(`moved the branch back to ${mainTip.trim().slice(0, 12)}`);
+    expect(git('rev-parse', 'main')).toBe(mainTip);
+    expect(git('rev-parse', 'feature')).toBe(featureTip);
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 1;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
+  test('amending the tip of a branch behind the baseline HEAD is undone to that tip, keeping its own commit (fc#1)', () => {
+    fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 3;\n');
+    git('add', '-A');
+    commit('main second');
+    const mainTip = git('rev-parse', 'HEAD');
+    git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(repo, 'README.md'), '# fixture, feature\n');
+    git('add', '-A');
+    commit('feature');
+    const { after } = bash(LOADED, "git checkout -q main && sed -i 's/a - b/a + b/' src/total.ts && git -c user.name=x -c user.email=x@x.test commit -q --amend -a --no-edit");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(git('rev-parse', 'main')).toBe(mainTip);
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(read('src/other.ts')).toBe('export const other = 3;\n');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
   test('amending the baseline HEAD with a fix moves the branch back to the baseline commit, not its parent', () => {
     fs.writeFileSync(path.join(repo, 'src', 'other.ts'), 'export const other = 2;\n');
     git('add', '-A');

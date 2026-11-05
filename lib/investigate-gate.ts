@@ -108,7 +108,7 @@ export function isGatedTracked(root: string, rel: string): boolean {
 }
 
 interface Entry { id: string | null; excluded: boolean; mode: number }
-export interface Baseline { version: 1; root: string; head: string; branch?: string; taken_at: number; refs: string[]; stashes: string[]; entries: Record<string, Entry> }
+export interface Baseline { version: 1; root: string; head: string; branch?: string; tips?: Record<string, string>; taken_at: number; refs: string[]; stashes: string[]; entries: Record<string, Entry> }
 
 function snapshot(root: string, blobs: string, head: string): Baseline {
   const changed = changedVsHead(root);
@@ -133,7 +133,8 @@ function snapshot(root: string, blobs: string, head: string): Baseline {
   }
   const refs = nulList(git(root, ['for-each-ref', '--format=%(objectname)%00']).out).map(s => s.trim()).filter(Boolean);
   const stashes = text(git(root, ['log', '-g', '--format=%H', 'refs/stash'], { allowFail: true }).out).split('\n').filter(Boolean);
-  return { version: 1, root, head, branch: branchOf(root), taken_at: Date.now(), refs: [...new Set([head, ...refs])], stashes, entries };
+  const tips = Object.fromEntries(text(git(root, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads']).out).split('\n').filter(Boolean).map(l => l.split(' ')));
+  return { version: 1, root, head, branch: branchOf(root), tips, taken_at: Date.now(), refs: [...new Set([head, ...refs])], stashes, entries };
 }
 
 export function armBaseline(root: string, blobs: string): Baseline | null {
@@ -181,14 +182,14 @@ function safeRestore(root: string, rel: string, content: Buffer | null, mode: nu
   fs.renameSync(tmp, abs);
 }
 
-export interface CheckResult { baseline: Baseline; violations: string[]; observed: string[]; restored: string[]; failed: Array<{ path: string; why: string }>; reset: string | null; staged: string[]; kept: string[]; saved: Array<{ path: string; file: string }> }
+export interface CheckResult { baseline: Baseline; violations: string[]; observed: string[]; restored: string[]; failed: Array<{ path: string; why: string }>; reset: string | null; staged: string[]; saved: Array<{ path: string; file: string }> }
 
 /** Compare the tree with the baseline, put back fix writes, and return the next baseline. */
 export function checkTree(base: Baseline, blobs: string): CheckResult {
   const root = base.root;
   const head = headOf(root);
   if (!head) throw new GateError('GATE_GIT', 'HEAD no longer resolves');
-  const result: CheckResult = { baseline: base, violations: [], observed: [], restored: [], failed: [], reset: null, staged: [], kept: [], saved: [] };
+  const result: CheckResult = { baseline: base, violations: [], observed: [], restored: [], failed: [], reset: null, staged: [], saved: [] };
   let target = head;
   const merged: string[] = [];
   const upstream = (c: string) => existedBefore(root, base, c) || onRemote(root, c);
@@ -200,11 +201,9 @@ export function checkTree(base: Baseline, blobs: string): CheckResult {
       target = parents[0];
     }
   }
-  let rewrote = false;
-  if (target !== head && target !== base.head && git(root, ['merge-base', '--is-ancestor', target, base.head], { allowFail: true }).ok) {
-    if (branchOf(root) === base.branch) target = base.head;
-    else rewrote = true;
-  }
+  const branch = branchOf(root);
+  const tip = branch === base.branch ? base.head : branch ? base.tips?.[branch] : undefined;
+  if (tip && target !== head && target !== tip && git(root, ['merge-base', '--is-ancestor', target, tip], { allowFail: true }).ok) target = tip;
   const newCommit = target !== head;
   const moved = target !== base.head;
   const committed = newCommit ? nulList(git(root, ['diff', '--name-only', '-z', '--no-renames', target, head]).out) : [];
@@ -229,8 +228,7 @@ export function checkTree(base: Baseline, blobs: string): CheckResult {
     fix.add(p);
   }
   result.violations = [...fix].sort();
-  if (rewrote) result.kept = committed.filter(p => fix.has(p));
-  else if (newCommit && committed.some(p => fix.has(p))) {
+  if (newCommit && committed.some(p => fix.has(p))) {
     git(root, ['reset', '-q', '--soft', target]);
     git(root, ['reset', '-q', target, '--', ...committed.filter(p => fix.has(p))], { allowFail: true });
     result.reset = target;
@@ -239,7 +237,7 @@ export function checkTree(base: Baseline, blobs: string): CheckResult {
   for (const p of result.violations) {
     const baseEntry = base.entries[p];
     const curId = ids.get(p) ?? null;
-    if (result.kept.includes(p) || curId === (baseEntry ? baseEntry.id : refTree.get(p)!.oid)) continue;
+    if (curId === (baseEntry ? baseEntry.id : refTree.get(p)!.oid)) continue;
     try {
       if (curId && /^[0-9a-f]+$/.test(curId)) {
         const keep = path.join(blobs, curId);
