@@ -86,6 +86,62 @@ describe('ubicloud free-suite runner', () => {
     }
   });
 
+  // Value: protects=a pull that cannot reach the VM fails, so a caller never keeps a stale copy as fresh; fails_when=an ssh failure in the existence check reads as "nothing matches" and exits 0 again; why_new=only a reachable VM was tested; seam=none; no_claim=real ssh error codes beyond 255
+  test('pull exits non-zero when ssh fails, and only a reachable VM with no match counts as nothing to pull (GST-1441)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ubi-pull-'));
+    try {
+      const bin = join(root, 'bin'), state = join(root, 'state');
+      mkdirSync(join(state, 'fake-vm'), { recursive: true });
+      writeFileSync(join(state, 'fake-vm/env'), 'IP=192.0.2.1\n');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'ssh'), '#!/usr/bin/env bash\necho "ssh: connect to host 192.0.2.1 port 22: Connection timed out" >&2\nexit 255\n');
+      chmodSync(join(bin, 'ssh'), 0o755);
+      const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: state };
+      const r = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'pull', 'fake-vm', 'work/results', join(root, 'local')], { env, timeout: 10_000 });
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stderr.toString()).toContain('pull failed: could not check work/results on fake-vm (exit 255)');
+      expect(r.stderr.toString()).not.toContain('nothing matches');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Value: protects=the Ubicloud key never appears in curl's argv (visible to every local user in ps) and the pinned curl still sends it; fails_when=the key goes back on the command line, or -H @file stops delivering it; why_new=the key's argv exposure was never checked; seam=none; no_claim=curl builds older than 7.55, which lack -H @file
+  test('the API key reaches curl as a header file, never in its argv, and real curl still sends it (GST-1441)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ubi-key-'));
+    const key = 'sekrit-ubi-key-4711';
+    try {
+      const bin = join(root, 'bin'), argv = join(root, 'argv.log'), hdr = join(root, 'hdr.log');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argv)}
+out=""; prev=""
+for a in "$@"; do
+  [ "$prev" = -o ] && out=$a
+  [ "$prev" = -H ] && case $a in @*) cat "\${a#@}" >> ${JSON.stringify(hdr)} ;; esac
+  prev=$a
+done
+cat >/dev/null; printf '' > "$out"; printf 200
+`);
+      chmodSync(join(bin, 'curl'), 0o755);
+      const base = { ...process.env, UBICLOUD_API_KEY: key, UBI_RUNNER_STATE: join(root, 'state') };
+      const faked = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'cli', 'vm', 'list'], { env: { ...base, PATH: `${bin}:${process.env.PATH}` }, timeout: 10_000 });
+      expect(faked.exitCode, faked.stderr.toString()).toBe(0);
+      expect(readFileSync(argv, 'utf8')).not.toContain(key);
+      expect(readFileSync(hdr, 'utf8')).toBe(`Authorization: Bearer ${key}\n`);
+      let seen = '';
+      const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { seen = req.headers.get('authorization') ?? ''; return new Response('eu-central-h1 vm-a\n'); } });
+      try {
+        const real = Bun.spawn(['bash', join(DIR, 'ubi-runner.sh'), 'cli', 'vm', 'list'], { env: { ...base, UBICLOUD_API_URL: `http://127.0.0.1:${server.port}` }, stdout: 'pipe', stderr: 'pipe', timeout: 20_000 });
+        expect(await real.exited).toBe(0);
+        expect(await new Response(real.stdout).text()).toBe('eu-central-h1 vm-a\n');
+        expect(seen).toBe(`Bearer ${key}`);
+      } finally { server.stop(true); }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('refuses to start without UBICLOUD_API_KEY, before any network call', () => {
     const env = { ...process.env, UBICLOUD_API_URL: 'http://127.0.0.1:9' } as Record<string, string | undefined>;
     delete env.UBICLOUD_API_KEY;
@@ -461,7 +517,7 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
 
   test('up records the VM in the scratch file before the create request is sent', () => {
     const runner = read('scripts/ubicloud/ubi-runner.sh');
-    const create = runner.indexOf('cli "${args[@]}" >/dev/null 2>"$dir/create.err"');
+    const create = runner.indexOf('code=$(api "$dir/create.err" "${args[@]}")');
     expect(create).toBeGreaterThan(0);
     expect(runner.indexOf('record_vm "$name" "$location"')).toBeLessThan(create);
     expect(runner).toContain('$HOME/.capy/work/ubi-runner/vms.tsv');
