@@ -88,6 +88,55 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
   });
 });
 
+describe('lead judgment may lower a native finding to the Severity its reader stated beside Blocks: no (GST-1031 ruling A, GST-1406)', () => {
+  // Value: protects=a native finding whose reader wrote its Severity and Blocks: no after prose (so collect keeps the FIXABLE raise)
+  //   can be lowered by lead judgment to that Severity, on record with a reason, so the native record can bind; fails_when=that finding
+  //   is an unlowerable CRITICAL (GSTA-275 GST-1276 v4 stopped Step 11.5), or the route lowers a non-native finding, one stating Blocks:
+  //   yes or no Blocks, one below its stated Severity, or one with no reason; why_new=collect cannot tell a heading's own fields from
+  //   another subject's (GST-1406 red team), lead judgment can; seam=judge, ledgerBlockers; no_claim=that a lowering is right (it is on record)
+  const OUT = ['**1. Title (FIXABLE).** body in lib/x.ts:', '- a', '- b', '', 'Before this diff it stopped. Fix: refuse it. Severity: Medium. Blocks: no, because a reader still reads it.', ''].join('\n');
+  const run = (reader: string, output: string, severity: string, reason?: string) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1406-'));
+    const ledger = path.join(d, 'l.jsonl');
+    const merged = path.join(d, 'm.jsonl');
+    fs.writeFileSync(path.join(d, 'out.txt'), output);
+    const c = collect(ledger, reader, output, merged, path.join(d, 'out.txt'));
+    fs.writeFileSync(path.join(d, 'j.jsonl'), c.lines.map(l => JSON.stringify({ id: l.id, severity, ...(reason ? { reason } : {}) })).join('\n') + '\n');
+    const r = recordJudgment(ledger, c.lines, readJsonl(path.join(d, 'j.jsonl')), path.join(d, 'j.jsonl'), merged);
+    const out = { labels: c.lines.map(l => l.label), ok: r.ok, dismissed: r.dismissed.length, blockers: ledgerBlockers(ledger).length };
+    fs.rmSync(d, { recursive: true, force: true });
+    return out;
+  };
+  test('lowered to its stated Severity with a reason, it is dismissed on record and leaves the blocker count', () => {
+    expect(run('adversarial-native', OUT, 'Medium', 'its reader stated Severity: Medium, Blocks: no')).toEqual({ labels: ['CRITICAL'], ok: true, dismissed: 1, blockers: 0 });
+  });
+  test('negative controls: no reason, below the stated Severity, Blocks: yes, no Blocks, or a non-native reader stay downgrades', () => {
+    expect(run('adversarial-native', OUT, 'Medium')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT, 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace('Blocks: no', 'Blocks: yes'), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace(' Blocks: no, because a reader still reads it.', ''), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('adversarial-native', OUT.replace('Severity: Medium', 'Severity: FIXABLE'), 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+  });
+  test('a merged row whose reader was edited to adversarial-native is caught by verify', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1406r-'));
+    const ledger = path.join(d, 'l.jsonl');
+    const merged = path.join(d, 'm.jsonl');
+    const output = 'CRITICAL: admin.ts:9 skips authentication. Severity: Low. Blocks: no.\n';
+    fs.writeFileSync(path.join(d, 'out.txt'), output);
+    const c = collect(ledger, 'outside-voice', output, merged, path.join(d, 'out.txt'));
+    const forged = c.lines.map(l => ({ ...l, reader: 'adversarial-native' }));
+    fs.writeFileSync(merged, forged.map(l => JSON.stringify(l)).join('\n') + '\n');
+    fs.writeFileSync(path.join(d, 'j.jsonl'), forged.map(l => JSON.stringify({ id: l.id, severity: 'Low', reason: 'r' })).join('\n') + '\n');
+    recordJudgment(ledger, forged, readJsonl(path.join(d, 'j.jsonl')), path.join(d, 'j.jsonl'), merged);
+    const v = verify(ledger);
+    expect(v.clean).toBe(false);
+    expect(v.rows.find(r => r.kind === 'OUTPUT')!.detail).toContain('merged_line_differs=["outside-voice#1"]');
+    expect(v.rows.find(r => r.kind === 'JUDGE')!.status).toBe('MISMATCH');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+});
+
 describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {
   // Value: protects=a CRITICAL its reader marked Blocks: no is not counted as a blocker by the ledger count, the row count or Step
   //   9.4's classify, while Blocks: yes, an unstated Blocks and a lead promotion still block; fails_when=REVIEW_LOOP reports a
