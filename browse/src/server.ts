@@ -1858,9 +1858,6 @@ export async function start() {
   safeUnlink(NETWORK_LOG_PATH);
   safeUnlink(DIALOG_LOG_PATH);
 
-  const port = await findPort();
-  LOCAL_LISTEN_PORT = port;
-
   // ─── Proxy config (D8 + codex F5) ──────────────────────────────
   // The CLI resolves the proxy (--proxy or env, #915). SOCKS5 with auth runs a
   // local 127.0.0.1 bridge to the authenticated upstream (Chromium can't do
@@ -1945,6 +1942,11 @@ export async function start() {
   }
 
   const startTime = Date.now();
+
+  // The port is probed free and then bound; pick it after the browser launch so the seconds Chromium takes to start are not
+  // a window in which another process can take it (Free Tests 41951644962: "Failed to start server. Is port 43780 in use?").
+  const port = await findPort();
+  LOCAL_LISTEN_PORT = port;
 
   // ─── Build the request handlers via buildFetchHandler factory ───
   // CLI path passes env-derived values; no beforeRoute hook. Phoenix uses

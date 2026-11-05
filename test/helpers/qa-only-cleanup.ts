@@ -53,7 +53,16 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
     || typeof state.instanceId !== 'string' || !state.instanceId) fail('invalid daemon identity');
   const agentRaw = fs.existsSync(agentFile) ? fs.readFileSync(agentFile, 'utf8') : undefined;
   const agent = readAgentRecord(stateDir);
-  if (!agentRaw || !agent) fail('terminal identity is unavailable');
+  if (!agentRaw || !agent) {
+    // Qa-only-no-fix (census 41962523474) failed here once with nothing else to go on; name what was there instead.
+    const log = path.join(stateDir, 'browse-server.log');
+    const agentLines = fs.existsSync(log) && fs.lstatSync(log).isFile()
+      ? fs.readFileSync(log, 'utf8').split('\n').filter(line => /terminal-agent/i.test(line)).slice(-3).map(line => line.slice(0, 160)) : [];
+    fail(`terminal identity is unavailable (record ${agentRaw === undefined ? 'absent' : `unparsed, ${agentRaw.length} bytes`}; `
+      + `terminal-port ${fs.existsSync(path.join(stateDir, 'terminal-port')) ? 'present' : 'absent'}; daemon ${state.pid} `
+      + `${isProcessAlive(state.pid) ? 'alive' : 'exited'}, state written ${Math.round((Date.now() - fs.statSync(stateFile).mtimeMs) / 1000)}s ago; `
+      + `daemon log terminal-agent lines: ${agentLines.length ? agentLines.join(' | ') : 'none'})`);
+  }
   if (!isProcessAlive(state.pid)) fail('daemon exited before its owned processes could be identified');
   const daemonStart = readPidStartTime(state.pid);
   const command = readPidCmdline(state.pid);
