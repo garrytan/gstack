@@ -32,7 +32,7 @@ describe('/modernize skill', () => {
     expect(flat).toContain('The disposition comes first. No rebase is pushed, and no PR is closed, until the verdict below is written and shown.');
     expect(skill.indexOf('## Step 3: The disposition')).toBeLessThan(skill.indexOf('## Step 4 (MODERNIZE only)'));
     expect(skill.indexOf('## Step 4 (MODERNIZE only)')).toBeLessThan(skill.indexOf('## Step 5 (MODERNIZE only)'));
-    expect(flat).toContain('STOP and ask (AskUserQuestion) before any push or any closing comment');
+    expect(flat).toContain('STOP and ask (AskUserQuestion) before any push or any close.');
     expect(flat).toContain('If the session is unattended, the verdict and its evidence are the handoff and nothing is pushed.');
   });
 
@@ -40,6 +40,7 @@ describe('/modernize skill', () => {
     expect(flat).toContain('You never close a PR.');
     expect(flat).toContain('Without explicit permission in this session, the PR stays open.');
     expect(flat).toContain('The PR stays open until someone with the authority says so.');
+    expect(flat).toContain('You never comment on the PR. A closing note or a thank-you to its author is a draft in your report for the person to post.');
     expect(skill).not.toMatch(/gh pr close/);
   });
 

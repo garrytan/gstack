@@ -248,7 +248,9 @@ dependencies, CI permissions and weakened tests before anything runs it, and do 
 a fork's "tests pass": run a focused review and the free tier at the port head before the
 port opens. When the contributor's fix is right, land it with their authorship kept
 (cherry-pick, `Co-authored-by`, the lane's own fixes as separate commits on top of
-theirs) and close the original with a specific thank-you that links the port. Closing a
+theirs) and close the original with no comment: the specific thank-you that links the port
+is a draft for the owner to send, and the credit stays in the port's PR body and
+`Co-authored-by`. Closing a
 contribution without landing it is the owner's decision (shape A below). The repository's
 own statement of the porting steps is [CONTRIBUTING.md](../CONTRIBUTING.md#porting-a-contributors-pr).
 
