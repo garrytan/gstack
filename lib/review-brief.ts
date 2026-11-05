@@ -17,7 +17,8 @@
  * With the base policy's review_exclude_paths active (lib/review-exclude.ts) every role but fix-check also takes
  * policy_exclude (the `:(top,exclude,glob)` items, which the fixture-handling command of the security specialist, the
  * Red Team and the native adversarial pass gets), keep (the kept files' `:(top,literal)` items) and disclosure (the one
- * line naming what was left out). Unset, every brief renders byte for byte as before. The base policy's readers.forbid_paths
+ * line naming what was left out), and excerpt_file, excerpt_bytes, excerpt_sha256 and excerpt_files (the secret-line excerpt
+ * gstack-review-dispatch pass wrote for the kept files whose only reason is a secret line). Unset, every brief renders byte for byte as before. The base policy's readers.forbid_paths
  * (lib/review-fetch.ts) arrive the same way as policy_exclude items, without a disclosure.
  */
 import { spawnSync } from 'node:child_process';
@@ -131,7 +132,8 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
   for (const k of keys) held[k] = `\u0000${nonce}:${k}\u0000`;
   const rendered = renderRole(role, held, t);
   const keep = slots.keep ? ` Read the files kept despite a match as well: \`git diff ${slots.diff_base} -- ${slots.keep}\`.` : '';
-  const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}` : rendered;
+  const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files have no keep reason but a changed line that reads a credential, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
+  const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}${excerpt}` : rendered;
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
   return keys.reduce((out, k) => out.split(held[k]!).join(slots[k]!.trim()), text);

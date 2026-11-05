@@ -3532,7 +3532,10 @@ the base policy commit.
   files need more than 24,000 argument bytes. Narrow the pattern, move the kept
   files out of it, or split the PR.
 - **Still over after exclusion:** add the printed folders to the base policy, or
-  split the PR.
+  split the PR. Files kept only for a secret line already count as their
+  excerpts ([secret-line excerpts](ship-policy.md#secret-line-excerpts)); one in
+  `DIFF_KEEP:` that still counts whole is kept for another reason or could not
+  be excerpted.
 
 There is no override flag. See [the review ceiling](ship-policy.md#review-diff-ceiling).
 

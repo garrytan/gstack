@@ -13,6 +13,10 @@
  * git exclude beats any positive pathspec. That second command is bounded by its argument
  * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES is not applied.
  *
+ * A file kept only for a secret line (no other reason, under an applied pattern, gate scan and consumer scan both read) is
+ * also listed in `excerpt`: pass readers get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead
+ * of the whole file, and readSelection counts only that excerpt.
+ *
  * readSelection reads one reader's diff once, with a timeout, and counts its bytes;
  * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES and
  * with REVIEW_DIFF_UNREADABLE when git fails, before it writes a manifest or a brief.
@@ -25,6 +29,7 @@ import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { secretPath } from './review-risk';
+import { secretExcerpt } from './review-secret-excerpt';
 import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -49,6 +54,8 @@ export interface ExcludeRecord {
 }
 export interface ActiveExclusion {
   state: 'active'; record: ExcludeRecord; excluded: Set<string>; specs: string[]; keep: string[];
+  /** The kept files (a subset of keep, as `:(top,literal)` items) whose only reason is a secret line: pass readers get an excerpt. */
+  excerpt: string[];
   kept: Array<{ path: string; reason: KeptReason }>; content: Record<ContentKind, number>; references: Array<{ prefix: string; files: string[] }>;
 }
 export type Exclusion =
@@ -341,7 +348,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const reasons = new Map<string, KeptReason | null>();
   for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
-  const named = grepFixed(i, [...candidates].filter(p => !p.includes('\n')), candidates, [i.mergeBase]);
+  const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
+  const named = grepFixed(i, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
@@ -360,6 +368,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
     for (const f of kept) keep.add(f);
   }
   const excluded = new Set(applied.flatMap(p => (sel.byPattern.get(p) ?? []).filter(f => reasons.get(f) === null)));
+  const excerpt = i.gateTagged === null || named === null ? [] : secretOnly.filter(p => keep.has(p) && !named.has(p)).sort();
   const keptList = [...reasons].filter(([, r]) => r !== null).map(([p, r]) => ({ path: p, reason: r! })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const sortedExcluded = [...excluded].sort();
   const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0 };
@@ -374,7 +383,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
     gate_tagged: keptList.filter(k => k.reason === 'gate-tagged').map(k => k.path), patterns_sha256, list_sha256, digest: sha256(`${patterns_sha256}\n${list_sha256}`),
   };
   return {
-    state: 'active', record, excluded, specs: applied.map(p => `:(top,exclude,glob)${p}`), keep: [...keep].sort().map(literal), kept: keptList, content,
+    state: 'active', record, excluded, specs: applied.map(p => `:(top,exclude,glob)${p}`), keep: [...keep].sort().map(literal), excerpt: excerpt.map(literal), kept: keptList, content,
     references: prefixes.filter(p => refs.has(p)).map(p => ({ prefix: p, files: [...refs.get(p)!].sort() })),
   };
 }
@@ -397,6 +406,7 @@ export function excludeLines(x: Exclusion, base: string): string[] {
   const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${skipped}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
   if (x.kept.length > 20) out.push(`REVIEW_EXCLUDE_KEPT: +${x.kept.length - 20} more (gstack-review-plan --json lists every kept file)`);
+  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files (DIFF_KEEP still lists them whole)`);
   for (const ref of x.references) out.push(`REVIEW_EXCLUDE_REFERENCE: ${ref.prefix} is named by ${ref.files.slice(0, 3).join(', ')}${ref.files.length > 3 ? ` (+${ref.files.length - 3} more)` : ''}; the files stay excluded, so readers see that code without the files it reads (REVIEW_EXCLUDE_REFERENCE)`);
   return out;
 }
@@ -416,29 +426,46 @@ export function parseTail(tail: string | undefined): string[] {
 }
 
 export type ReaderDiff =
-  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]> }
+  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; excerpt?: string; whole?: string[] }
   | { ok: false; reason: 'timeout' | 'git-exit'; exit: number | null; stderr: string; timeoutMs: number };
 
-/** One reader's selection read once: `git diff <base> [-- pathspecs]`, then the kept-file command, with its bytes per top directory. */
-export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS): ReaderDiff {
+/** The excerpt of one `git diff --text` over the excerpt files; any throw sends every file whole (fail closed). */
+function excerptOf(out: string, specs: readonly string[]): { text: string; whole: string[]; wholeText: string; files: Array<{ path: string; text: string }> } {
+  const paths = specs.map(s => s.replace(/^:\(top,literal\)/, ''));
+  try {
+    if (specs.some(s => !s.startsWith(':(top,literal)'))) throw new Error('an excerpt item is not a literal pathspec');
+    const x = secretExcerpt(out, paths);
+    return { text: x.text, files: x.files, whole: x.whole.map(literal), wholeText: x.wholeText };
+  } catch { return { text: '', files: [], whole: [...specs], wholeText: out }; }
+}
+
+/**
+ * One reader's selection read once: `git diff <base> [-- pathspecs]`, then the kept-file command, with its bytes per top
+ * directory. `excerpt` files (ActiveExclusion.excerpt) are read with `git diff --text` and count as their secret-line
+ * excerpt, appended to `text` and returned as `excerpt`; a file the excerpt could not be built for counts whole, its
+ * section joins `text` and its item is listed in `whole` for the caller's keep command.
+ */
+export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], excerpt: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS): ReaderDiff {
   let text = '';
-  for (const specs of [pathspecs, ...(keep.length ? [keep] : [])]) {
+  let ex: ReturnType<typeof excerptOf> | undefined;
+  const reads: Array<[readonly string[], string[]]> = [[pathspecs, []], ...(keep.length ? [[keep, []] as [readonly string[], string[]]] : []),
+    ...(excerpt.length ? [[excerpt, ['--text', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/']] as [readonly string[], string[]]] : [])];
+  for (const [specs, flags] of reads) {
     const tail = specs.length ? (specs[0] === '--' ? specs : ['--', ...specs]) : [];
-    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', diffBase, ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
+    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', ...flags, diffBase, ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
     const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
     if (code === 'ENOBUFS') { text += r.stdout ?? ''; break; }
     if (code === 'ETIMEDOUT' || (r.signal && r.status === null)) return { ok: false, reason: 'timeout', exit: null, stderr: r.stderr ?? '', timeoutMs };
     if (r.status !== 0) return { ok: false, reason: 'git-exit', exit: r.status, stderr: r.stderr ?? '', timeoutMs };
-    text += r.stdout;
+    if (flags.length) { ex = excerptOf(r.stdout, specs); text += ex.wholeText; } else text += r.stdout;
   }
   const byDir = new Map<string, number>();
+  const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); };
   const starts = [...text.matchAll(/^diff --git a\/(\S+)/gm)];
-  starts.forEach((m, k) => {
-    const end = k + 1 < starts.length ? starts[k + 1]!.index! : text.length;
-    const dir = m[1]!.includes('/') ? m[1]!.split('/')[0]! : '(root)';
-    byDir.set(dir, (byDir.get(dir) ?? 0) + Buffer.byteLength(text.slice(m.index!, end)));
-  });
-  return { ok: true, text, bytes: Buffer.byteLength(text), byDir: [...byDir].sort((a, b) => b[1] - a[1]) };
+  starts.forEach((m, k) => add(m[1]!, Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
+  for (const f of ex?.files ?? []) add(f.path, Buffer.byteLength(f.text));
+  const all = ex?.text ? `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ex.text}` : text;
+  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
 }
 
 /** Credential-bearing remote URLs and scp-style remotes out of git's stderr. */

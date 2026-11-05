@@ -1415,7 +1415,7 @@ Everything else stays in every reader's diff with one reason code:
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles, `scripts/harness-pins/`) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
 | `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
-| `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary) |
+| `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary). When this is the only reason, pass readers get an excerpt, not the whole file ([secret-line excerpts](#secret-line-excerpts)) |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read |
 | `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
@@ -1445,6 +1445,25 @@ pass the bound is not applied, and the plan line says so as
 `Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
 on this branch matching <patterns>. They are not in your diff; do not report on
 their absence.`
+
+<a id="secret-line-excerpts"></a>
+**Secret-line excerpts (GST-1447).** A kept file whose only reason is
+`secret-line` (under an applied pattern, not named by code, with the gate scan
+and the name scan both read) still appears whole in `DIFF_KEEP:`, but
+`gstack-review-dispatch pass` gives its readers an excerpt instead: every changed
+line the secret-line rule matches or the credential scanner finds a secret-shaped
+value on, with up to 3 lines of context, the path and the match counts. A line
+over 400 characters shows 160 characters on each side of each match. The excerpt
+is read with `git diff --text`, written once beside the briefs, and each brief
+names its file, bytes and sha256; the outside voice's supplied diff ends with it.
+Only the excerpt counts toward the review ceiling. The plan prints
+`REVIEW_EXCLUDE_EXCERPT: <n> kept files …` when any file qualifies. Building
+it fails closed per file: a section it cannot tie to its path, one with no
+matched added line, and one whose hunks or scanner result cannot be read (a
+single changed line over the scanner's 1 MiB cap, for example) go to the reader
+whole through its keep command. Results PRs that capture model requests need
+this: their system prompts name `${…_API_KEY}` variables and keychain commands
+(harness-evals #269: 75 such files, 12.9 MB whole).
 
 **Depth, numbers and the targeted pass.** Excluded paths count as docs for the
 review depth everywhere it is computed (`gstack-review-plan`, the receipt

@@ -41,6 +41,8 @@ export interface PassReader {
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
   /** The base policy's `:(top,exclude,glob)` items (review_exclude_paths and readers.forbid_paths), shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
   policy_exclude?: string; keep?: string[];
+  /** The kept files whose only reason is a secret line (lib/review-secret-excerpt.ts): readers get the excerpt gstack-review-dispatch pass writes once beside the briefs, not the whole files. */
+  excerpt?: string[]; excerpt_file?: { file: string; sha256: string; bytes: number; files: number };
   /** The fingerprint the reader's reply must report: the checkout's HEAD^{tree} and toplevel when its brief was rendered (GST-482). */
   tree?: string | null;
   /** What the reader fetched, from its own tool calls (gstack-review-dispatch audit-fetch, lib/review-fetch.ts). */
@@ -128,7 +130,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check'
 /** The manifest for one pass from the plan's dispatches. A fix-check reader needs decision 3.5's files. `voices` keeps only Step 11's readers. */
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
-  dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
+  dispatches: Array<Dispatch & { excerpt?: string[] }>; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
   targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders; voices?: boolean;
 }): Manifest {
   if (o.voices && o.extras?.length) throw new BriefError(`Step 11's voices pass sends no audit reader, so it takes no --extras: ${o.extras.map(e => e.name).join(', ')}`);
@@ -143,8 +145,10 @@ export function buildManifest(o: {
     const reader = readerKey(role, name);
     const exclude = d.exclude.length ? diffCommand(d).slice('git diff <diff-base> '.length) : undefined;
     const policy = d.exclude.filter(s => s.startsWith(':(top,exclude,glob)'));
+    const excerpt = (d.excerpt ?? []).filter(s => d.keep?.includes(s));
+    const keep = (d.keep ?? []).filter(s => !excerpt.includes(s));
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
-      ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(d.keep?.length ? { keep: d.keep } : {}),
+      ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(keep.length ? { keep } : {}), ...(excerpt.length ? { excerpt } : {}),
       ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
       ...(role === 'adversarial-native' && d.classes?.length ? { classes: [...d.classes], diff_base: o.mergeBase ?? o.diffBase } : {}),
       ...(d.model === 'cross-family' ? { cross_family: true } : d.model && d.model !== 'lane' ? { model: { model_id: d.model } } : {}),
@@ -211,7 +215,8 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     const role = r.role!;
     const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
       checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(','),
-      policy_exclude: r.policy_exclude, ...(m.disclosure ? { disclosure: m.disclosure, keep: r.keep?.map(shellQuote).join(' ') } : {}) };
+      policy_exclude: r.policy_exclude, ...(m.disclosure ? { disclosure: m.disclosure, keep: r.keep?.map(shellQuote).join(' ') } : {}),
+      ...(m.disclosure && r.excerpt_file ? { excerpt_file: r.excerpt_file.file, excerpt_bytes: String(r.excerpt_file.bytes), excerpt_sha256: r.excerpt_file.sha256, excerpt_files: String(r.excerpt_file.files) } : {}) };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
     if (role === 'red-team') {
