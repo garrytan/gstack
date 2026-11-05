@@ -1153,9 +1153,12 @@ Every field is required. `cadence_hours` runs from 8 (the workflow's
 schedule) to 168. `check_name` is the check run release-cut reads as gated,
 so gstack keeps `main-backstop`. `bisect_spend_cap_usd` caps one red gate's
 bisect (0 skips it). Each case reserves two trials on every prefix, one trial
-and its one rule-16 rerun, and books the trials it ran, so a bisect never
-spends past the cap. A running bisect follows the policy's cap when it is
-lowered (0 stops it); `bisect --spend-cap` applies to that one run only.
+and its one rule-16 rerun, and books the trials it ran at $1.50 each, since
+prefix records carry no cost. So the cap bounds trials at that price, not
+the bill: trials that cost more can carry a bisect past it. A running bisect
+follows the policy's cap (lowering it to 0 stops it, and `bisect` resumes a
+capped one once the cap exceeds what it spent); `bisect --spend-cap` applies
+to that one run only.
 
 **What runs.** `.github/workflows/release-gate.yml` fires every 8 hours and
 on a manual dispatch from main. Without the block it stops after a git-and-jq

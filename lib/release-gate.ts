@@ -330,14 +330,14 @@ function collectRound(env: GateEnv, b: ReleaseBisect, round: ReleaseBisectRound,
  * Bisect a red record (resumable): finish a round still running, then narrow
  * (good, bad] with up to MAX_PREFIXES commits a round until they are adjacent,
  * the pattern is not monotone, the cap is spent, or MAX_BISECT_ROUNDS pass.
- * Without o.spendCap the stored spend_cap is capped at the policy's (min), so lowering the policy stops further rounds;
- * a one-off `bisect --spend-cap` (o.spendCap) applies to that invocation only and is never stored.
+ * Without o.spendCap the bisect runs under the policy's current cap (stored as spend_cap), so lowering the policy stops further
+ * rounds and raising it lets `bisect` resume; a one-off `bisect --spend-cap` (o.spendCap) applies to that invocation only and is never stored.
  */
 export function bisectRecord(env: GateEnv, c: Context, rec: ReleaseRecord, o: { spendCap?: number; dryRun: boolean }, lines: string[]): void {
   const policyCap = c.gate.bisect_spend_cap_usd;
   const b: ReleaseBisect = rec.bisect ?? { cases: rec.red_cases, good: rec.since, bad: rec.sha, first_bad: null, spend_cap: policyCap, spent_usd: 0, state: 'running', detail: '', rounds: [] };
-  b.spend_cap = Math.min(b.spend_cap, policyCap);
-  const cap = o.spendCap ?? b.spend_cap;
+  b.spend_cap = policyCap;
+  const cap = o.spendCap ?? policyCap;
   const stop = (state: ReleaseBisect['state'], detail: string) => { Object.assign(b, { state, detail }); };
   if (!o.dryRun) rec.bisect = b;
   if (b.state === 'running' && cap <= 0 && !b.rounds.length) stop('unknown', 'bisect_spend_cap_usd is 0: no bisect');
@@ -393,7 +393,7 @@ export function bisectGate(env: GateEnv, o: { gate: ReleaseGatePolicy | null; la
   const rec = o.sha ? c.records.find(r => r.sha === o.sha) : c.records.find(r => r.verdict === 'RED');
   if (!rec || rec.verdict !== 'RED') { lines.push(`RELEASE: no red release record${o.sha ? ` at ${o.sha}` : ''} to bisect`); return { action: 'failed', sha: o.sha ?? null, lines }; }
   ensureHistory(env, o.gate, rec.sha);
-  if (rec.bisect?.state === 'capped' && (o.spendCap ?? 0) > rec.bisect.spend_cap) rec.bisect.state = 'running';
+  if (rec.bisect?.state === 'capped' && (o.spendCap ?? o.gate.bisect_spend_cap_usd) > rec.bisect.spent_usd) rec.bisect.state = 'running';
   bisectRecord(env, c, rec, { spendCap: o.spendCap, dryRun: o.dryRun }, lines);
   lines.push(`RELEASE: red sha=${rec.sha} first_bad=${rec.bisect?.first_bad ?? 'unknown'} run=${rec.run?.id ?? '-'}`);
   return { action: o.dryRun ? 'dry-run' : 'held', sha: rec.sha, lines };

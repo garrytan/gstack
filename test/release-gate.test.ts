@@ -371,7 +371,7 @@ describe('release gate: the bisect cap with unknown costs', () => {
     expect(trialsRun * RELEASE_TRIAL_RESERVATION_USD).toBeLessThanOrEqual(cap);
     expect(prefixesRun).toBeGreaterThan(0);
   });
-  // Value: protects=a running release bisect never spends past the current policy cap: a scheduled resume takes min(stored, policy), so
+  // Value: protects=a running release bisect never spends past the current policy cap: a scheduled resume takes the current policy cap, so
   // lowering bisect_spend_cap_usd (to 0 here) stops further rounds, and a one-off bisect --spend-cap applies to that invocation only and is not
   // stored as a floor; fails_when=the stored cap only rises (Math.max), so a lowered policy keeps dispatching and a one-off raise keeps
   // spending on every later scheduled run; why_new=GSTA-36 condition before adoption (targeted reader at 598467d); seam=fake gh; no_claim=real case prices
@@ -404,6 +404,26 @@ describe('release gate: the bisect cap with unknown costs', () => {
     const oneOff = bisectGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 0 }, label: 'test', spendCap: 40, dryRun: false });
     expect(fake.dispatches.length, oneOff.lines.join('\n')).toBeGreaterThan(2);
     expect(records(f)[0]!.bisect!.spend_cap).toBe(0);
+  });
+  test('a bisect capped under a lower cap resumes once bisect runs under a raised policy cap above what it spent', () => {
+    const f = fixture();
+    [6, 7, 8, 9, 10, 11, 12].forEach(i => f.commit('c' + i));
+    const fake = fakeGh((inputs) => {
+      if (!inputs.prefix_shas) return { conclusion: 'failure', artifacts: report('RED', ['case-a  rule  FAIL  VERDICT']) };
+      const files: Record<string, Record<string, string>> = {};
+      for (const sha of inputs.prefix_shas.split(',')) {
+        files['gstack-release-record-bisect-' + sha.slice(0, 12)] = { 'bisect-prefix.json': JSON.stringify({ schema: 1, kind: 'train-bisect-prefix', nonce: inputs.nonce, prefix_sha: sha, checked_out_sha: sha,
+          panels: [{ case: 'case-a', kind: 'rule', status: 'FAIL', red_class: 'VERDICT', cost_usd: null }] }) };
+      }
+      return { conclusion: 'success', artifacts: files };
+    });
+    const env = envFor(f, fake.gh);
+    runGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 4 }, label: 'test', dryRun: false, ignoreCadence: true });
+    expect(records(f)[0]!.bisect!).toMatchObject({ state: 'capped', spent_usd: 3 });
+    expect(fake.dispatches).toHaveLength(2);
+    const raised = bisectGate(env, { gate: { ...GATE, bisect_spend_cap_usd: 80 }, label: 'test', dryRun: false });
+    expect(fake.dispatches.length, raised.lines.join('\n')).toBe(3);
+    expect(records(f)[0]!.bisect!.spend_cap).toBe(80);
   });
 });
 
