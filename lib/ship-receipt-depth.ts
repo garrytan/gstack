@@ -308,7 +308,7 @@ function writeBase(root: string, base: string): { ref: string; sha: string | nul
 function reviewedRecord(root: string, base: string, x: Exclusion, given: string): RecordedExclude | undefined {
   if (given === 'none') return undefined;
   const { ref, sha } = writeBase(root, base);
-  const log = sha ? git(root, ['log', '--format=%H', sha, '--', SHIP_POLICY_PATH]) : { ok: false, out: '' };
+  const log = sha ? git(root, ['log', '--full-history', '--format=%H', sha, '--', SHIP_POLICY_PATH]) : { ok: false, out: '' };
   for (const commit of log.ok ? log.out.split('\n').filter(Boolean) : []) {
     const load = loadPolicyAt(root, commit, ref);
     if (isUnavailable(load) || load.errors.length || !load.policy.review_exclude_paths.length) continue;

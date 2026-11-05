@@ -612,6 +612,25 @@ describe('the receipt binds the selection the reviewers read', () => {
       const b = bind(repo, body);
       expect({ ok: b.ok, message: b.ok ? '' : b.message }).toEqual({ ok: true, message: '' });
     }, 240_000);
+
+    test('write rebuilds a reviewed policy that a later merge hides from default path history', () => {
+      const { repo } = reviewed();
+      policyOnBaseOnly(repo, policyText(['receipts/**', 'results/**']));
+      const digest = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest;
+      repo.git('checkout', '-q', '-b', 'side', 'main~1');
+      commit(repo, { 'notes/side.md': '# side\n' }, 'side work');
+      repo.git('checkout', '-q', 'main');
+      repo.git('merge', '-q', '--no-ff', '--no-commit', 'side');
+      repo.git('checkout', 'side', '--', '.gstack/ship-policy.json');
+      repo.git('commit', '-q', '-m', 'merge side, restoring the earlier policy');
+      repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', 'feature');
+      repo.git('fetch', '-q', 'origin');
+      expect(repo.git('log', '--format=%s', 'origin/main', '--', '.gstack/ship-policy.json')).not.toContain('base policy change');
+      const w = writeWith(repo, ['--review-exclude', digest]);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      expect(w.err).toContain(`REVIEW_EXCLUDE_POLICY_MOVED: reviewed=${digest.slice(0, 12)} `);
+    }, 240_000);
   });
 
   // Value: protects=a receipt write after /ship's Step 14.5 docs audit binds the digest the reviewers read when the only change to
