@@ -5,9 +5,11 @@
  *   1. It invokes the CANONICAL runner (bun run test:free), not a raw
  *      `bun test <dirs>` glob — the runner owns TEST_ROOTS and strict-output
  *      classification, so a truncated run can't report green.
- *   2. It is SECRETLESS: free tests make no API calls, and keeping keys out
- *      means fork PRs get real signal here. Any `secrets.` reference is a
- *      regression.
+ *   2. It is SECRETLESS where code runs: free tests make no API calls, and
+ *      keeping keys out means fork PRs get real signal here. The one allowed
+ *      `secrets.` reference is TRUNK_API_TOKEN in the learning-only
+ *      trunk-dynamic-ci observer, which checks out and runs nothing of the PR's
+ *      and which no job depends on; any other reference is a regression.
  *   3. It triggers on `pull_request` (never `pull_request_target`, which
  *      would hand a fork PR the base repo's context).
  *
@@ -35,9 +37,37 @@ describe('free-tests workflow wiring', () => {
   });
 
   test('secretless: no secrets reach the free lane', () => {
-    expect(source).not.toContain('secrets.');
+    const jobs = (Bun.YAML.parse(source) as any).jobs;
+    expect(source.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi)).toEqual(['secrets.TRUNK_API_TOKEN']);
+    expect(jobs['trunk-dynamic-ci'].env).toEqual({ TRUNK_API_TOKEN: '${{ secrets.TRUNK_API_TOKEN }}' });
     expect(source).not.toContain('ANTHROPIC_API_KEY');
     expect(source).not.toContain('OPENAI_API_KEY');
+  });
+
+  // Value: protects=GST-1400's learning-only contract: Trunk Dynamic CI observes free-suite and macos-named-regressions on same-repository pull requests and can never skip, gate or fail anything; fails_when=a job needs or reads the observer, it re-exports outputs, checks out or runs PR code beside the token, gains token scopes, loses its fail-open settings, runs on forks or non-PR events, or the action is unpinned; seam=.github/workflows/free-tests.yml; no_claim=what Trunk recommends
+  test('trunk-dynamic-ci is a learning-only observer: pinned, scope-less, fail-open, read by no job', () => {
+    const jobs = (Bun.YAML.parse(source) as any).jobs;
+    const trunk = jobs['trunk-dynamic-ci'];
+    expect(trunk.if).toBe("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository");
+    expect(trunk.permissions).toEqual({});
+    expect(trunk['continue-on-error']).toBe(true);
+    expect(trunk['timeout-minutes']).toBe(5);
+    expect(trunk.outputs).toBeUndefined();
+    expect(trunk.needs).toBeUndefined();
+    expect(trunk.steps).toHaveLength(1);
+    const [step] = trunk.steps;
+    expect(step.uses).toBe('trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8');
+    expect(step.run).toBeUndefined();
+    expect(step.if).toBe("env.TRUNK_API_TOKEN != ''");
+    expect(step['continue-on-error']).toBe(true);
+    expect(step['timeout-minutes']).toBe(3);
+    expect(step.env).toEqual({ TRUNK_DISABLE_TELEMETRY: 'true' });
+    expect(step.with).toEqual({ token: '${{ env.TRUNK_API_TOKEN }}', 'job-keys': 'free-suite,macos-named-regressions', 'github-token': '', 'enable-annotation': 'true' });
+    for (const key of step.with['job-keys'].split(',')) expect(jobs[key], key).toBeDefined();
+    for (const name of Object.keys(jobs).filter(n => n !== 'trunk-dynamic-ci')) {
+      expect([name, [jobs[name].needs ?? []].flat()]).not.toEqual([name, expect.arrayContaining(['trunk-dynamic-ci'])]);
+      expect([name, JSON.stringify(jobs[name])]).not.toEqual([name, expect.stringMatching(/trunk|dynamic-ci/i)]);
+    }
   });
 
   test('pull_request trigger, never pull_request_target', () => {

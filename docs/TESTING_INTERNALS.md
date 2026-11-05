@@ -1688,6 +1688,58 @@ per file inside a multi-file child and leaves the console stream unchanged.
 up to bun's own test count. Counts are evidence for comparing k values; they
 never decide a verdict.
 
+### Trunk Dynamic CI (learning only)
+
+Since GST-1400, free-tests.yml has a `trunk-dynamic-ci` job ("Trunk Dynamic CI
+(learning only)") that runs Trunk's `trunk-io/dynamic-ci` action on every
+pull request from a branch in this repository. For each run, Trunk records
+whether it would have run or skipped `free-suite` and
+`macos-named-regressions`, and why. It is one verdict per job, so the ten
+free-suite shards share one verdict. The verdicts show up in the job summary,
+on the pull request's Dynamic CI tab and at app.trunk.io/dynamic-ci.
+
+It never skips anything. No job needs the observer, no condition reads its
+verdicts, and it exports no outputs. Switching Trunk to enforcement in its
+dashboard would still skip nothing, because nothing in this workflow reads
+the verdicts. Every test runs, and every required check keeps its name and
+its result. Merge evidence never reads Trunk: the `free-tests` aggregate,
+the CI reuse profile, `gstack-ci-carry`, the pregate, the train gate
+(evals.yml), the main backstop, the release gate and windows-smoke are
+unchanged.
+
+A Trunk problem never turns the run or any required check red. The action
+never fails its own step. The step also continues on error and has a 3-minute
+timeout, and the job continues on error, so the run's conclusion and the
+`free-tests` aggregate keep their own results. One case still shows red: if
+GitHub can't fetch the pinned action at "Set up job" (the action's repository
+or commit disappears), the observer's own check reports failure, and
+`gstack-ship-queue ready` counts every check at the head. Rerun it once;
+if it fails again, delete the job. Fork pull requests, pushes and dispatches
+skip the job. A missing token skips only its step, so the job still fetches
+the action. It is the only job in the workflow that sees a secret
+(`TRUNK_API_TOKEN`), so it checks out nothing and runs none of the pull
+request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`). At the
+pinned commit (`src/config.ts`, `src/changed-files.ts`), the action makes one
+network call: a request for verdicts to
+`api.trunk.io/v2/dynamic-ci/generate-plan`, at most 3 attempts with a
+30-second budget each. Telemetry is off. With no checkout and an empty
+`github-token`, the action sends no file list, and Trunk reads the diff itself
+through its GitHub App.
+`test/free-tests-workflow-wiring.test.ts` and
+`test/ci-reuse-workflow-wiring.test.ts` lock that shape in place.
+
+**Review date: one week after it merges (2026-11-12 if it merges on
+2026-11-05).** Compare Trunk's would-skip verdicts with what the jobs it
+would have skipped actually found, and look hardest at any would-skip on a run
+where that job failed. Leave out runs where `reuse` skipped the suite: Trunk
+still records a verdict there, but there is no result to compare it with.
+Trunk's `required-check` vote treats both jobs as not
+required, because branch protection names the `free-tests` aggregate and
+not the jobs under it. But `free-tests` needs both jobs and every shard
+receipt, so discount that vote when you judge the would-skip rate. Any skip
+added later also has to pass the aggregate's receipt check. Turning on
+skipping is a separate decision for Garry, made after that review.
+
 ### Windows free lane
 
 Windows has minimal support ([support tiers](support-tiers.md)). The required

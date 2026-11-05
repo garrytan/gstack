@@ -8,6 +8,8 @@ name: Free Tests
 # provider keys at all — least privilege, and fork PRs get real test signal
 # here (the eval matrix skips fork PRs because repository secrets can't reach
 # them). test/free-tests-workflow-wiring.test.ts fails CI if a secret sneaks in.
+# The one exception is TRUNK_API_TOKEN in the trunk-dynamic-ci observer, which
+# runs no pull-request code and which nothing depends on (see that job).
 #
 # This is a REQUIRED check from day one (branch protection lists it). If it's
 # red, fix or quarantine-with-issue — don't make it advisory; an advisory lane
@@ -82,6 +84,41 @@ permissions:
   contents: read
 
 jobs:
+  # Trunk Dynamic CI, LEARNING ONLY (GST-1400). Trunk records, for each
+  # same-repository pull request, whether it would have run or skipped the two
+  # named jobs below; every job still runs. It is an observer by construction:
+  # no job needs it, no condition reads it, it re-exports no outputs, so a mode
+  # change in Trunk's dashboard cannot skip anything here. It is the one job in
+  # this workflow that sees a secret, so it checks out nothing and runs no
+  # pull-request code: one pinned action and nothing else, with no GITHUB_TOKEN
+  # scopes (Trunk reads the diff itself) and telemetry off. It never fails the
+  # run: the action never fails its step, the step continues on error and has
+  # its own timeout, and the job continues on error. Fork pull requests, pushes
+  # and dispatches skip the job; a missing token skips its step. Review:
+  # docs/TESTING_INTERNALS.md.
+  trunk-dynamic-ci:
+    name: Trunk Dynamic CI (learning only)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions: {}
+    env:
+      TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+    steps:
+      - name: Record Trunk's verdicts for free-suite and macos-named-regressions (nothing reads them)
+        if: env.TRUNK_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8 # v0.1.7
+        env:
+          TRUNK_DISABLE_TELEMETRY: 'true'
+        with:
+          token: ${{ env.TRUNK_API_TOKEN }}
+          job-keys: free-suite,macos-named-regressions
+          github-token: ''
+          enable-annotation: 'true'
+
   # Main pushes and pull requests only, and the one job with actions: read (it
   # reads this repository's runs and their tested-tree artifacts). Every suite
   # job below runs unless this job succeeded and reused a run; a skipped or

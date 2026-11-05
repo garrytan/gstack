@@ -19,8 +19,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const MAIN_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const FILES = {
-  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: [] as string[], manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true },
-  'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], manual: true, reuseIf: MAIN_PUSH, pullRequest: false },
+  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: ['trunk-dynamic-ci'], observer: 'trunk-dynamic-ci', manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true },
+  'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], observer: null, manual: true, reuseIf: MAIN_PUSH, pullRequest: false },
 };
 const SKIP = "steps.route.outputs.reused != 'true'";
 const PROFILES = JSON.parse(read('.gstack/pregate.json')).run_profiles as Record<string, { workflow: string; jobs: string[]; artifact: string; events: string[]; os: string }>;
@@ -47,8 +47,9 @@ for (const [file, spec] of Object.entries(FILES)) {
       expect(jobs.reuse.if).toBe(spec.reuseIf);
       expect(jobs.reuse.permissions).toEqual({ contents: 'read', actions: 'read' });
       expect(wf.permissions).toEqual({ contents: 'read' });
-      for (const name of Object.keys(jobs).filter(n => n !== 'reuse')) expect([name, jobs[name].permissions]).toEqual([name, undefined]);
-      expect(source).not.toContain('secrets.');
+      for (const name of Object.keys(jobs).filter(n => n !== 'reuse' && n !== spec.observer)) expect([name, jobs[name].permissions]).toEqual([name, undefined]);
+      if (spec.observer) expect([jobs[spec.observer].permissions, jobs[spec.observer].needs, jobs[spec.observer].steps.some((s: any) => s.uses?.startsWith('actions/checkout@'))]).toEqual([{}, undefined, false]);
+      expect(source.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi) ?? []).toEqual(spec.observer ? ['secrets.TRUNK_API_TOKEN'] : []);
       expect(source).not.toContain('pull_request_target');
       const find = jobs.reuse.steps.find((s: any) => s.id === 'find');
       expect(find.env).toEqual({ GH_TOKEN: '${{ github.token }}' });

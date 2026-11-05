@@ -402,7 +402,8 @@ describe('CSO runtime staging gates', () => {
     expect(job).toBeTruthy();
     const gate = job.steps.find((step: any) => step.run?.trim() === 'bun test --max-concurrency 1 test/cso-docker-integration.test.ts');
     expect(gate.env.GSTACK_CSO_DOCKER_TESTS).toBe('1');
-    expect(raw).not.toContain('secrets.');
+    expect(JSON.stringify(job)).not.toContain('secrets.');
+    expect(raw.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi)).toEqual(['secrets.TRUNK_API_TOKEN']);
     expect(job.steps.map((s: any) => s.run ?? '').join('\n')).toContain('docker --host unix:///var/run/docker.sock info');
     expect(job['continue-on-error']).not.toBe(true);
     expect(gate['continue-on-error']).not.toBe(true);
