@@ -493,6 +493,75 @@ describe('the receipt binds the selection the reviewers read', () => {
       }
     }, 240_000);
   });
+
+  // Value: protects=a receipt write after /ship's Step 14.5 docs audit binds the digest the reviewers read when the only change to
+  //   the selection since the review is files under review_exclude_paths that the audit's post snapshot names (GST-1429: gbrain
+  //   #8627's audit added a key-files entry, a docs file code names, and write refused with RECEIPT_INVALID field=review_exclude,
+  //   forcing a third review pass), while a selection change from anything else, an audit file the exclusion reads as code, an
+  //   edit after the snapshot and a missing snapshot still refuse; fails_when=write accepts a changed selection without the
+  //   snapshot, or the exception spreads to files the snapshot does not name or the exclusion does not hide or keep as docs;
+  //   why_new=GST-1429; seam=gstack-docs-candidate snapshot, then gstack-ship-receipt write --review-exclude --docs-post;
+  //   no_claim=what the docs audit itself may edit (ship/sections/documentation.md)
+  describe('a docs audit after the review (GST-1429)', () => {
+    const BRANCH = { 'lib/reader.js': "exports.p = 'docs/parity.md';\n", 'docs/parity.md': '# parity\n', 'docs/old.md': '# old\n' };
+    /** A branch reviewed at its head (the plan's digest is what verify prints), then audited: `audit` edits the tree, the post snapshot is saved, `after` edits more, and everything is committed. */
+    const audited = (audit: Record<string, string | null>, after: Record<string, string | null> = {}, branch: Record<string, string> = BRANCH) => {
+      const repo = makeFixtureRepo({ prefix: 'gstack-exclude-audit-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/**', 'test/fixtures/goldens/**']), 'docs/key-files.md': '# key files\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
+      repos.push(repo);
+      commit(repo, branch);
+      const reviewed = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest as string;
+      for (const [rel, text] of Object.entries(audit)) { if (text === null) fs.rmSync(path.join(repo.work, rel), { force: true }); else write(repo.work, rel, text); }
+      const post = path.join(repo.root, 'a1-post.json');
+      const snap = runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', repo.git('rev-parse', 'origin/main'), '--docs', 'docs']);
+      expect({ status: snap.status, err: snap.err }).toMatchObject({ status: 0 });
+      commit(repo, after, 'docs audit and release');
+      return { repo, reviewed, post, body: path.join(repo.root, 'body.md') };
+    };
+    const writeWith = (a: ReturnType<typeof audited>, post: string | null = a.post) =>
+      writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, ...(post === null ? [] : ['--docs-post', post]), ...targetedAtHead(a.repo)]);
+    const refusedWith = (w: { status: number | null; err: string }, a: ReturnType<typeof audited>, why: string) => {
+      expect({ status: w.status, written: fs.existsSync(a.body) }).toEqual({ status: EXIT.fail, written: false });
+      expect(w.err).toContain(`field=review_exclude expected=`);
+      expect(w.err).toContain(`recorded=${a.reviewed} `);
+      expect(w.err).toContain(why);
+    };
+
+    test('the #8627 shape: an audit edit to a docs file code names binds the reviewed digest with the post snapshot only', () => {
+      const a = audited({ 'docs/key-files.md': '# key files\n- lib/reader.js: the parity guard\n' }, {}, { 'lib/reader.js': BRANCH['lib/reader.js'], 'docs/parity.md': BRANCH['docs/parity.md'] });
+      const head = receiptReviewAtHead(a.repo.work, 'main', path.join(import.meta.dir, '..', 'bin'), a.repo.git('rev-parse', 'HEAD')).exclude;
+      expect(head.state === 'active' ? head.kept.map(k => [k.path, k.reason]) : head.state).toEqual([['docs/key-files.md', 'named-by-code'], ['docs/parity.md', 'named-by-code']]);
+      expect(head.state === 'active' && head.record.digest).not.toBe(a.reviewed);
+      refusedWith(writeWith(a, null), a, '(write compares the argument, not the review ledger)');
+      const w = writeWith(a);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      expect(w.err + w.out).toContain(`REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${a.reviewed.slice(0, 12)} `);
+      expect(receiptIn(a.body).review_exclude!.digest).toBe(head.state === 'active' ? head.record.digest : 'none');
+    }, 240_000);
+
+    test('an audit that adds an excluded docs file and removes one the branch added binds', () => {
+      const a = audited({ 'docs/new.md': '# new\n', 'docs/old.md': null });
+      const w = writeWith(a);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      expect(w.err + w.out).toContain('files=docs/new.md,docs/old.md');
+    }, 240_000);
+
+    test('a selection change outside the audit, or an audit file the exclusion reads as code, still refuses', () => {
+      const code = audited({ 'docs/new.md': '# new\n' }, { 'lib/old.js': "exports.o = 'docs/old.md';\n" });
+      refusedWith(writeWith(code), code, 'is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset');
+      const outside = audited({ 'docs/new.md': '# new\n', 'lib/reader.js': "exports.p = 'docs/parity.md';\nexports.o = 'docs/old.md';\n" });
+      refusedWith(writeWith(outside), outside, 'is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset');
+      const tool = audited({ 'docs/tool.js': 'exports.t = 1;\n' });
+      refusedWith(writeWith(tool), tool, 'docs/tool.js is code at HEAD');
+    }, 240_000);
+
+    test('an edit after the snapshot, a file the snapshot does not name and a missing snapshot still refuse', () => {
+      const late = audited({ 'docs/new.md': '# new\n' }, { 'docs/new.md': '# new, edited after the snapshot\n' });
+      refusedWith(writeWith(late), late, 'docs/new.md at HEAD is not the content the snapshot recorded');
+      const unnamed = audited({}, { 'docs/new.md': '# new\n' });
+      refusedWith(writeWith(unnamed), unnamed, 'docs/new.md changed after the snapshot');
+      refusedWith(writeWith(unnamed, path.join(unnamed.repo.root, 'missing-post.json')), unnamed, 'missing-post.json: cannot be read');
+    }, 240_000);
+  });
 });
 
 describe('a branch cannot hide code under a base pattern', () => {

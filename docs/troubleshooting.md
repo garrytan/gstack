@@ -3496,6 +3496,11 @@ the field without a review. Do not do that. Rerun
 run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `REVIEW_EXCLUDE_RECORD: digest=<d>` from the briefs the readers got, then
 `gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body>`.
+`recorded=none` with a `no --review-exclude was given` note means the write left the flag out: pass the digest
+`verify` printed. When the only change since the review is Step 14.5's docs audit editing, adding or
+removing files under a pattern, pass that run's `--docs-post <audit-id>-post.json` as well instead of
+rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
+([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429).
 
 The queue's check skips a receipt with `recorded=none` (written before the base gained
 `review_exclude_paths`) when no file the head changes matches any current pattern, so
