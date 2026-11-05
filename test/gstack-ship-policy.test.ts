@@ -188,12 +188,14 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     expect(raw.changelog_fragments.required_checks.filter((n: string) => !jobs.has(n))).toEqual([]);
   });
 
-  // Value: protects=land.merged_checks on gstack itself (GST-1332): every test file its bun test commands name exists, and the ship/DRIVER.md cap guard (#3886) stays listed; fails_when=a listed test file is renamed or deleted, which bun skips silently while the other files pass, or test/ship-driver.test.ts leaves the list; why_new=gstack's own policy gained the land key; seam=the policy file; no_claim=that the commands pass on a merged tree (ship-queue-land-direct covers the engine)
-  test('land.merged_checks names only test files that exist, with the ship/DRIVER.md cap guard among them', () => {
+  // Value: protects=land.merged_checks on gstack itself (GST-1332): its tests run through the strict free runner on a committed list that keeps the ship/DRIVER.md cap guard (#3886), so an early exit or a missing file fails instead of passing; fails_when=a command goes back to raw bun test (which exits 0 when a test calls process.exit(0) and skips a missing file), test/ship-driver.test.ts leaves the list, or a listed file is gone; why_new=gstack's own policy gained the land key; seam=the policy file and test/land-merged-checks.txt; no_claim=that the commands pass on a merged tree (ship-queue-land-direct covers the engine)
+  test('land.merged_checks runs its tests through the strict runner on a list that exists and keeps the ship/DRIVER.md cap guard', () => {
     const root = path.join(import.meta.dir, '..');
-    const raw = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8'));
-    const files: string[] = raw.land.merged_checks.flatMap((c: string) => c.split(/\s+/).filter(t => t.endsWith('.test.ts')));
-    expect(files).toContain('./test/ship-driver.test.ts');
+    const checks: string[] = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8')).land.merged_checks;
+    expect(checks.filter(c => /\bbun test\b/.test(c))).toEqual([]);
+    expect(checks).toContain('bun run scripts/test-free-shards.ts --files-from test/land-merged-checks.txt --wall-timeout 600');
+    const files = fs.readFileSync(path.join(root, 'test', 'land-merged-checks.txt'), 'utf8').split('\n').filter(Boolean);
+    expect(files).toContain('test/ship-driver.test.ts');
     expect(files.filter(f => !fs.existsSync(path.join(root, f)))).toEqual([]);
   });
 

@@ -19,9 +19,8 @@
   "land": {
     "merged_checks": [
       "bun run typecheck",
-      "bun run gen:skill-docs --host all && git diff --exit-code",
-      "bun test ./test/ship-driver.test.ts ./test/skill-md-size-guard.test.ts ./test/skill-size-budget.test.ts ./test/module-size-ratchet.test.ts ./test/context-budget-ratchet.test.ts ./test/catalog-budget.test.ts ./test/claude-md-size.test.ts ./test/parity-suite.test.ts ./test/gstack-ship-policy.test.ts",
-      "bun test ./test/strict-output.test.ts ./test/gen-skill-docs.test.ts ./test/skill-check-driver.test.ts ./test/skill-ceo-section-ordering.test.ts ./test/qa-functional-observer.test.ts ./test/qa-checkpoint-evidence.test.ts ./test/test-free-shards-capture.test.ts --timeout=30000 --max-concurrency=1"
+      "bun run gen:skill-docs --host all && test -z \"$(git status --porcelain -- . ':(exclude)node_modules')\"",
+      "bun run scripts/test-free-shards.ts --files-from test/land-merged-checks.txt --wall-timeout 600"
     ]
   },
   "min_gstack_version": "1.96.0.0"
