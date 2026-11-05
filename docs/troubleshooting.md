@@ -350,8 +350,9 @@ it; `gstack-outside-voice run` sends that default to Anthropic only.
 ### `... outside review unavailable: the response lacks the markers this gate requires (...)`
 
 **Meaning.** The answer did not contain what the gate checks: a
-`Recommendation: ... because ...` line, a `SCORE:`/`AMBIGUITIES:` pair, or
-severity tags.
+`Recommendation: ... because ...` line (or a `## Recommendation` heading whose
+next non-blank line is a plain sentence with a `because` reason), a
+`SCORE:`/`AMBIGUITIES:` pair, or severity tags.
 
 **Fix.** Re-run the review.
 
