@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { rankedRisksGap } from '../lib/ceo-review-gate';
 import { ROOT, hookEnv, result, runHook, say, skillsDir, tmpDir, tool, user } from './helpers/skill-contract-fixture';
 
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'ceo-review-gate.ts');
@@ -282,5 +283,20 @@ describe('errors fail open with an error marker', () => {
     const out = json(stop([...LOADED, DONE]).stdout);
     expect(out.decision).toBeUndefined();
     expect(out.systemMessage).toMatch(/code=GATE_STATE/);
+  });
+});
+
+describe('rankedRisksGap reads the markdown, not a code sample of it', () => {
+  test('names each gap, and a ranked list under a nested subheading still counts', () => {
+    expect(rankedRisksGap(PLAN)).toBe('no Findings or Top risks heading');
+    expect(rankedRisksGap(`${PLAN}\n## Top risks\n\n- a bullet\n`)).toBe('no numbered list starting at 1 under its Findings or Top risks heading');
+    expect(rankedRisksGap(`${PLAN}\n## Findings\n\n1. TBD\n`)).toBe('its numbered list holds only placeholders');
+    expect(rankedRisksGap(RANKED)).toBeNull();
+    expect(rankedRisksGap(`${PLAN}\n## Findings\n\n### Payments\n\n1. Retries can double-charge.\n`)).toBeNull();
+  });
+
+  test('a Findings heading and list inside a fenced block do not count', () => {
+    const fenced = `${PLAN}\n\`\`\`md\n## Findings\n\n1. Example risk.\n\`\`\`\n`;
+    expect(rankedRisksGap(fenced)).toBe('no Findings or Top risks heading');
   });
 });
