@@ -306,8 +306,10 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   if (loop) {
     const head = loop.fix_check.head;
     const since = touchedPaths(cwd, head, now);
-    const fork = patchBase(cwd, baseRef, head, parent);
-    const atHead = fork ? touchedPaths(cwd, fork, head) : null;
+    const fork = git(cwd, ['merge-base', baseRef, head]).stdout.trim();
+    const own = fork ? touchedPaths(cwd, fork, head) : null;
+    const fromParent = parent && ancestor(parent, head) ? touchedPaths(cwd, parent, head) : own;
+    const atHead = own && fromParent ? new Set([...own].filter(p => fromParent.has(p))) : null;
     if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
     const listed = loop.fix_check.files;
     const unscanned = [...by.behavior, ...by.docs].filter(isTestCode);

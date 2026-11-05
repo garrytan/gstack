@@ -239,6 +239,27 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('src/other.ts')]);
   });
 
+  // Value: protects=a conflicted parent deletion of a file whose name git C-quotes (a double quote) is still a conflict
+  //   inside the pathspec, so the parent is not landed (fix-check p2 on #4021); fails_when=heldBy reads merge-tree's
+  //   conflicted names without -z and compares quoted names to raw ones; seam=lib/ship-receipt.ts heldBy
+  test('a parent deletion the base never took is not landed when git quotes the file name', () => {
+    const odd = 'src/we"ird.ts';
+    const f = shipFixture({ ...BASE, [odd]: lines(10) }, { 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;' }) }); ships.push(f);
+    expect(f.git('rm', '-q', odd).status).toBe(0); f.commit('parent: drop the oddly named file');
+    const parent = head(f);
+    expect(f.git('push', '-q', 'origin', 'feat:parent').status).toBe(0);
+    f.write(CHILD_ONLY); f.commit('child');
+    const reviewed = wtree(f);
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    f.advanceBase({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;' }), [odd]: lines(10, { 2: 'export const l2 = 20;' }) });
+    f.advanceBase({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 300;' }) });
+    mergeMain(f);
+    const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
+    expect(lineOf(r.stdout, 'REVIEWED_BASE')).toBe('');
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, expect.stringContaining('nor a landed stack parent')]);
+  });
+
   // Value: protects=a reviewed executable bit reverted to main's mode after review is not held by main, so it stops
   //   (outside voice on #4013); fails_when=baseHolds compares blob bytes only; seam=lib/ship-patch.ts baseHolds
   test('a reverted mode change stops', () => {

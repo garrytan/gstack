@@ -339,8 +339,8 @@ export function heldBy(repoRoot: string, commit: string, currentBase: string, pa
   const paths = own?.status === 0 ? own.stdout.split('\0').filter(Boolean) : [];
   if (!paths.length) return null;
   const holds = (at: string): 'held' | 'conflict' | 'no' => {
-    const merged = run(['merge-tree', '--write-tree', '--no-messages', '--name-only', at, commit]);
-    const [tree, ...conflicted] = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\n').filter(Boolean) : [];
+    const merged = run(['merge-tree', '--write-tree', '--no-messages', '--name-only', '-z', at, commit]);
+    const [tree, ...conflicted] = merged.status === 0 || merged.status === 1 ? merged.stdout.split('\0').filter(Boolean) : [];
     const mb = conflicted.length ? run(['merge-base', at, commit]).stdout.trim() : '';
     const theirs = mb ? run(['diff', '-z', '--name-only', '--no-renames', mb, commit, '--', ...pathspec]) : null;
     const clean = !conflicted.length || (theirs?.status === 0 && !theirs.stdout.split('\0').some(p => conflicted.includes(p)));
