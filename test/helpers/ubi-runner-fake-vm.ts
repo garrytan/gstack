@@ -17,7 +17,11 @@ export const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
  * answer: listed.create-status answers every create with that HTTP status, and
  * with listed.create-lands (a count N) the VM still lands, listed from the Nth
  * show on (0: listed at once, as a holder that took the name first), and with listed.show-fails-after-create every later show answers 503;
- * listed.list-fails, listed.show-fails and listed.destroy-fails answer 503 or 500; listed.list-body is the list's 200 body. The fake VM is the directory vm/:
+ * listed.list-fails, listed.show-fails and listed.destroy-fails answer 503 or 500; listed.list-body is the list's 200 body.
+ * With listed.holder-key (a public key line), the VM at the name is another caller's: the fake ssh
+ * refuses every key but that one with exit 255, as sshd answers a key the VM was not created with; with listed.agent-holds-holder-key
+ * the controller's ssh agent holds the holder's key, which ssh offers unless IdentitiesOnly=yes; with listed.config-holds-holder-key
+ * an ssh config IdentityFile names it, which ssh offers even under IdentitiesOnly=yes unless -F /dev/null. The fake VM is the directory vm/:
  * the fake ssh records every remote command in ssh.log, keeps copies of
  * ~/.ubirun-env and ~/.ubirun-setup.sh under the fixture root, serves pulls
  * from remote-fs/ (a pull's existence check matches only what remote-fs/ holds), and runs every other command there for real (HOME=vm/,
@@ -51,6 +55,7 @@ export function fakeVm(opts: { listed?: string; refuse?: string } = {}) {
     'root=' + JSON.stringify(root) + '; vm="$root/vm"\n' +
     'cmd=${*: -1}\n' +
     'printf \'%s\\n\' "$cmd" >> "$root/ssh.log"\n' +
+    'if [ -f "$root/listed.holder-key" ]; then k=""; p=""; for a in "$@"; do [ "$p" = -i ] && k=$a; p=$a; done; { [ -f "$root/listed.agent-holds-holder-key" ] && [[ " $* " != *" IdentitiesOnly=yes "* ]]; } || { [ -f "$root/listed.config-holds-holder-key" ] && [[ " $* " != *" -F /dev/null "* ]]; } || { [ -n "$k" ] && [ "$(cut -d" " -f1,2 "$k.pub" 2>/dev/null)" = "$(cut -d" " -f1,2 "$root/listed.holder-key")" ]; } || { echo "ubi@192.0.2.1: Permission denied (publickey)." >&2; exit 255; }; fi\n' +
     'export HOME="$vm" PATH="$root/vmbin:$PATH"\n' +
     'cd "$vm" || exit 255\n' +
     'case "$cmd" in\n' +

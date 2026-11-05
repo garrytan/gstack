@@ -178,7 +178,9 @@ fail only with `--rerun-failed`, and ends with `UBI_VERIFY: …`.
 - `UBICLOUD: left=<n> owner=<o> vm=<name> others=<n>` follows teardown. Report
   it with every result: `left=0` means this run's VM is confirmed gone. `left=1`
   or `left=unknown` turns a passing command into exit 1; run the printed `down`
-  command now. `others` counts this owner's other VMs, for information.
+  command now. When no `down` command is printed (after `UBI_CREATE_UNKNOWN`),
+  the VM may be another caller's: run `list`, and run `down` only once you know
+  the VM is yours. `others` counts this owner's other VMs, for information.
   `run --keep` prints `left=1 ... kept=1` instead and keeps its exit status.
 - Exit 124 with `watchdog: <phase> printed nothing for <n>s` (or `ran <n>s`)
   means the remote hung or exceeded its budget; the last 40 lines follow.
