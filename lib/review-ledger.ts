@@ -182,6 +182,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   let gap = false;
   let prev = '';
   let treeSeen = false;
+  let fenced = -1;
+  let fenceHost: Finding | null = null;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
@@ -200,6 +202,20 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
   for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
     const t = line.trim();
+    const fence = /^(?:```|~~~)/.test(t);
+    if (fenced >= 0 || (fence && (current ? !current.raw.startsWith('{') : !!head))) {
+      if (fenced < 0) { fenced = 0; fenceHost = current; continue; }
+      if (fence) {
+        const note = `(code block: ${fenced} lines)`;
+        if (fenceHost) fenceHost.raw += ` | ${note}`; else if (fenced) head += ` | ${note}`;
+        fenced = -1;
+        continue;
+      }
+      const o = t.startsWith('{') ? (() => { try { return JSON.parse(t) as Record<string, unknown>; } catch { return null; } })() : null;
+      if (o && typeof o.severity === 'string') current = push(o.severity, t, [], o.severity);
+      else fenced++;
+      continue;
+    }
     if (!t) { gap = true; prev = ''; continue; }
     if (!treeSeen && isReviewedTreeLine(t)) { treeSeen = true; continue; }
     const afterGap = gap;

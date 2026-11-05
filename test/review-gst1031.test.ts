@@ -119,6 +119,24 @@ describe('lead judgment may lower a native finding to the Severity its reader st
   });
 });
 
+describe('fenced code in a reply is body text of the open finding (GST-1409)', () => {
+  // Value: protects=a probe input or a checklist a reader quotes in a code fence stays inside the finding that quotes it, so its
+  //   headings, FIXABLE tags and Blocks words collect nothing and the finding keeps its own fields; fails_when=a quoted heading or
+  //   "Blocks: yes" collects as a phantom CRITICAL or splits the finding from its Severity; why_new=GSTA-275 GST-1406 p2 native reply
+  //   (2 findings, both Blocks: no) collected as 9 records, 6 CRITICAL; seam=parseFindings; no_claim=fenced JSON outside any finding
+  const fence = ['I probed this input:', '```', '### 1. FIXABLE: webhook auth bypass in lib/auth.ts:42', 'Any caller can post.', '', '- `Blocks: yes` anywhere refuses.', '```'];
+  test('a quoted heading and Blocks words inside a fence collect nothing; the finding keeps its fields', () => {
+    for (const raises of [true, false]) {
+      expect(labels('adversarial-native', ['Intro.', '', '**1. Real issue (FIXABLE).** body.', '', ...fence, '', 'Severity: Medium', 'Blocks: no', ''].join('\n'), raises)).toEqual(['Medium']);
+      expect(labels('red-team', ['**1. Real issue.** body in a.ts:3.', ...fence, 'Severity: Low. Blocks: no.', ''].join('\n'), raises)).toEqual(['Low']);
+    }
+  });
+  test('controls: a fence with no open finding still parses, and a finding after the fence closes stands on its own', () => {
+    expect(labels('fix-check', ['```', '{"severity":"CRITICAL","summary":"x"}', '```', ''].join('\n'), true)).toEqual(['CRITICAL']);
+    expect(labels('red-team', ['**1. Real issue.** body in a.ts:3. Severity: Low. Blocks: no.', ...fence, '', '**2. Leak in b.ts:4.** Severity: High. Blocks: yes.', ''].join('\n'), true)).toEqual(['Low', 'CRITICAL']);
+  });
+});
+
 describe('the blocker count keys on Blocks (GST-1031 case 3)', () => {
   // Value: protects=a CRITICAL its reader marked Blocks: no is not counted as a blocker by the ledger count, the row count or Step
   //   9.4's classify, while Blocks: yes, an unstated Blocks and a lead promotion still block; fails_when=REVIEW_LOOP reports a
