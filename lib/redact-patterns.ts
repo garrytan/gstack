@@ -594,6 +594,107 @@ export function isLocalConfigFilename(match: RegExpExecArray): boolean {
 }
 
 /**
+ * True when the text up to `offset` ends inside a string literal or a
+ * comment. Single pass from the start of the input: single/double quotes
+ * end at a newline, backticks and Python triple quotes span lines, `//`
+ * and `#` comments end at a newline, `/* ... *\/` spans lines. Quotes
+ * inside a comment never open a string, and comment markers inside a
+ * string never open a comment, so `// don't` and `"http://x"` both scan
+ * correctly. Deliberately approximate (no interpolation stack): a
+ * misparse can only move a span between "string" and "code" when the
+ * surrounding syntax is already pathological, and the caller fails
+ * closed on the string/comment side.
+ */
+function inStringOrComment(text: string, offset: number, isPy: boolean): boolean {
+  let quote: string | null = null;
+  let blockComment = false;
+  let i = 0;
+  while (i < offset) {
+    if (blockComment) {
+      if (text.startsWith("*/", i)) {
+        blockComment = false;
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (text[i] === "\\") {
+        i += 2;
+        continue;
+      }
+      if (text.startsWith(quote, i)) {
+        const len = quote.length;
+        quote = null;
+        i += len;
+        continue;
+      }
+      // A single-line quote ends at the newline; backticks and triple
+      // quotes span lines, so only the single-char forms reset here.
+      if (quote.length === 1 && quote !== "`" && text[i] === "\n") quote = null;
+      i += 1;
+      continue;
+    }
+    if (!isPy && text.startsWith("//", i)) {
+      const nl = text.indexOf("\n", i);
+      if (nl < 0 || nl >= offset) return true;
+      i = nl + 1;
+      continue;
+    }
+    if (!isPy && text.startsWith("/*", i)) {
+      blockComment = true;
+      i += 2;
+      continue;
+    }
+    if (isPy && text[i] === "#") {
+      const nl = text.indexOf("\n", i);
+      if (nl < 0 || nl >= offset) return true;
+      i = nl + 1;
+      continue;
+    }
+    const c = text[i]!;
+    if (c === '"' || c === "'") {
+      if (isPy && text.startsWith(c.repeat(3), i)) {
+        quote = c.repeat(3);
+        i += 3;
+      } else {
+        quote = c;
+        i += 1;
+      }
+      continue;
+    }
+    if (!isPy && c === "`") {
+      quote = "`";
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return quote !== null || blockComment;
+}
+
+/**
+ * True when an `internal.hostname` span is property access in a code
+ * file (#3987) rather than a host: `return m.local`, `if (config.prod)`,
+ * `if settings.internal:` are ordinary member access, and the pattern
+ * cannot tell them from `db.internal` by shape alone. The exemption is
+ * deliberately narrow: it fires ONLY when `sourcePath` is a code file
+ * (the same set `isSourceExpression` uses) AND the span sits outside any
+ * string literal or comment on its way there. A hostname in code lives
+ * in a string (`"http://build.corp/api"`), a URL, or a comment, so it
+ * still reports, and so does every span scanned without a code path
+ * (prose files, and the pre-push hook's Dart/Python slices, which go
+ * without their path on purpose per #3630) — failing closed there is
+ * the point, not a gap to paper over.
+ */
+export function isPropertyAccess(match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
+  const { start } = spanBounds(match);
+  return !inStringOrComment(match.input ?? "", start, /\.pyi?$/i.test(sourcePath));
+}
+
+/**
  * True when the matched span sits ENTIRELY inside a UUID.
  *
  * Digit-only UUIDs — `00000000-0000-0000-0000-000000000000`,
@@ -1386,8 +1487,10 @@ export const PATTERNS: RedactPattern[] = [
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
     // `.env.local`, `CLAUDE.local.md` and friends are filenames, not hosts.
-    // See isDotenvFilename and isLocalConfigFilename.
-    validate: (_span, match) => !isDotenvFilename(match) && !isLocalConfigFilename(match),
+    // See isDotenvFilename and isLocalConfigFilename. Property access in
+    // a code file is not a host either (#3987, see isPropertyAccess).
+    validate: (_span, match, opts) =>
+      !isDotenvFilename(match) && !isLocalConfigFilename(match) && !isPropertyAccess(match, opts?.sourcePath),
   },
   {
     id: "internal.url_private",

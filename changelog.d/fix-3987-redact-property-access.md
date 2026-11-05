@@ -1,0 +1,1 @@
+- **gstack-redact no longer flags property access as an internal host.** In a code file, `internal.hostname` now skips a span that sits outside any string literal or comment (`return m.local`, `if (config.prod)`, `if settings.internal:`), while a hostname in a string, URL, or comment still reports, as does every span scanned without a code path. (#3987)
