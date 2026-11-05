@@ -2272,7 +2272,10 @@ those rewrites (a release tool that renders content, GST-1176) is a stamp, rule
 its version, writes it byte for byte: the release PR's and the Version Gate's
 rule. The tool is repo code, so the receipt reruns it only with
 `--allow-repo-commands`, and `train build --allow-repo-commands` applies it to
-each stamped prefix; without the flag the file stays `changed`. With `stamp_files` set, a file outside it
+each stamped prefix; without the flag the file stays `changed`. The rerun is
+the Version Gate's: the stamped head (CHANGELOG folded, fragments deleted), a
+bare environment and a 120-second limit, so an output that depends on anything
+else fails closed as `changed`. With `stamp_files` set, a file outside it
 is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
 its diff. Any other byte is a change. A diff git cannot produce between the two
 heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never

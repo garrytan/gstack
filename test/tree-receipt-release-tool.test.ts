@@ -19,8 +19,8 @@ const FOLD = "const fs=require('fs');const v=fs.readFileSync('VERSION','utf8').t
 const POLICY = { ...BASE_POLICY, release_tool: 'node fold.js', release_outputs: ['TODOS.md'] };
 
 /** HARN-7's shape: M is the unstamped merge of a PR that adds only a todos.d/ file; S stamps it with the tool's output. */
-function harn7(): { repo: FixtureRepo; merged: string; stamped: string } {
-  const repo = makeFixtureRepo({ prefix: 'tree-receipt-release-tool-', policy: POLICY });
+function harn7(policy: Record<string, unknown> = POLICY): { repo: FixtureRepo; merged: string; stamped: string } {
+  const repo = makeFixtureRepo({ prefix: 'tree-receipt-release-tool-', policy });
   repos.push(repo);
   const fold = () => expect(spawnSync('node', ['fold.js'], { cwd: repo.work, timeout: 30_000 }).status).toBe(0);
   fs.mkdirSync(path.join(repo.work, 'todos.d'));
@@ -59,6 +59,15 @@ describe('tree receipt: a release output release_tool regenerates (GST-1176)', (
     const todos = j.files.find((f: { path: string }) => f.path === 'TODOS.md');
     expect(todos).toMatchObject({ verdict: 'changed', rule: 'release_outputs' });
     expect(todos.residual).toContain('release_tool');
+  });
+
+  test('a release_tool that fails leaves the release output changed, with its exit named', () => {
+    const { repo, merged, stamped } = harn7({ ...POLICY, release_tool: 'node fold.js && exit 3' });
+    const j = JSON.parse(receipt(repo, ['--gated', merged, '--current', stamped, '--allow-repo-commands', '--json']).out);
+    expect(j.tree).toBe('changed');
+    const todos = j.files.find((f: { path: string }) => f.path === 'TODOS.md');
+    expect(todos).toMatchObject({ verdict: 'changed', rule: 'release_outputs' });
+    expect(todos.residual).toContain('exited 3');
   });
 
   test('a stamped train prefix over the merge passes stampMismatch only when the train runs repo commands', () => {
