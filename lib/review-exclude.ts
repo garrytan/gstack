@@ -79,6 +79,18 @@ export const recordSelectsNoFile = (r: Pick<ExcludeRecord, 'patterns_sha256' | '
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
+/** `paths` in order, split so each chunk's literal pathspecs stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
+function argChunks(paths: readonly string[]): string[][] {
+  const chunks: string[][] = [];
+  let bytes = Infinity;
+  for (const p of paths) {
+    const n = argBytes([p]);
+    if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
+    chunks[chunks.length - 1]!.push(p);
+    bytes += n;
+  }
+  return chunks;
+}
 
 function git(root: string, args: string[], input?: string): { ok: boolean; status: number | null; out: string; err: string } {
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 120_000, maxBuffer: MAX_BUFFER });
@@ -183,15 +195,7 @@ function binaryContent(i: ExcludeInput, files: ReadonlyMap<string, Matched>, cla
 function attributeBinaryLines(i: ExcludeInput, paths: readonly string[], unread: Set<string>): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
-  const chunks: string[][] = [];
-  let bytes = Infinity;
-  for (const p of [...paths].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
-    const n = argBytes([p]);
-    if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
-    chunks[chunks.length - 1]!.push(p);
-    bytes += n;
-  }
-  for (const chunk of chunks) {
+  for (const chunk of argChunks([...paths].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))))) {
     const r = git(i.root, ['diff', '--text', '--no-textconv', '--no-ext-diff', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', '-U0', ...range, '--', ...chunk.map(literal)]);
     const sections = r.ok ? r.out.split(/^(?=diff --git )/m).filter(s => s.startsWith('diff --git ')) : [];
     const aligned = sections.length === chunk.length && chunk.every((p, k) => /["\\\x00-\x1f\x7f]/.test(p) || sections[k]!.startsWith(`diff --git a/${p} b/${p}\n`));
@@ -236,7 +240,13 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
 const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =>
   !candidates.has(f) && !f.startsWith('.gstack/tmp/') && contentKind(i, f, new Set()) === null;
 
-/** An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files holding it; null when git grep failed. */
+/**
+ * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
+ * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding (its literal pathspec would
+ * match nothing), or git grep failed (a timeout included). Each tree's file list is filtered to
+ * consumers first and grepped through literal pathspecs, so the data under the patterns is never read (GST-1435: a whole-tree
+ * grep for 4,354 candidate paths through 30 MB of receipts ran 278 s).
+ */
 function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
   if (!strings.length) return found;
@@ -244,18 +254,22 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
   try {
     const list = path.join(dir, 'patterns');
     fs.writeFileSync(list, strings.join('\n') + '\n');
-    const runs = [i.head ? { at: i.head, args: [i.head, '--'] } : { at: '', args: ['--'] }, ...revs.map(rev => ({ at: rev, args: [rev, '--'] }))];
-    for (const run of runs) {
-      const r = git(i.root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list, ...run.args]);
-      if (r.status !== 0 && r.status !== 1) return null;
-      for (const line of r.out.split('\n')) {
-        const parts = line.split('\0');
-        const where = parts[0];
-        const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
-        if (!where || !match) continue;
-        const file = run.at ? where.slice(run.at.length + 1) : where;
-        if (!consumer(i, file, candidates)) continue;
-        (found.get(match) ?? found.set(match, new Set()).get(match)!).add(file);
+    for (const at of [i.head ?? '', ...revs]) {
+      const ls = git(i.root, at ? ['ls-tree', '-r', '-z', '--name-only', at] : ['ls-files', '-z']);
+      if (!ls.ok) return null;
+      const files = [...new Set(ls.out.split('\0'))].filter(f => f && consumer(i, f, candidates));
+      if (files.some(f => f.includes('\uFFFD'))) return null;
+      for (const chunk of argChunks(files)) {
+        const r = git(i.root, ['grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list, ...(at ? [at] : []), '--', ...chunk.map(literal)]);
+        if (r.status !== 0 && r.status !== 1) return null;
+        for (const line of r.out.split('\n')) {
+          const parts = line.split('\0');
+          const where = parts[0];
+          const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
+          if (!where || !match) continue;
+          const file = at ? where.slice(at.length + 1) : where;
+          (found.get(match) ?? found.set(match, new Set()).get(match)!).add(file);
+        }
       }
     }
     return found;

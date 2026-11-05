@@ -344,8 +344,8 @@ describe('the receipt binds the selection the reviewers read', () => {
   }, 240_000);
 
   // Value: protects=a base policy that gains review_exclude_paths does not void a receipt whose PR touches none of the new
-  //   patterns, while a recorded digest that differs, a PR touching a pattern (an excluded or a kept file) and an unreadable base
-  //   policy still refuse; fails_when=the queue compares recorded=none to the new digest without asking whether any changed
+  //   patterns, while a PR touching a pattern (an excluded or a kept file) and an unreadable base policy still refuse (a recorded
+  //   digest that differs: GST-1434 below); fails_when=the queue compares recorded=none to the new digest without asking whether any changed
   //   file matches (GST-1408: harness-evals #264 stopped 9 receipted PRs), or the acceptance spreads to any of the four
   //   refusals; why_new=GST-1408; seam=bindShippedReceipt, which gstack-ship-queue ready, train build and land call, on receipts
   //   gstack-ship-receipt write produced; no_claim=carry (bin/gstack-ship-receipt carry keeps its own comparison)
@@ -399,25 +399,48 @@ describe('the receipt binds the selection the reviewers read', () => {
       }
     }, 240_000);
 
-    test('a recorded digest that differs from the current one still refuses, though the PR touches no pattern', () => {
-      const { repo, body } = shipped(CODE, ['receipts/**']);
-      const recorded = receiptIn(body).review_exclude!.digest;
-      expect(bind(repo, body).ok).toBe(true);
-      policyOnBaseOnly(repo, policyText(['receipts/**', 'results/**']));
-      const b = bind(repo, body);
-      expect(b.ok).toBe(false);
-      if (b.ok) return;
-      expect(b.code).toBe('RECEIPT_INVALID');
-      expect(b.message).toMatch(new RegExp(`^field=review_exclude expected=[0-9a-f]{64} recorded=${recorded} `));
+    // Value: protects=ready, train build and land bind a receipt whose recorded digest is older than the base policy's when
+    //   neither the recorded selection nor HEAD's holds a PR file (carry's rule since #4030), while a selection that holds a PR
+    //   file (excluded or kept, on either side) and an unreadable base policy still refuse; fails_when=the queue compares digests
+    //   alone (GST-1434: harness-evals #274 and #276 refused after policy PR #278 merged, recorded=5ae7e95a07b5 expected=
+    //   323c17cf6249), or the acceptance spreads to a selection that holds a PR file; why_new=GST-1434; seam=bindShippedReceipt,
+    //   which gstack-ship-queue ready, train build and land call; no_claim=carry (GST-1415 below)
+    test('the #274 shape: an older recorded digest binds after a policy edit on main when neither selection holds a PR file', () => {
+      for (const after of [['receipts/**', 'results/**'], ['results/**']]) {
+        const { repo, body } = shipped(CODE, ['receipts/**']);
+        const recorded = receiptIn(body).review_exclude!.digest;
+        expect(bind(repo, body).ok).toBe(true);
+        policyOnBaseOnly(repo, policyText(after));
+        const now = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest;
+        expect({ after, moved: typeof now === 'string' && now !== recorded }).toEqual({ after, moved: true });
+        const b = bind(repo, body);
+        expect({ after, ok: b.ok, message: b.ok ? '' : b.message }).toEqual({ after, ok: true, message: '' });
+      }
     }, 240_000);
 
-    test('an unreadable base policy still refuses a receipt with no digest', () => {
-      const { repo, body } = shipped(CODE);
-      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
-      const b = bind(repo, body);
-      expect(b.ok).toBe(false);
-      if (b.ok) return;
-      expect(b.code).toBe('POLICY_INVALID');
+    test('a recorded digest that differs still refuses when the recorded or the current selection holds a PR file', () => {
+      const cases: Array<{ name: string; files: Record<string, string>; after: string[] }> = [
+        { name: 'recorded excludes a PR file', files: { 'receipts/a/result.json': '{"ok": true}\n' }, after: ['results/**'] },
+        { name: 'current excludes a PR file', files: { 'results/a.json': '{"ok": true}\n' }, after: ['receipts/**', 'results/**'] },
+        { name: 'both keep a PR file', files: { 'receipts/run.js': 'exports.run = 1;\n' }, after: ['receipts/**', 'results/**'] },
+      ];
+      for (const c of cases) {
+        const { repo, body } = shipped({ ...CODE, ...c.files }, ['receipts/**']);
+        const recorded = receiptIn(body).review_exclude!.digest;
+        policyOnBaseOnly(repo, policyText(c.after));
+        const b = bind(repo, body);
+        expect({ name: c.name, ok: b.ok, code: b.ok ? '' : b.code }).toEqual({ name: c.name, ok: false, code: 'RECEIPT_INVALID' });
+        if (!b.ok) expect(b.message).toMatch(new RegExp(`^field=review_exclude expected=[0-9a-f]{64} recorded=${recorded} `));
+      }
+    }, 240_000);
+
+    test('an unreadable base policy still refuses a receipt with no digest or an older one', () => {
+      for (const basePolicy of [null, ['receipts/**']]) {
+        const { repo, body } = shipped(CODE, basePolicy);
+        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+        const b = bind(repo, body);
+        expect({ basePolicy, ok: b.ok, code: b.ok ? '' : b.code }).toEqual({ basePolicy, ok: false, code: 'POLICY_INVALID' });
+      }
     }, 240_000);
   });
 
@@ -723,6 +746,55 @@ describe('a branch cannot hide code under a base pattern', () => {
     if (blind.state !== 'active') return;
     expect(blind.excluded.size).toBe(0);
     expect(blind.kept.filter(k => k.reason === 'gate-scan-unavailable').map(k => k.path).sort()).toEqual([...EXCLUDED, 'receipts/b/result.json', 'receipts/d/fixture.json'].sort());
+  }, 120_000);
+
+  // Value: protects=the named-by-code scan reads only the code and test files that can name a candidate, so its cost follows
+  //   the consumers and not the data a results PR adds; fails_when=git grep reads the whole tree, so 4,354 receipts and 30 MB of
+  //   data under the patterns are searched for every candidate path (GST-1435: harness-evals #269 ran 278 s past the 120 s limit
+  //   and kept every file as consumer-scan-unavailable), or the scoped scan stops finding a full-path reference; why_new=GST-1435;
+  //   seam=reviewExclude in head mode, observed through GIT_TRACE; no_claim=wall-clock time (the PR body has the timings)
+  test('the consumer scan greps only consumer files, never the data under the patterns, and still finds full-path references', () => {
+    const repo = census();
+    const bulk: Record<string, string> = {};
+    for (let k = 0; k < 200; k++) bulk[`receipts/bulk/${k}/result.json`] = JSON.stringify({ next: `receipts/bulk/${k + 1}/result.json`, peer: 'receipts/b/result.json' }) + '\n';
+    commit(repo, bulk, 'bulk receipts');
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const trace = path.join(repo.root, 'git-trace.log');
+    const prior = process.env.GIT_TRACE;
+    process.env.GIT_TRACE = trace;
+    let x: ReturnType<typeof reviewExclude>;
+    try { x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' }); }
+    finally { if (prior === undefined) delete process.env.GIT_TRACE; else process.env.GIT_TRACE = prior; }
+    expect(x.state).toBe('active');
+    if (x.state !== 'active') return;
+    expect(x.kept.filter(k => k.reason !== 'executable')).toEqual([{ path: 'receipts/b/result.json', reason: 'named-by-code' }, { path: 'receipts/d/fixture.json', reason: 'named-by-code' }]);
+    expect(x.excluded.has('receipts/bulk/7/result.json')).toBe(true);
+    const greps = fs.readFileSync(trace, 'utf8').split('\n').filter(l => /built-in: git( -c \S+)* grep /.test(l));
+    expect(greps.length).toBeGreaterThan(0);
+    const read = greps.map(l => [...(l.split(' -- ')[1] ?? '').matchAll(/:\(top,literal\)([^' ]+)/g)].map(m => m[1]!));
+    expect(read.every(paths => paths.length > 0)).toBe(true);
+    const all = new Set(read.flat());
+    expect(['lib/reader.js', 'test/d.test.js'].every(p => all.has(p))).toBe(true);
+    expect([...all].filter(p => p.startsWith('receipts/') && p !== 'receipts/run.sh')).toEqual([]);
+  }, 120_000);
+
+  // GST-1435 review (outside-voice#1): a consumer whose name is not valid UTF-8 comes back from ls-tree as U+FFFD, so its literal
+  //   pathspec matches nothing; fails_when=the scan treats that as no match and excludes the data the file names instead of keeping
+  //   every candidate; seam=reviewExclude in head mode
+  test.skipIf(process.platform === 'win32' || process.platform === 'darwin')('a consumer whose name is not valid UTF-8 keeps the candidates, not excludes them', () => {
+    const repo = census();
+    commit(repo, { 'receipts/z/result.json': '{}\n' }, 'receipt');
+    fs.writeFileSync(Buffer.concat([Buffer.from(path.join(repo.work, 'lib/reader-')), Buffer.from([0xff]), Buffer.from('.js')]), "read('receipts/z/result.json')\n");
+    commit(repo, {}, 'reader with a non-UTF-8 name');
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    expect(x.state).toBe('active');
+    if (x.state !== 'active') return;
+    expect(x.excluded.has('receipts/z/result.json')).toBe(false);
   }, 120_000);
 
   test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('a live binary file whose bytes cannot be read is kept, not excluded', () => {
