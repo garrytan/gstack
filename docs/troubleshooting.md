@@ -3502,10 +3502,13 @@ removing files under a pattern, pass that run's `--docs-post <audit-id>-post.jso
 `--docs-pre` as well instead of rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
 ([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429).
 
-The queue's check binds a receipt whose digest differs (`recorded=none`, written before the base
-gained `review_exclude_paths`, or a digest from an older policy) when neither the receipt's recorded
-selection nor HEAD's holds a file the PR changed, the rule carry uses (GST-1434), so
-this line then means one of the two selections holds a file the PR changed.
+Write, carry and the queue bind a digest that differs (`recorded=none`, written before the base
+gained `review_exclude_paths`, or a digest from an older policy) when the recorded selection and
+HEAD's give the PR's files the same applied patterns, excluded files and kept files (GST-1434,
+GST-1446). Write rebuilds the recorded selection from the policies the base held and prints
+`REVIEW_EXCLUDE_POLICY_MOVED:` when it binds. So this line means the two selections differ over the
+PR's files, or write could not rebuild the digest from any policy the base held (a shallow clone
+of the base can cause that: fetch its history and rerun write).
 
 <a id="review-diff-too-large"></a>
 ### `REVIEW_DIFF_TOO_LARGE`
