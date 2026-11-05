@@ -222,6 +222,12 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
+    if (current?.heading && !current.fields.size && fieldOf(t) !== undefined && !LEAD_LABEL.test(t) && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !LOCUS.test(t)) {
+      current.fields.add('severity');
+      current.label = blocks ? 'CRITICAL' : critical(current.raw) ? stronger(current.label, label!) : strongestOf([current.lead, label])!;
+      current.raw += ` | ${t}`;
+      continue;
+    }
     if (current?.heading && !current.fields.size && !label && !blocks && !/^#{1,6}\s/.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) { current.raw += ` | ${t}`; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {

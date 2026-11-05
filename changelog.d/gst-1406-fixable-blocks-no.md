@@ -1,0 +1,3 @@
+### Fixed
+
+- **A native adversarial finding that says `Blocks: no` after some prose is no longer collected as CRITICAL (GST-1406).** `gstack-review-dispatch collect` honored GST-1031's rule (a FIXABLE finding with its own `Severity` and `Blocks: no` collects at that severity) only when the fields started their own line. When the reader wrote them after prose (`… so the docs are wrong. Severity: Medium. Blocks: no.`), the heading's FIXABLE won. If the line was in the heading's paragraph, the fields split off as a second record. Lead judgment can't lower a CRITICAL, so the native record stayed unresolved and /ship's Step 11.5 couldn't bind. Now such a line counts as the finding's fields. A finding with no `Blocks: no`, or with `Blocks: yes`, still collects CRITICAL.

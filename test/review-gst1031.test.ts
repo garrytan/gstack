@@ -39,6 +39,19 @@ describe('one record per native finding at its stated severity (GST-1031 case 1,
     }
     expect(labels('adversarial-native', '## FIXABLE\n1. Leak in a.ts:3\n2. Race in b.ts:4. Blocks: no', true)).toEqual(['CRITICAL', 'CRITICAL']);
   });
+  test('fields that follow body prose on their line still count as the fields (GST-1406)', () => {
+    // Value: protects=ruling A when the reader writes its Severity and Blocks: no after prose on the same line, in the heading's
+    //   paragraph or after a blank line; fails_when=the heading's FIXABLE collects CRITICAL (an unlowerable blocker that stops Step
+    //   11.5) or the field line splits off as a second record; why_new=GSTA-275 GST-1276 v4 native pass, finding 1; seam=parseFindings
+    const head = '**1. Title (FIXABLE).** body in lib/x.ts.';
+    for (const raises of [true, false]) {
+      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium. Blocks: no.'].join('\n'), raises)).toEqual(['Medium']);
+      expect(labels('adversarial-native', [head, '- a', '- b', '', 'More prose. Severity: Medium. Blocks: no, because a reader still reads it.'].join('\n'), raises)).toEqual(['Medium']);
+      expect(labels('adversarial-native', [head, 'More prose. Severity: Medium. Blocks: no.'].join('\n'), raises)).toEqual(['Medium']);
+      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium.'].join('\n'), raises)).toEqual(['CRITICAL']);
+      expect(labels('adversarial-native', [head, '', 'More prose. Severity: Medium. Blocks: yes.'].join('\n'), raises)).toEqual(['CRITICAL']);
+    }
+  });
   test('collect records the stated severity beside the one record', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031-'));
     const c = collect(path.join(dir, 'l.jsonl'), 'adversarial-native', fixture('gst-1031-native.txt'), path.join(dir, 'm.jsonl'));
