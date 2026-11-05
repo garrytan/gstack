@@ -387,7 +387,8 @@ describe('the receipt binds the selection the reviewers read', () => {
     }, 240_000);
 
     test('a receipt with no digest still refuses when the PR touches a new pattern, excluded or kept', () => {
-      for (const touched of [{ 'receipts/a/result.json': '{"ok": true}\n' }, { 'receipts/run.js': 'exports.run = 1;\n' }]) {
+      const touches: Array<Record<string, string>> = [{ 'receipts/a/result.json': '{"ok": true}\n' }, { 'receipts/run.js': 'exports.run = 1;\n' }];
+      for (const touched of touches) {
         const { repo, body } = shipped({ ...CODE, ...touched });
         policyOnBaseOnly(repo, policyText(['receipts/**']));
         const b = bind(repo, body);
