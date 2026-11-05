@@ -282,27 +282,48 @@ const mergeBaseWith = (base: string) => [`origin/${base}`, base].map(ref => git(
 const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${r.stage} state=${r.state} title="${r.title}"${r.sha256 ? ` sha256=${r.sha256} bytes=${r.bytes} chunks=${r.chunks}` : ''}${r.path ? ` path=${r.path}` : ''}`;
 /** Each selection is read once per process: the ceiling check and the outside voice's embedded diff share it. */
 const selections = new Map<string, ReaderDiff>();
-const selectionOf = (base: string, exclude: string | undefined, keep: readonly string[] = []) => {
-  const key = JSON.stringify([base, exclude ?? '', keep]);
-  if (!selections.has(key)) selections.set(key, readSelection(process.cwd(), base, parseTail(exclude), keep));
+const selectionOf = (base: string, exclude: string | undefined, keep: readonly string[] = [], excerpt: readonly string[] = []) => {
+  const key = JSON.stringify([base, exclude ?? '', keep, excerpt]);
+  if (!selections.has(key)) selections.set(key, readSelection(process.cwd(), base, parseTail(exclude), keep, excerpt));
   return selections.get(key)!;
 };
-const branchDiff = (base: string, r?: Pick<PassReader, 'exclude' | 'keep'>) => {
-  const d = selectionOf(base, r?.exclude, r?.keep);
+const branchDiff = (base: string, r?: Pick<PassReader, 'exclude' | 'keep' | 'excerpt'>) => {
+  const d = selectionOf(base, r?.exclude, r?.keep, r?.excerpt);
   if (!d.ok) throw new BriefError(`git diff ${base} failed`);
   return d.text;
 };
 
 /** The ceiling over every reader about to render: the first one over or unreadable stops the step before it writes anything else. */
-function ceiling(context: string, base: string, outDir: string, readers: ReadonlyArray<Pick<PassReader, 'reader' | 'exclude' | 'keep' | 'diff_base' | 'prompt_file'> & { diff_base?: string }>, diffBase: string, known: PlanExclude | undefined): { exit: number; line: string } | null {
+function ceiling(context: string, base: string, outDir: string, readers: ReadonlyArray<Pick<PassReader, 'reader' | 'exclude' | 'keep' | 'excerpt' | 'diff_base' | 'prompt_file'> & { diff_base?: string }>, diffBase: string, known: PlanExclude | undefined): { exit: number; line: string } | null {
   for (const r of readers) {
     if (r.prompt_file) continue;
     const at = r.diff_base ?? diffBase;
-    const d = selectionOf(at, r.exclude, r.keep);
+    const d = selectionOf(at, r.exclude, r.keep, r.excerpt);
     if (!d.ok) return { exit: EXIT.fail, line: unreadableLine(context, r.reader, d, at, base, outDir) };
     if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.reader !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
   }
   return null;
+}
+
+/**
+ * Each reader's secret-line excerpt, written once beside the briefs under its sha256 (the brief names the file, its bytes and
+ * hash); a file the excerpt could not be built for moves to the reader's keep list, so its whole diff reaches the reader.
+ */
+function settleExcerpts(m: Manifest): void {
+  for (const r of m.readers) {
+    if (!r.excerpt?.length) continue;
+    const d = selectionOf(r.diff_base ?? m.diff_base, r.exclude, r.keep, r.excerpt);
+    if (!d.ok) throw new BriefError(`git diff ${r.diff_base ?? m.diff_base} failed for ${r.reader}'s secret-line excerpt`);
+    const whole = r.excerpt.filter(s => d.whole?.includes(s));
+    if (whole.length) r.keep = [...(r.keep ?? []), ...whole];
+    r.excerpt = r.excerpt.filter(s => !whole.includes(s));
+    if (!r.excerpt.length || !d.excerpt) { delete r.excerpt; continue; }
+    const sha256 = createHash('sha256').update(d.excerpt).digest('hex');
+    const file = path.join(m.out, 'briefs', `secret-excerpt-${sha256.slice(0, 16)}.md`);
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, d.excerpt, { mode: 0o600 });
+    r.excerpt_file = { file, sha256, bytes: Buffer.byteLength(d.excerpt), files: r.excerpt.length };
+  }
 }
 
 function pass(): number {
@@ -358,6 +379,7 @@ function pass(): number {
   const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
+  settleExcerpts(m);
   const t = sectionTexts(ROOT);
   renderStage(m, 'first', t, branchDiff);
   renderStage(m, 'specialists', t, branchDiff);

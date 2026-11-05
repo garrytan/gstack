@@ -515,7 +515,9 @@ every reader (specialists, the Red Team, the native and outside voices, the
 targeted reader) reads the same selection: its `DIFF_CMD:` with one
 `:(top,exclude,glob)` item per applied pattern, the fixture command with the
 same items, and the `DIFF_KEEP:` command for the kept files under those
-patterns. The outside voice's embedded diff is that selection. Each brief says
+patterns. A kept file whose only reason is a secret line reaches pass readers as
+an excerpt of its matched lines in context instead ([secret-line
+excerpts](ship-policy.md#secret-line-excerpts)). The outside voice's embedded diff is that selection. Each brief says
 how many files and bytes were left out and that the reader must not report on
 their absence. Excluded paths count as docs for the depth and never trigger the
 numeric-claim scan or a targeted class; kept files keep their own class.
