@@ -17,13 +17,14 @@ import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { isTestPath } from './review-depth';
 import { isPlaceholder, labelValue, type SkillLoad, type Transcript } from './skill-contract';
 import { GateError, remainingMs } from './skill-gates';
 
 const GIT_TIMEOUT_MS = 3000;
 const LOCKFILES = new Set(['bun.lock', 'bun.lockb', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock', 'go.sum', 'poetry.lock', 'uv.lock', 'Pipfile.lock', 'Gemfile.lock', 'composer.lock', 'mix.lock', 'pubspec.lock', 'Podfile.lock', 'flake.lock']);
 const DOC_PATH = /\.(md|mdx|markdown|rst|txt|adoc)$/i;
+/** lib/review-depth.ts's TEST_PATH (gstack-diff-scope's TEST_PATH_RE plus fixture directories), copied because that file's bytes are pinned to a no-loss replay. */
+const TEST_PATH = [/(^|\/)(tests?|spec|__tests__)\/|(^|\/)tests?\.py$|(^|\/)test_[^/]+\.py$|_test\.(go|py|rb|ts|js|exs|dart)$|\.(test|spec)\.[jt]sx?$|_spec\.rb$|Test\.(java|kt)$/, /(^|\/)fixtures?\//];
 const HEDGE = /^(?:unknown|unclear|not (?:sure|known|yet known|clear)|undetermined|investigating|still investigating|to be determined|pending|see below|see above|n\/?a|none|tbd\b.*)$/i;
 const EVIDENCE_TOOLS = /^(?:Read|Grep|Glob|Bash|LS|NotebookRead|WebFetch)$/;
 export const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
@@ -89,7 +90,7 @@ function worktreeIds(root: string, paths: string[]): Map<string, string | null> 
 
 export type ExcludedReason = 'test' | 'doc' | 'lockfile' | 'generated' | 'symlink';
 export function excludedReason(rel: string, mode?: string, generated = false): ExcludedReason | null {
-  if (isTestPath(rel)) return 'test';
+  if (TEST_PATH.some(r => r.test(rel))) return 'test';
   if (DOC_PATH.test(rel)) return 'doc';
   if (LOCKFILES.has(path.posix.basename(rel))) return 'lockfile';
   if (generated) return 'generated';

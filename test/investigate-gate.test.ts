@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { excludedReason } from '../lib/investigate-gate';
 import { ROOT, hookEnv, result, runHook, say, skillsDir, slash, tmpDir, tool, user } from './helpers/skill-contract-fixture';
 
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'investigate-gate.ts');
@@ -25,6 +26,7 @@ beforeEach(() => {
   repo = tmpDir('gstack-igate-repo-');
   skills = skillsDir(['investigate']);
   git('init', '-q', '-b', 'main');
+  git('config', 'core.autocrlf', 'false');
   fs.mkdirSync(path.join(repo, 'src'));
   fs.mkdirSync(path.join(repo, 'test'));
   fs.writeFileSync(path.join(repo, 'src', 'total.ts'), SRC);
@@ -263,7 +265,7 @@ describe('Bash writes are caught by the tree check, put back and reported', () =
     expect(log()).toContain('event=observed');
   });
 
-  test('a gated file swapped for a symlink is put back as a file and the outside target is untouched', () => {
+  test.skipIf(process.platform === 'win32')('a gated file swapped for a symlink is put back as a file and the outside target is untouched', () => {
     const outside = path.join(work, 'outside.txt');
     fs.writeFileSync(outside, 'keep me\n');
     const { after } = bash(LOADED, `rm src/other.ts && ln -s ${outside} src/other.ts`);
@@ -322,5 +324,19 @@ describe('errors fail open with an error marker', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).not.toContain('"deny"');
     expect(log()).toMatch(/event=error code=GATE_TIMEOUT why="timed out after 1 ms"/);
+  });
+});
+
+describe('which tracked paths the gate leaves alone', () => {
+  test('tests, fixtures, docs, lockfiles, generated files and symlinks are excluded; source is gated', () => {
+    expect(excludedReason('test/total.test.ts')).toBe('test');
+    expect(excludedReason('src/total.spec.ts')).toBe('test');
+    expect(excludedReason('pkg/fixtures/case.json')).toBe('test');
+    expect(excludedReason('docs/guide.md')).toBe('doc');
+    expect(excludedReason('web/bun.lock')).toBe('lockfile');
+    expect(excludedReason('src/schema.gen.ts', '100644', true)).toBe('generated');
+    expect(excludedReason('src/link.ts', '120000')).toBe('symlink');
+    expect(excludedReason('src/total.ts', '100644')).toBeNull();
+    expect(excludedReason('src/contest.ts')).toBeNull();
   });
 });

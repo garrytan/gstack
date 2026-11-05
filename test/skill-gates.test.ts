@@ -76,3 +76,11 @@ describe('report', () => {
     expect(r.stderr).toContain('GATE_ERRORED');
   });
 });
+
+describe('headless smoke', () => {
+  test('docs name the Claude Code version the smoke script pins', () => {
+    const pinned = fs.readFileSync(path.join(ROOT, 'scripts', 'skill-gates-smoke.ts'), 'utf8').match(/^export const CLAUDE_CODE_VERSION = '([^']+)';$/m)?.[1];
+    expect(pinned).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(fs.readFileSync(path.join(ROOT, 'docs', 'skill-gates.md'), 'utf8')).toContain(`verified at ${pinned})`);
+  });
+});

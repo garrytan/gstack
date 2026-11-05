@@ -67,6 +67,7 @@ function fixtureTree(root: string) {
     fs.copyFileSync(path.join(ROOT, hook), path.join(root, hook));
     fs.chmodSync(path.join(root, hook), 0o755);
     if (fs.existsSync(path.join(ROOT, `${hook}.ts`))) fs.writeFileSync(path.join(root, `${hook}.ts`), 'export const ok = 1;\n');
+    for (const m of fs.readFileSync(path.join(ROOT, hook), 'utf8').matchAll(/\$HERE\/([\w.-]+\.ts)\b/g)) fs.writeFileSync(path.join(root, path.dirname(hook), m[1]!), 'export const ok = 1;\n');
   }
   for (const dir of SKILLS_WITH_HOOKS) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });

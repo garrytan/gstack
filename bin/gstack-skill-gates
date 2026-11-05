@@ -76,10 +76,10 @@ if (session) {
   }
 }
 
-const rows = records.flatMap(rec => Object.entries(rec.hooks).map(([hook, h]) => {
+const rows = records.flatMap(({ session_id: session, hooks }) => Object.entries(hooks).map(([hook, h]) => {
   const runs = Object.values(h!.runs);
   return {
-    session: rec.session_id, hook, runs: runs.length, fired: runs.length,
+    session, hook, runs: runs.length, fired: runs.length,
     blocked: runs.reduce((n, r) => n + r.blocked, 0), released: runs.filter(r => r.released_at).length,
     observed: runs.reduce((n, r) => n + r.observed, 0), errors: h!.errors.length, error_codes: [...new Set(h!.errors.map(e => e.code))],
     skipped: Object.keys(h!.skipped ?? {}),

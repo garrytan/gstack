@@ -51,7 +51,7 @@ describe('advisory skill text is byte-identical with the gate on', () => {
     const repo = path.join(home, 'repo');
     fs.mkdirSync(repo);
     fs.writeFileSync(path.join(repo, 'app.ts'), 'export const x = 1;\n');
-    for (const args of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@gstack.test', 'commit', '-q', '-m', 'seed']]) {
+    for (const args of [['init', '-q'], ['config', 'core.autocrlf', 'false'], ['add', '-A'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@gstack.test', 'commit', '-q', '-m', 'seed']]) {
       expect(spawnSync('git', args, { cwd: repo, timeout: 10_000 }).status).toBe(0);
     }
     const target = path.join(repo, 'app.ts');
