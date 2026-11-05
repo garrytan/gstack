@@ -995,6 +995,8 @@ const PROPERTY_READ_KEYWORD = {
 };
 /** After a span at the very start of its line, only a call, index or assignment shows code: a line holding just a host, or a host and a comma, is a list in a multi-line string. */
 const PROPERTY_READ_LINE_START_TAIL = /^(?:[ \t]*[([=]|\.[A-Za-z_$][\w$]*[ \t]*\()/;
+/** A line that is only a key and `:` or `=` before the span, the shape of YAML or dotenv text inside a JS template literal. */
+const PROPERTY_READ_BARE_KEY = /^[ \t]*[\w$.-]+[ \t]*[:=]$/;
 /** What closes or continues an expression after the span: a bracket, separator, operator, method call, cast, Python keyword, comment or line end. A `:` before a digit or `/` is a port or URL. */
 const PROPERTY_READ_TAIL = /^(?:[ \t]*(?:[()[\],;?=!]|&&|\|\||:(?![\d/])|\/\/|#|\r?$)|\.[A-Za-z_$][\w$]*[ \t]*\(|[ \t]+(?:as|and|or|if|else|for|instanceof)\b)/;
 
@@ -1010,13 +1012,16 @@ let codeLineCache: {
   indent: boolean;
   quote: string;
   comment: "" | "line" | "block";
+  slash: boolean;
 } | null = null;
 
 /**
  * The start of `offset`'s line when `offset` is code, else -1: inside a quote
  * opened on the line, after a line comment, inside a block comment opened on
  * the line, on a block comment's `*` continuation line, or more than
- * PROPERTY_READ_LINE_CHARS from the line start. Each line is read on its own
+ * PROPERTY_READ_LINE_CHARS from the line start, or, in JS, after a `/` in
+ * code on the line (a regex literal can hold a quote, which would turn the
+ * quote tracking around). Each line is read on its own
  * (a quote or comment never carries over a newline), so a span's answer
  * depends only on its own line, whichever spans were checked before it.
  */
@@ -1028,13 +1033,13 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
     const newline = head.lastIndexOf("\n");
     if (newline < 0 && offset > cap) return -1;
     const lineStart = offset - head.length + newline + 1;
-    s = codeLineCache = { text, at: lineStart, lineStart, indent: true, quote: "", comment: "" };
+    s = codeLineCache = { text, at: lineStart, lineStart, indent: true, quote: "", comment: "", slash: false };
   }
   let i = s.at;
   while (i < offset) {
     const c = text[i]!;
     if (c === "\n") {
-      Object.assign(s, { lineStart: i + 1, indent: true, quote: "", comment: "" });
+      Object.assign(s, { lineStart: i + 1, indent: true, quote: "", comment: "", slash: false });
       i += 1;
       continue;
     }
@@ -1059,10 +1064,13 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
     } else if (c === '"' || c === "'" || (c === "`" && lang === "js")) {
       s.quote = lang !== "js" && text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
       i += s.quote.length;
-    } else i += 1;
+    } else {
+      if (c === "/" && lang === "js") s.slash = true;
+      i += 1;
+    }
   }
   s.at = Math.max(i, offset);
-  return s.quote || s.comment || offset - s.lineStart > cap ? -1 : s.lineStart;
+  return s.quote || s.comment || s.slash || offset - s.lineStart > cap ? -1 : s.lineStart;
 }
 
 /**
@@ -1082,9 +1090,11 @@ function codeLineStart(text: string, offset: number, lang: "js" | "py" | "dart")
  * method call or line end after it. A quoted host, a host in a comment,
  * `db.internal:5432`, `build-7.internal`, `proxy.corp/api`, prose, and every
  * host in a config, dotenv or Markdown file still report. A JS template
- * literal or block comment that opened on an earlier line is not seen, so a
- * host on one of its lines is exempt only when code syntax sits on both sides
- * of it, as in `(db.internal)`.
+ * literal or block comment that opened on an earlier line is not seen, so in
+ * JS a line that is only a key and `:` or `=` before the span
+ * (`host: db.internal`, `DB_HOST=db.internal`) is never exempt, and any
+ * other host on such a line is exempt only when code syntax sits on both
+ * sides of it, as in `(db.internal)`.
  */
 function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
@@ -1101,6 +1111,7 @@ function isPropertyRead(match: RegExpExecArray, sourcePath: string | undefined):
   while (k > 0 && before[k - 1] === "!") k -= 1;
   while (k > 0 && (before[k - 1] === " " || before[k - 1] === "\t")) k -= 1;
   const lead = before.slice(Math.max(0, k - 7), k);
+  if (lang === "js" && PROPERTY_READ_BARE_KEY.test(before.slice(0, k))) return false;
   if (k === 0 ? !PROPERTY_READ_LINE_START_TAIL.test(after) : !PROPERTY_READ_LEAD.test(lead) && !PROPERTY_READ_KEYWORD[lang].test(lead)) return false;
   return !insideString(input, start, sourcePath);
 }

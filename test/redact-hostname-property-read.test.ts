@@ -5,8 +5,9 @@
  * so a property read in code (`server.local(...)`, `config.prod`) reported as
  * a leaked internal host. The pregate secrets stage scans each file under its
  * own name, so every such read in a pushed diff became a WARN, and /ship asked
- * for a confirm on it. The CODE lines are copied verbatim from gstack's own
- * source, with the issue's examples after them.
+ * for a confirm on it. The first ten CODE lines are taken from gstack's own
+ * source (three trimmed to one line); the issue's examples and other shapes
+ * follow them.
  *
  * The exemption needs a code file's path, a span outside any string or
  * comment on its line, and code syntax on both sides of it, so every real host
@@ -68,6 +69,10 @@ describe("internal.hostname: real hosts still report", () => {
     ["if in prose, closed by a paren", "src/a.ts", "(only if build.internal)"],
     ["bang in prose", "src/a.ts", "Done! build.internal"],
     ["a host alone on its line", "src/a.ts", "const hosts = `\ndb.internal\ncache.internal,\n`;"],
+    ["a YAML key in a multi-line template literal", "src/a.ts", "const cfg = `\nhost: db.internal\nport: 5432\n`;"],
+    ["a dotenv line in a multi-line template literal", "src/a.ts", "const env = `\nDB_HOST=db.internal\n`;"],
+    ["a connection string in a multi-line template literal", "src/a.ts", "const c = `\nServer=db.internal;Database=app\n`;"],
+    ["a quote inside a regex literal before a quoted host", "src/a.ts", 'if (/"/.test(x) && s === "(db.internal)") go();'],
     ["a Python sentence ending in a colon", "app/x.py", "if the VPN is down, use backup.corp:\n"],
     ["a Python host before a port", "app/x.py", "if db.internal:5432 is reachable\n"],
     ["Python string", "app/x.py", 'HOST = "db.internal"\n'],
