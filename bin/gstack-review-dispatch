@@ -291,7 +291,7 @@ const readerLine = (m: Manifest, r: PassReader) => `READER: ${r.reader} stage=${
 const selections = new Map<string, ReaderDiff>();
 const selectionOf = (base: string, exclude: string | undefined, keep: readonly string[] = [], excerpt: readonly string[] = []) => {
   const key = JSON.stringify([base, exclude ?? '', keep, excerpt]);
-  if (!selections.has(key)) selections.set(key, readSelection(process.cwd(), base, parseTail(exclude), keep, excerpt));
+  if (!selections.has(key)) selections.set(key, readSelection(checkoutRoot(), base, parseTail(exclude), keep, excerpt));
   return selections.get(key)!;
 };
 const branchDiff = (base: string, r?: Pick<PassReader, 'exclude' | 'keep' | 'excerpt'>) => {

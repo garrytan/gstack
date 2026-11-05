@@ -159,4 +159,27 @@ describe('every reader path builds its diff from the base policy\'s selection', 
     }
     expect(m.readers.map(r => r.role).sort()).toEqual([...roles].sort());
   }, 300_000);
+
+  // Value: protects=the outside voice's embedded diff, rendered from a subdirectory, still holds every changed file outside
+  //   the exclusion; fails_when=render reads the selection's `-- .` from the caller's directory, so a sibling security change
+  //   silently drops out of the outside voice's "whole diff"; why_new=GST-1476 /ship outside voice (render from docs/ lost
+  //   lib/security.ts); seam=gstack-review-dispatch render on a real repository; no_claim=readers that run git themselves
+  test('the outside voice rendered from a subdirectory reads the whole selection', () => {
+    const policy = JSON.stringify({ review_exclude_paths: ['docs/results/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
+    const repo = makeFixtureRepo({ prefix: 'gstack-sel-sub-', baseFiles: { '.gstack/ship-policy.json': policy, 'docs/README.md': 'a\n' } });
+    repos.push(repo);
+    commit(repo, { 'lib/security.ts': 'export const s = 1;\n', 'docs/README.md': 'b\n', 'docs/results/r.json': '{}\n' });
+    const mb = repo.git('merge-base', 'origin/main', 'HEAD');
+    const supplied = (cwd: string, out: string) => {
+      const r = runBin(repo, 'gstack-review-dispatch', ['render', '--role', 'outside-voice', '--out', out, '--base', 'main', '--diff-base', mb], {}, cwd);
+      expect(r.err).toBe('');
+      expect(r.status).toBe(EXIT.ok);
+      return fs.readFileSync(path.join(out, 'outside-voice.diff'), 'utf8');
+    };
+    const root = supplied(repo.work, path.join(repo.root, 'o-root'));
+    const sub = supplied(path.join(repo.work, 'docs'), path.join(repo.root, 'o-sub'));
+    expect(root).toContain('diff --git a/lib/security.ts');
+    expect(root).not.toContain('docs/results/r.json');
+    expect(sub).toBe(root);
+  }, 120_000);
 });
