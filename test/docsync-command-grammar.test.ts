@@ -675,3 +675,34 @@ test.skipIf(process.platform === 'win32')('the captured lines joining a read com
       expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(false);
   } finally { fixture.clean(); }
 });
+
+// Main backstop 41817566885 (b244e6d1, paid-slice-5-a1, ship-docsync-current, green on the in-run rerun): the parent ran
+// `mkdir -p <home>/ship2` as its own call, then snapshotted into it. The interface lets a private artifact live "in a new
+// directory you create there", and gstack-docs-candidate snapshot does not create the parent of its --out.
+test.skipIf(process.platform === 'win32')('the captured private-directory mkdir replays clean, and mkdir grants nothing else', () => {
+  const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-private-mkdir-public.json'), 'utf8')) as
+    { scenario: 'current'; calls: SkillTestResult['toolCalls'] };
+  const fixture = fixtureDocs(captured.scenario);
+  try {
+    const publish = path.join(fixture.home, 'fixture-publish.ts');
+    const fill = (text: string) => text.replaceAll('{home}', fixture.home).replaceAll('{shard}', path.dirname(path.dirname(fixture.home)));
+    const replayed = captured.calls.map(call => ({ ...call, input: Object.fromEntries(Object.entries(call.input).map(([key, value]) =>
+      [key, typeof value === 'string' ? fill(value) : value])), output: fill(call.output) }));
+    expect(replayed.filter(call => /^mkdir /.test(String(call.input?.command ?? ''))).map(call => call.input.command))
+      .toEqual([`mkdir -p ${fixture.home}/ship2`]);
+    expect(docsToolFailures({ toolCalls: replayed, exitReason: 'success' } as SkillTestResult, fixture, [publish], true)).toEqual([]);
+    for (const line of [`mkdir -p ${fixture.home}/ship2`, `mkdir ${fixture.home}/docs-audit`, `mkdir -p '${fixture.home}/audit-a1'`])
+      expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(true);
+    const outside = fs.mkdtempSync(path.join(path.dirname(fixture.home), 'ds-mkdir-outside-'));
+    try {
+      fs.symlinkSync(outside, path.join(fixture.home, 'linked'));
+      for (const line of [`mkdir -p ${fixture.repo}/notes`, `mkdir -p ${fixture.repo}`, `mkdir -p ${fixture.home}/state`, `mkdir -p ${fixture.home}/state/x`,
+        `mkdir -p ${fixture.home}/.claude`, `mkdir -p ${fixture.skills}/x`, `mkdir -p ${fixture.env.CLAUDE_CONFIG_DIR}`, `mkdir -p ${fixture.home}/remote.git`,
+        `mkdir -p ${fixture.home}/a/b`, `mkdir -p ${fixture.home}/..`, `mkdir -p ${fixture.home}/x/..`, `mkdir -p ${fixture.home}`, `mkdir -p ${fixture.home}/linked`,
+        `mkdir -p ${outside}/x`, 'mkdir -p ship2', 'mkdir -p ~/ship2', 'mkdir -p $HOME/ship2', `mkdir -p ${fixture.home}/ship*`, `mkdir -m 777 ${fixture.home}/x`,
+        `mkdir -p ${fixture.home}/x ${fixture.home}/y`, `mkdir -p ${fixture.home}/x && git status`, `git status; mkdir -p ${fixture.home}/x`,
+        `mkdir -p ${fixture.home}/x; rm -rf ${fixture.repo}`, `mkdir -p ${fixture.home}/x > ${fixture.repo}/out.md`, `mkdir -pv ${fixture.home}/x`])
+        expect(docsCommandAllowed(line, fixture, [publish]), line).toBe(false);
+    } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+  } finally { fixture.clean(); }
+});

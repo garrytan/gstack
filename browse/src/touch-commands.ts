@@ -28,7 +28,26 @@ function usage(problem: string, fix: string): Error {
   return new Error(`Usage: ${problem}\nfix: ${fix}`);
 }
 
+const FRAME_WAIT_MS = 1000;
+
+/**
+ * Chromium maps touch points with the page scale of the last rendered frame; a just-navigated document maps them at the 980px default until it renders.
+ * The wait runs page JS, so a page that replaces requestAnimationFrame, or navigates mid-wait, only costs FRAME_WAIT_MS, never the gesture queue.
+ */
+async function renderedFrame(session: TabSession): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const frame = session.getPage().evaluate(() => document.visibilityState === 'hidden'
+    ? undefined
+    : new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await Promise.race([
+    frame.catch(() => {}),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, FRAME_WAIT_MS); }),
+  ]);
+  clearTimeout(timer);
+}
+
 async function dispatch(session: TabSession, type: 'touchStart' | 'touchMove' | 'touchEnd', points: Points): Promise<void> {
+  if (type === 'touchStart') await renderedFrame(session);
   const cdp = await tabCdpSession(session.getPage());
   session.setFingerCancel(() => {
     cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] }).catch(() => {});
@@ -153,6 +172,7 @@ async function touch(session: TabSession, args: string[]): Promise<string> {
     if (held.size === 0) return 'No fingers held; nothing to cancel';
     const cdp = await tabCdpSession(session.getPage());
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await renderedFrame(session);
     held.clear();
     return 'Cancelled all held fingers';
   }

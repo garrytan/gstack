@@ -49,7 +49,7 @@ describe('the rules hashes cover every new pattern', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'risk-rules-'));
     try {
       for (const f of ['review-depth.ts', 'review-risk.ts']) fs.copyFileSync(path.join(ROOT, 'lib', f), path.join(dir, f));
-      fs.symlinkSync(path.join(ROOT, 'lib/ship-policy.ts'), path.join(dir, 'ship-policy.ts'));
+      for (const f of ['ship-policy.ts', 'redact-engine.ts', 'redact-patterns.ts']) fs.symlinkSync(path.join(ROOT, 'lib', f), path.join(dir, f));
       fs.writeFileSync(path.join(dir, 'print.ts'), "import { DEPTH_RULES } from './review-depth';\nconsole.log(DEPTH_RULES);\n");
       const hash = () => {
         const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(dir, 'print.ts')], { encoding: 'utf8', timeout: 30_000 });

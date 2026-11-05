@@ -23,8 +23,6 @@ export interface JudgeScore {
   reasoning: string;
 }
 
-export const JUDGE_SCORE_DIMENSIONS = ['clarity', 'completeness', 'actionability'] as const;
-
 export interface JudgeRefusalEvidence {
   stop_reason: 'refusal';
   response_id: string | null;
@@ -359,14 +357,6 @@ export function judgePanelReasoning(samples: ReadonlyArray<unknown>): string {
 }
 
 const score = { type: 'integer', enum: [1, 2, 3, 4, 5] } as const;
-// Structured output guarantees parseable JSON; free-form judges failed on
-// unescaped quotes inside their reasoning (run 36798539821, setup block).
-export const JUDGE_SCORE_SCHEMA = {
-  type: 'object',
-  properties: { clarity: score, completeness: score, actionability: score, reasoning: { type: 'string' } },
-  required: ['clarity', 'completeness', 'actionability', 'reasoning'],
-  additionalProperties: false,
-};
 export const OUTCOME_JUDGE_SCHEMA = {
   type: 'object',
   properties: {
@@ -417,39 +407,6 @@ export const VOICE_DIRECTIVE_JUDGE_SCHEMA = {
   required: [...VOICE_DIRECTIVE_DIMENSIONS, 'reasoning'],
   additionalProperties: false,
 };
-
-/**
- * Score documentation quality on clarity/completeness/actionability (1-5).
- */
-export async function judge(section: string, content: string): Promise<JudgeScore> {
-  return callJudge<JudgeScore>(`You are evaluating documentation quality for an AI coding agent's CLI tool reference.
-
-The agent reads this documentation to learn how to use a headless browser CLI. It needs to:
-1. Understand what each command does
-2. Know what arguments to pass
-3. Know valid values for enum-like parameters
-4. Construct correct command invocations without guessing
-
-Rate the following ${section} on three dimensions (1-5 scale):
-
-- **clarity** (1-5): Can an agent understand what each command/flag does from the description alone?
-- **completeness** (1-5): Are arguments, valid values, and important behaviors documented? Would an agent need to guess anything?
-- **actionability** (1-5): Can an agent construct correct command invocations from this reference alone?
-
-Scoring guide:
-- 5: Excellent — no ambiguity, all info present
-- 4: Good — minor gaps an experienced agent could infer
-- 3: Adequate — some guessing required
-- 2: Poor — significant info missing
-- 1: Unusable — agent would fail without external help
-
-Respond with ONLY valid JSON in this exact format:
-{"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"}
-
-Here is the ${section} to evaluate:
-
-${content}`, undefined, { jsonSchema: JUDGE_SCORE_SCHEMA });
-}
 
 /**
  * Evaluate a QA report against planted-bug ground truth.
@@ -670,52 +627,6 @@ Respond with ONLY valid JSON:
 // --- Inline quality judges (test/skill-llm-eval.test.ts) ---
 // Prompt builders live here so the W2 calibration harness builds its inputs
 // through the same functions the eval sends.
-
-/** QA workflow quality judge (qa/SKILL.md workflow). */
-export function buildQaWorkflowJudgePrompt(section: string): string {
-  return `You are evaluating the quality of a QA testing workflow document for an AI coding agent.
-
-The agent reads this source-file bundle to select browser, native functional or mixed
-surfaces, explore with bounded probes, reproduce and diagnose defects, add a regression
-before repair, recheck behavior and report evidence/coverage. Sections are separate
-files loaded only at their stated conditions; bundle order is not execution order.
-Evaluate the complete workflow, including authority, isolation, native contracts,
-conditional browser/DX loading and blocked paths, for clarity and executable decisions.
-
-Rate on three dimensions (1-5 scale):
-- **clarity** (1-5): Can an agent follow the step-by-step phases without ambiguity?
-- **completeness** (1-5): Are all phases, decision points, and outputs well-defined?
-- **actionability** (1-5): Can an agent execute the workflow and produce the expected deliverables?
-
-Respond with ONLY valid JSON:
-{"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"}
-
-Here is the QA workflow to evaluate:
-
-${section}`;
-}
-
-/** QA health score rubric judge (qa/SKILL.md health rubric). */
-export function buildQaHealthRubricJudgePrompt(section: string): string {
-  return `You are evaluating a health score rubric that an AI agent must follow to compute a numeric QA score.
-
-The agent uses this rubric after QA testing a website. It needs to:
-1. Understand each scoring category and what counts as a deduction
-2. Apply the weights correctly to compute a final score out of 100
-3. Produce a consistent, reproducible score
-
-Rate on three dimensions (1-5 scale):
-- **clarity** (1-5): Are the categories, deduction criteria, and weights unambiguous?
-- **completeness** (1-5): Are all edge cases and scoring boundaries defined?
-- **actionability** (1-5): Can an agent compute a correct score from this rubric alone?
-
-Respond with ONLY valid JSON:
-{"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"}
-
-Here is the rubric to evaluate:
-
-${section}`;
-}
 
 /** QA anti-refusal judge (qa/SKILL.md anti-refusal). */
 export function buildQaAntiRefusalJudgePrompt(diffAwareSection: string, rulesSection: string): string {

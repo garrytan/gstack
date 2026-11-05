@@ -11,6 +11,7 @@
  *   gstack-review-dispatch pass --base <b> --out <dir> --pass <id> [-- plan flags]  the pass's staged manifest
  *   gstack-review-dispatch show|stage|chunk|mark --manifest <f> ...                  one manifest step
  *   gstack-review-dispatch program [--ledger <f>]                                    the checked-in Capy pass program
+ *   gstack-review-dispatch audit-fetch --events <jsonl> [--manifest <f> --reader <r>] what a reader fetched (GST-1322)
  *
  * Logic: lib/review-brief.ts (rendering from the sections), lib/review-ledger.ts (ledger, collect, judge, verify),
  * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
@@ -27,6 +28,8 @@ import type { Dispatch } from '../lib/review-depth';
 import { runScriptSync } from '../lib/script-invocation';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '../lib/review-targeted';
 import { resolveBaseBranch } from '../lib/ship-policy';
+import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type ToolEvent } from '../lib/review-fetch';
+import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
@@ -40,7 +43,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
              --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md;
              --diff-base must be the merge base with --base, default origin/HEAD's branch, on every pass)
-      writes <out>/<role>[-<name>].prompt.md, the brief followed by the workspace paragraph naming the toplevel of the
+      writes <out>/<role>[-<name>].prompt.md, the brief followed by the fetch rule (with the base policy's readers key, read
+      at --base's commit plus what HEAD adds) and the workspace paragraph naming the toplevel of the
       checkout it runs in (the one its diff and merge base come from), records it in the ledger (default <out>/review-ledger.jsonl) and prints
       BRIEF: reader=<role/name> sha256=<h> bytes=<n> file=<path>. Pass that file's content as the reader's prompt, unchanged.
   sent --ledger <f> --role <role> [--name <n>] --sent <file>
@@ -93,6 +97,11 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
   mark --manifest <f> --before <tokens>,<credits> [--voices]   the pass's reading at its first dispatch; --voices keeps Step 11's own
   mark --manifest <f> --log-start <key> --token <t>   records a review-log start token once, so a rerun starts only what is missing
       reader states move forward only; intent is recorded before the subagent is created, its path right after
+  audit-fetch --events <jsonl> [--manifest <f> --reader <r>] [--base <ref>]
+      scans one reader's tool calls ({"tool","input"} per line, inputs only, never results) against the fetch rule and the
+      readers policy (the manifest's, else the base's): one FETCH_HIT: line per hit, then FETCH_AUDIT: verdict=clean|violation
+      hits=<n> notes=<n> events=<n> sha256=<h>. With --manifest it records the result on the reader as fetch_audit. A note only:
+      it exits 0 whatever it finds (docs/review-policy.md#what-readers-may-fetch)
   program [--ledger <f>]
       PROGRAM: v<n> sha256=… bytes=…, then lib/capy-review-pass.js as one JSON string line (see the gstack Capy skill)
 ${exitTableHelp()}`;
@@ -146,21 +155,64 @@ function render(): number {
     learnings: readFile(flag('--learnings-file'), 'learnings'), checklist, checklists: checklists?.join(','),
     findings: readFile(flag('--findings-file'), 'findings'), specialists: flag('--specialists'), ...diffFile,
     classes: flag('--classes'), brief, ...(merged ? { checklist: path.join(ROOT, 'review/specialists/targeted.md') } : {}),
-    ...(flag('--disclosure') ? { disclosure: flag('--disclosure'), policy_exclude: policyItems.map(quote).join(' ') || undefined, keep: keepItems.map(quote).join(' ') || undefined } : {}),
+    policy_exclude: policyItems.map(quote).join(' ') || undefined, ...(flag('--disclosure') ? { disclosure: flag('--disclosure'), keep: keepItems.map(quote).join(' ') || undefined } : {}),
     fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };
   const workdir = checkoutRoot();
   const tree = checkoutTree(workdir);
   if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
-  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir);
+  const readers = readersAt(workdir, flag('--base'));
+  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir, readers);
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const file = path.join(path.resolve(out), briefFile(role, name));
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
   const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}) });
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(flag('--disclosure')) ? { exclude: disclosureDigest(flag('--disclosure')) } : {}), readers: readers.digest });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
+  return EXIT.ok;
+}
+
+/**
+ * The readers policy at the base's commit plus what HEAD adds; with no --base and no origin/HEAD, the default rule. A --base that
+ * resolves to no commit, or a base policy that cannot be read or is invalid, refuses. Without --base the base is origin/HEAD's branch as recorded locally (no network lookup).
+ */
+function readersAt(root: string, baseFlag: string | undefined): EffectiveReaders {
+  const base = baseFlag?.trim().replace(/^origin\//, '') || git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])?.trim().replace(/^origin\//, '');
+  if (!base) return effectiveReaders(READERS_POLICY_DEFAULT, null);
+  const ref = [`origin/${base}`, base].find(r => git(['rev-parse', '--verify', '--quiet', `${r}^{commit}`]));
+  if (!ref && baseFlag?.trim()) throw new BriefError(`READERS: refused: --base ${baseFlag} resolves to no commit here, so the base policy's readers key cannot be read; fix: pass a --base this checkout has (origin/${base} or ${base}), then rerun (POLICY_SOURCE_UNAVAILABLE)`);
+  if (!ref) return effectiveReaders(READERS_POLICY_DEFAULT, null);
+  const load = loadReaders(root, git(['rev-parse', `${ref}^{commit}`])!.trim(), ref, git(['rev-parse', 'HEAD'])?.trim());
+  if (load.state === 'refused') throw new BriefError(load.lines.join('; '));
+  return load.readers;
+}
+
+/** One reader's tool calls against the fetch rule: a note in the manifest, never a refusal (GST-1322 PR A). */
+function auditFetch(): number {
+  const events = flag('--events');
+  if (!events) { process.stderr.write('gstack-review-dispatch audit-fetch: --events <jsonl> is required\n'); return EXIT.usage; }
+  const text = readFile(events, 'events')!;
+  const parsed: ToolEvent[] = [];
+  for (const [i, l] of text.split('\n').entries()) {
+    if (!l.trim()) continue;
+    try { const e = JSON.parse(l) as ToolEvent; if (typeof e.tool === 'string') parsed.push(e); } catch { throw new BriefError(`${events}:${i + 1} is not a JSON tool event`); }
+  }
+  const file = flag('--manifest');
+  const m = file ? readManifest(file) : null;
+  const readers = m?.fetch_policy ?? readersAt(checkoutRoot(), flag('--base') ?? m?.base);
+  const hits = scanEvents(parsed, readers, checkoutRoot());
+  const verdict = auditVerdict(hits);
+  const audit = { policy_digest: readers.digest, events: parsed.length, events_sha256: eventsDigest(text), hits, verdict, enforced: false };
+  if (m && file) {
+    const r = m.readers.find(x => x.reader === flag('--reader'));
+    if (!r) throw new BriefError(`no reader ${flag('--reader')} in pass ${m.pass}`);
+    Object.assign(r, { fetch_audit: audit });
+    writeManifest(file, m);
+  }
+  for (const h of hits) process.stdout.write(`FETCH_HIT: ${h.severity} rule=${h.rule} tool=${h.tool} target=${JSON.stringify(h.target)}\n`);
+  process.stdout.write(`FETCH_AUDIT: verdict=${verdict} hits=${hits.filter(h => h.severity === 'violation').length} notes=${hits.filter(h => h.severity === 'note').length} events=${parsed.length} sha256=${audit.events_sha256.slice(0, 12)} ${readersLine(readers)} (recorded as a note; enforcement lands with GST-1322 PR B)\n`);
   return EXIT.ok;
 }
 
@@ -229,7 +281,7 @@ function pass(): number {
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
   const j = plan(true);
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
-  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown } };
+  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown }; readers?: EffectiveReaders };
   const step = p.next.step;
   const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
   const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
@@ -246,7 +298,7 @@ function pass(): number {
     dispatches: step === 'fix-check' ? p.dispatches : p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
     targetedClasses: p.targeted?.classes, mergeBase, rangeBase: flag('--diff-base') ? undefined : rangeBase,
     fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined,
-    ...planExclude(p.review_exclude), voices: args.includes('--voices') });
+    ...planExclude(p.review_exclude), ...(p.readers ? { readers: p.readers } : {}), voices: args.includes('--voices') });
   const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
@@ -381,6 +433,7 @@ function main(): number {
   if (cmd === 'render') return render();
   if (cmd === 'pass') return pass();
   if (cmd === 'program') return program();
+  if (cmd === 'audit-fetch') return auditFetch();
   if (['show', 'stage', 'chunk', 'mark'].includes(cmd)) return passStep(cmd);
   const ledger = flag('--ledger');
   if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }

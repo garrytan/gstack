@@ -59,12 +59,7 @@
         "ship-exploratory-unavailable",
         "ship-skipped-queued-finding"
       ],
-      "llmJudge": [
-        "plan-design-review/SKILL.md passes",
-        "plan-eng-review/SKILL.md sections",
-        "review/SKILL.md workflow",
-        "ship/SKILL.md workflow"
-      ]
+      "llmJudge": []
     },
     "scripts/resolvers/design.ts": {
       "e2e": [
@@ -78,10 +73,7 @@
         "design-review-plugin-handoff",
         "plan-design-with-ui-scope"
       ],
-      "llmJudge": [
-        "design-consultation/SKILL.md research",
-        "plan-design-review/SKILL.md passes"
-      ]
+      "llmJudge": []
     }
   },
   "modules": {

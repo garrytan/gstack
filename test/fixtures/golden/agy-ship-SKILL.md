@@ -205,14 +205,14 @@ A review's **start token** is the opaque value returned by `gstack-review-log --
 before it reads the diff. Keep `REVIEW_START` for Step 9, a separate `PASS_START` for
 each Step 11 attempt, and `DESIGN_START` for design. Finish each pass with its original
 token; `--finish` stamps the binding fields automatically. Never borrow or replace a token.
-`gstack-wtree` prints a Git tree hash covering tracked and non-ignored untracked files,
-not a commit ID. Use `git diff <old-tree> <new-tree>` to compare these snapshots.
+`gstack-wtree` prints a Git tree hash of tracked and non-ignored untracked files (not a commit);
+compare two with `git diff <old-tree> <new-tree>`.
 
 **Review policy** (docs/review-policy.md): only a finding that would fail a test,
 break production, or lose data or secrets blocks a pass; the rest is a PR-body
 note. Step 9's plan sets both reviews' depth (`--depth-floor standard|full` only
-raises it). Pass 1 reads the diff, later passes the range; the cap is two rounds,
-fix-checks included. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
+raises it). Pass 1 reads the diff, later passes the range; the cap is two rounds under `frozen`
+(fix-checks included), else Step 9.4's third fix cycle. `NO FINDINGS` is complete. `ship: review_scope` (Step 3)
 is the knob; the receipt's `review_loop` records the outcome.
 
 ### Ship control flow
@@ -307,7 +307,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 ---
 
 `<base>` means the detected branch name for fetch/helper arguments;
-`origin/<base>` is its remote-tracking ref for comparisons. Step 1 fetches it.
+`origin/<base>` is its remote-tracking ref for comparisons.
 
 
 
@@ -334,11 +334,12 @@ act on each `STOP:` and `NEXT:` line.
    restore access. `DIFF:` is the stat and commit count.
 
 4. **Carry check.** An open PR prints `PR: #<n>` and its `gstack-ship-receipt carry --pr <n> --base <base> --dry-run` line.
-   `CARRY: would carry` (base merge committed, same product patch-id): skip review, fix
-   what it broke (CHANGELOG, size caps), run `gstack-pregate --allow-repo-commands`, then carry
-   without `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and
-   ends the run. A failed check, HEAD moving after pregate, `current`, or `refused` with no
-   `NEXT: carry route` re-runs Steps 2–16.
+   `CARRY: would carry` (base merge committed, same product patch-id): skip review and Step 14.5,
+   fix what it broke (CHANGELOG, size caps), commit, `gstack-ship-release push --branch <branch-name>
+   --early`, `gstack-ci-carry wait --base <base>`, run `gstack-pregate --allow-repo-commands`, then carry without
+   `--dry-run` plus `--pregate .gstack/tmp/pregate.json`. `CARRY: carried` binds HEAD and ends
+   the run with its `GSTACK_RESULT:` line. A failed check, HEAD moving after pregate, `current`, or `refused` with no
+   `NEXT: carry route` re-runs Steps 2–16. Steps 17–21 then publish.
 
 5. Display historical readiness using the dashboard below, then finish Step 1.
    Prior CLEAR reviews or dashboard skips never replace Step 9's gates.
@@ -522,7 +523,8 @@ runs items 1 and 3–5; item commands serve only a `STOP:`, which names its reru
 (`--bump`, `--accept-incomplete`, `--version <v>`, `--keep-current`, `--answer`).
 
 `VERSION: skipped` or `VERSION: <v> kept (…; no write)` ends Step 12 with
-`NEW_VERSION` unset: Step 13 follows its `NEXT:`; Steps 18 and 20 take NO_VERSION's branch.
+`NEW_VERSION` unset: Step 13 follows its `NEXT:`; Steps 18 and 20 take NO_VERSION's branch
+(`kept`: VERSION stays `<v>`).
 
 1. **Classify state** — pure reader, never writes:
    ```bash
@@ -629,7 +631,7 @@ write failures are non-blocking.
 ## Step 14.5: Documentation audit (every ship)
 
 **Doc-sync invariant:** Every ship dispatches the /document-release subagent before final
-commit/verification/publication, including reruns, already-pushed branches, existing PRs and docs-only changes.
+commit/verification/publication, including reruns, already-pushed branches, existing PRs and docs-only changes, but not a Step 1 carry.
 No edits means an executed audit, not a skip; report the section's verified outcome.
 
 > **STOP.** Before auditing docs before final commit/verification (Step 14.5), on every ship, Read `sections/documentation.md` relative to the installed `gstack-ship` SKILL.md directory and execute it
@@ -654,17 +656,17 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-Stages run in order; 1–4's other commands are `STOP:` recoveries. Content
-changes during or after verification restart at stage 1 and complete all five
-stages before Step 17. Content-preserving commits keep evidence valid.
+`finish` runs stages 1–4 in order; act on each `STOP:` by its recovery below, then rerun
+it. Content changes during or after verification restart at
+stage 1 and complete all five stages before Step 17. Content-preserving commits keep evidence valid.
 
 **One call for stages 1–4:** `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
-makes Step 15's item-3 commit, runs stages 1–4 and the pregate; each `STOP:` is a recovery
-below (`--docs-rechecked`, `--no-lanes-approved` record stage 2.2 and Step 5's approval).
+also makes Step 15's item-3 commit and runs the pregate (`--docs-rechecked`,
+`--no-lanes-approved` record stage 2.2 and Step 5's approval).
 
 ### 1. Finish writers and prepare outputs
 
-Inspect writer handles, including the docs child. Confirm terminal completion or
+Before `finish`, inspect writer handles, including the docs child. Confirm completion or
 termination before another writer runs; timeout or cancellation acknowledgment
 alone means STOP until confirmed.
 
@@ -673,30 +675,28 @@ files and CI. Pass each to `finish` as `--build`. If none exists, record not app
 the inspected sources. A missing prerequisite or failed build stops shipping:
 report **Build failed or prerequisite missing**, with the command, error and needed
 repair. Never invent a substitute command.
-**If blocked:** Repair it, then repeat stage 1. After it passes, continue
-to stage 2; treat any content repair as a behavioral change there.
+**If blocked:** repair it, repeat stage 1, then continue to stage 2: a content repair is behavior there.
 
 ### 2. Choose the change route
 
-Capture the current tree with `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-wtree`. Inspect
-`git diff <reviewed-tree> <current-tree>` against the snapshot saved before Step 12.
-Missing snapshots block this comparison, regardless of HEAD equality.
+`finish` runs `git diff <reviewed-tree> <current-tree>` (`--reviewed-tree`, saved before Step 12,
+against `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-wtree`) and prints `ROUTE:`. No saved tree: pass `review_binding.end_wtree` from Step 11.5's bound Step 9 record;
+with none, insert `9 → 10 → 11 → 11.5`.
 
-Classify the comparison in this order:
+Its `STOP:` names the route:
 
 1. **Behavior, tests or build inputs changed:** Prompts/templates count as behavior.
-   Insert `5–11.5 → 12–14 → 16` before the pending Step 17, then stop this step.
-   This repair excludes Step 14.5 because the rebuild can change generated docs.
-   Step 16 restarts at stage 1: rebuild and compare again before stage 3 decides
-   documentation freshness. Further repairs use the same work list. A STOP naming a scoped-review packet
+   Insert `5–11.5 → 12–14 → 16` before the pending Step 17. It excludes Step 14.5 (a rebuild
+   can change generated docs; compare before stage 3) and Step 15 (`finish` STOPs on an uncommitted
+   non-release file: commit it by Step 15's rules, then rerun). A STOP naming a scoped-review packet
    instead takes its fix-check and `--context-reviewed` rerun; a blocking finding is this item.
 2. **Only authored docs or release metadata changed:** Keep Step 8's original child
    report and counts. Recheck affected plan items using their recorded verification
    and append current evidence to the invocation record. If a classification is no
    longer supported, run Step 8's audit and decision gates only, then return to
-   Step 16 stage 1. Never edit the child's counts yourself.
-3. **No changes, or the docs-only checks still support the plan:** Continue to stage 3
-   without a new code review.
+   Step 16 stage 1; else rerun with `--docs-rechecked`. Never edit the child's counts yourself.
+3. **No changes, or the docs-only checks still support the plan:** `finish` continues to
+   stage 3 without a new code review.
 
 ### 3. Resolve documentation freshness
 
@@ -728,33 +728,29 @@ Never run a third audit. Child return is not acceptance.
 Freeze inputs through verification and push. Run declared docs/link/generated-file
 checks; report any that are unavailable.
 
-**Reuse a check when its inputs match.** Compare hashes or complete bytes of its
-saved and current consumed files, fixtures, dependencies and execution parameters.
-Changed or unknown dependencies require a rerun. For model judges, compare the complete
-expanded request, rubric, parameters and builder/runtime dependencies. Cite the original
-command, result/counts, timestamp and log, never resample. Mandatory reviews still run.
+**Reuse a check when its inputs match.** Same consumed files, fixtures, dependencies
+and parameters (for a model judge, the complete expanded request and rubric); unknown means
+rerun. Cite the original command, result, timestamp and log; never resample. Mandatory reviews still run.
 
-**Check each test lane's receipt as well.** Use its actual Step 5 label/command:
-`--label <lane> --expect-cmd '<exact Step 5 command>'`. Inspect changes since the run;
-`--allow-paths` exempts only release metadata. A `package.json` version-only edit
-can qualify; scripts, dependencies and runtime configuration require live tests.
-Uncertain edits cannot be exempted. Docs, TODO edits, new/generated tests and fixes
-make evidence STALE even without a new code review; a Step 14 TODOS.md edit reruns them. Use this example only once
-every allowed edit is release metadata:
+**Check each test lane's receipt as well.** `finish` checks every `--lane` as
+`--label <lane> --expect-cmd '<exact Step 5 command>'`, like this example:
 
 ```bash
 ~/.gemini/antigravity-cli/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<tests>' --label vitest --expect-cmd '<vitest>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
 ```
 
+`--allow-paths` exempts only release metadata (in `package.json`, only a version edit). Docs, TODO edits, new/generated tests and fixes
+make evidence STALE even without a new code review.
+
 | Receipt result | Next action |
 |---|---|
 | FRESH (exit 0) | Cite the label, exit, timestamp, log and `tests_ran`. |
-| STALE/MISSING: changed content, command or age, or no proven run | Run `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once. Handle failures as described below. |
+| STALE/MISSING: changed content, command or age, or no proven run | Run `~/.gemini/antigravity-cli/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`, read the result and recheck once (`finish` does; a CI-mapped lane is carried, else `EVIDENCE: DEFERRED`). Still not FRESH: a failed lane. |
 | ZERO-RUN: the receipt's `tests_ran` is 0 | STALE-equivalent: use Step 5's ZERO-RUN triage (a failed lane), never FRESH, even with exit 0. |
 | `tests_ran: unknown` | Non-blocking: keep the exit-0 verdict, cite the lane as `count unavailable`. Never record it as ZERO-RUN or as a counted pass. |
 | Only receipt storage/readback failed | Prove unchanged final content, the same command and valid age from the successful run's evidence. Cite its exact command, exit, timestamp and log as **ledger unavailable**, never FRESH. Without that proof, use STALE/MISSING. |
 
-No test lanes: require Step 5's explicit untested-scope approval for final content,
+No test lanes: rerun with `--no-lanes-approved` on Step 5's explicit untested-scope approval,
 or run Steps 5–15, including the no-tests decision, then return to Step 16 stage 1.
 Report the gap, never FRESH; builds must pass.
 
@@ -766,7 +762,8 @@ does not authorize a third attempt.
 ### 5. Report, then push
 
 `finish` made the release commit. Commit only verified outputs stage 1's
-builds regenerated, grouped as in Step 15; never create an empty commit.
+builds regenerated, grouped as in Step 15; never create an empty commit. It is
+content-preserving: no restart.
 Preserve unrelated user files.
 
 Paste build/docs/test results. Reuse waivers only for the same verified
@@ -781,7 +778,7 @@ its records:
 - Each test lane's `tests_ran` (N, ZERO-RUN or `count unavailable`).
 Write this report in the auditor's posture: this session's own gate edits are
 evidence for the reader to examine, not positions to defend; a kept gate
-states its reason and nothing more. Otherwise continue to Step 17.
+states its reason and nothing more. Then continue to Step 17.
 
 ---
 
@@ -882,7 +879,8 @@ It checks the branch, the offer, the gate above (`--gate-open <n>`; `--gate-open
   even with unchanged content before returning to Step 17. Never bypass failed guards.
 Never force-push. Only a successful push or verified `ALREADY_PUSHED` proceeds.
 
-Continue to Step 18. No documentation writer runs after push.
+After `EVIDENCE: DEFERRED`, run Step 5's `gstack-ship-release accept`; a `STOP:` there
+is a failed lane (stage 4). Continue to Step 18. No documentation writer runs after push.
 
 ---
 
@@ -910,8 +908,7 @@ echoed): an open PR at HEAD takes pr-body's existing-PR path (body and title onl
 
 ## Step 20: Persist ship metrics
 
-Log metrics for `/retro` through `gstack-review-log`; it handles project/branch paths,
-JSON validation, storage and sync and takes **no path argument**.
+Log metrics for `/retro` through `gstack-review-log`; it takes **no path argument**.
 
 ```bash
 ~/.gemini/antigravity-cli/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"coverage_schema":2,"coverage_pct_value":COVERAGE_PCT_VALUE,"weak_gaps":WEAK_GAPS,"tests_extended":TESTS_EXTENDED,"tests_rejected":TESTS_REJECTED,"regression_proof":REGRESSION_PROOF,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
@@ -958,7 +955,7 @@ The last line printed is the result line a parent greps (docs/unattended.md):
 
 It binds the receipt to HEAD, writes the run record, prints `GSTACK_RESULT: skill=ship
 status=complete head=<sha> run=<dir>`; `QUEUE_RECEIPT_STALE`: HEAD moved past the receipt (rewrite,
-repost, rerun). A run that STOPs early ends with `GSTACK_RESULT: skill=ship status=refused run=-`.
+repost, rerun). A STOP before Step 19 publishes ends with `GSTACK_RESULT: skill=ship status=refused run=-`.
 
 ---
 
@@ -974,7 +971,6 @@ hand-roll VERSION/package.json writes.
 
 Follow the numbered gates and their explicit exceptions.
 
-- **Never force push.** Use regular `git push` only.
 - **An early Greptile PR stays up.** A stop after Step 6.5 opened it leaves the draft
   open with one comment saying why (greptile-early section); never close it.
 - **Use the configured version file's format** (4-digit for VERSION); under NO_VERSION,

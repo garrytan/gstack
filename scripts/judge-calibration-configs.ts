@@ -6,14 +6,11 @@
  */
 import {
   ARM_JUDGE_MODEL, ARM_JUDGE_SCHEMA, buildArmJudgePrompt, parseArmJudgeResponse,
-  buildQaWorkflowJudgePrompt, buildQaHealthRubricJudgePrompt, buildQaAntiRefusalJudgePrompt,
-  buildCrossSkillConsistencyJudgePrompt, buildVoiceDirectiveJudgePrompt,
-  JUDGE_SCORE_SCHEMA, QA_ANTI_REFUSAL_JUDGE_SCHEMA, CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA,
-  VOICE_DIRECTIVE_JUDGE_SCHEMA, VOICE_DIRECTIVE_DIMENSIONS, JUDGE_SCORE_DIMENSIONS, DEFAULT_JUDGE_MAX_TOKENS,
+  buildQaAntiRefusalJudgePrompt, buildCrossSkillConsistencyJudgePrompt, buildVoiceDirectiveJudgePrompt,
+  QA_ANTI_REFUSAL_JUDGE_SCHEMA, CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA,
+  VOICE_DIRECTIVE_JUDGE_SCHEMA, VOICE_DIRECTIVE_DIMENSIONS,
   judgePanelMedian, judgePanelMajority,
 } from '../test/helpers/llm-judge';
-import { buildWorkflowJudgePrompt, WORKFLOW_JUDGE_RESPONSE_SCHEMA } from '../test/helpers/workflow-judge-input';
-import { COOKIE_WORKFLOW_JUDGE } from '../test/helpers/cookie-workflow-judge-input';
 import { CLAUDE_JUDGE_EVAL_MODEL } from '../lib/eval-model';
 import type { CalibrationConfig, Verdict } from './judge-calibration';
 
@@ -33,23 +30,6 @@ function requireFields(value: unknown, numbers: readonly string[], booleans: rea
 const meets = (median: Record<string, number>, floors: Record<string, number>): Verdict =>
   Object.entries(floors).every(([key, floor]) => median[key]! >= floor) ? 'pass' : 'fail';
 
-const QA_FLOORS = { clarity: 3, completeness: 3, actionability: 4 };
-const scoreJudge = (floors: Record<string, number>) => ({
-  validate: (value: unknown) => requireFields(value, JUDGE_SCORE_DIMENSIONS),
-  verdict: (samples: unknown[]) => meets(judgePanelMedian<string>(samples as Sample[], JUDGE_SCORE_DIMENSIONS), floors),
-});
-
-const workflow = (id: string, priority: number, cases: string[], extra: { agentCapability?: 'frontier'; model?: string; floors?: Record<string, number> } = {}): CalibrationConfig => ({
-  id, priority, cases,
-  model: extra.model ?? CLAUDE_JUDGE_EVAL_MODEL,
-  build: inputs => buildWorkflowJudgePrompt({ judgeContext: inputs.judgeContext!, judgeGoal: inputs.judgeGoal!, agentCapability: extra.agentCapability },
-    { files: [], text: inputs.bundle! }),
-  oldOptions: { max_tokens: DEFAULT_JUDGE_MAX_TOKENS },
-  newOptions: { max_tokens: DEFAULT_JUDGE_MAX_TOKENS, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA },
-  ...scoreJudge(extra.floors ?? QA_FLOORS),
-  estimatedOutputTokens: 1200,
-});
-
 export const CALIBRATION_CONFIGS: CalibrationConfig[] = [
   {
     id: 'arm', priority: 1, cases: ['arm-benchmark (skill-e2e-arm-benchmark.test.ts)'], model: ARM_JUDGE_MODEL,
@@ -62,18 +42,6 @@ export const CALIBRATION_CONFIGS: CalibrationConfig[] = [
       return scores[Math.floor(scores.length / 2)]! <= 1 ? 'pass' : 'fail';
     },
     estimatedOutputTokens: 300,
-  },
-  {
-    id: 'qa-workflow', priority: 2, cases: ['qa/SKILL.md workflow'], model: CLAUDE_JUDGE_EVAL_MODEL,
-    build: inputs => buildQaWorkflowJudgePrompt(inputs.section!),
-    oldOptions: {}, newOptions: { jsonSchema: JUDGE_SCORE_SCHEMA },
-    ...scoreJudge(QA_FLOORS), estimatedOutputTokens: 1200,
-  },
-  {
-    id: 'qa-health-rubric', priority: 3, cases: ['qa/SKILL.md health rubric'], model: CLAUDE_JUDGE_EVAL_MODEL,
-    build: inputs => buildQaHealthRubricJudgePrompt(inputs.section!),
-    oldOptions: {}, newOptions: { jsonSchema: JUDGE_SCORE_SCHEMA },
-    ...scoreJudge(QA_FLOORS), estimatedOutputTokens: 1200,
   },
   {
     id: 'qa-anti-refusal', priority: 4, cases: ['qa/SKILL.md anti-refusal'], model: CLAUDE_JUDGE_EVAL_MODEL,
@@ -101,17 +69,5 @@ export const CALIBRATION_CONFIGS: CalibrationConfig[] = [
     verdict: samples => meets(judgePanelMedian<string>(samples as Sample[], VOICE_DIRECTIVE_DIMENSIONS),
       Object.fromEntries(VOICE_DIRECTIVE_DIMENSIONS.map(key => [key, 4]))),
     estimatedOutputTokens: 1200,
-  },
-  workflow('workflow-default', 7, ['document-release/SKILL.md workflow', 'plan-ceo-review/SKILL.md modes', 'plan-eng-review/SKILL.md sections',
-    'plan-design-review/SKILL.md passes', 'design-review/SKILL.md fix loop', 'design-consultation/SKILL.md research',
-    'land-and-deploy/SKILL.md workflow', 'canary/SKILL.md monitoring loop', 'benchmark/SKILL.md perf collection',
-    'setup-deploy/SKILL.md platform setup', 'sync-gbrain/SKILL.md read-only readiness', 'retro/SKILL.md instructions',
-    'qa-only/SKILL.md workflow', 'gstack-upgrade/SKILL.md upgrade flow']),
-  {
-    id: 'cookie-workflow', priority: 8, cases: ['setup-browser-cookies/SKILL.md workflow'], model: COOKIE_WORKFLOW_JUDGE.model,
-    build: inputs => buildWorkflowJudgePrompt(COOKIE_WORKFLOW_JUDGE, { files: [], text: inputs.bundle! }),
-    oldOptions: { max_tokens: DEFAULT_JUDGE_MAX_TOKENS },
-    newOptions: { max_tokens: DEFAULT_JUDGE_MAX_TOKENS, jsonSchema: WORKFLOW_JUDGE_RESPONSE_SCHEMA },
-    ...scoreJudge(COOKIE_WORKFLOW_JUDGE.thresholds), estimatedOutputTokens: 1200,
   },
 ];

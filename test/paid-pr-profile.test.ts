@@ -22,7 +22,7 @@ const CEO_FILES = [
   'test/skill-e2e-retro.test.ts', 'test/skill-llm-eval.test.ts', 'test/skill-e2e-plan-ceo-plan-mode.test.ts',
 ];
 const ceoManifest = () => buildRunManifest({ tier: 'gate', profile: 'pr', sliceCount: 1,
-  evalsAll: false, env: {}, changedFiles: ['plan-ceo-review/SKILL.md.tmpl'], discovered: CEO_FILES });
+  evalsAll: false, env: {}, changedFiles: ['plan-ceo-review/SKILL.md.tmpl', 'retro/SKILL.md'], discovered: CEO_FILES });
 
 describe('PR profile paid-runner integration', () => {
   test('F5 fixture changes select exactly its three registered native gate cases', () => {
@@ -83,7 +83,7 @@ describe('PR profile paid-runner integration', () => {
     expect(manifest.profile).toBe('pr');
     expect(manifest.selection?.e2e).toContain('auq-format-gate');
     expect(manifest.selection?.e2e).toContain('plan-ceo-review-plan-mode');
-    expect(manifest.selection?.judges).toContain('plan-ceo-review/SKILL.md modes');
+    expect(manifest.selection?.judges).toContain('cross-skill greptile consistency');
     expect(manifest.entries.find(entry => entry.file.includes('skill-e2e-retro'))?.status).toBe('skipped-by-diff');
     expect(manifest.entries.find(entry => entry.file.includes('ask-user-question'))?.status).toBe('planned');
     expect(manifest.prCoverage?.deferred.some(item => item.id === 'plan-ceo-review-plan-mode')).toBe(false);
@@ -127,13 +127,13 @@ describe('PR profile paid-runner integration', () => {
     expect(result.coverage?.needsFullValidation).toBe(false);
   });
 
-  test('F8 selects one judge and defers its two periodic readiness actors', () => {
+  test('F8 selects no judge and defers its two periodic readiness actors', () => {
     const selection = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [
       'sync-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-read-capability.ts',
       'test/helpers/sync-gbrain-readiness-fixture.ts',
     ] });
     expect(selection.coverage?.mode).toBe('pr');
-    expect(selection.selection.judges).toEqual(['sync-gbrain/SKILL.md read-only readiness']);
+    expect(selection.selection.judges).toEqual([]);
     expect(selection.selection.e2e).toEqual([]);
     expect(selection.coverage?.deferred.map(({ id }) => id).filter(id => id.startsWith('sync-gbrain-read-')).sort()).toEqual([
       'sync-gbrain-read-ready', 'sync-gbrain-read-unknown',

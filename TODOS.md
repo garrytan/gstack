@@ -2,6 +2,11 @@
 
 ## NEXT PRIORITY
 
+### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
+
+- **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
+- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are 3 now. Recompute the table from current rates rather than editing the count alone. `scripts/paid-test-durations.json` still records the 24-judge `test/skill-llm-eval.test.ts` duration until the next paid report rewrites it. **Effort:** S. **Priority:** P3.
+
 ### P3: screen verdict reuse lookback (filed 2026-11-02, GST-1027)
 
 - **Screen reuse sees only the newest 50 evals.yml dispatches.** `listGateRuns` (`scripts/recover-receipts.ts`) lists dispatched screens as one unfiltered page (`event=workflow_dispatch`, `per_page=50`), shared with every PR's screens and every train. At week-B traffic (220 dispatches from 2026-10-25 to 11-02, about 27 a day) that is under two days, and nothing says when a PR's earlier screen fell off the page: `gate-reuse find` prints "no earlier executed gate on this PR bound a verdict" and the full screen runs. No miss yet: the longest gap among the week-B re-screens was 44 dispatches (#3607). Page the listing until runs are older than the PR's oldest candidate head (or filter by `created>=`), and print a truncation line when the last page is full. A missed run only costs a screen, never a wrong verdict. **Effort:** S. **Priority:** P3.
@@ -285,15 +290,6 @@ Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY
   runs (none of 20 without pty-workspace-trust, not significant). Next step:
   move the git calls in shared fixture helpers to async spawn with a hard
   timeout, or take a Bun release that fixes #34069. **Effort:** M. **Priority:** P2.
-- **Judge rubric anchors (C1, needs Garry: EVAL_POLICY)** — the pre-registered
-  control panels (`docs/evals/judge-controls-2026-10.md`, 36 calls) showed
-  every workflow judge separates gross breakage, but the qa workflow judge
-  passed a /qa bundle with Phase 10 Report removed (no sample noticed) and the
-  review judge passed /review with Step 3 removed (two of three samples noticed
-  it and rated it minor); no positive sample scored 5 on any dimension.
-  Missing-step coverage now lives in `test/workflow-required-steps.test.ts`.
-  Proposal: anchor completeness/actionability 4 and 5 to named deliverables
-  and inputs, as a pre-registered EVAL_POLICY change. **Effort:** M. **Priority:** P2.
 - **auto-decide-preserved: the CEO handoff line no longer depends on the model**
   — periodic run 37272185151 went red because the model led its chat with a
   paraphrase; a reminder beside the line measured 1/10. The Oct 6 wave shows
@@ -629,16 +625,6 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   `rule` but gates on one judge sample. Decide under EVAL_POLICY whether it is
   a `judge` case (3 samples, median) and supply pass-rate evidence before
   changing the kind. Effort S. **Priority:** P2.
-- **qa/SKILL.md workflow judge dips below its actionability floor** — census
-  37186854666 (b24b6d8) scored actionability 3.67 < 4 (clarity 3, completeness
-  4) on the same qa bundle bytes that passed in census 37182865432 (44ef18c);
-  nothing under qa/, qa-only/ or scripts/resolvers changed between them. Red in
-  2 of the 17 earlier censuses (36920606897, 36776104571). Judge kind, 3
-  samples, unchanged threshold. The qa-only workflow judge did the same in
-  census 37198445662 (fd6854b): 3.67/4.33/3.67, one 3/4/3 sample citing density,
-  on qa-only bytes unchanged since 44ef18c, where it passed in four censuses.
-  Find which bundle step the low samples call unactionable before rewording.
-  Effort S. **Priority:** P3.
 - **shared-libs-review-revalidation stalls mid-stream** — gate census 4 of
   37186854666: the `filtered` scenario's stream stopped after a thinking block
   at 07:51:21 and emitted nothing until the 657 s abort; the other three
@@ -780,11 +766,6 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   by re-running `./setup` from it. Iterate the registry's render column
   instead. **Effort:** S. **Priority:** P3.
 
-- **Judge actionability sits exactly at the 4.0 gate** (P2, from the PR #3014 eval
-  census) — all 24 workflow judges score actionability at 4.0 in nearly every run, so one
-  low sample of three fails the case (qa-only 9/78, qa 6/78, plan-ceo modes 5/78, plan-eng
-  sections 4/78, review 4/70 over 09-27..10-02). The repair is clearer skill text per case
-  (as done for qa in v1.91.14.0), not a lower threshold. Effort M.
 - **`--case` cannot select loop-registered paid cases** (P3) — coverage audits, TPA and
   plan-mode-no-op register their cases in a loop, so `test-paid-shards.ts --case <id>` runs
   nothing; teach `fileCaseRegistration` the loop pattern. Effort S.
@@ -809,25 +790,11 @@ Each item was deferred with a reason during the `/claude-api prompt-audit` clean
   other models with no runner, and the `.agents` render has no Codex runner for
   this eval. Narrow the rewording to the design-review render, or add per-host
   runners. Priority P2. Effort M.
-- **Judge prose and rubric cleanup (W2 deferral)** — the arm, qa health-rubric,
-  qa anti-refusal, cross-skill and voice judges, and the default workflow judge,
-  now send a JSON schema; their prompt-audit s11 M1-M7 prose cleanup is still
-  open, as is the qa anti-refusal rubric's "always … regardless" wording. Three
-  prose steps were triggered and not run: the qa workflow judge (its schema
-  comparison held: 4/24 new flips vs 2/24 old, one new false pass on a06, zero
-  format errors, so it stays on today's request), the default workflow judge
-  (landed, but one provider refusal on corpus item f03 under the new prompt,
-  matched by one under the old prompt) and the cookie workflow judge (GSTA-91:
-  held on one new false pass on a07, zero new-request format errors; the hold was
-  released on GStack Minder's 2026-10-29 ruling and it now sends the schema; today's request itself false-passes a07 in `old-b` and on
-  both valid `old-a` samples, and a08 in `old-a`, so the prose step targets those). Reuse `test/fixtures/judge-calibration`
-  and `scripts/judge-calibration.ts`. Priority P3. Effort M.
-- **Uncalibrated workflow-judge configurations** — build a corpus and calibrate
-  schema transport for the frontier configuration (review/SKILL.md workflow); it
-  stays on today's request. The cookie configuration
-  (setup-browser-cookies/SKILL.md workflow) has a corpus and a held comparison-1
-  (GSTA-91); it moved to the schema on GStack Minder's 2026-10-29 release ruling. After any transport change,
-  re-run the review and cookie workflow judges. Priority P3. Effort M.
+- **Judge prose and rubric cleanup (W2 deferral)** — the arm, qa anti-refusal,
+  cross-skill and voice judges now send a JSON schema; their prompt-audit s11
+  M1-M7 prose cleanup is still open, as is the qa anti-refusal rubric's
+  "always … regardless" wording. Reuse `test/fixtures/judge-calibration` and
+  `scripts/judge-calibration.ts`. Priority P3. Effort M.
 - **Claude model auto-detection for the skill overlay** — when no
   `claude_overlay_model` is set, detect the Claude Code model (`ANTHROPIC_MODEL`,
   user and managed settings `model`) in `./setup` and render its pinned overlay.
@@ -1688,8 +1655,7 @@ separately, so the change alters a paid verdict and needs its own paid run.
 
 **What:** GSTA-49 TM3 (2026-10-18) moved every remaining old-model paid pin to the current generation: the
 `claude-opus-4-7` pins in `skill-e2e-{plan,plan-prosons,design,office-hours-phase4,qa-bugs}` follow
-`resolveEvalModel('capture')`, the overlay fixtures pin `claude-opus-5-5` and `claude-sonnet-5-5`, the cookie workflow
-judge pins `claude-sonnet-5-5`, and `codex-sol-scope-termination` runs on `gpt-6.1-sol` (still rendering the
+`resolveEvalModel('capture')`, the overlay fixtures pin `claude-opus-5-5` and `claude-sonnet-5-5`, and `codex-sol-scope-termination` runs on `gpt-6.1-sol` (still rendering the
 `gpt-5.6-sol` overlay). Three things remain:
 
 - The base `claude-dedicated-tools-vs-bash` fixture now duplicates `claude-dedicated-tools-vs-bash-opus-5-5`.

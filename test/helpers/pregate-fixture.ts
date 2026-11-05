@@ -122,6 +122,8 @@ function seedFixtureRepo(root: string, opts: FixtureOptions): void {
   fs.mkdirSync(work, { recursive: true });
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n\temail = t@test\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n');
   spawnSync('git', ['init', '-q', '--bare', origin], { timeout: 30_000, env: { ...process.env, ...env } });
+  git('--git-dir', origin, 'config', 'maintenance.auto', 'false');
+  git('--git-dir', origin, 'config', 'gc.auto', '0');
   git('init', '-q', '-b', 'main');
   for (const dir of ['src', 'lib', 'bin', 'test', 'test/golden', 'test/nightly', 'generated', 'docs', 'scripts', '.gstack', '.github/workflows']) fs.mkdirSync(path.join(work, dir), { recursive: true });
   write(work, 'src/version.js', "module.exports = { VERSION: '1.0.0' };\n");

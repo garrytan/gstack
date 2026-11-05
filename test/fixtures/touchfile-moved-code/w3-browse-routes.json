@@ -22,9 +22,7 @@
         "qa-only-no-fix",
         "qa-quick"
       ],
-      "llmJudge": [
-        "browse/SKILL.md reference"
-      ]
+      "llmJudge": []
     }
   },
   "modules": {

@@ -11,6 +11,8 @@
  * foreignObject element, an event handler, a javascript: URL; character references decoded) is security (GST-911).
  */
 import { createHash } from 'node:crypto';
+import { scan } from './redact-engine';
+import { PATTERNS } from './redact-patterns';
 
 export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data', 'eval', 'policy'] as const;
 export type RiskClass = (typeof RISK_CLASSES)[number];
@@ -60,7 +62,17 @@ export const usdMoney = (line: string) => {
 };
 export const AUTH_PATH_TOKENS = ['auth', 'authn', 'authz', 'oauth', 'oauth2', 'jwt', 'session', 'sessions', 'permission', 'permissions', 'role', 'roles'];
 export const AUTH_PATH_PREFIXES = ['authenticat', 'authoriz'];
-export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain|token[s]?)([._/-]|$)/i;
+/** A secret path by name alone: a secrets, credentials or keychain name, a dotenv file (not a template), an SSH private key or a key-store extension. */
+export const SECRET_PATH = /(^|\/)(secrets?|credentials?|keychain)([._/-]|$)|(^|\/)(\.env(\.(?!(example|sample|template)$)[^/]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.pgpass|\.htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|ppk)$/i;
+/** A token name (design, lexer and LLM tokens as well as auth tokens, GST-1350: founderstar's scripts/ui/token.gd): a secret path by name unless it is a TOKEN_SOURCE file, which its changed lines decide. */
+export const TOKEN_PATH = /(^|\/)tokens?([._/-]|$)/i;
+/** Style and engine extensions: a token-named file of one of these holds design tokens. Any other token file (code, json, yaml, no extension, binary) stays a secret path by name. */
+export const TOKEN_SOURCE = /\.(gd|css|scss|sass|less|styl)$/i;
+/** The secret-category patterns of the credential scanner pregate's secrets check runs (lib/redact-engine.ts): RISK_RULES and TARGETED_RULES hash them. */
+export const SECRET_SCAN = PATTERNS.filter(r => r.category === 'secret').map(r => [r.id, r.tier, '/' + r.regex.source + '/' + r.regex.flags]);
+const secretShaped = (p: string, lines: readonly string[]) => scan(lines.join('\n'), { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW');
+/** Whether a changed path is a secret path: by name, or a token-named style or engine file whose added or deleted lines hold a secret-shaped value or cannot be read (no text lines fails closed). */
+export const secretPath = (p: string, lines: readonly string[] = []) => SECRET_PATH.test(p) || (TOKEN_PATH.test(p) && (!TOKEN_SOURCE.test(p) || !lines.length || secretShaped(p, lines)));
 /** An environment name whose underscore-separated segments include a key word: OPENAI_API_KEY, GH_TOKEN; never MAX_TOKENS. */
 export const KEY_NAME = String.raw`(?:[A-Z0-9]+_)*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS?)(?:_[A-Z0-9]+)*\b`;
 export const SECRET_LINE = [
@@ -141,7 +153,8 @@ const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x 
 export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  SECRET_SCAN,
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -174,7 +187,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
-    if (SECRET_PATH.test(p)) hit('secret', 'secret path: ' + p);
+    if (secretPath(p, [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])])) hit('secret', 'secret path: ' + p);
     const money = !(i.dataPaths?.includes(p) && RESULTS_TREE.test(p));
     if (money && namesMoney(t, MONEY_PATH_TOKENS)) hit('money', 'money path: ' + p);
     if (t.some(x => SECURITY_PATH_TOKENS.includes(x))) hit('security', 'security path: ' + p);

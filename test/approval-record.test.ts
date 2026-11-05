@@ -88,6 +88,18 @@ describe('gstack-approvals add and render', () => {
     expect(control.err).toContain('pii.phone.e164');
   });
 
+  test("the owner's grant for a stop head whose short sha is all digits records (Free Tests 41667825418, 41766865679)", () => {
+    const cwd = repo(); const state = tmp('appr-state-');
+    const ask = 'Owner grant: one scoped fix-check after round 2 (review_loop_grant 367120488513)';
+    const r = bin(['add', '--ask', ask, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation'], { cwd, env: { GSTACK_STATE_ROOT: state } });
+    expect(r.status, r.err).toBe(0);
+    const file = /^APPROVAL_RECORDED: a-[0-9a-f]{12} (.*\.jsonl)$/m.exec(r.out)![1]!;
+    expect(fs.readFileSync(file, 'utf8')).toContain('review_loop_grant 367120488513');
+    const control = bin(['add', '--ask', 'Owner grant (review_loop_grant 367120488513), call 367120488513 first', '--words', 'do it', '--by', 'g', '--scope', 's'], { cwd, env: { GSTACK_STATE_ROOT: state } });
+    expect(control.status).toBe(3);
+    expect(control.err).toContain('field ask: pii.phone.e164');
+  });
+
   test('missing fields, bad outcomes and impossible dates are usage errors', () => {
     const cwd = repo(); const state = tmp('appr-state-');
     expect(bin(['add', '--ask', 'x'], { cwd, env: { GSTACK_STATE_ROOT: state } }).err).toContain('APPROVAL_RECORD_INVALID');
