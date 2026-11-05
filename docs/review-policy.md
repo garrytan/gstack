@@ -566,7 +566,11 @@ could open it and still sweep clean, so no reader of any stage, Step 11's voices
 command is printed: each found path gets a `KEEP:` line to inspect and leave alone. A remote URL is read through git's own config parser and printed and recorded without its `user:token@` part or query; a value that does not parse as a URL reads `<redacted>`.
 Attribution is per stage until the platform exposes reader ids: a violation
 names the stage and its readers, never the one reader that fetched, and a clean
-reader of that stage reruns with the rest.
+reader of that stage reruns with the rest. The sweep sees only repositories that
+keep a network remote and files of 100 MB or more, outside `node_modules` and
+outside other repositories. An extracted archive, a smaller raw download, a fetch
+with no remote, a clone nested in another repository and a clone deleted before
+the stage ends all go unseen until the platform exposes reader transcripts.
 
 What this protects: the readers' findings, the merged review and PR text never
 carry a sealed file a reader fetched or opened. What it cannot protect: data that
