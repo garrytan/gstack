@@ -561,9 +561,9 @@ under `<out>/quarantine/`, findings out of `merged.jsonl`, never shown to the
 Red Team or returned), `verify` refuses with `FETCH_VIOLATION`, and each slot
 reruns once as `<reader>#2`, which is not a review round. The rerun starts only
 once every path the first attempt found is gone: while one exists, a rerun reader
-could open it and still sweep clean, so no reader starts and the pass stops
-(`FETCH_RERUN_BLOCKED`). A fetch on the rerun stops the pass (`FETCH_RERUN_SPENT`). Nothing is deleted for you, and no delete
-command is printed: each found path gets a `KEEP:` line to inspect and leave alone.
+could open it and still sweep clean, so no reader of any stage, Step 11's voices included, starts and the pass stops
+(`FETCH_RERUN_BLOCKED`). A fetch on the rerun stops the pass (`FETCH_RERUN_SPENT`), and resuming it starts no later stage. Nothing is deleted for you, and no delete
+command is printed: each found path gets a `KEEP:` line to inspect and leave alone. A remote URL is printed and recorded without its `user:token@` part.
 Attribution is per stage until the platform exposes reader ids: a violation
 names the stage and its readers, never the one reader that fetched, and a clean
 reader of that stage reruns with the rest.

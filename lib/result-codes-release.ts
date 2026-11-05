@@ -554,12 +554,12 @@ export const RELEASE_RESULT_CODES = {
   },
   FETCH_RERUN_BLOCKED: {
     anchor: 'fetch-rerun-blocked',
-    summary: 'a path the stage\'s first attempt found still exists, so its rerun dispatched no reader (one could read that path and sweep clean) and verify keeps refusing',
+    summary: 'a path a stage\'s first attempt found still exists, so no stage of the pass, Step 11\'s voices included, dispatched a reader (one could read that path and sweep clean) and verify keeps refusing',
     fix: 'stop and report the printed path to your Captain; leave it alone (nothing attributes it to a reader, so never move or delete it yourself)',
   },
   FETCH_RERUN_SPENT: {
     anchor: 'fetch-rerun-spent',
-    summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined and verify refuses',
+    summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined, resuming it starts no later stage and returns no reader output, and verify refuses',
     fix: 'deal with the printed paths, find out why readers keep fetching, then start a fresh pass under a new --pass and --out; a third attempt is never automatic',
   },
 } as const satisfies Record<string, ResultCode>;

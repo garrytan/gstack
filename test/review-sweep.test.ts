@@ -127,4 +127,20 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     const fix = RELEASE_RESULT_CODES.FETCH_VIOLATION.fix;
     expect([fix.includes('DELETE'), /inspect/.test(fix), /leave it alone/.test(fix)]).toEqual([false, true, true]);
   });
+
+  // Value: protects=a clone whose remote URL carries credentials (https://user:TOKEN@host/…) never puts them in a FETCH_VIOLATION line, the found record verify replays, or the start inventory;
+  //   fails_when=the sweep prints or records the remote verbatim and the token reaches the transcript; why_new=ship-c-p1 outside-voice#1 (High; the Captain's grant on #4011); seam=remotes, sweepDiff, foundLines; no_claim=that other tools print remotes safely
+  test('a remote with user:token@ prints and records without its userinfo', async () => {
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout, 'https://ci-bot:ghp_SECRET123@github.com/me/app.git');
+    const start = inventory([root], checkout, []);
+    await Bun.sleep(30);
+    repoAt(path.join(root, 'BEAM'), 'https://x-access-token:ghp_SECRET456@github.com/sealed-org/BEAM.git');
+    const end = inventory([root], checkout, []);
+    const found = sweepDiff(start, end);
+    const lines = foundLines('specialists', 1, found, ['specialist/security']);
+    expect(lines[0]).toContain(' remote=https://github.com/sealed-org/BEAM.git ');
+    expect(JSON.stringify([start, end, found, lines])).not.toMatch(/SECRET|ci-bot|x-access-token/);
+  });
 });

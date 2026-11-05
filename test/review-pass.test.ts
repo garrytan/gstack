@@ -1343,5 +1343,45 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(v.stdout).toMatch(/^FETCH_VIOLATION: f2p1\/specialists#2 found=1/m);
     expect(v.stdout).toContain('VERIFY: dirty');
   }, 240_000);
+
+  // Value: protects=once a stage's rerun fetched too, resuming the same pass dispatches no later stage and returns no reader output;
+  //   fails_when=the resumed program skips the recorded end, dispatches the Red Team beside the kept clone and returns NEXT: judge; why_new=ship-c-p1 outside-voice#2 (High; the Captain's grant on #4011);
+  //   seam=lib/capy-review-pass.js stage selection; no_claim=that the kept path is safe to keep
+  test('resuming after FETCH_RERUN_SPENT stops before any later stage starts', async () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const out = path.join(dir, '.state/run/p1');
+    const input = { base: 'main', out, pass: 'f4p1', planFlags: ['--depth-floor', 'full'] };
+    const h = host(dir, env, { output: t => { if (t === 'ship f4p1 specialist-batched') clone(path.join(dir, '.state/BEAM')); if (t === 'ship f4p1 specialist-batched#2') clone(path.join(dir, '.state/BEAM2')); if (t === 'ship f4p1 red-team') return 'High: src/a.ts:3 SEALED-QUOTE read beside the kept clone'; return 'NO FINDINGS'; } });
+    let res = await runPass(h, input);
+    expect(res).toContain('FETCH_RERUN_BLOCKED: stage=specialists attempt=2');
+    fs.rmSync(path.join(dir, '.state/BEAM'), { recursive: true, force: true });
+    res = await runPass(h, input);
+    for (let i = 0; i < 4 && res.includes('NEXT: poll'); i++) res = await runPass(h, input);
+    expect(res).toContain('FETCH_RERUN_SPENT: stage=specialists');
+    const again = await runPass(h, input);
+    expect(again).toMatch(/STOP: .*FETCH_RERUN_SPENT/);
+    expect(again).not.toContain('NEXT: judge');
+    expect(again).not.toContain('SEALED-QUOTE');
+    expect(h.creates.some(c => c.title === 'ship f4p1 red-team')).toBe(false);
+  }, 240_000);
+
+  // Value: protects=while a path an earlier attempt found still exists, no reader of any stage, Step 11's voices included, starts beside it;
+  //   fails_when=the voices run on the same manifest dispatches its readers beside the kept clone while the specialists rerun is blocked; why_new=ship-c-p1 outside-voice#2 (High; the Captain's grant on #4011);
+  //   seam=gstack-review-dispatch sweep --phase start; no_claim=that the kept path is safe to keep
+  test('Step 11 voices dispatch nothing while another stage\'s rerun is blocked by a kept clone', async () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const out = path.join(dir, '.state/run/p1');
+    const base = { base: 'main', out, pass: 'f5p1', planFlags: ['--depth-floor', 'full'] };
+    const h = host(dir, env, { output: t => { if (t === 'ship f5p1 specialist-batched') clone(path.join(dir, '.state/BEAM')); return 'NO FINDINGS'; } });
+    expect(await runPass(h, base)).toContain('FETCH_RERUN_BLOCKED: stage=specialists attempt=2');
+    const before = h.creates.length;
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, stage: 'voices', models });
+    expect(res).toContain("FETCH_RERUN_BLOCKED: stage=specialists attempt=2 path='" + fs.realpathSync(path.join(dir, '.state/BEAM')) + "'");
+    expect(res).toMatch(/STOP: gstack-review-dispatch sweep --stage voices --phase start exited 3/);
+    expect(h.creates.length).toBe(before);
+  }, 240_000);
 });
 const briefDirOf = (h: ReturnType<typeof host>, title: string) => briefDir(h.creates.find(c => c.title === title)?.prompt ?? '');

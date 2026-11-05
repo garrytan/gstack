@@ -237,7 +237,7 @@ function sweep(): number {
   const s = ((m.sweeps ??= {})[stage] ??= { attempt: 1 });
   if (phase === 'start') {
     if (!s.start) {
-      const blocked = rerunBlocked(stage, s);
+      const blocked = Object.entries(m.sweeps).flatMap(([x, sx]) => (sx.start ? [] : rerunBlocked(x as Stage, sx)));
       if (blocked.length) { process.stdout.write(blocked.join('\n') + '\n'); return EXIT.refused; }
       const inv = inventory(defaultRoots(checkout), checkout);
       const dir = path.join(m.out, 'sweep');

@@ -3553,10 +3553,11 @@ prints `FETCH_SWEEP: partial`, a note that is never a refusal.
 <a id="fetch-rerun-blocked"></a>
 ### `FETCH_RERUN_BLOCKED`
 
-**Meaning.** A path the stage's first attempt found (a `FETCH_VIOLATION:` line)
-still exists when its rerun starts. A rerun reader could open that clone or
-download and still sweep clean, so the rerun dispatches no reader, the pass
-stops (exit 3) and `verify` keeps refusing with the first attempt's
+**Meaning.** A path a stage's first attempt found (a `FETCH_VIOLATION:` line)
+still exists when that stage's rerun, or any other stage of the same pass
+(Step 11's voices included), starts. A reader could open that clone or
+download and still sweep clean, so no reader is dispatched, the pass stops
+(exit 3) and `verify` keeps refusing with the first attempt's
 `FETCH_VIOLATION`.
 
 **Fix.** Stop and report the printed path to your Captain. Leave it alone: no
@@ -3569,7 +3570,9 @@ manifest.
 
 **Meaning.** The stage's one rerun fetched too, so the pass stopped (exit 3).
 Its readers are quarantined like the first attempt's, nothing they wrote is
-merged, and `verify` refuses.
+merged, and `verify` refuses. Running the same pass program again stops at
+once: it starts no later stage (no Red Team beside the kept paths) and returns
+no reader output.
 
 **Fix.** Deal with the paths the `FETCH_VIOLATION:` lines name as above. Then
 find out why readers keep fetching (a brief or a checklist that sends them to

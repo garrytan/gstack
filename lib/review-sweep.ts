@@ -40,8 +40,9 @@ export interface StageSweep {
 export const defaultRoots = (checkout: string) => process.env.GSTACK_SWEEP_ROOTS?.split(path.delimiter).filter(Boolean) ?? [path.dirname(checkout), os.homedir(), os.tmpdir()];
 export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive')];
 
+/** A repository's remote URLs without their userinfo (`https://user:TOKEN@host/…` reads `https://host/…`), so no credential is ever recorded or printed. */
 function remotes(gitDir: string): string[] {
-  try { return [...fs.readFileSync(path.join(gitDir, 'config'), 'utf8').matchAll(/^\s*url\s*=\s*(.+?)\s*$/gm)].map(m => m[1]!); } catch { return []; }
+  try { return [...fs.readFileSync(path.join(gitDir, 'config'), 'utf8').matchAll(/^\s*url\s*=\s*(.+?)\s*$/gm)].map(m => m[1]!.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1')); } catch { return []; }
 }
 
 /** The git directory a directory holds: its `.git` (a directory, or a file naming one), or itself when it is a bare repository. */
@@ -143,8 +144,8 @@ export function foundLines(stage: Stage, attempt: number, found: readonly Found[
 }
 
 /**
- * The rerun's start: while a path an earlier attempt of the stage found still exists, a rerun reader could read it and
- * sweep clean, so the rerun dispatches no reader (and the violation stays unresolved). Nothing is moved or deleted.
+ * A stage's pending rerun: while a path an earlier attempt of the stage found still exists, a reader could read it and
+ * sweep clean, so no stage's start dispatches a reader (and the violation stays unresolved). Nothing is moved or deleted.
  */
 export function rerunBlocked(stage: Stage, s: StageSweep): string[] {
   const kept = (s.history ?? []).flatMap(h => (h.end?.found ?? []).map(f => ({ f, attempt: h.attempt }))).filter(({ f }) => fs.existsSync(f.path));
