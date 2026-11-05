@@ -226,7 +226,6 @@ describe('paid/free dependency boundary', () => {
       changedFiles: [file, 'plan-ceo-review/SKILL.md.tmpl', 'retro/SKILL.md'] });
     expect(real.coverage?.mode).toBe('pr');
     expect(real.selection.e2e).toContain('auq-format-gate');
-    expect(real.selection.judges).toContain('cross-skill greptile consistency');
     expect(real.selection.e2e?.every(id => PR_PROFILE_CASE_IDS.includes(id as typeof PR_PROFILE_CASE_IDS[number]))).toBe(true);
   });
 });

@@ -201,8 +201,8 @@ describe('judge calibration harness (free, stubbed provider)', () => {
 describe('committed calibration configurations and corpora', () => {
   test('comparison (1) changes only the JSON schema; prompts come from the eval builders', async () => {
     const { CALIBRATION_CONFIGS } = await import('../scripts/judge-calibration-configs');
-    expect(CALIBRATION_CONFIGS.map(config => config.id)).toEqual(['arm', 'qa-anti-refusal', 'cross-skill', 'voice']);
-    expect(CALIBRATION_CONFIGS.map(config => config.priority)).toEqual([1, 4, 5, 6]);
+    expect(CALIBRATION_CONFIGS.map(config => config.id)).toEqual(['arm']);
+    expect(CALIBRATION_CONFIGS.map(config => config.priority)).toEqual([1]);
     for (const config of CALIBRATION_CONFIGS) {
       const { jsonSchema, ...rest } = config.newOptions;
       expect(jsonSchema).toBeTruthy();
@@ -239,35 +239,12 @@ describe('committed calibration configurations and corpora', () => {
     expect(byId.arm!.verdict([arm(0), arm(1), arm(3)])).toBe('pass');
     expect(byId.arm!.verdict([arm(1), arm(2), arm(2)])).toBe('fail');
     expect(() => byId.arm!.validate({ over_engineering: 0, construct: 'helper', reasoning: '' })).toThrow();
-    const browse = (would_browse: boolean, confidence: number) => ({ would_browse, confidence, fallback_behavior: '', reasoning: '' });
-    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 4), browse(false, 5)])).toBe('pass');
-    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 3), browse(true, 4)])).toBe('pass');
-    expect(byId['qa-anti-refusal']!.verdict([browse(true, 4), browse(true, 3), browse(true, 3)])).toBe('fail');
-    const voice = (low: number) => ({ directness: 5, concreteness: 5, avoids_corporate: 5, avoids_ai_vocabulary: low, connects_user_outcomes: 5, reasoning: '' });
-    expect(byId.voice!.verdict([voice(4), voice(4), voice(4)])).toBe('pass');
-    expect(byId.voice!.verdict([voice(4), voice(4), voice(3)])).toBe('pass');
-    expect(byId.voice!.verdict([voice(4), voice(3), voice(3)])).toBe('fail');
   });
 });
 
 describe('landed schemas match the recorded calibration', () => {
-  const evalSource = fs.readFileSync(path.join(import.meta.dir, 'skill-llm-eval.test.ts'), 'utf8');
   const judgeSource = fs.readFileSync(path.join(import.meta.dir, 'helpers', 'llm-judge.ts'), 'utf8');
   const result = (id: string) => JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'judge-calibration', id, 'runs', 'comparison-1.result.json'), 'utf8'));
-  const wiring: Array<[string, string, string]> = [
-    ['qa-anti-refusal', 'buildQaAntiRefusalJudgePrompt(diffAwareSection, rulesSection)', 'QA_ANTI_REFUSAL_JUDGE_SCHEMA'],
-    ['cross-skill', 'buildCrossSkillConsistencyJudgePrompt(collected)', 'CROSS_SKILL_CONSISTENCY_JUDGE_SCHEMA'],
-    ['voice', 'buildVoiceDirectiveJudgePrompt(voiceSection)', 'VOICE_DIRECTIVE_JUDGE_SCHEMA'],
-  ];
-
-  test.each(wiring)('%s sends its schema only when its complete calibration landed', (id, call, schema) => {
-    const recorded = result(id);
-    expect(recorded.complete).toBe(true);
-    const sent = evalSource.includes(`${call}, undefined, { jsonSchema: ${schema} })`);
-    expect(evalSource.includes(`${call})`) || sent).toBe(true);
-    expect(sent).toBe(recorded.landing.lands);
-  });
-
   test('armJudge sends ARM_JUDGE_SCHEMA because its calibration landed', () => {
     expect(result('arm').landing.lands).toBe(true);
     expect(judgeSource).toContain('buildArmJudgePrompt(task, diff), ARM_JUDGE_MODEL, { jsonSchema: ARM_JUDGE_SCHEMA })');

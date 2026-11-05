@@ -19,7 +19,7 @@ import { resolveModuleSelection } from './helpers/e2e-helpers';
 const ROOT = path.resolve(import.meta.dir, '..');
 const CEO_FILES = [
   'test/skill-e2e-plan.test.ts', 'test/skill-e2e-ask-user-question-format-compliance.test.ts',
-  'test/skill-e2e-retro.test.ts', 'test/skill-llm-eval.test.ts', 'test/skill-e2e-plan-ceo-plan-mode.test.ts',
+  'test/skill-e2e-retro.test.ts', 'test/skill-e2e-plan-ceo-plan-mode.test.ts',
 ];
 const ceoManifest = () => buildRunManifest({ tier: 'gate', profile: 'pr', sliceCount: 1,
   evalsAll: false, env: {}, changedFiles: ['plan-ceo-review/SKILL.md.tmpl', 'retro/SKILL.md'], discovered: CEO_FILES });
@@ -83,7 +83,6 @@ describe('PR profile paid-runner integration', () => {
     expect(manifest.profile).toBe('pr');
     expect(manifest.selection?.e2e).toContain('auq-format-gate');
     expect(manifest.selection?.e2e).toContain('plan-ceo-review-plan-mode');
-    expect(manifest.selection?.judges).toContain('cross-skill greptile consistency');
     expect(manifest.entries.find(entry => entry.file.includes('skill-e2e-retro'))?.status).toBe('skipped-by-diff');
     expect(manifest.entries.find(entry => entry.file.includes('ask-user-question'))?.status).toBe('planned');
     expect(manifest.prCoverage?.deferred.some(item => item.id === 'plan-ceo-review-plan-mode')).toBe(false);
@@ -186,9 +185,6 @@ describe('PR profile paid-runner integration', () => {
       if (action === 'duplicate') missing.entries.push({ ...missing.entries.find(entry => entry.file === file)! });
       expect(() => parseRunManifest(JSON.stringify(missing)), action).toThrow('exactly one planned owning file');
     }
-    const noJudge = structuredClone(manifest);
-    noJudge.entries = noJudge.entries.filter(entry => entry.file !== 'test/skill-llm-eval.test.ts');
-    expect(() => parseRunManifest(JSON.stringify(noJudge))).toThrow('exactly one planned owning file');
   });
 
   test('PR children reject absent or malformed selection rather than recomputing broad work', () => {

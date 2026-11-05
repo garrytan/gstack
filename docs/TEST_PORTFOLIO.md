@@ -15,7 +15,7 @@ different things even when they mention the same skill.
 | --- | --- | --- |
 | Selection, budgets, process ownership, cleanup, native-event parsing and recorded failure controls | Free runner and fixture regressions | A live model choosing or completing the right workflow |
 | Generated files, host parity, section manifests and complete input identity | Free generation and structural tests | An agent actually loading the required section |
-| Targeted prompt properties (QA anti-refusal, cross-skill consistency, voice) | The registered quality judge for that prompt | Tool execution, native acknowledgments or a finished report |
+| Facts several skills must state alike (review-bot history paths, columns, record types, categories) | Free cross-file fact tests (`test/review-bot-history-facts.test.ts`) | An agent acting on those facts in a live run |
 | Native first-question format and substance | Live SDK/PTY question capture | An answered question or a completed workflow; receipts explicitly say `workflowCompleted: false` |
 | Stochastic consistency and verbose/carved comparison | Independent captures, with separate stability and A/B oracles | One successful sample reused as three trials, or one prompt version standing in for the other |
 | Decisions, findings and report completion | Per-skill native workflow fixtures | The first question alone, screen text without native evidence, or a generic question count |

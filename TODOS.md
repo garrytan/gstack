@@ -5,7 +5,8 @@
 ### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
 
 - **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
-- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are 3 now. Recompute the table from current rates rather than editing the count alone. `scripts/paid-test-durations.json` still records the 24-judge `test/skill-llm-eval.test.ts` duration until the next paid report rewrites it. **Effort:** S. **Priority:** P3.
+- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are none now (GST-1403 removed the last three). Recompute the table from current rates rather than editing the count alone. **Effort:** S. **Priority:** P3.
+- **Retire the empty standalone-judge lane (GST-1403).** `LLM_JUDGE_TOUCHFILES` is empty and `test/skill-llm-eval.test.ts` is gone, but the paid planner, report, rerun, train gate, ship-measure and gate-cost code still carry a judge branch keyed on that file (`JUDGE_FILE`, `selection.judges`, `--skip-judges` in `evals-periodic.yml`, `afterRepairCommand`'s judge form). Remove the branch and the `selection.judges` manifest field together, keeping old manifests parseable, or keep the lane documented as the home for a future standalone judge. **Effort:** M. **Priority:** P3.
 
 ### P3: screen verdict reuse lookback (filed 2026-11-02, GST-1027)
 
@@ -790,10 +791,8 @@ Each item was deferred with a reason during the `/claude-api prompt-audit` clean
   other models with no runner, and the `.agents` render has no Codex runner for
   this eval. Narrow the rewording to the design-review render, or add per-host
   runners. Priority P2. Effort M.
-- **Judge prose and rubric cleanup (W2 deferral)** — the arm, qa anti-refusal,
-  cross-skill and voice judges now send a JSON schema; their prompt-audit s11
-  M1-M7 prose cleanup is still open, as is the qa anti-refusal rubric's
-  "always … regardless" wording. Reuse `test/fixtures/judge-calibration` and
+- **Judge prose and rubric cleanup (W2 deferral)** — the arm judge now sends a
+  JSON schema; its prompt-audit s11 M1-M7 prose cleanup is still open. Reuse `test/fixtures/judge-calibration` and
   `scripts/judge-calibration.ts`. Priority P3. Effort M.
 - **Claude model auto-detection for the skill overlay** — when no
   `claude_overlay_model` is set, detect the Claude Code model (`ANTHROPIC_MODEL`,

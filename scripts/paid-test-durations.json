@@ -104,7 +104,6 @@
       "test/skill-e2e-third-party-actions.test.ts": 71961,
       "test/skill-e2e-triage.test.ts": 64816,
       "test/skill-e2e-workflow.test.ts": 265175,
-      "test/skill-llm-eval.test.ts": 354000,
       "test/skill-routing-e2e.test.ts": 1000
     },
     "periodic": {
@@ -215,7 +214,6 @@
       "test/skill-e2e-third-party-actions.test.ts": 1000,
       "test/skill-e2e-triage.test.ts": 1000,
       "test/skill-e2e-workflow.test.ts": 121594,
-      "test/skill-llm-eval.test.ts": 339704,
       "test/skill-routing-e2e.test.ts": 81360,
       "test/skill-e2e-planning-wave.test.ts#planning-wave-planted-facts": 74000,
       "test/skill-e2e-planning-wave.test.ts#planning-wave-schema": 52000,

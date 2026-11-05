@@ -26,7 +26,10 @@ The `qa-workflow`, `qa-health-rubric`, `workflow-default` and `cookie-workflow`
 configurations were removed with the skill-text clarity judges (GST-1371,
 2026-11-04). Their corpus directories no longer serve any configuration and are
 deleted in a follow-up (the deletion alone is larger than the /ship review
-ceiling). Their rows below, and their entries in `manifest.json`, are the
+ceiling). The `qa-anti-refusal`, `cross-skill` and `voice` configurations and their
+corpus directories were removed with the last three standalone judges (GST-1403,
+2026-11-04); `test/review-bot-history-facts.test.ts` checks the cross-skill facts for
+free. All of these rows below, and their entries in `manifest.json`, are the
 historical record of the comparison.
 
 ## Comparison (1) results (2026-10-03, `claude-fable-5-1`, unless the row says otherwise)

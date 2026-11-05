@@ -13,7 +13,7 @@ import { classifyGate } from '../lib/ship-queue-train-verdict';
 import { buildRunManifest, type PaidRunManifest } from '../scripts/lib/paid-plan';
 import { buildReceipt } from '../lib/tree-receipt';
 import {
-  FULL_GATE_USD, JUDGE_FILE, MAX_BISECT_CASES, MAX_PREFIXES, bisectMatrix, buildTrainRecord, fullGateCases, gitIn, routeDispatch, runBisectPrefix,
+  FULL_GATE_USD, MAX_BISECT_CASES, MAX_PREFIXES, bisectMatrix, buildTrainRecord, fullGateCases, gitIn, routeDispatch, runBisectPrefix,
   screenSummary, stampFreeTree, trainPrefixes, type BisectPlan, type RouteInput,
 } from '../scripts/train-gate';
 import { loadPolicyFromHead } from '../lib/ship-policy';
@@ -103,13 +103,14 @@ describe('routeDispatch: every run keeps its mode, and train inputs are validate
 });
 
 describe('train record: the census comes from the run\'s own manifest, first attempt only', () => {
-  const [j1, j2] = Object.keys(LLM_JUDGE_TOUCHFILES) as [string, string];
+  const [j1, j2] = ['hermetic-canary', 'hermetic-sentinel'];
+  const ruleFile = 'test/skill-e2e-hermetic-canary.test.ts';
   const behavior = 'shared-libs-opportunity-judgment';
-  const judgeEntry = buildRunManifest({ tier: 'gate', profile: 'full', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } }).entries.find(e => e.file === JUDGE_FILE)!;
+  const ruleEntry = buildRunManifest({ tier: 'gate', profile: 'full', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } }).entries.find(e => e.file === ruleFile)!;
   const trialFiles = [1, 2, 3].map(t => `test/skill-e2e-shared-libs-periodic.test.ts#${behavior}~t${t}`);
-  const manifest = { version: 1, tier: 'gate', evalsAll: true, sliceCount: 2, selectionReason: 'evals_all', profile: 'full', selection: { e2e: null, judges: [j1, j2] },
+  const manifest = { version: 1, tier: 'gate', evalsAll: true, sliceCount: 2, selectionReason: 'evals_all', profile: 'full', selection: { e2e: null, judges: [] },
     entries: [
-      { ...judgeEntry, slice: 1 },
+      { ...ruleEntry, slice: 1 },
       ...trialFiles.map(file => ({ file, slice: 2, status: 'planned', trial: { kind: 'behavior', panel: { n: 3, k: 2 }, quarantined: false } })),
     ] } as unknown as PaidRunManifest;
   type Slice = { index: number; attempt?: number; files?: string[]; checkpoint?: true };
@@ -118,7 +119,7 @@ describe('train record: the census comes from the run\'s own manifest, first att
     const dir = path.join(scratch, `report-${++n}`);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
-    const outcomes = o.outcomes ?? [j1, j2].map(id => ({ case: id, kind: 'judge', attempt: 1, outcome: 'passed', cost_usd: 0.25 }))
+    const outcomes = o.outcomes ?? [j1, j2].map(id => ({ case: id, kind: 'rule', attempt: 1, outcome: 'passed', cost_usd: 0.25 }))
       .concat([1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 1, outcome: 'passed', cost_usd: 1 })));
     fs.writeFileSync(path.join(dir, 'trial-outcomes.jsonl'), outcomes.map(line => JSON.stringify(line)).join('\n') + '\n');
     if (o.collector !== null) fs.writeFileSync(path.join(dir, 'collector-outcomes.json'), JSON.stringify(o.collector ?? { verdict: { verdict: 'GREEN' }, census: { unattributed: [] }, panels: [] }));
@@ -126,7 +127,7 @@ describe('train record: the census comes from the run\'s own manifest, first att
       const at = path.join(dir, `paid-slice-${s.index}-a${s.attempt ?? 1}`);
       fs.mkdirSync(at, { recursive: true });
       fs.writeFileSync(path.join(at, `slice-${s.index}.json`), JSON.stringify({ version: 1, tier: 'gate', sliceIndex: s.index, sliceCount: 2, attempt: s.attempt ?? 1,
-        ...(s.checkpoint ? { checkpoint: true } : {}), outcomes: (s.files ?? (s.index === 1 ? [JUDGE_FILE] : trialFiles)).map(file => ({ files: [file], status: 'passed' })) }));
+        ...(s.checkpoint ? { checkpoint: true } : {}), outcomes: (s.files ?? (s.index === 1 ? [ruleFile] : trialFiles)).map(file => ({ files: [file], status: 'passed' })) }));
     }
     return dir;
   }
@@ -138,19 +139,19 @@ describe('train record: the census comes from the run\'s own manifest, first att
   test('a complete census of passing cases is GREEN, and T1 classifies it GREEN', () => {
     const record = build(report());
     expect(record).toMatchObject({ schema: 1, kind: 'train-gate', nonce: 'gate.train-x', head_sha: A, tree: B, verdict: 'GREEN', run: { id: 7 } });
-    expect(record.census).toEqual({ complete: true, planned: { rule: 1, judge: 2 }, executed: { rule: 1, judge: 2 }, unbound: 0, partial_shards: 0, cancelled_shards: 0, killed_before_upload: 0 });
+    expect(record.census).toEqual({ complete: true, planned: { rule: 3, judge: 0 }, executed: { rule: 3, judge: 0 }, unbound: 0, partial_shards: 0, cancelled_shards: 0, killed_before_upload: 0 });
     expect(record.panels.map(p => [p.case, p.status, p.cost_usd])).toEqual([[j2, 'PASS', 0.25], [j1, 'PASS', 0.25], [behavior, 'PASS', 3]].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
     expect(classify(record)).toBe('GREEN');
   });
 
   test('a slice killed before its upload step is incomplete, never passed over, and a re-run attempt cannot fill it', () => {
-    const killed = build(report({ slices: [{ index: 1 }], outcomes: [j1, j2].map(id => ({ case: id, kind: 'judge', attempt: 1, outcome: 'passed' })) }));
+    const killed = build(report({ slices: [{ index: 1 }], outcomes: [j1, j2].map(id => ({ case: id, kind: 'rule', attempt: 1, outcome: 'passed' })) }));
     expect(killed.verdict).toBe('RED');
-    expect(killed.census).toMatchObject({ complete: false, killed_before_upload: 1, executed: { rule: 0, judge: 2 } });
+    expect(killed.census).toMatchObject({ complete: false, killed_before_upload: 1, executed: { rule: 2, judge: 0 } });
     expect(classify(killed)).toBe('INCOMPLETE');
     const rerun = build(report({ slices: [{ index: 1 }, { index: 2, attempt: 2 }], outcomes: [
-      ...[j1, j2].map(id => ({ case: id, kind: 'judge', attempt: 1, outcome: 'passed' })), ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 2, outcome: 'passed' }))] }));
-    expect(rerun.census).toMatchObject({ complete: false, killed_before_upload: 1, executed: { rule: 0, judge: 2 } });
+      ...[j1, j2].map(id => ({ case: id, kind: 'rule', attempt: 1, outcome: 'passed' })), ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 2, outcome: 'passed' }))] }));
+    expect(rerun.census).toMatchObject({ complete: false, killed_before_upload: 1, executed: { rule: 2, judge: 0 } });
     expect(rerun.verdict).toBe('RED');
   });
 
@@ -165,8 +166,8 @@ describe('train record: the census comes from the run\'s own manifest, first att
   });
 
   test('a failed case is a red VERDICT panel T1 bisects on', () => {
-    const record = build(report({ outcomes: [{ case: j1, kind: 'judge', attempt: 1, outcome: 'failed', failure_class: 'assertion' },
-      { case: j2, kind: 'judge', attempt: 1, outcome: 'passed' }, ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 1, outcome: 'passed' }))],
+    const record = build(report({ outcomes: [{ case: j1, kind: 'rule', attempt: 1, outcome: 'failed', failure_class: 'assertion' },
+      { case: j2, kind: 'rule', attempt: 1, outcome: 'passed' }, ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 1, outcome: 'passed' }))],
       collector: { verdict: { verdict: 'RED' }, census: { unattributed: [] }, panels: [] } }));
     expect(record.verdict).toBe('RED');
     expect(record.panels.find(p => p.case === j1)).toMatchObject({ status: 'FAIL', red_class: 'VERDICT' });
@@ -174,12 +175,12 @@ describe('train record: the census comes from the run\'s own manifest, first att
   });
 
   test('rule 16: a case the report resolved FLAKY is a PASS naming both runs, and the train is GREEN; without the record it stays red', () => {
-    const outcomes = [{ case: j1, kind: 'judge', attempt: 1, outcome: 'failed', failure_class: 'assertion' },
-      { case: j2, kind: 'judge', attempt: 1, outcome: 'passed' }, ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 1, outcome: 'passed' }))];
-    const flake = { schema: 1, kind: 'gate-flake', case: j1, case_kind: 'judge', first: { attempt: 1, phase: 'first', where: 'attempt 1 (paid-slice-1-a1)' },
+    const outcomes = [{ case: j1, kind: 'rule', attempt: 1, outcome: 'failed', failure_class: 'assertion' },
+      { case: j2, kind: 'rule', attempt: 1, outcome: 'passed' }, ...[1, 2, 3].map(trial => ({ case: behavior, kind: 'behavior', trial, attempt: 1, outcome: 'passed' }))];
+    const flake = { schema: 1, kind: 'gate-flake', case: j1, case_kind: 'rule', first: { attempt: 1, phase: 'first', where: 'attempt 1 (paid-slice-1-a1)' },
       rerun: { attempt: 1, phase: 'rerun', where: 'attempt 1 rerun (paid-rerun-1-a1)' } };
     const record = build(report({ outcomes, collector: { verdict: { verdict: 'GREEN' }, census: { unattributed: [] }, panels: [], flaky: [flake] } }));
-    expect(record.panels.find(p => p.case === j1)).toEqual({ case: j1, kind: 'judge', status: 'PASS', red_class: null, cost_usd: null,
+    expect(record.panels.find(p => p.case === j1)).toEqual({ case: j1, kind: 'rule', status: 'PASS', red_class: null, cost_usd: null,
       flaky: { first: 'attempt 1 (paid-slice-1-a1)', rerun: 'attempt 1 rerun (paid-rerun-1-a1)' } });
     expect(record.verdict).toBe('GREEN');
     expect(classify(record)).toBe('GREEN');
@@ -336,11 +337,10 @@ describe('bisect: one executor per prefix, one trial per case', () => {
 });
 
 test('the free screening summary says first how to request the screen, then the selection and its estimated cost', () => {
-  const [j1] = Object.keys(LLM_JUDGE_TOUCHFILES) as [string];
-  const manifest = { version: 1, tier: 'gate', evalsAll: false, sliceCount: 1, profile: 'pr', selection: { e2e: [], judges: [j1] }, prCoverage: { mode: 'narrow' },
-    entries: [{ file: JUDGE_FILE, slice: 1, status: 'planned' }] } as unknown as PaidRunManifest;
+  const manifest = { version: 1, tier: 'gate', evalsAll: false, sliceCount: 1, profile: 'pr', selection: { e2e: ['hermetic-canary'], judges: [] }, prCoverage: { mode: 'narrow' },
+    entries: [{ file: 'test/skill-e2e-hermetic-canary.test.ts', slice: 1, status: 'planned' }] } as unknown as PaidRunManifest;
   const lines = screenSummary(manifest, '42');
   expect(lines[0]).toStartWith('To run the paid screen of this head: `gstack-ship-queue ready --pr 42 --screen`');
-  expect(lines[1]).toBe('- Screening selection: 0 case(s) + 1 judge(s), PR coverage mode `narrow`');
+  expect(lines[1]).toBe('- Screening selection: 1 case(s) + 0 judge(s), PR coverage mode `narrow`');
   expect(lines[2]).toMatch(new RegExp(`^- Estimated screen cost: ~\\$\\d+\\.\\d{2} .*\\$${FULL_GATE_USD} full gate.* No paid case ran on this push\\.$`));
 });

@@ -326,8 +326,7 @@ runs the broad gate. This deliberately moves some defect detection later.
 `scripts/eval-input-cache.ts` accepts only complete, clean, first-attempt passes
 with matching before/after inputs. Missing/unknown inputs force execution. Receipts
 are scoped to the same repository and PR, expire after 24 hours, and contain
-public scores and provenance rather than prompts or secrets. The quality judges in
-`test/skill-llm-eval.test.ts` never reuse a receipt and always run fresh.
+public scores and provenance rather than prompts or secrets.
 CI supplies the scoped cache/runtime configuration; local runs are fresh by
 default. Cached scores must
 pass current assertions; reused records retain their original source and time
@@ -837,8 +836,6 @@ cleanup. No per-case budget grows. Overlay wrappers
 have a 1,830-second minimum shard wall and run without Bun retries; see the
 [overlay contract](OVERLAY_BENCHMARK_CONTRACT.md) for their unchanged work budget.
 
-The quality file reserves its whole-file wall (480 seconds) for every case run
-once, plus cleanup. Each of its three judges has a 120-second Bun timeout.
 When a judge's abort signal cancels its request, `callJudge`
 (`test/helpers/llm-judge.ts`) prints one `llm-judge-aborted` JSON line to
 stderr: elapsed time, wrapper `attempts` and `retryWaitsMs` (429 waits),
@@ -1438,7 +1435,7 @@ once and reused from there. It prints:
 Screening figures are labelled `screen-provisional`: the rule's preamble
 detector is a line-commonality heuristic, not T2's hunk classifier, so they
 stay heuristic until T2 lands. A `package.json` change that only moves the
-version is neither selected nor a canary trigger, and all 3 judges always run.
+version is neither selected nor a canary trigger.
 The selectors are this checkout's, so an old merge is replayed against today's
 maps. A shallow checkout says which `git fetch --shallow-since` to run. Logic:
 `lib/gate-cost.ts`; tests: `test/gate-cost.test.ts`.

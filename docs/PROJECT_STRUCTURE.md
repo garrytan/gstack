@@ -46,7 +46,6 @@ gstack/
 │   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
 │   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
 │   ├── setup-*.test.ts, relink.test.ts, hook-scripts.test.ts  # Tier 1: setup linker ownership, retired-skill prune, browser hint, rebuild check + Chromium bootstrap (anchor-sliced from setup), gstack-relink, PreToolUse hooks (free)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
 │   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
 ├── qa/, qa-only/    # Surface-aware browser/functional QA; /qa-only reports and proposes tests without product edits
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
