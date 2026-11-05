@@ -665,9 +665,11 @@ read, the packet still hashes to the record, and the targeted classes since
 the read can be computed. A test file whose only removed lines are swapped
 one for one with lines that differ inside plain quoted strings, in
 statements with no assertion or test call, takes the plain test route (the
-scoped reader) instead of behavior. A changed expected value (on a
-multi-line assertion too), code inside an interpolated or prefixed string,
-or a deleted assertion still stops.
+scoped reader) instead of behavior. A changed expected value in the
+assertion's own statement (a multi-line one too) or in a template literal,
+code inside an interpolated or prefixed string, or a deleted assertion still
+stops. A value in a case table that a later test reads takes the scoped
+reader.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A

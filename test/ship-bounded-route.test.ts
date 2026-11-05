@@ -180,7 +180,8 @@ describe('a value-only test literal after review (GST-1276 instance 5: #3984)', 
   });
 
   test('an expected value inside a multi-line assertion, or code in an f-string, still stops', () => {
-    const multi = (name: string) => spec('fixture-value', `  expect({ name: KEY }).toEqual({\n    name: '${name}',\n  });\n`);
+    const multi = (name: string, gap = '') => spec('fixture-value', `  expect({ name: KEY }).toEqual({\n${gap}    name: '${name}',\n  });\n`);
+    const tmpl = (v: string) => spec('fixture-value', `  expect(gen()).toBe(\`\nconst a = 1;\nconst b = '${v}';\n\`);\n`);
     const py = (flag: string) => `import subprocess\nBIN = "bin/scan"\n\ndef test_scan():\n    cmd = f"{BIN} ${flag}"\n    assert subprocess.run(cmd, shell=True).returncode == 0\n`;
     const f = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/key.test.ts': multi('alice'), 'test/test_scan.py': py('--strict') });
     const reviewed = wtree(f);
@@ -191,6 +192,13 @@ describe('a value-only test literal after review (GST-1276 instance 5: #3984)', 
     f.write({ 'test/key.test.ts': multi('alice'), 'test/test_scan.py': py('--lenient') }); f.commit('test: change code in an f-string');
     const s = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('test/test_scan.py')]);
+    for (const [before, after] of [[multi('alice', '\n'), multi('bob', '\n')], [tmpl('old'), tmpl('new')]] as const) {
+      f.write({ 'test/test_scan.py': py('--strict'), 'test/key.test.ts': before }); f.commit('test: reset');
+      const at = wtree(f);
+      f.write({ 'test/key.test.ts': after }); f.commit('test: change an expected value');
+      const t = finish(f, at, snapshot(f), ['--reviewed-base', mergeBase(f)]);
+      expect([t.status, lineOf(t.stdout, 'STOP')], after).toEqual([3, behaviorStop('test/key.test.ts')]);
+    }
   });
 });
 

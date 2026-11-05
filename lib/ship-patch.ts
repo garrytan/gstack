@@ -214,11 +214,11 @@ function gateTaggedPaths(repoRoot: string, from: string, to: string, paths: read
 const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|describe|bench)\b|\.to[A-Z]/;
 const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
 const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
-const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$|^\s*$/;
+const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$/;
 /**
  * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, in
  * statements with no assertion or test call (the changed line and the lines above it back to the previous statement's end in
- * `after`): a test literal changed (a fixture value the secrets scan flagged, GST-1276 instance 5), never a check or an
+ * `after`, blank lines included, outside any template literal): a test literal changed (a fixture value the secrets scan flagged, GST-1276 instance 5), never a check or an
  * expected value. Template literals, interpolated strings and prefixed (f, r, b) strings do not count, since they can hold code.
  */
 function literalOnly(diff: string, after: string | null): boolean {
@@ -226,13 +226,14 @@ function literalOnly(diff: string, after: string | null): boolean {
   if (!hunks?.length || after === null) return false;
   const text = after.split('\n');
   const statement = (n: number) => { const out = [text[n - 1] ?? '']; for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!); return out; };
+  const inTemplate = (n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
   return hunks.every(h => {
     const lines = h.body.split('\n');
     const minus = lines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plus = lines.filter(l => l.startsWith('+')).map(l => l.slice(1));
     const bare = (l: string) => l.replace(QUOTED, '$1$1');
     return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && !CODE_IN_STRING.test(m + plus[i]) && bare(m) === bare(plus[i]!)
-      && !CHECK_CALL.test(bare(m)) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
+      && !CHECK_CALL.test(bare(m)) && !inTemplate(h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
   });
 }
 
