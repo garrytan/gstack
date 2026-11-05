@@ -16,6 +16,7 @@
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { isPlaceholder, labelValue, type SkillLoad, type Transcript } from './skill-contract';
 import { GateError, remainingMs } from './skill-gates';
@@ -29,8 +30,8 @@ const HEDGE = /^(?:unknown|unclear|not (?:sure|known|yet known|clear)|undetermin
 const EVIDENCE_TOOLS = /^(?:Read|Grep|Glob|Bash|LS|NotebookRead|WebFetch)$/;
 export const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 
-export function git(root: string, args: string[], opts: { input?: string; allowFail?: boolean } = {}): { ok: boolean; out: Buffer } {
-  const r = spawnSync('git', args, { cwd: root, input: opts.input, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, timeout: Math.min(GIT_TIMEOUT_MS, remainingMs()), maxBuffer: 64 * 1024 * 1024 });
+export function git(root: string, args: string[], opts: { input?: string; allowFail?: boolean; env?: Record<string, string> } = {}): { ok: boolean; out: Buffer } {
+  const r = spawnSync('git', args, { cwd: root, input: opts.input, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...opts.env }, timeout: Math.min(GIT_TIMEOUT_MS, remainingMs()), maxBuffer: 64 * 1024 * 1024 });
   const ok = r.status === 0;
   if (!ok && !opts.allowFail) {
     const why = r.error ? r.error.message : String(r.stderr ?? '').trim().split('\n')[0];
@@ -61,13 +62,48 @@ function treeEntries(root: string, rev: string, paths: string[]): Map<string, Tr
   }
   return out;
 }
-function generatedPaths(root: string, paths: string[]): Set<string> {
+/** Paths rev's attributes mark linguist-generated, read through a scratch index so a worktree .gitattributes cannot exempt source (git before 2.40 has no check-attr --source). */
+function generatedPaths(root: string, rev: string, paths: string[]): Set<string> {
   const out = new Set<string>();
-  for (let i = 0; i < paths.length; i += 500) {
-    const f = nulList(git(root, ['check-attr', '-z', 'linguist-generated', '--', ...paths.slice(i, i + 500)]).out);
-    for (let j = 0; j + 2 < f.length + 1; j += 3) if (f[j + 2] === 'set' || f[j + 2] === 'true') out.add(f[j]);
+  if (!paths.length) return out;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-attr-'));
+  try {
+    const env = { GIT_INDEX_FILE: path.join(dir, 'index') };
+    git(root, ['read-tree', rev], { env });
+    for (let i = 0; i < paths.length; i += 500) {
+      const f = nulList(git(root, ['check-attr', '--cached', '-z', 'linguist-generated', '--', ...paths.slice(i, i + 500)], { env }).out);
+      for (let j = 0; j + 2 < f.length + 1; j += 3) if (f[j + 2] === 'set' || f[j + 2] === 'true') out.add(f[j]);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
   return out;
+}
+
+type IndexEntry = { mode: string; oid: string };
+/** Stage-0 index entries; a conflicted path maps to undefined (left alone on restore). */
+function indexEntries(root: string, paths: string[]): Map<string, IndexEntry | undefined> {
+  const out = new Map<string, IndexEntry | undefined>();
+  for (let i = 0; i < paths.length; i += 500) {
+    for (const rec of nulList(git(root, ['ls-files', '-s', '-z', '--', ...paths.slice(i, i + 500)]).out)) {
+      const m = /^(\d+) ([0-9a-f]+) (\d)\t(.*)$/s.exec(rec);
+      if (m) out.set(m[4], m[3] === '0' && !out.has(m[4]) ? { mode: m[1], oid: m[2] } : undefined);
+    }
+  }
+  return out;
+}
+
+/** Copy a file's raw bytes into the session dir under their sha256, the key a restore reads back. */
+function saveBytes(blobs: string, file: string): string {
+  const bytes = fs.readFileSync(file);
+  const key = createHash('sha256').update(bytes).digest('hex');
+  const dest = path.join(blobs, key);
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(blobs, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(dest, bytes, { mode: 0o600 });
+    fs.chmodSync(dest, 0o600);
+  }
+  return key;
 }
 
 /** The content id of a worktree path: its git blob id (filters applied), symlink:<target>, dir, or null when absent. */
@@ -100,36 +136,34 @@ export function excludedReason(rel: string, mode?: string, generated = false): E
 }
 
 /** Whether a repo-relative path is tracked (in HEAD or the index) and gated. */
-export function isGatedTracked(root: string, rel: string): boolean {
+export function isGatedTracked(root: string, rel: string, rev: string): boolean {
   const ls = text(git(root, ['ls-files', '-s', '-z', '--', rel]).out).split('\0').filter(Boolean);
   const entry = ls.find(l => l.endsWith(`\t${rel}`));
   if (!entry) return false;
-  return excludedReason(rel, entry.split(' ')[0], generatedPaths(root, [rel]).has(rel)) === null;
+  return excludedReason(rel, entry.split(' ')[0], generatedPaths(root, rev, [rel]).has(rel)) === null;
 }
 
-interface Entry { id: string | null; excluded: boolean; mode: number }
+interface Entry { id: string | null; excluded: boolean; mode: number; backup?: string; index?: IndexEntry | null }
 export interface Baseline { version: 1; root: string; head: string; branch?: string; tips?: Record<string, string>; taken_at: number; refs: string[]; stashes: string[]; entries: Record<string, Entry> }
 
 function snapshot(root: string, blobs: string, head: string): Baseline {
   const changed = changedVsHead(root);
   const ids = worktreeIds(root, changed);
   const tree = changed.length ? treeEntries(root, head, changed) : new Map<string, TreeEntry>();
-  const generated = changed.length ? generatedPaths(root, changed) : new Set<string>();
+  const generated = generatedPaths(root, head, changed);
+  const staged = indexEntries(root, changed);
   const entries: Record<string, Entry> = {};
   for (const p of changed) {
     const id = ids.get(p) ?? null;
     const abs = path.join(root, p);
     const excluded = excludedReason(p, tree.get(p)?.mode, generated.has(p)) !== null;
     let mode = 0o644;
+    let backup: string | undefined;
     if (id && /^[0-9a-f]+$/.test(id)) {
       mode = fs.statSync(abs).mode & 0o777;
-      if (!excluded && !fs.existsSync(path.join(blobs, id))) {
-        fs.mkdirSync(blobs, { recursive: true, mode: 0o700 });
-        fs.copyFileSync(abs, path.join(blobs, id));
-        fs.chmodSync(path.join(blobs, id), 0o600);
-      }
+      if (!excluded) backup = saveBytes(blobs, abs);
     }
-    entries[p] = { id, excluded, mode };
+    entries[p] = { id, excluded, mode, ...(backup ? { backup } : {}), index: staged.has(p) ? staged.get(p) : null };
   }
   const refs = nulList(git(root, ['for-each-ref', '--format=%(objectname)%00']).out).map(s => s.trim()).filter(Boolean);
   const stashes = text(git(root, ['log', '-g', '--format=%H', 'refs/stash'], { allowFail: true }).out).split('\n').filter(Boolean);
@@ -214,7 +248,7 @@ export function checkTree(base: Baseline, blobs: string): CheckResult {
   const refTree = moved ? treeEntries(root, target, cand) : baseTree;
   const headTree = newCommit ? treeEntries(root, head, cand) : refTree;
   const mergedTrees = merged.map(m => treeEntries(root, m, cand));
-  const generated = generatedPaths(root, cand);
+  const generated = generatedPaths(root, base.head, cand);
   const fix = new Set<string>();
   for (const p of cand) {
     const baseEntry = base.entries[p];
@@ -239,22 +273,20 @@ export function checkTree(base: Baseline, blobs: string): CheckResult {
     const curId = ids.get(p) ?? null;
     if (curId === (baseEntry ? baseEntry.id : refTree.get(p)!.oid)) continue;
     try {
-      if (curId && /^[0-9a-f]+$/.test(curId)) {
-        const keep = path.join(blobs, curId);
-        if (!fs.existsSync(keep)) {
-          fs.mkdirSync(blobs, { recursive: true, mode: 0o700 });
-          fs.copyFileSync(path.join(root, p), keep);
-          fs.chmodSync(keep, 0o600);
-        }
-        result.saved.push({ path: p, file: keep });
-      }
+      if (curId && /^[0-9a-f]+$/.test(curId)) result.saved.push({ path: p, file: path.join(blobs, saveBytes(blobs, path.join(root, p))) });
       if (baseEntry) {
         if (baseEntry.id === null) safeRestore(root, p, null, 0);
         else if (baseEntry.id.startsWith('symlink:')) safeRestore(root, p, null, 0, baseEntry.id.slice(8));
-        else safeRestore(root, p, fs.readFileSync(path.join(blobs, baseEntry.id)), baseEntry.mode);
+        else safeRestore(root, p, fs.readFileSync(path.join(blobs, baseEntry.backup ?? baseEntry.id)), baseEntry.mode);
       } else {
-        safeRestore(root, p, git(root, ['cat-file', '--filters', `${target}:${p}`]).out, refTree.get(p)!.mode === '100755' ? 0o755 : 0o644);
+        const cur = fs.lstatSync(path.join(root, p), { throwIfNoEntry: false });
+        const kept = cur?.isFile() ? cur.mode & 0o777 : undefined;
+        safeRestore(root, p, git(root, ['cat-file', '--filters', `${target}:${p}`]).out, kept ?? (refTree.get(p)!.mode === '100755' ? 0o755 : 0o644));
+        if (kept !== undefined) fs.chmodSync(path.join(root, p), kept);
       }
+      const staged = baseEntry ? baseEntry.index : refTree.get(p);
+      if (staged === null) git(root, ['update-index', '--force-remove', '--', p]);
+      else if (staged) git(root, ['update-index', '--add', '--cacheinfo', staged.mode, staged.oid, p]);
       result.restored.push(p);
     } catch (e) {
       result.failed.push({ path: p, why: e instanceof Error ? e.message : String(e) });

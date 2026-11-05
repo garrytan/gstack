@@ -153,7 +153,7 @@ function handle(p: GatePayload): HookOutput | undefined {
       if (target) {
         const abs = path.resolve(p.cwd, target);
         const rel = path.relative(base!.root, fs.existsSync(path.dirname(abs)) ? path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs)) : abs).split(path.sep).join('/');
-        if (!rel.startsWith('..') && !path.isAbsolute(rel) && isGatedTracked(base!.root, rel)) {
+        if (!rel.startsWith('..') && !path.isAbsolute(rel) && isGatedTracked(base!.root, rel, base!.head)) {
           return block('edit', [rel], `This session loaded /investigate and has not stated a root cause, so edits to tracked source (${rel}) are blocked.\n${howToRelease(cause.rejected)}`);
         }
       }
