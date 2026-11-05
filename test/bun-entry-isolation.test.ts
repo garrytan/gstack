@@ -111,7 +111,6 @@ describe('GSTA-56: gstack never takes configuration from the audited repository'
       'scripts/eval-compare.ts',
       'scripts/eval-summary.ts',
       'scripts/garry-output-comparison.ts',
-      'scripts/judge-controls.ts',
       'scripts/measure-journal-read.ts',
     ];
     expect(scripts.filter(f => firstLine(f) !== ISOLATED_SHEBANG)).toEqual([]);

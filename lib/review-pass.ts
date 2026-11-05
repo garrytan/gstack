@@ -19,6 +19,8 @@ import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
+import type { FetchHit } from './review-fetch';
+import type { EffectiveReaders } from './ship-policy-readers';
 
 export const STAGES = ['first', 'specialists', 'red-team', 'voices'] as const;
 export type Stage = typeof STAGES[number];
@@ -35,10 +37,12 @@ export interface PassReader {
   /** The plan's model=cross-family (R65's risk reader or a numbers diff's one reader): the program runs it on the outside voice's model. */
   cross_family?: boolean;
   file?: string; sha256?: string; bytes?: number; chunks?: number; findings_sha256?: string;
-  /** With the base policy's review_exclude_paths active: its `:(top,exclude,glob)` items, shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
+  /** The base policy's `:(top,exclude,glob)` items (review_exclude_paths and readers.forbid_paths), shell-quoted (the fixture command's slot), and the kept files' `:(top,literal)` items. */
   policy_exclude?: string; keep?: string[];
   /** The fingerprint the reader's reply must report: the checkout's HEAD^{tree} and toplevel when its brief was rendered (GST-482). */
   tree?: string | null;
+  /** What the reader fetched, from its own tool calls (gstack-review-dispatch audit-fetch, lib/review-fetch.ts). */
+  fetch_audit?: { policy_digest: string; events: number; events_sha256: string; hits: FetchHit[]; verdict: 'clean' | 'violation'; enforced: boolean };
   path?: string; output?: string; error?: string; state_at?: string;
 }
 export interface Manifest {
@@ -52,6 +56,8 @@ export interface Manifest {
   review_exclude?: Record<string, unknown>; disclosure?: string;
   /** Decision 3.5's files for a fix-check reader: the fix list, touched hunks, test results and callers. */
   fix_check?: FixCheckFiles;
+  /** The plan's readers policy (lib/review-fetch.ts): what every brief says readers may not fetch or open; absent means the default rule. */
+  fetch_policy?: EffectiveReaders;
 }
 export interface FixCheckFiles { fix_list: string; hunks: string; tests: string; callers?: string }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
@@ -91,7 +97,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check'
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Dispatch[]; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders;
 }): Manifest {
   const readers: PassReader[] = [];
   for (const d of o.dispatches) {
@@ -122,7 +128,7 @@ export function buildManifest(o: {
   return {
     version: 1, pass: o.pass, out, ledger: path.resolve(o.ledger), merged: path.join(out, 'merged.jsonl'), base: o.base, diff_base: o.diffBase,
     stack: detectStack(o.root), test_fw: detectTestFw(o.root), learnings: o.learnings ?? null, checklist_root: o.checklistRoot,
-    next: o.next, plan_lines: o.planLines, readers, ...(o.reviewExclude ? { review_exclude: o.reviewExclude } : {}), ...(o.disclosure ? { disclosure: o.disclosure } : {}),
+    next: o.next, plan_lines: o.planLines, readers, ...(o.reviewExclude ? { review_exclude: o.reviewExclude } : {}), ...(o.disclosure ? { disclosure: o.disclosure } : {}), ...(o.readers ? { fetch_policy: o.readers } : {}),
     ...(o.fixCheck ? { fix_check: Object.fromEntries(Object.entries(o.fixCheck).filter(([, v]) => v).map(([k, v]) => [k, path.resolve(v as string)])) as unknown as FixCheckFiles } : {}),
   };
 }
@@ -161,7 +167,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
   for (const r of m.readers.filter(x => x.stage === stage && x.state === 'planned')) {
     if (r.prompt_file) {
       let text: string;
-      try { text = withWorkspace(fs.readFileSync(r.prompt_file, 'utf8'), workdir); } catch { throw new BriefError(`cannot read ${r.reader}'s prompt file ${r.prompt_file}`); }
+      try { text = withWorkspace(fs.readFileSync(r.prompt_file, 'utf8'), workdir, m.fetch_policy); } catch { throw new BriefError(`cannot read ${r.reader}'s prompt file ${r.prompt_file}`); }
       const file = path.join(briefs, `${safe(r.reader)}.prompt.md`);
       fs.writeFileSync(file, text, { mode: 0o600 });
       Object.assign(r, { file, sha256: promptHash(text), bytes: Buffer.byteLength(text), chunks: chunkCount(text), state: 'rendered', tree });
@@ -171,7 +177,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     const role = r.role!;
     const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
       checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(','),
-      ...(m.disclosure ? { disclosure: m.disclosure, policy_exclude: r.policy_exclude, keep: r.keep?.map(shellQuote).join(' ') } : {}) };
+      policy_exclude: r.policy_exclude, ...(m.disclosure ? { disclosure: m.disclosure, keep: r.keep?.map(shellQuote).join(' ') } : {}) };
     if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
     let findingsSha: string | undefined;
     if (role === 'red-team') {
@@ -202,12 +208,12 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       Object.assign(slots, { checklist, brief, classes: (r.classes ?? []).join(','), diff_base: r.diff_base ?? m.diff_base });
       targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, ...targetedRead(process.cwd(), slots.diff_base!) };
     }
-    const text = withWorkspace(renderBrief(role, slots, t), workdir);
+    const text = withWorkspace(renderBrief(role, slots, t), workdir, m.fetch_policy);
     const file = path.join(briefs, briefFile(role, r.name));
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }

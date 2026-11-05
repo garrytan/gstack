@@ -298,7 +298,7 @@ console.log(JSON.stringify({calls, results}));
     expect(() => readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '# missing')).toThrow('End marker not found');
   });
 
-  test('retro judge includes compare semantics and unambiguous report inputs', () => {
+  test('retro instructions include compare semantics and unambiguous report inputs', () => {
     const text = readWorkflowExcerpt('retro/SKILL.md', '## Instructions', '## Tone');
     expect(text).toContain('## Compare Mode');
     expectMentions(text, [['before', 'current', 'second']], 'text');
@@ -309,8 +309,6 @@ console.log(JSON.stringify({calls, results}));
     expect(text.indexOf('## Capture Learnings')).toBeGreaterThan(text.indexOf('### Step 14:'));
     expect(text).not.toContain('$(date');
     expect(text.match(/today="<today>"/g)).toHaveLength(2);
-    const judge = readFileSync(join(import.meta.dir, 'skill-llm-eval.test.ts'), 'utf8');
-    expect(judge).toMatch(/skillPath: 'retro\/SKILL.md',[\s\S]*?endMarker: '## Tone'/);
   });
 
   test('deploy gates and navigation timing formulas are executable as documented', () => {

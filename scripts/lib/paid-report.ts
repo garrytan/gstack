@@ -14,7 +14,6 @@ import {
 import { readSessionLedger, type SessionLedgerRow } from '../../test/helpers/session-ledger';
 import { publishedFence, sanitizeFixedFenceLine } from './published-text';
 import { E2E_KINDS } from '../../test/helpers/touchfiles-data';
-import { manualReviewProblem } from '../../test/helpers/cookie-workflow-manual-review';
 import { writeNegativeReceipt, writePanelReceipt } from '../e2e-shard-reuse';
 import { E2E_TOUCHFILES, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../../test/helpers/touchfiles';
 import { type EvalHost, hostSkipReason } from '../../test/helpers/e2e-hosts';
@@ -617,7 +616,6 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
     flaky: number; total: number; executed: number; reused: number; passed: number;
     failed: number; manual_accepted: number; attempts: number }> = [];
   const manualProblems: string[] = [];
-  const manualClaims = new Map<string, string>();
   const recordsByShard = new Map<string, any[]>();
   let costUsd = 0;
   let flakyCollectorFailures = 0;
@@ -638,26 +636,15 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
       if (shard) recordsByShard.set(shard.file, [...(recordsByShard.get(shard.file) ?? []), ...parsed.tests]);
       // Trial records are verdict input for panelVerdict(), never collector gates.
       if (shard?.trial) continue;
-      const seen = new Map<string, number>();
       for (const [index, entry] of parsed.tests.entries()) {
         if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string' || !entry.name
           || typeof entry.passed !== 'boolean') {
           manualProblems.push(`${rel}: attempt ${index + 1}: malformed collector entry (name/passed required)`);
           continue;
         }
-        const key = `${entry.suite ?? ''}\0${entry.name}`;
-        const occurrence = (seen.get(key) ?? 0) + 1;
-        seen.set(key, occurrence);
-        if (Object.hasOwn(entry, 'manual_review') && occurrence !== 1) {
-          manualProblems.push(`${rel}: attempt ${index + 1}: manual review is only valid on the first case attempt`);
-        }
         if (Object.hasOwn(entry, 'manual_review')) {
-          const previous = manualClaims.get(key);
-          if (previous && previous !== rel) manualProblems.push(`${rel}: duplicate manual-review claim for ${entry.name} (also in ${previous})`);
-          else manualClaims.set(key, rel);
+          manualProblems.push(`${rel}: attempt ${index + 1}: manual-review claims were retired with the workflow judges`);
         }
-        const problem = manualReviewProblem(entry, rootDir);
-        if (problem) manualProblems.push(`${rel}: attempt ${index + 1}: ${problem}`);
       }
       collectors.push(parsed);
       const counts = collectorOutcomeCounts([parsed]);

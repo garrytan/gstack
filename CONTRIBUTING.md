@@ -319,9 +319,7 @@ then spend one paid run with the line's `after a repair:` command. A red census
 on `main` is reported on the weekly tracking issue; a census dispatched on a
 branch writes the same report to its run summary and `census-report` artifact.
 
-CI enables verified first-attempt reuse for 16 workflow quality judges for
-24 hours within the same PR. The cookie workflow's custom input and the other 11
-quality cases stay fresh. PR-profile E2E shards that run once (no retry, so the
+Quality judges always run fresh. PR-profile E2E shards that run once (no retry, so the
 pass is provably a first attempt) reuse a pass from the same PR when every
 consumed input is byte-identical: the test's import closure, every tracked file
 its registered cases' touchfiles and the global touchfiles match, the runner and

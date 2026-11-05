@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import replay from './fixtures/judge-panel-replay-2026-10-05.json';
 import { judgePanelMajority, judgePanelMean, judgePanelMedian, JUDGE_PANEL_SAMPLES } from './helpers/llm-judge';
-import { BROWSE_JUDGE_FLOORS } from './helpers/workflow-judge-cache';
 import { EVAL_POLICY } from './helpers/periodic-exclude-data';
 
 const gate = (scores: number[], threshold = 4) => judgePanelMedian(scores.map(score => ({ score })), ['score']).score >= threshold;
@@ -40,7 +39,7 @@ function verdict(name: string, samples: Sample[], aggregate: typeof judgePanelMe
     return keys.every(key => scores[key]! >= floors[key]!);
   };
   if (name === 'Setup block') return meets(['clarity', 'actionability'], { clarity: 3, actionability: 3 });
-  if (name === 'Browse SKILL.md') return meets(SCORE, BROWSE_JUDGE_FLOORS);
+  if (name === 'Browse SKILL.md') return meets(SCORE, { clarity: 3, completeness: 4, actionability: 4 });
   if (name === 'QA anti-refusal') return judgePanelMajority(samples as Record<string, unknown>[], 'would_browse') && meets(['confidence'], { confidence: 4 });
   if (name === 'Cross-skill consistency') return judgePanelMajority(samples as Record<string, unknown>[], 'consistent') && meets(['score'], { score: 4 });
   if (name === 'Voice directive') {

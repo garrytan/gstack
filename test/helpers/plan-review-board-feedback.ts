@@ -24,6 +24,8 @@ const DESIGN_OUTSIDE_VOICE_OPTIONS = [
     "description": "✅ Straight into the 7 passes with the approved mockup as anchor. ✅ Fewest steps to a fixed plan. ❌ Findings rest on one reviewer; no cross-model check on slop risk or hierarchy."
   }
 ] as const;
+const DESIGN_OUTSIDE_VOICE_MOCKUP_ANCHOR = 'with the approved mockup as anchor';
+const DESIGN_OUTSIDE_VOICE_TEXT_ONLY = "(text-only this time, since mockups weren't available)";
 
 export const DESIGN_BOARD_ACTOR_PROTOCOL = [
   '## Fixture user: native Design review',
@@ -37,6 +39,8 @@ export const DESIGN_BOARD_ACTOR_PROTOCOL = [
   ...DESIGN_OUTSIDE_VOICE_OPTIONS.map(option => `- ${option.label}: ${option.description}`),
   'Option order, a letter prefix, a trailing (recommended) marker, and',
   'keeping or dropping every ✅/❌ bullet in a description may vary.',
+  `When no mockup was approved, "${DESIGN_OUTSIDE_VOICE_TEXT_ONLY}" may replace`,
+  `"${DESIGN_OUTSIDE_VOICE_MOCKUP_ANCHOR}" in the No description.`,
   'Keep this choice separate from other approvals; no previews or extra actions.',
   'The fixture user chooses No, proceed without. Observe the actual native',
   'answer before continuing when this question is offered.',
@@ -121,7 +125,8 @@ export function createDesignReviewPicker({ cwd, deadlineAt }: { cwd: string; dea
     if (claimsVoices) {
       const voiceActions = question.options.map((option, index) => DESIGN_OUTSIDE_VOICE_OPTIONS.findIndex(expected =>
         labels[index] === expected.label && option.preview === undefined
-        && [expected.description, expected.description.replace(/(^| )[✅❌] /g, '$1')].includes(option.description)));
+        && [expected.description, expected.description.replace(DESIGN_OUTSIDE_VOICE_MOCKUP_ANCHOR, DESIGN_OUTSIDE_VOICE_TEXT_ONLY)]
+          .flatMap(description => [description, description.replace(/(^| )[✅❌] /g, '$1')]).includes(option.description)));
       if (question.header.trim() !== 'Voices'
         || !/^(?:Want outside design voices before the detailed review|Run outside design voices before the 7 passes)\?(?:\s|$)/i.test(lead)
         || question.multiSelect || voiceActions.length !== 2 || voiceActions.includes(-1)

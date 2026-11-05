@@ -431,8 +431,20 @@ describe('a branch cannot hide code under a base pattern', () => {
     for (const [rel, bytes] of Object.entries({ ...kept, ...content })) fs.writeFileSync(path.join(repo.work, rel), bytes);
     commit(repo, {});
     const p = JSON.parse(plan(repo, ['--json']).out);
-    expect(p.review_exclude.kept_files).toEqual(Object.keys(kept).map(f => ({ path: f, reason: 'code' })));
+    expect(p.review_exclude.kept_files).toEqual(Object.keys(kept).map(f => ({ path: f, reason: /id_ed25519|\.p12$/.test(f) ? 'gate-path' : 'code' })));
     expect(p.review_exclude).toMatchObject({ excluded: 2, content: { binary: 2 } });
+  }, 120_000);
+
+  // Value: protects=a binary token store under an excluded glob stays in every reader's diff (GST-1350 narrowed the token name
+  //   rule to source and style files); fails_when=a token-named binary with no text lines is excluded as content; seam=bin/gstack-review-plan
+  test('a binary token store under an excluded glob is kept as a gate path', () => {
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['assets/**']) } }); repos.push(repo);
+    fs.mkdirSync(path.join(repo.work, 'assets'), { recursive: true });
+    for (const rel of ['assets/tokens.db', 'assets/shot.png']) fs.writeFileSync(path.join(repo.work, rel), GZ);
+    commit(repo, {});
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([{ path: 'assets/tokens.db', reason: 'gate-path' }]);
+    expect(p.review_exclude).toMatchObject({ excluded: 1, content: { binary: 1 } });
   }, 120_000);
 
   // Value: protects=a branch's .gitattributes cannot get a matched file with a credential line excluded by making git call it

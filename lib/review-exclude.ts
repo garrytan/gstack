@@ -24,6 +24,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
+import { secretPath } from './review-risk';
 import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -215,7 +216,7 @@ const BINARY_CONTENT_EXT = /\.(?:png|jpe?g|gif|webp|bmp|ico|avif|tiff?|heic|heif
 /** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode, gate tags, extension or magic keep it. */
 function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
-  if (isGatePath(p)) return 'gate-path';
+  if (isGatePath(p) || secretPath(p, i.added[p] ?? [])) return 'gate-path';
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';

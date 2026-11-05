@@ -62,5 +62,26 @@
       ],
       "multiSelect": false
     }
+  },
+  "textOnlyNoDescription41817566885": {
+    "source": "Main backstop gate 41817566885 (main b244e6d1), paid-slice-6-a1, observation.json pendingQuestion",
+    "cliVersion": "2.1.292",
+    "toolUseId": "toolu_012UXuVt8LBywg7ePoFVmSrT",
+    "note": "The image generator had no API key, so no mockup was approved; the native question replaced \"with the approved mockup as anchor\" in the No description with \"(text-only this time, since mockups weren't available)\" and otherwise kept the declared menu byte for byte. The passing rerun (paid-rerun-2-a1) kept the declared text although its mockups were unavailable too.",
+    "question": {
+      "question": "D3: Want outside design voices before the detailed review? Codex checks the plan against OpenAI's design hard rules and litmus checks, and a separate Claude subagent does an independent completeness review. Stakes: a second opinion on AI-slop risk and hierarchy, at the cost of a few extra minutes. Recommendation: No. The plan is a small app UI and the gaps are already clear, and with no mockup to anchor them, outside voices add less. This is a scope choice; it doesn't affect completeness.",
+      "header": "Voices",
+      "options": [
+        {
+          "label": "Yes, run outside design voices",
+          "description": "✅ Codex hard-rule + litmus scorecard plus an independent Claude completeness read. ✅ Disagreements surface with both perspectives in the relevant pass. ❌ Adds a few minutes; Codex may be missing here, in which case only the Claude voice runs and it's tagged single-model."
+        },
+        {
+          "label": "No, proceed without (recommended)",
+          "description": "✅ Straight into the 7 passes (text-only this time, since mockups weren't available). ✅ Fewest steps to a fixed plan. ❌ Findings rest on one reviewer; no cross-model check on slop risk or hierarchy."
+        }
+      ],
+      "multiSelect": false
+    }
   }
 }
