@@ -26,6 +26,9 @@ describe("internal.hostname — property access in code is not a host", () => {
     ["python if", "if settings.internal:"],
     ["python elif", "elif settings.local:"],
     ["python and", "if enabled and settings.internal:"],
+    ["python not", "if not settings.internal:"],
+    ["python compound before and after", "if ready and cfg.prod and not cfg.local:"],
+    ["python trailing comment", "if settings.internal:  # dev only"],
     ["while", "while (queue.local) drain();"],
     ["ternary", "const x = flag ? 1 : 2; if (env.prod ? a : b) go();"],
   ];
@@ -56,6 +59,10 @@ describe("internal.hostname — real hosts stay flagged near the same keywords",
     ["bang in prose", "Done! build.internal"],
     ["keyword on the previous line", "check if\nbuild.internal"],
     ["python condition that is prose", "if api.corp and the cache are down"],
+    ["sentence with a colon after the host", "if the VPN is down, use backup.corp:"],
+    ["sentence naming a host then a colon", "if you hit this, ping db.internal:"],
+    ["prose before and after the host", "if the cache is cold and db.internal is slow:"],
+    ["words between the host and the colon", "if cfg.prod then restart the db.internal service:"],
   ];
   for (const [label, input] of REAL) {
     test(label, () => {

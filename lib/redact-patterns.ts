@@ -610,9 +610,12 @@ const PROPERTY_ACCESS_SHAPES: ReadonlyArray<readonly [RegExp, RegExp]> = [
   [/\b(?:if|while)[ \t]*\([ \t(!]*(?:[\w$]+\.)*$/, /^[ \t]*(?:\)|&&|\|\||\?)/],
   // Python: a condition line that opens with a keyword and closes with `:`.
   // `:5432` is a port and `if x.corp is down` is prose, so neither matches.
+  // Only identifiers joined by `and`/`or`/`not` may sit between the keyword and
+  // the span, or between the span and the `:`, so a sentence never matches
+  // (`if the VPN is down, use backup.corp:`).
   [
-    /^[ \t]*(?:elif|if|while|assert)[ \t]+(?:[^\n]*[ \t])?(?:(?:and|or|not)[ \t]+)?(?:[\w$]+\.)*$/,
-    /^(?:[ \t]*:|[ \t]+(?:and|or)\b[^\n]*:)[ \t]*(?:#[^\n]*)?\r?$/,
+    /^[ \t]*(?:elif|if|while|assert)[ \t]+(?:(?:not[ \t]+)?[\w$.()]+[ \t]+(?:and|or)[ \t]+)*(?:not[ \t]+)?(?:[\w$]+\.)*$/,
+    /^(?:[ \t]+(?:and|or)[ \t]+(?:not[ \t]+)?[\w$.()]+)*[ \t]*:[ \t]*(?:#[^\n]*)?\r?$/,
   ],
   // `return cfg.prod;`, also after `)`, `{`, `}`, `;` or `else`.
   [/(?:^|[;{}):]|\belse)[ \t]*return[ \t(!]*(?:[\w$]+\.)*$/, /^[ \t]*(?:[;)\],}]|\r?$)/],
