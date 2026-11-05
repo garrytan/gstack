@@ -163,7 +163,9 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if (!loadReady(keys, o.pr, o.pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY note for #${o.pr} at the pin ${o.pin.slice(0, 12)}`, fix: `the lane runs gstack-ship-queue ready --pr ${o.pr} --no-screen at the pin` });
   }
   const freeze = activeFreeze(keys);
-  if (freeze && !o.repair) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})`, fix: 'only the one repair PR lands: gstack-ship-queue land --pr <repair-pr> --pin <sha> --repair; the freeze clears when the main backstop is green on a main that contains it (docs/ship-policy.md#direct-freeze)' });
+  const standsDown = freeze?.train === 'backstop' && policy.release_gate !== null;
+  if (standsDown) lines.push(`FREEZE: warn only: train backstop froze main (${freeze.reason}); the base policy declares release_gate, so the backstop stands down and a red release gate holds release-cut instead of land (docs/ship-policy.md#direct-freeze)`);
+  if (freeze && !standsDown && !o.repair) return fail(lines, { code: 'QUEUE_TRAIN_FROZEN', message: `main is frozen by train ${freeze.train} (${freeze.reason})`, fix: 'only the one repair PR lands: gstack-ship-queue land --pr <repair-pr> --pin <sha> --repair; the freeze clears when the main backstop is green on a main that contains it (docs/ship-policy.md#direct-freeze)' });
   const refused = !o.repair ? null : release ? { code: 'QUEUE_TRAIN_FROZEN' as const, message: `${info.headRefName} is a release PR, which never repairs main`, fix: 'land the revert or fix-forward with --repair; release once the backstop clears the freeze' } : repairRefusal(ctx, freeze, o.pr, o.pin);
   if (refused) return fail(lines, refused);
   const lock = o.dryRun ? readLock(root, remote) : null;
