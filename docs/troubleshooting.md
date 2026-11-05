@@ -7034,6 +7034,16 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 
 **Meaning.** `down` stopped the VM's pusher and ran one last push, and that push failed, took longer than 150 seconds, or was skipped because the results were over `UBI_SINK_MAX_MB` (`size`) or couldn't be read (`tar_failed`). A skipped snapshot is never uploaded, so the sink keeps the last good one. The VM was destroyed anyway, so the sink holds results only up to the push made at `last_push`. A `run` or `verify` of that VM exits 1 instead of 0. **Fix.** Treat the run's results as incomplete. Check that the presigned URL hasn't expired and still allows a PUT, then rerun. For a tiered `verify`, rerun with `--no-resume`: a plain rerun reuses the tiers that already passed under the same key, creates no VM and pushes nothing, so the sink would still hold the incomplete snapshot.
 
+<a id="ubi-create-unknown"></a>
+### `UBI_CREATE_UNKNOWN`
+
+**Meaning.** `up` or `run` sent a create that Ubicloud answered with a 5xx or not at all, then looked the VM up by name for `UBI_CREATE_GRACE` seconds and could not settle whether it exists. It also prints when the VM shows up but the check before the create got no answer, so the VM may not be this call's. The VM's record and recovery bundle stay, and nothing is destroyed in the second case. **Fix.** Run `scripts/ubicloud/ubi-runner.sh list` or the printed `down <name>` command to find out, then rerun. This owner's reap destroys an unconfirmed VM once its `-t<hours>` TTL ends.
+
+<a id="ubi-attach-unknown"></a>
+### `UBI_ATTACH_UNKNOWN`
+
+**Meaning.** A rerun of `run` found a run record whose VM the Ubicloud API could not check (an answer other than 200 or 404), so it refused to start a second VM that would leave the first one billing. Nothing was created. **Fix.** Rerun once the API answers.
+
 ## Per-repo cleanup (gstack-clean)
 
 These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<repo>/.gstack/tmp/`, browse logs over 1 MB and, with `--audit-days N`, old browse audit entries. It changes nothing unless you pass `--apply`, and `gstack-clean --help` lists what it touches.
