@@ -1573,9 +1573,10 @@ The floor and the pass structure are stated once, in
 [review-policy.md](review-policy.md); this section documents the knob.
 
 `review_scope: diff-plus-blocking` is the documented fallback for a repository
-where deferred issues pile up: the same passes, range and cap as `frozen`, but a
+where deferred issues pile up: the same passes and range as `frozen`, but a
 blocking finding in code the PR did not change is `scope: fix` in this PR
-instead of `defer`. `review_scope: all` is the opt-back to the earlier loop:
+instead of `defer`, and the loop stops at Step 9.4's third fixing cycle
+(`CYCLES >= 3`): only `frozen` runs the review plan's two-round cap. `review_scope: all` is the opt-back to the earlier loop:
 every finding is `scope: fix` on every pass, reviewers read the whole diff each
 time, and only the three-cycle fix cap stops the loop. `show-effective` prints the choice as a `ship: review_scope …`
 line, and the codes a refusal ends with are
@@ -1783,21 +1784,25 @@ carried receipt like any other.
 
 **Delta /ship: eligibility, then checks, then publication.** `/ship` Step 1 runs
 the carry when the branch has an open PR, in this order, and never reruns the
-review loop for a carried receipt:
+review loop or Step 14.5's docs audit for a carried receipt:
 
-1. `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
+1. At the pushed HEAD (carry refuses an unpushed one, `--dry-run` included),
+   `gstack-ship-receipt carry --pr <n> --base <base> --dry-run`. `CARRY: would
    carry` is eligibility only; a refusal continues the full ship, except
    `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
    `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
    without `--dry-run` to write the packet, have one fix-check reviewer read it,
    then carry with `--scoped-review <record.json>` and `--pregate`. A blocking
    finding continues the full ship.
-2. At that pinned HEAD: the CHANGELOG check, the size-cap check the policy
-   declares, and `gstack-pregate` (the remote tests stage when
-   `requires_remote` asks for it). A failing check, or HEAD moving, continues
-   the full ship from Step 2.
+2. Fix what the base merge broke (the CHANGELOG, the size caps the policy
+   declares) and commit, `gstack-ship-release push --branch <branch-name> --early`,
+   `gstack-ci-carry wait --base <base>` (`CI_CARRY: none` is not a stop), then
+   `gstack-pregate --allow-repo-commands` at that pinned HEAD (the remote tests stage when `requires_remote` asks for it).
+   A failing check, or HEAD moving after the pregate, continues the full ship
+   from Step 2.
 3. `gstack-ship-receipt carry --pr <n> --base <base> --pregate <pregate.json>`
-   rebinds the receipt with a pregate current for HEAD and ends the run.
+   rebinds the receipt with a pregate current for HEAD and ends the run with its
+   `GSTACK_RESULT:` line.
 
 A receipt that records a pregate never rebinds without a current one:
 `carry` without `--pregate` (or with a stale one) is
