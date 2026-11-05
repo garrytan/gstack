@@ -32,6 +32,7 @@ import {
   buildRatchetBill,
   captureContextBudget,
   isFixtureSkill,
+  isQmEditionSkill,
   toPosixName,
   BUDGET_FIXTURE_PATH,
   ALWAYS_ON_HEADROOM,
@@ -116,6 +117,9 @@ describe('context-budget ratchet', () => {
     expect(isFixtureSkill(['test', 'fixtures', 'x'].join(path.sep))).toBe(true);
     expect(isFixtureSkill('test/fixtures/context-bill/tree-a/alpha')).toBe(true);
     expect(isFixtureSkill('openclaw/skills/gstack-openclaw-retro')).toBe(false);
+    expect(isQmEditionSkill(['qm', 'sandbox', 'skills', 'gstack-review'].join(path.sep))).toBe(true);
+    expect(isQmEditionSkill('openclaw/skills/gstack-openclaw-retro')).toBe(false);
+    expect(bill.skills.some((s) => s.name.startsWith('qm/'))).toBe(false);
     expect(bill.skills.every((s) => !s.name.includes('\\'))).toBe(true);
   });
 
