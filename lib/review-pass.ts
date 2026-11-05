@@ -21,6 +21,7 @@ import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
 import type { FetchHit } from './review-fetch';
 import type { EffectiveReaders } from './ship-policy-readers';
+import type { StageSweep } from './review-sweep';
 
 export const STAGES = ['first', 'specialists', 'red-team', 'voices'] as const;
 export type Stage = typeof STAGES[number];
@@ -43,6 +44,10 @@ export interface PassReader {
   tree?: string | null;
   /** What the reader fetched, from its own tool calls (gstack-review-dispatch audit-fetch, lib/review-fetch.ts). */
   fetch_audit?: { policy_digest: string; events: number; events_sha256: string; hits: FetchHit[]; verdict: 'clean' | 'violation'; enforced: boolean };
+  /** A stage rerun after a fetch violation (lib/review-sweep.ts): attempt 2 of the slot, and the reader it replaced points at it. */
+  attempt?: number; superseded_by?: string;
+  /** Set when the stage's sweep found a fetch: the reply's new home under <out>/quarantine/; it is never merged, judged or returned. */
+  quarantined?: { file: string; at: string };
   path?: string; output?: string; error?: string; state_at?: string;
 }
 export interface Manifest {
@@ -60,6 +65,8 @@ export interface Manifest {
   voices_only?: true;
   /** The plan's readers policy (lib/review-fetch.ts): what every brief says readers may not fetch or open; absent means the default rule. */
   fetch_policy?: EffectiveReaders;
+  /** Each stage's fetch sweep (gstack-review-dispatch sweep): the start inventory, then the end verdict. */
+  sweeps?: Partial<Record<Stage, StageSweep>>;
 }
 export interface FixCheckFiles { fix_list: string; hunks: string; tests: string; callers?: string }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
@@ -217,7 +224,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: r.reader, role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: readerKey(role, r.name), role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }

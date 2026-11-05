@@ -3531,6 +3531,58 @@ does, so readers see that code without the files it reads.
 **Fix.** Nothing for the review itself. If the code's correctness depends on the
 excluded files, narrow the pattern on the base so they stay in the diff.
 
+<a id="fetch-violation"></a>
+### `FETCH_VIOLATION`
+
+**Meaning.** A reader broke [the fetch rule](review-policy.md#what-readers-may-fetch):
+between the start and the end of one review stage, a git repository with a
+network remote, or a file of 100 MB or more, appeared under the workspace, home
+or the temp dir. `gstack-review-dispatch sweep --phase end` prints one line per
+path (`kind=repo|download`, the remote, the size and the stage's readers). Capy
+exposes no reader id, so the stage is the unit: every reader of that stage is
+quarantined. Its reply moves to `<out>/quarantine/` (mode 0600), its findings
+leave `merged.jsonl`, and it never reaches the Red Team, the judge, the
+returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
+until the stage has rerun and swept clean.
+
+**Fix.** Nothing to rerun by hand: the pass plans one fresh attempt per slot
+(`RERUN:`, readers named `<reader>#2`; not a review round) and the pass program
+dispatches them next. Each path gets a `KEEP:` line and never a delete command:
+the sweep goes by time alone, and no transcript can tie a path to a reader, so a
+clone another process on the machine made in the same window looks the same.
+Inspect each path and leave it alone, then write a decision-trail row and tell
+your Captain. A sweep that hit its bounds (depth 6, 200,000 entries or 20 seconds)
+prints `FETCH_SWEEP: partial`, a note that is never a refusal.
+
+<a id="fetch-rerun-blocked"></a>
+### `FETCH_RERUN_BLOCKED`
+
+**Meaning.** A path a stage's first attempt found (a `FETCH_VIOLATION:` line)
+still exists when that stage's rerun, or any other stage of the same pass
+(Step 11's voices included), starts. A reader could open that clone or
+download and still sweep clean, so no reader is dispatched, the pass stops
+(exit 3) and `verify` keeps refusing with the first attempt's
+`FETCH_VIOLATION`.
+
+**Fix.** Stop and report the printed path to your Captain. Leave it alone: no
+transcript ties it to a reader, so never move or delete it yourself. Once the
+path is gone, rerunning the same pass program resumes the rerun from its
+manifest.
+
+<a id="fetch-rerun-spent"></a>
+### `FETCH_RERUN_SPENT`
+
+**Meaning.** The stage's one rerun fetched too, so the pass stopped (exit 3).
+Its readers are quarantined like the first attempt's, nothing they wrote is
+merged, and `verify` refuses. Running the same pass program again stops at
+once: it starts no later stage (no Red Team beside the kept paths) and returns
+no reader output.
+
+**Fix.** Deal with the paths the `FETCH_VIOLATION:` lines name as above. Then
+find out why readers keep fetching (a brief or a checklist that sends them to
+another repository, or a sealed path the policy does not list yet) and start a
+fresh pass under a new `--pass` and `--out`. A third attempt is never automatic.
+
 <a id="execution-unknown"></a>
 ### `EXECUTION_UNKNOWN`
 
