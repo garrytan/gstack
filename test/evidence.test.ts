@@ -539,6 +539,23 @@ describe('gstack-evidence tests_ran — zero-run green is a third state, never m
     }
   });
 
+  test('node --test summaries: last unindented block wins, executed = tests - skipped - todo', () => {
+    // garrytan/gstack#4016: node --test runs recorded tests_ran=unknown, so
+    // `passed` and guard/lane reuse never fired for them. The spec reporter
+    // prints "ℹ tests N" and the tap reporter "# tests N", each followed by
+    // pass/fail/cancelled/skipped/todo lines; per-file summaries are indented.
+    const cases: [string, number][] = [
+      ["printf 'ℹ tests 2\\nℹ suites 0\\nℹ pass 2\\nℹ fail 0\\nℹ cancelled 0\\nℹ skipped 0\\nℹ todo 0\\nℹ duration_ms 1.2\\n'", 2],
+      ["printf '# tests 5\\n# suites 0\\n# pass 3\\n# fail 0\\n# cancelled 0\\n# skipped 1\\n# todo 1\\n# duration_ms 1.2\\n'", 3],
+      ["printf '  ℹ tests 1\\n  ℹ pass 1\\n  ℹ skipped 0\\n  ℹ todo 0\\nℹ tests 4\\nℹ suites 0\\nℹ pass 4\\nℹ fail 0\\nℹ cancelled 0\\nℹ skipped 0\\nℹ todo 0\\n'", 4],
+      ["printf 'ℹ tests 2\\nℹ pass 2\\nℹ fail 0\\nℹ cancelled 0\\nℹ skipped 0\\nℹ todo 0\\n# tests 7\\n# pass 5\\n# fail 0\\n# cancelled 0\\n# skipped 2\\n# todo 0\\n'", 5],
+    ];
+    for (const [cmd, want] of cases) {
+      expect(run(['run', '--label', 'lane', '--', cmd]).status).toBe(0);
+      expect([cmd, records().pop().tests_ran]).toEqual([cmd, want]);
+    }
+  });
+
   test('a gstack-pregate --remote lane: the remote gate\'s tests= count (ran, skips included) lands in the receipt (captured output)', () => {
     // test/fixtures/evidence/pregate-remote-failed.out is the stdout of
     // `gstack-pregate --stage tests --remote` captured under gstack-evidence

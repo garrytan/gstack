@@ -23,7 +23,9 @@
  * is parsed from a bounded tail of the streamed output for the supported
  * runners only: bun (shard-engine's summary parser where importable; executed =
  * pass + fail, so an all-skip run is 0), jest, vitest, pytest, rspec, Go's
- * zero-only case (every package `[no test files]`), gstack's own shard runner
+ * zero-only case (every package `[no test files]`), node --test (the last
+ * unindented "ℹ tests N" / "# tests N" block; executed = tests - skipped -
+ * todo, so an all-skip/all-todo run is 0), gstack's own shard runner
  * (`bun run test:free` / `test:ubicloud`: the sum of its per-shard
  * `[test:free] PASS — N tests` epilogues, or a files-from run's
  * `FILES-FROM RESULT: … tests=N`), and a `gstack-pregate --remote` lane (the
@@ -320,6 +322,28 @@ function otherRunnersTestsRan(lines: string[]): { at: number; ran: number } | nu
   const goNoTests = lines.filter((l) => /^\?\s+\S+\s+\[no test files\]$/.test(l));
   const goRan = lines.some((l) => /^(?:ok|FAIL|---)\s/.test(l));
   if (goNoTests.length > 0 && !goRan) hits.push({ at: last(/\[no test files\]$/), ran: 0 });
+  // node --test: "ℹ tests N" (spec reporter) / "# tests N" (tap reporter),
+  // followed by pass/fail/cancelled/skipped/todo lines; executed = tests -
+  // skipped - todo, matching bun's executed convention. Only an unindented
+  // tests line is the run total: the nested summary per subtest file is
+  // indented, and the last unindented block wins.
+  i = -1;
+  for (let k = lines.length - 1; k >= 0; k--) {
+    if (/^(?:ℹ|#) tests \d+\s*$/.test(lines[k])) { i = k; break; }
+  }
+  if (i >= 0) {
+    const tests = Number(/^(?:ℹ|#) tests (\d+)/.exec(lines[i])![1]);
+    let skipped = 0;
+    let todo = 0;
+    for (let j = i + 1; j < lines.length && j <= i + 12; j++) {
+      if (/^(?:ℹ|#) tests \d+/.test(lines[j])) break;
+      const s = /^(?:ℹ|#) skipped (\d+)\s*$/.exec(lines[j]);
+      const t = /^(?:ℹ|#) todo (\d+)\s*$/.exec(lines[j]);
+      if (s) skipped = Number(s[1]);
+      if (t) todo = Number(t[1]);
+    }
+    hits.push({ at: i, ran: Math.max(0, tests - skipped - todo) });
+  }
   // gstack-pregate --remote: the remote gate's own "PREGATE_REMOTE: tree=… tests=N failed=M"
   // line (tests = the shard runner's FILES-FROM RESULT sum, relayed by scripts/ubicloud/pregate-remote.sh;
   // lib/pregate/checks/lanes.ts parseRemoteReport is the canonical parser), rendered as a lane
