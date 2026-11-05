@@ -1,18 +1,20 @@
 /**
  * GST-1322 PR B: the per-stage inventory-diff sweep (lib/review-sweep.ts) that enforces the fetch rule.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BIG_BYTES, foundLines, inventory, quarantineStage, sweepDiff } from '../lib/review-sweep';
+import { BIG_BYTES, foundLines, inventory, quarantineStage, sweepDiff, sweepResult } from '../lib/review-sweep';
 import { collect, ledgerBlockers } from '../lib/review-ledger';
 import { ledgerPass } from '../lib/review-scope';
 import type { Manifest } from '../lib/review-pass';
 import { RELEASE_RESULT_CODES } from '../lib/result-codes-release';
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep-')));
+const made: string[] = [];
+const tmp = () => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sweep-'))); made.push(d); return d; };
+afterAll(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
 const repoAt = (dir: string, remote?: string) => {
   fs.mkdirSync(dir, { recursive: true });
   const r = spawnSync('bash', ['-c', 'git init -q' + (remote ? ' && git remote add origin "$1"' : ''), '_', remote ?? ''], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
@@ -61,6 +63,23 @@ describe('review-sweep inventory diff', () => {
     expect(lines.filter(l => l.startsWith('DELETE:'))).toEqual([]);
     expect(lines.filter(l => l.startsWith('KEEP:'))).toHaveLength(2);
     expect(lines[0]).toMatch(/^FETCH_VIOLATION: stage=specialists attempt=1 kind=repo .* readers=specialist\/security \(attributed to the stage/);
+  });
+
+  // Value: protects=a start walk that stopped at its bounds cannot tell a repository it never reached from a new one, so what the end walk finds past it is a note, never a quarantine;
+  //   fails_when=a partial start turns pre-existing repositories into FETCH_VIOLATION and FETCH_RERUN_SPENT on runs where nobody fetched; why_new=ship-c-p1 specialist-batched#1 (CRITICAL); seam=sweepResult; no_claim=that a partial sweep sees every fetch
+  test('a partial start inventory makes what the end walk finds a partial note, not a violation', () => {
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout);
+    repoAt(path.join(root, 'old'), 'https://github.com/x/old.git');
+    const start = { ...inventory([root], checkout, []), partial: 'past 20s' };
+    delete start.repos[path.join(root, 'old')];
+    const end = inventory([root], checkout, []);
+    expect(sweepDiff(start, end).map(f => path.relative(root, f.path))).toEqual(['old']);
+    const r = sweepResult(start, end);
+    expect([r.verdict, r.partial, r.found.length]).toEqual(['partial', 'past 20s', 1]);
+    expect(sweepResult({ ...start, partial: undefined }, end).verdict).toBe('violation');
+    expect(sweepResult(null, null)).toEqual({ found: [], verdict: 'partial', partial: 'no start inventory' });
   });
 });
 

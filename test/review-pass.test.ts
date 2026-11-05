@@ -2,7 +2,7 @@
  * GSTA-167 calls PR 2: the staged pass manifest (lib/review-pass.ts), its bin commands, and the
  * checked-in Capy pass program (lib/capy-review-pass.js) run against a fake host whose shell is real.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -1256,17 +1256,24 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
 
 describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () => {
   const clone = (at: string) => { fs.mkdirSync(at, { recursive: true }); expect(spawnSync('bash', ['-c', 'git init -q && git remote add origin https://github.com/sealed-org/BEAM.git'], { cwd: at, encoding: 'utf8', timeout: 30_000 }).status).toBe(0); };
+  const made: string[] = [];
+  afterAll(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
   // Value: protects=a stage whose reader cloned a network repository is quarantined (reply out of merged.jsonl and the Red Team brief), reruns once as <reader>#2, and verifies clean only after the rerun sweeps clean; fails_when=the sweep runs outside the stage window, the quarantined findings reach the Red Team, or verify certifies the first attempt;
   //   why_new=gbrain-evals #362 (an unprompted 4.2 GB clone by a reader); seam=lib/capy-review-pass.js stage boundaries; no_claim=which reader of the stage fetched (Capy exposes no reader id)
-  test('a clone during the specialists stage quarantines it, reruns each slot once, and verify is clean after the clean rerun', async () => {
+  test('a clone during the specialists stage quarantines it, blocks the rerun while the clone exists, then reruns each slot once and verifies clean', async () => {
     const { dir, env } = repo();
+    made.push(dir);
     const out = path.join(dir, '.state/run/p1');
     const beam = path.join(dir, '.state/BEAM');
     const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return 'High: src/a.ts:3 SEALED-QUOTE leaked from the clone'; } return 'NO FINDINGS'; } });
+    const blocked = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
+    expect(blocked).toContain('FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=' + "'" + fs.realpathSync(beam) + "'");
+    expect(blocked).toContain('KEEP: ' + "'" + fs.realpathSync(beam) + "'");
+    expect(blocked).toMatch(/^RERUN: stage=specialists readers=\S*specialist-batched#2/m);
+    expect(blocked).toContain('FETCH_RERUN_BLOCKED: stage=specialists attempt=2 path=' + "'" + fs.realpathSync(beam) + "'");
+    expect(h.creates.map(c => c.title)).not.toContain('ship f1p1 specialist-batched#2');
+    fs.rmSync(beam, { recursive: true, force: true });
     const res = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
-    expect(res).toContain('FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=' + "'" + fs.realpathSync(beam) + "'");
-    expect(res).toContain('KEEP: ' + "'" + fs.realpathSync(beam) + "'");
-    expect(res).toMatch(/^RERUN: stage=specialists readers=\S*specialist-batched#2/m);
     expect(res).toContain('NEXT: judge (Phase 4)');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     const first = m.readers.find(r => r.reader === 'specialist-batched')!;
@@ -1284,13 +1291,43 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(v.stdout, v.stdout).toContain('VERIFY: clean');
   }, 240_000);
 
+  // Value: protects=a rerun reader can never read what attempt 1 fetched and sweep clean: while any path attempt 1 found exists, the rerun dispatches no reader and verify keeps refusing;
+  //   fails_when=the #2 readers start beside the kept clone, sweep clean, and their findings (read from the clone) reach merged.jsonl with verify RESOLVED; why_new=ship-c-p1 red-team#2 (CRITICAL; the Captain's ruling C on #4011);
+  //   seam=gstack-review-dispatch sweep --phase start; no_claim=that the kept path is safe to keep
+  test('a rerun reader cannot open attempt 1\'s kept clone: the rerun start refuses, dispatches nothing and verify stays dirty', async () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const out = path.join(dir, '.state/run/p1');
+    const beam = path.join(dir, '.state/BEAM');
+    const h = host(dir, env, { output: t => { if (t === 'ship f3p1 specialist-batched') clone(beam); if (t === 'ship f3p1 specialist-batched#2' && fs.existsSync(beam)) return 'High: src/a.ts:3 SEALED-QUOTE read from the kept clone'; return 'NO FINDINGS'; } });
+    let res = await runPass(h, { base: 'main', out, pass: 'f3p1', planFlags: ['--depth-floor', 'full'] });
+    for (let i = 0; i < 4 && res.includes('NEXT: poll'); i++) res = await runPass(h, { base: 'main', out, pass: 'f3p1', planFlags: ['--depth-floor', 'full'] });
+    const kept = fs.realpathSync(beam);
+    expect(res).toContain("FETCH_RERUN_BLOCKED: stage=specialists attempt=2 path='" + kept + "'");
+    expect(res).toMatch(/STOP: gstack-review-dispatch sweep --stage specialists --phase start exited 3/);
+    expect(res).not.toContain('NEXT: judge');
+    expect(res).not.toContain('SEALED-QUOTE');
+    expect(h.creates.map(c => c.title)).not.toContain('ship f3p1 specialist-batched#2');
+    expect(fs.existsSync(beam)).toBe(true);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    expect(fs.existsSync(m.merged) ? fs.readFileSync(m.merged, 'utf8') : '').not.toContain('SEALED-QUOTE');
+    const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    expect(v.status).toBe(1);
+    expect(v.stdout).toMatch(/^FETCH_VIOLATION: f3p1\/specialists#1 found=1/m);
+    expect(v.stdout).toContain('VERIFY: dirty');
+  }, 240_000);
+
   // Value: protects=a fetch on the stage's one rerun stops the pass and verify refuses with FETCH_VIOLATION; a path that holds an older one is reported, never given a delete command; fails_when=the program reruns again, returns NEXT: judge, or prints rm -rf for the sweep root;
   //   why_new=GST-1322 d3 (no unattended rm -rf) and d5 (one rerun per slot); seam=gstack-review-dispatch sweep --phase end; no_claim=who created the reported path
   test('a fetch on the rerun stops the pass, verify refuses, and a root-level repository gets KEEP, never a delete command', async () => {
     const { dir, env } = repo();
+    made.push(dir);
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { output: t => { if (t === 'ship f2p1 specialist-batched') clone(path.join(dir, '.state/BEAM')); if (t === 'ship f2p1 specialist-batched#2') clone(path.join(dir, '.state')); return 'NO FINDINGS'; } });
     let res = await runPass(h, { base: 'main', out, pass: 'f2p1', planFlags: ['--depth-floor', 'full'] });
+    expect(res).toContain('FETCH_RERUN_BLOCKED: stage=specialists attempt=2');
+    fs.rmSync(path.join(dir, '.state/BEAM'), { recursive: true, force: true });
+    res = await runPass(h, { base: 'main', out, pass: 'f2p1', planFlags: ['--depth-floor', 'full'] });
     for (let i = 0; i < 4 && res.includes('NEXT: poll'); i++) res = await runPass(h, { base: 'main', out, pass: 'f2p1', planFlags: ['--depth-floor', 'full'] });
     expect(res).toContain('FETCH_RERUN_SPENT: stage=specialists');
     expect(res).toMatch(/STOP: gstack-review-dispatch sweep --stage specialists --phase end exited 3/);

@@ -31,7 +31,7 @@ import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '
 import { resolveBaseBranch } from '../lib/ship-policy';
 import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type ToolEvent } from '../lib/review-fetch';
 import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
-import { defaultRoots, foundLines, inventory, quarantineStage, sweepDiff, type Inventory } from '../lib/review-sweep';
+import { defaultRoots, foundLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
@@ -237,6 +237,8 @@ function sweep(): number {
   const s = ((m.sweeps ??= {})[stage] ??= { attempt: 1 });
   if (phase === 'start') {
     if (!s.start) {
+      const blocked = rerunBlocked(stage, s);
+      if (blocked.length) { process.stdout.write(blocked.join('\n') + '\n'); return EXIT.refused; }
       const inv = inventory(defaultRoots(checkout), checkout);
       const dir = path.join(m.out, 'sweep');
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -252,10 +254,7 @@ function sweep(): number {
   if (s.end) { process.stdout.write(`FETCH_SWEEP: ${s.end.verdict} stage=${stage} attempt=${s.attempt} found=${s.end.found.length} (recorded)\n`); return EXIT.ok; }
   let start: Inventory | null = null;
   try { start = s.start ? JSON.parse(fs.readFileSync(s.start.file, 'utf8')) as Inventory : null; } catch { start = null; }
-  const end = start ? inventory(start.roots, checkout) : null;
-  const found = start && end ? sweepDiff(start, end) : [];
-  const partial = !start ? 'no start inventory' : start.partial ?? end?.partial;
-  const verdict = found.length ? 'violation' : partial ? 'partial' : 'clean';
+  const { found, verdict, partial } = sweepResult(start, start ? inventory(start.roots, checkout) : null);
   s.end = { at: new Date().toISOString(), verdict, found, ...(partial ? { partial } : {}) };
   appendEvent(m.ledger, { event: 'fetch-sweep', pass: m.pass, stage, attempt: s.attempt, verdict, found, readers, ...(partial ? { partial } : {}) });
   const lines = [`FETCH_SWEEP: ${verdict} stage=${stage} attempt=${s.attempt} found=${found.length}${partial ? ` partial=${JSON.stringify(partial)} (a note: the sweep could not cover every root)` : ''}`];

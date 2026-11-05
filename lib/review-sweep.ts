@@ -110,6 +110,17 @@ export function sweepDiff(start: Inventory, end: Inventory): Found[] {
   return found;
 }
 
+/**
+ * The end of a stage. With no start inventory, or one that stopped at its bounds, the sweep cannot tell a path the start
+ * never reached from a new one, so what it finds is a `partial` note, never a violation.
+ */
+export function sweepResult(start: Inventory | null, end: Inventory | null): { found: Found[]; verdict: SweepVerdict; partial?: string } {
+  const found = start && end ? sweepDiff(start, end) : [];
+  const partial = !start ? 'no start inventory' : start.partial ?? end?.partial;
+  const verdict = found.length && !start?.partial ? 'violation' : partial ? 'partial' : 'clean';
+  return { found, verdict, ...(partial ? { partial } : {}) };
+}
+
 const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
 
@@ -117,8 +128,10 @@ const safe = (reader: string) => reader.replace(/[^a-zA-Z0-9._-]/g, '_');
  * The lines a violation prints for each found path: what it is, then KEEP (never a delete command). A path or remote with a
  * control character prints JSON-quoted, so it can never start a line of its own.
  */
+const control = (s: string) => /[\x00-\x1f\x7f]/.test(s);
+const shownPath = (p: string) => (control(p) ? JSON.stringify(p) : q(p));
+
 export function foundLines(stage: Stage, attempt: number, found: readonly Found[], readers: readonly string[]): string[] {
-  const control = (s: string) => /[\x00-\x1f\x7f]/.test(s);
   return found.flatMap(f => {
     const unsafe = control(f.path) || control(f.remote ?? '');
     const shown = unsafe ? JSON.stringify(f.path) : q(f.path);
@@ -127,6 +140,15 @@ export function foundLines(stage: Stage, attempt: number, found: readonly Found[
       `KEEP: ${shown} (no transcript attributes it to a reader: inspect it and leave it alone)`,
     ];
   });
+}
+
+/**
+ * The rerun's start: while a path an earlier attempt of the stage found still exists, a rerun reader could read it and
+ * sweep clean, so the rerun dispatches no reader (and the violation stays unresolved). Nothing is moved or deleted.
+ */
+export function rerunBlocked(stage: Stage, s: StageSweep): string[] {
+  const kept = (s.history ?? []).flatMap(h => (h.end?.found ?? []).map(f => ({ f, attempt: h.attempt }))).filter(({ f }) => fs.existsSync(f.path));
+  return kept.map(({ f, attempt }) => `FETCH_RERUN_BLOCKED: stage=${stage} attempt=${s.attempt} path=${shownPath(f.path)} (attempt ${attempt} found it and it still exists, so no rerun reader starts beside it and verify refuses; stop and report the path to your Captain, and leave it alone; docs/troubleshooting.md#fetch-rerun-blocked)`);
 }
 
 /**

@@ -3550,6 +3550,20 @@ Inspect each path and leave it alone, then write a decision-trail row and tell
 your Captain. A sweep that hit its bounds (depth 6, 200,000 entries or 20 seconds)
 prints `FETCH_SWEEP: partial`, a note that is never a refusal.
 
+<a id="fetch-rerun-blocked"></a>
+### `FETCH_RERUN_BLOCKED`
+
+**Meaning.** A path the stage's first attempt found (a `FETCH_VIOLATION:` line)
+still exists when its rerun starts. A rerun reader could open that clone or
+download and still sweep clean, so the rerun dispatches no reader, the pass
+stops (exit 3) and `verify` keeps refusing with the first attempt's
+`FETCH_VIOLATION`.
+
+**Fix.** Stop and report the printed path to your Captain. Leave it alone: no
+transcript ties it to a reader, so never move or delete it yourself. Once the
+path is gone, rerunning the same pass program resumes the rerun from its
+manifest.
+
 <a id="fetch-rerun-spent"></a>
 ### `FETCH_RERUN_SPENT`
 

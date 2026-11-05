@@ -552,6 +552,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a git repository with a network remote or a file of 100 MB or more appeared during one review stage, so every reader of that stage was quarantined and verify refuses until the stage reruns clean',
     fix: 'the pass reruns each slot once as <reader>#2 by itself; inspect each printed KEEP: path and leave it alone (nothing attributes it to a reader, so never delete it), then write a decision-trail row and tell your Captain',
   },
+  FETCH_RERUN_BLOCKED: {
+    anchor: 'fetch-rerun-blocked',
+    summary: 'a path the stage\'s first attempt found still exists, so its rerun dispatched no reader (one could read that path and sweep clean) and verify keeps refusing',
+    fix: 'stop and report the printed path to your Captain; leave it alone (nothing attributes it to a reader, so never move or delete it yourself)',
+  },
   FETCH_RERUN_SPENT: {
     anchor: 'fetch-rerun-spent',
     summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined and verify refuses',
