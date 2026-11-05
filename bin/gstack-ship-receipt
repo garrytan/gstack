@@ -51,7 +51,7 @@ import {
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { planRecheck, readRecheck, recheckPacket } from '../lib/ship-recheck';
-import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince } from '../lib/ship-receipt-depth';
+import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -108,6 +108,11 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   carries when neither the recorded selection nor HEAD's holds a file the PR changed.
   The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
   digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
+  --docs-post <audit-id>-post.json (Step 14.5's post snapshot, the file finish takes): the reviewed --review-exclude digest also binds
+  when the only change to the selection since the review is files under review_exclude_paths that the snapshot names as uncommitted,
+  with the content HEAD holds, each excluded or kept only because code names it (GST-1429); prints REVIEW_EXCLUDE_DOCS_AUDIT: and
+  records HEAD's selection. Any other change, or an unreadable snapshot, refuses as above. --docs-pre <Prepare snapshot> (the same
+  audit's first snapshot) narrows the audit's files to those whose content it changed, so uncommitted docs the review read stay.
   --no-stop <json|@file> (a JSON array of {class, reason, evidence}: each routine stop the run recorded and went on past, class one of
   scoped-fix-check, test-timeout-fix, pregate-flake-rerun, stamp-only-carry, autoplan-regate); recorded as no_stop.
   --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises
@@ -266,10 +271,12 @@ function cmdWrite(rest: string[], json: boolean): number {
   if (review.exclude.state === 'refused') { for (const l of review.exclude.lines) process.stderr.write(`${l}; nothing written\n`); return EXIT.refused; }
   const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
   const excludeGiven = flag(rest, '--review-exclude') ?? 'none';
-  if ((excludeNow?.digest ?? 'none') !== excludeGiven) {
-    process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the --review-exclude argument names another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)} (write compares the argument, not the review ledger); fix: rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
+  const excludeBound = writeExcludeBinds(repoRoot, base, headSha ?? head, review, excludeGiven, flag(rest, '--docs-post'), flag(rest, '--docs-pre'));
+  if (!excludeBound.ok) {
+    process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the --review-exclude argument names another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)} (write compares the argument, not the review ledger)${flag(rest, '--review-exclude') === undefined ? '; no --review-exclude was given, so write compared none' : ''}${excludeBound.why ? `; the docs-audit exception does not apply: ${excludeBound.why}` : ''}; fix: when only Step 14.5's docs audit changed files under review_exclude_paths after the review, pass its --docs-post <audit-id>-post.json and --docs-pre <its Prepare snapshot>; otherwise rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
     return EXIT.fail;
   }
+  if (excludeBound.line) process.stderr.write(excludeBound.line + '\n');
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
