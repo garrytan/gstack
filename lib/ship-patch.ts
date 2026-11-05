@@ -197,7 +197,7 @@ export function gateEditedPaths(repoRoot: string, from: string, to: string, path
     const d = pathDiff(repoRoot, from, to, p, 0);
     if (d === null || /^(Binary files |GIT binary patch)/m.test(d)) return true;
     const at = d.search(/^@@ /m);
-    return at >= 0 && d.slice(at).split('\n').some(l => l.startsWith('-')) && !literalOnly(d);
+    return at >= 0 && d.slice(at).split('\n').some(l => l.startsWith('-')) && !literalOnly(d, git(repoRoot, ['show', `${to}:${p}`]));
   });
   return new Set([...tagged, ...removed]);
 }
@@ -213,20 +213,26 @@ function gateTaggedPaths(repoRoot: string, from: string, to: string, paths: read
 
 const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|describe|bench)\b|\.to[A-Z]/;
 const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
+const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
+const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$|^\s*$/;
 /**
- * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, on lines
- * with no assertion or test call: a test literal changed (a fixture value the secrets scan flagged, GST-1276 instance 5),
- * never a check. Template literals do not count, since `${}` holds code.
+ * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, in
+ * statements with no assertion or test call (the changed line and the lines above it back to the previous statement's end in
+ * `after`): a test literal changed (a fixture value the secrets scan flagged, GST-1276 instance 5), never a check or an
+ * expected value. Template literals, interpolated strings and prefixed (f, r, b) strings do not count, since they can hold code.
  */
-function literalOnly(diff: string): boolean {
+function literalOnly(diff: string, after: string | null): boolean {
   const hunks = zeroHunks(diff);
-  if (!hunks?.length) return false;
+  if (!hunks?.length || after === null) return false;
+  const text = after.split('\n');
+  const statement = (n: number) => { const out = [text[n - 1] ?? '']; for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!); return out; };
   return hunks.every(h => {
     const lines = h.body.split('\n');
     const minus = lines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plus = lines.filter(l => l.startsWith('+')).map(l => l.slice(1));
     const bare = (l: string) => l.replace(QUOTED, '$1$1');
-    return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && bare(m) === bare(plus[i]!) && !CHECK_CALL.test(bare(m)));
+    return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && !CODE_IN_STRING.test(m + plus[i]) && bare(m) === bare(plus[i]!)
+      && !CHECK_CALL.test(bare(m)) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
   });
 }
 
@@ -269,6 +275,7 @@ export function boundedPaths(repoRoot: string, i: BoundedInput): { kinds: Record
     if (!Number.isFinite(lines)) { refuse('is binary or unreadable', full); continue; }
     if (lines > BOUNDED_LINES) { refuse(`changed ${lines} lines since review (at most ${BOUNDED_LINES})`, full); continue; }
     if (!tagged || tagged.has(p)) { refuse(tagged ? 'carries a hunk the gate scan tagged' : 'could not be gate-scanned', full); continue; }
+    if (kind === 'bookkeeping' && (isGatePath(p) || /^\.(gstack|github)\//.test(p))) { refuse('is a gate path or under .gstack/ or .github/, never bookkeeping', full); continue; }
     if (kind === 'audit prose') {
       const recorded = i.audited?.[p];
       if (!recorded) { refuse('is not a doc the Step 14.5 audit snapshot recorded', 'include it in the audit (--docs), or ' + full); continue; }
@@ -290,15 +297,17 @@ export function boundedPaths(repoRoot: string, i: BoundedInput): { kinds: Record
 /**
  * Whether the scoped read finish saved for `head`'s tree (gstack/scoped-review-<tree>.json, written once a clean record bound
  * to its packet's hash passed) covers `need`: the record and packet are intact, the packet carries the targeted brief for every
- * class, and each needed path is in the record and has its own section in the packet (GST-1276).
+ * class, each needed path is in the record and has its own section in the packet, and the packet's reviewed side is the
+ * tree the targeted reader read at `read`, so no hunk between that read and the review bound escapes both (GST-1276).
  */
-export function scopedReadCovers(repoRoot: string, head: string, need: readonly string[]): boolean {
+export function scopedReadCovers(repoRoot: string, head: string, need: readonly string[], read: string): boolean {
   const tree = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${head}^{tree}`])?.trim();
+  const readTree = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${read}^{tree}`])?.trim();
   const rel = tree && git(repoRoot, ['rev-parse', '--git-path', `gstack/scoped-review-${tree.slice(0, 12)}.json`])?.trim();
   if (!tree || !rel) return false;
   try {
     const v = JSON.parse(fs.readFileSync(path.resolve(repoRoot, rel), 'utf8'));
-    if (v?.tree !== tree || v.verdict !== 'clean' || typeof v.reviewer !== 'string' || !v.reviewer.trim() || typeof v.packet !== 'string' || !Array.isArray(v.paths)) return false;
+    if (v?.tree !== tree || !readTree || v.reviewed !== readTree || v.verdict !== 'clean' || typeof v.reviewer !== 'string' || !v.reviewer.trim() || typeof v.packet !== 'string' || !Array.isArray(v.paths)) return false;
     const packet = fs.readFileSync(v.packet, 'utf8');
     if (createHash('sha256').update(packet).digest('hex') !== v.packet_sha256 || !packet.includes(packetBrief())) return false;
     return need.every(p => v.paths.includes(p) && packet.includes(`\n## ${p}\n`));

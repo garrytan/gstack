@@ -66,8 +66,9 @@ describe('docs-audit edits to code-classed policy prose (GST-1276: #3970, #3985)
     expect(lineOf(ok.stdout, 'SCOPED_REVIEW'), ok.stdout).toBe(`SCOPED_REVIEW: clean by anthropic/claude-opus-5-5 (${rel})`);
     expect(lineOf(ok.stdout, 'DOCS')).toContain('fresh');
     expect(lineOf(ok.stdout, 'SCOPED_RECORD')).toContain('receipt write rebinds');
-    expect(scopedReadCovers(f.work, 'HEAD', [rel])).toBe(true);
-    expect(scopedReadCovers(f.work, 'HEAD', [rel, 'src/other.ts'])).toBe(false);
+    expect(scopedReadCovers(f.work, 'HEAD', [rel], reviewed)).toBe(true);
+    expect(scopedReadCovers(f.work, 'HEAD', [rel, 'src/other.ts'], reviewed)).toBe(false);
+    expect(scopedReadCovers(f.work, 'HEAD', [rel], reviewedBase)).toBe(false);
   });
 
   test('docs/pregate.md and AGENTS.md take the same route', () => {
@@ -142,6 +143,20 @@ describe('declared bookkeeping files (GST-1311: gbrain#8523, #8525)', () => {
     expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('scripts/other.tsv')]);
   });
 
+  test('a declared .txt table takes the bounded route, not the docs recheck; a glob reaching .github/ is refused', () => {
+    const f = fx({ '.gstack/ship-policy.json': policy(['scripts/*-baseline.txt', '**/*.tsv']), 'scripts/skill-size-baseline.txt': 'a 10\nb 20\n', '.github/owners.tsv': TSV(['a\t1']) });
+    const reviewed = wtree(f);
+    const reviewedBase = mergeBase(f);
+    const post = snapshot(f);
+    f.write({ 'scripts/skill-size-baseline.txt': 'a 12\nb 20\n' }); f.commit('verify: size baseline');
+    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=0 docs=0 .* bounded=1$/);
+    f.write({ '.github/owners.tsv': TSV(['a\t2']) }); f.commit('a table under .github/');
+    const s = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect(lineOf(s.stdout, 'ROUTE_BOUNDED_REFUSED'), s.stdout).toContain('.github/owners.tsv is a gate path or under .gstack/ or .github/');
+    expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('.github/owners.tsv')]);
+  });
+
   test('a bookkeeping glob that names code is refused at load', () => {
     const f = fx({ '.gstack/ship-policy.json': policy(['scripts/*.ts']) });
     const v = f.run(path.join(BIN, 'gstack-ship-policy'), ['validate', '--json']);
@@ -162,6 +177,20 @@ describe('a value-only test literal after review (GST-1276 instance 5: #3984)', 
     f.write({ 'test/key.test.ts': spec('fixture-value', "  expect(scan(KEY)).toBe(true);\n") }); f.commit('test: flip the assertion');
     const s = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
     expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('test/key.test.ts')]);
+  });
+
+  test('an expected value inside a multi-line assertion, or code in an f-string, still stops', () => {
+    const multi = (name: string) => spec('fixture-value', `  expect({ name: KEY }).toEqual({\n    name: '${name}',\n  });\n`);
+    const py = (flag: string) => `import subprocess\nBIN = "bin/scan"\n\ndef test_scan():\n    cmd = f"{BIN} ${flag}"\n    assert subprocess.run(cmd, shell=True).returncode == 0\n`;
+    const f = fx({}, { 'src/b.ts': 'export const b = 2;\n', 'test/key.test.ts': multi('alice'), 'test/test_scan.py': py('--strict') });
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.write({ 'test/key.test.ts': multi('bob') }); f.commit('test: change an expected value');
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('test/key.test.ts')]);
+    f.write({ 'test/key.test.ts': multi('alice'), 'test/test_scan.py': py('--lenient') }); f.commit('test: change code in an f-string');
+    const s = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f)]);
+    expect([s.status, lineOf(s.stdout, 'STOP')]).toEqual([3, behaviorStop('test/test_scan.py')]);
   });
 });
 
@@ -203,19 +232,19 @@ describe('receipt write rebinds the targeted record from the scoped read finish 
     repo.git('commit', '-qam', 'docs: the audit corrects the policy text');
     const record = JSON.stringify({ classes: ['money'], rules: TARGETED_RULES, brief_sha: targetedBriefSha(), status: 'done', findings: 0, raised_by: 'targeted', head: read });
     const write = () => runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', record, '--json']);
-    const save = (paths: string[], packetText = '# Scoped review\n\n## docs/review-policy.md\n' + packetBrief() + '\n', sha?: string) => {
+    const save = (paths: string[], packetText = '# Scoped review\n\n## docs/review-policy.md\n' + packetBrief() + '\n', sha?: string, reviewedTree?: string) => {
       const tree = repo.git('rev-parse', 'HEAD^{tree}');
       const dir = path.join(repo.work, '.git', 'gstack');
       fs.mkdirSync(dir, { recursive: true });
       const packet = path.join(dir, 'scoped-review-' + tree.slice(0, 12) + '.md');
       fs.writeFileSync(packet, packetText);
-      fs.writeFileSync(path.join(dir, 'scoped-review-' + tree.slice(0, 12) + '.json'), JSON.stringify({ tree, paths, reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean', packet, packet_sha256: sha ?? createHash('sha256').update(packetText).digest('hex') }));
+      fs.writeFileSync(path.join(dir, 'scoped-review-' + tree.slice(0, 12) + '.json'), JSON.stringify({ tree, reviewed: reviewedTree ?? repo.git('rev-parse', read + '^{tree}'), paths, reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean', packet, packet_sha256: sha ?? createHash('sha256').update(packetText).digest('hex') }));
     };
-    return { read, write, save };
+    return { repo, read, write, save };
   };
 
   test('a policy edit with money wording after the read rebinds only with a covering, intact scoped record', () => {
-    const { read, write, save } = setup();
+    const { repo, read, write, save } = setup();
     const refused = write();
     expect([refused.status === 0, refused.err.includes('the targeted reader read ' + read.slice(0, 12))]).toEqual([false, true]);
     save(['docs/review-policy.md']);
@@ -227,6 +256,8 @@ describe('receipt write rebinds the targeted record from the scoped read finish 
     save(['docs/review-policy.md'], '# Scoped review\n\n## docs/review-policy.md\n(no brief)\n');
     expect(write().status).not.toBe(0);
     save(['docs/review-policy.md'], undefined, 'f'.repeat(64));
+    expect(write().status).not.toBe(0);
+    save(['docs/review-policy.md'], undefined, undefined, repo.git('rev-parse', 'HEAD^{tree}'));
     expect(write().status).not.toBe(0);
   }, 120_000);
 });

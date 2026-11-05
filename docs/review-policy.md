@@ -647,7 +647,8 @@ of these kinds:
   removed mapping, a new `[]` declaration or any other key stops.
 - **bookkeeping**: a path matching a `bookkeeping` glob in the base
   branch's ship policy ([ship-policy.md#bookkeeping](ship-policy.md#bookkeeping)),
-  first touched after review or not.
+  first touched after review or not, a `.txt` table included, never a gate
+  path or a path under `.gstack/` or `.github/`.
 
 `ROUTE:` prints `bounded=<n>`, and finish writes the packet with every
 bounded hunk, a reading note per kind and the targeted brief for every
@@ -659,12 +660,14 @@ record passes, finish saves it beside the packet (`SCOPED_RECORD:`), and
 `gstack-ship-receipt write` rebinds a targeted record read before those
 edits (`TARGETED_REBOUND:`). It does that only when every product or test
 path changed since the targeted read is in that record and has a section
-in its packet, the packet still hashes to the record, and the targeted
-classes since the read can be computed. A test file whose only removed
-lines are swapped one for one with lines that differ inside quoted strings,
-and that has no assertion or test call, takes the plain test route (the
-scoped reader) instead of behavior. A changed expected value or a deleted
-assertion still stops.
+in its packet, the packet's reviewed side is the tree the targeted reader
+read, the packet still hashes to the record, and the targeted classes since
+the read can be computed. A test file whose only removed lines are swapped
+one for one with lines that differ inside plain quoted strings, in
+statements with no assertion or test call, takes the plain test route (the
+scoped reader) instead of behavior. A changed expected value (on a
+multi-line assertion too), code inside an interpolated or prefixed string,
+or a deleted assertion still stops.
 
 The receipt's summary line prints `passes=<n> blocking_found=<k> deferred=<m>`,
 which is what a scorecard tracks (target: a median of 1 pass per PR). A

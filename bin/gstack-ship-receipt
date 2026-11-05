@@ -275,7 +275,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   if (flag(rest, '--review-targeted') !== undefined) {
     const scoped = (read: string) => {
       const spec = productSpec(repoRoot, productRules(repoRoot, base, verifiedOutputs(repoRoot, base, pregateFile)), read, headSha ?? head);
-      rebound = !!spec && scopedReadCovers(repoRoot, headSha ?? head, spec.changed.filter(c => c.class !== 'metadata').map(c => c.path)) ? read : '';
+      rebound = !!spec && scopedReadCovers(repoRoot, headSha ?? head, spec.changed.filter(c => c.class !== 'metadata').map(c => c.path), read) ? read : '';
       return !!rebound;
     };
     try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head), scoped); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }

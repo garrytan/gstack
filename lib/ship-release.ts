@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
+import { matchesAny } from './ship-policy';
 import { boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
 import { locate, readRecord } from './approval-record';
 import { reviewFreshness } from './review-evidence';
@@ -223,7 +224,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
   const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], accepted: [], fix_checked: [] };
   for (const p of [...changedSet].sort()) {
     const verdict = sides ? (touched.has(p) ? comparePath(cwd, sides, p) : 'same') : 'changed';
-    by[verdict === 'same' ? 'base' : release.includes(p) || harnessRepin(cwd, reviewed, now, p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+    by[verdict === 'same' ? 'base' : release.includes(p) || harnessRepin(cwd, reviewed, now, p) ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' && !matchesAny(opts.bookkeeping, p) ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const gated = gateEditedPaths(cwd, reviewed, now, by.tests) ?? new Set(by.tests);
   by.behavior.push(...by.tests.filter(p => gated.has(p)));
@@ -309,7 +310,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: string
       try {
         fs.mkdirSync(path.dirname(packet), { recursive: true });
         fs.writeFileSync(packet, built.text);
-        fs.writeFileSync(saved, JSON.stringify({ ...review.review, tree: now, paths: scoped, packet }) + '\n');
+        fs.writeFileSync(saved, JSON.stringify({ ...review.review, tree: now, reviewed, paths: scoped, packet }) + '\n');
         r.add(`SCOPED_RECORD: ${saved} (receipt write rebinds a targeted record from it)`);
       } catch (e) { r.add(`SCOPED_RECORD: none (${firstLine((e as Error).message)}); receipt write cannot rebind a targeted record`); }
     }
