@@ -91,7 +91,13 @@ describe('tree receipt: a release output release_tool regenerates (GST-1176)', (
     const { repo, merged, stamped } = harn7();
     const opts = { repoRoot: repo.work, base: 'main', policy: loadPolicyFromHead(repo.work).policy, policyLabel: 'head', baseSha: merged, slots: [], plain: [], now: new Date() };
     const plainTree = repo.git('rev-parse', `${merged}^{tree}`);
-    expect(stampMismatch({ ...opts, allowRepoCommands: true }, merged, stamped, plainTree)).toBeNull();
-    expect(stampMismatch({ ...opts, allowRepoCommands: false }, merged, stamped, plainTree)).toContain('TODOS.md');
+    const prior = Object.fromEntries(Object.keys(repo.env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, repo.env);
+    try {
+      expect(stampMismatch({ ...opts, allowRepoCommands: true }, merged, stamped, plainTree)).toBeNull();
+      expect(stampMismatch({ ...opts, allowRepoCommands: false }, merged, stamped, plainTree)).toContain('TODOS.md');
+    } finally {
+      for (const [k, v] of Object.entries(prior)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
   });
 });
