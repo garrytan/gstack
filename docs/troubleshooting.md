@@ -3153,7 +3153,7 @@ behavior and finish stops for Steps 5–11.5
 ([review-policy.md#bounded-post-review-edits](review-policy.md#bounded-post-review-edits)).
 The reason names the failed proof: `needs --reviewed-base`, `changed <n>
 lines since review (at most 20)`, `is binary or unreadable`, `carries a
-hunk the gate scan tagged`, `is not a doc the Step 14.5 audit snapshot
+hunk the gate scan tagged`, `could not be gate-scanned`, `is not a doc the Step 14.5 audit snapshot
 recorded`, `is not the bytes the post-audit snapshot recorded (edited after
 the audit)`, `does not parse at both the reviewed and the current tree`,
 `loosens the reviewed policy: <what>`, `changes <key>; a lanes edit changes
@@ -6379,7 +6379,10 @@ on the new head. `gstack-ship-release finish` stops the same way with
 write that record beside the packet, outside the worktree, so it does not change
 the tree it is bound to. Finish also stops this way for test code changed since
 review with no gate edit (`tests=N`): the packet holds those test hunks, and the
-reviewer checks that each test still tests what it did. A packet that cannot be
+reviewer checks that each test still tests what it did. It stops this way for
+[bounded post-review edits](review-policy.md#bounded-post-review-edits) too
+(`bounded=N`): one scoped reader, not a review round, reads the packet, and
+its clean record must also carry the `packet_sha256` the STOP line prints. A packet that cannot be
 written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the path.
 `carry --dry-run` reports this code without writing the packet, and only when
 none of carry's other checks would refuse; carry without `--dry-run` writes it.
