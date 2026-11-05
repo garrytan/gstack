@@ -593,15 +593,32 @@ export function isLocalConfigFilename(match: RegExpExecArray): boolean {
   return LOCAL_CONFIG_EXTENSIONS.test((match.input ?? "").slice(end, end + 8));
 }
 
-/** Text before a span that puts it in expression position: a control-flow
- * keyword or logical operator, then only spaces, opening parens and the dotted
- * object chain (`if (!cfg.`), with nothing else between. */
-const EXPRESSION_LEAD =
-  /(?:\b(?:return|if|elif|while|assert|not|and|or)\b|&&|\|\||!)[ \t(!]*(?:[\w$]+\.)*$/;
+/** How much of the line either side of a span `isPropertyAccess` reads. A line
+ * longer than this on either side (minified code, data) is never exempted, so
+ * the cap can't turn a real host into a false negative, and the regexes below
+ * stay cheap on a multi-megabyte buffer. */
+const PROPERTY_ACCESS_CONTEXT_CHARS = 200;
 
-/** Text after a span that closes an expression: `)`, `]`, `;`, `:`, `{`, `?`,
- * `,`, a logical operator, `and`/`or`, or the end of the line. */
-const EXPRESSION_TAIL = /^(?:[ \t]*(?:[)\];:{?,]|&&|\|\||\r?$)|[ \t]+(?:and|or)\b)/;
+/** `(lead, tail)` pairs. Each is one code shape in which a dotted name directly
+ * after a keyword or operator is a property read: `lead` matches the text before
+ * the span (ending at it), `tail` the text after it. Every shape needs syntax
+ * that prose and config lack: a keyword with its parenthesis, a line-closing
+ * `:`, a leading `return`, or `&&`/`||`. `and`, `or` and `not` alone never
+ * qualify. */
+const PROPERTY_ACCESS_SHAPES: ReadonlyArray<readonly [RegExp, RegExp]> = [
+  // JS/TS: `if (cfg.prod)`, `while (!q.local && ok)`.
+  [/\b(?:if|while)[ \t]*\([ \t(!]*(?:[\w$]+\.)*$/, /^[ \t]*(?:\)|&&|\|\||\?)/],
+  // Python: a condition line that opens with a keyword and closes with `:`.
+  // `:5432` is a port and `if x.corp is down` is prose, so neither matches.
+  [
+    /^[ \t]*(?:elif|if|while|assert)[ \t]+(?:[^\n]*[ \t])?(?:(?:and|or|not)[ \t]+)?(?:[\w$]+\.)*$/,
+    /^(?:[ \t]*:|[ \t]+(?:and|or)\b[^\n]*:)[ \t]*(?:#[^\n]*)?\r?$/,
+  ],
+  // `return cfg.prod;`, also after `)`, `{`, `}`, `;` or `else`.
+  [/(?:^|[;{}):]|\belse)[ \t]*return[ \t(!]*(?:[\w$]+\.)*$/, /^[ \t]*(?:[;)\],}]|\r?$)/],
+  // `a && cfg.prod`, `a || cfg.local`.
+  [/(?:&&|\|\|)[ \t(!]*(?:[\w$]+\.)*$/, /^[ \t]*(?:\)|&&|\|\||\?|;|\r?$)/],
+];
 
 /**
  * True when an `internal.hostname` span is a property read in source code
@@ -609,19 +626,27 @@ const EXPRESSION_TAIL = /^(?:[ \t]*(?:[)\];:{?,]|&&|\|\||\r?$)|[ \t]+(?:and|or)\
  * rather than a host (#3987). The pattern ends in `.local|.prod|.staging|…`, so
  * any object with a property of that name reports.
  *
- * Needs evidence on BOTH sides: the span follows a keyword or logical operator
- * directly and is closed by an expression terminator, so a host in a sentence
- * (`if api.corp is down`), a URL, an assignment (`HOST=db.internal`) or a quoted
- * string (`return "nas.lan"`) still reports.
+ * Needs evidence on BOTH sides, from one of PROPERTY_ACCESS_SHAPES. A host in a
+ * sentence (`if api.corp is down`, `deploy to a.prod and b.internal`), behind a
+ * port (`if db.internal:5432`), in a URL, an assignment (`HOST=db.internal`) or a
+ * quoted string (`return "nas.lan"`) still reports.
  */
 export function isPropertyAccess(match: RegExpExecArray): boolean {
   const input = match.input ?? "";
   const { start, end } = spanBounds(match);
-  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
-  const lineEnd = input.indexOf("\n", end);
-  const before = input.slice(lineStart, start);
-  const after = input.slice(end, lineEnd === -1 ? input.length : lineEnd);
-  return EXPRESSION_LEAD.test(before) && EXPRESSION_TAIL.test(after);
+  const cap = PROPERTY_ACCESS_CONTEXT_CHARS;
+
+  const head = input.slice(Math.max(0, start - cap - 1), start);
+  const newlineBefore = head.lastIndexOf("\n");
+  if (newlineBefore === -1 && start > cap) return false;
+  const before = newlineBefore === -1 ? head : head.slice(newlineBefore + 1);
+
+  const rest = input.slice(end, end + cap + 1);
+  const newlineAfter = rest.indexOf("\n");
+  if (newlineAfter === -1 && rest.length > cap) return false;
+  const after = newlineAfter === -1 ? rest : rest.slice(0, newlineAfter);
+
+  return PROPERTY_ACCESS_SHAPES.some(([lead, tail]) => lead.test(before) && tail.test(after));
 }
 
 /**

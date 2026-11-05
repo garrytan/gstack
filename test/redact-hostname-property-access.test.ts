@@ -46,10 +46,36 @@ describe("internal.hostname — real hosts stay flagged near the same keywords",
     ["shell command", "ssh jump.corp"],
     ["ping", "ping printer.local"],
     ["return a string", 'return "nas.lan";'],
+    ["and before a host at end of line", "deploy to staging.prod and prod.internal"],
+    ["or before a host at end of line", "ping a.lan or b.local"],
+    ["not before a host", "this is not db.internal"],
+    ["if before a host, closed by a paren in prose", "(only if build.internal)"],
+    ["port after an if-condition", "if db.internal:5432 is reachable"],
+    ["colon then a port", "if db.internal:5432"],
+    ["sentence-leading If", "If api.corp: it is down"],
+    ["bang in prose", "Done! build.internal"],
+    ["keyword on the previous line", "check if\nbuild.internal"],
+    ["python condition that is prose", "if api.corp and the cache are down"],
   ];
   for (const [label, input] of REAL) {
     test(label, () => {
       expect(flagsHost(input)).toBe(true);
     });
   }
+});
+
+describe("internal.hostname — property-access check stays bounded", () => {
+  test("a very long line of '!' before many hosts finishes quickly and still reports", () => {
+    const line = `${"!".repeat(20000)} ${"a.lan ".repeat(2000)}`;
+    const started = performance.now();
+    const flagged = flagsHost(line);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(flagged).toBe(true);
+  });
+
+  test("a host past the context cap on a long line is not exempted", () => {
+    const filler = "x".repeat(400);
+    expect(flagsHost(`if (${filler}) return m.local;`)).toBe(true);
+    expect(flagsHost(`return m.local; ${filler}`)).toBe(true);
+  });
 });
