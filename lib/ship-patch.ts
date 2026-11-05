@@ -125,8 +125,9 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
 /**
  * Whether the current base already holds the reviewed change to a path the branch no longer changes (GST-1399): a
  * three-way merge of reviewedBase -> reviewed into currentBase leaves currentBase's bytes, as when the base absorbed the
- * child's hunk. A post-review revert to the base's content leaves the reviewed change out of the base, so it is not held.
- * A path missing on any side is not held.
+ * child's hunk. A post-review revert to the base's content leaves the reviewed change out of the base, so it is not held,
+ * and a reviewed mode change (executable bit, symlink) is held only when the base has the reviewed mode. A path missing on
+ * any side is not held.
  */
 export function baseHolds(repoRoot: string, s: PatchSides, rel: string): boolean {
   const blobs = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => {
@@ -134,6 +135,8 @@ export function baseHolds(repoRoot: string, s: PatchSides, rel: string): boolean
     return r.status === 0 ? r.stdout : null;
   });
   if (blobs.some(b => b === null)) return false;
+  const [mc, mb, mr] = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => git(repoRoot, ['ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0]);
+  if (!mc || !mr || (mr !== mb && mr !== mc)) return false;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-'));
   try {
     const files = blobs.map((b, i) => { const f = path.join(dir, String(i)); fs.writeFileSync(f, b!); return f; });

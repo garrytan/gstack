@@ -345,7 +345,7 @@ export function heldBy(repoRoot: string, commit: string, currentBase: string, pa
   };
   const tip = holds(currentBase);
   if (tip !== 'conflict') return tip === 'held' ? currentBase : null;
-  const log = run(['log', '--first-parent', '-z', '--format=%x01%H', '--name-only', '--no-renames', `--max-count=${HELD_WALK}`, `${fork}..${currentBase}`, '--', ...paths.map(p => `:(literal)${p}`)]);
+  const log = run(['log', '--first-parent', '-z', '--format=%x01%H', '--name-only', '--no-renames', `--max-count=${HELD_WALK}`, `${fork}..${currentBase}`, '--', ...paths.map(p => `:(top,literal)${p}`)]);
   if (log.status !== 0) return null;
   for (const entry of log.stdout.split('\x01').filter(Boolean)) {
     const [at, ...names] = entry.split(/[\n\0]/).filter(Boolean);

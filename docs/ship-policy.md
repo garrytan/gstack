@@ -1698,10 +1698,15 @@ fragment on the base), found as the carry finds a landed parent, and
 prints `REVIEWED_BASE: stack parent <sha12> landed on origin/<base> at <sha12>`.
 The route, a granted fix-check's sides, the scoped-review packet and the docs
 carry then compare each commit's patch from that parent, so the parent's and the
-base's edits route as `base=`. A path the child no longer changes against the
-base routes as base only when the base already holds the reviewed change to it
-(a three-way merge of the reviewed change into the base leaves the base's
-bytes); a post-review revert to the base's content still stops. Any other commit
+base's edits route as `base=`. The route also reads every path the branch ships
+against the base, changed since review or not, and judges its release-metadata
+class against the base, so a parent change the base never received (a
+`package.json` script) or a merge that kept a line the base changed since still
+stops. A path the child no longer changes against the base routes as base only
+when the base already holds the reviewed change to it (a three-way merge of the
+reviewed change into the base leaves the base's bytes, and a reviewed mode change
+is the base's mode); a post-review revert to the base's content or mode still
+stops. Any other commit
 off the base, a parent the base never received included, stops with
 `--reviewed-base <sha> is not on origin/<base>, nor a landed stack parent`.
 
