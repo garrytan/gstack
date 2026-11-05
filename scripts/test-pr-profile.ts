@@ -244,6 +244,7 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/free-test-seed-allowlist.json', // Read only by the free seed ratchet (test/free-seed-ratchet.test.ts).
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
+  'qm/**', // The QM edition (scripts/gen-qm-edition.ts): shipped to QM as a deployment layer, read by no paid case; free test/qm-edition.test.ts covers it (GST-1492).
   'capy/skill/**', // The vendored Capy skill (Drive bootstrapper): run by Capy agents, read by no paid case; test/capy-skill-wrapper.test.ts covers it.
   'USING_GBRAIN_WITH_GSTACK.md', // The /setup-gbrain guide: README, docs/gbrain-quick-tour.md and free tests read it; no skill prompt or paid fixture does (GST-1027).
   'captain/templates/**', // The /captain crew templates (CREW.md, merge-ask.md, slot-call.md, …): copied into a Captain's drive by people and Captains, read by no paid case; free test/captain-skill.test.ts covers them (#3499).
