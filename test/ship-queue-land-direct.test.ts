@@ -233,6 +233,69 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     } finally { fs.rmSync(marker, { force: true }); }
   }, 90_000);
 
+  test.skipIf(process.platform !== 'linux')('GST-1421: a merged check that walks its ancestors\' /proc/<pid>/environ and scans every /proc/*/environ finds no secret from land\'s environment, and land still merges', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-environ-'));
+    const marker = path.join(scratch, 'found'), probe = path.join(scratch, 'probe.sh');
+    const secret = `land-secret-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(probe, [
+      'p=$PPID',
+      'while [ "${p:-0}" -gt 1 ]; do',
+      '  if cat /proc/$p/environ >/dev/null 2>&1; then echo "ancestor $p readable"; else echo "ancestor $p denied"; fi',
+      '  tr "\\0" "\\n" < /proc/$p/environ 2>/dev/null | grep "^GSTACK_LAND_SENTINEL=" | sed "s/^/ancestor $p /"',
+      '  p=$(sed -n "s/^PPid:[[:space:]]*//p" /proc/$p/status 2>/dev/null)',
+      'done',
+      'for f in /proc/[0-9]*/environ; do tr "\\0" "\\n" < "$f" 2>/dev/null | grep "^GSTACK_LAND_SENTINEL=" | sed "s|^|scan $f |"; done',
+      'cat /proc/self/environ >/dev/null 2>&1 && echo "self readable"',
+      '',
+    ].join('\n'));
+    const fx = setup({ ...POLICY, land: { merged_checks: [`sh ${probe} > ${marker}`] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '88');
+      moveMain(fx, 'other.txt', 'other\n');
+      fx.env.GSTACK_LAND_SENTINEL = secret;
+      const ok = land(fx, '88', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      const found = fs.readFileSync(marker, 'utf8');
+      expect(found).toContain('self readable');
+      expect(found).toMatch(/^ancestor \d+ denied$/m);
+      expect(found).not.toContain(secret);
+      expect(fx.read().mergeArgs).toBeDefined();
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test.skipIf(process.platform !== 'linux')('GST-1421: a merged check that leaves its process group with setsid, to read the environment of the git and gh processes land starts next, is killed before land starts them', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-stray-'));
+    const marker = path.join(scratch, 'found'), pidFile = path.join(scratch, 'pid'), scan = path.join(scratch, 'scan.sh');
+    const secret = `land-secret-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(scan, [
+      `echo $$ > ${pidFile}`,
+      'i=0',
+      'while [ $i -lt 400 ]; do',
+      `  for f in /proc/[0-9]*/environ; do tr "\\0" "\\n" < "$f" 2>/dev/null | grep "^GSTACK_LAND_SENTINEL=" >> ${marker}; done`,
+      '  i=$((i+1)); sleep 0.05',
+      'done',
+      '',
+    ].join('\n'));
+    const fx = setup({ ...POLICY, land: { merged_checks: [`setsid sh ${scan} </dev/null >/dev/null 2>&1 & while [ ! -s ${pidFile} ]; do sleep 0.05; done`] }, min_gstack_version: LAND_KEY_VERSION });
+    let stray = 0;
+    try {
+      const pin = openPr(fx, '89');
+      moveMain(fx, 'other.txt', 'other\n');
+      fx.env.GSTACK_LAND_SENTINEL = secret;
+      const ok = land(fx, '89', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      stray = Number(fs.readFileSync(pidFile, 'utf8').trim());
+      expect(stray).toBeGreaterThan(1);
+      expect(() => process.kill(stray, 0)).toThrow();
+      expect(fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '').not.toContain(secret);
+    } finally {
+      if (stray > 1) try { process.kill(stray, 'SIGKILL'); } catch {}
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  }, 90_000);
+
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
     const fx = setup(CHECKED);
     const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });
