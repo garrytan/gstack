@@ -14,7 +14,7 @@ import {
   DERIVABLE_PREFIXES, PERIODIC_ONLY_PR_FILES, PR_FULL_GATE_FILES, PR_PROFILE_MAPS, formatPrCoverageSummary, selectPrProfile, unknownFileLabel,
 } from '../scripts/test-pr-profile';
 import { buildRunManifest, computePaidCaseSelection } from '../scripts/test-paid-shards';
-import { E2E_TIERS } from './helpers/touchfiles-data';
+import { E2E_TIERS, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { matchGlob } from './helpers/test-selection';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -355,7 +355,7 @@ describe('narrow screens leave hub files to the train gate', () => {
     expect(result.coverage?.hubFiles).toEqual([hub]);
     expect(result.coverage?.mode).toBe('pr');
     expect(result.selection).toEqual({ e2e: [], judges: [] });
-    expect(plan([hub], 'broad').selection.judges!.length).toBeGreaterThan(0);
+    expect(plan([hub], 'broad').selection.judges).toEqual(Object.keys(LLM_JUDGE_TOUCHFILES).sort());
     expect(formatPrCoverageSummary({ profile: 'pr', selection: result.selection, prCoverage: result.coverage }).join('\n'))
       .toContain(`Left to the train gate's full census (narrow screen): \`${hub}\``);
     expect(result.reason).toContain(`train gate's full census runs them: ${hub}`);
