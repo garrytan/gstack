@@ -31,9 +31,10 @@ gstack_launch_probe() {
   fi
   rc=$?
   # The first non-blank line, CRs dropped, at most 200 bytes: one subshell, not
-  # a five-process pipeline (each process start is ~20 ms on Windows).
+  # a five-process pipeline (each process start is ~20 ms on Windows). The
+  # pattern's leading ( keeps bash 3.2 (macOS /bin/bash) from ending $( at its ).
   _glp_detail=$(set -f; IFS='
-'; LC_ALL=C; for line in $out; do line=${line//$'\r'/}; case "$line" in *[![:space:]]*) printf '%s' "${line:0:200}"; break ;; esac; done)
+'; LC_ALL=C; for line in $out; do line=${line//$'\r'/}; case "$line" in (*[![:space:]]*) printf '%s' "${line:0:200}"; break ;; esac; done)
   case "$out" in
     *[Aa]pplication\ [Cc]ontrol*|*"Smart App Control"*|*"blocked by group policy"*|*"has blocked this file"*)
       _glp_state=blocked; return 0 ;;
