@@ -148,6 +148,11 @@ Two cases ignore the preference on purpose: a cross-family outside voice (the
 `plan-review` role picks the other provider) and a model under test in an eval
 (`eval-arms` and `/eval-plan` arms).
 
+/ship's Step 14.5 docs audit runs on the preference at low effort when its
+extras name no model; unset or unusable, it runs on `anthropic/claude-sonnet-5-5`
+at low effort, and `host` runs it on the lane's own model. The pass prints the
+pick as `AUDIT_MODEL:`.
+
 A value gstack can't use stops only the agent role, naming the file and the fix.
 `plan-review`, `implementation` and `eval-arms` keep resolving, and
 `gstack-models list` shows the problem in its agent block.

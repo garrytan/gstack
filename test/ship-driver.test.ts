@@ -219,14 +219,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(flat(read('ship/sections/budget-handoff.md.tmpl'))).toContain('the wait until the last settles (`done`, `failed` or a final summary; a fresh `idle` has not run)');
   });
 
-  // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run on a small model at low effort with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
+  // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run at low effort (7 and 8 on a small model, 14.5 on AUDIT_MODEL, GST-1439) with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on a small model at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
-    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block, so each runs at low effort on a small model, Step 14.5 once on Sonnet 5.5; findings go to the PR body');
+    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block: low effort, 7 and 8 on a small model, 14.5 once on `AUDIT_MODEL:`; findings go to the PR body');
     expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
     const capy = read('capy/skill/gstack/SKILL.md');
     expect(capy).toContain('model: { model_id: "anthropic/claude-sonnet-5-5", reasoning_mode: "low" }');
-    expect(capy).toContain('(14.5 once)');
+    expect(capy).toContain('reasoning_mode: "low" }` (not 14.5)');
   });
 
   // Value: protects=Step 9.2.1's report-only probes run in the parent's own Phase 4 program, as the section says, with its Reads in Phase 3, and
