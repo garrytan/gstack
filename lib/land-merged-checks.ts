@@ -6,7 +6,16 @@
  * (the merged tree's package.json decides what `bun run` does), so they run only under --allow-repo-commands, never
  * under --dry-run, with an environment that keeps PATH and locale only and a throwaway HOME. Validated here so
  * lib/ship-policy.ts stays one schema file.
+ *
+ * A scrubbed environment does not stop a check reading land's own: /proc/<land pid>/environ is the exec-time
+ * snapshot (deleting from process.env does not change it), and any process of the same uid can read it, through
+ * $PPID or a /proc scan (GST-1421). So on Linux land makes itself non-dumpable before the first check, which closes
+ * its /proc environ, mem and ptrace to its own uid; execve resets the flag, so the checks stay ordinary processes, and
+ * land never restores it, because a check that escaped the process-group kill could still be alive. When that fails
+ * the checks do not run. macOS has no /proc but `ps -E` (KERN_PROCARGS2) shows a same-uid process's exec-time
+ * environment and has no per-process opt-out, so there the land process's environment stays readable to the checks.
  */
+import { dlopen, FFIType } from 'bun:ffi';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -49,6 +58,16 @@ export type MergedRun = { ok: true; tree: string } | { ok: false; conflict: bool
 const LOCKFILES = ['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
 const DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'workspaces', 'overrides'];
 const read = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+/** PR_SET_DUMPABLE 0, then PR_GET_DUMPABLE to confirm it; null when land's /proc entries are closed, else why not. */
+function closeLandProc(): string | null {
+  try {
+    const libc = dlopen('libc.so.6', { prctl: { args: [FFIType.i32, FFIType.u64, FFIType.u64, FFIType.u64, FFIType.u64], returns: FFIType.i32 } });
+    try {
+      const set = libc.symbols.prctl(4, 0, 0, 0, 0), now = libc.symbols.prctl(3, 0, 0, 0, 0);
+      return set === 0 && now === 0 ? null : `prctl(PR_SET_DUMPABLE, 0) returned ${set}, dumpable is ${now}`;
+    } finally { libc.close(); }
+  } catch (e) { return (e as Error).message; }
+}
 const deps = (file: string): string => { try { const p = JSON.parse(read(file) ?? 'null') ?? {}; return JSON.stringify(DEP_KEYS.map(k => p[k] ?? null)); } catch { return 'unreadable'; } };
 
 /** Run `checks` on a throwaway commit of `pin` merged onto `base` (HEAD is that commit), in a worktree of `root` that is always removed, with a scrubbed environment; a check that does not finish (its whole process group is killed), moves HEAD or changes a tracked file fails, and a merged tree whose dependencies differ from the checkout's is refused before any check runs. */
@@ -69,6 +88,8 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     if (drift.length) return { ok: false, conflict: false, setup: true, tree, detail: `the merged tree's ${drift.join(', ')} differ from this checkout's, so its node_modules cannot vouch for the merged tree` };
     const modules = path.join(root, 'node_modules');
     if (fs.existsSync(modules) && !fs.existsSync(path.join(dir, 'node_modules'))) fs.symlinkSync(modules, path.join(dir, 'node_modules'));
+    const open = process.platform === 'linux' ? closeLandProc() : null;
+    if (open) return { ok: false, conflict: false, setup: true, tree, detail: `cannot close land's /proc environment to the checks (${open}), so they did not run` };
     for (const cmd of checks) {
       const group = process.platform !== 'win32';
       const log = path.join(scratch, 'check.log');

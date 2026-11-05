@@ -2126,14 +2126,21 @@ commands are repo commands: the merged tree's `package.json` decides what
 `--allow-repo-commands`, with `PATH` and the locale as the whole environment
 and a throwaway `HOME`, so no token reaches them through the environment,
 runs git around them with hooks and fsmonitor off, and kills a command's whole
-process group with SIGKILL when it ends or times out. A check that moves HEAD
+process group with SIGKILL when it ends or times out. A scrubbed environment
+alone doesn't stop a check reading land's own through `/proc/$PPID/environ`
+or a `/proc` scan (GST-1421), so on Linux land makes itself non-dumpable before
+the first check, which closes its `/proc` environment, memory and ptrace to
+processes of the same user; when it can't, the checks don't run. macOS has no
+`/proc`, but `ps -E` still shows land's starting environment to a same-user
+process. A check that moves HEAD
 off the merged commit fails. Land re-reads the base policy after the locked
 fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
 merged tree's lockfile or `package.json` dependencies differ from the
 checkout's, the linked `node_modules` can't vouch for it: land refuses with
 `QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
 the filesystem: a command can still write the checkout's `.git` (the worktree
-shares it) and the linked `node_modules`, so pass the flag only for a base
+shares it) and the linked `node_modules`, and read anything the user can (other
+processes' environments, credential files), so pass the flag only for a base
 policy and PRs you trust to run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
 merge, a CI round and a new receipt per PR. gstack's own policy runs
