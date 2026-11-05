@@ -147,7 +147,7 @@ interface Entry { id: string | null; excluded: boolean; mode: number; backup?: s
 export interface Baseline { version: 1; root: string; head: string; branch?: string; tips?: Record<string, string>; taken_at: number; refs: string[]; stashes: string[]; entries: Record<string, Entry> }
 
 function snapshot(root: string, blobs: string, head: string): Baseline {
-  const changed = changedVsHead(root);
+  const changed = [...new Set([...changedVsHead(root), ...nulList(git(root, ['diff', '--cached', 'HEAD', '--name-only', '-z', '--no-renames']).out)])];
   const ids = worktreeIds(root, changed);
   const tree = changed.length ? treeEntries(root, head, changed) : new Map<string, TreeEntry>();
   const generated = generatedPaths(root, head, changed);

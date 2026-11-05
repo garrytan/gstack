@@ -445,6 +445,17 @@ describe('a rollback restores bytes, index and mode exactly, and reads attribute
     expect(git('show', ':src/total.ts')).toBe(staged);
   });
 
+  test('a change staged at the baseline whose worktree matches HEAD keeps its staged entry', () => {
+    const staged = '// staged only\n' + SRC;
+    fs.writeFileSync(path.join(repo, 'src', 'total.ts'), staged);
+    git('add', 'src/total.ts');
+    fs.writeFileSync(path.join(repo, 'src', 'total.ts'), SRC);
+    const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts");
+    expect(json(after.stdout).decision).toBe('block');
+    expect(read('src/total.ts')).toBe(SRC);
+    expect(git('show', ':src/total.ts')).toBe(staged);
+  });
+
   test.skipIf(process.platform === 'win32')('a file clean at the baseline keeps its own permissions (ov#3)', () => {
     fs.chmodSync(path.join(repo, 'src', 'total.ts'), 0o600);
     const { after } = bash(LOADED, "sed -i 's/a - b/a + b/' src/total.ts");
