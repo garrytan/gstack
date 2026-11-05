@@ -49,7 +49,7 @@ for (const [file, spec] of Object.entries(FILES)) {
       expect(wf.permissions).toEqual({ contents: 'read' });
       for (const name of Object.keys(jobs).filter(n => n !== 'reuse' && n !== spec.observer)) expect([name, jobs[name].permissions]).toEqual([name, undefined]);
       if (spec.observer) expect([jobs[spec.observer].permissions, jobs[spec.observer].needs, jobs[spec.observer].steps.some((s: any) => s.uses?.startsWith('actions/checkout@'))]).toEqual([{}, undefined, false]);
-      expect(source.match(/secrets\.[A-Z_]+/g) ?? []).toEqual(spec.observer ? ['secrets.TRUNK_API_TOKEN'] : []);
+      expect(source.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi) ?? []).toEqual(spec.observer ? ['secrets.TRUNK_API_TOKEN'] : []);
       expect(source).not.toContain('pull_request_target');
       const find = jobs.reuse.steps.find((s: any) => s.id === 'find');
       expect(find.env).toEqual({ GH_TOKEN: '${{ github.token }}' });

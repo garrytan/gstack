@@ -38,7 +38,7 @@ describe('free-tests workflow wiring', () => {
 
   test('secretless: no secrets reach the free lane', () => {
     const jobs = (Bun.YAML.parse(source) as any).jobs;
-    expect(source.match(/secrets\./g)).toEqual(['secrets.']);
+    expect(source.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi)).toEqual(['secrets.TRUNK_API_TOKEN']);
     expect(jobs['trunk-dynamic-ci'].env).toEqual({ TRUNK_API_TOKEN: '${{ secrets.TRUNK_API_TOKEN }}' });
     expect(source).not.toContain('ANTHROPIC_API_KEY');
     expect(source).not.toContain('OPENAI_API_KEY');
