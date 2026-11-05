@@ -157,6 +157,29 @@ export function stated(raw: string): Stated | undefined {
 export interface MergedLine { id: string; reader: string; label: string; stated?: Stated; summary_candidate?: true; raw: string; output_sha256: string }
 
 /**
+ * The closed code fences in a reply (GST-1409), open line to close line: an opener (``` or ~~~) closed by the same character at
+ * least as long with no info string, before any line that could start or mark a finding (a heading, a bold or labelled lead, a
+ * labelled list item or file:line, a JSON line, a clean marker). An unclosed fence, or one that would cross such a line, is no
+ * fence: its text parses as prose, so a fence can never swallow a finding.
+ */
+const FENCE = /^\s*(`{3,}|~{3,})(.*)$/;
+const fenceBoundary = (t: string) => HEADING.test(t) || LABEL_HEADING.test(t) || NUMBERED_HEAD.test(t) || t.startsWith('**') || t.startsWith('{') || LEAD_LABEL.test(t)
+  || ((LIST_ITEM.test(t) || LOCUS.test(t)) && (ANY_LABEL.test(t) || BLOCKS_YES.test(t))) || /^[`*]*NO FINDINGS/.test(t) || /^[`*]*Recommendation:/i.test(t) || isReviewedTreeLine(t);
+function closedFences(lines: string[]): Map<number, number> {
+  const spans = new Map<number, number>();
+  for (let i = 0; i < lines.length; i++) {
+    const open = FENCE.exec(lines[i]!);
+    if (!open) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const close = FENCE.exec(lines[j]!);
+      if (close && close[1]![0] === open[1]![0] && close[1]!.length >= open[1]!.length && !close[2]!.trim()) { spans.set(i, j); i = j; break; }
+      if (fenceBoundary(lines[j]!.trim())) break;
+    }
+  }
+  return spans;
+}
+
+/**
  * One reader's findings as written: a JSON object per line (severity kept as written); else each prose line carrying a severity or
  * FIXABLE/INVESTIGATE label, at the most severe label on it, and each top-level list item under a label-only heading (the stronger
  * of the two labels). A line with a `Severity` field takes that field's label instead (a field stating more than one label, "High/Critical", counts as none), whatever its
@@ -198,8 +221,13 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
   };
   const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
-  for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
+  const all = output.replace(/\r\n/g, '\n').split('\n');
+  const fences = closedFences(all);
+  for (let i = 0; i < all.length; i++) {
+    const line = all[i]!;
     const t = line.trim();
+    const end = fences.get(i);
+    if (end !== undefined && !gap && current && !current.raw.startsWith('{') && (current.fields.size || current.raw.match(SEVERITY_FIELD) || current.raw.match(BLOCKS_FIELD))) { current.raw += ` | (code block: ${end - i - 1} lines)`; i = end; continue; }
     if (!t) { gap = true; prev = ''; continue; }
     if (!treeSeen && isReviewedTreeLine(t)) { treeSeen = true; continue; }
     const afterGap = gap;
