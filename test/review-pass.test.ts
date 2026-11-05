@@ -706,6 +706,32 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(bin(dir, env, ['pass', '--base', 'main', '--out', path.join(dir, '.state/run/d2'), '--pass', 'x16b', '--audit-only']).status).not.toBe(0);
   }, 240_000);
 
+  // Value: protects=Step 14.5's docs audit runs on the owner's agent_model at low effort, today's Sonnet 5.5 low when no preference is set, and an extras model still wins; fails_when=the audit-only pass ignores preferences.yaml (GST-1439: Opus crews audited on Sonnet), a missing file changes the default, or a given model is overwritten;
+  //   why_new=the audit model was a prose hard-code the driver copied into extras; seam=gstack-review-dispatch pass --audit-only; no_claim=reviewer passes and Steps 7 and 8, which keep their own models
+  test('the audit-only docs reader defaults to the owner agent_model at low effort; a given model wins', () => {
+    const { dir, env } = repo();
+    const prompt = path.join(dir, '.state/docs.prompt.md');
+    fs.mkdirSync(path.dirname(prompt), { recursive: true });
+    fs.writeFileSync(prompt, 'Run Step 14.5 as written.\n');
+    const prefs = path.join(dir, '.state/preferences.yaml');
+    fs.writeFileSync(prefs, 'agent_model: opus\n');
+    const audit = (id: string, e: NodeJS.ProcessEnv, model?: object) => {
+      const extras = path.join(dir, `.state/${id}.json`);
+      fs.writeFileSync(extras, JSON.stringify([{ name: 'docs', prompt_file: prompt, first: true, ...(model ? { model } : {}) }]));
+      const out = path.join(dir, '.state/run', id);
+      const r = bin(dir, e, ['pass', '--base', 'main', '--out', out, '--pass', id, '--audit-only', '--extras', extras]);
+      expect(r.status, r.stderr).toBe(0);
+      return { stdout: r.stdout, model: JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')).readers[0].model };
+    };
+    const { GSTACK_PREFERENCES_FILE: _, ...noFile } = env;
+    const opus = audit('d-opus', { ...env, GSTACK_PREFERENCES_FILE: prefs });
+    expect(opus.model).toEqual({ model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'low' });
+    expect(opus.stdout).toContain('AUDIT_MODEL: anthropic/claude-opus-5-5 reasoning=low (agent_model');
+    expect(audit('d-none', noFile).model).toEqual({ model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' });
+    const given = { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' };
+    expect(audit('d-given', { ...env, GSTACK_PREFERENCES_FILE: prefs }, given).model).toEqual(given);
+  });
+
   // Value: protects=a pass id typed in capitals is read as its lowercase id, so the manifest, its titles and a resume agree, and an id with other characters is still refused naming the rule; fails_when=--pass P1 is refused as a missing flag (gstack-evals#191 /ship), a capitalized resume of p1 reads as another pass, or p_1 is accepted;
   //   why_new=the id was matched case-sensitively and its refusal read as a missing flag; seam=gstack-review-dispatch pass; no_claim=the reviewer plan, which --audit-only skips
   test('pass reads its id as lowercase; an id with other characters is still refused with the rule', () => {

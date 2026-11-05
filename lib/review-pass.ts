@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { AgentModelError, resolveAgentModel } from './agent-model';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
@@ -70,6 +71,22 @@ export interface Manifest {
 }
 export interface FixCheckFiles { fix_list: string; hunks: string; tests: string; callers?: string }
 export interface Extra { name: string; prompt_file: string; first?: boolean; model?: PassModel }
+/** Step 14.5's docs audit model when no preference is set (its pre-GST-1439 hard-code). */
+export const DOCS_AUDIT_DEFAULT: PassModel = { model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'low' };
+
+/** The model an audit-only extra runs on when it names none (GST-1439): the owner's agent_model at low effort,
+ * DOCS_AUDIT_DEFAULT with no preference or an unusable one; agent_model host leaves it to the lane's own model. */
+export function auditModel(env: NodeJS.ProcessEnv = process.env): { model?: PassModel; line: string } {
+  const fallback = (why: string) => ({ model: DOCS_AUDIT_DEFAULT, line: `AUDIT_MODEL: ${DOCS_AUDIT_DEFAULT.model_id} reasoning=low (default; ${why})` });
+  let s;
+  try { s = resolveAgentModel({ env }); } catch (error) {
+    if (!(error instanceof AgentModelError)) throw error;
+    return fallback(`${error.problem}, ignored`);
+  }
+  if (s.source.kind === 'default') return fallback('no agent_model set');
+  if (!s.id) return { line: `AUDIT_MODEL: host (agent_model host in ${s.source.path}: the lane's own model)` };
+  return { model: { model_id: s.id, reasoning_mode: 'low' }, line: `AUDIT_MODEL: ${s.id} reasoning=low (agent_model ${s.value} in ${s.source.path})` };
+}
 /** Step 9.2.1's own first line: its probes are the parent's, so a QA subagent only refuses (C4-36, C5-36: "parent-only"). */
 export const PARENT_ONLY_QA = 'Only the parent runs report-only discovery.';
 const qaRefusal = (name: string) => new BriefError(`Step 9.2.1 is the parent's report-only discovery (ship/sections/review-army.md: "${PARENT_ONLY_QA}"), never an audit reader: ${name}`);
