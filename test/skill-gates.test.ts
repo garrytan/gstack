@@ -67,6 +67,21 @@ describe('settings', () => {
     expect(s.hooks.Stop.map((e: { hooks: Array<{ command: string }> }) => path.basename(e.hooks[0].command))).toEqual(['investigate-gate-stop', 'ceo-review-gate-stop']);
   });
 
+  test('a root containing a space: each command still runs its shim through sh -c', () => {
+    const root = path.join(state, 'gstack root');
+    fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+    fs.copyFileSync(BIN, path.join(root, 'bin', 'gstack-skill-gates'));
+    for (const dir of ['lib', 'hosts']) fs.symlinkSync(path.join(ROOT, dir), path.join(root, dir));
+    const env = { PATH: process.env.PATH ?? '', HOME: state, GSTACK_STATE_ROOT: state };
+    const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(root, 'bin', 'gstack-skill-gates'), 'settings', '--ceo-review'], { env, encoding: 'utf8', timeout: 20_000 });
+    expect(r.status).toBe(0);
+    const cmd = JSON.parse(r.stdout).hooks.Stop[0].hooks[0].command;
+    expect(cmd).toContain('gstack root');
+    const sh = spawnSync('sh', ['-c', cmd], { env, input: '', encoding: 'utf8', timeout: 20_000 });
+    expect(sh.stderr).not.toMatch(/not found|No such file/);
+    expect(sh.status).toBe(0);
+  });
+
   test('no hook named is a usage error', () => {
     const r = cli('settings');
     expect(r.status).toBe(1);
