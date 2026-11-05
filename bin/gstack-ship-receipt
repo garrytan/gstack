@@ -104,8 +104,10 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
   name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
-  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest; both also
-  bind when neither the recorded selection nor HEAD's holds a file the PR changed.
+  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude (HEAD's). Write, carry and the queue also bind
+  a digest from an earlier base policy when it gives the PR's files the same selection as HEAD's: the same applied patterns,
+  excluded files and kept files with their reasons (GST-1446; write rebuilds it from the policies the base held, prints
+  REVIEW_EXCLUDE_POLICY_MOVED:, and refuses when none does; an omitted --review-exclude is never rebuilt).
   The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
   digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
   --docs-post <audit-id>-post.json (Step 14.5's post snapshot, the file finish takes): the reviewed --review-exclude digest also binds
@@ -271,7 +273,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   if (review.exclude.state === 'refused') { for (const l of review.exclude.lines) process.stderr.write(`${l}; nothing written\n`); return EXIT.refused; }
   const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
   const excludeGiven = flag(rest, '--review-exclude') ?? 'none';
-  const excludeBound = writeExcludeBinds(repoRoot, base, headSha ?? head, review, excludeGiven, flag(rest, '--docs-post'), flag(rest, '--docs-pre'));
+  const excludeBound = writeExcludeBinds(repoRoot, base, headSha ?? head, review, flag(rest, '--review-exclude'), flag(rest, '--docs-post'), flag(rest, '--docs-pre'));
   if (!excludeBound.ok) {
     process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the --review-exclude argument names another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)} (write compares the argument, not the review ledger)${flag(rest, '--review-exclude') === undefined ? '; no --review-exclude was given, so write compared none' : ''}${excludeBound.why ? `; the docs-audit exception does not apply: ${excludeBound.why}` : ''}; fix: when only Step 14.5's docs audit changed files under review_exclude_paths after the review, pass its --docs-post <audit-id>-post.json and --docs-pre <its Prepare snapshot>; otherwise rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
     return EXIT.fail;
@@ -878,7 +880,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const now = review.depth;
     if (review.exclude.state === 'refused') return refused('RECEIPT_CARRY_REFUSED', `${review.exclude.lines.join('; ')}; run /ship on ${head.slice(0, 12)} once the base policy reads`);
     const digest = review.exclude.state === 'active' ? review.exclude.record.digest : 'none';
-    if (!carryExcludeBinds(review.exclude, receipt)) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the receipt's digest is the --review-exclude argument write was given, and it names another selection than HEAD ${head.slice(0, 12)} has under the base policy and one of the two selections holds a file the PR changed (carry compares those, not the review ledger), so carry does not apply; run /ship on ${head.slice(0, 12)}`);
+    if (!carryExcludeBinds(review.exclude, receipt)) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the receipt's digest is the --review-exclude argument write was given, and it names another selection than HEAD ${head.slice(0, 12)} has under the base policy and the two give the PR's files different selections (carry compares those, not the review ledger), so carry does not apply; run /ship on ${head.slice(0, 12)}`);
     const riskOf = (d: { class: string; risk?: readonly string[] }) => `${d.class}:${[...(d.risk ?? [])].sort().join(',')}`;
     if (recheck && riskOf(now) !== riskOf(receipt.review_depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} is risk class ${riskOf(now)}, not the reviewed ${riskOf(receipt.review_depth)}, so a scoped re-check cannot stand in for review; run /ship on ${head.slice(0, 12)}`);
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
