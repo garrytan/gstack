@@ -42,7 +42,11 @@
 # included), so it never destroys a VM this call did not create. A 5xx or no
 # answer is not a refusal: `up` looks the VM up by name for UBI_CREATE_GRACE
 # seconds, and when that cannot settle it either, it keeps the record and the recovery
-# bundle and exits UBI_CREATE_UNKNOWN. `down` counts a VM as gone only
+# bundle and exits UBI_CREATE_UNKNOWN. Another caller can take an explicit -n
+# name between the check and the create, so a VM found that way is adopted
+# with teardown off, and teardown is armed only once this call's ssh key opens
+# it (within UBI_SSH_WAIT seconds, default 300); if the key never does, `up`
+# exits UBI_CREATE_UNKNOWN and leaves the VM to its TTL. `down` counts a VM as gone only
 # on a readable answer: a failed or unreadable VM list or show is unknown, so
 # down exits non-zero and keeps the recovery bundle. The API key reaches curl
 # as a header file on a pipe, never in its argv. A create refused
@@ -150,6 +154,7 @@ DEFAULT_LOCATION="${UBI_LOCATION:-eu-central-h1}"
 GC_HOURS="${UBI_GC_HOURS:-0}"
 API_TIMEOUT="${UBI_API_TIMEOUT:-120}"
 CREATE_GRACE="${UBI_CREATE_GRACE:-180}"
+SSH_WAIT="${UBI_SSH_WAIT:-300}"
 DOWN_TIMEOUT="${UBI_DOWN_TIMEOUT:-900}"
 POLL="${UBI_POLL_SECONDS:-5}"
 ALLOWED_STORAGE="${UBI_ALLOWED_STORAGE:-320 640}"
@@ -1341,7 +1346,7 @@ cmd_up() {
   case $code in
     200) created=yes ;;
     4[0-9][0-9]) created=no ;;
-    *) created=unknown ;;
+    *) created=unknown UP_NAME="" ;;
   esac
   if [ "$created" = no ]; then
     UP_NAME=""
@@ -1357,7 +1362,9 @@ cmd_up() {
   [ -z "$interrupted" ] || exit 130
   if [ "$created" = unknown ]; then
     # A 5xx or no answer (000) is not a refusal: the VM may exist. Look it up
-    # by name until it shows or UBI_CREATE_GRACE has passed.
+    # by name until it shows or UBI_CREATE_GRACE has passed. Another caller can
+    # take the name between the check and the create (a lost 409), so teardown
+    # stays off until this call's key opens the VM.
     log "create of $location/$name answered HTTP $code; looking it up by name before deciding"
     local seen_code
     while :; do
@@ -1373,9 +1380,9 @@ cmd_up() {
     esac
     write_state "$name" "$location" "$size" "" "$created" "$create_at"
     case $created in
-      yes) bundle_save "$name"; log "create of $location/$name went through; continuing" ;;
-      no) cat "$dir/create.err" >&2; die "create failed (HTTP $code): $location/$name was still absent ${CREATE_GRACE}s after the request" ;;
-      unknown) die "UBI_CREATE_UNKNOWN: could not tell whether $location/$name exists (create answered HTTP $code, its lookup HTTP $seen_code); its record and recovery bundle stay, teardown destroys it if it shows up, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 down $name" ;;
+      yes) bundle_save "$name"; log "create of $location/$name went through; teardown waits until this call's key opens it" ;;
+      no) cat "$dir/create.err" >&2; rm -rf "$dir"; forget_vm "$name"; [ -z "$RECOVERY_DIR" ] || rm -f "$RECOVERY_DIR/$OWNER/$name.bundle"; die "create failed (HTTP $code): $location/$name was still absent ${CREATE_GRACE}s after the request" ;;
+      unknown) die "UBI_CREATE_UNKNOWN: could not tell whether $location/$name exists (create answered HTTP $code, its lookup HTTP $seen_code); its record and recovery bundle stay, nothing destroys it, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 list" ;;
     esac
   fi
   if [ "$created" = no ]; then
@@ -1405,12 +1412,16 @@ cmd_up() {
   bundle_save "$name"
 
   load "$name"
-  deadline=$(( $(date +%s) + 300 ))
+  deadline=$(( $(date +%s) + SSH_WAIT ))
   # shellcheck disable=SC2046
   until ssh $(ssh_opts) "ubi@$IP" true 2>/dev/null; do
-    [ "$(date +%s)" -lt "$deadline" ] || die "SSH did not come up on $IP"
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      [ -z "$UP_NAME" ] || die "SSH did not come up on $IP"
+      die "UBI_CREATE_UNKNOWN: $location/$name answers its name after a create that answered HTTP $code, but this call's key did not open it in ${SSH_WAIT}s, so it may be another caller's; nothing destroys it, its record and recovery bundle stay, and this owner's reap destroys it once its -t<hours> TTL ends; check with: $0 list"
+    fi
     sleep "$POLL"
   done
+  [ -n "$UP_NAME" ] || { UP_NAME=$name; log "this call's key opened $name; teardown armed"; }
   remote "$name" 'cloud-init status --wait >/dev/null 2>&1 || true'
   if [ -n "$sink" ]; then
     sink_start "$name" "$sink" ${sink_paths[@]+"${sink_paths[@]}"}
@@ -1685,13 +1696,16 @@ run_teardown() {
   else
     left=unknown others=unknown
   fi
-  [ -n "$UP_NAME" ] || left=0
+  if [ -z "$UP_NAME" ]; then
+    left=0
+    [ ! -f "$(state_dir "$RUN_VM")/env" ] || left=unknown
+  fi
   leftover "left=$left owner=$OWNER vm=$RUN_VM others=$others"
   if [ "$left" = 0 ]; then
     [[ "$SINK_FLUSH_FAILED" != *" $RUN_VM "* ]] || [ "$rc" -ne 0 ] || exit 1
     return 0
   fi
-  log "VM cleanup not confirmed for $RUN_VM (left=$left); destroy it with: $0 down $RUN_VM"
+  [ -z "$UP_NAME" ] || log "VM cleanup not confirmed for $RUN_VM (left=$left); destroy it with: $0 down $RUN_VM"
   [ "$rc" -ne 0 ] || exit 1
 }
 
