@@ -101,13 +101,13 @@ describe('docs-audit edits to code-classed policy prose (GST-1276: #3970, #3985)
 });
 
 describe('an additive lane mapping in .gstack/pregate.json (GST-1276: gstack-evals#203)', () => {
-  const pregate = (deps: Record<string, string[]>) => JSON.stringify({ dependencies: deps }, null, 2) + '\n';
-  const mapped = (after: Record<string, string[]>) => {
-    const f = fx({ '.gstack/pregate.json': pregate({ 'src/a.ts': ['test/a.test.ts'] }) });
+  const pregate = (deps: Record<string, string[]>, extra: Record<string, unknown> = {}) => JSON.stringify({ dependencies: deps, ...extra }, null, 2) + '\n';
+  const mapped = (after: Record<string, string[]>, [was, now]: Record<string, unknown>[] = [{}, {}]) => {
+    const f = fx({ '.gstack/pregate.json': pregate({ 'src/a.ts': ['test/a.test.ts'] }, was) });
     const reviewed = wtree(f);
     const reviewedBase = mergeBase(f);
     const post = snapshot(f);
-    f.write({ '.gstack/pregate.json': pregate(after) }); f.commit('pregate: map the lane');
+    f.write({ '.gstack/pregate.json': pregate(after, now) }); f.commit('pregate: map the lane');
     return finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
   };
 
@@ -123,6 +123,19 @@ describe('an additive lane mapping in .gstack/pregate.json (GST-1276: gstack-eva
       expect([name, r.status, lineOf(r.stdout, 'STOP')]).toEqual([name, 3, behaviorStop('.gstack/pregate.json')]);
       expect([name, lineOf(r.stdout, 'ROUTE_BOUNDED_REFUSED')]).toEqual([name, expect.stringContaining(why)]);
     }
+  });
+
+  test('a lane added beside a cut CI-reuse job or a dropped sealed rule stops; unchanged keys still take the reader', () => {
+    const profile = { workflow: 'free-tests.yml', events: ['pull_request'], jobs: ['free-plan', 'free-tests'], artifact: 'tested-tree' };
+    const was = { run_profiles: { 'ci-reuse/free-tests': profile }, sealed: { paths: ['evals/sealed/**'] } };
+    const lane = { 'src/a.ts': ['test/a.test.ts'], 'src/b.ts': ['test/b.test.ts'] };
+    const cut = { ...was, run_profiles: { 'ci-reuse/free-tests': { ...profile, jobs: ['free-plan'] } } };
+    for (const [name, now] of [['run_profiles', cut], ['sealed', { run_profiles: was.run_profiles }]] as const) {
+      const r = mapped(lane, [was, now]);
+      expect([name, r.status, lineOf(r.stdout, 'STOP')]).toEqual([name, 3, behaviorStop('.gstack/pregate.json')]);
+      expect([name, lineOf(r.stdout, 'ROUTE_BOUNDED_REFUSED')]).toEqual([name, expect.stringContaining(`changes ${name}`)]);
+    }
+    expect(lineOf(mapped(lane, [was, was]).stdout, 'STOP')).toContain('.gstack/pregate.json (lanes)');
   });
 });
 

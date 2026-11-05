@@ -283,9 +283,13 @@ export function boundedPaths(repoRoot: string, i: BoundedInput): { kinds: Record
       if (blob(i.now, p) !== recorded) { refuse('is not the bytes the post-audit snapshot recorded (edited after the audit)', 'restore the audited bytes, or ' + full); continue; }
     }
     if (kind === 'lanes') {
-      const at = (tree: string) => { const t = git(repoRoot, ['show', `${tree}:${p}`]); return t === null ? null : parseConfig(t, CHECK_IDS); };
-      const [ref, head] = [at(i.reviewed), at(i.now)];
+      const [refText, headText] = [i.reviewed, i.now].map(tree => git(repoRoot, ['show', `${tree}:${p}`]));
+      const [ref, head] = [refText, headText].map(t => t === null ? null : parseConfig(t, CHECK_IDS));
       if (!ref || !head || ref.errors.length || head.errors.length) { refuse('does not parse at both the reviewed and the current tree', full); continue; }
+      const canon = (v: unknown): string => Array.isArray(v) ? `[${v.map(canon)}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`)}}` : JSON.stringify(v);
+      const [was, now] = [refText!, headText!].map(t => JSON.parse(t) as Record<string, unknown>);
+      const moved = [...new Set([...Object.keys(was), ...Object.keys(now)])].find(k => k !== 'dependencies' && canon(was[k]) !== canon(now[k]));
+      if (moved) { refuse(`changes ${moved}; a lanes edit changes only dependencies`, full); continue; }
       const d = headPolicyDiff(ref.config, head.config, i.base);
       if (d.loosens.length) { refuse(`loosens the reviewed policy: ${d.loosens[0]}`, 'restore what it removed (a [] declaration lands on the base first), or ' + full); continue; }
       if (!Object.keys(d.adds).length) { refuse('adds no lane', full); continue; }
