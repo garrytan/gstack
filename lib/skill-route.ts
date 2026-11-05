@@ -28,16 +28,18 @@ const MAX_TRIGGER_CHARS = 200;
 const TRACE_MAX_BYTES = 1024 * 1024;
 const FAILURE_SESSIONS_KEPT = 64;
 
-export type SwitchName = 'skill_routing' | 'skill_contracts';
+export type SwitchName = 'skill_routing' | 'skill_contracts' | 'investigate_gate';
 export const SWITCH_ENV: Record<SwitchName, string> = {
   skill_routing: 'GSTACK_SKILL_ROUTING',
   skill_contracts: 'GSTACK_SKILL_CONTRACTS',
+  investigate_gate: 'GSTACK_INVESTIGATE_GATE',
 };
 
 /** Each switch's one default. setup, gstack-config and gstack-skill-route read it through `gstack-skill-route --default <switch>`; the hooks read it here. */
 export const SWITCH_DEFAULT: Record<SwitchName, 'on' | 'off'> = {
   skill_routing: 'off',
   skill_contracts: 'off',
+  investigate_gate: 'off',
 };
 
 export function normalizeSwitch(raw: string | null | undefined): 'on' | 'off' | null {
@@ -278,7 +280,7 @@ export function readStdinBounded(capBytes: number, ms: number, stream: NodeJS.Re
   });
 }
 
-export type TraceHook = 'skill-route' | 'skill-contract';
+export type TraceHook = 'skill-route' | 'skill-contract' | 'investigate-gate';
 
 export function traceLogPath(hook: TraceHook, env: NodeJS.ProcessEnv = process.env): string {
   return path.join(resolveStateRoot(env), 'hooks', `${hook}.log`);

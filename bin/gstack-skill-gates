@@ -1,0 +1,104 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-skill-gates — the opt-in enforcement hooks' helper (GST-1461).
+ *
+ *   gstack-skill-gates settings --investigate
+ *     Print a Claude Code settings JSON that registers the /investigate gate
+ *     and turns its switch on, for \`claude -p --settings <file>\` or the Agent
+ *     SDK's settings, so a headless run needs no settings.json edit.
+ *   gstack-skill-gates report [--session <id>] [--expect armed] [--json]
+ *     Count fired, blocked, released, observed and error markers per session
+ *     from $GSTACK_STATE_ROOT/skill-gates/<session>/record.json.
+ *
+ * Exit codes: 0 ok · 1 usage (SKILL_GATES_USAGE) · 2 GATE_NOT_ARMED (--expect
+ * armed and a session never fired) · 3 GATE_ERRORED (a session recorded a hook
+ * error). Docs: docs/skill-gates.md.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+import { gatesRoot, readGateRecord, recordPath, type GateHook, type GateRecord } from '../lib/skill-gates';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const USAGE = 'Usage: gstack-skill-gates settings --investigate\n       gstack-skill-gates report [--session <id>] [--expect armed] [--json]';
+const HOOKS: Record<string, { env: string; source: GateHook; events: Array<{ event: string; shim: string; matcher?: string }> }> = {
+  '--investigate': {
+    env: 'GSTACK_INVESTIGATE_GATE',
+    source: 'investigate-gate',
+    events: [
+      { event: 'PreToolUse', shim: 'investigate-gate-pre', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash' },
+      { event: 'PostToolUse', shim: 'investigate-gate-post', matcher: 'Bash' },
+      { event: 'PostToolUseFailure', shim: 'investigate-gate-post-failure', matcher: 'Bash' },
+      { event: 'Stop', shim: 'investigate-gate-stop' },
+    ],
+  },
+};
+
+function usage(why: string): never {
+  process.stderr.write(`SKILL_GATES_USAGE: ${why}\n${USAGE}\n`);
+  process.exit(1);
+}
+
+const args = process.argv.slice(2);
+if (args[0] === '--help' || args[0] === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
+
+if (args[0] === 'settings') {
+  const picked = args.slice(1);
+  if (!picked.length || picked.some(a => !HOOKS[a])) usage(`settings takes ${Object.keys(HOOKS).join(' ')}`);
+  const settings: { env: Record<string, string>; hooks: Record<string, unknown[]> } = { env: {}, hooks: {} };
+  for (const flag of picked) {
+    const h = HOOKS[flag];
+    settings.env[h.env] = 'on';
+    for (const e of h.events) {
+      (settings.hooks[e.event] ??= []).push({ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [{ type: 'command', command: path.join(ROOT, 'hosts', 'claude', 'hooks', e.shim), timeout: 10 }] });
+    }
+  }
+  process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (args[0] !== 'report') usage('expected settings or report');
+const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? (args[i + 1] ?? usage(`${name} needs a value`)) : undefined; };
+const session = flag('--session');
+const expect = flag('--expect');
+if (expect !== undefined && expect !== 'armed') usage('--expect takes armed');
+const asJson = args.includes('--json');
+
+const records: GateRecord[] = [];
+if (session) {
+  const file = recordPath(session);
+  if (fs.existsSync(file)) records.push(readGateRecord(file, session));
+} else {
+  let dirs: string[] = [];
+  try { dirs = fs.readdirSync(gatesRoot()); } catch { /* none yet */ }
+  for (const d of dirs.sort()) {
+    const file = path.join(gatesRoot(), d, 'record.json');
+    if (fs.existsSync(file)) records.push(readGateRecord(file, d));
+  }
+}
+
+const rows = records.flatMap(({ session_id: session, hooks }) => Object.entries(hooks).map(([hook, h]) => {
+  const runs = Object.values(h!.runs);
+  return {
+    session, hook, runs: runs.length, fired: runs.length,
+    blocked: runs.reduce((n, r) => n + r.blocked, 0), released: runs.filter(r => r.released_at).length,
+    observed: runs.reduce((n, r) => n + r.observed, 0), errors: h!.errors.length, error_codes: [...new Set(h!.errors.map(e => e.code))],
+    skipped: Object.keys(h!.skipped ?? {}),
+  };
+}));
+
+if (asJson) process.stdout.write(`${JSON.stringify({ rows }, null, 2)}\n`);
+else {
+  process.stdout.write(`skill gates: ${rows.length} session-hook row(s) under ${gatesRoot()}\n`);
+  for (const r of rows) {
+    process.stdout.write(`  ${r.session} ${r.hook} fired=${r.fired} blocked=${r.blocked} released=${r.released} observed=${r.observed} errors=${r.errors}${r.error_codes.length ? ` (${r.error_codes.join(',')})` : ''}${r.skipped.length ? ` skipped=${r.skipped.join(',')}` : ''}\n`);
+  }
+}
+
+if (rows.some(r => r.errors > 0)) {
+  process.stderr.write('GATE_ERRORED: a gate hook recorded an error; its stops and edits were allowed (docs/skill-gates.md#gate-errored)\n');
+  process.exit(3);
+}
+if (expect === 'armed' && (session ? !rows.some(r => r.fired > 0) : rows.length === 0 || rows.some(r => r.fired === 0))) {
+  process.stderr.write('GATE_NOT_ARMED: no fired marker for the expected session; the hooks never engaged (docs/skill-gates.md#gate-not-armed)\n');
+  process.exit(2);
+}

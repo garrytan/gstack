@@ -347,6 +347,7 @@ lookup_default() {
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
     skill_routing) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_routing ;; # on | off — the skill-routing UserPromptSubmit hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
     skill_contracts) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_contracts ;; # on | off — the skill-contract Stop hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
+    investigate_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default investigate_gate ;; # on | off — the /investigate enforcement hooks; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
@@ -1143,7 +1144,7 @@ $_gstack_legacy_root"
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts; do
+               skill_routing skill_contracts investigate_gate; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1169,7 +1170,7 @@ $_gstack_legacy_root"
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts; do
+               skill_routing skill_contracts investigate_gate; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

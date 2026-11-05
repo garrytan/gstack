@@ -129,7 +129,11 @@ var KNOWN_HOOKS = {
   "gstack-session-update":    { source: "gstack-session-update", event: "SessionStart", matcher: "", relpath: "bin/gstack-session-update" },
   "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" },
   "skill-route-hook":         { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/skill-route-hook" },
-  "skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" }
+  "skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" },
+  "investigate-gate-pre":     { source: "gstack-investigate-gate", event: "PreToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash", relpath: "hosts/claude/hooks/investigate-gate-pre" },
+  "investigate-gate-post":    { source: "gstack-investigate-gate", event: "PostToolUse", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post" },
+  "investigate-gate-post-failure": { source: "gstack-investigate-gate", event: "PostToolUseFailure", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post-failure" },
+  "investigate-gate-stop":    { source: "gstack-investigate-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/investigate-gate-stop" }
 };
 function gsHadBashPrefix(c) { return String(c == null ? "" : c).trim().indexOf("bash ") === 0; }
 function gsStripWrap(c) {
@@ -488,8 +492,8 @@ case "$ACTION" in
       exit 1
     fi
     case "$EVENT" in
-      SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|Notification) ;;
-      *) echo "invalid --event '$EVENT'; must be one of SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|Notification" >&2; exit 1 ;;
+      SessionStart|PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit|Stop|Notification) ;;
+      *) echo "invalid --event '$EVENT'; must be one of SessionStart|PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit|Stop|Notification" >&2; exit 1 ;;
     esac
     DIFF_ONLY=""
     ENSURE=""
