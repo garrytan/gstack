@@ -338,7 +338,7 @@ const bashCommand = (e: TranscriptEvent) => (isToolUse(e) && e.name === 'Bash' ?
 const agentText = (e: ToolUse) => [e.input.description, e.input.prompt, e.input.subagent_type, e.input.name].filter(v => typeof v === 'string').join('\n');
 const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 3)}...` : s).replace(/\s+/g, ' ');
 
-function labelValue(text: string, label: string): string | null {
+export function labelValue(text: string, label: string): string | null {
   const re = new RegExp(`^[ \\t>*_|-]*(?:\\*\\*|__)?${escapeRe(label)}[ \\t]*(?:\\*\\*|__)?[ \\t]*:[ \\t]*(?:\\*\\*|__)?(.*)$`, 'im');
   const m = re.exec(text);
   return m ? m[1].replace(/(?:\*\*|__)\s*$/, '').replace(/^`+|`+$/g, '').trim() : null;

@@ -60,6 +60,10 @@ Claude Code hooks (docs/skill-routing-and-contracts.md):
   --skill-contracts / --no-skill-contracts
                     Block once when a contract skill ends without its
                     required outputs (Stop). Saved as skill_contracts.
+  --investigate-gate / --no-investigate-gate
+                    After /investigate loads, block changes to tracked source
+                    (Edit, Write and Bash) until a root cause is stated
+                    (docs/skill-gates.md). Saved as investigate_gate.
 
 Model selection:
   --model <id>      Codex model profile override. Otherwise reads Codex config.
@@ -193,6 +197,7 @@ PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = ex
 TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explicit (#2677)
 SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
+INVESTIGATE_GATE_MODE=""    # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 CLAUDE_MODEL_ARG=""
@@ -207,6 +212,7 @@ _setup_unknown_option() {
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
     --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
+    --investigate-gate --no-investigate-gate \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
@@ -255,6 +261,9 @@ while [ $# -gt 0 ]; do
     --skill-contracts)    SKILL_CONTRACTS_MODE="on"; shift ;;
     --no-skill-contracts) SKILL_CONTRACTS_MODE="off"; shift ;;
     --skill-contracts=*)  SKILL_CONTRACTS_MODE="${1#--skill-contracts=}"; shift ;;
+    --investigate-gate)    INVESTIGATE_GATE_MODE="on"; shift ;;
+    --no-investigate-gate) INVESTIGATE_GATE_MODE="off"; shift ;;
+    --investigate-gate=*)  INVESTIGATE_GATE_MODE="${1#--investigate-gate=}"; shift ;;
     --refresh-registered) REFRESH_REGISTERED=1; shift ;;
     --no-browser) export GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_SKIP_FONTS=1; shift ;;
     --no-harness-auto) HARNESS_AUTO=0; shift ;;
@@ -4895,7 +4904,9 @@ fi
 # takes effect on the next prompt without re-running setup.
 _skill_hook_gate() {
   local key="$1" mode="$2" env_name="$3" event="$4" cmd="$5" source="$6" timeout="$7" what="$8"
-  local decision src out def unrecognized=0
+  local decision src out def unrecognized=0 matcher="${9:-}"
+  local -a regs=("$event" "$cmd" "$matcher")
+  [ "$#" -gt 9 ] && regs+=("${@:10}")
   def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SKILL_ROUTE_BIN" --default "$key" 2>/dev/null || true)"
   [ "$def" = "on" ] || def="off"
   if [ -n "$mode" ]; then
@@ -4927,17 +4938,21 @@ _skill_hook_gate() {
     "$SETTINGS_HOOK" remove-source --source "$source" >/dev/null 2>&1 || true
     return 0
   fi
-  [ -n "$cmd" ] || return 0
-  if [ "$IS_WINDOWS" -eq 1 ]; then cmd="bash $cmd"; fi
-  if out=$("$SETTINGS_HOOK" ensure-event --event "$event" --command "$cmd" --source "$source" --timeout "$timeout" 2>&1); then
-    case "$out" in
-      *unchanged*) : ;;
-      *re-pointed*) log "  re-pointed $event hook to $cmd (previous registration held a stale path)" ;;
-      *) log "  registered $event hook: $what (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-}; backup: settings.json.bak.<ts>)" ;;
-    esac
-  else
-    log "  warning: settings hook update failed: $(printf '%s\n' "$out" | head -1) — run $SETTINGS_HOOK manually"
-  fi
+  local i
+  for ((i = 0; i < ${#regs[@]}; i += 3)); do
+    event="${regs[i]}"; cmd="${regs[i+1]}"; matcher="${regs[i+2]}"
+    [ -n "$cmd" ] || continue
+    if [ "$IS_WINDOWS" -eq 1 ]; then cmd="bash $cmd"; fi
+    if out=$("$SETTINGS_HOOK" ensure-event --event "$event" --command "$cmd" --source "$source" --timeout "$timeout" ${matcher:+--matcher "$matcher"} 2>&1); then
+      case "$out" in
+        *unchanged*) : ;;
+        *re-pointed*) log "  re-pointed $event hook to $cmd (previous registration held a stale path)" ;;
+        *) log "  registered $event hook: $what (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-}; backup: settings.json.bak.<ts>)" ;;
+      esac
+    else
+      log "  warning: settings hook update failed: $(printf '%s\n' "$out" | head -1) — run $SETTINGS_HOOK manually"
+    fi
+  done
 }
 SKILL_ROUTE_BIN="$SOURCE_GSTACK_DIR/bin/gstack-skill-route"
 SKILL_ROUTE_HOOK="$(_hook_command_path hosts/claude/hooks/skill-route-hook || true)"
@@ -4948,6 +4963,20 @@ _skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPr
 _skill_hook_gate skill_contracts "$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \
   "$SKILL_CONTRACT_HOOK" gstack-skill-contract 10 \
   "a contract skill that ends without its required outputs is blocked once"
+# The /investigate gate (GST-1461, docs/skill-gates.md) registers one shim per
+# event; each basename has its own KNOWN_HOOKS row under one source tag.
+INVESTIGATE_GATE_PRE="$(_hook_command_path hosts/claude/hooks/investigate-gate-pre || true)"
+INVESTIGATE_GATE_POST="$(_hook_command_path hosts/claude/hooks/investigate-gate-post || true)"
+INVESTIGATE_GATE_POST_FAILURE="$(_hook_command_path hosts/claude/hooks/investigate-gate-post-failure || true)"
+INVESTIGATE_GATE_STOP="$(_hook_command_path hosts/claude/hooks/investigate-gate-stop || true)"
+INVESTIGATE_GATE_EDIT_MATCHER="Edit|Write|MultiEdit|NotebookEdit|Bash"
+_skill_hook_gate investigate_gate "$INVESTIGATE_GATE_MODE" GSTACK_INVESTIGATE_GATE PreToolUse \
+  "$INVESTIGATE_GATE_PRE" gstack-investigate-gate 10 \
+  "after /investigate loads, changes to tracked source wait for a stated root cause" \
+  "$INVESTIGATE_GATE_EDIT_MATCHER" \
+  PostToolUse "$INVESTIGATE_GATE_POST" Bash \
+  PostToolUseFailure "$INVESTIGATE_GATE_POST_FAILURE" Bash \
+  Stop "$INVESTIGATE_GATE_STOP" ""
 
 # Also tear down plan-tune + timeline hooks on --no-team (matches the existing pattern).
 # Tag-only remove-source misses untagged entries (Claude Code strips

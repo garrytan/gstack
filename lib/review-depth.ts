@@ -62,6 +62,7 @@ const GATE_PATH = [
 
 /** The path rules lib/review-exclude.ts keeps a matched file for: a gate path, agent prose, or a data-shaped config file. */
 export const isGatePath = (p: string) => GATE_PATH.some(r => r.test(p));
+export const isTestPath = (p: string) => TEST_PATH.some(r => r.test(p));
 export const isAgentProse = (p: string) => AGENT_PROSE.some(r => r.test(p));
 export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 
