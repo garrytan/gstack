@@ -151,8 +151,15 @@ describeIfSelected('CSO v3 — diff mode', ['cso-diff-mode'], () => {
   test('/cso --diff records its base and investigates changed security paths', async () => {
     await withFixture({ 'package.json': PACKAGE, 'app.js': 'console.log("fixture baseline");\n' }, {
       'webhook.js': `const http = require('node:http');
+const sessions = new Map([['alice-token', 'alice'], ['bob-token', 'bob']]);
 const payments = new Map();
 http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/reports/premium') {
+    const account = sessions.get((req.headers.authorization || '').replace('Bearer ', ''));
+    if (!account) { res.writeHead(401); return res.end(); }
+    if (payments.get(account)?.plan !== 'paid') { res.writeHead(402); return res.end('upgrade required'); }
+    return res.end('premium revenue report');
+  }
   if (req.method !== 'POST' || req.url !== '/webhook/payment') { res.writeHead(404); return res.end(); }
   let body = ''; req.on('data', chunk => body += chunk);
   req.on('end', () => {
