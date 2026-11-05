@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverTemplates } from '../scripts/discover-skills';
-import { DISPATCHES, LEDGER_PATH, ROOT_KEY, SHARED_KEYS, SHARED_PARTS, installReason, inventoryKeys, keyOf, validateEntry, validateLedger } from '../lib/inventory';
+import { DISPATCHES, LEDGER_PATH, ROOT_KEY, SHARED_KEYS, SHARED_PARTS, evidenceRef, installReason, inventoryKeys, keyOf, validateEntry, validateLedger } from '../lib/inventory';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-inventory');
@@ -128,6 +128,16 @@ describe('the per-status schema', () => {
     expect(codes('a', { status: 'safety', reason: 'x', aliases: 'other-name' })).toEqual(['LEDGER_FIELD_INVALID']);
     expect(codes('a', { status: 'safety', reason: 'x', aliases: [] })).toEqual(['LEDGER_FIELD_INVALID']);
     expect(codes('a', { status: 'safety', reason: 'x', aliases: ['other-name'] })).toEqual([]);
+  });
+
+  test('caveats is a list of limits on a verdict row, shown beside its sources', () => {
+    const caveats = ['measured with the hook', 'suite seeded from its own reviews'];
+    expect(codes('a', { status: 'helps', ...VERDICT, caveats })).toEqual([]);
+    expect(codes('a', { status: 'helps', ...VERDICT, caveats: [] })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(codes('a', { status: 'helps', ...VERDICT, caveats: 'one string' })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(codes('a', { status: 'helps', ...VERDICT, caveats: [''] })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(codes('a', { status: 'untested', grandfathered: true, plan: 'none', caveats })).toEqual(['LEDGER_FIELD_INVALID']);
+    expect(evidenceRef({ status: 'helps', ...VERDICT, caveats } as any)).toBe('sources: gstack-evals run r9 results.json; caveats: measured with the hook; suite seeded from its own reviews');
   });
 });
 

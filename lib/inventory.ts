@@ -66,7 +66,7 @@ export const PRIOR_WHY: Record<string, string> = {
   'not-claude-code': 'ran outside Claude Code (Messages API, Codex or Capy)',
   'variant-only': 'variant against variant, no no-gstack arm',
 };
-const FIELDS = ['status', 'grandfathered', 'plan', 'prior', 'reason', 'owner', 'measure_by', 'sources', 'models', 'prompt', 'scope', 'masked', 'r48', 'seed', 'aliases', 'note'];
+const FIELDS = ['status', 'grandfathered', 'plan', 'prior', 'reason', 'owner', 'measure_by', 'sources', 'models', 'prompt', 'scope', 'masked', 'r48', 'caveats', 'seed', 'aliases', 'note'];
 
 export type LedgerCode =
   | 'LEDGER_PARSE' | 'LEDGER_KEY_MISSING' | 'LEDGER_KEY_EXTRA' | 'LEDGER_STATUS_INVALID' | 'LEDGER_FIELD_UNKNOWN'
@@ -75,7 +75,7 @@ export type LedgerCode =
   | 'LEDGER_REASON_MISSING' | 'LEDGER_OWNER_MISSING' | 'LEDGER_MEASURE_BY_MISSING' | 'LEDGER_PRIOR_INVALID' | 'LEDGER_FIELD_INVALID'
   | 'INVENTORY_SOURCE_MISSING' | 'INVENTORY_PART_MISSING';
 export interface LedgerProblem { key: string; code: LedgerCode; message: string }
-export interface LedgerEntry { status: Status; grandfathered?: boolean; plan?: string; prior?: Array<{ ref: string; why: string[]; note?: string }>; reason?: string; owner?: string; measure_by?: string; sources?: string[]; models?: string[]; prompt?: string; scope?: string; masked?: boolean; r48?: { verdict: string; ref: string }; seed?: string; aliases?: string[]; note?: string }
+export interface LedgerEntry { status: Status; grandfathered?: boolean; plan?: string; prior?: Array<{ ref: string; why: string[]; note?: string }>; reason?: string; owner?: string; measure_by?: string; sources?: string[]; models?: string[]; prompt?: string; scope?: string; masked?: boolean; r48?: { verdict: string; ref: string }; caveats?: string[]; seed?: string; aliases?: string[]; note?: string }
 export interface Ledger { parts: Record<string, LedgerEntry>; unmapped?: Array<{ row: string; why: string }>; [k: string]: unknown }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -100,6 +100,8 @@ export function validateEntry(key: string, entry: unknown): LedgerProblem[] {
     add('LEDGER_PRIOR_INVALID', `prior needs [{ref, why: [...]}] with why from: ${Object.keys(PRIOR_WHY).join(', ')}`);
   if (entry.aliases !== undefined && !(Array.isArray(entry.aliases) && entry.aliases.length > 0 && entry.aliases.every(str))) add('LEDGER_FIELD_INVALID', 'aliases needs a list of names');
   const status = entry.status;
+  if (entry.caveats !== undefined && !((status === 'helps' || status === 'no-effect' || status === 'hurts') && Array.isArray(entry.caveats) && entry.caveats.length > 0 && entry.caveats.every(str)))
+    add('LEDGER_FIELD_INVALID', 'caveats is a list of limits on a helps, no-effect or hurts result');
   if (status === 'helps' || status === 'no-effect' || status === 'hurts') {
     if (!Array.isArray(entry.sources) || !entry.sources.length || !entry.sources.every(str)) add('LEDGER_SOURCES_MISSING', `${status} needs sources: one or more run ids or results files`);
     if (!frontierModels(entry.models)) add('LEDGER_MODELS_NOT_FRONTIER', `models must include ${FRONTIER_MODELS.join(' or ')} plus at most one named low-cost primary, never Haiku or Sonnet (R54)`);
@@ -164,7 +166,7 @@ export const keyOf = (name: string) => (name !== 'gstack-upgrade' && name.starts
 export function evidenceRef(e: LedgerEntry): string {
   if (e.status === 'untested') return `plan: ${e.plan}${e.grandfathered ? ' (grandfathered)' : ` (owner ${e.owner}, measure by ${e.measure_by})`}`;
   if (e.status === 'safety') return `reason: ${e.reason}`;
-  return `sources: ${(e.sources ?? []).join(', ')}${e.r48 ? `; R48 ${e.r48.verdict}` : ''}`;
+  return `sources: ${(e.sources ?? []).join(', ')}${e.r48 ? `; R48 ${e.r48.verdict}` : ''}${e.caveats ? `; caveats: ${e.caveats.join('; ')}` : ''}`;
 }
 
 /** gstack-skill-bill's EVIDENCE line for one skill folder in a gstack checkout. */

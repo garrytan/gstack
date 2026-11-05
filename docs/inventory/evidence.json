@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "R56 evidence ledger (ETHOS.md: 9. Earn Its Place). One row per inventory key (docs/inventory.md lists them); bin/gstack-inventory --check validates it and test/inventory.test.ts runs that check. Statuses and their required fields: helps, no-effect, hurts need sources, models (frontier per R54), prompt: preset, scope and masked: true, and no-effect and hurts also r48 {verdict, ref}; untested needs plan (a reference, or none only when grandfathered), and a new part also reason, owner and measure_by; safety needs reason. prior lists earlier results that do not count yet, with why. Seeded 2026-11-02 from GEVA-2's table (org-gstack-gbrain/research/gstack-part-evidence.json, gstack dac71371a); every row present at that base is grandfathered.",
+  "note": "R56 evidence ledger (ETHOS.md: 9. Earn Its Place). One row per inventory key (docs/inventory.md lists them); bin/gstack-inventory --check validates it and test/inventory.test.ts runs that check. Statuses and their required fields: helps, no-effect, hurts need sources, models (frontier per R54), prompt: preset, scope and masked: true, and no-effect and hurts also r48 {verdict, ref}; caveats lists a verdict's limits, shown beside its status; untested needs plan (a reference, or none only when grandfathered), and a new part also reason, owner and measure_by; safety needs reason. prior lists earlier results that do not count yet, with why. Seeded 2026-11-02 from GEVA-2's table (org-gstack-gbrain/research/gstack-part-evidence.json, gstack dac71371a); every row present at that base is grandfathered.",
   "seed_source": "org-gstack-gbrain/research/gstack-part-evidence.json (GEVA-156 for GST-915, 2026-11-02, gstack-evals main 409ff47)",
   "parts": {
     "autoplan": {
@@ -420,9 +420,27 @@
       "seed": "GEVA-2, 2026-11-02: retro: untested (never measured)"
     },
     "review": {
-      "status": "untested",
+      "status": "helps",
       "grandfathered": true,
-      "plan": "R2 (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-02-geva-122-r2-amendment (#129, main eae6efc), told /review vs a no-gstack arm, Opus 5.5, preset on both arms",
+      "sources": [
+        "gstack-evals #207 (baa599a9) wiki/board/2026-11-04-geva-271-r2-after-pin-results",
+        "gstack-evals #211 (81daa79) wiki/board/2026-11-04-geva-281-r2-after-pin-results-home-field"
+      ],
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "prompt": "preset",
+      "scope": "/review as a Claude Code user installs it at gstack 699a41cb (./setup --host claude), contract Stop hook included, told /review, against plain Opus 5.5 with no gstack; Claude Code CLI 2.1.314 on the claude_code preset; stacks-r1, 33 units, 42 blocking bugs, 2 passes: blocking recall 22/84 (26.2%) vs 3/84 (3.6%), +22.6 points [95% PR-clustered CI +11.0, +33.7], MDD 24.5",
+      "masked": true,
+      "r48": {
+        "verdict": "KEEP",
+        "ref": "gstack-evals #211, wiki/board/2026-11-04-geva-281-r2-after-pin-results-home-field (What we found: R48 KEEP, rr-decide.py KEEP)"
+      },
+      "caveats": [
+        "one unit: /review and the contract Stop hook were measured together, and neither gets credit alone; 42 of 66 gstack sessions ran the review readers only after the hook blocked them (24 unprompted), and that split is not randomized",
+        "home-field bias in gstack's favor: 41 of the 42 blocking bugs in stacks-r1 came from gstack-family reviews, so +22.6 may run high; a suite seeded from other reviewers' bugs would remove the bias (GEVA-2 lists it as future work)",
+        "development suite: stacks-r1 is a development suite, so the result makes no release claim and holds only for these 33 units at these settings"
+      ],
       "prior": [
         {
           "ref": "gstack-evals #108 stacks round 1 review (GEVA-89), wiki/board/2026-11-01-geva-89-stacks-round-1-review-results",
@@ -450,11 +468,8 @@
           "note": "/review's prompts through the Messages API; Opus recall 44% vs 39% plain, 12 bugs"
         }
       ],
-      "r48": {
-        "verdict": "FIX-METHOD",
-        "ref": "org-gstack-gbrain/research/why-null-stacks-r1.md (GEVA-100); R2 is the fix"
-      },
-      "seed": "GEVA-2, 2026-11-02: review: measurement under way (R2)"
+      "seed": "GEVA-2, 2026-11-02: review: measurement under way (R2)",
+      "note": "R2 at the after pin: GEVA-271 under prereg #194 (amending #154), runs review-units-20261104T070239Z-cbff (gstack-full) and review-units-20261104T123631Z-3fb3 (none-rr); #211 (GEVA-281) supersedes #207's post with every number unchanged and adds the home-field limit. Until then, this row was untested with R48 FIX-METHOD (org-gstack-gbrain/research/why-null-stacks-r1.md, GEVA-100), plan R2 (gstack-evals #129). R2's first two attempts gave no outcome: GEVA-175 (procedure gate 10 of 19) and GEVA-229 (exposure smoke 2 of 3). masked: the no-gstack arm ran in the rig's Docker sandbox with no gstack install, and #207's read audit of its 66 transcripts found no read of ~/.capy/drive or ~/.local/share/gstack. Only Opus 5.5 was measured; GPT-6.1 Sol was not."
     },
     "scrape": {
       "status": "untested",
