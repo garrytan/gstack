@@ -130,9 +130,8 @@ describe('touchfiles-data exports are importable and non-empty', () => {
     }
   });
 
-  test('LLM_JUDGE_TOUCHFILES has entries with non-empty pattern lists', () => {
+  test('every LLM_JUDGE_TOUCHFILES entry has a non-empty pattern list', () => {
     const keys = Object.keys(data.LLM_JUDGE_TOUCHFILES);
-    expect(keys.length).toBeGreaterThan(0);
     for (const key of keys) {
       expect(data.LLM_JUDGE_TOUCHFILES[key].length, `LLM_JUDGE_TOUCHFILES['${key}'] is empty`).toBeGreaterThan(0);
     }

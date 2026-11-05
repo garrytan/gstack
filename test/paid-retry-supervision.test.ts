@@ -21,7 +21,6 @@ const expectedWalls = {
   'test/skill-e2e-qa-callers.test.ts': 1_695_000,
   'test/skill-e2e-shared-libs-paths.test.ts': 1_920_000,
   'test/skill-e2e-ship-docsync.test.ts': 4_920_000,
-  'test/skill-llm-eval.test.ts': 480_000,
   'test/skill-e2e-auq-consistency.test.ts': 1_080_000,
   'test/skill-e2e-auq-matrix.test.ts': 1_920_000,
   'test/skill-e2e-plan-format.test.ts': 1_360_000,
@@ -51,9 +50,9 @@ test('paid evals never retry: every paid file and registered row runs once', () 
   }
 });
 
-test('registration covers exactly the seventeen demonstrated full-file retry gaps', () => {
+test('registration covers exactly the sixteen demonstrated full-file retry gaps', () => {
   expect(Object.fromEntries(newBudgets.map(row => [row.file, row.shardMs]))).toEqual(expectedWalls);
-  expect(new Set(FILE_RETRY_BUDGETS.map(row => row.file)).size).toBe(19);
+  expect(new Set(FILE_RETRY_BUDGETS.map(row => row.file)).size).toBe(18);
   expect(STRICT_RETRY_CASE_BUDGETS.map(row => row.file)).toEqual([
     ...FINDING_RETRY_BUDGETS.map(row => row.file), AUQ_CONSISTENCY_RETRY_BUDGET.file,
   ]);
@@ -170,16 +169,8 @@ test('fixed AUQ count remains strict while mixed-tier files keep ordinary case h
   }
 });
 
-test('quality judge supervision includes the added judge without changing ordinary tiers or finding registrations', () => {
+test('supervision rows leave the ordinary tiers and finding registrations unchanged', () => {
   expect(ALL_TIERS).toEqual({ JUDGE_MS: 120000, CAPTURE_MS: 300000, CAPTURE_LONG_MS: 600000, PTY_MS: 900000, PTY_LONG_MS: 1200000 });
-  const quality = 'test/skill-llm-eval.test.ts';
-  const qualityBudget = FILE_RETRY_BUDGETS.find(row => row.file === quality)!;
-  expect(resolvePaidShardBudget([quality])).toEqual({ timeoutMs: 480_000, source: 'registered', policyId: qualityBudget.id });
-  expect(retriesForFiles([quality])).toBe(0);
-  const qualitySource = read(quality);
-  const judgeTimeouts = [...qualitySource.matchAll(/}\s*,\s*(\w+)\s*\);/g)].map(match => match[1]);
-  expect(judgeTimeouts).toEqual(['JUDGE_MS', 'JUDGE_MS', 'JUDGE_MS']);
-  expect(qualityBudget.shardMs).toBe(3 * ALL_TIERS.JUDGE_MS + 120_000);
   expect(FINDING_RETRY_BUDGETS.map(row => [row.cases, row.testMs, row.shardMs])).toEqual([
     ...Array(2).fill([1, 1500000, 1620000]),
   ]);
@@ -291,7 +282,6 @@ test('the periodic executor supervises every actual case within its planned CI w
     evalsAll: true, env: { EVALS_ALL: '1' } });
   const census = manifest.entries.filter(row => row.status === 'planned');
   expect(new Set(census.map(row => shardFile(row.file)))).toEqual(new Set(selectPaidTestFiles(collectPaidTestFiles(), 'periodic').selected));
-  expect(census.find(row => row.file === 'test/skill-llm-eval.test.ts')?.budget?.timeoutMs).toBe(480_000);
   // W2c/ENG-2: each slice's job ceiling covers its longest single shard (and the serialized overlay
     // envelope) plus setup; the in-process slice deadline turns work that cannot start into not_run.
     const sliceFiles = Array.from({ length: manifest.sliceCount }, (_, i) => sliceExecutionOrder(

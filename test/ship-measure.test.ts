@@ -132,8 +132,7 @@ describe('per-kind batches decided by the measurement bar, with fake runners (EN
     expect(wrongCount).toMatchObject({ passes: 0, decision: 'BELOW' });
   });
 
-  test('standalone judge ids resolve to the one paid file that names them', () => {
-    expect(judgeFile('voice directive tone')).toBe('test/skill-llm-eval.test.ts');
+  test('a standalone judge id that no paid file names is refused', () => {
     expect(() => judgeFile('no-such-judge-id')).toThrow('no paid file names it');
   });
 });

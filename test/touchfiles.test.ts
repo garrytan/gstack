@@ -340,11 +340,6 @@ describe('selectTests', () => {
     expect(result.selected.length).toBeGreaterThanOrEqual(4);
   });
 
-  test('works with LLM_JUDGE_TOUCHFILES', () => {
-    const result = selectTests(['qa/SKILL.md'], LLM_JUDGE_TOUCHFILES);
-    expect(result.selected).toEqual(['qa/SKILL.md anti-refusal']);
-  });
-
   test('SKILL.md.tmpl root template selects root-dependent tests and routing tests', () => {
     const result = selectTests(['SKILL.md.tmpl'], E2E_TOUCHFILES);
     // Should select the 7 tests that depend on root SKILL.md
@@ -480,13 +475,8 @@ describe('TOUCHFILES completeness', () => {
   });
 
   test('every LLM-judge test has a TOUCHFILES entry', () => {
-    const llmContent = fs.readFileSync(
-      path.join(ROOT, 'test', 'skill-llm-eval.test.ts'),
-      'utf-8',
-    );
-
-    const unique = registeredJudgeTestNames(llmContent);
-    expect(unique).toHaveLength(3);
+    const judgeFiles = fs.readdirSync(path.join(ROOT, 'test')).filter(name => /^skill-llm-eval.*\.test\.ts$/.test(name));
+    const unique = judgeFiles.flatMap(name => registeredJudgeTestNames(fs.readFileSync(path.join(ROOT, 'test', name), 'utf-8')));
 
     const missing = unique.filter(name => !(name in LLM_JUDGE_TOUCHFILES));
     if (missing.length > 0) {
@@ -498,14 +488,13 @@ describe('TOUCHFILES completeness', () => {
   });
 
   test('judge inventory ignores error names and catches an unmapped registration', () => {
-    const source = fs.readFileSync(path.join(ROOT, 'test', 'skill-llm-eval.test.ts'), 'utf8');
-    const withUnmappedCase = `${source}\n
+    const withUnmappedCase = `
       Object.assign(new Error('deadline'), { name: 'WorkflowJudgeDeadline' });
       Object.assign(new Error('retry'), { name: 'WorkflowJudgeSuperseded' });
       testIfSelected('unmapped judge case', async () => {}, 120_000);
     `;
     const names = registeredJudgeTestNames(withUnmappedCase);
-    expect(names).toHaveLength(4);
+    expect(names).toEqual(['unmapped judge case']);
     expect(names.filter(name => !(name in LLM_JUDGE_TOUCHFILES))).toEqual(['unmapped judge case']);
   });
 

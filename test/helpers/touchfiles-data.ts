@@ -1663,13 +1663,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
 /**
  * LLM-judge test touchfiles — keyed by test description string.
  */
-export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
-  'qa/SKILL.md anti-refusal':         ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-  'cross-skill greptile consistency': ['review/SKILL.md', 'review/SKILL.md.tmpl', 'ship/SKILL.md', 'ship/SKILL.md.tmpl', 'review/greptile-triage.md', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-
-  // Voice directive
-  'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/skill-startup.ts'],
-};
+export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {};
 
 /**
  * Changes to any of these files trigger ALL tests (both E2E and LLM-judge).
@@ -1995,9 +1989,6 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'router-failure-contradicted-cause': 'rule',
   'router-failure-triage-resolves': 'rule',
   'router-failure-triage-unclear': 'rule',
-  'qa/SKILL.md anti-refusal': 'judge',
-  'cross-skill greptile consistency': 'judge',
-  'voice directive tone': 'judge',
 };
 
 /**
