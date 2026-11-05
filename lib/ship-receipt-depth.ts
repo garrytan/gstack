@@ -279,20 +279,13 @@ function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt
   return { baseSha, c, scope: scopeOfRange(root, BIN_DIR, baseRev, head, merged), x: exclusionAt(root, baseRef, baseSha.ok ? baseSha.out : null, head, c, tagged, 'gstack-ship-queue') };
 }
 
-/**
- * The queue's exclusion check: the digest the receipt recorded (none when absent) against the one `head` has under the current
- * base policy. Only the digest counts (the policy's patterns and the excluded list), so a base merge or a moved base that leaves
- * both unchanged binds; a changed selection needs the review rerun (write checks the same digest and does not read the
- * review ledger). A receipt with no digest also binds when no file the head changed matches any current pattern, excluded
- * or kept (GST-1408): the selection then equals the full diff that receipt's review read, so a pattern the base gained later
- * changes nothing the reviewers saw.
- */
 /** No file the head changed matches any pattern the base policy declares, so each reviewer reads the full diff (GST-1408). */
 const selectsNoFile = (x: Exclusion) => x.state === 'none' || x.state === 'head-only' || (x.state === 'active' && x.record.unmatched.length === x.record.patterns.length);
 /**
- * Carry's exclusion check: the recorded digest against the one HEAD has under the current base policy, except that a policy
- * change alone does not void the receipt (GST-1415): when neither the receipt's selection nor HEAD's holds a file the PR
- * changed, each reviewer read the full diff and still would, whatever the patterns. A policy that cannot be read never binds.
+ * Carry's and the queue's exclusion check: the recorded digest against the one HEAD has under the current base policy, except
+ * that a policy change alone does not void the receipt (GST-1408, GST-1415, GST-1434): when neither the receipt's selection
+ * (none recorded, or an empty one) nor HEAD's holds a file the PR changed, each reviewer read the full diff and still would,
+ * whatever the patterns. A policy that cannot be read never binds.
  */
 export function carryExcludeBinds(x: Exclusion, r: ShipReceipt): boolean {
   if (x.state === 'refused') return false;
@@ -389,14 +382,14 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
   }
   return { ok: true, line: `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${auditFiles.join(',')} (the selection changed only by the Step 14.5 docs audit's files under review_exclude_paths; the receipt records HEAD's)` };
 }
+/** The queue's refusal when carryExcludeBinds does not bind the receipt at `head`; null when it does. */
 export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
+  if (carryExcludeBinds(x, r)) return null;
   const expected = x.state === 'active' ? x.record.digest : 'none';
   const recorded = r.review_exclude?.digest ?? 'none';
-  if (expected === recorded) return null;
-  if (recorded === 'none' && selectsNoFile(x)) return null;
   const source = x.state === 'active' ? x.record.source : r.review_exclude?.source ?? base;
   const h = head.slice(0, 12);
-  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
+  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}, and one of the two holds a file the PR changed; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
 }
 /** The receipt's recorded gate scan when it names this head; otherwise null (unavailable). */
 const boundScan = (r: ShipReceipt, head: string): number | null => {

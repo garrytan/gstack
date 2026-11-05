@@ -1426,8 +1426,10 @@ harness that writes the receipts names it) keeps nothing: the plan prints an
 informational `REVIEW_EXCLUDE_REFERENCE:` line naming the code that reads the
 folder. A data file never keeps another file: a results manifest such as
 `docs/receipts-manifest.json` lists every receipt by full path, and it is
-content, not a program that reads them. The name scan is one uncapped `git grep -F -f` over the candidates'
-paths, not the collector's capped consumer scan.
+content, not a program that reads them. The name scan is an uncapped `git grep -F -f` of the candidates'
+paths over the consumer files alone (the head's and the merge base's trees filtered to code and tests, passed as literal
+pathspecs in 24,000-byte chunks), never the data under the patterns, so its cost follows the code a results PR
+can be read by and not the receipts it adds (GST-1435); it is not the collector's capped consumer scan.
 
 **What readers run.** Every reader's `DIFF_CMD:` gains one
 `':(top,exclude,glob)<pattern>'` item per applied pattern, and the fixture
@@ -1474,8 +1476,7 @@ checks the digest against the base policy, so a stale selection cannot be
 recorded by accident, but it does not read the review ledger: a write given the
 `expected=` digest passes without a review, and only the review run shows that
 the reviewers read that selection.
-The queue makes one exception (GST-1408): a receipt with no `review_exclude`, written before the base gained the key, still binds when no file the head changes matches any current pattern, excluded or kept, because its reviewers read the same full diff; a recorded digest that differs, a matched file and an unreadable base policy still refuse.
-Carry makes the same exception in both directions (GST-1415): when the digests differ but neither the receipt's recorded selection (no `review_exclude`, or one whose list hash is the empty selection's and whose digest is built from it) nor HEAD's holds a file the PR changed, the receipt carries and records HEAD's digest, so a pattern the base gains, adds, removes or reverts does not void it; a selection that holds a PR file, excluded or kept, and an unreadable base policy still refuse.
+Carry and the queue make one exception (GST-1408, GST-1415, GST-1434): when the digests differ but neither the receipt's recorded selection (no `review_exclude`, or one whose list hash is the empty selection's and whose digest is built from it) nor HEAD's holds a file the PR changed, carry carries the receipt and records HEAD's digest and the queue (`ready`, train build, land) binds it, so a pattern the base gains, adds, removes or reverts does not void it; a selection that holds a PR file, excluded or kept, and an unreadable base policy still refuse.
 Write makes one exception for Step 14.5's docs audit, which runs after the review (GST-1429): with `--docs-post <audit-id>-post.json` it accepts the reviewed digest when that digest is HEAD's selection with every file under a pattern that changed since the snapshot's HEAD reset to it, each such file is uncommitted in the snapshot with the content HEAD holds, each is excluded or kept only because code names it, and every other file is excluded or kept alike on both sides. With `--docs-pre <Prepare snapshot>` only the files whose content changed between the audit's two snapshots reset, to their Prepare content, so uncommitted docs the reviewers read stay as they are; content compares as git stores it or as it checks out (autocrlf, filters). It prints `REVIEW_EXCLUDE_DOCS_AUDIT:` and records HEAD's digest. Any other change to the selection, an audit file the exclusion keeps for another reason, an edit after the snapshot and a missing or unreadable snapshot still refuse.
 
 **Adopting it.** (1) Open a PR on the base that adds the patterns and

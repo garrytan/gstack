@@ -104,8 +104,8 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
   name; none without that line): must equal the digest HEAD has under the base policy's review_exclude_paths, else
-  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest; carry also
-  carries when neither the recorded selection nor HEAD's holds a file the PR changed.
+  RECEIPT_INVALID field=review_exclude and nothing is written; recorded as review_exclude. Carry and the queue compare that digest; both also
+  bind when neither the recorded selection nor HEAD's holds a file the PR changed.
   The check binds the digest to the base policy, not to a review: write does not read the review ledger, so the expected=
   digest a refusal prints passes too. After a refusal, rerun the review and pass the digest its verify prints.
   --docs-post <audit-id>-post.json (Step 14.5's post snapshot, the file finish takes): the reviewed --review-exclude digest also binds
