@@ -322,10 +322,9 @@ describe('ubi-runner money path: an API error is never read as success (GST-1441
   const flag = (f: FakeVm, file: string, body = '') => writeFileSync(join(f.root, 'listed.' + file), body);
   const NAME = 'ubirun-thrd1-1000000000-aaaaaaaa-t3';
 
-  // Value: protects=a refused create never arms teardown, so up and run never destroy a VM another caller owns under the same name; fails_when=teardown runs down on a name whose create Ubicloud refused (409); why_new=every fake create succeeded or answered the quota 400 on a name nobody held; seam=none; no_claim=the real API's 409 body
+  // Value: protects=a refused create never arms teardown, so up and run never destroy a VM another caller owns under the same name; fails_when=teardown runs down on a name whose create Ubicloud refused (409); why_new=every fake create succeeded or answered the quota 400 on a name nobody held; seam=the holder is not listed, as when it lands between the name check and the create; no_claim=the real API's 409 body
   test('a refused create (409, the name is taken) disarms teardown: the VM holding the name is never destroyed', () => {
     const f = make();
-    writeFileSync(join(f.root, 'listed'), 'eu-central-h1 ' + NAME + '\n');
     flag(f, 'create-status', '409');
     const repo = gitSrc(f);
     for (const args of [['up', '-n', NAME, '-l', 'eu-central-h1'], ['run', '-n', NAME, '-l', 'eu-central-h1', '--src', repo, '--', 'true']]) {
@@ -333,11 +332,29 @@ describe('ubi-runner money path: an API error is never read as success (GST-1441
       expect(r.exitCode, out(r)).not.toBe(0);
       expect(out(r)).toContain('create failed (HTTP 409); nothing was created');
       expect(f.calls()).not.toContain('"destroy"');
-      expect(f.listed()).toContain(NAME);
       expect(existsSync(join(f.state, NAME))).toBe(false);
       expect(recorded(f, NAME)).toBe(false);
       expect(existsSync(bundle(f, NAME))).toBe(false);
       if (args[0] === 'run') expect(out(r)).toContain('UBICLOUD: left=0 owner=thrd1 vm=' + NAME);
+    }
+  }, 60_000);
+
+  // Value: protects=a create whose answer is lost never adopts, and so never tears down, a VM someone else already holds under that name; fails_when=a 5xx or unanswered create is settled by a by-name lookup that finds the holder; why_new=the 5xx adoption test only used a name nobody held; seam=none; no_claim=the real API's answer when a gateway masks a 409
+  test('a create on a name another VM already holds is refused before the request: nothing is sent, adopted or destroyed', () => {
+    const f = make();
+    writeFileSync(join(f.root, 'listed'), 'eu-central-h1 ' + NAME + '\n');
+    flag(f, 'create-status', '503');
+    const repo = gitSrc(f);
+    for (const args of [['up', '-n', NAME, '-l', 'eu-central-h1'], ['run', '-n', NAME, '-l', 'eu-central-h1', '--src', repo, '--', 'true']]) {
+      const r = run(f, args, { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0', UBI_CREATE_GRACE: '2' });
+      expect(r.exitCode, out(r)).not.toBe(0);
+      expect(out(r)).toContain('already exists; nothing was created');
+      expect(creates(f)).toBe(0);
+      expect(f.calls()).not.toContain('"destroy"');
+      expect(f.listed()).toContain(NAME);
+      expect(existsSync(join(f.state, NAME))).toBe(false);
+      expect(recorded(f, NAME)).toBe(false);
+      expect(existsSync(bundle(f, NAME))).toBe(false);
     }
   }, 60_000);
 
