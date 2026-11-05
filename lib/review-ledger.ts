@@ -182,8 +182,6 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   let gap = false;
   let prev = '';
   let treeSeen = false;
-  let fenced = -1;
-  let fenceHost: Finding | null = null;
   const role = reader.split('/')[0];
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
@@ -200,20 +198,21 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
   };
   const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
-  for (const line of output.replace(/\r\n/g, '\n').split('\n')) {
+  const all = output.replace(/\r\n/g, '\n').split('\n');
+  const closes = new Map<number, number>();
+  for (let i = 0, open = -1, mark = ''; i < all.length; i++) {
+    const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(all[i]!);
+    if (!m) continue;
+    if (open < 0) { open = i; mark = m[1]!; }
+    else if (m[1]![0] === mark[0] && m[1]!.length >= mark.length && !m[2]!.trim()) { closes.set(open, i); open = -1; }
+  }
+  for (let i = 0; i < all.length; i++) {
+    const line = all[i]!;
     const t = line.trim();
-    const fence = /^(?:```|~~~)/.test(t);
-    if (fenced >= 0 || (fence && (current ? !current.raw.startsWith('{') : !!head))) {
-      if (fenced < 0) { fenced = 0; fenceHost = current; continue; }
-      if (fence) {
-        const note = `(code block: ${fenced} lines)`;
-        if (fenceHost) fenceHost.raw += ` | ${note}`; else if (fenced) head += ` | ${note}`;
-        fenced = -1;
-        continue;
-      }
-      const o = t.startsWith('{') ? (() => { try { return JSON.parse(t) as Record<string, unknown>; } catch { return null; } })() : null;
-      if (o && typeof o.severity === 'string') current = push(o.severity, t, [], o.severity);
-      else fenced++;
+    const end = closes.get(i);
+    if (end !== undefined && current && !current.raw.startsWith('{') && !all.slice(i + 1, end).some(l => /"severity"\s*:/i.test(l))) {
+      current.raw += ` | (code block: ${end - i - 1} lines)`;
+      i = end;
       continue;
     }
     if (!t) { gap = true; prev = ''; continue; }
@@ -243,12 +242,6 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
-    if (role === 'adversarial-native' && current?.heading && !current.fields.size && !blocks && fieldOf(t) !== undefined && statesNoBlocks(t) && !LEAD_LABEL.test(t) && !LIST_ITEM.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t)) {
-      current.fields.add('severity');
-      current.label = stronger(current.label, label!);
-      current.raw += ` | ${t}`;
-      continue;
-    }
     if (current?.heading && !current.fields.size && !label && !blocks && !/^#{1,6}\s/.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) { current.raw += ` | ${t}`; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {

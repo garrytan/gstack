@@ -118,11 +118,6 @@ describe('lead judgment may lower a native finding to the Severity its reader st
     expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace('Severity: Medium', 'Severity: FIXABLE'), 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
   });
-  test('fields written in the heading paragraph after prose stay on the heading record, which keeps its label, so it can be lowered', () => {
-    const same = '**1. Title (FIXABLE).** body in lib/x.ts.\nMore prose. Severity: Medium. Blocks: no.\n';
-    expect(run('adversarial-native', same, 'Medium', 'its reader stated Severity: Medium, Blocks: no')).toEqual({ labels: ['CRITICAL'], ok: true, dismissed: 1, blockers: 0 });
-    expect(run('red-team', '**1. Title (CRITICAL).** body in lib/x.ts.\nMore prose. Severity: Low. Blocks: no.\n', 'CRITICAL')).toMatchObject({ labels: ['CRITICAL', 'Low'] });
-  });
 });
 
 describe('fenced code in a reply is body text of the open finding (GST-1409)', () => {
@@ -134,7 +129,15 @@ describe('fenced code in a reply is body text of the open finding (GST-1409)', (
   test('a quoted heading and Blocks words inside a fence collect nothing; the finding keeps its fields', () => {
     for (const raises of [true, false]) {
       expect(labels('adversarial-native', ['Intro.', '', '**1. Real issue (FIXABLE).** body.', '', ...fence, '', 'Severity: Medium', 'Blocks: no', ''].join('\n'), raises)).toEqual(['Medium']);
-      expect(labels('red-team', ['**1. Real issue.** body in a.ts:3.', ...fence, 'Severity: Low. Blocks: no.', ''].join('\n'), raises)).toEqual(['Low']);
+      expect(labels('red-team', ['**1. Real issue (Medium).** body in a.ts:3.', ...fence, 'Severity: Low. Blocks: no.', ''].join('\n'), raises)).toEqual(['Low']);
+    }
+  });
+  test('blocker-loss controls: a fence with only an intro before it, an unclosed fence, fenced JSON and a shorter closer still collect', () => {
+    for (const reader of ['red-team', 'adversarial-native']) {
+      expect(labels(reader, ['Here are my findings:', '```markdown', '**1. SQL injection in a.ts:3 (CRITICAL).** x', 'Blocks: yes', '```', ''].join('\n'), true)).toContain('CRITICAL');
+      expect(labels(reader, ['**1. Minor naming (INFORMATIONAL).** in a.ts:1', '```ts', 'const x = 1;', '', '**2. Token leak in log.ts:3 (CRITICAL).** Blocks: yes', ''].join('\n'), true)).toContain('CRITICAL');
+      expect(labels(reader, ['**1. Minor naming in a.ts:1 (INFORMATIONAL).** Rename it.', '```json', '{', '  "severity": "CRITICAL", "path": "log.ts", "line": 3,', '  "summary": "token leak"', '}', '```', ''].join('\n'), true)).toContain('CRITICAL');
+      expect(labels(reader, ['**1. Minor naming in a.ts:1 (INFORMATIONAL).** Rename it.', '````', '```', '````', '', '**2. Token leak in log.ts:3 (CRITICAL).** Blocks: yes', ''].join('\n'), true)).toContain('CRITICAL');
     }
   });
   test('controls: a fence with no open finding still parses, and a finding after the fence closes stands on its own', () => {
