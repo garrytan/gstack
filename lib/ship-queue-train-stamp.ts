@@ -42,7 +42,7 @@ export function isReleasePath(root: string, policy: ShipPolicy, versionRel: stri
  * byte for byte, and equals T_i outside release paths. Null when all hold, else why not.
  */
 export function stampMismatch(o: StampChainOptions, merged: string, stamped: string, plainTree: string): string | null {
-  const r = buildReceipt({ repoRoot: o.repoRoot, gated: merged, current: stamped, policy: o.policy, policyLabel: o.policyLabel, baseRef: `${merged}^1` });
+  const r = buildReceipt({ repoRoot: o.repoRoot, gated: merged, current: stamped, policy: o.policy, policyLabel: o.policyLabel, baseRef: `${merged}^1`, regenerate: o.allowRepoCommands });
   if ('error' in r) return r.error;
   if (r.tree !== 'same-modulo-stamps') return `the stamp changed more than stamps: ${r.residual.slice(0, 8).join(', ')}`;
   const cl = o.policy.changelog;

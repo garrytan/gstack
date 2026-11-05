@@ -34,6 +34,7 @@ const HELP = `gstack-tree-receipt — tree equality modulo stamps, per-gate reus
   --base <branch>            base branch for the policy (default origin/HEAD, else main)
   --policy-from base|head    reviewed base copy (default) or the unreviewed working tree
   --rerun-command <cmd>      what the fix clause names for a rerun
+  --allow-repo-commands      rerun the policy's release_tool on the current head; a release output it regenerates byte for byte is a stamp
   --json                     the receipt as one JSON object
 
 ${exitTableHelp()}`;
@@ -77,6 +78,7 @@ function main(argv: string[]): number {
   const receipt = buildReceipt({
     repoRoot, gated, current: flag(argv, '--current'), policy: loaded.policy, policyLabel: loaded.source.kind === 'head' ? 'head (unreviewed)' : loaded.source.label,
     predecessor, bundlePath: flag(argv, '--bundle'), rerunCommand: flag(argv, '--rerun-command'), baseRef: `origin/${base}`,
+    regenerate: argv.includes('--allow-repo-commands'),
   });
   if ('error' in receipt) { process.stderr.write(resultLine('gstack-tree-receipt', receipt.code, receipt.error) + '\n'); return EXIT.fail; }
   process.stdout.write(json ? JSON.stringify(receipt) + '\n' : renderReceipt(receipt));
