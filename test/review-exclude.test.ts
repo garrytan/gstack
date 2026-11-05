@@ -420,6 +420,79 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect(b.code).toBe('POLICY_INVALID');
     }, 240_000);
   });
+
+  // Value: protects=a base policy change that selects no file the PR changed (a pattern gained, added beside another, removed or
+  //   reverted) no longer voids the receipt at carry, and the queue binds the carried receipt, while a changed pattern that selects
+  //   a PR file (excluded or kept) and an unreadable or malformed base policy still refuse; fails_when=carry compares the policy
+  //   digest alone (GST-1415: harness-evals #263 re-ran a full five-reader review of an unchanged product), or the acceptance
+  //   spreads to a selection that holds a PR file; why_new=GST-1415; seam=gstack-ship-receipt carry after a base merge, then
+  //   bindShippedReceipt on the carried receipt; no_claim=the queue's own comparison of uncarried receipts (GST-1408 above)
+  describe('carry after a base policy change (GST-1415)', () => {
+    const CODE = { 'lib/reader.js': 'exports.p = 1;\n', 'docs/guide.md': '# guide\n' };
+    const NO_KEY = JSON.stringify({}) + '\n';
+    const shipped = (files: Record<string, string>, basePolicy: string[] | null) => {
+      const repo = makeFixtureRepo({ prefix: 'gstack-exclude-carry-', baseFiles: basePolicy ? { '.gstack/ship-policy.json': policyText(basePolicy) } : {} });
+      repos.push(repo);
+      commit(repo, files);
+      const body = path.join(repo.root, 'body.md');
+      const extra = [...targetedAtHead(repo)];
+      if (basePolicy) {
+        const expected = writeReceipt(repo, body, extra).err.match(/field=review_exclude expected=([0-9a-f]{64}) /)?.[1];
+        expect(expected).toBeDefined();
+        extra.push('--review-exclude', expected!);
+      }
+      const w = writeReceipt(repo, body, extra);
+      expect({ status: w.status, err: w.err }).toMatchObject({ status: EXIT.ok });
+      return { repo, body, recorded: receiptIn(body).review_exclude?.digest ?? 'none' };
+    };
+    const carry = (repo: FixtureRepo, body: string) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+
+    test('a pattern change that selects no PR file carries, and the queue binds the carried receipt', () => {
+      const cases: Array<{ name: string; before: string[] | null; after: string }> = [
+        { name: 'gained', before: null, after: policyText(['receipts/**']) },
+        { name: 'added beside another', before: ['receipts/**'], after: policyText(['receipts/**', 'results/**']) },
+        { name: 'removed beside another', before: ['receipts/**', 'results/**'], after: policyText(['receipts/**']) },
+        { name: 'reverted', before: ['receipts/**'], after: NO_KEY },
+      ];
+      for (const c of cases) {
+        const { repo, body, recorded } = shipped(CODE, c.before);
+        onBase(repo, { '.gstack/ship-policy.json': c.after });
+        const carried = carry(repo, body);
+        expect({ name: c.name, status: carried.status, err: carried.status === EXIT.ok ? '' : carried.err }).toEqual({ name: c.name, status: EXIT.ok, err: '' });
+        const head = repo.git('rev-parse', 'HEAD');
+        const now = receiptIn(body);
+        expect({ name: c.name, head: now.head, moved: (now.review_exclude?.digest ?? 'none') !== recorded }).toEqual({ name: c.name, head, moved: true });
+        const b = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), undefined, [head]);
+        expect({ name: c.name, ok: b.ok, message: b.ok ? '' : b.message }).toEqual({ name: c.name, ok: true, message: '' });
+      }
+    }, 240_000);
+
+    test('a pattern change that selects a PR file, excluded or kept, still refuses carry', () => {
+      const touches: Array<Record<string, string>> = [{ 'receipts/a/result.json': '{"ok": true}\n' }, { 'receipts/run.js': 'exports.run = 1;\n' }];
+      const changes: Array<[string[] | null, string]> = [[null, policyText(['receipts/**'])], [['receipts/**'], NO_KEY]];
+      for (const touched of touches) {
+        for (const [before, after] of changes) {
+          const { repo, body, recorded } = shipped({ ...CODE, ...touched }, before);
+          onBase(repo, { '.gstack/ship-policy.json': after });
+          const refused = carry(repo, body);
+          expect({ touched: Object.keys(touched)[0], before, status: refused.status }).toEqual({ touched: Object.keys(touched)[0], before, status: EXIT.refused });
+          expect(refused.err).toContain(`review_exclude changed: recorded=${recorded} `);
+          expect(refused.err).toContain('(RECEIPT_CARRY_REFUSED;');
+        }
+      }
+    }, 240_000);
+
+    test('an unreadable or malformed base policy still refuses carry', () => {
+      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
+        const { repo, body } = shipped(CODE, null);
+        onBase(repo, { '.gstack/ship-policy.json': text });
+        const refused = carry(repo, body);
+        expect({ text, status: refused.status }).toEqual({ text, status: EXIT.refused });
+        expect(refused.err).toContain('RECEIPT_CARRY_REFUSED');
+        expect(refused.err).toContain('so its review_exclude_paths cannot be read');
+      }
+    }, 240_000);
+  });
 });
 
 describe('a branch cannot hide code under a base pattern', () => {
