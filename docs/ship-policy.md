@@ -2130,9 +2130,12 @@ process group with SIGKILL when it ends or times out. A scrubbed environment
 alone doesn't stop a check reading land's own through `/proc/$PPID/environ`
 or a `/proc` scan (GST-1421), so on Linux land makes itself non-dumpable before
 the first check, which closes its `/proc` environment, memory and ptrace to
-processes of the same user; when it can't, the checks don't run. macOS has no
-`/proc`, but `ps -E` still shows land's starting environment to a same-user
-process. A check that moves HEAD
+processes of the same user. The `git` and `gh` processes land starts
+afterward still carry its environment, so land also becomes the subreaper of
+everything the checks start and kills whatever a check leaves running, even a
+process that left its group with `setsid` or a double fork. When land can't
+set either, the checks don't run. macOS has no `/proc`, but `ps -E` still shows
+land's starting environment to a same-user process. A check that moves HEAD
 off the merged commit fails. Land re-reads the base policy after the locked
 fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
 merged tree's lockfile or `package.json` dependencies differ from the
