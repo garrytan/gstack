@@ -36,6 +36,9 @@ import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type 
 import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
 import { defaultRoots, foundLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-review-dispatch');
 
 const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free collection for /ship
 

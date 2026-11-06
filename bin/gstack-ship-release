@@ -4,6 +4,9 @@
  * with STOP:/NEXT: lines wherever the agent must judge. Logic: lib/ship-release.ts.
  */
 import { release } from '../lib/ship-release';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-ship-release');
 
 const out = await release(process.argv.slice(2), process.cwd());
 (out.exit === 2 ? process.stderr : process.stdout).write(out.text);

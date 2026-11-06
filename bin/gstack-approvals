@@ -9,6 +9,7 @@
  *   gstack-approvals render [--no-heading] [--full] [--branch <name>]
  *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
+ *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
  *   gstack-approvals path [--branch <name>]
@@ -26,6 +27,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
 import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
+import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
 
@@ -39,6 +41,11 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
           list it; refused inside this checkout's open /ship run
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
+  lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
+          --reason <why, one line> --words <the owner's exact words> --by <who granted>
+          the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
+          (docs/ship-policy.md#test-lane-exceptions); gstack-evidence record-ci binds it only at that head, for that exact
+          set, after a local preflight of those files passes; refused inside this checkout's open /ship run
   render  [--no-heading] [--full] the ## Approvals section for a PR body or report; a public repository, or one whose
           visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
           its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private
@@ -53,7 +60,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -121,9 +128,22 @@ function main(argv: string[]): number {
   const json = bools.has('--json');
   const recorded = (where: StoreLocation) => `${where.file}${where.mirror ? ` mirror=${where.mirror}` : ''}`;
 
-  if (cmd === 'add' || cmd === 'import' || cmd === 'rule') {
+  if (cmd === 'add' || cmd === 'import' || cmd === 'rule' || cmd === 'lane-exception') {
     let rows;
-    if (cmd === 'rule') {
+    if (cmd === 'lane-exception') {
+      const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
+      const files = [...new Set((flags['--files'] ?? '').split(',').map(f => f.trim().replace(/^(\.\/)+/, '')).filter(Boolean))].sort();
+      const reason = (flags['--reason'] ?? '').trim();
+      if (!files.length || files.some(f => /\s/.test(f)) || !reason || /[\x00-\x1f\x7f]/.test(reason)) return invalid('lane-exception needs --files <the uncovered inventory files, comma-separated, no spaces> and --reason <why, one line>');
+      const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
+      if (!flags['--head'] || head.status !== 0) return invalid('lane-exception needs --head <the pushed head the owner granted at, a commit in this repository>');
+      if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a test-lane exception is the owner\'s, so --by names who granted it');
+      const open = openShipRun(process.cwd());
+      if (open) return invalid(`/ship run ${open} is open on this checkout: a test-lane exception is the owner's, never the lane's own runner's; record it from the owner's session`);
+      const built = buildRow({ ...testLaneExceptionRow(head.stdout.trim(), files, reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
+      if ('code' in built) return fail(cmd, built);
+      rows = [built];
+    } else if (cmd === 'rule') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
       const finding = (flags['--finding'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim();
       if (!finding || /\s/.test(finding) || !reason) return invalid('rule needs --finding <the finding\'s fingerprint, no spaces> and --reason <why it ships as a note>');
@@ -138,6 +158,7 @@ function main(argv: string[]): number {
       rows = [built];
     } else if (cmd === 'add') {
       if (RULED_NOTE_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a ruled_note scope is recorded with gstack-approvals rule' });
+      if (TEST_LANE_EXCEPTION_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a test_lane_exception scope is recorded with gstack-approvals lane-exception' });
       const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: flags['--source'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];

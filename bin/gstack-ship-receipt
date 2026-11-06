@@ -57,6 +57,7 @@ import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
 
@@ -265,6 +266,9 @@ function cmdWrite(rest: string[], json: boolean): number {
   const ruledNotes = readRuledNotes(repoRoot);
   const unlisted = bodyFile ? ruledNotes.map(n => `Ruled note: ${ruledNoteText(n)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlisted) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ruled note ${JSON.stringify(unlisted)} (gstack-approvals rulings prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
+  const carried = ciCarried(base);
+  const unlistedException = bodyFile ? laneExceptionBodyLines(carried).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
+  if (unlistedException) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ${JSON.stringify(unlistedException)} (accept's TEST_LANE_EXCEPTION: line; the body carries it as one line); nothing written`) + '\n'); return EXIT.fail; }
   const mechanical = readMechanicalLines(repoRoot, git(['rev-parse', `${head}^{tree}`], repoRoot) ?? '');
   const unlistedRetake = bodyFile ? mechanical.find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlistedRetake) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ${JSON.stringify(unlistedRetake)} (finish's MECHANICAL: lines; the body carries each as one line); nothing written`) + '\n'); return EXIT.fail; }
@@ -290,7 +294,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head, base), read => plainDocsSince(repoRoot, read, headSha ?? head, base)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
@@ -317,7 +321,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       version: flag(rest, '--version') ?? receiptVersion(repoRoot, head, base), base,
       gated_tree: flag(rest, '--gated-tree') ?? tree?.gated_tree, predecessor: flag(rest, '--predecessor') ?? tree?.predecessor?.recorded_head ?? undefined,
       tree: tree?.tree, gate_reuse: tree ? `${tree.gate_reuse} (${tree.gate_reuse_reason})` : undefined,
-      gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')), ci_carried: ciCarried(base),
+      gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')), ci_carried: carried,
       spend_usd: flag(rest, '--spend-usd') !== undefined ? (Number.isFinite(Number(flag(rest, '--spend-usd'))) ? Number(flag(rest, '--spend-usd')) : flag(rest, '--spend-usd')) : undefined,
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),

@@ -1940,8 +1940,17 @@ The guide is `capy/skill/gstack/captain.md`.
 `--by`), holds a value outside its enum (`--outcome approved|rejected|pending|standing`,
 a `--date` that is not a real `YYYY-MM-DD` day) or exceeds a length cap (ask, scope and
 pending 300 characters, words 2,000). Exit 2. Nothing was written.
+`rule` and `lane-exception` refuse with this code too: a `--head` that is not
+a commit in the repository, a reason that is missing or holds a newline or
+control character, a `--by` naming gstack, any record while this checkout
+holds an open /ship run, and for `lane-exception` a `--files` list that is
+empty or holds whitespace. `add` refuses a `ruled_note` or
+`test_lane_exception` scope ([ruled notes](ship-policy.md#ruled-notes),
+[test-lane exceptions](ship-policy.md#test-lane-exceptions)).
 
-**Fix.** Rerun with every required flag inside the caps the line names.
+**Fix.** Rerun with every required flag inside the caps the line names. A
+ruling or a test-lane exception is the owner's: record it from the owner's
+session, outside the lane's /ship run.
 
 <a id="approval-record-secret"></a>
 ### `gstack-approvals: ... (APPROVAL_RECORD_SECRET)`
@@ -3493,13 +3502,22 @@ or when `--review-targeted` names a read commit that is not an ancestor of
 HEAD, or after which a change carries a targeted class (money, gate, auth or
 secret code changed after the targeted reader read it, a test edit the gate
 scan tags included), or whose product patch is not the receipt's and the change
-since it is more than plain docs. A docs-only change after the read carries the
+since it is more than plain docs. The change since the read is the PR's own: a
+base merge after the read that leaves the PR's diff alone never voids the record,
+whatever files it brought in (GST-1593). A docs-only change after the read carries the
 record only when it changes no binary file, adds no numeric claim, touches no
 results, prereg or eval path, and names no money, security, secret or auth topic; any other docs change
-needs the reader again (GST-1195).
+needs the reader again (GST-1195). With `--body`, write also refuses, writing
+nothing, a body that does not carry each line the receipt requires as one line,
+word for word: every `Ruled note: …` line `gstack-approvals rulings` prints,
+finish's `MECHANICAL:` lines as `Mechanical retake: …`, and accept's
+`TEST_LANE_EXCEPTION:` lines as `Test-lane exception: …`
+([ruled notes](ship-policy.md#ruled-notes),
+[test-lane exceptions](ship-policy.md#test-lane-exceptions)).
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
-block. For the `--head` refusal, check out that commit and write there. For a
+block. For a missing body line, add the line the refusal quotes to the body and
+write again. For the `--head` refusal, check out that commit and write there. For a
 targeted refusal, run the targeted reader on HEAD, `gstack-review-dispatch verify
 --targeted-out .gstack/tmp/targeted.json`, and write again with
 `--review-targeted @.gstack/tmp/targeted.json`.
@@ -4145,6 +4163,14 @@ two routes:
 
 An allowlist entry or a `[]` declaration the branch adds to its own
 `pregate.json` counts only once it is on the base.
+
+/ship's own reruns on the final tree (`gstack-ship-release accept`, and
+`finish` when it reruns the whole pregate) pass `--policy-from head`
+themselves when the branch's copy differs from the one it forked from in
+nothing but added test lanes and `.gstack/generated.json` matches the base
+tip's, and print `POLICY: head (unreviewed) …`; any other difference keeps the
+base policy and prints `POLICY: base … (the branch's copy <what differs> …)`
+([accept's policy choice](pregate.md#accept-head-policy), GST-1595).
 
 <a id="pregate-head-policy-loosens"></a>
 ### `PREGATE_HEAD_POLICY_LOOSENS`
@@ -6536,9 +6562,10 @@ body that names a counter the receipt records (`passes=3` against
 against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
-`## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`
-and `Documentation exception: …` lines the receipt's exceptions require, and
-the inside of a closed code fence are never read as claims.
+`## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`,
+`Documentation exception: …`, `Ruled note: …`, `Mechanical retake: …` and
+`Test-lane exception: …` lines the receipt requires, and the inside of a
+closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

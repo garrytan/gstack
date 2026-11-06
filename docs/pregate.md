@@ -39,7 +39,24 @@ read from the branch under `--policy-from head`. So an allowlist entry or a
 `[]` declaration a branch adds counts only once it is on the base, and a lane it
 adds counts on the base policy only once it lands; `PREGATE_NO_LANE`'s fix line
 says so when the branch edits the file
-([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)). An unresolvable base exits 3 with
+([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)).
+<a id="accept-head-policy"></a>/ship's reruns on the final tree (`gstack-ship-release accept`, and `finish`
+when it reruns the whole pregate on the stamped tree) choose the policy themselves
+(GST-1595). When the branch's `pregate.json` differs from the copy it forked from
+(the base tip's when the fork has none) in nothing but added test lanes, and
+`.gstack/generated.json` matches the base tip's copy (a head-policy run loads the
+regen registry from the branch, so a copy that main changed after the fork keeps
+the base policy), they pass `--policy-from head` and print
+`POLICY: head (unreviewed) .gstack/pregate.json: adds <n> test lane(s) over
+origin/<base> and changes nothing else, so the gate is only stricter`. So a PR
+that adds a runtime file and its own lane line passes `accept` without a
+lanes-only PR first (gstack-evals #240). Any other difference (a removed or
+shrunk lane, a `[]` declaration, `warn`, `timeout_s`, `ship_lanes_from`, any
+other key, a changed `generated.json`, a file that does not parse) keeps the
+base policy as before, with `POLICY: base origin/<base>:.gstack/pregate.json (the
+branch's copy <what differs>, so it does not count here; land it on <base>
+first)`. A branch that leaves the file alone prints no `POLICY:` line.
+An unresolvable base exits 3 with
 `POLICY_SOURCE_UNAVAILABLE`. Globs are repo-relative (no `..`, no absolute
 paths, at most 64 per list); commands are one line under 512 bytes.
 
@@ -1201,6 +1218,28 @@ checks every lane FRESH and reruns the pregate there, whose tests stage carries
 the same run. `gstack-ship-receipt write` records the carried runs as
 `ci_carried: [{ lane, run, attempt, tree }]`, and the `SHIP_RECEIPT:` line names
 them (`ci_carried=<lane>:<run>/<attempt>`).
+
+<a id="carry-imported-tests"></a>**An inventory file CI's JUnit tree never lists (GST-1595).** bun registers
+the tests of a test file another test file imports under the importer, so the
+imported file's own JUnit suite never appears in `tree.json` and the carry
+refuses with `inventory_uncovered`. For each such file another inventory file
+imports by a relative path (`import`, `import()`, `require`), the refusal adds
+`CARRY_DIAGNOSIS: bun registers <imported> under <importer>; its JUnit suite
+won't appear` (`lib/ci-carry.ts` `importedTestLines`), printed by `gstack-evidence
+record-ci`, `gstack-ship-preflight` and `accept`; the remote gate's
+`inventory_uncovered` reason carries the same words. The fix is usually to move
+the shared code out of the `.test.` file. When that can't happen in this PR,
+the owner can grant a [test-lane exception](ship-policy.md#test-lane-exceptions)
+for exactly those files at the pushed head: `record-ci` then runs each of them
+here, one file at a time, with the entry's `per_file` runner (label
+`<lane>.excepted`) and carries the lane only when every file's run passes with a
+counted test; the lane's `tests_ran` counts those files beside the ones CI
+covered. A failed or zero-test run of any file refuses with
+`exception_preflight_failed`, and a grant at another head or for another file
+set binds nothing. The CI row and the receipt's `ci_carried` entry
+keep the grant and the preflight (`exception`), and `accept` prints
+`TEST_LANE_EXCEPTION: <files> at <head12>: preflight <label> ran <n> test(s)
+here; granted by <who> at <time>: <reason> (approval <id>)`.
 
 **`gstack-ci-carry`.** `find [--profile <name>]… [--command <exact lane command>
 --allow-repo-commands]` prints the verdict for HEAD; `wait [--timeout <s>]`
