@@ -11,7 +11,8 @@
  * first row. A call with a loader is a pass poll, one with a note a phase program, one with only
  * gstack-ship-parts a section read, anything else other. Calls that run no gstack command (a `wait`, an
  * edit) leave no row: the time between calls, outside a pass, is filled at one keep-alive per 200 s plus
- * the median pass overhead (the time a rerun adds past its 200 s, measured from consecutive pass calls).
+ * the median pass overhead (the time a 200 s poll rerun adds past its 200 s, never below 0; a pass that noted, or a
+ * loader that starts under 200 s after the last one, is no rerun).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -74,7 +75,7 @@ export function countLoggedCalls(rows: readonly CallRow[], window: { since?: str
     const e = ms > PROGRAM_MS ? s : s + ms;
     const cur = calls[calls.length - 1];
     const joins = cur && !isLoader(r) && (s <= cur.end + JOIN_MS
-      || (cur.loader && s <= cur.start + PROGRAM_MS && (!cur.note || r.bin === 'gstack-review-dispatch' || isNote(r)))
+      || (cur.loader && !cur.note && s <= cur.start + PROGRAM_MS)
       || (isNote(r) && !cur.note && !cur.partsOnly && s <= cur.start + PROGRAM_MS));
     if (!joins) { calls.push({ start: s, end: e, loader: isLoader(r), note: isNote(r), partsOnly: r.bin === 'gstack-ship-parts' }); continue; }
     cur.end = Math.max(cur.end, e);
@@ -89,10 +90,10 @@ export function countLoggedCalls(rows: readonly CallRow[], window: { since?: str
     const gap = Math.round((calls[k]!.start - calls[k - 1]!.start) / 1000);
     if (gap > CACHE_TTL_S) idleGaps++;
     maxGapS = Math.max(maxGapS, gap);
-    if (calls[k]!.loader && calls[k - 1]!.loader) passOverhead.push(gap - POLL_S);
+    if (calls[k]!.loader && calls[k - 1]!.loader && !calls[k - 1]!.note && gap >= POLL_S - JOIN_MS / 1000) passOverhead.push(Math.max(0, gap - POLL_S));
   }
   const sorted = [...passOverhead].sort((a, b) => a - b);
-  const cycle = POLL_S + (sorted.length ? sorted[Math.ceil(sorted.length / 2) - 1]! : DEFAULT_OVERHEAD_S);
+  const cycle = POLL_S + Math.max(0, sorted.length ? sorted[Math.ceil(sorted.length / 2) - 1]! : DEFAULT_OVERHEAD_S);
   let keepaliveEst = 0;
   for (let k = 1; k < calls.length; k++) {
     if (calls[k]!.loader && calls[k - 1]!.loader) continue;

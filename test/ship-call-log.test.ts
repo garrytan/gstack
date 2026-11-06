@@ -82,6 +82,16 @@ describe('countLoggedCalls', () => {
     const c = countLoggedCalls([row('10:00:00.000', 'gstack-ship-preflight', '', 1_200_000), row('10:00:02.000', 'gstack-ship-budget', 'note', 300), row('10:04:00.000', 'gstack-ship-parts', 'next', 300), row('10:08:00.000', 'gstack-ship-budget', 'note', 300)]);
     expect(c).toMatchObject({ calls: 3, phase: 2, section: 1, keepaliveEst: 2 });
   });
+
+  test('loaders that are not 200 s poll reruns never set the pass overhead, so the keep-alive estimate stays finite', () => {
+    const c = countLoggedCalls([row('10:00:00.000', 'gstack-review-dispatch', 'program', 100), row('10:00:00.300', 'gstack-review-dispatch', 'program', 100), row('10:10:00.000', 'gstack-ship-parts', 'next', 300)]);
+    expect(c).toMatchObject({ calls: 3, pass: 2, section: 1, passOverhead: [], keepaliveEst: 3 });
+  });
+
+  test('a pass that settles early and notes does not swallow the next phase call', () => {
+    const c = countLoggedCalls([row('10:00:00.000', 'gstack-review-dispatch', 'program', 100), row('10:01:00.000', 'gstack-ship-budget', 'note', 200, { step: '9.2' }), row('10:01:40.000', 'gstack-review-dispatch', 'judge', 300), row('10:01:41.000', 'gstack-ship-budget', 'note', 200, { step: '9.4' })]);
+    expect(c).toMatchObject({ calls: 2, pass: 1, phase: 1 });
+  });
 });
 
 describe('gstack-ship-budget calls --record', () => {

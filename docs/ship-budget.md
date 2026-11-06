@@ -61,7 +61,8 @@ a row longer than a program (a background lane or `finish`) ends where it starts
 joins it. A call with the loader is a pass poll, one with a note a phase program, one with only
 `gstack-ship-parts` a section read. Calls that run no gstack command (a `wait`, an edit) leave no row,
 so `keepalive_est` fills the time between calls, outside a pass, at one keep-alive per 200 s plus the
-median pass overhead: how far past 200 s a pass rerun starts, measured from consecutive pass calls
+median pass overhead: how far past 200 s a pass rerun starts, measured from 200 s poll reruns only (a pass call
+that did not note, then a loader 200 s or more later) and never below 0
 (`lib/ship-call-log.ts`). `total_est` is `calls + keepalive_est`; quick decision calls between logged ones
 are not in it.
 
