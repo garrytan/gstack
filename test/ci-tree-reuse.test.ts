@@ -265,6 +265,16 @@ describe('findIntegratedReuse: every integration hop verifies the original execu
       expect(findIntegratedReuse({...w.api,blob:(_sha,f)=>f===file?null:w.api.blob(_sha,f)},options())).toMatchObject({reused:false,reason:'api_error'});
     }
   });
+  test('the default integration route guards both in-repo verifier files', () => {
+    const w=integrated();
+    const o=options();delete (o as {guards?:string[]}).guards;
+    const api={...w.api,blob:(_sha:string,file:string)=>`blob-${file}`};
+    expect(findIntegratedReuse(api,o).reused).toBe(true);
+    for(const file of ['scripts/ci-tree-reuse.ts','lib/run-evidence.ts']){
+      expect(findIntegratedReuse({...api,blob:(sha,f)=>sha===RELEASE&&f===file?'changed':api.blob(sha,f)},o)).toMatchObject({reused:false,reason:'script_changed'});
+      expect(findIntegratedReuse({...api,blob:(sha,f)=>f===file?null:api.blob(sha,f)},o)).toMatchObject({reused:false,reason:'api_error'});
+    }
+  });
   test('unmerged/wrong-target/ambiguous/fork task or promotion association never grants reuse', () => {
     const w=integrated();
     for(const target of [PUSH,RELEASE])for(const ps of [[],[pull({merge_commit_sha:target,base:{ref:'other'}})],[pull({merge_commit_sha:target,head:{sha:HEAD,ref:'staging',repo:{full_name:'fork/gstack'}}})]]){
