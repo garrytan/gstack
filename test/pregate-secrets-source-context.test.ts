@@ -68,6 +68,11 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect(f.secrets().status).toBe('pass');
   });
 
+  test('a TLS file path in a Python fixture passes the actual pregate secrets entry', () => {
+    expect(repo({ 'settings.py': 'CONFIG = {\n  "MIGUAN_WEB_TLS_KEY": "/etc/miguan/web/site.key",\n}\n' })
+      .secrets().status).toBe('pass');
+  });
+
   test('a Python parameter annotation is code, not a secret; a quoted value on the same name still fails (#3630)', () => {
     expect(repo({ 'app.py': 'def fetch_days(\n    *,\n    session: HttpSession,\n    start: int,\n) -> None:\n    pass\n' }).secrets().status).toBe('pass');
     const r = repo({ 'app.py': 'SETTINGS = dict(\n    session="8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ",\n)\nCONFIG = {\n    "session": "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ",\n}\n' }).secrets();

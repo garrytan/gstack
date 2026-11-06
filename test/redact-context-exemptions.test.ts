@@ -34,6 +34,28 @@ function table(id: string, tier: string, benign: string[], controls: string[]): 
   }
 }
 
+describe("TLS key file references", () => {
+  table("env.kv", "MEDIUM", [
+    'MIGUAN_WEB_TLS_KEY="/etc/miguan/web/site.key"',
+    '  "SSL_KEY": "./certificates/server.pem",',
+    '+PRIVATE_KEY=../certificates/signing.p12',
+    'TLS_KEY=C:\\certificates\\server.pfx',
+  ], [
+    'TLS_KEY="Zx9Qw8Er7Ty6Ui5Op4As3Df2"',
+    'TLS_KEY="/Qm9vZ2llV29vZ2ll/abc123XYZ+="',
+    'API_KEY="/etc/miguan/web/site.key"',
+    'PASSWORD="/etc/miguan/web/site.key"',
+    'TLS_KEY="https://example.invalid/server.key"',
+    'TLS_KEY="/etc/miguan/web/site.key?token=Zx9Qw8Er7Ty6Ui5Op4As3Df2"',
+  ]);
+
+  test("a live environment value remains reportable even when it is a TLS path", () => {
+    const file = '/etc/miguan/web/site.key';
+    expect(scan(`TLS_KEY="${file}"`, { processEnv: { TLS_KEY: file } }).findings.map(f => f.id))
+      .toContain('env.value');
+  });
+});
+
 describe("pii.phone.e164 / pii.cc: vector geometry is not PII (#2885, #2827)", () => {
   table(
     "pii.phone.e164",

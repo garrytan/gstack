@@ -141,6 +141,14 @@ export function isCredentialShapedEnvName(fullMatch: string): boolean {
   return ENV_KV_CRED_PREFIX.test(prefix); // (iv) credential-semantic compound
 }
 
+/** A TLS key setting can hold a file reference rather than key bytes. This only
+ * calibrates env.kv; the independent env.value scan still recognizes live values. */
+function isTlsKeyFile(span: string, match: RegExpExecArray): boolean {
+  const name = ENV_KV_NAME.exec(match[0])?.[1] ?? "";
+  return /(?:^|[_.-])(?:TLS|SSL|CERT|CERTIFICATE|PRIVATE)[_.-]KEY$/i.test(name) &&
+    /^(?:\/|\.\/|\.\.\/|~\/|[A-Za-z]:[\\/])[^?*"'<>|:\r\n]*\.(?:pem|key|p12|pfx)$/i.test(span);
+}
+
 /** True when an IPv4 string is a public address (not RFC1918/loopback/etc). */
 export function isPublicIPv4(ip: string): boolean {
   const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -1232,6 +1240,7 @@ export const PATTERNS: RedactPattern[] = [
       !isCallExpression(span, match) &&
       !isSourceExpression(span, match, opts?.sourcePath) &&
       !isSchemaFieldIdentifier(span, match) &&
+      !isTlsKeyFile(span, match) &&
       shannonEntropy(span) >= 3.0,
   },
   {
