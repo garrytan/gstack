@@ -50,7 +50,7 @@ note), is a keep-alive, and a gap over 300 s between calls outlives the prompt c
 (`lib/ship-calls.ts`).
 
 A Capy /ship helper cannot read its own transcript, so it counts from the call log instead:
-`gstack-ship-budget calls --run <id>|--record <path> [--log <file>]`. On Capy (`GSTACK_CAPY=1`, set by the
+`gstack-ship-budget calls --run <id>|--record <path> [--log <file>] [--since <iso>] [--until <iso>]`. On Capy (`GSTACK_CAPY=1`, set by the
 launch file) every gstack-ship-* bin and `gstack-review-dispatch` append one row to `<state root>/ship-calls.jsonl` when they exit (a bin another
 one spawned writes none), so counting adds no call. The window is the run's start to its close, and the
 line is `CALLS: source=log calls= phase= pass= section= other= keepalive_est= total_est= pass_overhead_s=
