@@ -7,6 +7,8 @@
  *                        [--date YYYY-MM-DD] [--source <ref>] [--branch <name>] [--json]
  *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
  *   gstack-approvals render [--no-heading] [--full] [--branch <name>]
+ *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
+ *   gstack-approvals rulings [--branch <name>]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
  *   gstack-approvals path [--branch <name>]
@@ -18,9 +20,11 @@
  * `render` prints the `## Approvals` section /ship puts in the PR body. Logic:
  * lib/approval-record.ts.
  */
+import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
+import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
@@ -29,6 +33,12 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           [--pending <text>] [--outcome approved|rejected|pending|standing] [--date YYYY-MM-DD] [--source <ref>]
   import  --autoplan <run dir> [--by <whose words, e.g. Garry>] [--stack <b1,b2,...>]
           --stack writes the same rows to every branch of a stack; each branch is checked first, and one unknown branch writes none
+  rule    --finding <fingerprint> --head <the stop head the owner ruled at> --reason <why it ships as a note, one line>
+          --words <the owner's exact words> --by <who ruled>
+          the owner's ruling that a review finding ships as a disclosed note (docs/ship-policy.md#ruled-notes); finish
+          counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
+          list it; refused inside this checkout's open /ship run
+  rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
   render  [--no-heading] [--full] the ## Approvals section for a PR body or report; a public repository, or one whose
           visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
           its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private
@@ -43,7 +53,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -111,9 +121,23 @@ function main(argv: string[]): number {
   const json = bools.has('--json');
   const recorded = (where: StoreLocation) => `${where.file}${where.mirror ? ` mirror=${where.mirror}` : ''}`;
 
-  if (cmd === 'add' || cmd === 'import') {
+  if (cmd === 'add' || cmd === 'import' || cmd === 'rule') {
     let rows;
-    if (cmd === 'add') {
+    if (cmd === 'rule') {
+      const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
+      const finding = (flags['--finding'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim();
+      if (!finding || /\s/.test(finding) || !reason) return invalid('rule needs --finding <the finding\'s fingerprint, no spaces> and --reason <why it ships as a note>');
+      if (/[\x00-\x1f\x7f]/.test(reason)) return invalid('--reason is one line: no newline or control character');
+      const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
+      if (!flags['--head'] || head.status !== 0) return invalid('rule needs --head <the stop head the owner ruled at, a commit in this repository>');
+      if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a ruling is the owner\'s, so --by names who ruled');
+      const open = openShipRun(process.cwd());
+      if (open) return invalid(`/ship run ${open} is open on this checkout: a ruling is the owner's, never the lane's own runner's; record it from the owner's session`);
+      const built = buildRow({ ...ruledNoteRow(finding, head.stdout.trim(), reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
+      if ('code' in built) return fail(cmd, built);
+      rows = [built];
+    } else if (cmd === 'add') {
+      if (RULED_NOTE_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a ruled_note scope is recorded with gstack-approvals rule' });
       const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: flags['--source'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
@@ -126,7 +150,7 @@ function main(argv: string[]): number {
     const res = appendRows(loc, rows);
     if ('code' in res) return fail(cmd, res);
     if (json) process.stdout.write(JSON.stringify({ added: res.added.map(r => r.id), skipped: res.skipped, file: loc.file, mirror: loc.mirror ?? null }) + '\n');
-    else if (cmd === 'add') process.stdout.write(`APPROVAL_RECORDED: ${rows[0]!.id}${res.skipped ? ' (already present)' : ''} ${recorded(loc)}\n`);
+    else if (cmd !== 'import') process.stdout.write(`APPROVAL_RECORDED: ${rows[0]!.id}${res.skipped ? ' (already present)' : ''} ${recorded(loc)}\n`);
     else process.stdout.write(`APPROVAL_IMPORTED: n=${res.added.length} skipped=${res.skipped} ${recorded(loc)}\n`);
     if (res.mirrorError) return fail(cmd, res.mirrorError);
     return EXIT.ok;
@@ -143,6 +167,11 @@ function main(argv: string[]): number {
       process.stdout.write(renderRecord(read, loc, { heading: !bools.has('--no-heading'), mode }));
     }
     if (read.state === 'unavailable') return fail(cmd, { code: 'APPROVAL_RECORD_UNAVAILABLE', message: `no record at ${loc.file} and no mirror` });
+    return EXIT.ok;
+  }
+  if (cmd === 'rulings') {
+    const notes = ruledNotes(readRecord(loc).rows);
+    process.stdout.write(notes.length ? notes.map(n => `Ruled note: ${ruledNoteText(n)}\n`).join('') : 'RULED_NOTES: none\n');
     return EXIT.ok;
   }
   if (cmd === 'sync') {

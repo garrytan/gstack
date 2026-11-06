@@ -335,7 +335,26 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   return rec;
 }
 
-export function reviewFreshness(rec: Record<string, any>, currentWtree: string): { status: string; reason: string } | undefined {
+const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'open' ||
+  ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
+  (!f.gate && isCriticalFinding(f) && isOpenByAction(f)));
+const RULABLE = new Set(['skipped', 'noted', 'deferred']);
+
+/**
+ * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
+ * `gstack-approvals rule` rows, lib/ruled-notes.ts, never from the row itself) taken out, and recorded clean when the
+ * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged.
+ */
+function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>): Record<string, any> {
+  const isRuled = (f: unknown) => record(f) && !f.gate && RULABLE.has(f.action) && typeof f.fingerprint === 'string' && ruled.has(f.fingerprint);
+  if (!ruled.size || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
+      !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
+      rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
+      rec.findings.some(f => !isRuled(f) && (!record(f) || unresolvedFinding(f)))) return rec;
+  return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
+}
+
+export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set()): { status: string; reason: string } | undefined {
   if (!DIFF_REVIEWS.has(rec.skill)) return;
   if (rec.skill === 'ship') return { status: 'UNVERIFIED', reason: 'ship telemetry is not a review pass' };
   const binding = rec.review_binding;
@@ -354,12 +373,11 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string):
   // B7: a derived row carries findings_open; a resolved critical finding no
   // longer counts against it. Claimed rows keep the conservative reading of
   // issues_found, and the legacy `critical` and Codex counters stay as they were.
+  rec = withoutRuledNotes(rec, ruled);
   const open = typeof rec.findings_open === 'number' ? rec.findings_open : rec.issues_found;
   if (rec.status !== 'clean' || open > 0 || rec.critical > 0 ||
       (rec.skill === 'codex-review' && rec.findings > (rec.findings_fixed ?? 0)) ||
-      (Array.isArray(rec.findings) && rec.findings.some(f => record(f) && (f.action === 'open' ||
-        ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
-        (!f.gate && isCriticalFinding(f) && isOpenByAction(f)))))) {
+      (Array.isArray(rec.findings) && rec.findings.some(unresolvedFinding))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };
