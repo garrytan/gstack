@@ -136,9 +136,28 @@ there is refused with the usual `--for <skill>` fix.
    disabled), the ok trailer also says so, because lanes relay only the
    trailer: `behind=<n> (latest: <ver>); fix: <command>` (see the trailer
    grammar below).
+   **Daily (R75).** When the oldest origin commit the checkout lacks is more
+   than 24 hours old, the trailer adds `stale=<h>h` after `behind=`, and
+   unlike a bare `behind=` the agent runs the fix before the first workflow.
+   A pin (`GSTACK_CAPY_SELF_UPGRADE=off`, `GSTACK_CAPY_AUTO_UPGRADE=0`, a
+   detached HEAD or another branch) then holds only with a recorded reason:
+   `GSTACK_PIN_REASON=<why>`, `git -C <root> config gstack.pinReason <why>`,
+   an explicit `--revision`, or `gstack.contributor=true`
+   (`stale=<h>h (pinned: <why>)`). Without one, an install-mode run on a clean,
+   undiverged checkout overrides it (`SELF_UPGRADE: pin overridden (...)
+   (PIN_UNREASONED)`), switching to the default branch only when that local
+   branch is absent or fast-forwardable and no other session holds a lease,
+   and switching back if `bin/gstack-upgrade` refuses. A workflow lease of the
+   current run or a live eval run (gstack-detach's
+   `~/.gstack/locks/gstack-evals.lock`) defers every self-upgrade
+   (`UPGRADE_BUSY`). A `--for review-voice` reader gets
+   `stale=<h>h (shared checkout: the lane's install moves it)` and only reports
+   it. With `GSTACK_UPDATE_CHANNEL=stable` nothing is measured against main.
 4. When the fetch fails (offline), the bootstrapper says `remote minimum
    unknown (fetch failed)` and checks the local install only; it never claims
-   the minimum, and nothing is fast-forwarded.
+   the minimum, and nothing is fast-forwarded. With no successful fetch in 24
+   hours (the session's `<git dir>/gstack-last-fetch` stamp) the trailer adds
+   `stale=no fetch from origin in <h>h` with a network fix.
 5. The project's floor. A consuming repository names the oldest gstack it wants
    its crew on as `min_gstack_version` in its `.gstack/ship-policy.json` (the
    key `gstack-ship-queue` already validates; a file holding only that key is
@@ -419,7 +438,8 @@ with every bootstrapper revision), optionally followed by `upgrade skipped:
 <reason> (<CODE>)` when an install-mode fast-forward was refused, or `latest:
 <ver> available` (origin's default branch has a newer VERSION; the bootstrapper
 exports it as `GSTACK_CAPY_REMOTE_VERSION` only after a fetch that succeeded
-in this run); then `floor=<f> (<file>)` when the project's floor is unmet; and
+in this run); `stale=<note>` right after `behind=` (or alone, for no fetch in 24
+hours); then `floor=<f> (<file>)` when the project's floor is unmet; and
 last exactly one `fix: <command>` whenever `behind=` or `floor=` is present.
 A fail trailer never carries notes. `gstack: ok not-needed for=none (...)` is
 the `--for none` outcome: no revision, nothing certified, no workflow admitted. Match `^gstack: ok ` or

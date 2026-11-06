@@ -397,7 +397,7 @@ describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: th
     };
     const initial = (dir: string, extra: Record<string, string> = {}) => spawnSync('bash', [HELPER, '--initial', state, dir], {
       encoding: 'utf8', timeout: 10_000,
-      env: { ...process.env, ...GIT_ENV, HOME: home, GSTACK_UPDATE_CHANNEL: '', GSTACK_CONTRIBUTOR: '', CI: '', ...extra },
+      env: { ...process.env, ...GIT_ENV, HOME: home, GSTACK_UPDATE_CHANNEL: '', GSTACK_CONTRIBUTOR: '', CI: '', CAPY_MACHINE_CONFIG: '', ...extra },
     }).stdout.trim();
     return { base, home, state, clone, initial };
   }
@@ -410,12 +410,18 @@ describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: th
     expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'main' })).toBe('main set by GSTACK_UPDATE_CHANNEL at install');
     expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'stable', CI: 'true' })).toBe('stable set by GSTACK_UPDATE_CHANNEL at install');
     expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'weekly' })).toBe('stable new install');
+    expect(c.initial(shallow, { CAPY_MACHINE_CONFIG: '/etc/capy.json' })).toBe('main Capy machine: crews follow every merge');
+    fs.mkdirSync(path.join(c.home, '.capy', 'system'), { recursive: true });
+    expect(c.initial(shallow)).toBe('main Capy machine: crews follow every merge');
+    fs.rmSync(path.join(c.home, '.capy'), { recursive: true });
+    const usage = spawnSync('bash', [HELPER, '--initial'], { encoding: 'utf8', timeout: 10_000 });
+    expect([usage.status, usage.stderr.trim()]).toEqual([2, 'usage: gstack-update-channel.sh --initial <state root> [<install dir>]']);
   });
 
   test('an existing install records nothing: a setup marker or config.yaml in the state root, or the legacy ~/.gstack marker', () => {
     const c = checkout();
     const dir = c.clone('full');
-    for (const marker of [path.join(c.state, '.last-setup-version'), path.join(c.state, 'config.yaml'), path.join(c.home, '.gstack', '.last-setup-version')]) {
+    for (const marker of [path.join(c.state, '.last-setup-version'), path.join(c.state, 'config.yaml'), path.join(c.home, '.gstack', '.last-setup-version'), path.join(c.home, '.gstack', 'config.yaml')]) {
       write(marker, '1.0.0\n');
       expect(c.initial(dir), marker).toBe('');
       expect(c.initial(dir, { GSTACK_UPDATE_CHANNEL: 'main' }), marker).toBe('');

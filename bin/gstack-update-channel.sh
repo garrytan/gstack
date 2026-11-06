@@ -67,15 +67,20 @@ gstack_update_channel_missing() {
   printf '%s' "${1:-}" | grep -qiE "couldn't find remote ref|no such ref was fetched|invalid refspec" 2>/dev/null
 }
 
-# A state root that holds a setup marker or a config is an existing install:
-# it keeps auto, so nothing changes under it. A contributor checkout keeps
+# A state root (or the legacy ~/.gstack) that holds a setup marker or a config
+# is an existing install: it keeps auto, so nothing changes under it. A Capy
+# machine (CAPY_MACHINE_CONFIG or ~/.capy/system, as bin/gstack-capy-install
+# detects it) records main, even for a ./setup run outside a Capy session. A contributor checkout keeps
 # auto too: gstack.contributor (bin/dev-setup) or GSTACK_CONTRIBUTOR=1, CI, a
 # checkout that is not its own git repository, a detached HEAD, a branch other
 # than origin's default, no upstream, or commits the upstream does not have.
 gstack_update_channel_initial() {
   _uc_dir=$1 _uc_state=$2
-  if [ -e "$_uc_state/.last-setup-version" ] || [ -e "$_uc_state/config.yaml" ] || [ -e "$HOME/.gstack/.last-setup-version" ]; then return 0; fi
+  for _uc_m in "$_uc_state/.last-setup-version" "$_uc_state/config.yaml" "$HOME/.gstack/.last-setup-version" "$HOME/.gstack/config.yaml"; do
+    [ -e "$_uc_m" ] && return 0
+  done
   case "${GSTACK_UPDATE_CHANNEL:-}" in stable|main) printf '%s set by GSTACK_UPDATE_CHANNEL at install\n' "$GSTACK_UPDATE_CHANNEL"; return 0 ;; esac
+  if [ -n "${CAPY_MACHINE_CONFIG:-}" ] || [ -d "$HOME/.capy/system" ]; then printf 'main Capy machine: crews follow every merge\n'; return 0; fi
   if [ "${GSTACK_CONTRIBUTOR:-}" = 1 ] || [ "$(git -C "$_uc_dir" config --bool --get gstack.contributor 2>/dev/null)" = true ]; then
     printf 'auto contributor checkout: gstack.contributor is set\n'; return 0
   fi
@@ -92,7 +97,10 @@ gstack_update_channel_initial() {
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   _uc_fetch=0 _uc_arg=""
-  [ "${1:-}" = --initial ] && { gstack_update_channel_initial "${3:-$(cd "$(dirname "$0")/.." && pwd)}" "${2:?--initial needs <state root>}"; exit 0; }
+  if [ "${1:-}" = --initial ]; then
+    [ -n "${2:-}" ] || { echo "usage: gstack-update-channel.sh --initial <state root> [<install dir>]" >&2; exit 2; }
+    gstack_update_channel_initial "${3:-$(cd "$(dirname "$0")/.." && pwd)}" "$2"; exit 0
+  fi
   for _uc_a in "$@"; do
     case "$_uc_a" in
       --fetch-ref) _uc_fetch=1 ;;

@@ -36,7 +36,8 @@
 #   bash install.sh --check --for none        this machine runs no workflow: ok not-needed, nothing installed
 #   bash install.sh [--for <skill> | --require <id,id>] [--with-browser] [--revision <ref>] [--project <path>]
 # Environment: GSTACK_CAPY_ROOT (default ~/.local/share/gstack), GSTACK_CAPY_REPO,
-# GSTACK_CAPY_AUTO_UPGRADE=0 (never fast-forward), GSTACK_CAPY_FETCH_TIMEOUT (s),
+# GSTACK_CAPY_AUTO_UPGRADE=0 (no fast-forward; above the floor the checkout's session
+# overrides it past 24 hours behind unless GSTACK_PIN_REASON is set), GSTACK_CAPY_FETCH_TIMEOUT (s),
 # GSTACK_UPDATE_CHANNEL=stable (follow the tagged release; default main, every merge).
 set -u
 GSTACK_CAPY_WRAPPER=5

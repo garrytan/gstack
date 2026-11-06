@@ -246,10 +246,13 @@ Which channel an install gets:
 
 - **A new install follows `stable`.** The first `./setup` on a machine (no
   `.last-setup-version` or `config.yaml` in the state root, and no legacy
-  `~/.gstack/.last-setup-version`) records `update_channel: stable` and prints
+  `~/.gstack/.last-setup-version` or `~/.gstack/config.yaml`) records `update_channel: stable` and prints
   `Update channel: stable (new install)` with the command that switches. When
   `GSTACK_UPDATE_CHANNEL` is set during that first setup, its value is
-  recorded instead.
+  recorded instead, and a Capy machine (`CAPY_MACHINE_CONFIG` or
+  `~/.capy/system`) records `main`. The clone starts at main's latest
+  commit; since nothing moves a checkout backwards, a new stable install runs
+  that build until the next cut passes it, then follows releases.
 - **A contributor checkout follows `main`.** That first setup records nothing,
   so the key stays `auto`, when the checkout is a contributor's:
   `git config gstack.contributor true` (what `bin/dev-setup` writes) or

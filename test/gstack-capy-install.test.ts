@@ -307,6 +307,17 @@ describe('gstack-capy-install', () => {
     expect(lastLine(run(f, [], { ...behind, STUB_DOCTOR_FAIL: '1' }).stdout)).toBe('gstack: fail codex');
   });
 
+  // Value: protects=the real installer renders GSTACK_CAPY_STALE as stale= right after behind=, and on its own (no fetch) with a network fix and no
+  // "; " inside the fix; fails_when=the note is dropped, misplaced, or breaks the trailer grammar; why_new=R75 (GST-1642) review F7; seam=env;
+  // no_claim=the session's computation (capy-skill-wrapper.test.ts)
+  test('trailer grammar: stale= follows behind=, or stands alone with a network fix when no fetch succeeded in 24 hours', () => {
+    const f = fixture();
+    const behind = { GSTACK_CAPY_BEHIND: '5', GSTACK_CAPY_BEHIND_TO: '1.2.8', GSTACK_CAPY_BEHIND_FIX: 'bash /s/install.sh --for autoplan', GSTACK_CAPY_STALE: '30h' };
+    expect(lastLine(run(f, [], behind).stdout)).toBe('gstack: ok 1.2.3 for=autoplan (behind=5 (latest: 1.2.8); stale=30h; fix: bash /s/install.sh --for autoplan)');
+    const nofetch = run(f, ['--for', 'autoplan'], { GSTACK_CAPY_STALE: 'no fetch from origin in 26h', GSTACK_CAPY_WRAPPER_PATH: '/s/install.sh' });
+    expect(lastLine(nofetch.stdout)).toBe('gstack: ok 1.2.3 for=autoplan (stale=no fetch from origin in 26h; fix: check network access to origin, then bash /s/install.sh --for autoplan)');
+  });
+
   test('a skipped session-start upgrade above the minimum is a WARN, never a fail: the trailer stays ok with behind=, the skip reason and the fix, exit 0, and a WARN behind row names the code', () => {
     const f = fixture();
     const busy = { GSTACK_CAPY_BEHIND: '3', GSTACK_CAPY_BEHIND_TO: '1.2.6', GSTACK_CAPY_BEHIND_FIX: `${f.root}/bin/gstack-upgrade`, GSTACK_CAPY_BEHIND_BLOCKED: 'live gstack sessions hold this installation: pid 379 (124m dbus-daemon); fix: wait for those sessions to finish, or re-run with GSTACK_UPGRADE_FORCE=1 when you know they are idle (UPGRADE_BUSY)' };

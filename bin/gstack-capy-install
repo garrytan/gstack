@@ -625,6 +625,11 @@ EOF_SHIM
 # keeps its ok trailer, whose notes then read
 #   behind=<n> (latest: <ver>); upgrade skipped: <reason> (<CODE>); fix: <command>
 # (below the minimum the bootstrapper fails revision before anything runs).
+# A checkout more than 24 hours behind (bin/gstack-capy-session exports
+# GSTACK_CAPY_STALE) adds `stale=<h>h` after `behind=`, or `stale=<h>h (pinned: <reason>)`
+# for a pin with a recorded reason; a failed fetch with no successful one in 24
+# hours adds `stale=no fetch from origin in <h>h` on its own. Unlike a bare
+# `behind=`, a `stale=` with no pin means: run the fix before the first workflow.
 # A project floor the doctor could not meet (`WARN floor`, PROJECT_FLOOR_UNMET)
 # adds `floor=<ver> (<file>)` and a `fix:` note the same way. A passing run
 # whose launch file cannot be written becomes
@@ -653,6 +658,7 @@ if [ -n "$BLOCKED" ]; then
 fi
 if [ -n "${GSTACK_CAPY_BEHIND:-}" ]; then
   note "behind=$GSTACK_CAPY_BEHIND (latest: ${GSTACK_CAPY_BEHIND_TO:-${REMOTE_VERSION:-unknown}})"
+  [ -n "${GSTACK_CAPY_STALE:-}" ] && note "stale=$GSTACK_CAPY_STALE"
   [ -n "$BLOCKED" ] && note "upgrade skipped: $BLOCKED_REASON ($BLOCKED_CODE)"
   # The trailer's fix is always one runnable command (the session's: the rerun
   # or bin/gstack-upgrade, which prints its own refusal); the refusal's own
@@ -661,6 +667,10 @@ if [ -n "${GSTACK_CAPY_BEHIND:-}" ]; then
 elif [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "$INSTALLED" ] \
    && [ "$(printf '%s\n%s\n' "$INSTALLED" "$REMOTE_VERSION" | sort -V | head -1)" = "$INSTALLED" ]; then
   note "latest: $REMOTE_VERSION available"
+fi
+if [ -n "${GSTACK_CAPY_STALE:-}" ] && [ -z "${GSTACK_CAPY_BEHIND:-}" ]; then
+  note "stale=$GSTACK_CAPY_STALE"
+  FIX_NOTE="check network access to origin, then ${GSTACK_CAPY_WRAPPER_PATH:+bash $GSTACK_CAPY_WRAPPER_PATH${FOR:+ --for $FOR}}"
 fi
 # The project floor (the doctor's WARN floor row): the floor and its file ride
 # the trailer, and the fix is the install when it fast-forwards, else the row's.

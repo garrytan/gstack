@@ -65,13 +65,14 @@ const UPGRADE_DEPS = [
  * next: the remote moves on to C for a clone at A too. stable: origin's stable
  * branch (the release, docs/releases.md) at that commit. configStable: B and later
  * carry a bin/gstack-config stub whose update_channel is stable (a machine whose
- * own config, or team mode, would follow the release).
+ * own config, or team mode, would follow the release). nextAgeHours: C's commit
+ * date that many hours ago (a checkout at B is that stale).
  */
-function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolean; stable?: 'A' | 'B' | 'C'; configStable?: boolean } = {}) {
+function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolean; stable?: 'A' | 'B' | 'C'; configStable?: boolean; nextAgeHours?: number } = {}) {
   const host = capyHost({ systemBun: '1.4.2' });
   hosts.push(host);
-  const git = (args: string[], cwd: string) => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: host.env, timeout: 30_000 });
+  const git = (args: string[], cwd: string, extra: Record<string, string> = {}) => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...host.env, ...extra }, timeout: 30_000 });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
     return r.stdout.trim();
   };
@@ -105,7 +106,8 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolea
   if (opts.cloneAt === 'B' || opts.next) {
     if (opts.cloneAt === 'B') git(['clone', '-q', '--single-branch', '--depth', '1', `file://${bare}`, root], host.base);
     write(path.join(seed, 'VERSION'), '1.0.2\n');
-    git(['commit', '-qam', 'C'], seed);
+    const at = opts.nextAgeHours ? `@${Math.floor(Date.now() / 1000) - opts.nextAgeHours * 3600 - 60} +0000` : '';
+    git(['commit', '-qam', 'C'], seed, at ? { GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : {});
     c = git(['rev-parse', 'HEAD'], seed);
     git(['push', '-q', bare, 'main'], seed);
   }
@@ -326,7 +328,7 @@ describe('capy skill: always current when online (the minimum is the floor, not 
 // bootstrapper read in this run; a FETCH_HEAD left by an earlier run never
 // reaches the installer.
 describe('capy skill bootstrapper: the update channel (wrapper 4, docs/releases.md#channels)', () => {
-  // Value: protects=an install that follows stable (GSTACK_UPDATE_CHANNEL=stable, or team mode through bin/gstack-update-channel.sh) is cloned at
+  // Value: protects=an install that follows stable (GSTACK_UPDATE_CHANNEL=stable; from wrapper 5 the machine's own channel no longer counts) is cloned at
   // origin's stable branch, not main, and stays there through the checkout half's self-upgrade; GSTACK_UPDATE_CHANNEL=main and a remote with no stable
   // branch (before the first release) clone main; fails_when=a fresh team install lands on unreleased main, the override cannot pick main, or a missing
   // stable branch fails the install; why_new=the clone test covers the default branch only; seam=GSTACK_UPDATE_CHANNEL instead of gstack-config's
@@ -767,5 +769,192 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
       expect(unknownFamilies(pref)).toEqual([]);
       expect(unknownFamilies(pref.replace('`opus`', '`opux`'))).toEqual(['opux']);
     });
+  });
+});
+
+// R75 (Garry, 2026-11-06): every Capy thread runs gstack's latest main at least daily.
+describe('capy skill: a checkout more than 24 hours behind origin (R75)', () => {
+  const STALE_INSTALLER = '#!/usr/bin/env bash\necho "gstack: ok $(cat "$(dirname "$0")/../VERSION") for=autoplan behind=${GSTACK_CAPY_BEHIND:-none} stale=${GSTACK_CAPY_STALE:-none} fix=${GSTACK_CAPY_BEHIND_FIX:-none}"\n';
+  const rerun = `bash ${BOOT} --for autoplan`;
+  /** Clone at B; origin's C is ageHours old. */
+  const behindBy = (ageHours: number) => {
+    const f = fixture({ cloneAt: 'B', nextAgeHours: ageHours });
+    write(path.join(f.root, 'bin/gstack-capy-install'), STALE_INSTALLER, 0o755);
+    f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+    return f;
+  };
+
+  // Value: protects=a checkout whose oldest missing commit is over 24h old is flagged stale on --check with the fast-forwarding install as its fix (no longer
+  // a bare informational behind=), and the install at the workflow boundary fast-forwards it; an hour behind stays plain behind=; fails_when=--check
+  // leaves a day-old checkout informational, or the boundary install does not move it; why_new=R75; seam=C's commit date; no_claim=GitHub's main
+  test('25 hours behind: --check notes stale=25h with the install as its fix and moves nothing; the install fast-forwards; an hour behind is not stale', () => {
+    const f = behindBy(25);
+    const check = f.run(['--check', '--for', 'autoplan']);
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+    expect(check.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 stale=25h fix=${rerun}`);
+    expect(check.stdout).toContain('gstack-capy-session: stale: the oldest commit this checkout lacks is 25h old (over 24h); run the fix before the first workflow');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    const install = f.run(['--for', 'autoplan']);
+    expect(install.stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+
+    const fresh = behindBy(1);
+    expect(fresh.run(['--check', '--for', 'autoplan']).last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 stale=none fix=${rerun}`);
+  });
+
+  // Value: protects=the daily upgrade happens only at a workflow boundary: a run holding a fresh workflow lease, or a live eval run (gstack-detach's eval
+  // lock), skips it even for a stale checkout with an unreasoned pin; fails_when=a /ship, review or eval run has gstack moved under it; why_new=R75 adds
+  // a forced path that must not bypass the in-run markers; seam=gstack-lease and flock on the eval lock; no_claim=leases of other machines
+  test('mid-run: a fresh workflow lease of this run, or a live eval run, defers the upgrade of a stale checkout', () => {
+    const f = behindBy(25);
+    const leaseDir = path.join(f.host.base, 'leases');
+    const script = ['bash "$1" touch --pid $$ --root "$2" || exit 9', 'bash "$3" --for autoplan; echo "exit=$?"'].join('\n');
+    const inRun = spawnSync('bash', ['-c', script, 'run', path.join(f.root, 'bin/gstack-lease'), f.root, BOOT], { cwd: f.host.home, encoding: 'utf8', env: { ...f.host.env, GSTACK_CAPY_ROOT: f.root, GSTACK_CAPY_REPO: `file://${f.bare}`, WRAP_LOG: path.join(f.host.base, 'wrap.log'), GSTACK_LEASE_DIR: leaseDir, GSTACK_CAPY_SELF_UPGRADE: 'off' }, timeout: 120_000 });
+    expect(inRun.stdout, inRun.stdout + inRun.stderr).toContain('exit=0');
+    expect(inRun.stdout).toMatch(/^SELF_UPGRADE: skipped \(a gstack run in this session holds a workflow lease .+ \(UPGRADE_BUSY\)\)$/m);
+    expect(inRun.stdout).not.toContain('pin overridden');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+
+    if (spawnSync('sh', ['-c', 'command -v flock'], { timeout: 5_000 }).status !== 0) return;
+    const lock = path.join(f.host.home, '.gstack/locks/gstack-evals.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    const holder = spawn('bash', ['-c', 'exec 9>"$1" && flock 9 && exec sleep 300', '_', lock], { stdio: 'ignore' });
+    try {
+      for (let i = 0; i < 50 && spawnSync('flock', ['-n', lock, 'true'], { timeout: 5_000 }).status === 0; i++) spawnSync('sleep', ['0.1']);
+      const evalRun = f.run(['--for', 'autoplan']);
+      expect(evalRun.status, evalRun.stdout + evalRun.stderr).toBe(0);
+      expect(evalRun.stdout).toContain(`SELF_UPGRADE: skipped (a live eval run holds ${lock}, so the upgrade waits for it to finish; fix: ${rerun} once the eval run ends (UPGRADE_BUSY))`);
+      expect(evalRun.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 stale=25h fix=${rerun}`);
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    } finally {
+      holder.kill('SIGKILL');
+    }
+    const after = f.run(['--for', 'autoplan']);
+    expect(after.stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+  });
+
+  // Value: protects=a pin with a recorded reason (GSTACK_PIN_REASON, or gstack.pinReason in the checkout's git config) holds a stale checkout and the
+  // trailer names the reason; fails_when=a deliberate, explained pin is moved; why_new=R75; seam=both reason sources; no_claim=pins below the floor
+  test('a pin with a recorded reason holds, and the trailer carries the reason', () => {
+    const f = behindBy(25);
+    const off = f.run(['--for', 'autoplan'], { GSTACK_CAPY_SELF_UPGRADE: 'off', GSTACK_PIN_REASON: 'bisecting GST-1 at 1.0.1' });
+    expect(off.stdout).toMatch(/^SELF_UPGRADE: disabled \(GSTACK_CAPY_SELF_UPGRADE\)$/m);
+    expect(off.last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 stale=25h (pinned: bisecting GST-1 at 1.0.1) fix=unset GSTACK_CAPY_SELF_UPGRADE, then ${rerun}`);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    f.git(['checkout', '-q', '--detach']);
+    f.git(['config', 'gstack.pinReason', 'repro for GST-2']);
+    const detached = f.run(['--for', 'autoplan']);
+    expect(detached.stdout).toMatch(/^SELF_UPGRADE: skipped \(HEAD is detached .+\)$/m);
+    expect(detached.last).toContain('stale=25h (pinned: repro for GST-2)');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+  });
+
+  // Value: protects=a pin with no recorded reason does not hold a stale checkout: the install overrides it, says so with PIN_UNREASONED, puts a detached
+  // checkout back on the default branch and fast-forwards; --check points its fix at that install; fails_when=an unexplained pin keeps a thread on a
+  // day-old gstack; why_new=R75; seam=GSTACK_CAPY_SELF_UPGRADE=off and a detached HEAD; no_claim=dirty or diverged checkouts (still refused)
+  test('a pin with no recorded reason is overridden at the boundary and reported; --check names the install as the fix', () => {
+    const f = behindBy(25);
+    expect(f.run(['--check', '--for', 'autoplan'], { GSTACK_CAPY_SELF_UPGRADE: 'off' }).last).toBe(`gstack: ok 1.0.1 for=autoplan behind=1 stale=25h fix=${rerun}`);
+    const off = f.run(['--for', 'autoplan'], { GSTACK_CAPY_SELF_UPGRADE: 'off' });
+    expect(off.status, off.stdout + off.stderr).toBe(0);
+    expect(off.stdout).toContain(`SELF_UPGRADE: pin overridden (GSTACK_CAPY_SELF_UPGRADE=off, with no recorded reason, and the oldest commit this checkout lacks is 25h old; keep a pin with GSTACK_PIN_REASON=<why> or git -C ${f.root} config gstack.pinReason <why>) (PIN_UNREASONED)`);
+    expect(off.stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+
+    const d = behindBy(25);
+    d.git(['checkout', '-q', '--detach']);
+    const detached = d.run(['--for', 'autoplan']);
+    expect(detached.status, detached.stdout + detached.stderr).toBe(0);
+    expect(detached.stdout).toContain(`SELF_UPGRADE: pin overridden (HEAD detached at ${d.b.slice(0, 7)}, with no recorded reason`);
+    expect(detached.stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+    expect(d.git(['rev-parse', 'HEAD'])).toBe(d.c);
+    expect(d.git(['symbolic-ref', '--short', 'HEAD'])).toBe('main');
+  });
+});
+
+describe('capy skill: R75 edges (review)', () => {
+  const STALE_INSTALLER = '#!/usr/bin/env bash\necho "gstack: ok $(cat "$(dirname "$0")/../VERSION") for=autoplan behind=${GSTACK_CAPY_BEHIND:-none} stale=${GSTACK_CAPY_STALE:-none} fix=${GSTACK_CAPY_BEHIND_FIX:-none}"\n';
+  const behindBy = (ageHours: number) => {
+    const f = fixture({ cloneAt: 'B', nextAgeHours: ageHours });
+    write(path.join(f.root, 'bin/gstack-capy-install'), STALE_INSTALLER, 0o755);
+    f.git(['update-index', '--assume-unchanged', 'bin/gstack-capy-install']);
+    return f;
+  };
+
+  // Value: protects=an unreasoned branch pin and GSTACK_CAPY_AUTO_UPGRADE=0 are overridden like SELF_UPGRADE=off; fails_when=either pin kind is missed;
+  // why_new=R75 review F7; seam=fixture; no_claim=none
+  test('another branch and GSTACK_CAPY_AUTO_UPGRADE=0 are overridden too', () => {
+    const b = behindBy(25);
+    b.git(['checkout', '-q', '-b', 'topic']);
+    const r = b.run(['--for', 'autoplan']);
+    expect(r.stdout).toContain('SELF_UPGRADE: pin overridden (on branch topic, with no recorded reason');
+    expect(b.git(['symbolic-ref', '--short', 'HEAD'])).toBe('main');
+    expect(b.git(['rev-parse', 'HEAD'])).toBe(b.c);
+    const a = behindBy(25);
+    const s = a.run(['--for', 'autoplan'], { GSTACK_CAPY_AUTO_UPGRADE: '0' });
+    expect(s.stdout).toContain('SELF_UPGRADE: pin overridden (GSTACK_CAPY_AUTO_UPGRADE=0, with no recorded reason');
+    expect(a.git(['rev-parse', 'HEAD'])).toBe(a.c);
+  });
+
+  // Value: protects=the override never switches a checkout under another live session and never onto a diverged local default branch, and HEAD stays
+  // where it was; fails_when=a refusal leaves gstack switched (R75 review F1, High); why_new=review F1; seam=gstack-lease, a local commit on main;
+  // no_claim=Bun-hold and setup-lock refusals (they restore through the same path)
+  test('a foreign lease or a diverged local main: the detached pin is not switched and HEAD stays', () => {
+    const f = behindBy(25);
+    f.git(['checkout', '-q', '--detach']);
+    const leaseDir = path.join(f.host.base, 'leases');
+    const holder = spawn('sleep', ['300'], { stdio: 'ignore' });
+    try {
+      expect(spawnSync('bash', [path.join(f.root, 'bin/gstack-lease'), 'touch', '--pid', String(holder.pid), '--root', f.root], { encoding: 'utf8', env: { ...f.host.env, GSTACK_LEASE_DIR: leaseDir }, timeout: 30_000 }).status).toBe(0);
+      const r = f.run(['--for', 'autoplan'], { GSTACK_LEASE_DIR: leaseDir });
+      expect(r.stdout).toContain('SELF_UPGRADE: skipped (live gstack sessions hold this installation, so the unreasoned pin (HEAD detached at');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+      expect(spawnSync('git', ['-C', f.root, 'symbolic-ref', '-q', 'HEAD'], { timeout: 10_000 }).status).not.toBe(0);
+    } finally {
+      holder.kill('SIGKILL');
+    }
+
+    const d = behindBy(25);
+    write(path.join(d.root, 'README.md'), 'local work\n');
+    d.git(['commit', '-qam', 'local work']);
+    const local = d.git(['rev-parse', 'HEAD']);
+    d.git(['checkout', '-q', '--detach', d.b]);
+    const r = d.run(['--for', 'autoplan']);
+    expect(r.stdout).not.toContain('pin overridden');
+    expect(d.git(['rev-parse', 'HEAD'])).toBe(d.b);
+    expect(d.git(['rev-parse', 'refs/heads/main'])).toBe(local);
+  });
+
+  // Value: protects=an explicit --revision counts as a recorded reason, a reason cannot break the trailer grammar, a review-voice reader is told the
+  // lane's install moves the shared checkout, and the stable channel is not measured against main; fails_when=any of those regress; why_new=review
+  // F2/F4/F5/F6; seam=fixture; no_claim=none
+  test('--revision is a reason; a reason is sanitized; review-voice and the stable channel get no fix-before-workflow stale note', () => {
+    const f = behindBy(25);
+    f.git(['checkout', '-q', '--detach']);
+    const rev = f.run(['--for', 'autoplan', '--revision', f.b]);
+    expect(rev.stdout).not.toContain('pin overridden');
+    expect(rev.last).toContain(`stale=25h (pinned: --revision ${f.b})`);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    const evil = f.run(['--check', '--for', 'autoplan'], { GSTACK_PIN_REASON: 'x; fix: rm -rf /\nmore' });
+    expect(evil.last).toContain('stale=25h (pinned: x fix: rm -rf / more)');
+    expect(evil.last).not.toContain('; fix: rm');
+    f.git(['checkout', '-q', 'main']);
+    expect(f.run(['--check', '--for', 'review-voice']).last).toContain("stale=25h (shared checkout: the lane's install moves it)");
+    expect(f.run(['--check', '--for', 'autoplan'], { GSTACK_UPDATE_CHANNEL: 'stable' }).last).toContain('stale=none');
+  });
+
+  // Value: protects=a failed fetch with no successful one in 24 hours is reported from gstack's own success stamp (git empties FETCH_HEAD and resets its
+  // mtime on failure); fails_when=a dead network hides a day-old checkout; why_new=review F3; seam=the stamp's mtime and a broken origin; no_claim=none
+  test('no successful fetch in 24 hours: stale=no fetch from origin in <h>h', () => {
+    const f = behindBy(1);
+    expect(f.run(['--check', '--for', 'autoplan']).last).toContain('stale=none');
+    const stamp = path.join(f.root, '.git/gstack-last-fetch');
+    expect(fs.existsSync(stamp)).toBe(true);
+    const t = Date.now() / 1000 - 25 * 3600 - 60;
+    fs.utimesSync(stamp, t, t);
+    f.git(['remote', 'set-url', 'origin', `file://${f.host.base}/gone.git`]);
+    const r = f.run(['--check', '--for', 'autoplan'], { GSTACK_CAPY_REPO: `file://${f.host.base}/gone.git` });
+    expect(r.stdout).toContain('remote minimum unknown (fetch failed)');
+    expect(r.last).toContain('stale=no fetch from origin in 25h');
   });
 });

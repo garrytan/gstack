@@ -1439,6 +1439,7 @@
     "test/unattended-grant.test.ts": 9,
     "test/uninstall-windows-copies.test.ts": 1131,
     "test/uninstall.test.ts": 4140,
+    "test/update-channel-setup.test.ts": 24000,
     "test/update-channel.test.ts": 5290,
     "test/update-check-crash-sentinel.test.ts": 409,
     "test/update-check-main-moved.test.ts": 2176,
