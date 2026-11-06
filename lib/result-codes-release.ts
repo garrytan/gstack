@@ -443,8 +443,8 @@ export const RELEASE_RESULT_CODES = {
   // Changelog fragments and the per-PR merge step (lib/changelog-fragments.ts, lib/ship-queue-land.ts).
   CHANGELOG_FRAGMENT_INVALID: {
     anchor: 'changelog-fragment-invalid',
-    summary: 'a CHANGELOG fragment is not one regular .md file directly in the fragment directory with entry text, optional bump front matter and no release heading, or one of that name already landed with other text',
-    fix: 'rewrite the named fragment as a flat <dir>/<slug>.md with only the entry text (and optional "bump: minor|major" front matter), rename it if the name already landed, then rerun',
+    summary: 'a CHANGELOG fragment is not one regular .md file directly in the fragment directory with entry text, optional bump and important front matter and no release heading, or one of that name already landed with other text',
+    fix: 'rewrite the named fragment as a flat <dir>/<slug>.md with only the entry text (and optional "bump: minor|major" and "important: security|regression|data-loss|blocker" front matter), rename it if the name already landed, then rerun',
   },
   QUEUE_LAND_LOCKED: {
     anchor: 'queue-land-locked',
