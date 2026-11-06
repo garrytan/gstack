@@ -1,6 +1,0 @@
----
-important: security
----
-### Security
-
-- **Security fix: gstack's bundled browser no longer trusts the compromised eMudhra intermediates (#3338).** gstack now pins Playwright 1.65.0, which bundles Chromium 158.0.8127.18. Chrome removed emSign ECC Root CA - G3, the root over the eight eMudhra intermediate CAs whose keys were compromised, from the Chrome Root Store, but Playwright 1.64.1's Chromium 156 still carried it. gstack's default headless browser gets no CRLSet updates, so it accepted certificates those intermediates issued, and anyone holding the weak keys could impersonate a site to it. With 1.65.0, `$B goto https://dv-g3b-emudhra.we-have-a-problem.com/` fails with `ERR_CERT_AUTHORITY_INVALID` in both the headless shell and the full Chromium; on 1.64.1 it loaded the page. Run `./setup` after upgrading to download the new Chromium. `/setup-browser-cookies` drops its warning about this gap, and BROWSER.md says the gap is closed. The Windows windowsHide patch is re-cut for 1.65.0, and its backport of Playwright's TcpPortRandomizationWin fix is gone because 1.65.0 ships that fix itself. New free tests fail if the bundled Chromium is older than 158.0.8115.0 or still carries the root.
