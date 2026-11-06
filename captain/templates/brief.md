@@ -32,7 +32,12 @@ Spend cap: <focused paid runs per PR, from SPEND>
 3. Ship. CHANGELOG entry under [Unreleased]; GUARD_CHECKS, pregate and /ship at the final
    head; one unstamped READY block (captain/templates/READY.md) to me; the PR body carries
    gstack-approvals render. Never merge; stamp only on my slot call.
-   The lane subscribes to the PR, then stops its /ship subagent at READY (docs/captain.md, the lane's /ship sequence).
+   After dispatching /ship, end your turn; wake only on /ship's completion, holding no PR
+   watch meanwhile (a red check during /ship waits for it to finish). /ship owns the receipt
+   and the PREGATE line. On that wake you subscribe to the PR, stop the /ship subagent, run
+   gstack-ship-queue ready --pr <n> --screen|--no-screen at the pin (its notes on origin),
+   audit your decision trail, write Attention and send READY; after READY, handle PR events
+   as usual (docs/captain.md, the lane's /ship sequence).
 
 Done when: the READY block is sent at a frozen head, reports/<thread code>.md is written,
 and its Approvals table carries the plan approval row (the owner's words, the date) or the
