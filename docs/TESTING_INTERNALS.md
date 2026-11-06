@@ -1200,7 +1200,9 @@ Unmapped files under `DERIVABLE_PREFIXES` (bin/, lib/, scripts/, browse/,
 design/, make-pdf/, hosts/, extension/, model-overlays/, agents/, test/helpers/,
 capy/) are not unknown: `scripts/pr-dependencies.ts` derives the cases whose
 reference closure reaches them (`prCoverage.mode = dependents`), or reports that
-no paid case reaches them. The derivation scans the imports of every code file,
+no paid case reaches them. References to `modules/` data count too, so
+`modules/loadouts.json` takes the cases that reach its reader,
+`scripts/modules.ts`. The derivation scans the imports of every code file,
 including `#!`-shebang `.ts` files and extensionless Bun or Node scripts; if any
 import scan fails, every unmapped file restores the full gate (label **import
 scan failed**). `PR_FULL_GATE_FILES`, `PAID_WORKFLOW_FILES` (`evals.yml`,
@@ -1226,7 +1228,9 @@ derived file whose closure reaches every gate case; the plan lists it as left to
 the train gate's full census, and that census runs those cases.
 `pull_request` runs, broad screens, `EVALS_SCREEN_POLICY=broad` and
 `--profile full` keep every derived dependent. Full-gate inputs and unknown files
-still restore the full gate on a narrow screen. The policy is in
+still restore the full gate on a narrow screen, except `setup`: no paid run
+executes it, so a narrow screen derives it like any other file
+(`NARROW_DERIVED_FULL_GATE_FILES`); every other policy keeps its full gate. The policy is in
 [ship-policy.md](ship-policy.md#run-a-merge-train).
 
 The fallback rate is a label, not the bill: a dependents run whose derived
