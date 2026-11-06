@@ -390,7 +390,9 @@ commits. Each PR merges at its own green head, and versions are set at release
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>` (add `--allow-repo-commands` when
    the base policy lists `land.merged_checks`, so a stale base can run them). It merges with
    `--match-head-commit`, checks main's tree and writes a land note.
-3. Release: before each stable cut (Monday and Thursday, 14:00 UTC), the Captain runs
+3. Release: before each regular stable cut (Monday and Thursday, 14:00 UTC), and in the same
+   turn it lands a PR whose fragment carries `important:` (the READY says `rides the daily
+   cut`; [releases.md](releases.md#the-daily-check)), the Captain runs
    `gstack-release-stamp open`, waits for the release PR's checks, then lands it with
    `gstack-ship-queue land --pr <n> --pin <head>` (no /ship receipt or READY note needed for a
    `release/<version>` head). The cut then tags the new version

@@ -3,11 +3,13 @@
  * release-cut: tag the newest green commit on main as v<VERSION>, publish a
  * GitHub Release whose notes are that span's CHANGELOG headlines, and
  * fast-forward refs/heads/stable to it (docs/releases.md). Run by
- * .github/workflows/weekly-release.yml ("Stable release") every Monday and
- * Thursday at 14:00 UTC and by hand (--ref <sha on main> for a hotfix). Dry
- * runs print the plan and change nothing.
+ * .github/workflows/weekly-release.yml ("Stable release") every day at 14:00
+ * UTC with --daily (the daily check, scripts/release-cadence.ts: an important
+ * change after 24 h, a forced cut at 7 days, the regular cut on Monday and
+ * Thursday) and by hand (--ref <sha on main> for a hotfix). Dry runs print the
+ * plan and change nothing.
  *
- *   bun scripts/release-cut.ts --repo owner/name [--ref <sha>] [--security <reason> | --regression <reason>] [--dry-run]
+ *   bun scripts/release-cut.ts --repo owner/name [--ref <sha>] [--security <reason> | --regression <reason>] [--daily [--fragments-dir <dir>]] [--dry-run]
  *     [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]
  *
  * The checkout needs origin's full history (fetch-depth 0). Green, for a
@@ -58,6 +60,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
+
+export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
 
 export type Gh = (args: string[]) => { status: number | null; stdout: string; stderr: string };
 export type Git = (args: string[]) => { ok: boolean; out: string };
@@ -70,8 +75,6 @@ const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'st
 export const WINDOW_DAYS = 7;
 export const WINDOW_COMMITS = 200;
 export const NOTES_CAP = 60_000;
-export const FLOOR_HOURS = 72;
-export const SCHEDULED_GRACE_HOURS = 3;
 const HOUR = 3_600_000;
 
 export const runGh: Gh = (args) => {
@@ -285,7 +288,8 @@ export function stableMovedAt(git: Git, gh: Gh, repo: string, stable: string): {
 export interface Floor { verdict: 'first' | 'finishing' | 'clear' | 'security' | 'regression' | 'refused' | 'unknown'; line: string; message?: string; next?: string }
 
 /** A regression cut passes only a dated floor; an undatable or unpublished stable stays security-only. */
-export function floorStatus(o: { git: Git; gh: Gh; repo: string; prevStable: string | null; sha: string; exception: Exception['kind'] | null; scheduled: boolean; now: number }): Floor {
+export function floorStatus(o: { git: Git; gh: Gh; repo: string; prevStable: string | null; sha: string; exception: Exception['kind'] | null; scheduled: boolean; now: number; floorHours?: number }): Floor {
+  const floor = o.floorHours ?? FLOOR_HOURS;
   if (!o.prevStable) return { verdict: 'first', line: 'FLOOR: none (no stable yet; this cut creates it)' };
   if (o.prevStable === o.sha) return { verdict: 'finishing', line: 'FLOOR: not applied (finishing the cut that already moved stable)' };
   const moved = stableMovedAt(o.git, o.gh, o.repo, o.prevStable);
@@ -298,11 +302,11 @@ export function floorStatus(o: { git: Git; gh: Gh; repo: string; prevStable: str
   }
   // A tag dated in the future holds the floor from now, not from that date.
   moved.at = Math.min(moved.at, o.now);
-  const need = FLOOR_HOURS - (o.scheduled ? SCHEDULED_GRACE_HOURS : 0);
+  const need = floor - (o.scheduled ? SCHEDULED_GRACE_HOURS : 0);
   const since = 'stable moved to ' + moved.tag + ' at ' + iso(moved.at) + ', ' + ((o.now - moved.at) / HOUR).toFixed(1) + ' h ago';
-  const next = iso(moved.at + FLOOR_HOURS * HOUR) + ' for a hand-run cut; ' + iso(moved.at + (FLOOR_HOURS - SCHEDULED_GRACE_HOURS) * HOUR) + ' for a scheduled run';
+  const next = iso(moved.at + floor * HOUR) + ' for a hand-run cut; ' + iso(moved.at + (floor - SCHEDULED_GRACE_HOURS) * HOUR) + ' for a scheduled run';
   if (o.exception) return { verdict: o.exception, line: 'FLOOR: bypassed by the ' + o.exception + ' exception (' + since + ')' };
-  const kind = o.scheduled ? 'a scheduled run needs ' + need + ' h (' + FLOOR_HOURS + ' h less ' + SCHEDULED_GRACE_HOURS + ' h cron grace)' : 'a hand-run cut needs ' + need + ' h';
+  const kind = o.scheduled ? 'a scheduled run needs ' + need + ' h (' + floor + ' h less ' + SCHEDULED_GRACE_HOURS + ' h cron grace)' : 'a hand-run cut needs ' + need + ' h';
   if (o.now - moved.at >= need * HOUR) return { verdict: 'clear', line: 'FLOOR: clear (' + since + '; ' + kind + ')' };
   return { verdict: 'refused', line: 'FLOOR: refused', message: since + '; ' + kind + '; a security fix passes with --security "<GHSA-…|CVE-…|#n>: why" --ref <fix sha>, a regression fix with --regression "#n: worked in v<X>: why" --ref <fix sha>', next };
 }
@@ -410,7 +414,8 @@ export interface Plan {
   exception: Exception | null; floor: Floor; ridingAlong: number;
 }
 export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
-export type PlanResult = { ok: true; plan: Plan } | { ok: false; code: RefusalCode; message: string; skipped?: string[]; next?: string; plan?: Plan };
+/** `sha` names the candidate when a refusal comes after it was picked but before a plan exists (a VERSION already tagged on an older commit: no release PR landed). */
+export type PlanResult = { ok: true; plan: Plan } | { ok: false; code: RefusalCode; message: string; skipped?: string[]; next?: string; plan?: Plan; sha?: string };
 
 export interface PlanOptions {
   repo: string; ref?: string; git: Git; gh: Gh; now?: () => number; windowDays?: number; windowCommits?: number;
@@ -421,6 +426,8 @@ export interface PlanOptions {
   security?: string;
   /** --regression <reason>: bypass a dated floor for a verified regression fix; needs ref. */
   regression?: string;
+  /** The floor in hours (default FLOOR_HOURS); the daily check plans at IMPORTANT_FLOOR_HOURS and applies each trigger's own floor (scripts/release-cadence.ts). */
+  floorHours?: number;
 }
 
 const refusalFor = (kind: Exception['kind']): RefusalCode => (kind === 'security' ? 'REFUSED_SECURITY' : 'REFUSED_REGRESSION');
@@ -484,7 +491,7 @@ export function planRelease(o: PlanOptions): PlanResult {
   const tag = 'v' + version;
   const existing = git(['rev-parse', '--verify', '-q', 'refs/tags/' + tag + '^{commit}']);
   const tagExists: Plan['tagExists'] = !existing.ok ? 'no' : existing.out === sha ? 'same' : 'other';
-  if (tagExists === 'other') return { ok: false, code: 'REFUSED', message: 'tag ' + tag + ' already names ' + existing.out.slice(0, 12) + ', not ' + sha.slice(0, 12) + '; a version is stamped once per merge, so this needs a look' };
+  if (tagExists === 'other') return { ok: false, code: 'REFUSED', sha, message: 'tag ' + tag + ' already names ' + existing.out.slice(0, 12) + ', not ' + sha.slice(0, 12) + '; a version is stamped once per merge, so this needs a look' };
   if (prevStable === sha && tagExists === 'same' && gh(['release', 'view', tag, '--repo', repo, '--json', 'tagName']).status === 0) {
     return { ok: false, code: 'NOTHING_NEW', message: 'origin/main ' + sha.slice(0, 12) + ' is already released as ' + tag + '; nothing newer is green' };
   }
@@ -523,7 +530,7 @@ export function planRelease(o: PlanOptions): PlanResult {
   const changelog = git(['show', sha + ':CHANGELOG.md']);
   const date = git(['show', '-s', '--format=%cs', sha]).out;
   const notes = releaseNotes({ repo, version, date, prevVersion, prevTag, entries: changelog.ok ? changelogEntries(changelog.out) : [], hotfix: Boolean(o.ref), first: !before, exception });
-  const floor = floorStatus({ git, gh, repo, prevStable, sha, exception: exception?.kind ?? null, scheduled: Boolean(o.scheduled), now: o.now?.() ?? Date.now() });
+  const floor = floorStatus({ git, gh, repo, prevStable, sha, exception: exception?.kind ?? null, scheduled: Boolean(o.scheduled), now: o.now?.() ?? Date.now(), floorHours: o.floorHours });
   const ridingAlong = Math.max(0, notes.split('\n').filter(l => l.startsWith('- **')).length - 1);
   const plan: Plan = { sha, version, tag, date, hotfix: Boolean(o.ref), via, prevStable, prevVersion, prevTag, tagExists, stableAt: prevStable === sha, notes, skipped, exception, floor, ridingAlong };
   if (floor.verdict === 'refused' || floor.verdict === 'unknown') return { ok: false, code: floor.verdict === 'refused' ? 'REFUSED_FLOOR' : 'FLOOR_UNKNOWN', message: floor.message!, next: floor.next, plan };
@@ -590,6 +597,38 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
   return lines;
 }
 
+/**
+ * The daily check (--daily, scripts/release-cadence.ts): plan at the 24-hour important floor, then let
+ * decideDaily pick the trigger, if any. decision is null when the plan's refusal stands on its own
+ * (a freeze, nothing green, FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated
+ * commit); lines then say which important changes are still waiting on the gate.
+ */
+export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned: PlanResult; decision: DailyDecision | null; lines: string[] } {
+  const { git, gh, repo } = o;
+  const planned = planRelease({ ...o, floorHours: IMPORTANT_FLOOR_HOURS });
+  const stable = git(['rev-parse', '--verify', '-q', 'refs/remotes/origin/stable^{commit}']);
+  const prev = stable.ok ? stable.out : null;
+  const main = git(['rev-parse', '--verify', '-q', 'refs/remotes/origin/main^{commit}']);
+  const tagged = !planned.ok && planned.code === 'REFUSED' && planned.sha ? git(['rev-parse', '--verify', '-q', 'refs/tags/v' + git(['show', planned.sha + ':VERSION']).out.trim() + '^{commit}']) : null;
+  const noReleasePr = Boolean(tagged?.ok && !planned.ok && git(['merge-base', '--is-ancestor', tagged.out, planned.sha!]).ok);
+  const sha = planned.ok ? planned.plan.sha
+    : planned.code === 'REFUSED_FLOOR' ? planned.plan?.sha
+    : noReleasePr ? planned.sha
+    : planned.code === 'NOTHING_NEW' ? prev ?? undefined
+    : undefined;
+  const moved = prev ? stableMovedAt(git, gh, repo, prev) : null;
+  if (!sha || !main.ok || (moved && moved.at === null)) {
+    const waiting = main.ok ? importantChanges(git, prev, main.out, o.fragmentsDir) : [];
+    return { planned, decision: null, lines: waiting.length ? ['IMPORTANT_UNGATED: ' + waiting.map(c => c.kind + ' in ' + (c.pr ? '#' + c.pr : c.commit.slice(0, 12))).join(', ') + ' is on main but no cut can run (below)'] : [] };
+  }
+  if (planned.ok && planned.plan.stableAt) return { planned, decision: { action: 'cut', trigger: null, lines: ['DAILY: cut (finishing the cut that already moved stable)'] }, lines: [] };
+  const decision = decideDaily({
+    now: o.now?.() ?? Date.now(), scheduled: Boolean(o.scheduled), candidate: sha, stableMovedAt: moved?.at ?? null, gatedChanges: sha !== prev, mainAhead: main.out !== prev,
+    important: importantChanges(git, prev, sha, o.fragmentsDir), ungated: importantChanges(git, sha, main.out, o.fragmentsDir), releasePr: !noReleasePr,
+  });
+  return { planned, decision, lines: [] };
+}
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -603,26 +642,48 @@ if (import.meta.main) {
   const regression = arg('--regression');
   const empty = (flag: string, value: string | undefined) => process.argv.includes(flag) && (!value || value.startsWith('--'));
   if (!repo || empty('--security', security) || empty('--regression', regression)) {
-    console.error('usage: release-cut.ts --repo owner/name [--ref <sha>] [--security <reason naming GHSA-…|CVE-…|#n> | --regression <reason naming #n and the v<X> it worked in>] [--dry-run] [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]');
+    console.error('usage: release-cut.ts --repo owner/name [--ref <sha>] [--security <reason naming GHSA-…|CVE-…|#n> | --regression <reason naming #n and the v<X> it worked in>] [--daily [--fragments-dir <dir>]] [--dry-run] [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]');
     process.exit(2);
   }
   const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
+  const daily = process.argv.includes('--daily');
+  if (daily && (arg('--ref') || security !== undefined || regression !== undefined)) {
+    console.error('release-cut.ts: --daily picks its own candidate and trigger; run --ref, --security or --regression without it');
+    process.exit(2);
+  }
   const git = gitIn(process.cwd());
   const emit = (lines: string[]) => {
     for (const l of lines) console.log(l);
     if (summary) fs.appendFileSync(summary, lines.map(l => '- ' + l).join('\n') + '\n');
   };
-  const planned = planRelease({ repo, ref: arg('--ref'), git, gh: runGh, requiredCheck: arg('--required-check'), backstopCheck: arg('--backstop-check'), notesRef: arg('--notes-ref'), scheduled, security, regression });
+  const annotate = (level: 'notice' | 'warning' | 'error', code: string, text: string) => {
+    if (process.env.GITHUB_ACTIONS === 'true') console.log('::' + level + ' title=release-cut ' + code + '::' + text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
+  };
+  const options = { repo, ref: arg('--ref'), git, gh: runGh, requiredCheck: arg('--required-check'), backstopCheck: arg('--backstop-check'), notesRef: arg('--notes-ref'), scheduled, security, regression };
+  let planned: PlanResult;
+  if (daily) {
+    const day = planDaily({ ...options, fragmentsDir: arg('--fragments-dir') });
+    planned = day.planned;
+    emit([...(day.decision?.lines ?? []), ...day.lines]);
+    // A day with no trigger or a trigger still under its floor is the policy working: exit 0 with a
+    // notice. A due cut that cannot run (NO_RELEASE_PR, STABLE_STALE) goes red so someone acts; a dry
+    // run has answered and exits 0. Every refusal the decision did not absorb keeps its own exit.
+    const d = day.decision;
+    if (d && d.action !== 'cut') {
+      const red = d.action === 'blocked';
+      annotate(red ? (dryRun ? 'warning' : 'error') : 'notice', red ? d.lines[0]!.split(':')[0]! : 'daily', d.lines[0]!);
+      process.exit(red && !dryRun ? 1 : 0);
+    }
+  } else {
+    planned = planRelease(options);
+  }
   if (!planned.ok) {
     emit([planned.code + ': ' + planned.message, ...(planned.next ? ['NEXT_ALLOWED: ' + planned.next] : []), ...(planned.skipped ?? []).map(s => 'SKIPPED: ' + s), ...(planned.plan ? describePlan(planned.plan, false) : [])]);
     // A dry run that finds nothing green has done its job (the skips say why),
     // and so has a floor hold on a dry run or on the schedule: the policy
     // working, not a fault. Every other refusal goes red so someone looks.
     const hold = planned.code === 'REFUSED_FLOOR' && (dryRun || scheduled);
-    if (process.env.GITHUB_ACTIONS === 'true' && planned.code !== 'NOTHING_NEW' && planned.code !== 'NO_GREEN_COMMIT') {
-      const text = planned.code + ': ' + planned.message + (planned.next ? ' NEXT_ALLOWED: ' + planned.next : '');
-      console.log('::' + (hold ? 'notice' : 'error') + ' title=release-cut ' + planned.code + '::' + text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
-    }
+    if (planned.code !== 'NOTHING_NEW' && planned.code !== 'NO_GREEN_COMMIT') annotate(hold ? 'notice' : 'error', planned.code, planned.code + ': ' + planned.message + (planned.next ? ' NEXT_ALLOWED: ' + planned.next : ''));
     process.exit(planned.code === 'NOTHING_NEW' || (dryRun && planned.code === 'NO_GREEN_COMMIT') || hold ? 0 : 1);
   }
   emit(describePlan(planned.plan, dryRun));

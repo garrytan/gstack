@@ -1138,8 +1138,8 @@ Trains gate each batch of PRs, and the main backstop gates every push. The
 release gate replaces the backstop with one full paid gate on main's head at
 most every `cadence_hours`, and only when main moved since the last gate. It
 feeds the stable release (docs/releases.md) and never writes `stable` itself:
-`scripts/release-cut.ts` stays the only writer, with its 72-hour floor and its
-security and regression exceptions unchanged.
+`scripts/release-cut.ts` stays the only writer, with its floors (72 hours, 24
+for an important change) and its security and regression exceptions unchanged.
 
 The surface is off unless main's `.gstack/ship-policy.json` declares the
 block, with `min_gstack_version` at least the release that introduced the key
@@ -2261,6 +2261,17 @@ bump: minor
 - ...
 ```
 
+The front matter may also mark the change important for the stable release:
+`important: security|regression|data-loss|blocker` (one value, beside any
+`bump:`; any other key or value is `CHANGELOG_FRAGMENT_INVALID`). A gated change
+with that field reaches `stable` through [the daily
+check](releases.md#the-daily-check) once `stable` is 24 hours old, instead of
+waiting for Monday or Thursday. Mark only what the table there allows; the
+reviewer checks the claim with the diff. A READY whose fragment carries the
+field says `rides the daily cut` and names the value, and the Captain stamps a
+release PR in the same turn it lands the PR. The field does not change the
+CHANGELOG text: the fold drops front matter.
+
 The effective bump of a stamp is the highest of the policy bump and every
 folded fragment's `bump:` (`micro` < `patch` < `minor` < `major`). Fragments
 are read as Git blobs at the commit being stamped (`git ls-tree` and
@@ -2522,7 +2533,9 @@ cleared by that train's verify.
 
 Under `merge: direct`, VERSION, the `package.json` version, CHANGELOG.md, the
 release outputs and the `stamp_paths` constants move only in a release PR.
-Before each stable cut, the Captain runs:
+Before each regular stable cut (Monday and Thursday), and in the same turn it
+lands a PR whose fragment carries `important:` ([the daily
+check](releases.md#the-daily-check)), the Captain runs:
 
 ```bash
 gstack-release-stamp open            # --dry-run prints the stamp and creates nothing

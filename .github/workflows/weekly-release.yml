@@ -2,9 +2,13 @@ name: Stable release
 # Tags the newest green commit on main as v<VERSION>, publishes the GitHub
 # Release, and fast-forwards refs/heads/stable to it (docs/releases.md). Team
 # installs follow stable, so this is the only thing that moves them. Runs
-# twice a week, Monday and Thursday at 14:00 UTC (the file keeps its
-# weekly-release.yml name so its run history and every `gh workflow run`
-# reference stay intact). stable moves at most once per 72 hours: a cut inside
+# every day at 14:00 UTC as the daily check (scripts/release-cadence.ts, R74):
+# it cuts when a gated change stable lacks carries an important: changelog
+# fragment and stable is 24 hours old, when stable is 7 days old and main has
+# gated changes, or on Monday and Thursday past the 72-hour floor; otherwise it
+# does nothing and says why (the file keeps its weekly-release.yml name so its
+# run history and every `gh workflow run` reference stay intact). A hand-run
+# cut moves stable at most once per 72 hours: a cut inside
 # that floor is refused with REFUSED_FLOOR and NEXT_ALLOWED; a scheduled run
 # gets 3 hours of grace for cron start jitter, a hand-run cut none. Two
 # exceptions pass it, one per cut and each with a ref: a security cut (the
@@ -21,9 +25,10 @@ name: Stable release
 # runs only there, with main's tooling.
 on:
   schedule:
-    # Monday and Thursday 14:00 UTC (07:00 PDT, 06:00 PST): exactly 72 h, then
-    # 96 h, apart; the floor's scheduled grace covers a late Monday start.
-    - cron: '0 14 * * 1,4'
+    # Every day 14:00 UTC (07:00 PDT, 06:00 PST): the daily check. Monday and
+    # Thursday are the regular cuts, exactly 72 h, then 96 h, apart; each floor's
+    # scheduled grace covers a late start the day before.
+    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -42,10 +47,16 @@ on:
         description: 'Regression cut (needs ref): the reason, naming the regression-labelled #<n> it fixes and the earlier stable release v<X> it worked in; passes the 72-hour floor once verified and lands in the release notes'
         type: string
         default: ''
+      daily:
+        description: 'Run the daily check now (an important change past 24 h, a forced cut at 7 days, the regular cut on Monday or Thursday) instead of a plain cut; no ref, security or regression'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/weekly-release.yml'
       - 'scripts/release-cut.ts'
+      - 'scripts/release-cadence.ts'
+      - 'lib/changelog-fragments.ts'
 
 # One cut at a time; a second dispatch waits for the first. A pull request's
 # dry run is its own group.
@@ -96,6 +107,7 @@ jobs:
           RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
           SECURITY_REASON: ${{ github.event_name == 'workflow_dispatch' && inputs.security || '' }}
           REGRESSION_REASON: ${{ github.event_name == 'workflow_dispatch' && inputs.regression || '' }}
+          DAILY: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.daily)) && 'true' || 'false' }}
         run: |
           set -euo pipefail
           if [ -n "$RELEASE_REF" ] && ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
@@ -110,12 +122,17 @@ jobs:
             echo "::error::a regression cut needs ref: the full SHA of the fix commit on main"
             exit 1
           fi
+          if [ "$DAILY" = true ] && [ -n "$RELEASE_REF$SECURITY_REASON$REGRESSION_REASON" ]; then
+            echo "::error::the daily check picks its own candidate: run ref, security or regression without daily"
+            exit 1
+          fi
           args=(--repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY")
+          [ "$DAILY" = true ] && args+=(--daily)
           [ "$DRY_RUN" = true ] && args+=(--dry-run)
           [ -n "$RELEASE_REF" ] && args+=(--ref "$RELEASE_REF")
           [ -n "$SECURITY_REASON" ] && args+=(--security "$SECURITY_REASON")
           [ -n "$REGRESSION_REASON" ] && args+=(--regression "$REGRESSION_REASON")
-          echo "## Stable release ($([ "$DRY_RUN" = true ] && echo 'dry run' || echo 'cut'), $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Stable release ($([ "$DRY_RUN" = true ] && echo 'dry run' || echo 'cut')$([ "$DAILY" = true ] && echo ', daily check'), $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
           bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts "${args[@]}"
 
   dry-run:
@@ -145,3 +162,5 @@ jobs:
           git fetch --quiet --tags origin
           echo "## Stable release (dry run from PR #${{ github.event.pull_request.number }})" >> "$GITHUB_STEP_SUMMARY"
           bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run
+          echo "## Daily check (dry run from PR #${{ github.event.pull_request.number }})" >> "$GITHUB_STEP_SUMMARY"
+          bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run --daily

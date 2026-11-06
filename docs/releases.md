@@ -4,8 +4,10 @@ gstack used to stamp a version at every merge to main. Under `merge: direct`
 PRs land unstamped, with a `changelog.d` fragment each, and the version moves
 only when the Captain lands a release PR (`gstack-release-stamp open`, see
 [ship-policy.md](ship-policy.md#release-stamp)). Since late October 2026 there
-is also a tagged release, cut twice a week, and team-mode installs follow it
-instead of every merge.
+is also a tagged release, and team-mode installs follow it instead of every
+merge. It is cut twice a week, and since November 2026 a daily check also cuts
+it within about a day of an important change and never lets it go more than a
+week stale while main has gated changes ([the daily check](#the-daily-check)).
 
 Land a release PR before each cut. The cut tags the VERSION it finds, and a
 version is tagged once: if no release PR landed since the last cut, the next
@@ -17,10 +19,12 @@ release.
 
 ## What a release is
 
-Every Monday and Thursday at 14:00 UTC (07:00 Pacific, 06:00 in winter) the
-**Stable release** workflow (`.github/workflows/weekly-release.yml`, which
-runs `scripts/release-cut.ts`; the file kept its old name so its run history
-and the `gh workflow run` commands below stay valid) takes the newest green
+Every day at 14:00 UTC (07:00 Pacific, 06:00 in winter) the **Stable
+release** workflow (`.github/workflows/weekly-release.yml`, which runs
+`scripts/release-cut.ts --daily`; the file kept its old name so its run
+history and the `gh workflow run` commands below stay valid) runs the daily
+check. On Monday and Thursday that is the regular cut; on any day an important
+change or a week-old stable can trigger one. A cut takes the newest green
 commit on main and:
 
 1. tags it `v<VERSION>` (the VERSION file at that commit, an annotated tag);
@@ -31,8 +35,9 @@ commit on main and:
 
 A tag and its release never change. `stable` is a moving pointer: always a
 commit on main's first-parent history, moved only by this workflow, only
-forward, and at most once every 72 hours except for a security or regression
-fix (below).
+forward, and at most once every 72 hours, except for an important change
+(24 hours, [the daily check](#the-daily-check)) or a verified security or
+regression fix (below).
 
 **Green** means, on that exact commit: the `free-tests` check run succeeded
 (the status main requires), the commit was gated (below), every check run on
@@ -81,10 +86,95 @@ finished by the next run, by cron or by hand: `stable` itself stays a
 candidate until its release exists, and its notes compare against the release
 tag before it.
 
+<a id="the-daily-check"></a>
+## The daily check
+
+Garry, 2026-11-06 (R74): "make sure anything important makes it to stable as
+frequently as once a day and as infrequently as once a week". Every scheduled
+run is the daily check (`scripts/release-cut.ts --daily`, decision logic in
+`scripts/release-cadence.ts`). It picks the candidate exactly as any cut does
+(the newest green, gated commit; nothing ungated ever ships) and then cuts when
+one of three triggers holds, each over its own floor since `stable` last moved:
+
+| Trigger | When | Floor |
+|---|---|---|
+| important | a commit in `stable`..candidate added a `changelog.d` fragment marked `important:` | 24 hours |
+| forced | `stable` is 7 days old and the candidate is newer than `stable` | 168 hours |
+| regular | it is Monday or Thursday (UTC) | 72 hours ([the floor](#the-72-hour-floor)) |
+
+A scheduled run gets the same 3-hour grace for late cron starts on every floor
+(21, 165 and 69 hours); a hand-run daily check gets none. With no trigger the
+run changes nothing, exits 0 with a notice and says why:
+`DAILY: no-op: nothing important since stable; stable moved 50.0 h ago; …`. An
+important change still under its floor is `DAILY: wait: …` with
+`NEXT_ALLOWED:`. An important change that landed after the candidate (the
+release gate has not gated it yet) is listed as `IMPORTANT_UNGATED:` and
+counts toward nothing until a green, gated commit holds it.
+
+**Marking a change important.** The PR's fragment carries the field in its
+front matter, beside any `bump:`, so every reviewer and the Captain read it in
+the PR diff before it lands:
+
+```markdown
+---
+important: security
+---
+**Fixed the tar path traversal in gstack-upgrade.**
+```
+
+| Value | Use it for |
+|---|---|
+| `security` | a fix for a vulnerability or a leaked secret path |
+| `regression` | behavior that worked in an earlier stable release and is broken on the current one |
+| `data-loss` | a fix that stops gstack destroying or corrupting a user's files, state or work |
+| `blocker` | a fix for something that stops crews or users from working (an install, upgrade or core skill that fails) |
+
+Any other value is `CHANGELOG_FRAGMENT_INVALID`. The marker is attested, not
+verified: it is the PR author's claim, reviewed with the diff like `bump:`.
+The words match the two verified exceptions: a fix that cannot wait 24 hours
+still uses a hand-run [security](#security-releases) or
+[regression](#regression-releases) cut, which checks labels and passes the
+floor. The daily check reads each fragment at the commit that added it, so the
+release stamp folding and deleting the file does not hide it. A fragment that
+lands after the release PR was stamped still ships its code in the next cut;
+its CHANGELOG entry appears in the release after that.
+
+**The release PR.** A cut tags the VERSION it finds, so an important change
+needs a release PR after it. The daily run never stamps or opens one: the
+Captain runs `gstack-release-stamp open` in the same turn it lands a PR whose
+fragment carries `important:`, and lands the release PR once its checks pass
+([captain.md](captain.md#direct-land-merge-direct)). When any trigger is due
+but the candidate's VERSION is already released on an older commit, the run is
+`NO_RELEASE_PR: important change waiting, no release PR: …` (or `stable is 7
+days old, no release PR`, or `regular cut due, no release PR`) and goes red
+so someone stamps. A week-old `stable` whose main moved but holds nothing
+newer that is green and gated is `STABLE_STALE`, also red: the gate or the
+checks are holding main.
+
+**How long it takes.** An important PR lands; the Captain stamps and lands the
+release PR; the [release gate](ship-policy.md#release-gate) gates main's head
+at its next 8-hour slot (up to about 4.5 hours of run); the next 14:00 UTC run
+cuts once `stable` is 24 hours old. That is usually within a day and at worst
+about 40 hours (estimated, not measured). Running the daily check by hand once
+the gate is green skips the wait for 14:00:
+
+```bash
+gh workflow run weekly-release.yml -f daily=true -f dry_run=false
+```
+
+| Daily outcome | Real run | Dry run |
+|---|---|---|
+| `DAILY: cut (…)`, then the plan and `TAG:` / `STABLE:` / `RELEASE:` | exit 0 (1 if a cut step fails) | plan, exit 0 |
+| `DAILY: no-op: …` or `DAILY: wait: …` | exit 0, notice | exit 0, notice |
+| `NO_RELEASE_PR: …` or `STABLE_STALE: …` | exit 1, error | exit 0, warning |
+| any other refusal (a freeze, `NO_GREEN_COMMIT`, `FLOOR_UNKNOWN`, a non-fast-forward, a version tagged on an unrelated commit) | exit 1, as for any cut | as for any dry run |
+
 ## The 72-hour floor
 
-`stable` moves at most once every 72 hours (Garry, 2026-10-27). Every cut,
-scheduled or by hand, with or without `ref`, checks when `stable` last moved:
+`stable` moves at most once every 72 hours (Garry, 2026-10-27), except for an
+important change, whose floor is 24 hours ([the daily check](#the-daily-check),
+R74). Every cut, scheduled or by hand, with or without `ref`, checks when
+`stable` last moved:
 the creation time of the annotated `v<VERSION>` tag (VERSION read at `stable`)
 pointing at `stable`, or the publish time of that tag's GitHub Release when it
 is later (a cut whose `stable` push was retried after the tag was pushed is
@@ -230,7 +320,7 @@ held.
 
 | Channel | Follows | Who |
 |---|---|---|
-| `stable` | `refs/heads/stable`: the twice-weekly release (at most once per 72 hours), plus any security or regression cut off-cycle | team mode (`./setup --team`) by default |
+| `stable` | `refs/heads/stable`: the twice-weekly release (at most once per 72 hours), an important change's cut within about a day (24-hour floor), a forced cut when it is a week old, plus any security or regression cut off-cycle | team mode (`./setup --team`) by default |
 | `main` | every merge to main | plain `./setup`, contributors, Capy crew machines |
 
 The config key is `update_channel` (`bin/gstack-config`):
@@ -312,15 +402,77 @@ runs are never dry runs.
 
 ```bash
 gh workflow run weekly-release.yml -f dry_run=true
+gh workflow run weekly-release.yml -f dry_run=true -f daily=true   # the daily check's decision
 gh run watch
 ```
 
 The step summary carries the same plan plus the full release notes.
 
-A pull request that touches `.github/workflows/weekly-release.yml` or
-`scripts/release-cut.ts` runs the same dry run against main as its own job
-(`Dry run against main`, read-only token), so a change to the release tooling
-is exercised against real check runs before it merges.
+A pull request that touches `.github/workflows/weekly-release.yml`,
+`scripts/release-cut.ts`, `scripts/release-cadence.ts` or
+`lib/changelog-fragments.ts` runs the same dry run against main as its own job
+(`Dry run against main`, read-only token), once plain and once as the daily
+check, so a change to the release tooling is exercised against real check runs
+before it merges.
+
+<a id="rolling-stable-back"></a>
+## Rolling stable back
+
+`stable` only moves forward through the tool, and the updater never moves an
+install backwards, so a rollback stops the bad release from reaching more
+installs and the fix ships forward. Installs that already updated stay on the
+bad release until the fix-forward cut. Do the steps in order; step 1 matters,
+because the next daily run would otherwise cut the bad commit again (the floor
+dates the move by the older release's tag, so nothing holds it).
+
+1. Hold every cut, scheduled and hand-run:
+
+   ```bash
+   gh workflow disable weekly-release.yml
+   ```
+
+2. Move `stable` back to the last good release, leased on the bad commit so a
+   concurrent move fails instead of being overwritten:
+
+   ```bash
+   git fetch origin '+refs/heads/stable:refs/remotes/origin/stable' --tags
+   BAD=$(git rev-parse origin/stable)
+   GOOD=$(git rev-parse 'v<good version>^{commit}')
+   git merge-base --is-ancestor "$GOOD" "$BAD" && \
+     git push --force-with-lease=refs/heads/stable:"$BAD" origin "$GOOD:refs/heads/stable"
+   ```
+
+   Team installs that have not updated yet now stay on `v<good version>` at
+   their next hourly check. The bad tag and its release stay (a tag never
+   changes); say so on the release, which release-cut reads only for existence
+   and publish time:
+
+   ```bash
+   gh release edit v<bad version> --prerelease --title "gstack v<bad version> (withdrawn)"
+   ```
+
+3. Fix forward on main: a revert or fix PR whose fragment carries
+   `important: regression` (or `security`, `data-loss`). The Captain lands
+   it, stamps and lands the release PR, and the release gate gates it.
+
+4. Release the fix and lift the hold. The floor counts from the good release,
+   so it is clear; the dry run shows the candidate first:
+
+   ```bash
+   gh workflow enable weekly-release.yml
+   gh workflow run weekly-release.yml -f daily=true -f dry_run=true
+   gh workflow run weekly-release.yml -f daily=true -f dry_run=false
+   ```
+
+   Or cut the fix commit itself: `gh workflow run weekly-release.yml -f
+   ref=<full sha> -f dry_run=false`. The notes list every version since
+   `v<good version>`, the withdrawn one included.
+
+One install that must leave the bad release before the fix-forward cut can be
+parked on the good one by hand (it discards local changes in that checkout):
+`git -C <install checkout> fetch --tags origin && git -C <install checkout>
+reset --hard 'v<good version>'`. Its next update check fast-forwards it to
+`stable` again.
 
 ## Outcomes
 
@@ -341,3 +493,8 @@ is exercised against real check runs before it merges.
 | `FLOOR: clear|refused|unknown|none|not applied|bypassed by the security|regression exception (...)` | the floor verdict, in every plan |
 | ``SECURITY: `<reason>` (verified: <evidence>)`` or ``REGRESSION: `<reason>` (verified: <evidence>)``, `RIDING_ALONG: <n> other versions ship with the fix` | an exception cut's plan |
 | `TAG:`, `STABLE:`, `RELEASE:` | what the cut did; a re-run reports each step as already done and finishes a step an earlier run did not reach |
+| `DAILY: cut (important|forced|regular: ...)` | the daily check's trigger and floor; the plan and the cut follow |
+| `DAILY: no-op: ...`, `DAILY: wait: ...` | the daily check found no trigger, or an important change still under its 24-hour floor (`NEXT_ALLOWED:` follows); exit 0 with a notice |
+| `IMPORTANT_UNGATED: ...` | an important change landed but no green, gated commit holds it yet; informational |
+| `NO_RELEASE_PR: ...` | a daily trigger is due but the candidate's VERSION is already released: the Captain stamps a release PR; exit 1 (0 on a dry run) |
+| `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated; exit 1 (0 on a dry run) |
