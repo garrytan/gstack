@@ -175,8 +175,6 @@ Use the picker when any of answers 1-2 is still open; it asks for them. Use dire
 $B goto "<url>"
 ```
 
-Tell the user once, before the import: gstack's headless browser trusts the root store built into gstack's bundled Chromium, which still accepts certificates from the compromised eMudhra intermediates. Until gstack moves to a Playwright release that drops them, don't use the imported sessions on a network the user does not trust. That same root's `BROWSER.md`, **TLS trust: the bundled Chromium's root store**, has the details and the check.
-
 ## 4. Import
 
 Picker (the user confirms the browser, profile and domains there, ticks verification if they asked for it, then tells you when done; the link works once, for five minutes, so rerun the command if it expires):

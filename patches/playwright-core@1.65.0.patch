@@ -1,0 +1,17 @@
+diff --git a/lib/coreBundle.js b/lib/coreBundle.js
+index 559de664371f8abe23e261b4a1063e97727d9097..0714a29f8a82d6f085b3c3d18453bb6b7b46e5b2 100644
+--- a/lib/coreBundle.js
++++ b/lib/coreBundle.js
+@@ -10332,7 +10332,11 @@ async function launchProcess(options) {
+     env: options.env,
+     cwd: options.cwd,
+     shell: options.shell,
+-    windowsHide: options.windowsHide,
++    // gstack patch (#2160/#1989): Node defaults windowsHide to false for
++    // child_process.spawn, so browser children could flash a console window
++    // on Windows. Playwright never needs the child's window shown. Upstream
++    // 1.65 forwards options.windowsHide, which only the ffmpeg recorder sets.
++    windowsHide: true,
+     stdio
+   };
+   const spawnedProcess = childProcess.spawn(options.command, options.args || [], spawnOptions);

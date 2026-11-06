@@ -213,7 +213,7 @@ async function qualifiedAdapterFixture() {
   const receipt = {
     browserName: 'Edge', architecture: runtime.architecture, windowsRelease: release(),
     executableSha256: '0'.repeat(64), nodeVersion: runtime.version, bunVersion: Bun.version,
-    playwrightVersion: '1.64.1', sourceHashes,
+    playwrightVersion: '1.65.0', sourceHashes,
   };
   const virtualRoot = `C:\\gstack-${path.basename(fixture)}`;
   const windowsEnv = { LOCALAPPDATA: `${virtualRoot}\\Local`, PROGRAMFILES: `${virtualRoot}\\Apps`, 'PROGRAMFILES(X86)': `${virtualRoot}\\Apps32` };
