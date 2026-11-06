@@ -839,17 +839,22 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
     }
   });
 
-  // Value: protects=checkFreePaths admits only a hunk whose lines differ inside a cast's type literal, so an untagged edit
-  //   that hollows a check it never touches (an early return, a changed value under test, a comment-out or try/catch wrap,
-  //   a changed string after ` as `, an `as {` inside a regex or a comment) stays forced under a naming exception; fails_when=any
-  //   weakening edit is returned as check-free, or the GBRA-336 cast widening is not; seam=lib/ship-release.ts route (GST-1682
-  //   red-team finding, p2v/outside-voice#1)
+  // Value: protects=checkFreePaths admits only a file whose before and after transpile to identical JavaScript under pinned
+  //   options, so an untagged edit that hollows a check it never touches (an early return, a changed value under test, a
+  //   comment-out or try/catch wrap, a changed string after ` as `, an `as {` inside a regex, a comment or a continued string)
+  //   stays forced under a naming exception, as do a changed assertion, a parse error, a non-TS or CommonJS file, and the
+  //   edits a transpiler default would hide (NODE_ENV inlined from the running process's env, process.browser inlined, a declared __dirname, a decorated member's
+  //   type); fails_when=any of those is returned as check-free, or the GBRA-336 cast widening is not; seam=lib/ship-release.ts
+  //   route (GST-1682 red-team findings, p2v/outside-voice#1, fix-check#1)
   test('checkFreePaths admits a cast widening and refuses edits that hollow an untouched check', () => {
     const SPEC = 'test/a.test.ts';
     const body = (cast: string, value = 'null', extra = '') => `  const body = (await Promise.resolve({ attest: ${value} })) as unknown as { attest?: ${cast} | null };${extra}\n`;
     const spec = (lines: string) => `import { expect, test } from 'bun:test';\ntest('attest is null when unset', async () => {\n${lines}  expect(body.attest).toBeNull();\n});\n`;
+    const continued = (n: string) => `  const code = 'kept \\\nas { b }'; if (code.includes('${n}')) return;\n`;
+    const cjs = (lines: string) => spec(lines).replace("import { expect, test } from 'bun:test';", "const { expect, test } = require('bun:test');");
+    const topLevel = (line: string) => `import { expect, test } from 'bun:test';\n${line}\ntest('env is set', () => { expect(env).toBeTruthy(); });\n`;
     const NARROW = '{ system: string; ops: string[] }';
-    const edits: Record<string, string | [string, string]> = {
+    const edits: Record<string, string | [string, string] | [string, string, string]> = {
       cast: spec(body('{ system: string; ops: string[]; sources: string[] | null }')),
       earlyReturn: spec(body(NARROW, 'null', ' if (body) return;')),
       changedValue: spec(body(NARROW, '{ system: "s", ops: [] }')),
@@ -858,16 +863,28 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
       stringAfterAs: [spec(`  const label = 'kept as { b }';\n` + body(NARROW)), spec(`  const label = 'kept as ${'{'} a }';\n` + body(NARROW))],
       regexAs: [spec('  const re = /as {1}/;\n' + body(NARROW)), spec('  const re = /as {0,1}/;\n' + body(NARROW))],
       commentAs: [spec(body(NARROW, 'null', ' /* as { } */')), spec(body(NARROW, 'null', ' /* as { */ if (body) return; /* } */'))],
+      continuedString: [spec(continued('1') + body(NARROW)), spec(continued('2') + body(NARROW))],
+      changedAssertion: spec(body(NARROW)).replace('toBeNull()', 'toBeFalsy()'),
+      parseError: spec(body('{ system: string; ops: string[]; sources: string[] | null')),
+      commonJs: [cjs(body(NARROW)), cjs(body('{ system: string; ops: string[]; sources: string[] | null }'))],
+      nonTs: [spec('  const body = { attest: null }; // as { a }\n'), spec('  const body = { attest: null }; // as { b }\n'), 'test/a.test.js'],
+      nodeEnv: [topLevel('const env = process.env.NODE_ENV;'), topLevel(`const env = ${JSON.stringify(process.env.BUN_ENV || process.env.NODE_ENV || 'development')};`)],
+      browser: [topLevel('const env = process.browser;'), topLevel('const env = true;')],
+      dirname: [topLevel('const env = __dirname;'), 'var __dirname = "";\n' + topLevel('const env = __dirname;')],
+      decoratedType: [topLevel('class C { @dec x: string; }'), topLevel('class C { @dec x: number; }')],
     };
     const free: Record<string, boolean> = {};
     for (const [name, edit] of Object.entries(edits)) {
-      const [start, text] = typeof edit === 'string' ? [spec(body(NARROW)), edit] : edit;
-      const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { [SPEC]: start });
+      const [start, text, file = SPEC] = typeof edit === 'string' ? [spec(body(NARROW)), edit] : edit;
+      const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { [file]: start });
       const from = f.git('rev-parse', 'HEAD').stdout.trim();
-      f.write({ [SPEC]: text }); f.commit(name);
-      free[name] = checkFreePaths(f.work, from, f.git('rev-parse', 'HEAD').stdout.trim(), [SPEC]).has(SPEC);
+      f.write({ [file]: text }); f.commit(name);
+      free[name] = checkFreePaths(f.work, from, f.git('rev-parse', 'HEAD').stdout.trim(), [file]).has(file);
     }
-    expect(free).toEqual({ cast: true, earlyReturn: false, changedValue: false, commentOut: false, swallow: false, stringAfterAs: false, regexAs: false, commentAs: false });
+    expect(free).toEqual({
+      cast: true, earlyReturn: false, changedValue: false, commentOut: false, swallow: false, stringAfterAs: false, regexAs: false, commentAs: false,
+      continuedString: false, changedAssertion: false, parseError: false, commonJs: false, nonTs: false, nodeEnv: false, browser: false, dirname: false, decoratedType: false,
+    });
   });
 });
 

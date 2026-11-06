@@ -23,7 +23,7 @@
  * characters cannot widen or empty a comparison.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -260,73 +260,53 @@ function gateTaggedPaths(repoRoot: string, from: string, to: string, paths: read
   return new Set([...scan.hunks.filter(h => h.tags.length > 0).map(h => h.path), ...scan.unsupportedPaths.map(u => u.path)]);
 }
 
-const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|describe|bench)\b|\.to[A-Z]/;
-const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
-const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
-const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$/;
-/** Line n of text (1-based) and the lines above it back to the previous statement's end, blank lines included. */
-function statementAt(text: readonly string[], n: number): string[] {
-  const out = [text[n - 1] ?? ''];
-  for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!);
-  return out;
-}
-
-/** Whether line n of text (1-based) sits inside a template literal opened on an earlier line. */
-const inTemplate = (text: readonly string[], n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
-
 /**
- * Whether two lines differ only inside one cast's type literal (`as { ... }`, braces counted outside quoted strings) on
- * both sides, with no quote in the changed text and no template literal, regex literal or comment (any `/` outside quotes)
- * on either line: a type-only edit, never a value, a statement or a check (GBRA-336, p2v/outside-voice#1).
- */
-function castOnly(before: string, after: string): boolean {
-  if (before === after || /`/.test(before + after)) return false;
-  let i = 0;
-  while (i < before.length && i < after.length && before[i] === after[i]) i++;
-  let j = 0;
-  while (j < before.length - i && j < after.length - i && before[before.length - 1 - j] === after[after.length - 1 - j]) j++;
-  const inCast = (line: string) => {
-    const end = line.length - j;
-    if (/['"]/.test(line.slice(i, end))) return false;
-    const masked = line.replace(QUOTED, s => s[0] + 'x'.repeat(s.length - 2) + s[0]);
-    if (masked.includes('/')) return false;
-    for (const m of masked.matchAll(/\bas\s+\{/g)) {
-      const open = m.index + m[0].length - 1;
-      let depth = 0, close = -1;
-      for (let k = open; k < masked.length && close < 0; k++) if (masked[k] === '{') depth++; else if (masked[k] === '}' && --depth === 0) close = k;
-      if (open < i && end <= close) return true;
-    }
-    return false;
-  };
-  return inCast(before) && inCast(after);
-}
-
-/**
- * Test paths an owner's review-loop exception that names them may route (GST-1682): a .ts, .mts or .cts file whose every
- * hunk from..to is one lib/gate-diff leaves untagged that swaps lines one for one, each pair differing only inside a cast's
- * type literal (a type-only cast widened, GBRA-336), and no removed or added line, nor the statement around it, holds an
- * assertion, matcher, test name or skip/only call. A diff the scan or git cannot read, a binary, a mode change, a deleted
- * file or a file with an odd backtick count on either side stays out.
+ * Test paths an owner's review-loop exception that names them may route (GST-1682): a .ts, .mts or .cts ES module that
+ * lib/gate-diff leaves untagged and whose whole file at from and at to transpiles to byte-identical JavaScript, so the
+ * edit changed only types or comments (a cast widened, GBRA-336). A parse error on either side, a file git cannot show, a
+ * non-TS path or one with no import statement (Bun runs that as CommonJS, where the `"use strict"` the transpiler drops can
+ * change behavior) stays out. The options are pinned so no default rewrites the comparison: Bun inlines
+ * process.env.NODE_ENV and BUN_ENV as this process's BUN_ENV or NODE_ENV (else "development") and process.browser as a
+ * constant, and declares `var __dirname = ""` (`__filename = "input.ts"`) for a free use, so each maps to an identifier no
+ * source can spell; legacy decorators with metadata keep the types a decorated member's metadata carries; no tsconfig is
+ * read and nothing is trimmed, eliminated, inlined or minified.
  */
 export function checkFreePaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> {
   const tagged = gateTaggedPaths(repoRoot, from, to, paths);
   if (!tagged) return new Set();
-  const free = (lines: readonly string[], start: number, count: number) => {
-    for (let n = start; n < start + count; n++) if (inTemplate(lines, n) || statementAt(lines, n).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1')))) return false;
-    return true;
+  const nonce = `__gstack_${randomUUID().replace(/-/g, '')}_`;
+  const transpiler = new Bun.Transpiler({
+    loader: 'ts',
+    target: 'bun',
+    tsconfig: JSON.stringify({ compilerOptions: { experimentalDecorators: true, emitDecoratorMetadata: true, useDefineForClassFields: true } }),
+    define: Object.fromEntries(['process.env.NODE_ENV', 'process.env.BUN_ENV', 'process.browser', '__dirname', '__filename'].map((k, i) => [k, nonce + i])),
+    macro: {},
+    exports: {},
+    trimUnusedImports: false,
+    deadCodeElimination: false,
+    treeShaking: false,
+    inline: false,
+    minifyWhitespace: false,
+    autoImportJSX: false,
+    jsxOptimizationInline: false,
+    replMode: false,
+    logLevel: 'error',
+  });
+  const erased = (text: string | null) => {
+    if (text === null) return null;
+    try { return transpiler.scan(text).imports.some(i => i.kind === 'import-statement') ? transpiler.transformSync(text) : null; } catch { return null; }
   };
-  const oddTicks = (text: string) => (text.match(/`/g)?.length ?? 0) % 2 === 1;
   return new Set(paths.filter(p => {
-    const d = tagged.has(p) || !/\.[mc]?ts$/.test(p) ? null : pathDiff(repoRoot, from, to, p, 0);
-    const hunks = d === null || /^(Binary files |GIT binary patch|(old|new|new file|deleted file) mode )/m.test(d) ? null : zeroHunks(d);
-    const beforeText = git(repoRoot, ['show', `${from}:${p}`]), afterText = git(repoRoot, ['show', `${to}:${p}`]);
-    if (beforeText === null || afterText === null || oddTicks(beforeText) || oddTicks(afterText)) return false;
-    const before = beforeText.split('\n'), after = afterText.split('\n');
-    return !!hunks?.length && hunks.every(h => h.oldCount === h.newCount && free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount)
-      && Array.from({ length: h.oldCount }, (_, k) => castOnly(before[h.oldStart - 1 + k]!, after[h.newStart - 1 + k]!)).every(Boolean));
+    if (tagged.has(p) || !/\.[mc]?ts$/.test(p)) return false;
+    const before = erased(git(repoRoot, ['show', `${from}:${p}`]));
+    return before !== null && before === erased(git(repoRoot, ['show', `${to}:${p}`]));
   }));
 }
 
+const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|describe|bench)\b|\.to[A-Z]/;
+const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
+const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
+const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$/;
 /**
  * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, in
  * statements with no assertion or test call (the changed line and the lines above it back to the previous statement's end in
@@ -337,14 +317,15 @@ function literalOnly(diff: string, after: string | null): boolean {
   const hunks = zeroHunks(diff);
   if (!hunks?.length || after === null) return false;
   const text = after.split('\n');
-  const statement = (n: number) => statementAt(text, n);
+  const statement = (n: number) => { const out = [text[n - 1] ?? '']; for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!); return out; };
+  const inTemplate = (n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
   return hunks.every(h => {
     const lines = h.body.split('\n');
     const minus = lines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plus = lines.filter(l => l.startsWith('+')).map(l => l.slice(1));
     const bare = (l: string) => l.replace(QUOTED, '$1$1');
     return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && !CODE_IN_STRING.test(m + plus[i]) && bare(m) === bare(plus[i]!)
-      && !CHECK_CALL.test(bare(m)) && !inTemplate(text, h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
+      && !CHECK_CALL.test(bare(m)) && !inTemplate(h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
   });
 }
 

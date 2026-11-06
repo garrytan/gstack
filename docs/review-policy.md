@@ -692,13 +692,16 @@ through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes. The one
 exception is a `.ts`, `.mts` or `.cts` test path the record's `fix_check.files`
-names whose every hunk lib/gate-diff leaves untagged, swaps lines one for one
-with each pair differing only inside a cast's `as { ... }` type literal (no `/`
-outside quotes on either line, no mode change, an even backtick count), and touches no assertion,
-matcher, test name or skip/only call, in the changed lines or the statement
-around them (a type-only cast widened, GBRA-336): it routes as accepted
-(GST-1682). Any other test hunk stays forced, an early return, a changed value
-or a wrapped check included, and an unnamed path never routes this way.
+names that lib/gate-diff leaves untagged, that imports something (so Bun runs it
+as an ES module), and whose whole file before and after transpiles to
+byte-identical JavaScript under `Bun.Transpiler` with pinned options: only types
+or comments changed (a type-only cast widened, GBRA-336), so it routes as
+accepted (GST-1682). The pins keep transpiler defaults from hiding an edit:
+`process.env.NODE_ENV`, `process.env.BUN_ENV`, `process.browser`, `__dirname`
+and `__filename` map to identifiers no source can spell, decorated members keep
+their type metadata, and no tsconfig, trimming, dead-code elimination, inlining
+or minification applies. A parse error on either side, a non-TS or CommonJS file
+and any other difference stay forced, and an unnamed path never routes this way.
 
 A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
 reads the newest `review-fix-check` row from `gstack-review-read`, chained back
