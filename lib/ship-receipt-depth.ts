@@ -482,7 +482,8 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
  * A commit on `from` that holds what the PR's own change did after `from`: every path whose part of the PR's diff against its
  * merge base with origin/<base> (product_patch_id's basis, with tests and metadata kept) differs between `from` and `head`, at
  * `head`'s content. A main merge moves the merge base with the files it brings, so a file only main changed keeps `from`'s
- * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path. With no resolvable
+ * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path, and where the base
+ * content did not move any change to the PR's side moves it, so a hunk relocated to an identical context counts. With no resolvable
  * merge base every path that changed from `from` to `head` moves. Null when git cannot build it.
  */
 function ownChangeSince(root: string, base: string, from: string, head: string): string | null {
@@ -508,7 +509,9 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
     const was = raw(mbFrom.out, from), now = raw(mbHead.out, head);
     if (!was || !now) return null;
     moved = [...new Set([...was.keys(), ...now.keys()])].filter(p => {
-      if (was.get(p) === now.get(p)) return false;
+      const w = was.get(p), n = now.get(p);
+      if (w === n) return false;
+      if (!w || !n || w.split(' ')[2] === n.split(' ')[2]) return true;
       const before = hunks(mbFrom.out, from, p);
       return before === null || before !== hunks(mbHead.out, head, p);
     });

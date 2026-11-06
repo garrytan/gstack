@@ -302,6 +302,13 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     repo.git('checkout', '-q', 'feat');
     repo.git('fetch', '-q', 'origin');
   };
+  const classesSince = (repo: FixtureRepo, read: string) => {
+    const saved = Object.fromEntries(Object.keys(repo.env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, repo.env);
+    try { return targetedClassesSince(repo.work, read, repo.git('rev-parse', 'HEAD'), 'main'); } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  };
   const mainBrings = { 'lib/budget-ledger.ts': 'export const spend_cap_usd = 40;\n', 'lib/secrets.ts': 'export const key = process.env.OPENAI_API_KEY;\n' };
   const readAndMerge = () => {
     const { repo, base, head } = moneyBranch();
@@ -320,7 +327,7 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     const bound = write(repo, ['--review-targeted', `@${record}`]);
     expect(bound.status, bound.err).toBe(EXIT.ok);
     expect(JSON.parse(bound.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
-    expect(targetedClassesSince(repo.work, head, repo.git('rev-parse', 'HEAD'), 'main')).toEqual([]);
+    expect(classesSince(repo, head)).toEqual([]);
   });
 
   // Value: protects=a branch-side money edit or skipped test after the read still voids the record across a main merge;
@@ -330,14 +337,14 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     repo.git('merge', '-q', '--no-edit', 'origin/main');
     const merged = repo.git('rev-parse', 'HEAD');
     commit(repo, 'src/charge.ts', 'export const spend_cap_usd = 50;\n', 'money edit after the merge');
-    expect(targetedClassesSince(repo.work, head, repo.git('rev-parse', 'HEAD'), 'main')).toContain('money');
+    expect(classesSince(repo, head)).toContain('money');
     const money = write(repo, ['--review-targeted', `@${record}`]);
     expect(money.status).toBe(EXIT.fail);
     expect(money.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
 
     repo.git('reset', '-q', '--hard', merged);
     commit(repo, 'test/charge.test.ts', 'import { test, expect } from "bun:test";\ntest.skip("cap", () => { expect(5).toBe(5); });\n', 'skip a case after the merge');
-    expect(targetedClassesSince(repo.work, head, repo.git('rev-parse', 'HEAD'), 'main')).toContain('gate');
+    expect(classesSince(repo, head)).toContain('gate');
     const skipped = write(repo, ['--review-targeted', `@${record}`]);
     expect(skipped.status).toBe(EXIT.fail);
     expect(skipped.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
@@ -361,9 +368,25 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     repo.git('merge', '-q', '--no-commit', '--no-ff', 'origin/main');
     fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 9;\n');
     repo.git('add', '-A'); repo.git('commit', '-q', '--no-edit');
-    expect(targetedClassesSince(repo.work, head, repo.git('rev-parse', 'HEAD'), 'main')).toEqual(['money']);
+    expect(classesSince(repo, head)).toEqual(['money']);
     const evil = write(repo, ['--review-targeted', `@${record}`]);
     expect(evil.status).toBe(EXIT.fail);
     expect(evil.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+  });
+
+  // Value: protects=with no main merge, a branch commit after the read that moves the PR's money line to another block with the
+  //   same context and function header still voids the record (position-free hunks compared equal); fails_when=a path whose
+  //   base content did not move is judged by its line-number-free hunks; seam=targetedClassesSince
+  test('no main merge: a branch edit that relocates the PR\'s money hunk to an identical context is refused', () => {
+    const block = (cond: string, cap: boolean) => [`  if (${cond}) {`, '    a();', '    b();', '    c();', ...(cap ? ['    const spend_cap_usd = 5000;'] : []), '    d();', '    e();', '    f();', '  }'];
+    const charge = (one: boolean, two: boolean) => ['export function charge(amount: number) {', ...block('amount > 0', one), ...block('amount < 0', two), '}', ''].join('\n');
+    const repo = makeFixtureRepo({ prefix: 'gst1593-relocate-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    commit(repo, 'src/charge.ts', charge(false, true), 'move the cap to the second block after the read');
+    expect(classesSince(repo, read)).toContain('money');
   });
 });
