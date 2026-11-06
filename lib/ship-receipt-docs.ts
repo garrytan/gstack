@@ -47,6 +47,27 @@ export function docsExceptionLine(docs: ReceiptDocs): string | null {
   return `Documentation exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason}`;
 }
 
+/** One earlier Step 14.5 audit of the same /ship run that a post snapshot carries (gstack-docs-candidate snapshot --carry, GST-1616). */
+export interface CarriedAudit { run_id: string; audit_id: string; head: string; edited: Record<string, { before: string | null; after: string | null }> }
+
+/** The earlier audits a post snapshot carries, oldest first, each of the snapshot's own run; a string says why they cannot be read. */
+export function carriedAudits(post: { run_id?: unknown; audit_id?: unknown; earlier?: unknown }): CarriedAudit[] | string {
+  if (post.earlier === undefined) return [];
+  if (!Array.isArray(post.earlier)) return 'its earlier field is not a list of audits';
+  if (!text(post.run_id)) return 'it carries earlier audits but names no run_id';
+  const sha = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{40,64}$/.test(v);
+  const seen = new Set([post.audit_id]);
+  for (const e of post.earlier as Array<Record<string, any>>) {
+    const edited = e?.edited;
+    if (!e || typeof e !== 'object' || !text(e.audit_id) || !sha(e.head) || !edited || typeof edited !== 'object' || Array.isArray(edited)
+      || !Object.values(edited).every((v: any) => v && typeof v === 'object' && (v.before === null || sha(v.before)) && (v.after === null || sha(v.after)))) return 'it carries an earlier audit that is not { run_id, audit_id, head, edited }';
+    if (e.run_id !== post.run_id) return `it carries audit ${e.audit_id} of another /ship run (${String(e.run_id)}), not ${post.run_id}`;
+    if (seen.has(e.audit_id)) return `it carries audit ${e.audit_id} twice`;
+    seen.add(e.audit_id);
+  }
+  return post.earlier as CarriedAudit[];
+}
+
 // ---------------------------------------------------------------------------
 // doc caps: `docs.caps` in .gstack/ship-policy.json
 // ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ Reentry never resets the count or authorizes a launch.
    Read-only audits must not fetch/merge.
 3. Discover docs roots/authored templates per audit-scope, pause other writers,
    and save the candidate outside the product tree in one call:
-   `~/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out <private.json> --audit-id <fresh id> --mode <edit|read-only> --base <sha> --docs <root or generated output>...`
+   `~/.claude/skills/gstack/bin/gstack-docs-candidate snapshot --out <private.json> --audit-id <fresh id> --mode <edit|read-only> --base <sha> --docs <root or generated output>... --run <the invocation record's path>`
    (`--select <path>` narrows release paths). It records HEAD, branch, index, path
    lists and hashes of release paths, generated outputs and docs, NUL-safely. Read only new files' content;
    the helper hashes the rest. Fill the prompt placeholders with literal candidate values.
@@ -97,8 +97,9 @@ It reads `docs.caps` from `origin/<base>`'s `.gstack/ship-policy.json`, never th
 branch's copy (a PR cannot raise its own cap), prints one `DOCS_CAP: <path> <bytes>/<max> ok|over` line per cap
 (`DOCS_CAP: none declared` without any) and exits 1 on any `over` or absent file: a
 blocked audit, repaired by trimming that file, never by raising the cap. Then save for Step 16 only post-child hashes (rerun the Prepare `snapshot`
-with only `--out <audit-id>-post.json` changed; Step 16 `compare`s it; never type
-hashes), status, the child's final JSON line as `<audit-id>-result.json`, and the section copied unchanged as the sole content of a private
+with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added,
+plus `--carry <this run's earlier audit's -post.json>` on a re-audit so receipt write
+resets both audits' files; Step 16 `compare`s it; never type hashes), status, the child's final JSON line as `<audit-id>-result.json`, and the section copied unchanged as the sole content of a private
 `<audit-id>-documentation.md`. That file is the section's single source;
 reports and Step 19 insert it by command (`cat`) where they can, never retyped or edited.
 Save records once; cite files by path, never copying their content.

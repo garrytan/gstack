@@ -118,6 +118,9 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   with the content HEAD holds, each excluded or kept only because code names it (GST-1429); prints REVIEW_EXCLUDE_DOCS_AUDIT: and
   records HEAD's selection. Any other change, or an unreadable snapshot, refuses as above. --docs-pre <Prepare snapshot> (the same
   audit's first snapshot) narrows the audit's files to those whose content it changed, so uncommitted docs the review read stay.
+  When a run audits twice, the last audit's post snapshot carries the earlier audit (gstack-docs-candidate snapshot --run --pre
+  --carry): files the earlier audit edited reset too, to their content before it, when HEAD holds what it left; a carried audit of
+  another run refuses (GST-1616).
   --no-stop <json|@file> (a JSON array of {class, reason, evidence}: each routine stop the run recorded and went on past, class one of
   scoped-fix-check, test-timeout-fix, pregate-flake-rerun, stamp-only-carry, autoplan-regate); recorded as no_stop.
   --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises

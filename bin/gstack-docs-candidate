@@ -5,6 +5,7 @@
  * Usage (run inside the repository):
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
  *                                  --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]
+ *                                  [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
  *   gstack-docs-candidate [snapshot|compare] --help
@@ -24,6 +25,15 @@
  * Step 16 can tell an accepted risk from a skipped audit. A --base that is HEAD
  * or already contains it while the branch has commits its real base lacks is
  * refused (BASE_CONTAINS_HEAD, lib/default-base.ts): it would select nothing.
+ * --run names the /ship invocation (its record's path) and is saved as run_id.
+ * --pre <Prepare snapshot> marks a post snapshot: it must be this audit's
+ * (same audit id, HEAD and run) and the record saves `edited`, each path whose
+ * content the audit changed with its content before (the Prepare hash, else
+ * HEAD's blob, null when absent) and after. --carry <an earlier audit's post
+ * snapshot> (with --pre and --run) saves that audit and the ones it carried as
+ * `earlier`, so receipt write resets every file this run's audits edited
+ * (GST-1616); a snapshot of another run, one without `edited`, or one whose
+ * HEAD is not an ancestor of HEAD is refused.
  *
  * compare re-reads the same state and prints one JSON object: whether HEAD or
  * the index changed, which recorded paths' content changed or disappeared, and
@@ -118,7 +128,7 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
-const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>] [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
 
@@ -130,6 +140,47 @@ function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> 
   const problem = !parsed.ok ? parsed.message : parsed.docs.status !== 'blocked' ? `its status is ${parsed.docs.status}, not blocked` : !parsed.docs.exception ? 'it names no accepted exception' : null;
   if (problem || !parsed.ok || !parsed.docs.exception) throw new Error(`--exception ${file}: ${problem}. Only an owner-accepted documentation risk writes this snapshot (ship/sections/documentation.md, Blocked recovery step 3)`);
   return { ...parsed.docs.exception, scope: parsed.docs.scope };
+}
+
+/** One value for an optional flag given at most once. */
+function optional(args: string[], name: string): string | undefined {
+  const values = flag(args, name);
+  if (values.length > 1) throw new Error(`${name} is allowed once`);
+  if (values[0] !== undefined && (!values[0].trim() || /[\x00-\x1f\x7f]/.test(values[0]))) throw new Error(`${name} must be a non-empty one-line value`);
+  return values[0];
+}
+
+function readRecord(file: string, name: string): Record<string, any> {
+  let record: unknown;
+  try { record = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { throw new Error(`${name} ${file} is not readable JSON: ${(error as Error).message.split('\n')[0]}`); }
+  if (!record || typeof record !== 'object' || Array.isArray(record) || typeof (record as any).head !== 'string' || !(record as any).hashes || typeof (record as any).hashes !== 'object') throw new Error(`${name} ${file} is not a gstack-docs-candidate snapshot`);
+  return record as Record<string, any>;
+}
+
+type Edited = Record<string, { before: string | null; after: string | null }>;
+
+/** The post snapshot's own audit: each path whose content differs from this audit's Prepare snapshot, before (its Prepare hash, else HEAD's blob) and after. */
+function auditEdits(pre: Record<string, any>, file: string, post: { audit_id: string; run_id?: string; head: string; hashes: Record<string, string | null> }): { edited: Edited } {
+  if (pre.audit_id !== post.audit_id || pre.head !== post.head || pre.run_id !== post.run_id) throw new Error(`--pre ${file} is not this audit's Prepare snapshot (its audit id, HEAD or run differs)`);
+  const paths = [...new Set([...Object.keys(pre.hashes), ...Object.keys(post.hashes)])].sort();
+  const now = hashes(paths.filter(p => !(p in post.hashes)));
+  const blob = (p: string) => spawnSync('git', ['rev-parse', '--verify', '--quiet', `${pre.head}:${p}`], { encoding: 'utf8', timeout: 60_000 }).stdout?.trim() || null;
+  const edited: Edited = {};
+  for (const p of paths) {
+    const before = p in pre.hashes ? pre.hashes[p] : blob(p);
+    const after = p in post.hashes ? post.hashes[p]! : now[p]!;
+    if (before !== after) edited[p] = { before, after };
+  }
+  return { edited };
+}
+
+/** An earlier audit of this run and the audits it carried, oldest first; refuses another run's snapshot, one without `edited` and one whose HEAD is not an ancestor of HEAD. */
+function carried(prior: Record<string, any>, file: string, post: { audit_id: string; run_id?: string; head: string }): Array<{ run_id: string; audit_id: string; head: string; edited: Edited }> {
+  if (prior.run_id !== post.run_id) throw new Error(`--carry ${file} is audit ${prior.audit_id} of another /ship run (${prior.run_id ?? 'no --run'}), not ${post.run_id}: a post snapshot carries only this run's earlier audits`);
+  if (!prior.edited || typeof prior.edited !== 'object' || Array.isArray(prior.edited)) throw new Error(`--carry ${file} names no edited files: take each post snapshot with --pre <its Prepare snapshot>`);
+  if (prior.audit_id === post.audit_id) throw new Error(`--carry ${file} is this audit (${post.audit_id}), not an earlier one`);
+  if (spawnSync('git', ['merge-base', '--is-ancestor', String(prior.head), post.head], { timeout: 60_000 }).status !== 0) throw new Error(`--carry ${file}: its HEAD ${String(prior.head).slice(0, 12)} is not an ancestor of HEAD`);
+  return [...(Array.isArray(prior.earlier) ? prior.earlier : []), { run_id: prior.run_id, audit_id: prior.audit_id, head: prior.head, edited: prior.edited }];
 }
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
@@ -151,7 +202,7 @@ function main(argv: string[]): void {
     return;
   }
   if (command === 'snapshot') {
-    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception']);
+    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
@@ -163,6 +214,7 @@ function main(argv: string[]): void {
     if (self) throw new Error(resultLine('snapshot', 'BASE_CONTAINS_HEAD', self));
     const exceptionFile = flag(args, '--exception')[0];
     const exception = exceptionFile === undefined ? undefined : acceptedException(exceptionFile);
+    const [preFile, carryFile] = ['--pre', '--carry'].map(name => { const v = optional(args, name); return v === undefined ? undefined : path.resolve(v); });
     process.chdir(top);
     const now = state(base);
     const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
@@ -170,11 +222,18 @@ function main(argv: string[]): void {
       : [...new Set([...now.committed, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
     const docs = expand(listed, docsPaths(listed, flag(args, '--docs')));
     const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
-    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
-    fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
+    const auditId = one(args, '--audit-id');
+    const run = optional(args, '--run');
+    const record = { schema_version: 1, audit_id: auditId, ...(run === undefined ? {} : { run_id: run }), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
+    if (carryFile !== undefined && (preFile === undefined || run === undefined)) throw new Error('--carry needs --pre and --run: only a post snapshot of a named /ship run carries an earlier audit');
+    const audit = preFile === undefined ? {} : auditEdits(readRecord(preFile, '--pre'), preFile, record);
+    const earlier = carryFile === undefined ? {} : { earlier: carried(readRecord(carryFile, '--carry'), carryFile, record) };
+    fs.writeFileSync(out, JSON.stringify({ ...record, ...audit, ...earlier }, null, 2) + '\n', { mode: 0o600 });
     console.log(`CANDIDATE: ${out}`);
     console.log(`base=${base} head=${now.head} branch=${now.branch || '(detached)'} mode=${mode}`);
     if (exception) console.log(`EXCEPTION: accepted by ${exception.accepted_by} ${exception.date} via ${exception.via}`);
+    if ('edited' in audit) console.log(`edited: ${Object.keys(audit.edited).map(p => JSON.stringify(p)).join(' ') || '(none)'}`);
+    if ('earlier' in earlier) console.log(`earlier: ${earlier.earlier.map(e => e.audit_id).join(' ')}`);
     console.log(`committed=${now.committed.length} staged=${now.staged.length} unstaged=${now.unstaged.length} untracked=${now.untracked.length} selected=${selected.length} docs=${docs.length} hashed=${tracked.length}`);
     for (const [label, list] of [['committed', now.committed], ['staged', now.staged], ['unstaged', now.unstaged], ['untracked', now.untracked], ['docs', docs]] as const) {
       if (list.length) console.log(`${label}: ${list.map(p => JSON.stringify(p)).join(' ')}`);

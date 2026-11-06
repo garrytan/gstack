@@ -224,7 +224,7 @@ A finding the owner rules a disclosed note instead of a fix is closed only by th
 `gstack-approvals rule`, recorded outside this run, never by this run or a review-log field
 (docs/ship-policy.md#ruled-notes); the receipt lists each one as `ruled_notes`.
 When `gstack-review-dispatch verify` printed `REVIEW_EXCLUDE_RECORD: digest=<d>`, add `--review-exclude <d>`
-and Step 14.5's `--docs-post <audit-id>-post.json` and `--docs-pre <its Prepare snapshot>`; a digest that no longer matches HEAD is
+and the last Step 14.5 audit's `--docs-post <audit-id>-post.json` and `--docs-pre <its Prepare snapshot>`; a digest that no longer matches HEAD is
 `RECEIPT_INVALID field=review_exclude`: rerun the review, not the write, unless only the docs audit's
 files under `review_exclude_paths` changed it, which `--docs-post` binds (`REVIEW_EXCLUDE_DOCS_AUDIT:`).
 

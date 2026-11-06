@@ -171,11 +171,70 @@ describe('gstack-docs-candidate', () => {
     }
   });
 
+  // Value: protects=a post snapshot records the files its audit edited (before and after) and carries only this run's earlier
+  //   audits, so receipt write can reset every file one /ship run's audits edited (GST-1616); fails_when=--pre records untouched
+  //   files or misses an added one, or --carry accepts a snapshot without --pre/--run or without edited; why_new=GST-1616;
+  //   seam=gstack-docs-candidate snapshot; no_claim=the receipt binding (test/review-exclude.test.ts)
+  test('--pre records the audit\'s edits; --carry needs --pre, --run and an earlier post snapshot that recorded them', () => {
+    const { dir, root } = repo();
+    const args = (id: string, out: string, ...extra: string[]) => ['snapshot', '--out', path.join(root, out), '--audit-id', id, '--mode', 'edit', '--base', 'main', '--docs', 'handbook', '--run', 'r1', ...extra];
+    expect(run(dir, ...args('a1', 'a1.json')).status).toBe(0);
+    fs.writeFileSync(path.join(dir, 'handbook', 'new.md'), '# New\n');
+    expect(run(dir, ...args('a1', 'a1-plain.json')).status).toBe(0);
+    const post = run(dir, ...args('a1', 'a1-post.json', '--pre', path.join(root, 'a1.json')));
+    expect(post.status, post.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'a1-post.json'), 'utf8'))).toMatchObject({ run_id: 'r1', edited: { 'handbook/new.md': { before: null, after: git(dir, 'hash-object', 'handbook/new.md') } } });
+    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'a1-post.json'), 'utf8')).edited)).toEqual(['handbook/new.md']);
+    const refused = (extra: string[], why: string) => {
+      const r = run(dir, ...args('a2', 'a2-post.json', ...extra));
+      expect({ status: r.status, written: fs.existsSync(path.join(root, 'a2-post.json')) }).toEqual({ status: 1, written: false });
+      expect(r.stderr).toContain(why);
+    };
+    expect(run(dir, ...args('a2', 'a2.json')).status).toBe(0);
+    refused(['--carry', path.join(root, 'a1-post.json')], '--carry needs --pre and --run');
+    refused(['--pre', path.join(root, 'a2.json'), '--carry', path.join(root, 'a1-plain.json')], 'names no edited files');
+    // Value: protects=snapshot refuses a carry of this same audit, a carry whose HEAD is not an ancestor, another audit's --pre and a
+    //   repeated or empty --run/--pre/--carry; fails_when=one of those guards in carried(), auditEdits() or optional() is dropped;
+    //   why_new=only the missing --pre/--run and missing edited refusals were covered; seam=none; no_claim=the receipt binding
+    const orphan = git(dir, 'commit-tree', '-m', 'orphan', git(dir, 'hash-object', '-t', 'tree', '-w', '/dev/null'));
+    const forged = path.join(root, 'a1-orphan.json');
+    fs.writeFileSync(forged, JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(root, 'a1-post.json'), 'utf8')), head: orphan }));
+    refused(['--pre', path.join(root, 'a2.json'), '--carry', forged], 'is not an ancestor of HEAD');
+    refused(['--pre', path.join(root, 'a1.json')], 'is not this audit\'s Prepare snapshot');
+    refused(['--run', 'r1'], '--run is allowed once');
+    refused(['--pre', ' '], '--pre must be a non-empty one-line value');
+    refused(['--pre', path.join(root, 'a2.json'), '--carry', path.join(root, 'a1-post.json'), '--carry', path.join(root, 'a1-post.json')], '--carry is allowed once');
+    const self = run(dir, ...args('a1', 'a1-self.json', '--pre', path.join(root, 'a1.json'), '--carry', path.join(root, 'a1-post.json')));
+    expect({ status: self.status, written: fs.existsSync(path.join(root, 'a1-self.json')) }).toEqual({ status: 1, written: false });
+    expect(self.stderr).toContain('is this audit (a1), not an earlier one');
+  });
+
+  // Value: protects=a third audit's post snapshot carries the whole chain oldest first (the carried snapshot's earlier[] prepended);
+  //   fails_when=carried() keeps only the directly carried audit or reorders the chain; why_new=no test carried more than one audit;
+  //   seam=none; no_claim=the receipt reset over three audits (test/review-exclude.test.ts)
+  test('--carry of a post snapshot that itself carried an audit records the whole chain, oldest first', () => {
+    const { dir, root } = repo();
+    const audit = (id: string, file: string, carry?: string) => {
+      const args = ['snapshot', '--audit-id', id, '--mode', 'edit', '--base', 'main', '--docs', 'handbook', '--run', 'r1'];
+      expect(run(dir, ...args, '--out', path.join(root, `${id}.json`)).status).toBe(0);
+      fs.writeFileSync(path.join(dir, 'handbook', file), `# ${id}\n`);
+      const post = run(dir, ...args, '--out', path.join(root, `${id}-post.json`), '--pre', path.join(root, `${id}.json`), ...(carry ? ['--carry', path.join(root, carry)] : []));
+      expect(post.status, post.stderr).toBe(0);
+      return JSON.parse(fs.readFileSync(path.join(root, `${id}-post.json`), 'utf8'));
+    };
+    audit('a1', 'one.md');
+    audit('a2', 'two.md', 'a1-post.json');
+    const third = audit('a3', 'three.md', 'a2-post.json');
+    expect(third.earlier.map((e: { audit_id: string; run_id: string }) => [e.audit_id, e.run_id])).toEqual([['a1', 'r1'], ['a2', 'r1']]);
+    expect(Object.keys(third.earlier[0].edited)).toEqual(['handbook/one.md']);
+    expect(Object.keys(third.earlier[1].edited)).toEqual(['handbook/two.md']);
+  });
+
   test('/ship records post-child hashes with the helper, so Step 16 compares instead of retyping', () => {
     // ci-37198445662 gate-census-2: ship-docsync-completion/-store parents spent 45-78 s of model time
     // retyping hash maps, child output and records into several artifacts after the child returned.
     const gate = fs.readFileSync(path.resolve(import.meta.dir, '..', 'ship/sections/documentation.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
-    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed; Step 16 `compare`s it; never type hashes)');
+    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added, plus `--carry <this run\'s earlier audit\'s -post.json>` on a re-audit so receipt write resets both audits\' files; Step 16 `compare`s it; never type hashes)');
     expect(gate).toContain('Save records once; cite files by path, never copying their content.');
     const { dir, root, record } = repo();
     const args = ['--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'handbook'];
