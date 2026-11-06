@@ -149,7 +149,9 @@ there is refused with the usual `--for <skill>` fix.
    branch is absent or fast-forwardable and no other session holds a lease,
    and switching back if `bin/gstack-upgrade` refuses; the switch and the
    fast-forward run under the setup lock, which the session takes first and
-   hands to `bin/gstack-upgrade`. A workflow lease of the
+   hands to `bin/gstack-upgrade` (an older copy on the local default branch,
+   which cannot take it over, gets it released and takes it itself). A
+   workflow lease of the
    current run or a live eval run (gstack-detach's
    `~/.gstack/locks/gstack-evals.lock`, probed with `flock`, else python3 or
    perl) defers every self-upgrade (`UPGRADE_BUSY`). So does a /ship or review

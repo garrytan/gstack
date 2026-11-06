@@ -305,7 +305,9 @@ EOF_OWN
       fi
     fi
     OLD=$(head -1 "$ROOT/VERSION" 2>/dev/null)
-    UP_OUT=$(GSTACK_SETUP_LOCK_OWNER="${SWITCH:+$$}" "$ROOT/bin/gstack-upgrade" --ff-only-no-reinstall 2>&1); UP_RC=$?
+    LOCK_OWNER="${SWITCH:+$$}"
+    if [ -n "$LOCK_OWNER" ] && ! grep -q GSTACK_SETUP_LOCK_OWNER "$ROOT/bin/gstack-upgrade" 2>/dev/null; then rm -rf "$SETUP_LOCK"; trap - EXIT; LOCK_OWNER=""; fi
+    UP_OUT=$(GSTACK_SETUP_LOCK_OWNER="$LOCK_OWNER" "$ROOT/bin/gstack-upgrade" --ff-only-no-reinstall 2>&1); UP_RC=$?
     [ -n "$UP_OUT" ] && printf '%s\n' "$UP_OUT"
     if [ "$UP_RC" -ne 0 ] && [ -n "$PRE_HEAD" ]; then
       if [ -n "$PRE_BRANCH" ]; then git -C "$ROOT" checkout -q "$PRE_BRANCH" 2>/dev/null; else git -C "$ROOT" checkout -q --detach "$PRE_HEAD" 2>/dev/null; fi \
@@ -319,7 +321,7 @@ EOF_OWN
         echo "SELF_UPGRADE: pin not restored ($RESTORE_FAILED)"
       fi
     fi
-    if [ -n "$SWITCH" ]; then rm -rf "$SETUP_LOCK"; trap - EXIT; fi
+    if [ -n "$LOCK_OWNER" ]; then rm -rf "$SETUP_LOCK"; trap - EXIT; fi
     if [ "$UP_RC" -eq 0 ]; then
       [ -n "$UNREASONED" ] && echo "SELF_UPGRADE: pin overridden ($PIN_WHAT, with no recorded reason, and the oldest commit this checkout lacks is ${STALE_H}h old; keep a pin with GSTACK_PIN_REASON=<why> or git -C $ROOT config gstack.pinReason <why>) (PIN_UNREASONED)"
       echo "SELF_UPGRADE: done $OLD -> $(head -1 "$ROOT/VERSION" 2>/dev/null)"

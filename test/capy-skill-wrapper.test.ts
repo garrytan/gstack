@@ -1087,8 +1087,7 @@ describe('capy skill: an open /ship, review or eval run defers the upgrade (R75,
   // Value: protects=the eval-lock probe works without the flock binary (macOS): python3's fcntl sees gstack-detach's lock and the upgrade
   // defers; fails_when=an eval run has gstack moved under it on a host without flock (GST-1658 item 1); why_new=GST-1658; seam=PATH without
   // flock; no_claim=the perl fallback (python3 is on this host)
-  test('a live eval run defers the upgrade on a host without flock', () => {
-    if (spawnSync('sh', ['-c', 'command -v flock && command -v python3'], { timeout: 5_000 }).status !== 0) return;
+  test.skipIf(spawnSync('sh', ['-c', 'command -v flock && command -v python3'], { timeout: 5_000 }).status !== 0)('a live eval run defers the upgrade on a host without flock', () => {
     const f = behindBy(1);
     const lock = path.join(f.host.home, '.gstack/locks/gstack-evals.lock');
     fs.mkdirSync(path.dirname(lock), { recursive: true });
@@ -1158,6 +1157,20 @@ describe('capy skill: upgrade-path edges (GST-1658)', () => {
     real.git(['checkout', '-q', '--detach']);
     expect(real.run(['--for', 'autoplan']).stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
     expect(fs.existsSync(path.join(real.host.stateRoot, '.setup-lock'))).toBe(false);
+  });
+
+  // Value: protects=a local default branch whose gstack-upgrade predates the lock handover still fast-forwards: the session releases .setup-lock
+  // before that copy runs, so it takes the lock itself as it always did; fails_when=the old copy refuses against the session's own lock and an
+  // unreasoned pin is never overridden (/ship #4095 review red-team#1); why_new=red-team; seam=a gstack-upgrade that takes the lock with mkdir
+  // and ignores GSTACK_SETUP_LOCK_OWNER, as a7585d0's does; no_claim=none
+  test('a local main whose gstack-upgrade predates the handover still upgrades', () => {
+    const f = behindBy(25);
+    f.git(['checkout', '-q', '--detach']);
+    stubUpgrade(f, 'L="$GSTACK_STATE_ROOT/.setup-lock"; mkdir "$L" 2>/dev/null || { echo "gstack-upgrade: another gstack updater holds $L (pid $(cat "$L/pid" 2>/dev/null)); nothing was changed; fix: wait for it to finish, then re-run (UPGRADE_REFUSED)" >&2; exit 3; }; R="$(dirname "$0")/.."; git -C "$R" merge --ff-only -q origin/main; S=$?; rm -rf "$L"; exit $S');
+    const r = f.run(['--for', 'autoplan']);
+    expect(r.stdout, r.stdout + r.stderr).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+    expect(fs.existsSync(path.join(f.host.stateRoot, '.setup-lock'))).toBe(false);
   });
 
   // Value: protects=the default branch the override creates tracks origin, so a later @{upstream} read works (GST-1658 item 4); fails_when=the
