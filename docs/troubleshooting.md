@@ -3522,7 +3522,9 @@ or when `--review-targeted` names a read commit that is not an ancestor of
 HEAD, or after which a change carries a targeted class (money, gate, auth or
 secret code changed after the targeted reader read it, a test edit the gate
 scan tags included), or whose product patch is not the receipt's and the change
-since it is more than plain docs. A docs-only change after the read carries the
+since it is more than plain docs. The change since the read is the PR's own: a
+base merge after the read that leaves the PR's diff alone never voids the record,
+whatever files it brought in (GST-1593). A docs-only change after the read carries the
 record only when it changes no binary file, adds no numeric claim, touches no
 results, prereg or eval path, and names no money, security, secret or auth topic; any other docs change
 needs the reader again (GST-1195). With `--body`, write also refuses, writing

@@ -38,8 +38,9 @@ import { loadPolicyAt } from '../lib/ship-policy-at';
 import { loadReaders, readersLine } from '../lib/review-fetch';
 import { policySelection, selectFor } from '../lib/review-selection';
 import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-readers';
-import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
+import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, ROLE_EFFORT, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
+import { targetedDelta } from '../lib/review-targeted-delta';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
 
@@ -59,7 +60,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
   --force a,b|all           specialists forced by prompt flags (--all-specialists is all): at standard and full depth they join the
                             batched specialist's checklists, where maintainability, performance and simplification are read only when
-                            forced; light runtime-0 and scoped passes dispatch them one reader each
+                            forced; light runtime-0 and scoped passes dispatch them one reader each; targeted is no specialist and
+                            refuses (exit 2): the plan dispatches it itself
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
   --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker on a diff below full depth, a
@@ -68,7 +70,11 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
   --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full
   --targeted-ran <id>       the TARGETED line's targeted_patch_id (the whole committed diff, tests included) when the targeted
-                            reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again
+                            reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again.
+                            With --range-base naming the commit that read happened on, a loop that is done plans NEXT: targeted
+                            (one targeted reader on HEAD, TARGETED_DELTA: names the range) when the only change since is docs the
+                            receipt cannot carry the record across (a money, security or numeric claim; GST-1598), or, with a
+                            --grant this invocation checks, any change but plain docs (the granted fix round; GST-1607)
   --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved,
                             its ask or scope naming review_loop_grant and the stop head's sha, at or after --range-base and at or
                             before HEAD; needs --range-base): the stop after a round-2 full pass with a fixed blocking finding or a
@@ -94,7 +100,7 @@ Depth (R51, risk not size): full on gate class, a risk class (money, auth, secre
 standard only by --depth-floor or a raise; otherwise light. TARGETED: the money,
 gate, auth and secret classes the diff touches; any class dispatches the targeted reader at every depth. NEXT: full, scoped
 (a full pass on the range: fix-check, Red Team, native adversarial), fix-check, voices (gate class: Step 11 before any stop,
-then ask again with --adversarial-ran), stop or done. A full plan
+then ask again with --adversarial-ran), targeted (the targeted-only read after the loop), stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
 ${exitTableHelp()}`;
 
@@ -134,6 +140,7 @@ function main(): number {
   const rangeBase = flag('--range-base');
   if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD)\n'); return EXIT.usage; }
   if (grant && !rangeBase) { process.stderr.write('gstack-review-plan: --grant needs --range-base (round 2\'s PASS_HEAD), which binds the grant to the stop it answers\n'); return EXIT.usage; }
+  if (list('--force').includes('targeted')) { process.stderr.write('gstack-review-plan: --force targeted: the targeted reader is no specialist; the plan dispatches it whenever the diff has a targeted class, and after a finished loop for a docs claim added since its read: pass --range-base <the commit it read> --targeted-ran <the targeted_patch_id it read> (docs/review-policy.md#targeted-only-read-after-the-loop)\n'); return EXIT.usage; }
   const declared = list('--declare-risk');
   if (has('--declare-risk') && (!declared.length || declared.some(c => !(RISK_CLASSES as readonly string[]).includes(c)))) { process.stderr.write(`gstack-review-plan: --declare-risk ${flag('--declare-risk') ?? ''}: each class is one of ${RISK_CLASSES.join(', ')} (a declaration only raises the depth)\n`); return EXIT.usage; }
   const root = git(['rev-parse', '--show-toplevel'])?.trim();
@@ -219,19 +226,28 @@ function main(): number {
   const targeted = targetedClasses({ ...collected, ...(active ? { paths: paths.filter(p => !active.excluded.has(p)), added: kept(added), removed: kept(collected.removed) } : {}), scope, gateTagged });
   const patch = collected.mergeBase ? targetedPatchId(process.cwd(), collected.mergeBase) : 'none';
   const brief = targetedBriefSha();
+  const ran = !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch;
   const postReview = has('--post-review');
   const plan = planReview({
-    ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran: !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
+    ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
     history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: (has('--fixed-below') || (postReview && pass > 0)) && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate || (postReview && pass > 0), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks: has('--fix-checks') ? fixChecks : undefined },
   });
   if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
+  const ranArg = flag('--targeted-ran');
+  const delta = plan.next.step === 'done' && rangeBase && ranArg && targeted.classes.length && !ran ? targetedDelta(root, ref, rangeBase, ranArg, !!grant) : null;
+  if (delta?.state === 'dispatch') {
+    const why = grant ? `the owner's grant ${grant} covers the fix round that changed ${delta.paths.join(', ')}` : `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
+    plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
+    plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
+  } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
+  const targetedDeltaOut = delta?.state === 'dispatch' ? { range_base: delta.range_base, paths: delta.paths, classes: targeted.classes } : null;
   const selection = policySelection(active && { state: 'active', specs: active.specs, keep: active.keep, excerpt: active.excerpt }, readers);
   plan.dispatches.forEach((d, i) => { if (d.role !== 'fix-check') plan.dispatches[i] = selectFor(d, selection); });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
-    process.stdout.write(JSON.stringify({ ...rest, review_policy: review, platform_review: platform ? (platform.ok ? platform.review : { none: platform.reason }) : null, readers, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, base: collected.base, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings, executables: collected.executables,
+    process.stdout.write(JSON.stringify({ ...rest, review_policy: review, platform_review: platform ? (platform.ok ? platform.review : { none: platform.reason }) : null, readers, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, targeted_delta: targetedDeltaOut, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, base: collected.base, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings, executables: collected.executables,
       ...(exclusion.state === 'head-only' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, excerpt: active.excerpt, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
     return EXIT.ok;
   }
@@ -242,6 +258,7 @@ function main(): number {
   if (declared.length) out.push(`RISK_DECLARED: classes=${plan.declared.join(',')} detected=${plan.detected.join(',') || 'none'}`);
   if (platform) out.push(platform.ok ? `PLATFORM_REVIEW: ${platform.review.id} reviewer=${platform.review.reviewer} head=${platform.review.head}` : `PLATFORM_REVIEW: none (${platform.reason})`);
   if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
+  if (targetedDeltaOut) out.push(`TARGETED_DELTA: range_base=${targetedDeltaOut.range_base} paths=${targetedDeltaOut.paths.join(',')} classes=${classList(targetedDeltaOut.classes)}`);
   out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
   for (const d of plan.dispatches) {

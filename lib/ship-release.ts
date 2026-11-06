@@ -32,7 +32,7 @@ import { waitForRun } from './ci-carry';
 import { lanesOnlyHeadPolicy } from './pregate/head-policy';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { buildRunCheck } from './pregate/run-check';
-import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
+import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -582,10 +582,12 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
     if (w.state === 'red') return r.stop(`${p.workflow} run ${w.run.id} failed (${short(w.failing, 4) || 'no failing job named'}): Step 5 triage on its logs; fix, commit, push, then accept again`);
     if (w.state === 'none') return r.stop(`${w.reason}: push the branch (a pull_request or workflow_dispatch run must exist at HEAD), then accept again`);
   }
+  const recordCi = recordCiTimeout(shipPolicy(cwd, base), base);
+  r.add(recordCi.line);
   const exceptions: string[] = [];
   for (const l of list) {
     const m = mapped.get(l.label);
-    const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
+    const res = m ? carryLane(cwd, base, l, recordCi.seconds) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
     if (m && !res.carried) { for (const line of carryNoneLines(res)) r.add(line); return r.stop(`lane ${l.label} was not carried from the green run (${short([res.carryNone ?? ''], 1).slice(0, 120)}): fix the cause, or run it here with gstack-ship-preflight --tests-only`); }
     const ran = laneLine(res);
     r.add(ran.line);
@@ -599,9 +601,13 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
   const policy = lanesOnlyHeadPolicy(cwd, base);
   if (policy.line) r.add(policy.line);
   const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, ...(policy.head ? ['--policy-from', 'head'] : [])], 3_600_000);
-  const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
-  const carried = /^CI_CARRY: .*$/m.exec(pg.stdout + pg.stderr)?.[0];
-  if (carried) r.add(carried.length > 240 ? `${carried.slice(0, 240)}…` : carried);
+  const out = pg.stdout + pg.stderr;
+  const verdict = /^PREGATE: (.+?) tree=/m.exec(out)?.[1] ?? `unreadable (exit ${pg.status})`;
+  const clip = (line: string, n: number) => (line.length > n ? `${line.slice(0, n)}…` : line);
+  const carried = /^CI_CARRY: (?:accepted |none \().*$/m.exec(out)?.[0];
+  const tests = /^PREGATE: tests (.+?) in ([\d.]+)s/m.exec(out);
+  if (carried && (carried.startsWith('CI_CARRY: accepted') || !tests)) r.add(clip(carried, 240));
+  else if (tests) r.add(`${carried ? clip(carried, 200) : 'CI_CARRY: none (the pregate policy declares no run_profiles)'}; the final pregate's tests stage ran here instead: tests ${tests[1]} in ${tests[2]}s (docs/pregate.md#accept-local-tests)`);
   r.add(`PREGATE: ${verdict} (final tree)`);
   if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the final tree: fix it, then rerun accept`);
   return r.next(`Step 18: the receipt records ci_carried from the ledger${exceptions.length ? `; the PR body carries ${exceptions.map(e => JSON.stringify(`Test-lane exception: ${e}`)).join(' and ')} verbatim, one line each, or the receipt write refuses` : ''}`);

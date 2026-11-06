@@ -1217,7 +1217,21 @@ each mapped lane from the green run at that exact tree, reuses or runs the rest,
 checks every lane FRESH and reruns the pregate there, whose tests stage carries
 the same run. `gstack-ship-receipt write` records the carried runs as
 `ci_carried: [{ lane, run, attempt, tree }]`, and the `SHIP_RECEIPT:` line names
-them (`ci_carried=<lane>:<run>/<attempt>`).
+them (`ci_carried=<lane>:<run>/<attempt>`). Each `record-ci` gets the base
+policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
+default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
+
+<a id="accept-local-tests"></a>**When accept's final pregate runs the tests here (GST-1606).** The final
+pregate's tests stage carries only under a base run profile whose `os` matches
+this machine and whose workflow holds a lane this machine runs. A lane carried
+through `ship_lanes_from` needs neither, so a profile without `os` carries
+every lane and still leaves the tests stage to run its whole selection here
+(harness-evals #271 ran 3,666 tests that way). accept then prints one line:
+`CI_CARRY: none (<reason>); the final pregate's tests stage ran here instead:
+tests <verdict> in <n>s`. The run is correct, only slower. Adding `"os":
+"Linux"` (or this machine's OS) to the profile on the base branch lets the
+next accept carry the tests stage too, when the run's `tree.json` covers the
+selection.
 
 <a id="carry-imported-tests"></a>**An inventory file CI's JUnit tree never lists (GST-1595).** bun registers
 the tests of a test file another test file imports under the importer, so the

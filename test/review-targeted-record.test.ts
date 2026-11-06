@@ -12,7 +12,7 @@ import { EXIT } from '../lib/headless-artifacts';
 import { checkoutTree } from '../lib/review-brief';
 import { TARGETED_RULES, targetedBriefSha } from '../lib/review-targeted';
 import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
-import { receiptDepthAtHead } from '../lib/ship-receipt-depth';
+import { receiptDepthAtHead, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 setDefaultTimeout(180_000);
@@ -291,5 +291,154 @@ describe('/ship\'s receipt writes pass the targeted record (item 3, #3853)', () 
     fs.mkdirSync(path.join(repo.work, '.gstack', 'tmp'), { recursive: true });
     fs.writeFileSync(path.join(repo.work, recordPath!), '{}\n');
     expect(expand()).toEqual(['--review-targeted', `@${recordPath}`]);
+  });
+});
+
+describe('a main merge after the read keeps the record when the PR\'s own change is unchanged (GST-1593, harness-evals #293)', () => {
+  const mainCommit = (repo: FixtureRepo, files: Record<string, string>, msg: string) => {
+    repo.git('checkout', '-q', 'main');
+    for (const [file, text] of Object.entries(files)) commit(repo, file, text, msg);
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feat');
+    repo.git('fetch', '-q', 'origin');
+  };
+  const classesSince = (repo: FixtureRepo, read: string) => {
+    const saved = Object.fromEntries(Object.keys(repo.env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, repo.env);
+    try { return targetedClassesSince(repo.work, read, repo.git('rev-parse', 'HEAD'), 'main'); } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  };
+  const block = (cond: string, cap: boolean) => [`  if (${cond}) {`, '    a();', '    b();', '    c();', ...(cap ? ['    const spend_cap_usd = 5000;'] : []), '    d();', '    e();', '    f();', '  }'];
+  const charge = (one: boolean, two: boolean, header = '// charge') => [header, 'export function charge(amount: number) {', ...block('amount > 0', one), ...block('amount < 0', two), '}', ''].join('\n');
+  const mainBrings = { 'lib/budget-ledger.ts': 'export const spend_cap_usd = 40;\n', 'lib/secrets.ts': 'export const key = process.env.OPENAI_API_KEY;\n' };
+  const readAndMerge = () => {
+    const { repo, base, head } = moneyBranch();
+    const record = path.join(repo.root, 'targeted.json');
+    expect(verify(repo, targetedRead(repo, base, 'h1', 'NO FINDINGS'), record).status).toBe(0);
+    mainCommit(repo, mainBrings, 'main: budget ledger and secrets');
+    return { repo, head, record };
+  };
+
+  // Value: protects=a main merge that brings money- and secret-tagged files leaves the PR's product patch unchanged, so the
+  //   record binds (HARN-1 on harness-evals #293, #292, #225: targetedClassesSince diffed across the merge commit and voided it);
+  //   fails_when=the classes since the read count files only main brought in; seam=gstack-ship-receipt write --review-targeted
+  test('read, then a main merge that brings money and secret files: write binds', () => {
+    const { repo, head, record } = readAndMerge();
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    const bound = write(repo, ['--review-targeted', `@${record}`]);
+    expect(bound.status, bound.err).toBe(EXIT.ok);
+    expect(JSON.parse(bound.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+    expect(classesSince(repo, head)).toEqual([]);
+  });
+
+  // Value: protects=a branch-side money edit or skipped test after the read still voids the record across a main merge;
+  //   fails_when=the PR-own basis drops the branch's own change; seam=targetedClassesSince and write --review-targeted
+  test('after a main merge, a branch-side money edit and a branch-side skipped test are refused', () => {
+    const { repo, head, record } = readAndMerge();
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    const merged = repo.git('rev-parse', 'HEAD');
+    commit(repo, 'src/charge.ts', 'export const spend_cap_usd = 50;\n', 'money edit after the merge');
+    expect(classesSince(repo, head)).toContain('money');
+    const money = write(repo, ['--review-targeted', `@${record}`]);
+    expect(money.status).toBe(EXIT.fail);
+    expect(money.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+
+    repo.git('reset', '-q', '--hard', merged);
+    commit(repo, 'test/charge.test.ts', 'import { test, expect } from "bun:test";\ntest.skip("cap", () => { expect(5).toBe(5); });\n', 'skip a case after the merge');
+    expect(classesSince(repo, head)).toContain('gate');
+    const skipped = write(repo, ['--review-targeted', `@${record}`]);
+    expect(skipped.status).toBe(EXIT.fail);
+    expect(skipped.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+  });
+
+  // Value: protects=a plain docs commit after the read still carries the record when a main merge also brought money and secret
+  //   files (GST-1195's docs carry over the same PR-own basis); fails_when=plainDocsSince reads main's files as the branch's;
+  //   seam=gstack-ship-receipt write --review-targeted
+  test('after a main merge, a plain docs commit binds', () => {
+    const { repo, record } = readAndMerge();
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    commit(repo, 'docs/run-order.md', '# Run order\n\nRead the overview first, then the walkthrough.\n', 'Step 14.5 docs');
+    const docs = write(repo, ['--review-targeted', `@${record}`]);
+    expect(docs.status, docs.err).toBe(EXIT.ok);
+  });
+
+  // Value: protects=a merge whose resolution changes the PR's own hunks is a change the reader never read; fails_when=the merge
+  //   commit's own edit to the PR's file is credited to main; seam=targetedClassesSince and write --review-targeted
+  test('a main merge that also changes the PR\'s own hunks is refused', () => {
+    const { repo, head, record } = readAndMerge();
+    repo.git('merge', '-q', '--no-commit', '--no-ff', 'origin/main');
+    fs.writeFileSync(path.join(repo.work, 'src', 'charge.ts'), 'export const spend_cap_usd = 9;\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '--no-edit');
+    expect(classesSince(repo, head)).toEqual(['money']);
+    const evil = write(repo, ['--review-targeted', `@${record}`]);
+    expect(evil.status).toBe(EXIT.fail);
+    expect(evil.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
+  });
+
+  // Value: protects=with no main merge, a branch commit after the read that moves the PR's money line to another block with the
+  //   same context and function header still voids the record (position-free hunks compared equal); fails_when=a path whose
+  //   base content did not move is judged by its line-number-free hunks; seam=targetedClassesSince
+  test('no main merge: a branch edit that relocates the PR\'s money hunk to an identical context is refused', () => {
+    const repo = makeFixtureRepo({ prefix: 'gst1593-relocate-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    commit(repo, 'src/charge.ts', charge(false, true), 'move the cap to the second block after the read');
+    expect(classesSince(repo, read)).toContain('money');
+  });
+
+  // Value: protects=a main merge that also changed the PR's file replays cleanly (the record binds) yet a later relocation of the
+  //   PR's money hunk to an identical context still voids it; fails_when=position-free hunks decide a path whose base moved, or the
+  //   replay over-refuses a clean main change; seam=targetedClassesSince
+  test('a main merge to the PR\'s own file binds; relocating the money hunk after it is refused', () => {
+    const repo = makeFixtureRepo({ prefix: 'gst1593-relocate-merge-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    mainCommit(repo, { 'src/charge.ts': charge(false, false, '// charge: amounts in cents') }, 'main: header');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    expect(classesSince(repo, read)).toEqual([]);
+    commit(repo, 'src/charge.ts', charge(false, true, '// charge: amounts in cents'), 'move the cap to the second block after the merge');
+    expect(classesSince(repo, read)).toContain('money');
+  });
+
+  // Value: protects=a CI skip marker in a branch commit after the read stays gate class (RH-14) though the scan reads a built
+  //   commit; fails_when=the built commit drops the branch's messages; seam=targetedClassesSince
+  test('a branch commit after the read whose message skips CI is refused', () => {
+    const { repo, head } = moneyBranch();
+    commit(repo, 'test/charge.test.ts', 'import { test } from "bun:test";\ntest("cap", () => {});\n', '[skip ci] add a cap case');
+    expect(classesSince(repo, head)).toContain('gate');
+  });
+
+  // Value: protects=a CI skip marker on a side-branch commit merged with --no-ff after the read stays gate class; fails_when=the
+  //   built commit carries only first-parent messages; seam=targetedClassesSince
+  test('a side-branch commit whose message skips CI, merged with --no-ff after the read, is refused', () => {
+    const { repo, head } = moneyBranch();
+    repo.git('checkout', '-q', '-b', 'side');
+    commit(repo, 'test/charge.test.ts', 'import { test } from "bun:test";\ntest("cap", () => {});\n', '[skip ci] add a cap case');
+    repo.git('checkout', '-q', 'feat');
+    repo.git('merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+    expect(classesSince(repo, head)).toContain('gate');
+  });
+
+  // Value: protects=a mode-only change after the read, on a file a main merge also changed, still voids the record; fails_when=the
+  //   replay compares blob bytes and ignores the mode; seam=targetedClassesSince
+  test('after a main merge to the PR\'s own file, a mode-only change is refused', () => {
+    const repo = makeFixtureRepo({ prefix: 'gst1593-mode-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    mainCommit(repo, { 'src/charge.ts': charge(false, false, '// charge: amounts in cents') }, 'main: header');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    repo.git('update-index', '--chmod=+x', 'src/charge.ts');
+    repo.git('commit', '-q', '-m', 'make charge executable');
+    expect(classesSince(repo, read)).toContain('money');
   });
 });

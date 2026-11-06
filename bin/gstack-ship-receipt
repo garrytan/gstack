@@ -294,7 +294,7 @@ function cmdWrite(rest: string[], json: boolean): number {
   const product = reviewedProduct(repoRoot, base, head, pregateFile);
   let targeted: ReturnType<typeof parseReviewTargeted> | undefined;
   if (flag(rest, '--review-targeted') !== undefined) {
-    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head), read => plainDocsSince(repoRoot, read, headSha ?? head)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
+    try { targeted = parseReviewTargeted(jsonArg(flag(rest, '--review-targeted')), product.product_patch_id ?? 'none', read => reviewedProduct(repoRoot, base, read, pregateFile).product_patch_id, read => targetedClassesSince(repoRoot, read, headSha ?? head, base), read => plainDocsSince(repoRoot, read, headSha ?? head, base)); } catch (e: any) { targeted = { ok: false, message: `--review-targeted: ${e.message}` }; }
   }
   if (targeted && !targeted.ok) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targeted.message}; nothing written`) + '\n'); return EXIT.fail; }
   const approval = approvalForReceipt({ repoRoot, base, head, citationText: [bodyText, ...flags(rest, '--approval')].join('\n'), runDirs: flags(rest, '--approval-run') });
