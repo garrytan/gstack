@@ -69,7 +69,7 @@ const CODE = /\.(?:[cm]?[jt]s|tsx|jsx)$/;
 /** An extensionless script Bun or Node runs: its imports are code, not shell. */
 const CODE_SHEBANG = /^#![^\n]*\b(?:bun|node)\b/;
 const TEXT = /\.(?:[cm]?[jt]s|tsx|jsx|sh|md|tmpl|json|ya?ml|toml|txt|py)$/;
-const REPO_PATH = /(?:^|[^\w.@-])((?:bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents|capy|test\/helpers|test\/fixtures)\/[\w.@-]+(?:\/[\w.@-]+)*)/g;
+const REPO_PATH = /(?:^|[^\w.@-])((?:bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents|capy|modules|test\/helpers|test\/fixtures)\/[\w.@-]+(?:\/[\w.@-]+)*)/g;
 /** `path.join(ROOT, 'lib', 'x.ts')`: a top-level directory and its entry as separate string literals. */
 const JOINED_PATH = /['"`](bin|lib|scripts|browse|design|make-pdf|hosts|extension|model-overlays|agents)['"`]\s*,\s*['"`]([\w.@-]+)['"`]/g;
 const BIN_NAME = /\bgstack-[a-z0-9][a-z0-9-]*[a-z0-9]\b/g;
