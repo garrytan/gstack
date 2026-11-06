@@ -113,9 +113,10 @@ describe('finish with owner-ruled notes (GST-1537)', () => {
   // Value: protects=a ruling closes only findings the owner saw: a fix-check row logged after the ruling, carrying the same
   //   fingerprints, stays open until the owner rules again; fails_when=an old ruling closes a later finding at that fingerprint;
   //   seam=finish's route matching rulings to the fix-check row
-  test('a ruling recorded before the fix-check row does not close that row\'s findings', () => {
-    const { f, reviewed, post } = grantedFixCheck({ ...QM3122, timestamp: '2099-01-01T00:00:00Z' });
+  test('a ruling recorded before the fix-check row does not close that row\'s findings, whatever timestamp the row claims', () => {
+    const { f, passHead, reviewed, post } = grantedFixCheck(QM3122);
     for (const finding of [RACE, AMBIENT]) expect(rule(f, finding).status).toBe(0);
+    logFixCheck(f, { range_base: passHead, ...QM3122, timestamp: '1970-01-01T00:00:00Z' });
     const r = finish(f, reviewed, post);
     expect([r.status, lineOf(r.stdout, 'FIX_CHECK')]).toEqual([3, NOT_CLEAN]);
     expect(r.stdout.split('\n').filter(l => l.startsWith('RULED_NOTE: ')).length).toBe(2);

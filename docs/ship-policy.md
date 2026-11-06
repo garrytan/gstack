@@ -1630,7 +1630,8 @@ row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`), prints each as `RULED_NOTE: <fingerprint> ruled by <who> at
 <time>: <reason> (approval <id>)`, and treats a ruled finding on the newest
 `review-fix-check` row (action `skipped`, `noted` or `deferred`, not a gate finding)
-as closed when the ruling was recorded after that row, so it closes only what the
+as closed when the ruling was recorded after that row's review started (the
+logger's own `review_binding.started_at`, never the row's `timestamp`), so it closes only what the
 owner saw: a later row with the same fingerprint needs a new ruling. A granted
 fix-check whose other findings are all below the floor then reads CURRENT and
 counts. A skipped CRITICAL with no ruling stays open. Nothing
