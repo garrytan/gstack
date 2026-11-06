@@ -176,6 +176,37 @@ describe('finish with owner-ruled notes (GST-1537)', () => {
   });
 });
 
+// Value: protects=the trail names the owner approval that actually covered the fix-check (gstack-evals#244: finish named the
+//   earlier fix-check's grant a-ab110530e792 for fc4, whose grant was a-eaa651ef9ed3); fails_when=finish takes the first approved
+//   review_loop_grant naming any commit in range_base..commit; seam=finish's route picking the grant for the FIX_CHECK line
+describe('finish names the grant that covers the counted fix-check (GST-1610)', () => {
+  test('two grants at different stop heads: the line names the later fix-check\'s own grant', () => {
+    const CLEAN = { completed: true, converged: true, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: [] };
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
+    ships.push(f);
+    const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    const grantAt = (head: string, n: string) => {
+      const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: scoped fix-check ${n} (review_loop_grant ${head.slice(0, 12)})`, '--words', `fix-check ${n}`, '--by', 'evals minder (GEVA-2)', '--scope', 'this /ship invocation', '--json']);
+      expect(g.status, g.stderr).toBe(0);
+      return JSON.parse(g.stdout).added[0] as string;
+    };
+    const first = grantAt(passHead, 'fc3');
+    f.write({ 'src/x.ts': 'export const x = 3;\n' }); f.commit('fix the fc3 blocker');
+    const fc3Head = f.git('rev-parse', 'HEAD').stdout.trim();
+    logFixCheck(f, { range_base: passHead, ...CLEAN });
+    const second = grantAt(fc3Head, 'fc4');
+    f.write({ 'test/x.test.ts': TEST_V2 }); f.commit('fix the fc4 blocker');
+    const fc4Head = f.git('rev-parse', 'HEAD').stdout.trim();
+    logFixCheck(f, { range_base: passHead, ...CLEAN });
+    expect(first).not.toBe(second);
+    const r = finish(f, reviewed, post);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fc4Head.slice(0, 12)}, range from ${passHead.slice(0, 12)}, grant ${second})`);
+  });
+});
+
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
   const HEAD = '0123456789abcdef0123456789abcdef01234567';
   const row = (finding: string, o: Partial<{ ask: string; scope: string; by: string; outcome: string }> = {}) => {
