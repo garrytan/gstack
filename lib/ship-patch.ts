@@ -276,8 +276,8 @@ const inTemplate = (text: readonly string[], n: number) => (text.slice(0, n - 1)
 
 /**
  * Whether two lines differ only inside one cast's type literal (`as { ... }`, braces counted outside quoted strings) on
- * both sides, with no quote in the changed text and no template literal on either line: a type-only edit, never a value,
- * a statement or a check (GBRA-336).
+ * both sides, with no quote in the changed text and no template literal, regex literal or comment (any `/` outside quotes)
+ * on either line: a type-only edit, never a value, a statement or a check (GBRA-336, p2v/outside-voice#1).
  */
 function castOnly(before: string, after: string): boolean {
   if (before === after || /`/.test(before + after)) return false;
@@ -289,6 +289,7 @@ function castOnly(before: string, after: string): boolean {
     const end = line.length - j;
     if (/['"]/.test(line.slice(i, end))) return false;
     const masked = line.replace(QUOTED, s => s[0] + 'x'.repeat(s.length - 2) + s[0]);
+    if (masked.includes('/')) return false;
     for (const m of masked.matchAll(/\bas\s+\{/g)) {
       const open = m.index + m[0].length - 1;
       let depth = 0, close = -1;
@@ -301,10 +302,11 @@ function castOnly(before: string, after: string): boolean {
 }
 
 /**
- * Test paths an owner's review-loop exception that names them may route (GST-1682): every hunk from..to is one lib/gate-diff
- * leaves untagged that swaps lines one for one, each pair differing only inside a cast's type literal (a type-only cast
- * widened, GBRA-336), and no removed or added line, nor the statement around it, holds an assertion, matcher, test name or
- * skip/only call. A diff the scan or git cannot read, a binary or a deleted file stays out.
+ * Test paths an owner's review-loop exception that names them may route (GST-1682): a .ts, .mts or .cts file whose every
+ * hunk from..to is one lib/gate-diff leaves untagged that swaps lines one for one, each pair differing only inside a cast's
+ * type literal (a type-only cast widened, GBRA-336), and no removed or added line, nor the statement around it, holds an
+ * assertion, matcher, test name or skip/only call. A diff the scan or git cannot read, a binary, a mode change, a deleted
+ * file or a file with an odd backtick count on either side stays out.
  */
 export function checkFreePaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> {
   const tagged = gateTaggedPaths(repoRoot, from, to, paths);
@@ -313,11 +315,14 @@ export function checkFreePaths(repoRoot: string, from: string, to: string, paths
     for (let n = start; n < start + count; n++) if (inTemplate(lines, n) || statementAt(lines, n).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1')))) return false;
     return true;
   };
+  const oddTicks = (text: string) => (text.match(/`/g)?.length ?? 0) % 2 === 1;
   return new Set(paths.filter(p => {
-    const d = tagged.has(p) ? null : pathDiff(repoRoot, from, to, p, 0);
-    const hunks = d === null || /^(Binary files |GIT binary patch)/m.test(d) ? null : zeroHunks(d);
-    const before = git(repoRoot, ['show', `${from}:${p}`])?.split('\n'), after = git(repoRoot, ['show', `${to}:${p}`])?.split('\n');
-    return !!hunks?.length && !!before && !!after && hunks.every(h => h.oldCount === h.newCount && free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount)
+    const d = tagged.has(p) || !/\.[mc]?ts$/.test(p) ? null : pathDiff(repoRoot, from, to, p, 0);
+    const hunks = d === null || /^(Binary files |GIT binary patch|(old|new|new file|deleted file) mode )/m.test(d) ? null : zeroHunks(d);
+    const beforeText = git(repoRoot, ['show', `${from}:${p}`]), afterText = git(repoRoot, ['show', `${to}:${p}`]);
+    if (beforeText === null || afterText === null || oddTicks(beforeText) || oddTicks(afterText)) return false;
+    const before = beforeText.split('\n'), after = afterText.split('\n');
+    return !!hunks?.length && hunks.every(h => h.oldCount === h.newCount && free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount)
       && Array.from({ length: h.oldCount }, (_, k) => castOnly(before[h.oldStart - 1 + k]!, after[h.newStart - 1 + k]!)).every(Boolean));
   }));
 }

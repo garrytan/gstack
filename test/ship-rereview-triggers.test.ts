@@ -841,29 +841,33 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
 
   // Value: protects=checkFreePaths admits only a hunk whose lines differ inside a cast's type literal, so an untagged edit
   //   that hollows a check it never touches (an early return, a changed value under test, a comment-out or try/catch wrap,
-  //   a changed string after ` as `) stays forced under a naming exception; fails_when=any weakening edit is returned as
-  //   check-free, or the GBRA-336 cast widening is not; seam=lib/ship-release.ts route (GST-1682 red-team finding)
+  //   a changed string after ` as `, an `as {` inside a regex or a comment) stays forced under a naming exception; fails_when=any
+  //   weakening edit is returned as check-free, or the GBRA-336 cast widening is not; seam=lib/ship-release.ts route (GST-1682
+  //   red-team finding, p2v/outside-voice#1)
   test('checkFreePaths admits a cast widening and refuses edits that hollow an untouched check', () => {
     const SPEC = 'test/a.test.ts';
     const body = (cast: string, value = 'null', extra = '') => `  const body = (await Promise.resolve({ attest: ${value} })) as unknown as { attest?: ${cast} | null };${extra}\n`;
     const spec = (lines: string) => `import { expect, test } from 'bun:test';\ntest('attest is null when unset', async () => {\n${lines}  expect(body.attest).toBeNull();\n});\n`;
     const NARROW = '{ system: string; ops: string[] }';
-    const edits: Record<string, string> = {
+    const edits: Record<string, string | [string, string]> = {
       cast: spec(body('{ system: string; ops: string[]; sources: string[] | null }')),
       earlyReturn: spec(body(NARROW, 'null', ' if (body) return;')),
       changedValue: spec(body(NARROW, '{ system: "s", ops: [] }')),
       commentOut: spec(body(NARROW) + '  /*\n').replace('toBeNull();\n', 'toBeNull();\n  */\n'),
       swallow: spec(body(NARROW) + '  try {\n').replace('toBeNull();\n', 'toBeNull();\n  } catch {}\n'),
-      stringAfterAs: spec(`  const label = 'kept as ${'{'} a }';\n` + body(NARROW)),
+      stringAfterAs: [spec(`  const label = 'kept as { b }';\n` + body(NARROW)), spec(`  const label = 'kept as ${'{'} a }';\n` + body(NARROW))],
+      regexAs: [spec('  const re = /as {1}/;\n' + body(NARROW)), spec('  const re = /as {0,1}/;\n' + body(NARROW))],
+      commentAs: [spec(body(NARROW, 'null', ' /* as { } */')), spec(body(NARROW, 'null', ' /* as { */ if (body) return; /* } */'))],
     };
     const free: Record<string, boolean> = {};
-    for (const [name, text] of Object.entries(edits)) {
-      const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { [SPEC]: name === 'stringAfterAs' ? spec(`  const label = 'kept as { b }';\n` + body(NARROW)) : spec(body(NARROW)) });
+    for (const [name, edit] of Object.entries(edits)) {
+      const [start, text] = typeof edit === 'string' ? [spec(body(NARROW)), edit] : edit;
+      const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { [SPEC]: start });
       const from = f.git('rev-parse', 'HEAD').stdout.trim();
       f.write({ [SPEC]: text }); f.commit(name);
       free[name] = checkFreePaths(f.work, from, f.git('rev-parse', 'HEAD').stdout.trim(), [SPEC]).has(SPEC);
     }
-    expect(free).toEqual({ cast: true, earlyReturn: false, changedValue: false, commentOut: false, swallow: false, stringAfterAs: false });
+    expect(free).toEqual({ cast: true, earlyReturn: false, changedValue: false, commentOut: false, swallow: false, stringAfterAs: false, regexAs: false, commentAs: false });
   });
 });
 

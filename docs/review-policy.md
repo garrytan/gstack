@@ -691,9 +691,10 @@ paths the branch touched at `fix_check.head` (narrowed to the record's
 through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes. The one
-exception is a test path the record's `fix_check.files` names whose every hunk
-lib/gate-diff leaves untagged, swaps lines one for one with each pair differing
-only inside a cast's `as { ... }` type literal, and touches no assertion,
+exception is a `.ts`, `.mts` or `.cts` test path the record's `fix_check.files`
+names whose every hunk lib/gate-diff leaves untagged, swaps lines one for one
+with each pair differing only inside a cast's `as { ... }` type literal (no `/`
+outside quotes on either line, no mode change, an even backtick count), and touches no assertion,
 matcher, test name or skip/only call, in the changed lines or the statement
 around them (a type-only cast widened, GBRA-336): it routes as accepted
 (GST-1682). Any other test hunk stays forced, an early return, a changed value
