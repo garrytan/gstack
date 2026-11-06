@@ -80,5 +80,8 @@ describe("a native finding's own Severity and Blocks lines stay on that finding 
     for (const raises of [true, false])
       expect(native(['### 1. FIXABLE: webhook auth bypass in lib/auth.ts:42', 'Any caller can post to the webhook.', '',
         'Unrelated, the help text names an old flag. Severity: Low. Blocks: no.'].join('\n'), raises).map(f => f.label)).toEqual(['CRITICAL']);
+    const located = ['**Finding 1 (FIXABLE): A in x.ts:3**', 'Second, y.ts:9 drops writes. Severity: High; Blocks: no'].join('\n');
+    expect(native(located, true).map(f => f.label)).toEqual(['CRITICAL', 'High']);
+    expect(judged(located, { 'adversarial-native#1': ['High', 'the next line says Blocks: no'] }).ok).toBe(false);
   });
 });

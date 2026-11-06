@@ -866,8 +866,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    pass; GST-987) FIXABLE also raises nothing through a label heading or a leading tag. A numbered finding heading (`**1. …**`,
    or a lead that names its number, `**Finding 1 (FIXABLE): …**`, GST-1657) keeps every unlabeled line under it (located or
    numbered bullets, a bold subheading, a located paragraph) until its `Severity` or `Blocks` line comes, so those fields
-   never split off as a second record (GST-1031); the line right under the heading that carries those fields and no other
-   label joins it at the stronger label, the way an unlocated paragraph after a blank line already does. An unnumbered, unlabeled bullet with no file:line
+   never split off as a second record (GST-1031); the line right under the heading that carries those fields, no other
+   label and no file:line joins it at the stronger label, the way an unlocated paragraph after a blank line already does. An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
    lands on the finding; a numbered item is its own finding.
    A reader's own no-defect closing sentence is no finding at the label it denies (GST-435): a prose line with no
