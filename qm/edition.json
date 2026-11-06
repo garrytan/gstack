@@ -1,0 +1,34 @@
+{
+  "edition": "gstack-qm",
+  "layer_root": "qm/sandbox/skills",
+  "skills": [
+    {
+      "id": "gstack-investigate",
+      "source": "investigate",
+      "files": [
+        "SKILL.md"
+      ],
+      "first_step": "git log --oneline -20 -- <path>",
+      "first_step_marker": "\\bgit\\s+log\\b"
+    },
+    {
+      "id": "gstack-review",
+      "source": "review",
+      "files": [
+        "SKILL.md",
+        "scripts/diff-base.sh"
+      ],
+      "first_step": "sh skills/gstack-review/scripts/diff-base.sh <base>",
+      "first_step_marker": "diff-base\\.sh|\\bgit\\s+(diff|merge-base)\\b"
+    },
+    {
+      "id": "gstack-plan",
+      "source": "plan-eng-review",
+      "files": [
+        "SKILL.md"
+      ],
+      "first_step": "git log --oneline -10",
+      "first_step_marker": "\\bgit\\s+log\\b"
+    }
+  ]
+}

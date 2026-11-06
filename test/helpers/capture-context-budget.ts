@@ -50,6 +50,15 @@ export function isFixtureSkill(name: string): boolean {
   return toPosixName(name).startsWith('test/fixtures/');
 }
 
+/**
+ * The QM edition (qm/, from scripts/gen-qm-edition.ts) ships to QM as a
+ * deployment layer; no gstack host's skill scanner loads it. Its own limits
+ * (per-file and skills-index chars) are enforced by test/qm-edition.test.ts.
+ */
+export function isQmEditionSkill(name: string): boolean {
+  return toPosixName(name).startsWith('qm/');
+}
+
 export interface ContextBudget {
   _comment: string;
   alwaysOnTotal: number;
@@ -84,7 +93,7 @@ export function buildRatchetBill(root: string = REPO_ROOT): Bill {
       ...s,
       name: s.dir === bill.root ? ROOT_SKILL_KEY : toPosixName(s.name),
     }))
-    .filter((s) => !isFixtureSkill(s.name));
+    .filter((s) => !isFixtureSkill(s.name) && !isQmEditionSkill(s.name));
   // One ceiling per PHYSICAL skill: group by realpath, prefer the entry whose
   // dir IS the realpath (the real dir) over symlink aliases.
   const byReal = new Map<string, (typeof candidates)[number]>();
