@@ -136,6 +136,17 @@ describe('diff-base.sh (gstack-review first step)', () => {
     expect(run(dir, 'feature')).toContain('NOTHING_TO_REVIEW');
   });
 
+  test('more than 30 untracked files: the first 30 are listed and the rest are named, never dropped silently', () => {
+    const dir = repo();
+    git(dir, 'checkout', '-qb', 'feature');
+    for (let i = 0; i < 31; i++) fs.writeFileSync(path.join(dir, `u${String(i).padStart(2, '0')}.txt`), 'u\n');
+    const out = run(dir);
+    expect(out).toContain('u29.txt');
+    expect(out).not.toContain('u30.txt');
+    expect(out).toContain('UNTRACKED_MORE: 1 more untracked files; list them all with git ls-files --others --exclude-standard\n');
+    expect(run(repo())).not.toContain('UNTRACKED_MORE');
+  });
+
   test('origin/HEAD wins when the repository is a clone', () => {
     const upstream = repo();
     const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'qm-diff-base-clone-'));

@@ -12,7 +12,7 @@ description: "Use before merging a branch or PR: review the diff for bugs that p
 sh skills/gstack-review/scripts/diff-base.sh <base>
 ```
 
-It prints the base, the merge base, the commits since the base and the diff stat, then `NEXT: git diff <merge base>`; run that and read the whole diff and the untracked files it lists before you comment. On `NOTHING_TO_REVIEW`, say so and stop. On `BASE: none`, ask the user for the base branch or review the uncommitted changes it shows.
+It prints the base, the merge base, the commits since the base and the diff stat, then `NEXT: git diff <merge base>`; run that and read the whole diff and every untracked file before you comment (on `UNTRACKED_MORE:`, list the rest with the command it names). On `NOTHING_TO_REVIEW`, say so and stop. On `BASE: none`, ask the user for the base branch or review the uncommitted changes it shows.
 
 QM fills in the absolute path of the folder its `skill` tool synced (it prints that path too). If the script is missing, run this instead:
 

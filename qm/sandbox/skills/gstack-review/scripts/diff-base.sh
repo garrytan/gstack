@@ -41,6 +41,10 @@ git diff --stat "$merge_base" --
 untracked=$(git ls-files --others --exclude-standard)
 echo "== untracked files"
 printf '%s\n' "$untracked" | head -n 30
+untracked_count=$(printf '%s\n' "$untracked" | grep -c . || true)
+if [ "$untracked_count" -gt 30 ]; then
+  echo "UNTRACKED_MORE: $((untracked_count - 30)) more untracked files; list them all with git ls-files --others --exclude-standard"
+fi
 if git diff --quiet "$merge_base" -- && [ -z "$untracked" ]; then
   echo "NOTHING_TO_REVIEW"
   exit 0
