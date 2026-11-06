@@ -1,0 +1,12 @@
+REVIEWED_TREE: cf9217b1e4d830fcf59475bc50fa719e10f20030 /workspace/gstack
+
+1. **Blank lines bypass the new multiline-assertion protection** — `lib/ship-patch.ts:217–228`. `STATEMENT_END` treats a blank line as the end of a statement, so scanning backward never reaches an assertion above that blank line. For example:
+   ```ts
+   expect(result).toEqual({
+
+     name: 'alice',
+   });
+   ```
+   Changing only `'alice'` to `'bob'` is classified as a harmless literal rewrite, allowing an expected-value change through the scoped-test route instead of requiring the full review loop. I reproduced this through the actual `gateEditedPaths()` API: the blank-line case returned `[]`; the control without the blank line returned `["test/value.test.ts"]`. This leaves the multiline-assertion repair incomplete. Track statement nesting rather than treating whitespace as a statement boundary, and add this negative control. Severity: Medium. Blocks: yes.
+
+Recommendation: request changes because an unchanged blank line hides a changed assertion value from the new gate protection.

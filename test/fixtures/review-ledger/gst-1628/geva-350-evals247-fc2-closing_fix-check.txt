@@ -1,0 +1,1 @@
+The fix range is wiki text only, so no test or caller is affected. None of these rises to CRITICAL.

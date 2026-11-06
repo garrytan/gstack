@@ -93,7 +93,7 @@ const statedLowering = (reader: string, raw: string, to: number) => {
 };
 export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOCKS_YES.test(raw)) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
- * A summary candidate (GST-1031): a prose finding whose every severity word is denied ("so nothing is CRITICAL", "No CRITICAL issues")
+ * A summary candidate (GST-1031): a prose finding whose every severity word is denied ("so nothing is CRITICAL", "No CRITICAL issues", "nothing reaches CRITICAL")
  * or names a fix ("the test covers the CRITICAL fix"), with no lead label, no Severity or Blocks field, no FIXABLE or INVESTIGATE tag,
  * and no file:line or exception clause in any sentence naming a label. A defect called CRITICAL ("this is CRITICAL") is none. It still collects at its label (a blocker named in another sentence stays on record), unless closingSummary reads it as a no-defect sentence (GST-435); lead
  * judgment may lower it with a reason, which judge records as dismissed. "No CRITICAL issues except the token leak in log.ts:3" is no candidate.
@@ -101,8 +101,11 @@ export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOC
 const SENTENCE = /(?<=[.!?])\s+/;
 const EXCEPTION = /(?<![A-Za-z])(?:except|but|other than|apart from|aside from|besides|unless|save for)(?![A-Za-z])/i;
 const PATH_LOCUS = /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/;
+/** A verb rating its subject against a severity (GST-1628: "rises to CRITICAL", "reaches the CRITICAL floor", "would meet", "qualifies as"), denying like "is" does; the severity it names closes the clause. */
+const RATE_VERB = `(?:(?:would|could|will|can|does|do|did)\\s+)?(?:ris(?:e|es|en)|rose|reach(?:es|ed)?|hits?|meets?|met|cross(?:es|ed)?|clear(?:s|ed)?|climb(?:s|ed)?|escalat(?:e|es|ed)|qualif(?:y|ies|ied)|count(?:s|ed)?|amount(?:s|ed)?)`
+  + `(?:\\s+(?:up\\s+)?(?:to|as|at))?\\s+(?:the\\s+(?:level\\s+of\\s+)?)?`;
 const LABEL_LIST = `[*\`]*(?:${LABELS})[*\`]*(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*[*\`]*(?:${LABELS})[*\`]*)*(?![A-Za-z0-9])`;
-const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+)?${LABEL_LIST}(?=\\s*(?:issues?|findings?|problems?|regressions?|bugs?|defects?|blockers?|concerns?|items?|severity|impact|remains?|to\\s+report|here|found|introduced|[.;:,!?)—–-]|$))|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+${LABEL_LIST}\\s+(?:fix|finding|issue|bug|defect|blocker)(?:e?s)?(?![A-Za-z]))`, 'gi');
+const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+|${RATE_VERB})?${LABEL_LIST}(?=\\s*(?:issues?|findings?|problems?|regressions?|bugs?|defects?|blockers?|concerns?|items?|severity|impact|floor|bar|threshold|level|remains?|to\\s+report|here|found|introduced|[.;:,!?)—–-]|$))|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+${LABEL_LIST}\\s+(?:fix|finding|issue|bug|defect|blocker)(?:e?s)?(?![A-Za-z]))`, 'gi');
 export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.test(t.replace(DENIED_OR_FIXED, ' ')) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
@@ -111,7 +114,8 @@ export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.t
  * CRITICAL..."): a prose line whose paragraph has no line above it that runs on or names an exception, with no list, heading, bold or lead label, no
  * Severity or Blocks field, no FIXABLE or INVESTIGATE, no file:line or path and no exception clause, whose every labelled sentence is
  * wholly one of these clauses, its labels spelled as ALL_LABELS spells them: a denial (`no CRITICAL issues`, `no defect that is
- * CRITICAL`, `nothing at CRITICAL`, `there are no High findings`, `neither finding is CRITICAL`), a count (`I found three
+ * CRITICAL`, `nothing at CRITICAL`, `there are no High findings`, `neither finding is CRITICAL`, or with a rating verb, GST-1628:
+ * `none of these rises to CRITICAL`, `nothing reaches the CRITICAL floor`), a count (`I found three
  * INFORMATIONAL issues`) or `nothing blocks`. It yields the labels its counts name and whether the line also holds an unlabelled
  * sentence, which may describe a defect, so parseFindings keeps that line on record at INFORMATIONAL; the denied label is never a
  * finding. A quantifier that points at a finding elsewhere (`nothing else`, `no other`, `remaining`), a named defect in the same
@@ -120,10 +124,11 @@ export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.t
 const SEV = `[*\`]*(?:CRITICAL|INFORMATIONAL|Critical|Informational|High|HIGH|Medium|MEDIUM|Low|LOW|P[0-3])[*\`]*`;
 const SEV_LIST = `${SEV}(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*${SEV})*(?![A-Za-z0-9])`;
 const NOUN = '(?:issues?|findings?|defects?|bugs?|problems?|regressions?|blockers?|concerns?|items?|notes?|ones?)';
-const DENY = `(?<![A-Za-z])(?:(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?`
+const RATES = `${RATE_VERB}${SEV_LIST}(?:\\s+(?:severity|level|floor|bar|threshold))?`;
+const DENY = `(?<![A-Za-z])(?:(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|(?:(?:that|which)\\s+)?${RATES})`
   + `|nothing\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|there(?:'s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+(?:still\\s+)?(?:no|zero|nothing(?:\\s+at)?)\\s+${SEV_LIST}(?:\\s+${NOUN})?`
   + `|(?:nothing|none\\s+of\\s+(?:them|these|those|the\\s+(?:findings|fixes|notes|issues|changes))|neither(?:\\s+(?:finding|fix|note|issue|change|one)|\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))))`
-  + `(?:\\s+(?:here|in\\s+(?:this|the)\\s+(?:diff|change|fix|patch|range|PR)))?\\s+(?:is|are|was|were)\\s+(?:at\\s+)?${SEV_LIST})`;
+  + `(?:\\s+(?:here|in\\s+(?:this|the)\\s+(?:diff|change|fix|patch|range|PR)))?\\s+(?:(?:is|are|was|were)\\s+(?:at\\s+)?${SEV_LIST}|${RATES}))`;
 const SUMMARY_ITEM = `(?:(?:(?:I|we)\\s+(?:also\\s+)?(?:found|find|see|saw|spotted|identified|noticed|observed|have|had|raised|report)\\s+)?`
   + `(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+|a\\s+few|several|some|an?)\\s+${SEV_LIST}\\s+${NOUN}|${DENY})`
   + `|(?:nothing|none\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))|no\\s+(?:finding|issue)s?)\\s+(?:is\\s+|are\\s+)?(?:blocking|blocks?)(?:\\s+(?:landing|the\\s+merge|merging))?)`

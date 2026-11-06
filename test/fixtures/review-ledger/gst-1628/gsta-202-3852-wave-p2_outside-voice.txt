@@ -1,0 +1,7 @@
+REVIEWED_TREE: 19f08632c465743f0412331378751b3bc974cf57 /workspace/gstack
+
+1. **FIXABLE — A shadowing tag bypasses the self-base guard.** `lib/gate-diff/git.ts:103–105` resolves the full tracking ref’s SHA but returns its ambiguous short name; `bin/gstack-gate-diff:170` then checks that short name. With `refs/remotes/origin/feature=HEAD` and `refs/tags/origin/feature=<base>`, the guard checks the tag while the diff uses HEAD, producing an empty scan instead of refusing. Reproduced: `shortRefRefused=false`, `fullTrackingRefRefused=true`. Return and check the full tracking ref or resolved SHA. Severity: High. Blocks: yes.
+
+2. **FIXABLE — Active file-level bot findings are silently discarded.** `lib/review-bots.ts:147` requires `position != null`, but GitHub’s `subject_type: "file"` review comments have no line position. A valid root CodeRabbit file comment therefore disappears from triage. Reproduced with a file-level authorization finding: fetch exited 0, reported `coderabbit=0`, and wrote no records. Handle file-level comments separately rather than treating every null position as outdated. Severity: Medium. Blocks: yes.
+
+Recommendation: Fix before shipping because a shadowing tag bypasses the self-base guard and lets gate-diff return an empty scan against HEAD.
