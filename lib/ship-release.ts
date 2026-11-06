@@ -19,6 +19,7 @@ import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, i
 import { heldBy } from './ship-receipt';
 import { locate, readRecord } from './approval-record';
 import { reviewFreshness } from './review-evidence';
+import { readRuledNotes, ruledNoteText } from './ruled-notes';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
@@ -197,8 +198,9 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts).
  * A code or test path the newest completed clean review-fix-check row read (inside its range_base..commit range, where
  * range_base holds the reviewed tree, and unchanged since) counts as fix_checked when an approved review_loop_grant names a stop
- * head inside range_base..commit: the owner's granted fix-check after Step 11 is a review (GST-1130). Authored docs keep the
- * stage 2.2 recheck.
+ * head inside range_base..commit: the owner's granted fix-check after Step 11 is a review (GST-1130). A finding on that row the
+ * owner ruled a disclosed note (an approved gstack-approvals rule row, never the row's own claim) is closed, and every ruling
+ * prints as RULED_NOTE (GST-1537). Authored docs keep the stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
 type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'accepted' | 'fix_checked', string[]>;
@@ -281,7 +283,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
   const onBranch = (c: string) => !!c && git(cwd, ['merge-base', '--is-ancestor', c, 'HEAD']).status === 0;
   const fixCommit = commitOf(fixRow?.commit_full), fixFrom = commitOf(fixRow?.range_base);
-  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree);
+  const rulings = readRuledNotes(cwd);
+  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}`);
+  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree, new Set(rulings.map(n => n.finding)));
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   const grants = fixRow ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })) : [];
   const grant = grants.find(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')

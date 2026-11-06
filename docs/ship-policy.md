@@ -1608,6 +1608,34 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
+<a id="ruled-notes"></a>
+**Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
+ruling that it ships as a disclosed note, with the note listed. The owner records
+each ruling, one finding per row, through the approval record, outside the lane's
+/ship run:
+
+```bash
+gstack-approvals rule --finding '<the finding's fingerprint>' --reason '<why it ships as a note>' \
+  --words '<the owner's exact words>' --by '<who ruled>'
+```
+
+The row is an approved `gstack-approvals` row with scope `ruled_note <fingerprint>`
+and ask `ruled_note: <reason>`. Its `by` is the ruler and its `recorded_at` the
+time. `rule` refuses while this checkout holds an open /ship run's marker (the
+lane's own runner), and refuses a `--by` naming gstack. `add` refuses a
+`ruled_note` scope, so `rule` is the only path. A review-log field never makes a
+ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
+row is ignored. Step 16's `finish` reads the branch's rulings
+(`lib/ruled-notes.ts`), prints each as `RULED_NOTE: <fingerprint> ruled by <who> at
+<time>: <reason> (approval <id>)`, and treats a ruled finding on the newest
+`review-fix-check` row (action `skipped`, `noted` or `deferred`, not a gate finding)
+as closed. A granted fix-check whose other findings are all below the floor then
+reads CURRENT and counts. A skipped CRITICAL with no ruling stays open. Nothing
+ruled is hidden: `gstack-approvals rulings` prints one `Ruled note: …` line per
+ruling for the Pre-Landing Review and the PR body, `gstack-ship-receipt write`
+records them as `ruled_notes` and refuses a `--body` that does not carry each
+line word for word, and the READY block prints each as `RULED_NOTE:`.
+
 `gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
 rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,

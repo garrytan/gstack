@@ -12,6 +12,7 @@ import { approvalSummary } from './approval-citations';
 import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
 import { matchesAny } from './ship-policy';
+import { ruledNoteText } from './ruled-notes';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
 
@@ -20,7 +21,7 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'review_targeted', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
+  'review_loop_exception', 'ruled_notes', 'review_targeted', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -173,6 +174,7 @@ export function readyTailLines(r: ShipReceipt | undefined): string[] {
   const legacy = !!r && !r.review_depth;
   return [
     loop ? `REVIEW_LOOP: passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred} noted=${loop.noted ?? 0} fixed=${loop.fixed ?? 0}${opt('unrecorded')}${opt('unbound')}${opt('fix_checks')}` : 'REVIEW_LOOP: none in the receipt',
+    ...(r?.ruled_notes ?? []).map(n => `RULED_NOTE: ${oneLine(ruledNoteText(n))}`),
     'TRIAL_MERGES: <one line per open sibling pin that shares a file: its git merge-tree result and the resolution, or "none share a file">',
     'Attention:',
     legacy ? 'reviewed by <model on another family> (risk class unknown: the receipt records no review_depth; rule 27 cross-family trail read)'

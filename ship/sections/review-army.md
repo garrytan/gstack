@@ -779,6 +779,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
 
    If coverage is incomplete: `Pre-Landing Review: INCOMPLETE — <missing reviewers>`.
    Otherwise, if no issues found: `Pre-Landing Review: No issues found.`
+   Then every `Ruled note: …` line `gstack-approvals rulings` prints (owner rulings; never record one yourself).
 
    Then one `Gate edits:` line from the latest `GATE_SUMMARY:` and the gate answers:
    `Gate edits: none detected (N listed, M read; patterns: <coverage>; unlisted idioms: <languages_unlisted>)`,

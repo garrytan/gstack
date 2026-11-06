@@ -93,6 +93,8 @@ ZERO-RUN lane never reaches this body unresolved.>
 
 ## Pre-Landing Review
 <findings from Step 9 code review, or "No issues found."; then Step 9.4's `REVIEW_LOOP:` line.>
+<Each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
+with its ruler and reason. `gstack-ship-receipt write --body` refuses a body missing one.>
 <Gate edits: Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
 `N listed, M read, K findings — J kept, R restored, O open`, `partial (...)` or
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
@@ -215,6 +217,9 @@ or a body missing the exception line, is `DOCS_AUDIT_BLOCKED` with nothing writt
 When the owner accepted a stop after a fix-check edit, add
 `--review-loop-exception @<file>` (`{accepted_by, date, via, reason, fix_check: {head, findings}}`)
 and put its printed `Review-loop exception:` line in the body; never a prose line under `REVIEW_LOOP:`.
+A finding the owner rules a disclosed note instead of a fix is closed only by the owner's
+`gstack-approvals rule`, recorded outside this run, never by this run or a review-log field
+(docs/ship-policy.md#ruled-notes); the receipt lists each one as `ruled_notes`.
 When `gstack-review-dispatch verify` printed `REVIEW_EXCLUDE_RECORD: digest=<d>`, add `--review-exclude <d>`
 and Step 14.5's `--docs-post <audit-id>-post.json` and `--docs-pre <its Prepare snapshot>`; a digest that no longer matches HEAD is
 `RECEIPT_INVALID field=review_exclude`: rerun the review, not the write, unless only the docs audit's

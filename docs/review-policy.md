@@ -95,7 +95,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
    the diff is `fix`; every below-floor finding is a `note`.
 3. **Two rounds is the cap** (R51): a full pass, a scoped pass
    ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
-   finishes with its open notes listed in the PR body and receipt, or stops for
+   finishes with its open notes listed in the PR body and receipt (an owner-ruled
+   note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
    unverified, or a round-2 fix edited a gate-class path, naming it (path,
    severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
