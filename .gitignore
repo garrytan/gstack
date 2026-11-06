@@ -43,6 +43,7 @@ lib/cso/images/gstack-cso-preparation
 .copilot/
 .agy/
 .gemini-cli/
+.jcode-render/
 .openclaw/
 .hermes/
 .gbrain/

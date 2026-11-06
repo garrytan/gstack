@@ -38,8 +38,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 13 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(13);
+  test('ALL_HOST_CONFIGS has 14 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(14);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
