@@ -1590,7 +1590,9 @@ refresh to a maintainer.
 
 - `--ci-plan` warns in the job summary, with the refresh command, when more than 5
   files are unseeded; it never fails a PR. `--ci-verify` lists shards that ran
-  longer than 1.5× their prediction and at least 30 seconds over.
+  longer than 1.5× their expected wall time — the seed prediction divided by the
+  shard's `--shard-jobs` k, since the k sub-shards run in parallel — and at least
+  30 seconds over.
 - The weekly test-health run fails its enforced `unseeded-free-files` check
   ("stale seed: N unseeded file(s) > 5") when more than 5 free test files are
   missing from the seed, so contributors without Ubicloud access learn within a

@@ -134,6 +134,36 @@ describe('free lane CI warnings', () => {
     expect(overrunWarning([])).toBeNull();
   });
 
+  test('a shard that ran k parallel jobs is measured against its wall prediction, not its serial sum', () => {
+    // --jobs 4: the shard's 400 s serial seed runs as 4 sub-shards, so ~100 s is the wall expectation.
+    const overruns = shardOverruns([
+      { shard: 1, predictedMs: 400_000, elapsedMs: 160_000, jobs: 4 },
+      { shard: 2, predictedMs: 400_000, elapsedMs: 140_000, jobs: 4 },
+      { shard: 3, predictedMs: 400_000, elapsedMs: 260_000, jobs: 1 },
+    ]);
+    expect(overruns.map(overrun => overrun.shard)).toEqual([1]);
+    const warning = overrunWarning(overruns)!;
+    expect(warning).toContain('shard 1 took 160s vs 100s predicted across 4 parallel jobs');
+    expect(warning).toContain(SEED_REFRESH_COMMAND);
+  });
+
+  test('the --ci-verify summary uses the plan shard\'s k, so a split shard warns at 1.5x its wall prediction', () => {
+    const outcome = (shard: number, elapsedMs: number): FreeShardOutcome =>
+      ({ shard, files: [], status: 'passed', exitCode: 0, elapsedMs, groupPid: null, failingFiles: [], unattributedFailures: 0 });
+    const plan = { version: 1, revision: 'r', id: 'p', shards: [
+      { shard: 1, files: ['test/a.test.ts'], predictedMs: 400_000, jobs: 4 },
+      { shard: 2, files: ['test/b.test.ts'], predictedMs: 400_000, jobs: 4 },
+    ] } satisfies FreeCiPlan;
+    const results: FreeCiResult[] = [
+      { planId: 'p', revision: 'r', outcome: outcome(1, 160_000), retry: null },
+      { planId: 'p', revision: 'r', outcome: outcome(2, 120_000), retry: null },
+    ];
+    const summary = ciHealthSummary(plan, results);
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toContain('shard 1 took 160s vs 100s predicted across 4 parallel jobs');
+    expect(summary[0]).not.toContain('shard 2');
+  });
+
   test('the --ci-verify summary lists shards that outran the seed, counting the first attempt only', () => {
     const outcome = (shard: number, files: string[], failingFiles: string[], elapsedMs: number): FreeShardOutcome =>
       ({ shard, files, failingFiles, elapsedMs, status: failingFiles.length ? 'failed' : 'passed' }) as FreeShardOutcome;
