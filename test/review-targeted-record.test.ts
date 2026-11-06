@@ -414,4 +414,31 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     commit(repo, 'test/charge.test.ts', 'import { test } from "bun:test";\ntest("cap", () => {});\n', '[skip ci] add a cap case');
     expect(classesSince(repo, head)).toContain('gate');
   });
+
+  // Value: protects=a CI skip marker on a side-branch commit merged with --no-ff after the read stays gate class; fails_when=the
+  //   built commit carries only first-parent messages; seam=targetedClassesSince
+  test('a side-branch commit whose message skips CI, merged with --no-ff after the read, is refused', () => {
+    const { repo, head } = moneyBranch();
+    repo.git('checkout', '-q', '-b', 'side');
+    commit(repo, 'test/charge.test.ts', 'import { test } from "bun:test";\ntest("cap", () => {});\n', '[skip ci] add a cap case');
+    repo.git('checkout', '-q', 'feat');
+    repo.git('merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+    expect(classesSince(repo, head)).toContain('gate');
+  });
+
+  // Value: protects=a mode-only change after the read, on a file a main merge also changed, still voids the record; fails_when=the
+  //   replay compares blob bytes and ignores the mode; seam=targetedClassesSince
+  test('after a main merge to the PR\'s own file, a mode-only change is refused', () => {
+    const repo = makeFixtureRepo({ prefix: 'gst1593-mode-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    mainCommit(repo, { 'src/charge.ts': charge(false, false, '// charge: amounts in cents') }, 'main: header');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    repo.git('update-index', '--chmod=+x', 'src/charge.ts');
+    repo.git('commit', '-q', '-m', 'make charge executable');
+    expect(classesSince(repo, read)).toContain('money');
+  });
 });

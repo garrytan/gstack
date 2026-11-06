@@ -485,7 +485,8 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
  * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path: a path whose base
  * content main also changed moves unless replaying main's change onto `from`'s content (git merge-file) gives `head`'s exactly,
  * so a hunk relocated to an identical context counts. With no resolvable merge base every path that changed from `from` to
- * `head` moves. The commit carries the branch's first-parent messages since `from` (a CI skip marker is gate class). Null when
+ * `head` moves, and so does a path whose mode at `head` is not the replayed one. The commit carries the messages of every
+ * commit since `from` that origin/<base> does not hold, side-branch merges included (a CI skip marker is gate class). Null when
  * git cannot build it.
  */
 function ownChangeSince(root: string, base: string, from: string, head: string): string | null {
@@ -521,9 +522,9 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
       moved = [...new Set([...was.keys(), ...now.keys()])].filter(p => {
         const w = was.get(p), n = now.get(p);
         if (w === n) return false;
-        const [, , wBase, wNew] = w?.split(' ') ?? [], [, , nBase, nNew] = n?.split(' ') ?? [];
+        const [wOld, wMode, wBase, wNew] = w?.split(' ') ?? [], [nOld, nMode, nBase, nNew] = n?.split(' ') ?? [];
         const shas = [wNew, wBase, nBase, nNew];
-        if (wBase === nBase || shas.some(s => !s || /^0+$/.test(s))) return true;
+        if (wBase === nBase || nMode !== (wOld === `:${wMode}` ? nOld?.slice(1) : wMode) || shas.some(s => !s || /^0+$/.test(s))) return true;
         const blobs = shas.map(s => blob(s!));
         if (blobs.some(b => !b)) return true;
         const files = blobs.slice(0, 3).map((b, i) => { fs.writeFileSync(`${tmp}.${i}`, b!); return `${tmp}.${i}`; });
@@ -536,7 +537,7 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
       moved = [...all.keys()];
     }
     const listed = moved.length ? run(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', ...moved]) : '';
-    const messages = run(['log', '--first-parent', '--format=%B', `${from}..${head}`]);
+    const messages = run(['log', '--format=%B', `${from}..${head}`, ...(baseSha.ok ? [`^${baseSha.out}`] : [])]);
     if (listed === null || messages === null) return null;
     const atHead = new Map(listed.split('\0').filter(Boolean).map(l => [l.slice(l.indexOf('\t') + 1), l] as const));
     const entries = moved.map(p => `${atHead.get(p) ?? `0 ${'0'.repeat(from.length)}\t${p}`}\0`).join('');
