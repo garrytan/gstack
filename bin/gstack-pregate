@@ -33,7 +33,7 @@ import { PREGATE_CONFIG_PATH, explainConfig, loadConfigFromHead } from '../lib/p
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
 import { buildRunCheck } from '../lib/pregate/run-check';
 import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
-import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
+import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, keepSameTreeClears, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { describeSubstitution } from '../lib/pregate/remote-receipt';
@@ -200,6 +200,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   }
   const file = await runPregate(ctx, { stage, only, run: flag(rest, '--run') });
   const out = stage === 'guards' && !flag(rest, '--out') ? path.join(root, PREGATE_GUARDS_OUT_REL) : outPath(root, rest);
+  for (const line of keepSameTreeClears(fs.existsSync(out) ? readPregateFile(out).file : null, file)) (json ? process.stderr : process.stdout).write(`${line}\n`);
   let written: string;
   try { written = writePregateFile(root, out, file); }
   catch (e: any) { process.stderr.write(resultLine('gstack-pregate', 'ARTIFACT_SCHEMA', e.message) + '\n'); return EXIT.fail; }

@@ -1233,6 +1233,23 @@ tests <verdict> in <n>s`. The run is correct, only slower. Adding `"os":
 next accept carry the tests stage too, when the run's `tree.json` covers the
 selection.
 
+<a id="same-tree-clears"></a>**A rerun at the same tree keeps its clears (GST-1627).** accept's final
+pregate reran `gstack-pregate` on the tree the lane had already cleared
+`macos-named-regressions` and `windows-smoke` on from CI runs, and the fresh
+record dropped both receipts, so accept stopped on `requires-remote (2
+uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
+writes over a record for the same tree, policy and base branch, each uncleared
+obligation takes the earlier receipt for the same lane, platform, workflow and
+job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
+as the earlier obligation listed every test the new one needs. Each kept
+receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
+tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
+before its `PREGATE:` line. A record for another tree keeps nothing, so a
+commit after the clear still needs a new run at the new tree. A rerun with a
+failed, incomplete or not-installed check also keeps nothing, so a remote gate
+that ran again and timed out stays uncleared. `gstack-pregate verify` checks a
+kept receipt as it checks any other one.
+
 <a id="carry-imported-tests"></a>**An inventory file CI's JUnit tree never lists (GST-1595).** bun registers
 the tests of a test file another test file imports under the importer, so the
 imported file's own JUnit suite never appears in `tree.json` and the carry
