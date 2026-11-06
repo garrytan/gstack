@@ -86,6 +86,18 @@ describe('a base-side removed line next to byte-identical added lines (GST-1561 
     const sides = { reviewedBase: x.reviewedBase, reviewed: x.from, currentBase: x.f.git('merge-base', 'origin/main', 'HEAD').stdout.trim(), current: head };
     expect(comparePath(x.f.work, sides, GAME)).toBe('changed');
   });
+
+  for (const [where, inserted] of [['before', game(82).replace('const SAVE', 'const BASE_ADD := 1\nconst SAVE')], ['after', game(82).replace(':= 82\n', ':= 82\nconst BASE_ADD := 1\n')]] as const) {
+    test(`a merge that drops a line the base inserted ${where} the replaced line stays changed`, () => {
+      const x = reviewedBranch({ [GAME]: game(82) }, { [GAME]: game(84) });
+      x.f.advanceBase({ [GAME]: inserted });
+      mergeMain(x.f, { [GAME]: game(84) });
+      if (fs.readFileSync(path.join(x.f.work, GAME), 'utf8') !== game(84)) { x.f.write({ [GAME]: game(84) }); x.f.commit('drop the base line'); }
+      const head = x.f.git('rev-parse', 'HEAD').stdout.trim();
+      const sides = { reviewedBase: x.reviewedBase, reviewed: x.from, currentBase: x.f.git('merge-base', 'origin/main', 'HEAD').stdout.trim(), current: head };
+      expect(comparePath(x.f.work, sides, GAME)).toBe('changed');
+    });
+  }
 });
 
 describe('carry: the founderstar#563 shape takes one scoped reader, then binds', () => {

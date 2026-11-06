@@ -127,7 +127,7 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
   if (!r0?.length || !c0 || !b0 || r0.length !== c0.length) return 'changed';
   const map = mapper(b0);
-  if (!r0.every((h, i) => h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : baseEditOnly(h, c0[i]!, map))) return 'changed';
+  if (!r0.every((h, i) => h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : baseEditOnly(h, c0[i]!, map, b0))) return 'changed';
   return ids[0] === ids[1] && r0.every((h, i) => h.body === c0[i]!.body) ? 'same' : 'context';
 }
 
@@ -135,12 +135,16 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
  * Whether a hunk whose body changed since review differs only by the base's edit of the lines it replaces: the added
  * lines are the reviewed ones byte for byte, and the lines just outside the reviewed hunk's removed range are lines the
  * base kept, landing just outside the current hunk's range, so the current removed lines are the base's version of the
- * reviewed ones. A hunk that now removes another line, or adds anything else, is not.
+ * reviewed ones. A hunk that now removes another line, or adds anything else, is not, and neither is one whose range
+ * holds a line the base inserted before, inside or after the reviewed lines without replacing any: dropping it deletes
+ * base code rather than taking the base's edit.
  */
-function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): boolean {
+function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null, base: ZeroHunk[]): boolean {
   const added = (h: ZeroHunk) => h.body.split('\n').filter((l, i, all) => l.startsWith('+') || (l.startsWith('\\') && all[i - 1]?.startsWith('+'))).join('\n');
   const start = (h: ZeroHunk) => (h.oldCount > 0 ? h.oldStart : h.oldStart + 1);
-  return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(start(r) + r.oldCount) === start(c) + c.oldCount;
+  const end = start(r) + r.oldCount;
+  if (base.some(b => b.oldCount === 0 && b.oldStart >= start(r) - 1 && b.oldStart < end)) return false;
+  return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(end) === start(c) + c.oldCount;
 }
 
 /**
