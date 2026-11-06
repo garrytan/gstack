@@ -1,0 +1,34 @@
+REVIEWED_TREE: 2e7994fd11ddd4e94557478583bfcdf7c54ee626 /workspace/gstack-evals
+
+**Scope.** The range fc880c3..HEAD changes two files. `src/trial/review/run.ts` (source) adds each ceo session's `trial.json` and `host/skill-gates/` to the receipts list that `copyToSink` copies, and updates the header comment to match. `tests/trial/review/ceo-followup.test.ts` adds one test, "the receipts sink holds what ceo rows and the gate report read". It checks that `trial.json` and `host/skill-gates` land byte-identical under the sink. I reviewed the test and fixture files in summary mode only (diff stat and test names), so their bodies were not part of the adversarial pass.
+
+**Checks.** That test file passes (45 pass, 0 fail) and `bun run typecheck` is clean.
+
+**What holds up.**
+- Missing files are fine. `copyToSink` keeps only files that exist, so non-enforced arms with no `skill-gates/`, and sessions with no `trial.json`, copy cleanly.
+- Links are fine. `gateRecord`'s `copyTree` copies only regular files and directories, so `host/skill-gates/` can't bring a symlink into the sink. The hard-link check still covers every new target.
+- The paths match what the rows read. `trial.json` is written at `spec.dir`, which equals `sessionDir(...)`. That is exactly where `ceo-cli.ts` `gateReport` and `ceoDisk` look.
+- No new secret path. `trial.json` holds the record, the delta (path lists only), logs (stderr tails, copy failures) and the gate report. None of these carry the proxy token. Sealed suites are still refused a sink inside the repo.
+
+**Finding 1 (FIXABLE): a re-run session's sink copy mixes the new trial.json with the earlier attempt's files.** `copyToSink` uses `cpSync(..., { recursive: true, force: true })`. That merges into an existing sink directory and never removes what is already there. It also skips sources that are missing this time, so a file the new attempt didn't write keeps the earlier attempt's copy.
+
+I reproduced it with the real `copyToSink`:
+1. Attempt 1 wrote `trial.json`, `host/ceo-review/a/ceo-review.md`, `host/skill-gates/OLD/` and `host/transcript.ndjson`, and the run copied them to the sink.
+2. Attempt 2 ran in the same session dir (`rmSync(dir)` at run.ts:494) and wrote only a new `trial.json`.
+3. After the second copy, the sink held the new `trial.json` plus attempt 1's review copy, gate record and transcript.
+
+Before this diff the sink had no `trial.json`, so `ceoDisk` and `gateReport` reading the sink copy got `copy_failed: true`, and `findings_written` and `gate_armed` read false. Now a fresh `trial.json` with empty `copy_out` vouches for stale `host/ceo-review/` copies and a stale transcript. So `ceo rows` run against the sink can score an attempt-2 journal entry with attempt-1 findings and exposure, and it gives no error.
+
+It's reachable when a run completes, its copy lands, and a later run with the same out dir and sink re-runs sessions (`--repair` on stale cells, or a resume that re-runs non-reused cells). Rows read from the out dir are unaffected.
+
+The fix: in `copyToSink`, or in run.ts before the copy, `rmSync` each session-scoped sink target for every session that ran in this invocation, whether or not its source exists now. Then copy. Add a test that re-runs one session and checks the sink holds no stale `ceo-review/` copy.
+
+Severity: Medium
+Blocks: no
+
+**Finding 2 (INVESTIGATE): the sink copy runs only once, at the end of `runReviewUnits` (run.ts:677).** This predates the diff, but the diff raises its stakes. A run that throws mid-way, or a machine that dies mid-way, copies nothing: not the new `trial.json` and gate records, and not even sessions that finished. On an ephemeral VM, every finished session's gate evidence is lost. Copying per session after `runTrial` would close it, but that changes the copy contract, so it needs a call from you.
+
+Severity: Low
+Blocks: no
+
+Recommendation: Fix the merge-not-replace sink copy at durable.ts copyToSink (exposed by run.ts:370-373 now copying trial.json) because a re-run session's fresh trial.json makes sink-based ceo rows trust the previous attempt's ceo-review copies and transcript, which silently corrupts findings_written and exposure.
