@@ -23,7 +23,7 @@ const wtree = (f: ShipFx) => f.run(path.join(BIN, 'gstack-wtree'), []).stdout.tr
 const head = (f: ShipFx) => f.git('rev-parse', 'HEAD').stdout.trim();
 const finish = (f: ShipFx, reviewed: string, post: string, extra: string[] = []) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE, ...extra]);
 const lines = (n: number, edit: Record<number, string> = {}) => Array.from({ length: n }, (_, i) => edit[i + 1] ?? `export const l${i + 1} = ${i + 1};`).join('\n') + '\n';
-const behaviorStop = (paths: string) => `STOP: behavior, tests or build inputs changed since review (${paths}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`;
+const behaviorStop = (paths: string) => `STOP: behavior, tests or build inputs changed since review (${paths}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner's grant of one scoped fix-check (stage 2.1)`;
 
 const TEST_V0 = "import { expect, test } from 'bun:test';\ntest('lands', () => { expect(1).toBe(1); });\n";
 const TEST_V1 = "import { expect, test } from 'bun:test';\ntest('lands direct', () => { expect(1).toBe(1); });\n";

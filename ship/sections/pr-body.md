@@ -103,7 +103,7 @@ ZERO-RUN lane never reaches this body unresolved.>
 ## Pre-Landing Review
 <findings from Step 9 code review, or "No issues found."; then Step 9.4's `REVIEW_LOOP:` line.>
 <Each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
-with its ruler and reason. `gstack-ship-receipt write --body` refuses a body missing one.>
+with its ruler and reason; finish's `MECHANICAL: x` as `Mechanical retake: x`. `gstack-ship-receipt write --body` refuses a body missing one.>
 <Gate edits: Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
 `N listed, M read, K findings — J kept, R restored, O open`, `partial (...)` or
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each

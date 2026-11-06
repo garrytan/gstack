@@ -69,6 +69,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `land` | `{ merged_checks }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. Read from the base revision only. Needs `min_gstack_version`. |
 | `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
 | `bookkeeping` | glob list | `[]` | <a id="bookkeeping"></a>Root-anchored globs of bookkeeping tables a verify or ratchet step rewrites (size baselines, serial lists, limits), each ending in `.tsv`, `.csv` or `.txt` and never under `.gstack/` or `.github/` (`["scripts/*-baseline.tsv"]`). A matching file changed at most 20 lines after review binds, first touched or not, takes finish's [one scoped reader](review-policy.md#bounded-post-review-edits) instead of Steps 5–11.5; the reader still reads every changed row. Read from the base revision only. Needs `min_gstack_version`. |
+| `mechanical_retake` | `[{ path, template, fields, regen }]` | `[]` | A version or rules constant a branch may have to retake after a base merge, next to `bookkeeping`'s bounded kind: `path` is one literal file, `template` the whole line with one `{n}` (`const RULE_NUMBERS := {n}`), `fields` the `{ glob, field }` fixture fields that carry the same value, and `regen` the [`.gstack/generated.json`](pregate.md#generated) entry ids whose command regenerates its goldens. A post-review edit finish proves to be only that retake routes as `mechanical=`, with no reader and no review round; see [mechanical retakes](#mechanical-retake). At most 8 constants and 16 fields or ids each; no glob, `..`, `.gstack/` or `.github/` path. Read from the base revision only. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
@@ -1717,6 +1718,67 @@ merged with the new base in a scratch worktree and, when every lane passes,
 rewrites the receipt without `base_red`.
 
 <a id="receipt-carry"></a>
+<a id="mechanical-retake"></a>
+## `mechanical_retake`: a version or rules number retaken after a base merge
+
+Some repositories number things in one constant: a save version, a rules
+number, a schema version. Two branches can take the same next number. When
+the base lands the other one first, the branch merges the base and takes the
+number after it: one literal on the constant's line, the same value in every
+save fixture, and goldens rebuilt from the generator. founderstar#563 did
+this after two full review passes (rules number 80 to 81 in
+`scripts/core/game.gd`, `save_version` in 8 fixtures under `fixtures/`, one
+golden). `finish` routed all 10 paths as behavior and said to insert Steps
+5–11.5, while `gstack-review-plan` at the round cap said `done`, so the only
+way out was a fresh /ship (GST-1560).
+
+A base policy that declares the constant lets `finish` prove the retake
+instead:
+
+```json
+"mechanical_retake": [{
+  "path": "scripts/core/game.gd",
+  "template": "const RULE_NUMBERS := {n}",
+  "fields": [{ "glob": "fixtures/saves/*.json", "field": "save_version" }],
+  "regen": ["rules-golden"]
+}]
+```
+
+`finish` runs with `--reviewed-base` and checks each declared path that
+changed since review:
+
+| Path | Proof |
+|---|---|
+| the constant (`path`) | Exactly one line matches `template` at the reviewed base, the reviewed tree, the current base and now. The reviewed branch took the number (its value differs from the reviewed base's), and the current value is above both the reviewed value and the current base's. With that one line masked on every side, the file's patch is the reviewed patch (the same comparison base paths use). |
+| a fixture (`fields`) | A matching file holds the same number of `field` lines (`field: n`, `field = n` or `"field": n,`) at the reviewed tree and now. Each one either kept its value or moved from the constant's reviewed value to its current value. With those lines masked, its patch is the reviewed patch. |
+| a golden (`regen`) | An output of a named entry in the base's `.gstack/generated.json` that the entry's command recreates byte-identically in a scratch worktree (the pregate `regen` check's proof run). |
+
+Each proven path prints `MECHANICAL: <path> (<what>)` and counts as
+`mechanical=<n>` on `ROUTE:`. It needs no reader and no review round, and
+the docs audit carries it like a base path. A declared path that fails its
+proof keeps its route from before, and `finish` prints
+`ROUTE_MECHANICAL_REFUSED: <path> <reason>`
+([troubleshooting](troubleshooting.md#route-mechanical-refused)). That covers
+any other edit in the constant's file, a fixture value that doesn't match, a
+golden that doesn't regenerate, a constant the reviewed branch never took, a
+gate path and a landed stack parent. A fixture or golden whose constant isn't a
+proven retake is refused too. Nothing is inferred: an undeclared file never
+routes as mechanical.
+
+`finish` records the proven paths for the tree it routed, and
+`gstack-ship-receipt write` copies them into the receipt's `mechanical` list
+as `Mechanical retake: <path> (<what>)`. With `--body` it refuses a PR body
+that doesn't carry each of those lines word for word.
+
+**When the route still says behavior at the round cap.** `finish`'s behavior
+STOP tells the lane to plan the inserted Step 9 with `gstack-review-plan
+--post-review` (plus `--pass`, `--last` and `--fix-checks` as the loop left
+them). Edits after the review bound plan as a fix to a gate-class path, never
+as a note. Below the round cap that's a pass on the range (a fix-check under
+the lean panel). At the cap it stops for the owner, whose recorded grant
+(`--grant`) adds one scoped fix-check, never `done`. So `finish` never asks for
+a step the planner refuses.
+
 ## Carrying a receipt across a base merge or a test-only fix
 
 **Merge main into a reviewed branch; never rebase it.** What happens to the

@@ -26,7 +26,7 @@ const snapshot = (f: ShipFx, docs = ['README.md'], out = path.join(f.root, 'post
   return out;
 };
 const finish = (f: ShipFx, reviewed: string, post: string, extra: string[] = []) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE, ...extra]);
-const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17 (stage 2.1)`;
+const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner's grant of one scoped fix-check (stage 2.1)`;
 const packetOf = (out: string) => /reads (\S+\.md)[ ,]/.exec(out)?.[1] ?? '';
 const record = (f: ShipFx, paths: string[], packet: string | null, extra: Record<string, unknown> = {}) => {
   const file = path.join(f.root, 'bounded-reviewed.json');
