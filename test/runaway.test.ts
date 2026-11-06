@@ -112,6 +112,57 @@ describe('gstack-runaway scan', () => {
     expect(r.out).toContain('FLAG: WARN empty_wake 65% of 31 turns > 25%');
   });
 
+  const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
+  const wait = (s: number, input: Record<string, unknown>) => ({ source: 'tool', tool: 'wait', input: { text: JSON.stringify({ description: 'w', ...input }) }, createdAt: at(s) });
+  const work = (s: number) => ({ source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }, { tool: 'edit' }], createdAt: at(s) });
+  const scan = (items: unknown[], name: string) => {
+    const doc = { code: 'GSTA-999', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [] };
+    return run('scan', '--thread', write(name + '.json', doc), '--events', write(name + '.events.json', { items, cursor: null }), '--now', NOW).out;
+  };
+
+  // Value: protects=warm-wait check-ins (docs/captain.md Warm waits, #4060) are not empty wakes: a turn whose only call re-issues the
+  //   wait on the same operation, or a 240 s timer, inside 30 minutes of the wait that began the run is left out; a re-wait past 30
+  //   minutes, a different wait, or a turn that also reads status still counts; fails_when=/runaway-stopper flags a lane that follows the
+  //   rule (GST-1597); seam=emptyWakes; no_claim=whether the lane should have warm-waited at all
+  test('warm-wait check-ins inside 30 minutes are not empty wakes; past the window they count again', () => {
+    const lane: unknown[] = [];
+    for (let k = 0; k < 20; k++) { lane.push(work(k * 2000)); lane.push(wait(k * 2000 + 1, { operation_ids: ['op' + k], duration_seconds: 240 })); for (let c = 1; c <= 7; c++) lane.push(wait(k * 2000 + 1 + c * 240, c % 2 ? { duration_seconds: 240 } : { operation_ids: ['op' + k] })); }
+    expect(scan(lane, 'warm')).toContain('empty_wake=0%/20');
+    const late: unknown[] = [];
+    for (let k = 0; k < 20; k++) { late.push(work(k * 4000)); late.push(wait(k * 4000 + 1, { operation_ids: ['op' + k] })); late.push(wait(k * 4000 + 1 + 1900, { operation_ids: ['op' + k] })); }
+    expect(scan(late, 'late')).toContain('empty_wake=50%/40');
+    const other: unknown[] = [];
+    for (let k = 0; k < 20; k++) { other.push(work(k * 2000)); other.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); other.push(wait(k * 2000 + 241, { operation_ids: ['other' + k], duration_seconds: 600 })); }
+    expect(scan(other, 'other')).toContain('empty_wake=50%/40');
+    const reads: unknown[] = [];
+    for (let k = 0; k < 20; k++) { reads.push(work(k * 2000)); reads.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); reads.push({ source: 'tool', tool: 'execute', calls: [{ tool: 'subagent_list' }], createdAt: at(k * 2000 + 241) }); reads.push(wait(k * 2000 + 242, { operation_ids: ['op' + k] })); }
+    expect(scan(reads, 'reads')).toContain('empty_wake=50%/40');
+    const chain: unknown[] = [work(0), wait(1, { operation_ids: ['op'], duration_seconds: 240 })];
+    for (let c = 1; c <= 60; c++) chain.push(wait(1 + c * 240, { operation_ids: ['op'], duration_seconds: 240 }));
+    expect(scan(chain, 'chain')).toContain('FLAG: WARN empty_wake 100% of 40 turns > 25%');
+  });
+
+  // Value: protects=a 240 s timer chains only on the run's operations or none, and a counted turn that re-waits on the run's operation
+  //   keeps the run's start, so polling one operation for hours with a status read every 28 minutes still counts; fails_when=a timer
+  //   naming other operations is left out, or a status-read turn restarts the 30-minute window (GST-1597 /ship findings 2 and 3);
+  //   seam=emptyWakes; no_claim=how often a lane should read status
+  test('a 240 s timer on other operations counts; a status-read turn does not restart the warm window', () => {
+    const timer = (ops: (k: number) => Record<string, unknown>) => {
+      const items: unknown[] = [];
+      for (let k = 0; k < 20; k++) { items.push(work(k * 2000)); items.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); items.push(wait(k * 2000 + 241, { ...ops(k), duration_seconds: 240 })); }
+      return items;
+    };
+    expect(scan(timer(k => ({ operation_ids: ['other' + k] })), 'timer-other')).toContain('empty_wake=50%/40');
+    expect(scan(timer(k => ({ operation_ids: ['op' + k] })), 'timer-same')).toContain('empty_wake=0%/20');
+    expect(scan(timer(() => ({})), 'timer-none')).toContain('empty_wake=0%/20');
+    const polled: unknown[] = [work(0), wait(1, { operation_ids: ['op'], duration_seconds: 240 })];
+    for (let c = 1; c <= 60; c++) {
+      if (c % 7 === 0) polled.push({ source: 'tool', tool: 'execute', calls: [{ tool: 'subagent_list' }], createdAt: at(c * 240) });
+      polled.push(wait(1 + c * 240, { operation_ids: ['op'], duration_seconds: 240 }));
+    }
+    expect(scan(polled, 'polled')).toContain('FLAG: WARN empty_wake 100% of 40 turns > 25%');
+  });
+
   test('a subagent.list file replaces thread.get tasks: own sums top-level paths only, truncation makes it an upper bound', () => {
     const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 700e6 }, tasks: [] };
     const subs = { total: 3, tasks: [
@@ -234,6 +285,30 @@ describe('/runaway-stopper skill', () => {
     expect(skill).toContain('NEXT_CURSOR');
     expect(skill).toContain('rm -rf');
     expect(skill).toContain('calls: i.calls?.map(c => ({ tool: c.tool }))');
+  });
+  // Value: protects=the skill's fetch program keeps each wait's input, so the warm-wait exclusion runs through /runaway-stopper and not
+  //   only on hand-built files; fails_when=the projection drops input and every warm check-in counts as an empty wake (GST-1597 /ship
+  //   finding 1); seam=the template's projection run over items shaped like a tools.thread.get page (tools: true, read 2026-11-06),
+  //   then gstack-runaway scan on the file it writes
+  test('the fetch program keeps wait input, so warm check-ins on a thread.get page are left out through the skill', () => {
+    const src = skill.match(/transcript\.items\.map\((i => \(\{[\s\S]*?\}\))\)\);/)?.[1];
+    expect(src).toBeDefined();
+    const project = new Function('return ' + src)() as (i: unknown) => unknown;
+    const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
+    const text = (v: unknown) => ({ text: JSON.stringify(v), chars: JSON.stringify(v).length });
+    const waitItem = (s: number, input: Record<string, unknown>) => ({ id: 'toolu_w' + s, source: 'tool', tool: 'wait', text: 'Waiting for CI', createdAt: at(s),
+      input: text({ description: 'Waiting for CI', ...input }), result: { text: 'Waiting on 1 operation, resuming when any completes.', chars: 52, is_error: false } });
+    const page: unknown[] = [];
+    for (let k = 0; k < 20; k++) {
+      page.push({ id: 'toolu_x' + k, source: 'tool', tool: 'execute', text: 'Fix and push', createdAt: at(k * 2000),
+        calls: [{ tool: 'bash', durationMs: 700, input: text({ command: 'git push' }) }, { tool: 'edit', durationMs: 20, input: text({ path: 'a.ts' }) }], input: text({ code: '...' }) });
+      page.push(waitItem(k * 2000 + 1, { operation_ids: ['op' + k], duration_seconds: 240 }));
+      for (let c = 1; c <= 7; c++) page.push(waitItem(k * 2000 + 1 + c * 240, { operation_ids: ['op' + k], duration_seconds: 240 }));
+    }
+    const doc = { code: 'GSTA-998', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [], events: page.map(project) };
+    const out = run('scan', '--thread', write('skill-warm.thread.json', doc), '--now', NOW).out;
+    expect(out).toContain('empty_wake=0%/20');
+    expect(out).not.toContain('FLAG: WARN empty_wake');
   });
   test('rotation stops or lists live subagents, the successor subscribes to open PRs, and archiving waits for it', () => {
     expect(skill).toContain('stop your working and waiting subagents, or list each with its run');

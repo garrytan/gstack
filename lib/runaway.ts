@@ -18,6 +18,8 @@ export const LIMITS = {
   emptyRate: 0.25,
   emptyWindow: 40,
   emptyMinTurns: 20,
+  warmWaitS: 240,
+  warmWindowS: 30 * 60,
   maxRounds: 2,
 } as const;
 
@@ -51,18 +53,43 @@ function reportState(item: Item): string | undefined {
   return raw?.match(/\\?"state\\?"\s*:\s*\\?"(final|needs_you|working)/)?.[1];
 }
 
+/** A wait call's operations and timer, from its recorded input; null when the input is unreadable. */
+function waitArgs(item: Item): { ops: string; seconds: number | null } | null {
+  const raw = typeof item.input === 'string' ? item.input : item.input?.text;
+  try {
+    const v = JSON.parse(raw ?? '') as { operation_ids?: unknown; duration_seconds?: unknown };
+    return { ops: Array.isArray(v.operation_ids) ? [...v.operation_ids].map(String).sort().join(',') : '', seconds: typeof v.duration_seconds === 'number' ? v.duration_seconds : null };
+  } catch { return null; }
+}
+
 /**
  * Turns from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
- * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports.
+ * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports. A warm-wait
+ * check-in (docs/captain.md, Warm waits; GST-1597) is not a turn: one whose only call re-issues a wait on the
+ * operations the previous turn waited on, or a 240-second timer naming those operations or none, within 30 minutes
+ * of the wait that started the run. Any turn that closes on such a wait keeps the run's start, so a status read
+ * between check-ins counts but never restarts the 30 minutes.
  */
 export function emptyWakes(items: readonly Item[]): { turns: number; empty: number } {
   const sorted = items.filter(i => i.createdAt && i.source !== 'assistant').sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
   const turns: boolean[] = [];
   let acted = false, open = false;
-  const close = () => { if (open) turns.push(!acted); acted = false; open = false; };
+  let calls: Item[] = [];
+  let last: { ops: string; since: number } | null = null;
+  const close = () => {
+    if (!open) return;
+    const closing = calls.at(-1);
+    const args = closing?.tool === 'wait' ? waitArgs(closing) : null;
+    const at = Date.parse(closing?.createdAt ?? '');
+    const same = !!args && !!last && (args.ops ? args.ops === last.ops : args.seconds === LIMITS.warmWaitS);
+    if (!(same && calls.length === 1 && at - last!.since <= LIMITS.warmWindowS * 1000)) turns.push(!acted);
+    last = args ? (same ? last : { ops: args.ops, since: at }) : null;
+    acted = false; open = false; calls = [];
+  };
   for (const i of sorted) {
     if (i.source !== 'tool') { close(); continue; }
     open = true;
+    calls.push(i);
     const state = i.tool === 'message_agent' || i.tool === 'message_user' ? reportState(i) : undefined;
     if (i.tool !== 'end_turn' && state !== 'working' && !isKeepalive(i)) acted = true;
     if (i.tool === 'end_turn' || i.tool === 'wait' || state === 'final' || state === 'needs_you') close();
@@ -184,7 +211,7 @@ const USAGE = [
   'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT, DEFER, SWEEP (--dir).',
   'Review rounds count only subagent titles that name the PR (#N); the rest show as unattributed.',
   'Limits (R70): own > 500M or active > 3d rotate (warn 400M); subagent > 100M stop (LOOK when it already ended);',
-  'empty wakes > 25% of the last 40 turns (20+); review rounds > 2 per PR; Captains REPORT, never rotate.',
+  'empty wakes > 25% of the last 40 turns (20+; warm-wait check-ins left out); review rounds > 2 per PR; Captains REPORT, never rotate.',
   'A thread file that is not valid JSON or lacks cost.tokens or created_at prints RUNAWAY_INPUT and is skipped.',
   'Exit 0 after a clean scan, 1 when any input was unreadable, 2 on a usage error.',
 ];
