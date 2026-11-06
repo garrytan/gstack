@@ -49,6 +49,23 @@ item is one parent call; a `wait`, or a program that only reads status (plus at 
 note), is a keep-alive, and a gap over 300 s between calls outlives the prompt cache
 (`lib/ship-calls.ts`).
 
+A Capy /ship helper cannot read its own transcript, so it counts from the call log instead:
+`gstack-ship-budget calls --run <id>|--record <path> [--log <file>] [--since <iso>] [--until <iso>]`. On Capy (`GSTACK_CAPY=1`, set by the
+launch file) every gstack-ship-* bin and `gstack-review-dispatch` append one row to `<state root>/ship-calls.jsonl` when they exit (a bin another
+one spawned writes none), so counting adds no call. The window is the run's start to its close, and the
+line is `CALLS: source=log calls= phase= pass= section= other= keepalive_est= total_est= pass_overhead_s=
+gaps_over_300s= max_gap_s= first= last=`, or `CALLS: unavailable source=log reason=no rows in the run window log=<file>`
+when the window holds no row (the rotated `ship-calls.jsonl.1` is read too). Rows that run back to back are one call, and
+a row longer than a program (a background lane or `finish`) ends where it starts; a pass loader
+(`gstack-review-dispatch program`) opens a call that lasts its 200 s poll; a program's closing `note`
+joins it. A call with the loader is a pass poll, one with a note a phase program, one with only
+`gstack-ship-parts` a section read. Calls that run no gstack command (a `wait`, an edit) leave no row,
+so `keepalive_est` fills the time between calls, outside a pass, at one keep-alive per 200 s plus the
+median pass overhead: how far past 200 s a pass rerun starts, measured from 200 s poll reruns only (a pass call
+that did not note, then a loader 200 s or more later) and never below 0
+(`lib/ship-call-log.ts`). `total_est` is `calls + keepalive_est`; quick decision calls between logged ones
+are not in it.
+
 **Credits.** Every command that takes `--reading` also takes `--credits <cost.credits>` from the
 same `thread.get`. Tokens count a cached read the same as a fresh one; credits are what the run
 costs, including the full-context re-bill after a gap over five minutes (about 40x a cached call,

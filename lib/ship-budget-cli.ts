@@ -19,6 +19,7 @@ import {
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next, type Note,
 } from './ship-budget';
+import { callLogFile, countLoggedCalls, loggedCallsLine, readCallLog } from './ship-call-log';
 import { callsLine, countCalls } from './ship-calls';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
@@ -411,11 +412,17 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
   });
 }
 
-/** calls: count parent calls from the host's transcript items (lib/ship-calls.ts). */
+/** calls: count parent calls from the host's transcript items (lib/ship-calls.ts), or a run's from the call log (lib/ship-call-log.ts). */
 export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['events', 'since', 'until']);
+  const o = parseArgs(argv, ['events', 'since', 'until', 'run', 'record', 'log']);
   const raw = str(o, 'events');
-  if (!raw) throw usageError('calls needs --events <file of the host\'s transcript items>');
+  if (!raw) {
+    if (!str(o, 'run') && !str(o, 'record') && !str(o, 'log')) throw usageError('calls needs --events <file of the host\'s transcript items>, or --run <id>|--record <path> to read the call log');
+    const l = str(o, 'run') || str(o, 'record') ? readLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env)) : undefined;
+    const log = str(o, 'log') ?? callLogFile(ctx.env);
+    const c = countLoggedCalls(readCallLog(log), { since: str(o, 'since') ?? l?.created_at, until: str(o, 'until') ?? l?.closed_at });
+    return { stdout: [c.calls ? loggedCallsLine(c) : `CALLS: unavailable source=log reason=no rows in the run window log=${log}`], exit: 0 };
+  }
   const file = raw === '~' || raw.startsWith('~/') ? path.join(ctx.env.HOME || os.homedir(), raw.slice(1)) : raw;
   let doc: unknown;
   try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e: any) { throw usageError(`calls --events ${file}: ${e.message}`); }

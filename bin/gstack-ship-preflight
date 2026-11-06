@@ -4,6 +4,9 @@
  * STOP:/NEXT: lines wherever the agent must judge. Logic: lib/ship-preflight.ts.
  */
 import { preflight } from '../lib/ship-preflight';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-ship-preflight');
 
 const out = await preflight(process.argv.slice(2), process.cwd());
 (out.exit === 2 ? process.stderr : process.stdout).write(out.text);
