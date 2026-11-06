@@ -87,9 +87,11 @@ test('cumulative shared, native and prompt edits retain every gate case and judg
 
 // GST-1575: no paid run executes ./setup (evals.yml only builds), so a narrow screen derives it like any
 // other file. Diffs of #4045 (9e809ab) and #4047 (4743132), whose narrow screens (runs 42093259982 and
-// 42103721891) fell back to all gate cases on setup alone.
+// 42103721891) fell back to all gate cases on setup alone. GST-1615: setup now runs bin/gstack-skill-gates, so
+// that file derives setup's consumers and the screen runs in dependents mode, which also keeps the gate case
+// whose touchfiles name bin/gstack-config (ship-skipped-queued-finding) instead of intersecting with the profile.
 const setupHookCases = ['gstack-upgrade-happy-path', 'ship-local-hook-preservation', 'ship-managed-hook-refresh',
-  'ship-unmanaged-hook-consent', 'skillmd-setup-discovery'];
+  'ship-skipped-queued-finding', 'ship-unmanaged-hook-consent', 'skillmd-setup-discovery'];
 const setupScreens: Record<string, string[]> = {
   '#4045': ['bin/gstack-config', 'bin/gstack-settings-hook', 'bin/gstack-skill-gates', 'bin/gstack-skill-route',
     'changelog.d/capy-gst-1461-investigate-gate.md', 'docs/skill-gates.md', 'docs/skill-routing-and-contracts.md',
@@ -112,7 +114,7 @@ const setupScreens: Record<string, string[]> = {
 const screen = (policy: 'narrow' | 'broad', changedFiles: string[]) => computePaidCaseSelection({
   profile: 'pr', env: { EVALS_BASE: 'fixture-base', EVALS_SCREEN_POLICY: policy }, changedFiles, packageVersionOnly: false });
 
-test.each(Object.entries(setupScreens))('a narrow screen of %s derives setup and selects its five cases', (_pr, files) => {
+test.each(Object.entries(setupScreens))('a narrow screen of %s derives setup and selects its six cases', (_pr, files) => {
   const result = screen('narrow', files);
   expect(result.coverage?.mode).not.toBe('full-fallback');
   expect(result.selection.e2e).toEqual(setupHookCases);

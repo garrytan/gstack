@@ -6,6 +6,8 @@
  *     Print a Claude Code settings JSON that registers the named gates (the
  *     /investigate gate, the /plan-ceo-review gate) and turns their switches on, for \`claude -p --settings <file>\` or the Agent
  *     SDK's settings, so a headless run needs no settings.json edit.
+ *   gstack-skill-gates hook-timeout
+ *     Print the hook timeout in seconds (HOOK_TIMEOUT_S) that ./setup registers.
  *   gstack-skill-gates report [--session <id>] [--expect armed] [--json]
  *     Count fired, blocked, released, exhausted, observed and error markers per session
  *     from $GSTACK_STATE_ROOT/skill-gates/<session>/record.json.
@@ -16,12 +18,12 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { gatesRoot, readGateRecord, recordPath, type GateHook, type GateRecord } from '../lib/skill-gates';
+import { HOOK_TIMEOUT_S, gatesRoot, readGateRecord, recordPath, type GateHook, type GateRecord } from '../lib/skill-gates';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 /** Claude Code runs a hook command through a shell: quote the path as gstack-settings-hook's gsQuoteCmd does. */
 const shellCommand = (p: string) => (/[\s$`"\\]/.test(p) ? `"${p.replace(/[\\"$`]/g, ch => `\\${ch}`)}"` : p);
-const USAGE = 'Usage: gstack-skill-gates settings [--investigate] [--ceo-review]\n       gstack-skill-gates report [--session <id>] [--expect armed] [--json]';
+const USAGE = 'Usage: gstack-skill-gates settings [--investigate] [--ceo-review]\n       gstack-skill-gates hook-timeout\n       gstack-skill-gates report [--session <id>] [--expect armed] [--json]';
 const HOOKS: Record<string, { env: string; source: GateHook; events: Array<{ event: string; shim: string; matcher?: string }> }> = {
   '--investigate': {
     env: 'GSTACK_INVESTIGATE_GATE',
@@ -59,14 +61,16 @@ if (args[0] === 'settings') {
     const h = HOOKS[flag];
     settings.env[h.env] = 'on';
     for (const e of h.events) {
-      (settings.hooks[e.event] ??= []).push({ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [{ type: 'command', command: shellCommand(path.join(ROOT, 'hosts', 'claude', 'hooks', e.shim)), timeout: 10 }] });
+      (settings.hooks[e.event] ??= []).push({ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [{ type: 'command', command: shellCommand(path.join(ROOT, 'hosts', 'claude', 'hooks', e.shim)), timeout: HOOK_TIMEOUT_S }] });
     }
   }
   process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
   process.exit(0);
 }
 
-if (args[0] !== 'report') usage('expected settings or report');
+if (args[0] === 'hook-timeout') { process.stdout.write(`${HOOK_TIMEOUT_S}\n`); process.exit(0); }
+
+if (args[0] !== 'report') usage('expected settings, hook-timeout or report');
 const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? (args[i + 1] ?? usage(`${name} needs a value`)) : undefined; };
 const session = flag('--session');
 const expect = flag('--expect');
