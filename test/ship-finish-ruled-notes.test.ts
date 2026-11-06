@@ -350,6 +350,38 @@ describe('finish counts a post-review fix-check chain whose grants name each lin
   });
 });
 
+/**
+ * GST-1681 (GEVA-363, gstack-evals#254): pass 1, then fc1 (round 2) at the stop the voices read, then the owner's grant at that
+ * stop head buys fc2, and a second grant at fc2's commit (its stop head) buys a third round, fc3. Each in-loop grant names the
+ * stop it answers, the link's own range_base.
+ */
+describe('finish counts a Captain-granted third fix round as a chained fix-check (GST-1681)', () => {
+  // Value: protects=the GEVA-363 shape counts once fc3 is a planned fix-check: fc2 and fc3 each carry their own grant, the chain stops
+  //   at fc1's tree (the reviewed tree), and the ungranted in-cap fc1 row is not a link; fails_when=finish refuses fc3 (GEVA-363
+  //   printed FIX_CHECK: not counted) or asks fc1 for a grant; seam=finish's chain walk and per-link grant assignment
+  test('GEVA-363: fc1 in the cap, then fc2 and fc3 under their own grants, and finish counts fc2..fc3', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
+    ships.push(f);
+    const p1 = headOf(f);
+    f.write({ 'src/x.ts': 'export const x = 3;\n' }); f.commit('round 1 fixes');
+    const fc1 = headOf(f);
+    logLink(f, p1);
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
+    const g2 = grantLink(f, fc1, 'fc2');
+    f.write({ 'src/x.ts': 'export const x = 4;\n' }); f.commit('fix the voices\' CRITICAL');
+    const fc2 = headOf(f);
+    logLink(f, fc1);
+    const g3 = grantLink(f, fc2, 'fc3');
+    f.write({ 'test/x.test.ts': TEST_V2 }); f.commit('fix fc2\'s CRITICAL');
+    const fc3 = headOf(f);
+    logLink(f, fc2);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check chain of 2 from ${fc1.slice(0, 12)}: at ${fc2.slice(0, 12)} grant ${g2}; at ${fc3.slice(0, 12)} grant ${g3})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* fix_checked=2$/)]);
+  });
+});
+
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
   const HEAD = '0123456789abcdef0123456789abcdef01234567';
   const row = (finding: string, o: Partial<{ ask: string; scope: string; by: string; outcome: string }> = {}) => {
