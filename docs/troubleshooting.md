@@ -3166,6 +3166,28 @@ lane change removed (a `[]` declaration lands on the base first). Or take
 Steps 5–11.5 for the edit. Never shrink an edit to get under the cap by
 moving its lines into another file.
 
+<a id="route-mechanical-refused"></a>
+### `ROUTE_MECHANICAL_REFUSED: <path> <reason>`
+
+**Meaning.** `gstack-ship-release finish` found a post-review edit to a path
+the base policy's `mechanical_retake` declares (the constant's file, a fixture
+field or a golden) that failed its proof, so the path keeps its old route,
+usually behavior ([ship-policy.md#mechanical-retake](ship-policy.md#mechanical-retake)).
+The reason names the failed proof: `needs --reviewed-base`, `is a gate path
+or under .gstack/ or .github/`, `does not hold exactly one line matching
+<template> at <side>`, `the reviewed branch did not take the constant`,
+`retakes <a> as <b>, not above the reviewed <a> and the base's <c>`,
+`changes more than the declared values since review`, `its constant <path>
+is not a proven retake`, `does not hold the same number of <field> lines`,
+`writes <v> into <field> where it held <w>, not the constant's <a> → <b>`,
+`changes no <field> value`, or `does not regenerate byte-identically from
+<regen id> (<status>)`.
+
+**Fix.** Keep the retake to the declared values: undo any other edit in those
+files (or ship it through Steps 5–11.5), write the constant's new value into
+every changed field, and rerun the regen entry's command and commit its output.
+A behavior STOP that remains is planned with `gstack-review-plan --post-review`.
+
 <a id="policy-source-unavailable"></a>
 ### `policy source unavailable — fix: git fetch origin <base> --depth=1 (POLICY_SOURCE_UNAVAILABLE)`
 
