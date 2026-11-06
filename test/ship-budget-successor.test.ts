@@ -123,14 +123,23 @@ describe('successor thread resume (GST-1655)', () => {
     const before = fs.readFileSync(ledger, 'utf8');
     const r = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
     expect(r.code).toBe(2);
+    const returnFile = /^RETURN_FILE: (\S+)$/m.exec(ho.out)![1]!;
     expect(r.err).toContain(sha);
-    expect(r.err).toContain('reconcile');
+    expect(r.err).toContain(`reconcile --run ${run} --return ${returnFile} --reading`);
+    expect(r.err).toContain('writes the child off');
     expect(fs.readFileSync(ledger, 'utf8')).toBe(before);
-    const rec = h.sb(['reconcile', '--run', run, '--handoff', sha, '--reading', '45M']);
-    expect(rec.code, rec.out + rec.err).not.toBe(2);
+    const v = h.sb(['verify-handoff', '--in', /^HANDOFF: (\S+)/m.exec(ho.out)![1]!, '--reading', '200000']);
+    expect(v.code, v.out + v.err).toBe(0);
+    expect(h.sb(['return', '--run', h.field(v.out, 'BUDGET_RUN', 'id'), '--to', '22', '--changed', 'Reviews', '--reading', '5M']).code).toBe(0);
+    const rec = h.sb(['reconcile', '--run', run, '--return', returnFile, '--reading', '46M']);
+    expect(rec.code, rec.out + rec.err).toBe(0);
+    expect(rec.out).toContain('child=complete child_used=4800000');
     const after = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
     expect(after.code, after.out + after.err).toBe(0);
-    expect(h.field(after.out, 'BUDGET', 'used')).toBe('5000000');
+    expect(h.field(after.out, 'BUDGET', 'used')).toBe('6000000');
+    expect(h.field(after.out, 'BUDGET', 'epoch')).toBe('2');
+    const later = h.sb(['check', '--run', run, '--step', '22', '--next', '22', '--reading', '4M']);
+    expect(h.field(later.out, 'BUDGET', 'used')).toBe('7000000');
   });
 
   test('the total across epochs trips the hard stop', () => {
