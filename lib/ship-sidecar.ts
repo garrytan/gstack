@@ -9,7 +9,8 @@
  *     the script for every uid:// reference to it);
  *   - its sibling (the path without `.uid`) is a regular file now, and one the reviewed range added or modified, or one
  *     the review-loop exception accepted;
- *   - it is a regular, non-executable file whose whole content is exactly what Godot writes for one id;
+ *   - it is a regular, non-executable file whose whole content is exactly what Godot writes for one id, and no other file
+ *     in the current tree names that uid:// (a copied sidecar gives two resources one UID);
  *   - neither it nor its sibling matches the base policy's review_exclude_paths or readers.forbid_paths (a sibling no reader
  *     saw is not reviewed).
  * Any other `.uid` is refused with the reason and stays behavior; a `.import` file is never a candidate.
@@ -48,6 +49,13 @@ function git(cwd: string, args: string[]): string | null {
   return r.status === 0 ? r.stdout : null;
 }
 
+/** The other files in `tree` that name `uid` as a whole word; null when git cannot search it. */
+function holders(cwd: string, tree: string, uid: string, self: string): string[] | null {
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', 'grep', '-z', '-l', '-w', '-F', '-e', uid, tree], { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0 && r.status !== 1) return null;
+  return r.stdout.split('\0').filter(Boolean).map(l => l.slice(tree.length + 1)).filter(p => p !== self);
+}
+
 /** The mode and blob of `rel` in `tree`; null when absent or unreadable. */
 function entry(cwd: string, tree: string, rel: string): { mode: string; blob: string } | null {
   const m = /^(\d{6}) \w+ ([0-9a-f]{40,64})\t/.exec(git(cwd, ['--literal-pathspecs', 'ls-tree', '-z', tree, '--', rel]) ?? '');
@@ -79,6 +87,9 @@ export function uidSidecars(cwd: string, i: SidecarInput): { proven: Record<stri
     if (e?.mode !== '100644') { refuse(`is not a regular non-executable file (mode ${e?.mode ?? 'unreadable'})`); continue; }
     const text = git(cwd, ['cat-file', 'blob', e.blob]);
     if (text === null || !isGodotUidText(text)) { refuse('is not exactly one Godot uid://<id> line'); continue; }
+    const shared = holders(cwd, s.current, text.trim(), p);
+    if (shared === null) { refuse('could not be searched for its UID in the current tree'); continue; }
+    if (shared.length) { refuse(`shares its UID with ${shared.sort().join(', ')}`); continue; }
     if (excluded.has(p) || excluded.has(sibling)) { refuse('or its sibling matches the base policy\'s review_exclude_paths or readers.forbid_paths, so no reader saw the script'); continue; }
     proven[p] = sibling;
   }

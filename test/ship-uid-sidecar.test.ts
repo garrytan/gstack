@@ -105,6 +105,7 @@ describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#6
       [SIDECAR, 'is not a regular non-executable file (mode 120000)', f => fs.symlinkSync('cutscene_check.gd', path.join(f.work, SIDECAR))],
       [SIDECAR, 'is not a regular non-executable file (mode 100755)', f => { f.write({ [SIDECAR]: UID }); fs.chmodSync(path.join(f.work, SIDECAR), 0o755); }],
       ['scripts/ui/cutscene.gd.uid', 'existed at the reviewed tree or the current base', f => f.write({ 'scripts/ui/cutscene.gd.uid': 'uid://b4w2kq0ly8s5n\n' }), { 'scripts/ui/cutscene.gd.uid': UID }],
+      [SIDECAR, 'shares its UID with scripts/old.gd.uid', f => f.write({ [SIDECAR]: UID }), { 'scripts/old.gd': 'extends Node\n', 'scripts/old.gd.uid': UID }],
     ];
     for (const [p, why, after, base, feat] of cases) {
       const r = founderstar611({ after, base, feat }).run();
@@ -141,6 +142,9 @@ describe('base-declared test_code (GST-1604: GDScript tests)', () => {
     expect(isTestCode('tests/helpers/fake_input.gd', ['tests/**/*.gd'])).toBe(false);
     expect(isTestCode('scripts/ui/cutscene.gd', ['tests/**/*.gd'])).toBe(false);
     expect(isTestCode('src/a.test.ts', ['tests/**/*.gd'])).toBe(true);
+    expect(isTestCode('.github/workflows/release.yml', ['**/*.yml'])).toBe(false);
+    expect(isTestCode('.gstack/ship-policy.yml', ['**/*.yml'])).toBe(false);
+    expect(isTestCode('tests/fixtures.yml', ['**/*.yml'])).toBe(true);
   });
 
   test('the key validates as a glob list behind min_gstack_version, never under .gstack/ or .github/', () => {

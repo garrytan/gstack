@@ -3208,7 +3208,8 @@ compared with the reviewed range`, `has no sibling <path> that the reviewed
 range added or modified or the review-loop exception accepted`, `has no
 sibling <path> at the current tree`, `existed at the reviewed tree or the
 current base`, `is not a regular non-executable file (mode <mode>)`, `is not
-exactly one Godot uid://<id> line`, or `or its sibling matches the base
+exactly one Godot uid://<id> line`, `shares its UID with <paths>`, `could not
+be searched for its UID in the current tree`, or `or its sibling matches the base
 policy's review_exclude_paths or readers.forbid_paths`.
 
 **Fix.** Commit the sidecar exactly as Godot wrote it, beside a script this PR
