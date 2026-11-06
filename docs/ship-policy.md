@@ -1645,6 +1645,38 @@ Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
 
+<a id="test-lane-exceptions"></a>
+**Test-lane exceptions (GST-1595).** A lane `accept` carries from CI refuses with
+`inventory_uncovered` when an inventory file is in no run's `tree.json`; when bun
+hid it under an importing test file, the refusal says so
+([pregate.md](pregate.md#carry-imported-tests)). The owner, never the lane, can
+grant that the lane counts anyway at one pushed head, for exactly those files,
+through the same approval record as a ruling:
+
+```bash
+gstack-approvals lane-exception --head <pushed head> --files <f1,f2> \
+  --reason '<why, one line>' --words '<the owner's exact words>' --by '<who granted>'
+```
+
+The row is an approved `gstack-approvals` row with scope `test_lane_exception <head>
+<files>` and ask `test_lane_exception at <head>: <files>: <reason>`
+(`lib/test-lane-exception.ts`). `lane-exception` refuses a head that is not a
+commit, a file with whitespace, a multi-line reason, a `--by` naming gstack and
+any grant while this checkout holds an open /ship run's marker, and `add` refuses
+the scope, so the lane's own runner cannot write one; a row by gstack is ignored
+wherever it came from. `gstack-evidence record-ci` binds a grant only when its
+head is HEAD and its files are exactly the uncovered set, and only after a local
+preflight of each of those files, one at a time, with the lane's `per_file` runner
+passes with a counted test at that head (a lane with no `per_file` runner cannot
+use one). Grants are kept per head and file set (the newest wins), so two lanes at
+one head each bind their own. Nothing about it is
+hidden: `accept` prints `TEST_LANE_EXCEPTION: …` and names the body line in its
+`NEXT:`, the receipt's `ci_carried` entry records `exception` (head, files, by,
+reason, time, approval id and the preflight's label and test count),
+`gstack-ship-receipt write --body` refuses a body that does not carry
+`Test-lane exception: …` word for word, and the READY block prints each as
+`TEST_LANE_EXCEPTION:`. A new push needs a new grant at the new head.
+
 `gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
 rows for this invocation and its dispatch ledgers, and writes the counters the ship receipt carries
 (`gstack-ship-receipt write … --review-loop @<file>`): `review_loop: { passes,

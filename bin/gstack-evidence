@@ -100,6 +100,7 @@ import { findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/
 import { DEFAULT_MAX_AGE_HOURS, runChanged } from "../lib/run-evidence";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
+import { readTestLaneExceptions, testLaneExceptionText, type BoundLaneException } from "../lib/test-lane-exception";
 
 const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
@@ -140,6 +141,8 @@ interface EvidenceRecord {
   not_owed?: string;
   /** The per_file run of the inventory files CI skipped entirely; not_owed: the ones that skipped every test here too (GST-1314). */
   skipped_here?: { label: string; files: string[]; tests_ran: number | "unknown"; not_owed?: string[] };
+  /** The owner's test-lane exception that let a lane carry with uncovered inventory files, and the preflight of exactly them here (GST-1595). */
+  exception?: BoundLaneException;
 }
 
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
@@ -721,8 +724,9 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     console.error("usage: gstack-evidence record-ci --label <L> --base <base> -- <command>");
     return 2;
   }
-  const none = (reason: string, detail: string) => {
+  const none = (reason: string, detail: string, diagnosis: string[] = []) => {
     console.error(`CARRY_NONE: ${reason}: ${detail}`);
+    for (const d of diagnosis) console.error(`CARRY_DIAGNOSIS: ${d}`);
     console.error(`gstack-evidence record-ci: label=${label} not carried; nothing recorded`);
     return 1;
   };
@@ -738,8 +742,29 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const tree = git(["rev-parse", "HEAD^{tree}"]);
   if (!head || !tree) return none("no_head", "HEAD is unreadable");
   const wtree = () => { const fp = wtreeFingerprint({ cwd, timeoutMs: 30000 }); return "tree" in fp ? fp.tree : null; };
-  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd) });
-  if (!v.ok) return none(v.reason, v.detail);
+  const grants = readTestLaneExceptions(cwd);
+  const atHead = grants.filter((g) => g.head === head);
+  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd), ...(atHead.length ? { excepted: atHead } : {}) });
+  const elsewhere = grants.filter((g) => g.head !== head).map((g) => `${g.approval} at ${g.head.slice(0, 12)}`);
+  if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !atHead.length && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
+  let exception: BoundLaneException | undefined;
+  const grant = atHead.find((g) => g.approval === v.exceptedBy);
+  if (v.excepted?.length && grant) {
+    const preLabel = `${label}.excepted`;
+    console.error(`gstack-evidence record-ci: test-lane exception ${grant.approval}: preflighting ${v.excepted.length} uncovered file(s) here at ${head.slice(0, 12)}, one at a time (label=${preLabel})`);
+    let ran = 0;
+    for (const file of v.excepted) {
+      const preCommand = perFileCommand(m.per_file!, [file]);
+      const exit = await cmdRun(["--label", preLabel, "--", preCommand]);
+      let rows: EvidenceRecord[] = [];
+      try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
+      const n = rows.findLast((r) => r.label === preLabel && r.source === undefined && r.cmd_sha256 === sha256(preCommand) && r.wtree === tree)?.tests_ran ?? "unknown";
+      if (exit !== 0 || typeof n !== "number" || n <= 0) return none("exception_preflight_failed", `test-lane exception ${grant.approval}'s preflight of ${file} ${exit !== 0 ? `exited ${exit}` : `ran ${n} tests`} here (label=${preLabel}); the exception binds only when each of ${v.excepted.join(", ")} runs and passes at HEAD`);
+      ran += n;
+    }
+    exception = { ...grant, preflight: { label: preLabel, tests_ran: ran } };
+  }
+  const testsRan = exception && typeof v.tests === "number" ? v.tests + v.excepted!.length : v.tests;
   let here: EvidenceRecord["skipped_here"];
   if (v.remainder?.length) {
     const hereLabel = `${label}.skipped`;
@@ -760,11 +785,13 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     }
     here = { label: hereLabel, files: v.remainder, tests_ran: ran, ...(notOwed.length ? { not_owed: notOwed } : {}) };
     if (notOwed.length) console.error(`gstack-evidence record-ci: not owed here: ${notOwed.length} remainder file(s) skipped every test on CI and here too (env- or tool-gated by design): ${notOwed.join(", ")}`);
+  }
+  if (here || exception) {
     for (const e of v.runs) {
       const changed = runChanged(check.deps, e.run_id, e.run_attempt);
       if (changed) return none("run_changed", changed);
     }
-    if (wtree() !== tree) return none("tree_changed", `the working tree changed while the per_file run of label=${hereLabel} ran`);
+    if (wtree() !== tree) return none("tree_changed", `the working tree changed while the per_file run of label=${here?.label ?? exception!.preflight.label} ran`);
   }
   let paths: ReturnType<typeof ledgerPath>;
   try {
@@ -777,11 +804,12 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}),
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: testsRan, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${testsRan}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
   if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
+  if (exception) console.error(`TEST_LANE_EXCEPTION: ${testLaneExceptionText(exception)}`);
   return 0;
 }
 
@@ -804,7 +832,7 @@ function cmdCarried(argv: string[]): number {
   for (const r of records) latest.set(r.label, r);
   const carried = [...latest.values()].filter((r) => r.source === "ci" && !!wtree && r.wtree === wtree && Array.isArray(r.runs) && typeof r.policy === "string" && r.policy.startsWith(policyRef)
     && gradeRecord(r, { maxAgeHours: DEFAULT_MAX_AGE_HOURS, allowPaths: [], wtreeNow: wtree }).verdict === "FRESH")
-    .flatMap((r) => r.runs!.map((ref) => { const [run, attempt] = ref.split("/").map(Number); return { lane: r.label, run, attempt, tree: r.wtree! }; }));
+    .flatMap((r) => r.runs!.map((ref) => { const [run, attempt] = ref.split("/").map(Number); return { lane: r.label, run, attempt, tree: r.wtree!, ...(r.exception ? { exception: r.exception } : {}) }; }));
   if (argv.includes("--json")) console.log(JSON.stringify(carried));
   else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}`);
   return 0;
