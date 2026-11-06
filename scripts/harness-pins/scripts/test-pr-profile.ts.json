@@ -1,1 +1,1 @@
-{"blob":"89a688ffeb7f000e7341062e45bf93e36a0119ce","since":6,"nonBehavioral":"test-pr-profile.ts lists .github/workflows/release-gate.yml and .github/workflows/windows-scoped-tests.yml as free-lane only; neither workflow runs a paid case through this list, so no case selection or verdict can change"}
+{"blob":"900a5ec1eb151f99f93a07b3b8f3c4b2c047e4b1","since":6,"nonBehavioral":"scripts/test-pr-profile.ts only adds qm/** to FREE_ONLY_PR_FILES; no paid case reads qm/, so no case's selection or verdict can change (GST-1492)"}
