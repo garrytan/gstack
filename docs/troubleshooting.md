@@ -1759,6 +1759,25 @@ after the refusal is resolved, or the Capy skill installer again once the
 lease holder finishes. Below the supported minimum the bootstrapper fails
 `revision` instead (`REVISION_BELOW_MINIMUM`).
 
+<a id="pin-unreasoned"></a>
+### `SELF_UPGRADE: pin overridden (<pin>, with no recorded reason, and the oldest commit this checkout lacks is <h>h old; ...) (PIN_UNREASONED)` / trailer note `stale=<h>h`
+
+**Meaning.** Capy threads run gstack's latest main at least daily (R75). A Capy
+session start in install mode (`--for <skill>`, a workflow boundary) found the
+checkout more than 24 hours behind origin's default branch, by the commit time
+of the oldest commit it lacks, and pinned by `GSTACK_CAPY_SELF_UPGRADE=off`,
+`GSTACK_CAPY_AUTO_UPGRADE=0`, a detached HEAD (`--revision`) or another branch,
+with no recorded reason. It checked out the default branch where needed and
+fast-forwarded. A dirty or diverged checkout is still never moved, and a live
+workflow lease or eval run still defers the upgrade (`UPGRADE_BUSY`). On
+`--check` the trailer carries `stale=<h>h` with the install as its fix; unlike a
+bare `behind=`, run that fix before the first workflow.
+
+**Fix.** Nothing, when the pin was not deliberate. To keep a pin, record why:
+`GSTACK_PIN_REASON=<why>` in the session's environment, or
+`git -C <checkout> config gstack.pinReason "<why>"`; the trailer then reads
+`stale=<h>h (pinned: <why>)` and the checkout stays where it is.
+
 <a id="upgrade-refused"></a>
 ### `gstack-upgrade: <cause>; nothing was changed; fix: <command> (UPGRADE_REFUSED)`
 

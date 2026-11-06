@@ -4,10 +4,11 @@ gstack used to stamp a version at every merge to main. Under `merge: direct`
 PRs land unstamped, with a `changelog.d` fragment each, and the version moves
 only when the Captain lands a release PR (`gstack-release-stamp open`, see
 [ship-policy.md](ship-policy.md#release-stamp)). Since late October 2026 there
-is also a tagged release, and team-mode installs follow it instead of every
-merge. It is cut twice a week, and since November 2026 a daily check also cuts
-it within about a day of an important change and never lets it go more than a
-week stale while main has gated changes ([the daily check](#the-daily-check)).
+is also a tagged release, and new installs and team-mode installs follow it
+instead of every merge. It is cut twice a week, and since November 2026 a daily
+check also cuts it within about a day of an important change and never lets it
+go more than a week stale while main has gated changes ([the daily
+check](#the-daily-check)).
 
 Land a release PR before each cut. The cut tags the VERSION it finds, and a
 version is tagged once: if no release PR landed since the last cut, the next
@@ -321,8 +322,8 @@ held.
 
 | Channel | Follows | Who |
 |---|---|---|
-| `stable` | `refs/heads/stable`: the twice-weekly release (at most once per 72 hours), an important change's cut within about a day (24-hour floor), a forced cut when it is a week old, plus any security or regression cut off-cycle | team mode (`./setup --team`) by default |
-| `main` | every merge to main | plain `./setup`, contributors, Capy crew machines |
+| `stable` | `refs/heads/stable`: the twice-weekly release (at most once per 72 hours), an important change's cut within about a day (24-hour floor), a forced cut when it is a week old, plus any security or regression cut off-cycle | new installs, team mode (`./setup --team`) |
+| `main` | every merge to main | contributor checkouts, installs set up before stable became the default, Capy crew machines |
 
 The config key is `update_channel` (`bin/gstack-config`):
 
@@ -333,10 +334,39 @@ gstack-config set update_channel stable   # a solo install that wants stable rel
 gstack-config unset update_channel        # back to auto
 ```
 
-`auto` resolves to `stable` when `team_mode` is true and to `main` otherwise,
-so existing team installs moved to stable releases with nothing to migrate and
-contributor installs did not move at all. `GSTACK_UPDATE_CHANNEL=stable|main`
-overrides the key for one command. The resolution lives in one helper,
+Which channel an install gets:
+
+- **A new install follows `stable`.** The first `./setup` on a machine (no
+  `.last-setup-version` or `config.yaml` in the state root, and no legacy
+  `~/.gstack/.last-setup-version` or `~/.gstack/config.yaml`) records `update_channel: stable` and prints
+  `Update channel: stable (new install)` with the command that switches. When
+  `GSTACK_UPDATE_CHANNEL` is set during that first setup, its value is
+  recorded instead, and a Capy machine (`CAPY_MACHINE_CONFIG` or
+  `~/.capy/system`) records `main`. The clone starts at main's latest
+  commit; since nothing moves a checkout backwards, a new stable install runs
+  that build until the next cut passes it, then follows releases.
+- **A contributor checkout follows `main`.** That first setup records nothing,
+  so the key stays `auto`, when the checkout is a contributor's:
+  `git config gstack.contributor true` (what `bin/dev-setup` writes) or
+  `GSTACK_CONTRIBUTOR=1`, `CI` set, a directory that is not its own git
+  repository, a detached HEAD, a branch other than origin's default, no
+  upstream branch, or commits the upstream does not have. Setup prints the
+  reason.
+- **An existing install keeps what it had.** `auto` resolves to `stable` when
+  `team_mode` is true and to `main` otherwise, so installs set up before this
+  default keep following `main` (team installs keep `stable`) and nothing is
+  switched under them. The updater never moves a checkout backwards, so an
+  install that has lived at main's head and switched to stable would sit
+  still until the next cut passes its version; switching is one command for
+  anyone who wants it, never a silent change.
+- **Capy crew machines follow `main`.** `bin/gstack-capy-session` sets
+  `GSTACK_UPDATE_CHANNEL=main` for everything a session start runs (the
+  self-upgrade, `./setup`, the installer) unless the variable already names a
+  channel, so a fresh Capy machine records `main` and an existing one follows
+  main whatever its own config says. `GSTACK_UPDATE_CHANNEL=stable` in the
+  session's environment follows the release instead.
+
+`GSTACK_UPDATE_CHANNEL=stable|main` overrides the key for one command. The resolution lives in one helper,
 `bin/gstack-update-channel.sh`, used by:
 
 - `bin/gstack-session-update`, the team-mode session-start hook: it fetches
@@ -349,10 +379,11 @@ overrides the key for one command. The resolution lives in one helper,
 - `bin/gstack-upgrade` and `/gstack-upgrade`: they fast-forward to the channel
   ref (`UPSTREAM_REF=origin/stable` in the skill's output) and say which channel
   they followed.
-- `capy/skill/gstack/scripts/install.sh`, the Capy skill's installer (wrapper
-  revision 4): a fresh clone or a floor upgrade follows `stable` when the channel
-  resolves to it and `stable` meets the support floor, and follows main
-  otherwise. `--revision` still pins an exact commit.
+- `capy/skill/gstack/scripts/install.sh`, the Capy skill's installer: from
+  wrapper revision 5 a fresh clone or a floor upgrade follows `stable` only when
+  `GSTACK_UPDATE_CHANNEL=stable` and `stable` meets the support floor, and
+  follows main otherwise (revision 4 also followed the machine's own channel).
+  `--revision` still pins an exact commit.
 
 Two edge cases are handled on purpose:
 

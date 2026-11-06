@@ -23,6 +23,9 @@
 #   else main. On stable, a fresh clone checks out origin's stable branch and
 #   the floor fast-forward goes to stable, each only when stable exists and
 #   meets the supported minimum; otherwise main, as before. --revision wins.
+#   From revision 5 only GSTACK_UPDATE_CHANNEL=stable follows stable: Capy crews
+#   stay on main whatever the machine's update_channel or team_mode says (the
+#   checkout's bin/gstack-capy-session pins main for older copies too).
 # Everything else (Bun, setup, the doctor, the verdict, the launch line) is
 # the checkout's. The last line is the `gstack:` trailer; exit 0 only on
 # `gstack: ok`. Contract: docs/capy-install.md; tests:
@@ -33,10 +36,11 @@
 #   bash install.sh --check --for none        this machine runs no workflow: ok not-needed, nothing installed
 #   bash install.sh [--for <skill> | --require <id,id>] [--with-browser] [--revision <ref>] [--project <path>]
 # Environment: GSTACK_CAPY_ROOT (default ~/.local/share/gstack), GSTACK_CAPY_REPO,
-# GSTACK_CAPY_AUTO_UPGRADE=0 (never fast-forward), GSTACK_CAPY_FETCH_TIMEOUT (s),
-# GSTACK_UPDATE_CHANNEL=main (follow every merge even in team mode) or stable.
+# GSTACK_CAPY_AUTO_UPGRADE=0 (no fast-forward; above the floor the checkout's session
+# overrides it past 24 hours behind unless GSTACK_PIN_REASON is set), GSTACK_CAPY_FETCH_TIMEOUT (s),
+# GSTACK_UPDATE_CHANNEL=stable (follow the tagged release; default main, every merge).
 set -u
-GSTACK_CAPY_WRAPPER=4
+GSTACK_CAPY_WRAPPER=5
 
 self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
 root="${GSTACK_CAPY_ROOT:-$HOME/.local/share/gstack}"
@@ -82,12 +86,11 @@ below() {
 }
 support_get() { printf '%s\n' "$1" | sed -n "s/^$2=\([0-9][0-9.]*\)[[:space:]]*\$/\1/p" | head -1; }
 # channel_stable ROOT MIN [FETCH_FLAG] — true, with origin's stable commit in $stable_sha, when
-# this install follows stable and origin's stable exists and meets MIN; says why not otherwise.
+# GSTACK_UPDATE_CHANNEL=stable and origin's stable exists and meets MIN; says why not otherwise.
 # FETCH_FLAG is --depth=1 for a fresh clone only (never --depth into an existing checkout).
 channel_stable() {
-  local ch="${GSTACK_UPDATE_CHANNEL:-}" ver
-  case "$ch" in stable|main) ;; *) ch=$(bash "$1/bin/gstack-update-channel.sh" "$1" 2>/dev/null | head -1) ;; esac
-  [ "$ch" = stable ] || return 1
+  local ver
+  [ "${GSTACK_UPDATE_CHANNEL:-}" = stable ] || return 1
   if ! bounded git -C "$1" fetch --quiet ${3:+"$3"} origin stable 2>/dev/null; then
     echo "gstack-capy-skill: channel stable, but origin has no stable branch yet (or the fetch failed); following main"
     return 1

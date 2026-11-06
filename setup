@@ -1378,6 +1378,19 @@ bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
 export GSTACK_SETUP_RUNNING=1  # Prevent gstack-config post-set hook from triggering relink mid-setup
+
+# ─── Update channel, first install only (docs/releases.md#channels) ─────────
+# A fresh state root records stable for a user's checkout (or the
+# GSTACK_UPDATE_CHANNEL value); a contributor checkout and every existing
+# install keep auto. Read before anything below writes config.yaml.
+_UC_INITIAL="$(bash "$SOURCE_GSTACK_DIR/bin/gstack-update-channel.sh" --initial "$GSTACK_STATE_ROOT" "$SOURCE_GSTACK_DIR" 2>/dev/null || true)"
+case "$_UC_INITIAL" in
+  stable\ *|main\ *)
+    "$GSTACK_CONFIG" set update_channel "${_UC_INITIAL%% *}" >/dev/null || {
+      echo "Update channel: could not record ${_UC_INITIAL%% *} (gstack-config failed); fix: $INSTALL_GSTACK_DIR/bin/gstack-config set update_channel ${_UC_INITIAL%% *}" >&2
+      _UC_INITIAL=""
+    } ;;
+esac
 if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   _saved_prefix="$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || true)"
   if [ "$_saved_prefix" = "true" ]; then
@@ -5060,6 +5073,14 @@ if ! grep -q '^redact_prepush_hook:' "$_GSTACK_CFG_FILE" 2>/dev/null; then
     log "     Enable once: gstack-config set redact_prepush_hook true — /ship"
     log "     installs the hook automatically in every repo you ship from."
   fi
+fi
+
+if [ -n "$_UC_INITIAL" ]; then
+  _UC_NOW="$(bash "$SOURCE_GSTACK_DIR/bin/gstack-update-channel.sh" "$SOURCE_GSTACK_DIR" 2>/dev/null || echo main)"
+  _UC_WHY="${_UC_INITIAL#* }"
+  [ "${_UC_INITIAL%% *}" = auto ] && [ "$_UC_NOW" = stable ] && _UC_WHY="team mode"
+  log ""
+  log "Update channel: $_UC_NOW ($_UC_WHY). Switch: $INSTALL_GSTACK_DIR/bin/gstack-config set update_channel $([ "$_UC_NOW" = main ] && echo stable || echo main) (docs/releases.md#channels)"
 fi
 
 _setup_print_summary

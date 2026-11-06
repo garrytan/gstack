@@ -4,7 +4,7 @@ Three layers, each owned by gstack:
 
 | Layer | Where | Job |
 |---|---|---|
-| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 4 a fresh clone or the floor fast-forward follows `stable` instead when the update channel resolves to it and `stable` meets that minimum, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
+| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 5 a fresh clone or the floor fast-forward follows `stable` instead only when `GSTACK_UPDATE_CHANNEL=stable` and `stable` meets that minimum; Capy crews otherwise stay on main, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
 | Full wrapper | `bin/gstack-capy-session` (moves with the checkout) | map the session start onto the installer: `--check` certifies (and reports a checkout behind origin), otherwise fast-forward a checkout behind origin (`bin/gstack-upgrade --ff-only-no-reinstall`), then install or repair |
 | Installer | `bin/gstack-capy-install` | Bun, both host profiles, the doctor, the install verdict, the launch line, the trailer |
 
@@ -136,9 +136,28 @@ there is refused with the usual `--for <skill>` fix.
    disabled), the ok trailer also says so, because lanes relay only the
    trailer: `behind=<n> (latest: <ver>); fix: <command>` (see the trailer
    grammar below).
+   **Daily (R75).** When the oldest origin commit the checkout lacks is more
+   than 24 hours old, the trailer adds `stale=<h>h` after `behind=`, and
+   unlike a bare `behind=` the agent runs the fix before the first workflow.
+   A pin (`GSTACK_CAPY_SELF_UPGRADE=off`, `GSTACK_CAPY_AUTO_UPGRADE=0`, a
+   detached HEAD or another branch) then holds only with a recorded reason:
+   `GSTACK_PIN_REASON=<why>`, `git -C <root> config gstack.pinReason <why>`,
+   an explicit `--revision`, or `gstack.contributor=true`
+   (`stale=<h>h (pinned: <why>)`). Without one, an install-mode run on a clean,
+   undiverged checkout overrides it (`SELF_UPGRADE: pin overridden (...)
+   (PIN_UNREASONED)`), switching to the default branch only when that local
+   branch is absent or fast-forwardable and no other session holds a lease,
+   and switching back if `bin/gstack-upgrade` refuses. A workflow lease of the
+   current run or a live eval run (gstack-detach's
+   `~/.gstack/locks/gstack-evals.lock`) defers every self-upgrade
+   (`UPGRADE_BUSY`). A `--for review-voice` reader gets
+   `stale=<h>h (shared checkout: the lane's install moves it)` and only reports
+   it. With `GSTACK_UPDATE_CHANNEL=stable` nothing is measured against main.
 4. When the fetch fails (offline), the bootstrapper says `remote minimum
    unknown (fetch failed)` and checks the local install only; it never claims
-   the minimum, and nothing is fast-forwarded.
+   the minimum, and nothing is fast-forwarded. With no successful fetch in 24
+   hours (the session's `<git dir>/gstack-last-fetch` stamp) the trailer adds
+   `stale=no fetch from origin in <h>h` with a network fix.
 5. The project's floor. A consuming repository names the oldest gstack it wants
    its crew on as `min_gstack_version` in its `.gstack/ship-policy.json` (the
    key `gstack-ship-queue` already validates; a file holding only that key is
@@ -425,7 +444,8 @@ with every bootstrapper revision), optionally followed by `upgrade skipped:
 <reason> (<CODE>)` when an install-mode fast-forward was refused, or `latest:
 <ver> available` (origin's default branch has a newer VERSION; the bootstrapper
 exports it as `GSTACK_CAPY_REMOTE_VERSION` only after a fetch that succeeded
-in this run); then `floor=<f> (<file>)` when the project's floor is unmet
+in this run); `stale=<note>` right after `behind=` (or alone, for no fetch in 24
+hours); then `floor=<f> (<file>)` when the project's floor is unmet
 (`floor=<f> (<file>; no release meets this floor yet)` when no stable release
 meets it either, with no fix of its own); and last exactly one `fix: <command>`
 whenever `behind=` or a fixable `floor=` is present.
@@ -621,7 +641,14 @@ other call), so the minimum is 3: every older Drive copy prints the owner
 action until the owner recopies `capy/skill/gstack/`. Wrapper 4 only adds the
 update-channel choice for the clone and the floor fast-forward
 (`GSTACK_UPDATE_CHANNEL=stable|main`, else the checkout's channel, else main);
-the minimum stays 3, so a copy at 3 keeps working.
+the minimum stays 3, so a copy at 3 keeps working. Wrapper 5 drops the
+checkout's channel from that choice, so a Capy machine follows main unless
+`GSTACK_UPDATE_CHANNEL=stable` (new installs elsewhere default to stable, and
+Capy crews must not inherit that). The minimum still stays 3: the checkout's
+`bin/gstack-capy-session` pins `GSTACK_UPDATE_CHANNEL=main` for every
+bootstrapper revision, so an older copy differs only when the machine's own
+config says stable, where its clone or floor fast-forward can land on the
+release until the next session's self-upgrade moves it to main.
 
 ## Exit codes
 

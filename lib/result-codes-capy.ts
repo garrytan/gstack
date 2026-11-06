@@ -79,6 +79,11 @@ export const CAPY_RESULT_CODES = {
     summary: "the Node on PATH does not satisfy the project's Node pin while every Bun pin is met; the pins row is a WARN and the trailer stays ok, because gstack runs on Bun and the project's own tests may select their Node (nvm, CI)",
     fix: "put a Node that satisfies the pin first on PATH (the Capy skill installer installs an exact pin into gstack's runtime store and launches it through the GSTACK_LAUNCH PATH), or change the pin in the project",
   },
+  PIN_UNREASONED: {
+    anchor: 'pin-unreasoned',
+    summary: 'a Capy session start found the checkout more than 24 hours behind origin\'s default branch and pinned (GSTACK_CAPY_SELF_UPGRADE=off, GSTACK_CAPY_AUTO_UPGRADE=0, a detached HEAD or another branch) with no recorded reason, so it overrode the pin and fast-forwarded (R75)',
+    fix: 'nothing when the pin was not deliberate; to keep a pin, record why: GSTACK_PIN_REASON=<why> for the session, or git -C <checkout> config gstack.pinReason "<why>"',
+  },
   UPGRADE_SKIPPED: {
     anchor: 'upgrade-skipped',
     summary: 'the install-mode session was behind origin and its session-start fast-forward was skipped (dirty, diverged or pinned checkout, a live lease, or gstack-upgrade missing); the row is a WARN with the reason and the trailer stays ok with a behind= note, because a gap above the supported minimum is never a hard fail',
