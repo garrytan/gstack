@@ -87,7 +87,10 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, 'port'))}, String(server.port))
       chromiumPid, chromiumStartTime: scenario === 'chromium-mismatch' ? 'stale start' : readPidStartTime(chromiumPid) }));
     const agentFile = path.join(stateDir, 'terminal-agent-pid');
     if (scenario === 'terminal-mismatch') fs.writeFileSync(agentFile, JSON.stringify({ ...agent, ownerPid: process.pid }));
-    if (scenario === 'missing-terminal') fs.unlinkSync(agentFile);
+    if (scenario === 'missing-terminal') {
+      fs.unlinkSync(agentFile);
+      fs.writeFileSync(path.join(stateDir, 'browse-daemon.log'), '[browse] terminal-agent exit remains unconfirmed: fixture\n');
+    }
     if (scenario === 'blocked-identity') {
       const preload = path.join(dir, 'block-identity.ts');
       fs.writeFileSync(preload, `
@@ -113,7 +116,7 @@ Bun.spawnSync = (...args) => {
     const started = performance.now();
     const errors = { 'ack-only': 'settlement deadline exceeded', 'replaced-state': 'daemon state was replaced',
       'terminal-mismatch': 'terminal ownership is unconfirmed', 'chromium-mismatch': 'Chromium ownership is unconfirmed',
-      'missing-terminal': 'terminal identity is unavailable (record absent; terminal-port', 'blocked-identity': 'owned worker settlement deadline exceeded' };
+      'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/, 'blocked-identity': 'owned worker settlement deadline exceeded' };
     await expect(stopQaOnlyBrowser(dir, 1000)).rejects.toThrow(errors[scenario]);
     expect(performance.now() - started).toBeLessThan(2000);
     expect(daemon.exitCode).toBeNull();

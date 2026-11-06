@@ -31,6 +31,7 @@ import { recordObservation } from './helpers/none-arm';
 
 const collector = createEvalCollector('e2e-failure-routing');
 const ARM = routerArm();
+const SCORE_GRACE_MS = 10_000;
 
 describeIfSelected('Router failure routing (#3157, #3158)', FIXTURES.map(f => f.name), () => {
   const dirs: string[] = [];
@@ -50,7 +51,7 @@ describeIfSelected('Router failure routing (#3157, #3158)', FIXTURES.map(f => f.
         maxTurns: 6,
         tools: ['Skill', 'Read', 'Grep', 'Glob', 'Edit', 'Bash'],
         allowedTools: ['Skill', 'Read', 'Grep', 'Glob', 'Edit', 'Bash'],
-        timeout: CAPTURE_MS,
+        timeout: CAPTURE_MS - SCORE_GRACE_MS,
         testName: fixture.name,
         runId,
       });

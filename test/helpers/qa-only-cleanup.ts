@@ -55,7 +55,7 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
   const agent = readAgentRecord(stateDir);
   if (!agentRaw || !agent) {
     // Qa-only-no-fix (census 41962523474) failed here once with nothing else to go on; name what was there instead.
-    const log = path.join(stateDir, 'browse-server.log');
+    const log = path.join(stateDir, 'browse-daemon.log');
     const agentLines = fs.existsSync(log) && fs.lstatSync(log).isFile()
       ? fs.readFileSync(log, 'utf8').split('\n').filter(line => /terminal-agent/i.test(line)).slice(-3).map(line => line.slice(0, 160)) : [];
     fail(`terminal identity is unavailable (record ${agentRaw === undefined ? 'absent' : `unparsed, ${agentRaw.length} bytes`}; `
