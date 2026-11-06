@@ -1635,7 +1635,8 @@ ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`) and prints each as `RULED_NOTE: <fingerprint> at <head12>
 ruled by <who> at <time>: <reason> (approval <id>)`. A ruling closes a finding on
-the newest `review-fix-check` row (action `skipped`, `noted` or `deferred`, not a
+a `review-fix-check` row finish counts (the newest, or an earlier link of its
+[chain](#fix-check-chain); action `skipped`, `noted` or `deferred`, not a
 gate finding) when its head lies inside that row's `range_base..commit`, the same
 test a `review_loop_grant` passes. So the order of ruling and fix-check doesn't
 matter, and a ruling made at an earlier /ship's head closes nothing: its
@@ -1813,6 +1814,28 @@ as a note. Below the round cap that's a pass on the range (a fix-check under
 the lean panel). At the cap it stops for the owner, whose recorded grant
 (`--grant`) adds one scoped fix-check, never `done`. So `finish` never asks for
 a step the planner refuses.
+
+<a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
+fix-check after the first one (a merge resolution, say) logs its row with
+`range_base` at the first fix-check's commit. finish used to read only the newest
+row and refuse any range that didn't start at the reviewed tree, so the later
+fix-check unbound the earlier one and lanes logged a synthetic combined row
+(#4063: fc3 at 265d868, then fc4 over the merge). finish now walks back from the
+newest row: while a row's `range_base` doesn't hold the reviewed tree, the link
+before it is the newest earlier row whose commit is that `range_base`. The chain
+counts only when it reaches a row whose `range_base` holds the reviewed tree and
+every link is a clean, committed read with its own approved
+`review_loop_grant`. An earlier link's grant must name a stop head before its
+commit, since that commit is where the next link starts, and a grant counts for
+one link only (the newest link that names it), so one grant never covers two
+fix-checks. A path counts as `fix_checked` when some link's range
+touched it and it is unchanged since that link (or its patch against the base is
+still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
+(fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A
+`range_base` no earlier row ends at is a gap and refuses with the single-row
+reason (`range_base <sha12> does not hold the reviewed tree`); a link that is
+stale or ungranted refuses with its reason and `; fix-check at <sha12>, link <k>
+of <n>`. Either way nothing in the chain counts.
 
 <a id="test-code"></a>
 <a id="uid-sidecar"></a>

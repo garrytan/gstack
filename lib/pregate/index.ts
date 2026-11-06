@@ -484,3 +484,26 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
   file.verdict = verdictOf(file);
   return file;
 }
+
+/**
+ * A rerun at the same tree keeps the clears its predecessor recorded (GST-1627): `gstack-ship-release accept` reruns the
+ * pregate on the final tree after the lane cleared macos-named-regressions and windows-smoke from CI runs at that tree, and
+ * a fresh record dropped them, so accept never passed. A receipt carries only into an uncleared obligation for the same
+ * lane, platform, workflow and job whose tests the earlier one covered, at the same head, under the same policy and base
+ * branch, with its flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
+ * since a receipt and its exception were vetted against the head they name), or a rerun with a failed or unfinished check (a remote gate
+ * that timed out this time), keeps nothing. Returns one PREGATE_CLEAR_KEPT line per lane.
+ */
+export function keepSameTreeClears(prev: PregateFile | null, file: PregateFile): string[] {
+  if (!prev || prev.head !== file.head || prev.tree !== file.tree || prev.policy !== file.policy || prev.policy_digest !== file.policy_digest || baseBranchOf(prev.base) !== baseBranchOf(file.base)) return [];
+  if (file.checks.some(c => c.status === 'fail' || c.status === 'incomplete' || c.status === 'not_installed')) return [];
+  const kept: string[] = [];
+  for (const r of file.requires_remote ?? []) {
+    if (r.receipt) continue;
+    const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && r.tests.every(t => o.tests.includes(t)));
+    if (!old?.receipt) continue;
+    clearObligation(file, r.lane, old.receipt, old.cleared_by ?? 'an earlier run at this tree', old.substitution, prev.exceptions?.find(e => e.lane === r.lane));
+    kept.push(`PREGATE_CLEAR_KEPT: ${r.lane} receipt=${old.receipt} (recorded at this tree ${file.tree.slice(0, 12)}; docs/pregate.md#same-tree-clears)`);
+  }
+  return kept;
+}

@@ -201,10 +201,10 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
 
 /**
  * Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts).
- * A code or test path the newest completed clean review-fix-check row read (inside its range_base..commit range, where
- * range_base holds the reviewed tree, and unchanged since) counts as fix_checked when an approved review_loop_grant names a stop
- * head inside range_base..commit: the owner's granted fix-check after Step 11 is a review (GST-1130). A finding on that row the
- * owner ruled a disclosed note (an approved gstack-approvals rule row whose stop head lies inside the row's range_base..commit, never the row's own claim) is closed, and every ruling
+ * A code or test path a granted fix-check read counts as fix_checked (fixChecked: the newest completed clean review-fix-check
+ * row, chained through earlier rows back to the reviewed tree, each under its own approved review_loop_grant): the owner's
+ * granted fix-check after Step 11 is a review (GST-1130, GST-1627). A finding on a link the owner ruled a disclosed note (an
+ * approved gstack-approvals rule row whose stop head lies inside that link's range_base..commit, never the row's own claim) is closed, and every ruling
  * prints as RULED_NOTE (GST-1537). Authored docs keep the stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
@@ -241,6 +241,75 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
   const fork = git(cwd, ['merge-base', baseRef, commit]).stdout.trim();
   const holds = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   return parent && fork && holds(parent, commit) && holds(fork, parent) ? parent : fork;
+}
+
+type FixLink = { row: Record<string, any>; commit: string; from: string };
+
+/**
+ * The granted fix-checks finish counts (GST-1130, GST-1627): the newest review-fix-check row and, while its range_base does
+ * not hold the reviewed tree, the newest earlier row whose commit is that range_base, back to a row whose range_base holds
+ * it. Every link must be a completed clean read on committed branch content with its own approved review_loop_grant, a stop
+ * head inside its range_base..commit (before the commit for an earlier link, since that commit is the next link's start);
+ * a grant counts for one link only, the newest link that names it, so one grant naming two links' commits covers one.
+ * A range_base no earlier row ends at is a gap, and the chain does not count. A path counts as fix_checked when a link's
+ * range touched it and it is unchanged since that link, or its patch against the base is still the one the link read.
+ */
+function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[] } | null {
+  const rows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
+    .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
+  const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
+  const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
+  const onBranch = (c: string) => !!c && ancestor(c, 'HEAD');
+  const commits = rows.map(row => commitOf(row.commit_full));
+  const chain: FixLink[] = [];
+  let gap = '';
+  for (let i = rows.length - 1; i >= 0;) {
+    const link = { row: rows[i]!, commit: commits[i]!, from: commitOf(rows[i]!.range_base) };
+    chain.unshift(link);
+    if (!onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
+    i = commits.slice(0, i).lastIndexOf(link.from);
+    if (i < 0) gap = `range_base ${link.from.slice(0, 12)} does not hold the reviewed tree`;
+  }
+  const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
+  const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
+  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
+  const grants = chain.length ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })).filter(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')) : [];
+  const granted: (typeof grants[number] | undefined)[] = [];
+  const used = new Set<string>();
+  for (let k = chain.length - 1; k >= 0; k--) {
+    const l = chain[k]!;
+    const g = grants.filter(g => !used.has(g.id))
+      .flatMap(g => (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c) && (k === chain.length - 1 || c !== l.commit)).map(stop => ({ g, stop })))
+      .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
+    if (g) used.add(g.id);
+    granted[k] = g;
+  }
+  const why = (l: FixLink) => {
+    const fresh = reviewFreshness(l.row, l.row.wtree, new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding)));
+    return fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
+      : l.row.tree !== l.row.wtree || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
+      : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
+  };
+  const at = (l: FixLink) => (chain.length > 1 ? `; fix-check at ${l.commit.slice(0, 12)}, link ${chain.indexOf(l) + 1} of ${chain.length}` : '');
+  const newestFirst = [...chain].reverse();
+  const stale = newestFirst.map(l => ({ l, w: why(l) })).find(x => x.w);
+  const ungranted = newestFirst.find(l => !granted[chain.indexOf(l)]);
+  const notCounted = !chain.length ? '' : stale ? `${stale.w}${at(stale.l)}` : gap ? `${gap}${at(chain[0]!)}`
+    : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
+  if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
+  if (!chain.length || notCounted) return { counted: false, paths: [] };
+  const read: ((p: string) => boolean)[] = [];
+  for (const l of chain) {
+    const range = touchedPaths(cwd, l.from, l.commit), after = touchedPaths(cwd, l.commit, o.now);
+    if (!range || !after) { r.stop(`git could not diff the fix-check range ${l.from.slice(0, 12)}..${l.commit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
+    const sides = { reviewedBase: patchBase(cwd, o.baseRef, l.commit, o.parent), reviewed: l.commit, currentBase: o.currentBase ?? git(cwd, ['merge-base', o.baseRef, 'HEAD']).stdout.trim(), current: o.now };
+    read.push(p => range.has(p) && (!after.has(p) || (!!sides.reviewedBase && !!sides.currentBase && comparePath(cwd, sides, p) === 'same')));
+  }
+  const paths = o.candidates.filter(p => read.some(f => f(p))).sort();
+  const list = paths.length ? short(paths) : 'none';
+  r.add(chain.length === 1 ? `FIX_CHECK: reviewed ${list} (fix-check at ${chain[0]!.commit.slice(0, 12)}, range from ${chain[0]!.from.slice(0, 12)}, grant ${granted[0]!.id})`
+    : `FIX_CHECK: reviewed ${list} (fix-check chain of ${chain.length} from ${chain[0]!.from.slice(0, 12)}: ${chain.map((l, k) => `at ${l.commit.slice(0, 12)} grant ${granted[k]!.id}`).join('; ')})`);
+  return { counted: true, paths };
 }
 
 function route(cwd: string, base: string, reviewed: string, reviewedBase: ReviewedBase | undefined, release: string[], opts: RouteOpts, r: Report): Routed | null {
@@ -286,36 +355,12 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior.push(...packetBody.over);
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
-  const fixRow = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
-    .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } }).at(-1);
-  const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
-  const onBranch = (c: string) => !!c && git(cwd, ['merge-base', '--is-ancestor', c, 'HEAD']).status === 0;
-  const fixCommit = commitOf(fixRow?.commit_full), fixFrom = commitOf(fixRow?.range_base);
+  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
+  if (!fix) return null;
+  const counted = fix.counted;
+  by.fix_checked = fix.paths;
+  for (const k of ['behavior', 'tests', 'context', 'bounded'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
-  const inFixRange = (c: string) => !!fixFrom && !!fixCommit && ancestor(fixFrom, c) && ancestor(c, fixCommit);
-  const rulings = readRuledNotes(cwd).map(n => ({ ...n, applied: !!fixRow && inFixRange(n.head) }));
-  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${fixRow && !n.applied ? ' (outside this fix-check\'s range; not applied)' : ''}`);
-  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree, new Set(rulings.filter(n => n.applied).map(n => n.finding)));
-  const grants = fixRow ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })) : [];
-  const covering = grants.filter(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant'))
-    .flatMap(g => (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inFixRange(c)).map(stop => ({ g, stop })));
-  const grant = covering.reduce<typeof covering[number] | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
-  const notCounted = !fixRow ? '' : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
-    : fixRow.tree !== fixRow.wtree || !onBranch(fixCommit) ? 'the row was logged on content no branch commit holds'
-    : !onBranch(fixFrom) ? 'the row names no range_base commit on this branch'
-    : git(cwd, ['rev-parse', `${fixFrom}^{tree}`]).stdout.trim() !== reviewed ? `range_base ${fixFrom.slice(0, 12)} does not hold the reviewed tree`
-    : !grant ? 'no approved review_loop_grant names a stop head inside its range_base..commit' : '';
-  if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
-  const counted = !!fixRow && !notCounted;
-  if (counted) {
-    const range = touchedPaths(cwd, fixFrom, fixCommit), after = touchedPaths(cwd, fixCommit, now);
-    if (!range || !after) { r.stop(`git could not diff the fix-check range ${fixFrom.slice(0, 12)}..${fixCommit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
-    const fixSides = { reviewedBase: patchBase(cwd, baseRef, fixCommit, parent), reviewed: fixCommit, currentBase: sides?.currentBase ?? git(cwd, ['merge-base', baseRef, 'HEAD']).stdout.trim(), current: now };
-    const unmoved = (p: string) => !after.has(p) || (!!fixSides.reviewedBase && !!fixSides.currentBase && comparePath(cwd, fixSides, p) === 'same');
-    by.fix_checked = [...by.behavior, ...by.tests, ...by.context, ...by.bounded].filter(p => range.has(p) && unmoved(p)).sort();
-    for (const k of ['behavior', 'tests', 'context', 'bounded'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
-    r.add(`FIX_CHECK: reviewed ${by.fix_checked.length ? short(by.fix_checked) : 'none'} (fix-check at ${fixCommit.slice(0, 12)}, range from ${fixFrom.slice(0, 12)}, grant ${grant!.id})`);
-  }
   const loop = opts.loop;
   if (loop) {
     const head = loop.fix_check.head;
@@ -609,6 +654,7 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
   const tests = /^PREGATE: tests (.+?) in ([\d.]+)s/m.exec(out);
   if (carried && (carried.startsWith('CI_CARRY: accepted') || !tests)) r.add(clip(carried, 240));
   else if (tests) r.add(`${carried ? clip(carried, 200) : 'CI_CARRY: none (the pregate policy declares no run_profiles)'}; the final pregate's tests stage ran here instead: tests ${tests[1]} in ${tests[2]}s (docs/pregate.md#accept-local-tests)`);
+  for (const line of out.match(/^PREGATE_CLEAR_KEPT: .*$/gm) ?? []) r.add(clip(line, 240));
   r.add(`PREGATE: ${verdict} (final tree)`);
   if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the final tree: fix it, then rerun accept`);
   return r.next(`Step 18: the receipt records ci_carried from the ledger${exceptions.length ? `; the PR body carries ${exceptions.map(e => JSON.stringify(`Test-lane exception: ${e}`)).join(' and ')} verbatim, one line each, or the receipt write refuses` : ''}`);
