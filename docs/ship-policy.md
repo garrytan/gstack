@@ -1960,8 +1960,9 @@ kept, landing just outside the current hunk's range (`lib/ship-patch.ts`
 `comparePath`). The path then counts as a context path. Carry and finish put it
 in the scoped-review packet, and the reader checks that the branch's value
 still holds next to the base's. It never carries without a reader. A hunk whose
-added lines changed, or that now also removes a line the base never touched,
-stays a changed path. A [mechanical retake](#mechanical-retake) does not apply
+added lines changed, that now also removes a line the base never touched, or
+whose range holds a line the base added (a base hunk at or next to the replaced
+lines that adds more lines than it removes) stays a changed path. A [mechanical retake](#mechanical-retake) does not apply
 here, since the branch retook nothing.
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
