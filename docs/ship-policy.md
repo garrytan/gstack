@@ -1612,32 +1612,35 @@ construction:
 **Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
 ruling that it ships as a disclosed note, with the note listed. The owner records
 each ruling, one finding per row, through the approval record, outside the lane's
-/ship run:
+/ship run, naming the stop head it ruled at (the commit a `review_loop_grant` names):
 
 ```bash
-gstack-approvals rule --finding '<the finding's fingerprint>' --reason '<why it ships as a note>' \
-  --words '<the owner's exact words>' --by '<who ruled>'
+gstack-approvals rule --finding '<the finding's fingerprint>' --head <stop head> \
+  --reason '<why it ships as a note, one line>' --words '<the owner's exact words>' --by '<who ruled>'
 ```
 
-The row is an approved `gstack-approvals` row with scope `ruled_note <fingerprint>`
-and ask `ruled_note <fingerprint>: <reason>`, so two findings ruled with the same
-reason in one reply get two rows. Its `by` is the ruler and its `recorded_at` the
-time. `rule` refuses while this checkout holds an open /ship run's marker (the
-lane's own runner), and refuses a `--by` naming gstack. `add` refuses a
+The row is an approved `gstack-approvals` row with scope `ruled_note <fingerprint> <head>`
+and ask `ruled_note <fingerprint> at <head>: <reason>`, with the head's full sha, so
+two findings ruled with the same reason in one reply get two rows, and a ruling at
+a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
+`rule` refuses a `--head` that is not a commit in the repository, a reason with a
+newline or control character, a `--by` naming gstack, and any ruling while this
+checkout holds an open /ship run's marker (the lane's own runner). `add` refuses a
 `ruled_note` scope, so `rule` is the only path. A review-log field never makes a
 ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
-(`lib/ruled-notes.ts`), prints each as `RULED_NOTE: <fingerprint> ruled by <who> at
-<time>: <reason> (approval <id>)`, and treats a ruled finding on the newest
-`review-fix-check` row (action `skipped`, `noted` or `deferred`, not a gate finding)
-as closed when the ruling was recorded after that row's review started (the
-logger's own `review_binding.started_at`, never the row's `timestamp`), so it closes only what the
-owner saw: a later row with the same fingerprint needs a new ruling. A granted
+(`lib/ruled-notes.ts`) and prints each as `RULED_NOTE: <fingerprint> at <head12>
+ruled by <who> at <time>: <reason> (approval <id>)`. A ruling closes a finding on
+the newest `review-fix-check` row (action `skipped`, `noted` or `deferred`, not a
+gate finding) when its head lies inside that row's `range_base..commit`, the same
+test a `review_loop_grant` passes. So the order of ruling and fix-check doesn't
+matter, and a ruling made at an earlier /ship's head closes nothing: its
+`RULED_NOTE:` line ends `(outside this fix-check's range; not applied)`. A granted
 fix-check whose other findings are all below the floor then reads CURRENT and
-counts. A skipped CRITICAL with no ruling stays open. Nothing
-ruled is hidden: `gstack-approvals rulings` prints one `Ruled note: …` line per
-ruling for the Pre-Landing Review and the PR body, `gstack-ship-receipt write`
-records them as `ruled_notes` and refuses a `--body` that does not carry each
+counts. A skipped CRITICAL with no ruling stays open. Nothing ruled is hidden:
+`gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the
+Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
+`ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
 
 `gstack-review-scope summary --since <REVIEW_SINCE> --run <run dir>` reads the branch's review-log
