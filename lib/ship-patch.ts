@@ -271,24 +271,54 @@ function statementAt(text: readonly string[], n: number): string[] {
   return out;
 }
 
+/** Whether line n of text (1-based) sits inside a template literal opened on an earlier line. */
+const inTemplate = (text: readonly string[], n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
+
+/**
+ * Whether two lines differ only inside one cast's type literal (`as { ... }`, braces counted outside quoted strings) on
+ * both sides, with no quote in the changed text and no template literal on either line: a type-only edit, never a value,
+ * a statement or a check (GBRA-336).
+ */
+function castOnly(before: string, after: string): boolean {
+  if (before === after || /`/.test(before + after)) return false;
+  let i = 0;
+  while (i < before.length && i < after.length && before[i] === after[i]) i++;
+  let j = 0;
+  while (j < before.length - i && j < after.length - i && before[before.length - 1 - j] === after[after.length - 1 - j]) j++;
+  const inCast = (line: string) => {
+    const end = line.length - j;
+    if (/['"]/.test(line.slice(i, end))) return false;
+    const masked = line.replace(QUOTED, s => s[0] + 'x'.repeat(s.length - 2) + s[0]);
+    for (const m of masked.matchAll(/\bas\s+\{/g)) {
+      const open = m.index + m[0].length - 1;
+      let depth = 0, close = -1;
+      for (let k = open; k < masked.length && close < 0; k++) if (masked[k] === '{') depth++; else if (masked[k] === '}' && --depth === 0) close = k;
+      if (open < i && end <= close) return true;
+    }
+    return false;
+  };
+  return inCast(before) && inCast(after);
+}
+
 /**
  * Test paths an owner's review-loop exception that names them may route (GST-1682): every hunk from..to is one lib/gate-diff
- * leaves untagged, and no removed or added line, nor the statement around it, holds an assertion, matcher, test name or
- * skip/only call (a type-only cast widened, GBRA-336). A diff the scan or git cannot read, a binary or a deleted file stays out.
+ * leaves untagged that swaps lines one for one, each pair differing only inside a cast's type literal (a type-only cast
+ * widened, GBRA-336), and no removed or added line, nor the statement around it, holds an assertion, matcher, test name or
+ * skip/only call. A diff the scan or git cannot read, a binary or a deleted file stays out.
  */
 export function checkFreePaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> {
   const tagged = gateTaggedPaths(repoRoot, from, to, paths);
   if (!tagged) return new Set();
-  const free = (text: string, start: number, count: number) => {
-    const lines = text.split('\n');
-    for (let n = start; n < start + count; n++) if (statementAt(lines, n).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1')))) return false;
+  const free = (lines: readonly string[], start: number, count: number) => {
+    for (let n = start; n < start + count; n++) if (inTemplate(lines, n) || statementAt(lines, n).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1')))) return false;
     return true;
   };
   return new Set(paths.filter(p => {
     const d = tagged.has(p) ? null : pathDiff(repoRoot, from, to, p, 0);
     const hunks = d === null || /^(Binary files |GIT binary patch)/m.test(d) ? null : zeroHunks(d);
-    const before = git(repoRoot, ['show', `${from}:${p}`]), after = git(repoRoot, ['show', `${to}:${p}`]);
-    return !!hunks?.length && before !== null && after !== null && hunks.every(h => free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount));
+    const before = git(repoRoot, ['show', `${from}:${p}`])?.split('\n'), after = git(repoRoot, ['show', `${to}:${p}`])?.split('\n');
+    return !!hunks?.length && !!before && !!after && hunks.every(h => h.oldCount === h.newCount && free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount)
+      && Array.from({ length: h.oldCount }, (_, k) => castOnly(before[h.oldStart - 1 + k]!, after[h.newStart - 1 + k]!)).every(Boolean));
   }));
 }
 
@@ -303,14 +333,13 @@ function literalOnly(diff: string, after: string | null): boolean {
   if (!hunks?.length || after === null) return false;
   const text = after.split('\n');
   const statement = (n: number) => statementAt(text, n);
-  const inTemplate = (n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
   return hunks.every(h => {
     const lines = h.body.split('\n');
     const minus = lines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plus = lines.filter(l => l.startsWith('+')).map(l => l.slice(1));
     const bare = (l: string) => l.replace(QUOTED, '$1$1');
     return minus.length === plus.length && minus.every((m, i) => m !== plus[i] && !CODE_IN_STRING.test(m + plus[i]) && bare(m) === bare(plus[i]!)
-      && !CHECK_CALL.test(bare(m)) && !inTemplate(h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
+      && !CHECK_CALL.test(bare(m)) && !inTemplate(text, h.newStart + i) && !statement(h.newStart + i).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1'))));
   });
 }
 

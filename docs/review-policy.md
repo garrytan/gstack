@@ -692,10 +692,12 @@ through the docs stage. A path outside that scope and a gate-edited test still
 route as behavior, with `--reviewed-base` (as /ship passes it) so does a file
 too large for the scoped review, and without the record nothing changes. The one
 exception is a test path the record's `fix_check.files` names whose every hunk
-lib/gate-diff leaves untagged and touches no assertion, matcher, test name or
-skip/only call, in the changed lines or the statement around them (a type-only
-cast widened, GBRA-336): it routes as accepted (GST-1682). Any other test hunk
-stays forced, and an unnamed path never routes this way.
+lib/gate-diff leaves untagged, swaps lines one for one with each pair differing
+only inside a cast's `as { ... }` type literal, and touches no assertion,
+matcher, test name or skip/only call, in the changed lines or the statement
+around them (a type-only cast widened, GBRA-336): it routes as accepted
+(GST-1682). Any other test hunk stays forced, an early return, a changed value
+or a wrapped check included, and an unnamed path never routes this way.
 
 A completed fix-check is a review, not an owner acceptance (GST-1130). Finish
 reads the newest `review-fix-check` row from `gstack-review-read`, chained back
