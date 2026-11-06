@@ -5176,8 +5176,8 @@ time; `gstack-ship-policy validate` prints `MIN_READER:` for exactly that.
 ### `POLICY_FLOOR_ABOVE_STABLE`
 
 **Meaning.** `.gstack/ship-policy.json` sets `min_gstack_version` above the
-newest stable gstack release (the highest `v<version>` release tag, or the
-VERSION at the stable ref). Every lane on the stable update channel runs that
+newest stable gstack release (the highest `v<version>` release tag at
+origin's `stable` commit, or the VERSION at the stable ref). Every lane on the stable update channel runs that
 release, so each one refuses the policy (`POLICY_GSTACK_TOO_OLD`), and
 upgrading cannot help until a release at or above the floor is cut; the
 doctor's floor row says `no release meets this floor yet`.
