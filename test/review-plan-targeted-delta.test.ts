@@ -61,7 +61,7 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     expect(after.stdout).toContain('NEXT: done');
     expect(dispatches(after.stdout)).toEqual([]);
     const record = (at: string) => ({ classes: ['money'], rules: 'r', brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted', head: at });
-    const productOf = (c: string) => spawnSync('git', ['patch-id', '--verbatim'], { input: spawnSync('git', ['diff', 'main', c], { cwd: r.dir, encoding: 'utf8' }).stdout, cwd: r.dir, encoding: 'utf8' }).stdout.split(' ')[0];
+    const productOf = (c: string) => spawnSync('git', ['patch-id', '--verbatim'], { input: spawnSync('git', ['diff', 'main', c], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout, cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.split(' ')[0];
     const bind = (at: string) => parseReviewTargeted(record(at), productOf(head)!, productOf, from => targetedClassesSince(r.dir, from, head), from => plainDocsSince(r.dir, from, head));
     expect(bind(read).ok).toBe(false);
     expect(bind(head)).toMatchObject({ ok: true, targeted: { classes: ['money'], status: 'done' } });
@@ -122,8 +122,9 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
   });
 
   // Value: protects=the pass command builds the targeted-only manifest (the brief renders only inside a pass manifest when an exclusion
-  //   is active): one targeted reader in the voices stage on the merge base; fails_when=pass prints PASS: none for NEXT: targeted;
-  //   seam=gstack-review-dispatch pass; no_claim=the reader's reply
+  //   is active): one targeted reader in the voices stage on the merge base, the TARGETED_DELTA line in its plan lines, and its voices
+  //   stage renders the brief on HEAD; fails_when=pass prints PASS: none for NEXT: targeted, or the stage renders on another base;
+  //   seam=gstack-review-dispatch pass and stage; no_claim=the reader's reply
   test('gstack-review-dispatch pass builds a manifest with the one targeted reader', () => {
     const r = reviewed();
     const read = r.git('rev-parse', 'HEAD');
@@ -134,7 +135,14 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     const p = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['pass', '--base', 'main', '--out', out, '--pass', 'td1', '--', '--gate-tagged', '0', ...done(read, readPatch)], { cwd: r.dir, encoding: 'utf8', timeout: 120_000, env: r.env });
     expect(p.status, p.stderr).toBe(0);
     expect(p.stdout).toMatch(/MANIFEST: file=\S+ pass=td1 readers=1 first=0 specialists=0 red-team=0 voices=1/);
-    const m = JSON.parse(fs.readFileSync(p.stdout.match(/MANIFEST: file=(\S+)/)![1]!, 'utf8'));
-    expect([m.next, m.readers.map((x: any) => [x.role, x.stage, x.classes, x.diff_base])]).toEqual(['targeted', [['targeted', 'voices', ['money'], r.git('merge-base', 'main', 'HEAD')]]]);
+    const file = p.stdout.match(/MANIFEST: file=(\S+)/)![1]!;
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const mergeBase = r.git('merge-base', 'main', 'HEAD');
+    expect([m.next, m.readers.map((x: any) => [x.role, x.stage, x.classes, x.diff_base])]).toEqual(['targeted', [['targeted', 'voices', ['money'], mergeBase]]]);
+    expect(m.plan_lines.filter((l: string) => l.startsWith('TARGETED_DELTA: '))).toEqual([`TARGETED_DELTA: range_base=${read} paths=changelog.d/eval-cost.md classes=money`]);
+    const stage = spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['stage', '--manifest', file, '--stage', 'voices'], { cwd: r.dir, encoding: 'utf8', timeout: 120_000, env: r.env });
+    expect(stage.status, stage.stderr).toBe(0);
+    const rendered = fs.readFileSync(m.ledger, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(e => e.event === 'rendered');
+    expect(rendered.map(e => [e.reader, e.diff_base, e.head, e.classes])).toEqual([['targeted', mergeBase, r.git('rev-parse', 'HEAD'), ['money']]]);
   });
 });

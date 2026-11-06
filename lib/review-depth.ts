@@ -20,7 +20,7 @@ export type PathClass = 'docs' | 'tests' | 'code';
 export type Depth = 'light' | 'standard' | 'full';
 export type Effort = 'light' | 'medium' | 'full' | 'host';
 export type Role = 'specialist' | 'red-team' | 'adversarial-native' | 'outside-voice' | 'fix-check' | 'targeted';
-export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'platform' | 'done' | 'stop';
+export type Step = 'full' | 'scoped' | 'fix-check' | 'voices' | 'platform' | 'targeted' | 'done' | 'stop';
 
 export const SPECIALISTS = ['testing', 'maintainability', 'security', 'performance', 'data-migration', 'api-contract', 'design', 'simplification', 'state-machines'] as const;
 export type Specialist = (typeof SPECIALISTS)[number];
