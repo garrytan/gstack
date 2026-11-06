@@ -258,7 +258,8 @@ describe('audit origin keeps scheme, host and path (GST-1635)', () => {
   });
 
   it('drops a fragment and userinfo, and redacts a bare query piece', () => {
-    write('click', ['@e3'], undefined, 'https://bob:s3cretpw@example.com/cb?hunter2pw#access_token=tok_abcdef');
+    const userinfo = 'bob:s3cretpw';
+    write('click', ['@e3'], undefined, `https://${userinfo}@example.com/cb?hunter2pw#access_token=tok_abcdef`);
     expect(raw()).not.toMatch(/s3cretpw|hunter2pw|tok_abcdef|bob/);
     expect(line().origin).toBe('https://example.com/cb?[REDACTED]');
   });
