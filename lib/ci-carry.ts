@@ -92,7 +92,7 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
     const other = runs.find(e => e.tree !== o.tree);
     if (other) return no('tree_mismatch', `run ${other.run_id} tested tree ${other.tree.slice(0, 12)}, not ${o.tree.slice(0, 12)}`);
     const empty = jobs.length ? undefined : runs.find(e => !e.files.length || e.tests === 0);
-    if (empty) return no('no_tests', `run ${empty.run_id}'s tree.json ${empty.files.length ? 'records 0 tests' : 'lists no test files'}`);
+    if (empty) return no('no_tests', `run ${empty.run_id}'s tree.json ${empty.files.length ? 'records 0 tests' : `lists no test files (a rerun of only the failed jobs records none): dispatch a fresh full run of ${src.profiles[empty.profile]?.workflow ?? empty.profile} (gh workflow run ${src.profiles[empty.profile]?.workflow ?? '<workflow>'} --ref <branch>) and carry from that`}`);
     if (o.inventory) {
       const listed = o.inventory();
       if ('error' in listed) return no('inventory_failed', listed.error);
@@ -199,10 +199,14 @@ export function importedTestLines(cwd: string, missing: string[], candidates: st
 /**
  * What `gstack-evidence record-ci` reported, read from its own last record line onward (the per_file remainder's output comes
  * first, so a test printing look-alike lines cannot change the reading): the carried runs, count, unit and remainder, any
- * not-owed reason, or the last CARRY_NONE reason.
+ * not-owed reason, or the last CARRY_NONE reason. A lane the cleared remote gate stood in for (--remote-gate-stands-in, GST-1688)
+ * reads as its receipt, its count and why the CI carry refused.
  */
-export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; none?: string; diagnosis?: string[] } {
+export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
   const lines = stderr.split('\n');
+  const gate = lines.findLast(x => x.startsWith('gstack-evidence: recorded label=') && x.includes(' log=- source=remote_gate receipt='));
+  const gateRow = gate && / tests_ran=(\d+) log=- source=remote_gate receipt=(.+)$/.exec(gate);
+  if (gateRow) return { tests: gateRow[1], remoteGate: gateRow[2], standIn: lines.findLast(x => x.startsWith('CARRY_STANDIN: '))?.slice('CARRY_STANDIN: '.length) };
   const at = lines.findLastIndex(x => x.startsWith('gstack-evidence: recorded label=') && x.includes(' log=- source=ci runs='));
   const noneAt = lines.findLastIndex(x => x.startsWith('CARRY_NONE: '));
   const none = noneAt < 0 ? undefined : lines[noneAt]!.slice('CARRY_NONE: '.length);

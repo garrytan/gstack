@@ -563,11 +563,12 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
     if (!/EVIDENCE: FRESH/.test(e)) {
       const m = mapped.get(l.label);
       const res = m ? carryLane(cwd, base, l) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
-      if (m && !res.carried) {
+      if (m && !res.carried && !res.remoteGate) {
         r.add(`EVIDENCE: DEFERRED label=${l.label} (${short([res.carryNone ?? 'not carried'], 1).slice(0, 160)}): CI at the pushed head carries it in accept`);
         deferred.push(l.label);
         continue;
       }
+      for (const line of carryNoneLines(res)) r.add(line);
       const ran = laneLine(res);
       r.add(ran.line);
       if (!ran.ok) return r.stop(`lane ${l.label} failed or ran zero tests: STOP publication; run Steps 5-15 from Step 5's triage, then Step 16 stage 1`);
@@ -635,7 +636,8 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
   for (const l of list) {
     const m = mapped.get(l.label);
     const res = m ? carryLane(cwd, base, l, recordCi.seconds) : (await runLanes(cwd, [l], Infinity, { base }))[0]!;
-    if (m && !res.carried) { for (const line of carryNoneLines(res)) r.add(line); return r.stop(`lane ${l.label} was not carried from the green run (${short([res.carryNone ?? ''], 1).slice(0, 120)}): fix the cause, or run it here with gstack-ship-preflight --tests-only`); }
+    for (const line of carryNoneLines(res)) r.add(line);
+    if (m && !res.carried && !res.remoteGate) return r.stop(`lane ${l.label} was not carried from the green run (${short([res.carryNone ?? ''], 1).slice(0, 120)}): fix the cause, or run it here with gstack-ship-preflight --tests-only`);
     const ran = laneLine(res);
     r.add(ran.line);
     if (res.exception) { r.add(`TEST_LANE_EXCEPTION: ${res.exception}`); exceptions.push(res.exception); }

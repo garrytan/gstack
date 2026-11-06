@@ -1134,6 +1134,38 @@ different environment than the key. An alias that repeats a key or another
 entry's alias is invalid config. The ledger row binds the command the lane
 actually ran.
 
+<a id="ship-lanes-remote-gate"></a>**A lane whose inventory refuses its own tree.** A repo's inventory command
+may refuse a tree on purpose: gbrain's `runs_may_attest` exits 1 for a tree
+that changes CI-reuse files (its workflows, `scripts/ci-reuse.ts`), so no CI
+run can attest to it (GBRA-345, gbrain #8727). When the carry refuses as
+`inventory_failed`, /ship's lanes (finish, accept and Step 5, through
+`gstack-evidence record-ci --remote-gate-stands-in`) look for a cleared remote
+gate for the same tree, and it stands in for the lane only when every one of
+these holds (`lib/remote-gate-stand-in.ts`, GST-1688):
+
+- `.gstack/tmp/pregate.json` was recorded for HEAD's exact tree and
+  `gstack-pregate verify` accepts it now;
+- its `pregate.json/remote_gate` obligation holds the gate's own report,
+  `remote-gate tree=<HEAD's tree> tests=<n>` with n above 0 (from
+  `gstack-pregate --remote` or `clear --receipt`), run on that tree rather than
+  accepted from a stamp-only predecessor, with the time it was cleared.
+
+Then the ledger records the lane as `source=remote_gate` with that receipt and
+the gate's test count, timed at the clear, and accept prints
+`CI_CARRY: remote_gate label=<lane> receipt=<receipt> (inventory_failed: …; the
+cleared pregate.json/remote_gate for this exact tree stands in)` and `LANE: <lane>
+satisfied by remote_gate receipt=<receipt>`. The receipt's `ci_carried` never
+lists it, since no CI run carried it. Otherwise the lane stops as before, and a
+`CARRY_DIAGNOSIS: no cleared pregate.json/remote_gate stands in: <why>` line
+says which rule failed: a gate for an earlier tree, a receipt that names
+another tree, a record `verify` refuses, or none at all. Other refusals
+(`inventory_uncovered`, `no_tests`, …) never fall back to the gate.
+
+A run whose `tree.json` lists no files, which is what a rerun of only the
+failed jobs uploads, refuses as `no_tests` and says to dispatch a fresh full
+run of the profile's workflow (`gh workflow run <workflow> --ref <branch>`)
+and carry from that.
+
 **What `tests_ran` means on a carried lane.** No carried lane reports the whole
 run's count. A lane mapped by `inventory` reports how many of its inventory
 files the runs' `tree.json` covers, labeled as a file count (`tests_ran=14
