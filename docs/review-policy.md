@@ -540,8 +540,8 @@ among its plan lines. After `verify --targeted-out`, pass the new
 `targeted_patch_id` and the plan is `done`.
 
 Every other case stays `done` and prints `SKIP: targeted-only read
-(<reason>)`. That covers a code or binary change, which takes the review loop
-as before; plain docs, which the record carries; a range_base the
+(<reason>)`. That covers a code or binary change with no `--grant` (the granted
+case is below), which takes the review loop as before; plain docs, which the record carries; a range_base the
 `--targeted-ran` patch doesn't match; and uncommitted edits. `--force
 targeted` refuses (exit 2) and names these flags, because the targeted reader
 is no specialist (`lib/review-targeted-delta.ts`,
