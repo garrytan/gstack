@@ -482,9 +482,11 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
  * A commit on `from` that holds what the PR's own change did after `from`: every path whose part of the PR's diff against its
  * merge base with origin/<base> (product_patch_id's basis, with tests and metadata kept) differs between `from` and `head`, at
  * `head`'s content. A main merge moves the merge base with the files it brings, so a file only main changed keeps `from`'s
- * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path, and where the base
- * content did not move any change to the PR's side moves it, so a hunk relocated to an identical context counts. With no resolvable
- * merge base every path that changed from `from` to `head` moves. Null when git cannot build it.
+ * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path: a path whose base
+ * content main also changed moves unless replaying main's change onto `from`'s content (git merge-file) gives `head`'s exactly,
+ * so a hunk relocated to an identical context counts. With no resolvable merge base every path that changed from `from` to
+ * `head` moves. The commit carries the branch's first-parent messages since `from` (a CI skip marker is gate class). Null when
+ * git cannot build it.
  */
 function ownChangeSince(root: string, base: string, from: string, head: string): string | null {
   const run = (args: string[], env?: NodeJS.ProcessEnv, input?: string) => {
@@ -499,40 +501,49 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
     for (let i = 0; i + 1 < t.length; i += 2) entries.set(t[i + 1]!, t[i]!);
     return entries;
   };
-  const hunks = (a: string, b: string, p: string) => run(['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '--binary', a, b, '--', p])
-    ?.split('\n').filter(l => !l.startsWith('index ')).map(l => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n') ?? null;
+  const blob = (sha: string) => {
+    const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
+  if (!gitDir.ok) return null;
+  const tmp = path.join(gitDir.out, `gstack-since-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const index = `${tmp}.index`;
+  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
   const baseSha = baseCommit(root, `origin/${base.replace(/^origin\//, '')}`);
   const mbFrom = baseSha.ok ? git(root, ['merge-base', baseSha.out, from]) : baseSha;
   const mbHead = baseSha.ok ? git(root, ['merge-base', baseSha.out, head]) : baseSha;
-  let moved: string[];
-  if (mbFrom.ok && mbHead.ok) {
-    const was = raw(mbFrom.out, from), now = raw(mbHead.out, head);
-    if (!was || !now) return null;
-    moved = [...new Set([...was.keys(), ...now.keys()])].filter(p => {
-      const w = was.get(p), n = now.get(p);
-      if (w === n) return false;
-      if (!w || !n || w.split(' ')[2] === n.split(' ')[2]) return true;
-      const before = hunks(mbFrom.out, from, p);
-      return before === null || before !== hunks(mbHead.out, head, p);
-    });
-  } else {
-    const all = raw(from, head);
-    if (!all) return null;
-    moved = [...all.keys()];
-  }
-  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
-  if (!gitDir.ok) return null;
-  const index = path.join(gitDir.out, `gstack-since-${process.pid}-${randomBytes(4).toString('hex')}.index`);
-  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
   try {
+    let moved: string[];
+    if (mbFrom.ok && mbHead.ok) {
+      const was = raw(mbFrom.out, from), now = raw(mbHead.out, head);
+      if (!was || !now) return null;
+      moved = [...new Set([...was.keys(), ...now.keys()])].filter(p => {
+        const w = was.get(p), n = now.get(p);
+        if (w === n) return false;
+        const [, , wBase, wNew] = w?.split(' ') ?? [], [, , nBase, nNew] = n?.split(' ') ?? [];
+        const shas = [wNew, wBase, nBase, nNew];
+        if (wBase === nBase || shas.some(s => !s || /^0+$/.test(s))) return true;
+        const blobs = shas.map(s => blob(s!));
+        if (blobs.some(b => !b)) return true;
+        const files = blobs.slice(0, 3).map((b, i) => { fs.writeFileSync(`${tmp}.${i}`, b!); return `${tmp}.${i}`; });
+        const merged = spawnSync('git', ['merge-file', '-p', '-q', ...files], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+        return merged.status !== 0 || !merged.stdout.equals(blobs[3]!);
+      });
+    } else {
+      const all = raw(from, head);
+      if (!all) return null;
+      moved = [...all.keys()];
+    }
     const listed = moved.length ? run(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', ...moved]) : '';
-    if (listed === null) return null;
+    const messages = run(['log', '--first-parent', '--format=%B', `${from}..${head}`]);
+    if (listed === null || messages === null) return null;
     const atHead = new Map(listed.split('\0').filter(Boolean).map(l => [l.slice(l.indexOf('\t') + 1), l] as const));
     const entries = moved.map(p => `${atHead.get(p) ?? `0 ${'0'.repeat(from.length)}\t${p}`}\0`).join('');
     if (run(['read-tree', from], env) === null || run(['update-index', '-z', '--index-info'], env, entries) === null) return null;
     const tree = run(['write-tree'], env)?.trim();
-    return (tree && run(['commit-tree', '--no-gpg-sign', tree, '-p', from, '-m', 'gstack-ship-receipt: the PR\'s own change since the targeted read'], env)?.trim()) || null;
-  } finally { fs.rmSync(index, { force: true }); }
+    return (tree && run(['commit-tree', '--no-gpg-sign', tree, '-p', from, '-m', 'gstack-ship-receipt: the PR\'s own change since the targeted read', '-m', messages.trim() || '(no messages)'], env)?.trim()) || null;
+  } finally { for (const s of ['index', '0', '1', '2']) fs.rmSync(`${tmp}.${s}`, { force: true }); }
 }
 
 /**

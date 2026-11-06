@@ -309,6 +309,8 @@ describe('a main merge after the read keeps the record when the PR\'s own change
       for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     }
   };
+  const block = (cond: string, cap: boolean) => [`  if (${cond}) {`, '    a();', '    b();', '    c();', ...(cap ? ['    const spend_cap_usd = 5000;'] : []), '    d();', '    e();', '    f();', '  }'];
+  const charge = (one: boolean, two: boolean, header = '// charge') => [header, 'export function charge(amount: number) {', ...block('amount > 0', one), ...block('amount < 0', two), '}', ''].join('\n');
   const mainBrings = { 'lib/budget-ledger.ts': 'export const spend_cap_usd = 40;\n', 'lib/secrets.ts': 'export const key = process.env.OPENAI_API_KEY;\n' };
   const readAndMerge = () => {
     const { repo, base, head } = moneyBranch();
@@ -378,8 +380,6 @@ describe('a main merge after the read keeps the record when the PR\'s own change
   //   same context and function header still voids the record (position-free hunks compared equal); fails_when=a path whose
   //   base content did not move is judged by its line-number-free hunks; seam=targetedClassesSince
   test('no main merge: a branch edit that relocates the PR\'s money hunk to an identical context is refused', () => {
-    const block = (cond: string, cap: boolean) => [`  if (${cond}) {`, '    a();', '    b();', '    c();', ...(cap ? ['    const spend_cap_usd = 5000;'] : []), '    d();', '    e();', '    f();', '  }'];
-    const charge = (one: boolean, two: boolean) => ['export function charge(amount: number) {', ...block('amount > 0', one), ...block('amount < 0', two), '}', ''].join('\n');
     const repo = makeFixtureRepo({ prefix: 'gst1593-relocate-' });
     repos.push(repo);
     commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
@@ -388,5 +388,30 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
     commit(repo, 'src/charge.ts', charge(false, true), 'move the cap to the second block after the read');
     expect(classesSince(repo, read)).toContain('money');
+  });
+
+  // Value: protects=a main merge that also changed the PR's file replays cleanly (the record binds) yet a later relocation of the
+  //   PR's money hunk to an identical context still voids it; fails_when=position-free hunks decide a path whose base moved, or the
+  //   replay over-refuses a clean main change; seam=targetedClassesSince
+  test('a main merge to the PR\'s own file binds; relocating the money hunk after it is refused', () => {
+    const repo = makeFixtureRepo({ prefix: 'gst1593-relocate-merge-' });
+    repos.push(repo);
+    commit(repo, 'src/charge.ts', charge(false, false), 'main: charge');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', '-b', 'feat');
+    const read = commit(repo, 'src/charge.ts', charge(true, false), 'cap in the first block');
+    mainCommit(repo, { 'src/charge.ts': charge(false, false, '// charge: amounts in cents') }, 'main: header');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    expect(classesSince(repo, read)).toEqual([]);
+    commit(repo, 'src/charge.ts', charge(false, true, '// charge: amounts in cents'), 'move the cap to the second block after the merge');
+    expect(classesSince(repo, read)).toContain('money');
+  });
+
+  // Value: protects=a CI skip marker in a branch commit after the read stays gate class (RH-14) though the scan reads a built
+  //   commit; fails_when=the built commit drops the branch's messages; seam=targetedClassesSince
+  test('a branch commit after the read whose message skips CI is refused', () => {
+    const { repo, head } = moneyBranch();
+    commit(repo, 'test/charge.test.ts', 'import { test } from "bun:test";\ntest("cap", () => {});\n', '[skip ci] add a cap case');
+    expect(classesSince(repo, head)).toContain('gate');
   });
 });
