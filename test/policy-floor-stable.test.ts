@@ -136,14 +136,15 @@ describe('gstack-doctor --check floor row', () => {
     const f = makeFixture();
     fs.copyFileSync(path.join(REPO, 'lib/ship-policy-keys.ts'), path.join(f.root, 'lib/ship-policy-keys.ts'));
     const known = runningGstackVersion();
-    const at = floorRow(f, project(f, known));
+    const dir = project(f, known);
+    const at = floorRow(f, dir);
     expect(validatePolicy({ min_gstack_version: known })).toEqual([]);
     expect(at.status, at.line).toBe('PASS');
-    expect(at.line).toBe(known === VERSION ? `PASS floor ${known} declared by ${f.base}/project/.gstack/ship-policy.json (installed ${VERSION})` : `PASS floor ${known} declared by ${f.base}/project/.gstack/ship-policy.json (installed ${VERSION}, reads policies as ${known})`);
+    expect(at.line).toBe(known === VERSION ? `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION})` : `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION}, reads policies as ${known})`);
     // A checkout whose VERSION lags a key it carries reads the key's floor (validatePolicy agrees), so the row passes.
     writeFile(path.join(f.root, 'VERSION'), '1.0.0.0\n');
     const lagging = floorRow(f, project(f, known));
-    expect(lagging.line).toBe(`PASS floor ${known} declared by ${f.base}/project/.gstack/ship-policy.json (installed 1.0.0.0, reads policies as ${known})`);
+    expect(lagging.line).toBe(`PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed 1.0.0.0, reads policies as ${known})`);
     expect(validatePolicy({ min_gstack_version: known }, { gstackVersion: runningGstackVersion() })).toEqual([]);
     const next = known.replace(/^(\d+)\.(\d+)\..*$/, (_, a, b) => `${a}.${Number(b) + 1}.0.0`);
     expect(validatePolicy({ min_gstack_version: next }).map(e => e.code)).toEqual(['POLICY_GSTACK_TOO_OLD']);
