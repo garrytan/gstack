@@ -1,0 +1,39 @@
+REVIEWED_TREE: 565fdc2665face3fc18f35891625bff2d56a1697 /workspace/gstack
+
+I found four problems. One blocks: the `lanes` proof accepts a `.gstack/pregate.json` edit that removes required CI jobs, as long as the edit also adds one lane (finding 1). I read the non-fixture source diff in full against ef64250 (15 files, +318/−49) and ran local repros. The focused suites `test/ship-bounded-route.test.ts` and `test/ship-rereview-triggers.test.ts` pass (46 pass, 0 fail, run in this checkout).
+
+**Coverage.** I reviewed the fixtures and tests in summary mode only, so coverage is reduced there. Those files are the four ship SKILL goldens, the `review-depth.ts` review pin, a new replay `GST-1276.json`, a new `test/ship-bounded-route.test.ts` (271 lines: lanes, bookkeeping, literal-only, diff-scope and rebind cases), small edits to `ship-control-flow` and `ship-rereview-triggers`, and a size-ledger entry. I didn't read their payload bytes. gstack check on this machine: `gstack: ok 1.95.5.0 for=review` (behind=11).
+
+**1. The `lanes` proof misses any pregate key outside headPolicyDiff's FROZEN list. FIXABLE.**
+`boundedPaths` (`lib/ship-patch.ts`, the lanes branch) decides "only adds lanes" with `headPolicyDiff`. That function compares only the FROZEN keys and `dependencies`. `run_profiles`, `remote_gate_runs`, `ship_lanes_from` and `sealed` are valid pregate keys that it never compares. Pregate's own `headPolicy` can safely ignore them, because it applies only the added lanes at head. Finish is different: the edited file itself merges and becomes main's policy.
+
+Repro: I took a temp repo with this repository's `.gstack/pregate.json` and made a 3-line edit. It adds one `dependencies` entry and cuts `run_profiles["ci-reuse/free-tests"].jobs` from 8 jobs to `["free-plan"]`. `boundedPaths` returned `{"kinds":{".gstack/pregate.json":"lanes"},"refused":[]}`.
+
+So an edit that loosens which jobs a CI-reuse run must pass takes one scoped reader. That reader's note only asks it to check lane globs. This contradicts the documented "any other key stops", on a path that `isGatePath` itself marks as a gate path.
+
+Fix: for the lanes kind, require every top-level key except `dependencies` to be canonically equal at the reviewed and current trees, then apply `headPolicyDiff` to `dependencies`. Add the repro as a test.
+Severity: High. Blocks: yes
+
+**2. `literalOnly` lets a changed expected value through as a "literal". FIXABLE.**
+`gateEditedPaths` returned `[]` (meaning scoped reader, not behavior) for both of these:
+- (a) `const expected = 'abc';` changed to `'abd'`, where a later `expect(f()).toBe(expected)` reads it. The statement scan stops at the previous `;`, and `\bexpect\b` doesn't match `expected`.
+- (b) `const v = run(); /* don't */ expect(v).toBe(1); const tag = 'z';` with `toBe(1)` changed to `toBe(2)`. The apostrophe in the comment pairs with the later `'`, so `QUOTED` blanks the assertion before `CHECK_CALL` runs.
+
+The changelog says "A changed expected value ... still stops", and that's false for both. Rust lifetimes (`'a`) and apostrophes in comments hit (b) naturally.
+
+Fix: strip comments before blanking quoted strings, and refuse a pair whose emptied span held code tokens. Then either refuse a changed binding that an assertion later names, or drop that line from the changelog.
+Severity: Medium. Blocks: no (the scoped reader still reads the hunk)
+
+**3. The audit-prose proof only shows the snapshot came after the edit. INVESTIGATE.**
+`gstack-docs-candidate snapshot` hashes every path the branch changed (`selected` defaults to committed, staged, unstaged and untracked). So `audited[p]` exists for any branch-changed doc. Any edit of 20 lines or fewer, made after review and before the Step 14.5 snapshot, passes as "the audit's". That covers `docs/review-policy.md`, `docs/ship-policy.md`, `docs/captain|unattended|pregate.md`, `AGENTS.md` and `CLAUDE.md`, which are the policy text that defines caps and gates.
+
+Fix: bind the proof to the audit's own edit set (the audit record's edited paths, or the `--docs` paths), not to `hashes`.
+Severity: Medium. Blocks: no
+
+**4. Rebind fails after any base merge between the targeted read and head. INVESTIGATE.**
+`need` in `bin/gstack-ship-receipt` holds every non-metadata path changed from the read to head. That includes paths finish routed `base` (merge-only changes), and the scoped record never lists those. So `scopedReadCovers` returns false after any base merge. That's fail-closed and safe, but the feature is lost exactly when lanes usually need it.
+
+Separately, a bounded edit that adds a new targeted class rebinds with the record's old classes. The later REVIEW_TARGETED verdict then refuses it (also fail-closed), so the `TARGETED_REBOUND:` line is misleading in that case.
+Severity: Low. Blocks: no
+
+Recommendation: Fix the lanes proof in boundedPaths (lib/ship-patch.ts) because a 3-line pregate.json edit that drops 7 of the 8 required CI-reuse jobs is classified `lanes` and merges with only one scoped reader.

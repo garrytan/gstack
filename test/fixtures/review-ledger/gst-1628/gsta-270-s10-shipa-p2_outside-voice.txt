@@ -1,0 +1,5 @@
+REVIEWED_TREE: 413ec1495a6cf9bef8bf949bc45f059a51830ef7 /workspace/gstack
+
+1. `lib/review-fetch.ts:189` — Testing every ancestor against `p + '/x'` incorrectly forbids sibling files. With `forbid_paths: ["lib/x"]`, `forbiddenPath(..., "lib/review-fetch.ts")` returns `true`; native Git with the generated `lib/x` and `lib/x/**` exclusions correctly retains that file. Consequently, `bin/gstack-review-plan:226` drops legitimate code from the keep-back list. When an active `review_exclude_paths` pattern covers that directory, code otherwise protected from exclusion silently disappears from reviewers’ diffs. Match actual ancestors, not a fabricated child named `x`. Severity: Medium. Blocks: yes
+
+Recommendation: Fix before shipping because the fabricated `/x` match can silently remove sibling code from mandatory review.

@@ -871,7 +871,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    and no exception clause, with no line above it in its paragraph that runs on (no closing period) or names an
    exception, and whose every labelled sentence is
    wholly a denial ("I found nothing CRITICAL.", "I found no defect that is CRITICAL.", "No P0/P1 issues.", "Neither
-   finding is CRITICAL."), a count ("I found three INFORMATIONAL issues and nothing CRITICAL" collects at
+   finding is CRITICAL.", or with a rating verb: "None of these rises to CRITICAL.", "Nothing reaches the CRITICAL
+   floor.", GST-1628), a count ("I found three INFORMATIONAL issues and nothing CRITICAL" collects at
    INFORMATIONAL) or "nothing blocks", with labels spelled as collect spells them. Such a line collects nothing when it
    is only those sentences; when it also holds an unlabelled sentence ("Here is what I checked:", or one that may
    describe a defect) it stays on record at INFORMATIONAL, never as a blocker. A quantifier that points at a finding
@@ -881,7 +882,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    still collects at its label, so a closing summary with a clause of its own ("I checked these against the post and
    found nothing CRITICAL") is a known phantom: it collects at that label. When it is a summary candidate (no lead label, no
    `Severity` or `Blocks` field, and no file:line or exception clause in any sentence naming a label: "so nothing is
-   CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
+   CRITICAL", "so nothing reaches CRITICAL", "the test covers the CRITICAL fix"), collect marks it `summary_candidate` and lead judgment may lower it
    with a reason, which judge records as `dismissed` (GST-1031). A native adversarial finding whose own text states
    `Blocks: no` and one `Severity` field may also be lowered with a reason to that Severity, never below it, and is
    recorded as `dismissed` too (GST-1406): collect keeps the FIXABLE raise when those fields follow prose, because it
