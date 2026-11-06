@@ -285,7 +285,9 @@ Spend already metered carries, so `used`, `credits`, the observe hard stop and a
 every epoch; `epochs[]` in the ledger keeps each closed epoch's baseline, last reading, usage and
 source. Spend between the previous thread's last reading and the handoff, and the successor's spend
 before its first reading, is not metered. Both readings are required (`BUDGET_READING_MISSING`
-otherwise). `resume --rebuild-from-record` takes the same flags: with the ledger intact it opens the
+otherwise). A handoff child still open is refused (`BUDGET_READING_REJECTED`): its spend lands on
+the previous thread's counter, which the new epoch cannot see, so reconcile it first with a reading of
+that counter (`tools.thread.get` on the previous jam id). `resume --rebuild-from-record` takes the same flags: with the ledger intact it opens the
 epoch as above, and a rebuilt ledger starts at the successor's readings with the record's `used` and
 `credits` carried. Within one epoch nothing changes: a reading below the last is still refused
 ([BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected)), and the same thread resumes

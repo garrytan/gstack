@@ -457,6 +457,8 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     const successor = source !== undefined && source !== l.meter.source;
     if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);
     if (successor && l.credits && str(o, 'credits') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: run ${l.run} meters credits; pass --credits <its cost.credits>, the new epoch's baseline`);
+    const open = successor ? l.handoffs.filter(h => !h.reconciled_at) : [];
+    if (open.length) throw budgetError('BUDGET_READING_REJECTED', `resume --meter-source ${source}: handoff ${open.map(h => `${h.sha} (steps ${h.from}-${h.to})`).join(', ')} still runs on ${l.meter.source ?? 'the previous'} counter, which the new epoch cannot see; reconcile it first with a reading of that counter (gstack-ship-budget reconcile --run ${l.run} --handoff <sha256> --reading <its cost.tokens>), then resume`);
     if (meter !== l.meter.contract.meter || successor) {
       const previous = l.meter.source ?? 'unrecorded';
       const sessions = meter === 'claude' ? bindClaude(o, ctx.env) : undefined;

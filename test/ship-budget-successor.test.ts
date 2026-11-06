@@ -110,6 +110,29 @@ describe('successor thread resume (GST-1655)', () => {
     expect(r.out).toContain('source=jam_B previous_source=unrecorded');
   });
 
+  test('a successor cannot open an epoch while a handoff child still runs on the predecessor\'s counter', () => {
+    const h = fresh();
+    const record = h.record();
+    const s = h.sb(['start', '--record', record, '--token-cap', '200M', '--reading', '40M', '--meter-source', 'jam_A']);
+    expect(s.code).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const ho = h.sb(['handoff', '--run', run, '--from', '9', '--to', '22', '--base', 'origin/main', '--reading', '41M']);
+    expect(ho.code, ho.out + ho.err).toBe(0);
+    const sha = /^HANDOFF: \S+ sha256=(\S+)/m.exec(ho.out)![1]!;
+    const ledger = h.field(s.out, 'BUDGET_RUN', 'ledger');
+    const before = fs.readFileSync(ledger, 'utf8');
+    const r = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain(sha);
+    expect(r.err).toContain('reconcile');
+    expect(fs.readFileSync(ledger, 'utf8')).toBe(before);
+    const rec = h.sb(['reconcile', '--run', run, '--handoff', sha, '--reading', '45M']);
+    expect(rec.code, rec.out + rec.err).not.toBe(2);
+    const after = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
+    expect(after.code, after.out + after.err).toBe(0);
+    expect(h.field(after.out, 'BUDGET', 'used')).toBe('5000000');
+  });
+
   test('the total across epochs trips the hard stop', () => {
     const h = fresh();
     const a = threadA(h, '50M');
