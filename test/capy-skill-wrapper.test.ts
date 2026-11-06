@@ -925,6 +925,35 @@ describe('capy skill: R75 edges (review)', () => {
     expect(d.git(['rev-parse', 'refs/heads/main'])).toBe(local);
   });
 
+  // Value: protects=a fast-forward refused after the override switched a pin puts the pin back: a detached HEAD returns to its commit with no stray
+  // default branch, another branch returns to that branch; fails_when=a refusal leaves the checkout switched or keeps a created main; why_new=/ship
+  // review specialist-batched#1; seam=a held $GSTACK_STATE_ROOT/.setup-lock; no_claim=the trailer's fix target after the rollback
+  test('a fast-forward refused after the override switch restores the pin', () => {
+    const held = (f: ReturnType<typeof behindBy>) => {
+      const stateRoot = spawnSync('bash', [path.join(f.root, 'bin/gstack-paths'), '--get', 'GSTACK_STATE_ROOT'], { encoding: 'utf8', env: f.host.env, timeout: 10_000 }).stdout.trim();
+      expect(path.resolve(stateRoot).startsWith(path.resolve(f.host.base) + path.sep)).toBe(true);
+      fs.mkdirSync(path.join(stateRoot, '.setup-lock'), { recursive: true });
+    };
+    const d = behindBy(25);
+    d.git(['checkout', '-q', '--detach']);
+    d.git(['branch', '-q', '-D', 'main']);
+    held(d);
+    const detached = d.run(['--for', 'autoplan']);
+    expect(detached.stdout).toContain('SELF_UPGRADE: pin kept');
+    expect(detached.stdout).not.toContain('pin overridden');
+    expect(d.git(['rev-parse', 'HEAD'])).toBe(d.b);
+    expect(spawnSync('git', ['-C', d.root, 'symbolic-ref', '-q', 'HEAD'], { timeout: 10_000 }).status).not.toBe(0);
+    expect(spawnSync('git', ['-C', d.root, 'show-ref', '--verify', '-q', 'refs/heads/main'], { timeout: 10_000 }).status).not.toBe(0);
+
+    const t = behindBy(25);
+    t.git(['checkout', '-q', '-b', 'topic']);
+    held(t);
+    const topic = t.run(['--for', 'autoplan']);
+    expect(topic.stdout).toContain('SELF_UPGRADE: pin kept (the fast-forward was refused, so HEAD is back at topic)');
+    expect(t.git(['symbolic-ref', '--short', 'HEAD'])).toBe('topic');
+    expect(t.git(['rev-parse', 'HEAD'])).toBe(t.b);
+  });
+
   // Value: protects=an explicit --revision counts as a recorded reason, a reason cannot break the trailer grammar, a review-voice reader is told the
   // lane's install moves the shared checkout, and the stable channel is not measured against main; fails_when=any of those regress; why_new=review
   // F2/F4/F5/F6; seam=fixture; no_claim=none
@@ -939,7 +968,9 @@ describe('capy skill: R75 edges (review)', () => {
     expect(evil.last).toContain('stale=25h (pinned: x fix: rm -rf / more)');
     expect(evil.last).not.toContain('; fix: rm');
     f.git(['checkout', '-q', 'main']);
-    expect(f.run(['--check', '--for', 'review-voice']).last).toContain("stale=25h (shared checkout: the lane's install moves it)");
+    const voice = f.run(['--check', '--for', 'review-voice']);
+    expect(voice.last).toContain("stale=25h (shared checkout: the lane's install moves it)");
+    expect(voice.stdout).not.toContain('run the fix before the first workflow');
     expect(f.run(['--check', '--for', 'autoplan'], { GSTACK_UPDATE_CHANNEL: 'stable' }).last).toContain('stale=none');
   });
 

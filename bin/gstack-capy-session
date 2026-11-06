@@ -202,7 +202,7 @@ if [ "$CHECK" -eq 1 ]; then
     fi
     BRANCH=$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null || echo HEAD)
     echo "gstack-capy-session: behind origin/$BRANCH: $(head -1 "$ROOT/VERSION" 2>/dev/null) -> $GSTACK_CAPY_BEHIND_TO ($GSTACK_CAPY_BEHIND commits); fix: $GSTACK_CAPY_BEHIND_FIX$([ "$GSTACK_CAPY_BEHIND_FIX" = "$RERUN" ] && echo ' (fast-forwards)')"
-    [ -n "$STALE_H" ] && [ -z "$PIN_REASON" ] && echo "gstack-capy-session: stale: the oldest commit this checkout lacks is ${STALE_H}h old (over 24h); run the fix before the first workflow"
+    [ -n "$STALE_H" ] && [ -z "$PIN_REASON" ] && ! gstack_doctor_install_profile "$SKILL" && echo "gstack-capy-session: stale: the oldest commit this checkout lacks is ${STALE_H}h old (over 24h); run the fix before the first workflow"
   fi
 elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
   if [ "${GSTACK_CAPY_SELF_UPGRADE:-}" = off ] && [ -z "$UNREASONED" ]; then disabled GSTACK_CAPY_SELF_UPGRADE
