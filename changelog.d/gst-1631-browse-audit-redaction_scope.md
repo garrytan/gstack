@@ -1,0 +1,1 @@
+- **The GST-1631 audit redaction covers typed command values, not every secret.** The page URL in `origin` and very short values echoed in error text are not yet redacted (GST-1635).
