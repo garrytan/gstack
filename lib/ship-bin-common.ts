@@ -182,7 +182,7 @@ export function laneConcurrency(mode: string | undefined, cpus = os.availablePar
   return cpus <= 4 ? 1 : Infinity;
 }
 
-export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string; notOwed?: string; here?: string }
+export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; reused?: string; carryNone?: string; diagnosis?: string[]; notOwed?: string; here?: string; exception?: string }
 
 /** The base branch's `ship_lanes_from` entry for each lane whose command is a key or a declared alias, byte for byte (the ledger binds its sha256). */
 export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, ShipLaneMapping> {
@@ -201,8 +201,8 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
 export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
   const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
   const got = recordCiResult(rec.stderr);
-  if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}) };
-  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}` };
+  if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}) };
+  return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}`, ...(got.diagnosis ? { diagnosis: got.diagnosis } : {}) };
 }
 
 /**
@@ -240,5 +240,5 @@ export function laneLine(l: LaneResult): { line: string; ok: boolean } {
   return { line: `LANE: ${l.label} ${state} exit=${l.exit} tests_ran=${l.testsRan} log=${l.log}${l.reused ? ` reused=${l.reused}` : ''}`, ok: l.exit === 0 && !zero };
 }
 
-/** The CI_CARRY line for a mapped lane that ran here instead. */
-export const carryNoneLine = (l: LaneResult) => (l.carryNone ? `CI_CARRY: none label=${l.label} (${l.carryNone.length > 220 ? `${l.carryNone.slice(0, 220)}…` : l.carryNone})` : null);
+/** The CI_CARRY line for a mapped lane that ran here instead, then a CARRY_DIAGNOSIS line per uncovered file another test file imports. */
+export const carryNoneLines = (l: LaneResult): string[] => (l.carryNone ? [`CI_CARRY: none label=${l.label} (${l.carryNone.length > 220 ? `${l.carryNone.slice(0, 220)}…` : l.carryNone})`, ...(l.diagnosis ?? []).map(d => `CARRY_DIAGNOSIS: ${d}`)] : []);

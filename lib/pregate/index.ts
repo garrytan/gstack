@@ -18,7 +18,7 @@ import { ARTIFACT_SCHEMAS, checkSchema, type PregateException, type PregateFile,
 import { wtreeFingerprint, type WtreeResult } from '../script-invocation';
 import { resolveStateRoot } from '../state-root';
 import { guardsCheck } from './checks/guards';
-import { findCarry } from '../ci-carry';
+import { findCarry, importedTestLines } from '../ci-carry';
 import { clearHint, fromRunProfiles, lanesCheck, parseRemoteReport, REMOTE_GATE_LANE, remoteReportProblem, treeMismatch } from './checks/lanes';
 import { literalsCheck } from './checks/literals';
 import { regenCheck } from './checks/regen';
@@ -456,7 +456,8 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
     for (const f of listed) required.add(f);
   }
   const missing = uncoveredFiles([...required], evidence);
-  if (missing.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${isGate ? 'inventory_uncovered' : 'tests_uncovered'} — ${missing.length} of the ${required.size} test file(s) ${lane} must cover appear in no run's tree.json (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}); ${lane} stays uncleared` };
+  const imported = missing.length ? importedTestLines(repoRoot, missing, [...required]) : [];
+  if (missing.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=${isGate ? 'inventory_uncovered' : 'tests_uncovered'} — ${missing.length} of the ${required.size} test file(s) ${lane} must cover appear in no run's tree.json (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''})${imported.length ? `; ${imported.join('; ')}` : ''}; ${lane} stays uncleared` };
   const granted = red ? flakyDecision(file, lane, check, red, flaky!, repoRoot) : null;
   if (granted && 'refused' in granted) return granted;
   for (const e of evidence) {

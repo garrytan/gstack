@@ -15,7 +15,7 @@ import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { bin, carryNoneLine, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -203,7 +203,7 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
   r.add(run.line);
   const ran = await runLanes(cwd, list, run.concurrency, { base });
   const results = ran.map(laneLine);
-  for (const [i, l] of results.entries()) { const none = carryNoneLine(ran[i]!); if (none) r.add(none); r.add(l.line); }
+  for (const [i, l] of results.entries()) { for (const none of carryNoneLines(ran[i]!)) r.add(none); r.add(l.line); }
   const bad = results.filter(l => !l.ok);
   if (bad.length) { r.stop(`${bad.length} lane(s) failed or ran zero tests: Step 5 triage (read each log; a free-suite shard failure reruns its file list per measure.md); in-branch failures stop the ship`); return; }
   r.next('Step 6: select eval suites for prompt-related changes with the project\'s selector, then Step 7');
