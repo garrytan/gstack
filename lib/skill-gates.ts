@@ -22,9 +22,26 @@ export type GateHook = 'investigate-gate' | 'ceo-review-gate';
 export type GateEvent = 'fired' | 'blocked' | 'released' | 'observed' | 'exhausted' | 'skipped' | 'error';
 export const GATE_DOC = 'docs/skill-gates.md';
 export const DEADLINE_MS = 5000;
+/** The most GSTACK_SKILL_GATE_DEADLINE_MS can set; a larger value is clamped to it. */
+export const DEADLINE_MAX_MS = 20_000;
 const STDIN_CAP_BYTES = 1024 * 1024;
 const STDIN_DEADLINE_MS = 500;
 const LOCK_WAIT_MS = 3000;
+/** What a hook needs beyond its deadline: Bun startup before the timer starts, and the GATE_TIMEOUT marker write, which can wait out the session lock. */
+export const HOOK_MARGIN_MS = LOCK_WAIT_MS + 2000;
+/**
+ * The timeout, in seconds, on every gate hook registration (gstack-skill-gates
+ * settings, and ./setup through `gstack-skill-gates hook-timeout`). Claude Code
+ * kills a hook at its timeout and lets the stop or call through with no marker,
+ * so the registration must outlive the longest deadline plus the margin.
+ */
+export const HOOK_TIMEOUT_S = Math.ceil((DEADLINE_MAX_MS + HOOK_MARGIN_MS) / 1000);
+
+/** The hook's deadline: GSTACK_SKILL_GATE_DEADLINE_MS when positive, clamped to DEADLINE_MAX_MS, else DEADLINE_MS. */
+export function deadlineFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const ms = Number(env.GSTACK_SKILL_GATE_DEADLINE_MS);
+  return ms > 0 ? Math.min(ms, DEADLINE_MAX_MS) : DEADLINE_MS;
+}
 const LOCK_STALE_MS = 30_000;
 const SESSION_DIRS_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -184,7 +201,7 @@ export async function runGateHook(hook: GateHook, isOn: () => boolean, handler: 
     process.stderr.write(`${marker} (stop and edits allowed; see ${GATE_DOC}#${code.toLowerCase().replace(/_/g, '-')})\n`);
     process.stdout.write(JSON.stringify({ systemMessage: marker }));
   };
-  deadlineMs = Number(process.env.GSTACK_SKILL_GATE_DEADLINE_MS) || DEADLINE_MS;
+  deadlineMs = deadlineFromEnv();
   deadlineAt = Date.now() + deadlineMs;
   const timer = setTimeout(() => { fail('GATE_TIMEOUT', `timed out after ${deadlineMs} ms`); process.exit(0); }, deadlineMs);
   try {

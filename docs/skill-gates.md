@@ -107,13 +107,22 @@ A gate never blocks because it broke. On any error it writes an `error` marker w
 |---|---|---|
 | <a id="gate-bad-payload"></a>`GATE_BAD_PAYLOAD` | the hook input is not a JSON object with `session_id` and `transcript_path`, or is over 1 MiB | a Claude Code version change; update gstack |
 | <a id="gate-transcript"></a>`GATE_TRANSCRIPT` | the transcript is missing, over 32 MiB, or not a shape the parser knows, or the /plan-ceo-review load record has no timestamp | see [skill-routing-and-contracts.md](skill-routing-and-contracts.md#exit-4-unknown-shape) |
-| <a id="gate-timeout"></a>`GATE_TIMEOUT` | the hook ran past its 5 second deadline (`GSTACK_SKILL_GATE_DEADLINE_MS` changes it) | a very large dirty tree or a slow disk |
+| <a id="gate-timeout"></a>`GATE_TIMEOUT` | the hook ran past its 5 second deadline (`GSTACK_SKILL_GATE_DEADLINE_MS` changes it, up to 20 seconds; a larger value is clamped to 20) | a very large dirty tree or a slow disk |
 | <a id="gate-git"></a>`GATE_GIT` | a git command failed or HEAD stopped resolving | run the named git command in the repository |
 | <a id="gate-state"></a>`GATE_STATE` | the session record or baseline could not be read or written | make `$GSTACK_STATE_ROOT` writable, or delete `skill-gates/<session id>/` |
 | <a id="gate-locked"></a>`GATE_LOCKED` | another hook held the session lock for over 3 seconds | transient; a lock older than 30 seconds is taken over |
 | <a id="gate-slug"></a>`GATE_SLUG` | /plan-ceo-review: `bin/gstack-slug` failed, so the ceo-plans directory could not be checked | run `gstack-slug` in the repository; `GSTACK_PROJECT_SLUG` pins it |
 | <a id="gate-restore-failed"></a>`GATE_RESTORE_FAILED` | a changed file could not be put back | the block lists restored and failed files; run `git diff HEAD -- <files>` and fix them by hand |
 | <a id="gate-unexpected"></a>`GATE_UNEXPECTED` | any other throw | report it with the trace log line |
+
+<a id="hook-timeout"></a>
+### Hook timeout: a killed hook cannot fail closed
+
+Claude Code kills a hook that runs past the `timeout` in its registration and then lets the stop or tool call through as if the hook had allowed it. It writes nothing to the stream output about the kill, and the hook settings have no option that makes a timed-out hook block. A gate killed this way leaves no `error` marker either, because its own deadline never fired, so `gstack-skill-gates report` cannot see it. There is no way for the gate to fail closed after a kill.
+
+So every gate registration outlives the gate. `HOOK_TIMEOUT_S` in `lib/skill-gates.ts` is the longest deadline (20 seconds) plus a 5 second margin for Bun startup and the `GATE_TIMEOUT` marker write, rounded up: 25 seconds. `gstack-skill-gates settings` writes it on every hook, and `./setup` reads it from `gstack-skill-gates hook-timeout`; re-running setup updates an older 10 second registration. A slow scan then ends in the gate's own `GATE_TIMEOUT`, which is recorded and makes `report` exit 3. Keep your own settings files at or above this number.
+
+Tested with Claude Code 2.1.318 through `claude -p --settings` only: a Stop hook killed at a 3 second timeout let the stop through, and the same hook with a 15 second timeout blocked it (GST-1615).
 
 ## Exit codes
 

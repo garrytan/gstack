@@ -4971,6 +4971,11 @@ _skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPr
 _skill_hook_gate skill_contracts "$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \
   "$SKILL_CONTRACT_HOOK" gstack-skill-contract 10 \
   "a contract skill that ends without its required outputs is blocked once"
+# Both skill gates register HOOK_TIMEOUT_S from lib/skill-gates.ts, the longest
+# gate deadline plus a margin (GST-1615): Claude Code kills a hook at its
+# timeout and lets the stop through unchecked. Empty if bun cannot run, which
+# omits the timeout and leaves Claude Code's default.
+SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates" hook-timeout 2>/dev/null || true)"
 # The /investigate gate (GST-1461, docs/skill-gates.md) registers one shim per
 # event; each basename has its own KNOWN_HOOKS row under one source tag.
 INVESTIGATE_GATE_PRE="$(_hook_command_path hosts/claude/hooks/investigate-gate-pre || true)"
@@ -4979,7 +4984,7 @@ INVESTIGATE_GATE_POST_FAILURE="$(_hook_command_path hosts/claude/hooks/investiga
 INVESTIGATE_GATE_STOP="$(_hook_command_path hosts/claude/hooks/investigate-gate-stop || true)"
 INVESTIGATE_GATE_EDIT_MATCHER="Edit|Write|MultiEdit|NotebookEdit|Bash"
 _skill_hook_gate investigate_gate "$INVESTIGATE_GATE_MODE" GSTACK_INVESTIGATE_GATE PreToolUse \
-  "$INVESTIGATE_GATE_PRE" gstack-investigate-gate 10 \
+  "$INVESTIGATE_GATE_PRE" gstack-investigate-gate "$SKILL_GATE_HOOK_TIMEOUT" \
   "after /investigate loads, changes to tracked source wait for a stated root cause" \
   "$INVESTIGATE_GATE_EDIT_MATCHER" \
   PostToolUse "$INVESTIGATE_GATE_POST" Bash \
@@ -4990,7 +4995,7 @@ _skill_hook_gate investigate_gate "$INVESTIGATE_GATE_MODE" GSTACK_INVESTIGATE_GA
 CEO_REVIEW_GATE_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-stop || true)"
 CEO_REVIEW_GATE_SUBAGENT_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-subagent-stop || true)"
 _skill_hook_gate ceo_review_gate "$CEO_REVIEW_GATE_MODE" GSTACK_CEO_REVIEW_GATE Stop \
-  "$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate 10 \
+  "$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" \
   "after /plan-ceo-review loads, its final stop waits for ranked top risks in the output file" "" \
   SubagentStop "$CEO_REVIEW_GATE_SUBAGENT_STOP" ""
 
