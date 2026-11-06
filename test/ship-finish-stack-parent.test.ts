@@ -174,6 +174,41 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('docs/review-policy.md')]);
   });
 
+  // Value: protects=an owner's exception that names a test path the branch ships only against main (unchanged since review,
+  //   edited after the fix-check, and edited by main after the parent landed) routes it as accepted when main's copy and the
+  //   branch's transpile to the same JavaScript, and still stops when they differ in an assertion or the path is unnamed
+  //   (GST-1682); fails_when=route's shipped-only checkFreePaths call is dropped, or compares the reviewed tree instead of
+  //   main's merge base; seam=lib/ship-release.ts route, the shipped-only checkFreePaths(currentBase) call
+  test('a named shipped-only test path routes when main\'s copy differs from the branch only in types', () => {
+    const SPEC = 'test/land.test.ts';
+    const spec = (cast: string, check = 'expect(body.attest).toBeNull();') => `import { expect, test } from 'bun:test';\ntest('attest is null when unset', async () => {\n  const body = (await Promise.resolve({ attest: null })) as unknown as { attest?: ${cast} | null };\n  ${check}\n});\n`;
+    const NARROW = '{ system: string; ops: string[] }';
+    const WIDE = '{ system: string; ops: string[]; sources: string[] | null }';
+    const run = (mainCopy: string, files: string[] = [SPEC]) => {
+      let fixHead = '';
+      const s = stacked({
+        parentFiles: { ...PARENT, [SPEC]: spec(NARROW) },
+        mainLater: { [SPEC]: mainCopy },
+        beforeMerge: g => {
+          g.write({ [SPEC]: spec(NARROW, 'expect(body.attest ?? null).toBeNull();') }); g.commit('the fix-check\'s edit'); fixHead = head(g);
+          g.write({ [SPEC]: spec(NARROW) }); g.commit('back to the reviewed test');
+        },
+      });
+      s.f.write({ [SPEC]: spec(NARROW) }); s.f.commit('keep the reviewed test over main\'s');
+      expect([s.f.git('diff', '--quiet', s.reviewed, 'HEAD', '--', SPEC).status, s.f.git('diff', '--quiet', 'origin/main', 'HEAD', '--', SPEC).status]).toEqual([0, 1]);
+      const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-06', via: 'test', reason: 'fixture', fix_check: { head: fixHead, findings: 1, files } });
+      const r = finish(s.f, s.reviewed, s.post, ['--reviewed-base', s.parent, '--review-loop-exception', exception]);
+      return { r, out: [r.status, lineOf(r.stdout, 'ROUTE'), lineOf(r.stdout, 'STOP')] };
+    };
+    const typeOnly = run(spec(WIDE));
+    expect(typeOnly.out, typeOnly.r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* accepted=1$/), '']);
+    expect(lineOf(typeOnly.r.stdout, 'REVIEW_LOOP_EXCEPTION')).toStartWith(`REVIEW_LOOP_EXCEPTION: accepted ${SPEC} (`);
+    const unnamed = run(spec(WIDE), ['src/child.ts']);
+    expect(unnamed.out, unnamed.r.stdout).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), behaviorStop(SPEC)]);
+    const assertion = run(spec(WIDE, 'expect(body.attest).toBeUndefined();'));
+    expect(assertion.out, assertion.r.stdout).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), behaviorStop(SPEC)]);
+  });
+
   // Value: protects=a review-loop exception with no files list cannot accept a parent change main never received: its
   //   "touched at the fix-check head" set starts at the landed parent, not at the pre-parent fork (red-team p1 on #4021);
   //   fails_when=the loop's atHead runs from merge-base(origin/main, fix_check.head) under a landed stack parent;

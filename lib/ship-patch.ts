@@ -263,9 +263,11 @@ function gateTaggedPaths(repoRoot: string, from: string, to: string, paths: read
 /**
  * Test paths an owner's review-loop exception that names them may route (GST-1682): a .ts, .mts or .cts ES module that
  * lib/gate-diff leaves untagged and whose whole file at from and at to transpiles to byte-identical JavaScript, so the
- * edit changed only types or comments (a cast widened, GBRA-336). A parse error on either side, a file git cannot show, a
- * non-TS path or one with no import statement (Bun runs that as CommonJS, where the `"use strict"` the transpiler drops can
- * change behavior) stays out. The options are pinned so no default rewrites the comparison: Bun inlines
+ * edit changed only types or comments (a cast widened, GBRA-336), and whose leading comments and whitespace (`#!` included,
+ * everything before the first token of code) are byte-identical, since Bun, Jest and Vitest read pragmas there (`// @bun`
+ * runs the file untransformed; `@jest-environment`, `@vitest-environment`, `@jsx`). A parse error on either side, a file
+ * git cannot show, a non-TS path or one with no import statement (Bun runs that as CommonJS, where the `"use strict"` the
+ * transpiler drops can change behavior) stays out. The options are pinned so no default rewrites the comparison: Bun inlines
  * process.env.NODE_ENV and BUN_ENV as this process's BUN_ENV or NODE_ENV (else "development") and process.browser as a
  * constant, and declares `var __dirname = ""` (`__filename = "input.ts"`) for a free use, so each maps to an identifier no
  * source can spell; legacy decorators with metadata keep the types a decorated member's metadata carries; no tsconfig is
@@ -296,10 +298,12 @@ export function checkFreePaths(repoRoot: string, from: string, to: string, paths
     if (text === null) return null;
     try { return transpiler.scan(text).imports.some(i => i.kind === 'import-statement') ? transpiler.transformSync(text) : null; } catch { return null; }
   };
+  const leading = (text: string) => /^(?:#![^\n]*)?(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/.exec(text)![0];
   return new Set(paths.filter(p => {
     if (tagged.has(p) || !/\.[mc]?ts$/.test(p)) return false;
-    const before = erased(git(repoRoot, ['show', `${from}:${p}`]));
-    return before !== null && before === erased(git(repoRoot, ['show', `${to}:${p}`]));
+    const beforeText = git(repoRoot, ['show', `${from}:${p}`]), afterText = git(repoRoot, ['show', `${to}:${p}`]);
+    const before = erased(beforeText);
+    return before !== null && before === erased(afterText) && leading(beforeText!) === leading(afterText!);
   }));
 }
 

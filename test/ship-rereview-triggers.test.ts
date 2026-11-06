@@ -842,10 +842,12 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
   // Value: protects=checkFreePaths admits only a file whose before and after transpile to identical JavaScript under pinned
   //   options, so an untagged edit that hollows a check it never touches (an early return, a changed value under test, a
   //   comment-out or try/catch wrap, a changed string after ` as `, an `as {` inside a regex, a comment or a continued string)
-  //   stays forced under a naming exception, as do a changed assertion, a parse error, a non-TS or CommonJS file, and the
-  //   edits a transpiler default would hide (NODE_ENV inlined from the running process's env, process.browser inlined, a declared __dirname, a decorated member's
-  //   type); fails_when=any of those is returned as check-free, or the GBRA-336 cast widening is not; seam=lib/ship-release.ts
-  //   route (GST-1682 red-team findings, p2v/outside-voice#1, fix-check#1)
+  //   stays forced under a naming exception, as do a changed assertion, a parse error, a non-TS or CommonJS file, a pragma
+  //   added to the leading comments (`// @bun`, `@jest-environment`, `@vitest-environment`, `@jsx`), and the edits a
+  //   transpiler default would hide (NODE_ENV inlined from the running process's env, process.browser inlined, a declared
+  //   __dirname, a decorated member's type); fails_when=any of those is returned as check-free, or the GBRA-336 cast widening
+  //   is not, with or without an unchanged header; seam=lib/ship-release.ts route (GST-1682 red-team findings,
+  //   p2v/outside-voice#1, fix-check#1, ship p1 lead bypass)
   test('checkFreePaths admits a cast widening and refuses edits that hollow an untouched check', () => {
     const SPEC = 'test/a.test.ts';
     const body = (cast: string, value = 'null', extra = '') => `  const body = (await Promise.resolve({ attest: ${value} })) as unknown as { attest?: ${cast} | null };${extra}\n`;
@@ -854,6 +856,7 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
     const cjs = (lines: string) => spec(lines).replace("import { expect, test } from 'bun:test';", "const { expect, test } = require('bun:test');");
     const topLevel = (line: string) => `import { expect, test } from 'bun:test';\n${line}\ntest('env is set', () => { expect(env).toBeTruthy(); });\n`;
     const NARROW = '{ system: string; ops: string[] }';
+    const HEADER = '#!/usr/bin/env bun\n/** @jest-environment node */\n// serve-http-access\n';
     const edits: Record<string, string | [string, string] | [string, string, string]> = {
       cast: spec(body('{ system: string; ops: string[]; sources: string[] | null }')),
       earlyReturn: spec(body(NARROW, 'null', ' if (body) return;')),
@@ -872,6 +875,11 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
       browser: [topLevel('const env = process.browser;'), topLevel('const env = true;')],
       dirname: [topLevel('const env = __dirname;'), 'var __dirname = "";\n' + topLevel('const env = __dirname;')],
       decoratedType: [topLevel('class C { @dec x: string; }'), topLevel('class C { @dec x: number; }')],
+      bunPragma: '// @bun\n' + spec(body(NARROW)),
+      jestEnvironment: '/** @jest-environment jsdom */\n' + spec(body(NARROW)),
+      vitestEnvironment: '// @vitest-environment jsdom\n' + spec(body(NARROW)),
+      jsxPragma: '/** @jsx h */\n' + spec(body(NARROW)),
+      castUnderHeader: [HEADER + spec(body(NARROW)), HEADER + spec(body('{ system: string; ops: string[]; sources: string[] | null }'))],
     };
     const free: Record<string, boolean> = {};
     for (const [name, edit] of Object.entries(edits)) {
@@ -884,6 +892,7 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
     expect(free).toEqual({
       cast: true, earlyReturn: false, changedValue: false, commentOut: false, swallow: false, stringAfterAs: false, regexAs: false, commentAs: false,
       continuedString: false, changedAssertion: false, parseError: false, commonJs: false, nonTs: false, nodeEnv: false, browser: false, dirname: false, decoratedType: false,
+      bunPragma: false, jestEnvironment: false, vitestEnvironment: false, jsxPragma: false, castUnderHeader: true,
     });
   });
 });

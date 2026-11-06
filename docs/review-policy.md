@@ -695,8 +695,11 @@ exception is a `.ts`, `.mts` or `.cts` test path the record's `fix_check.files`
 names that lib/gate-diff leaves untagged, that imports something (so Bun runs it
 as an ES module), and whose whole file before and after transpiles to
 byte-identical JavaScript under `Bun.Transpiler` with pinned options: only types
-or comments changed (a type-only cast widened, GBRA-336), so it routes as
-accepted (GST-1682). The pins keep transpiler defaults from hiding an edit:
+or comments changed (a type-only cast widened, GBRA-336), and whose leading
+comments and whitespace (`#!` included, everything before the first token of
+code) are byte-identical, because Bun, Jest and Vitest read pragmas there
+(`// @bun` runs the file untransformed): it routes as accepted (GST-1682). The
+pins keep transpiler defaults from hiding an edit:
 `process.env.NODE_ENV`, `process.env.BUN_ENV`, `process.browser`, `__dirname`
 and `__filename` map to identifiers no source can spell, decorated members keep
 their type metadata, and no tsconfig, trimming, dead-code elimination, inlining
