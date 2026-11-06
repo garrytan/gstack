@@ -238,8 +238,8 @@ fix (`--security` or `--regression`, with `--ref`): it takes the newest green co
 (its required check succeeded, the backstop check succeeded, every check run
 completed and none failed, no active freeze), tags it `v<VERSION>`, publishes a
 GitHub Release whose notes are one line per CHANGELOG version since the
-previous release, and fast-forwards `stable`. Team-mode installs follow
-`stable`; `gstack-config set update_channel main` follows every merge. A
+previous release, and fast-forwards `stable`. New installs and team-mode installs
+follow `stable`; `gstack-config set update_channel main` follows every merge. A
 hotfix is `--ref <sha on main>`, held by the same floor. Details, the floor's
 refusal codes and the "nothing green in the window" failure mode:
 [docs/releases.md](releases.md). A repository adopting this
