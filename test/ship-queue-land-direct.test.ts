@@ -18,7 +18,8 @@ import { persist, repoIdentity } from '../lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
 import { bumpVersion } from '../lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
-import { runMergedChecks } from '../lib/land-merged-checks';
+import type { MergedRun } from '../lib/land-merged-checks';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { readLock, writeLock } from '../lib/ship-queue-land-lock';
 import { flakyGit } from './helpers/flaky-git';
 import { runBackstop } from '../scripts/train-backstop';
@@ -113,6 +114,13 @@ const landNotes = (fx: Fx) => {
 };
 /** Whether a clone holds a commit. */
 const spawnCheck = (dir: string, sha: string) => spawnSync('git', ['-C', dir, 'cat-file', '-e', `${sha}^{commit}`], { timeout: 30_000 }).status === 0;
+/** runMergedChecks in a child Bun: on Linux it makes its caller a non-dumpable child subreaper for good, and a test runner that is one never reaps the orphans later test files leave, which hung test/ubicloud-runner-recovery.test.ts in the same process (GST-1613). */
+function runMergedChecks(root: string, base: string, pin: string, checks: string[], ms?: number): MergedRun {
+  const lib = JSON.stringify(path.join(import.meta.dir, '..', 'lib', 'land-merged-checks.ts'));
+  const r = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', `const { runMergedChecks } = await import(${lib}); const [root, base, pin, checks, ms] = JSON.parse(await Bun.stdin.text()); console.log(JSON.stringify(runMergedChecks(root, base, pin, checks, ms ?? undefined)));`], { input: JSON.stringify([root, base, pin, checks, ms ?? null]), encoding: 'utf8', timeout: 60_000 });
+  if (r.status !== 0) throw new Error(`runMergedChecks child exited ${r.status ?? r.signal}: ${r.stderr}`);
+  return JSON.parse(r.stdout) as MergedRun;
+}
 /** Commit a file straight onto origin/main (another PR that landed first). */
 function moveMain(fx: Fx, file: string, text: string): string {
   const { repo } = fx;

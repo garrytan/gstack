@@ -3,10 +3,11 @@
  * caller's sink, and `recover` rebuilds a VM's local state on another controller
  * from the encrypted bundle `up` wrote. Offline: the fake API and fake VM only.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { creates, fakeVm, gitSrc, run, until, vmDirs, type FakeVm } from './helpers/ubi-runner-fake-vm';
+import { zombieChildren } from './helpers/process-reaping';
 
 const fixtures: FakeVm[] = [];
 const make = () => { const f = fakeVm(); fixtures.push(f); return f; };
@@ -21,6 +22,10 @@ const stopSink = (f: FakeVm) => {
 afterEach(() => {
   for (const f of fixtures.splice(0)) { stopSink(f); rmSync(f.root, { recursive: true, force: true }); }
 });
+afterAll(async () => {
+  await until(() => zombieChildren().length === 0, 2_000).catch(() => {});
+  expect(zombieChildren()).toEqual([]);
+}, 10_000);
 const out = (r: { stdout: Buffer; stderr: Buffer }) => r.stdout.toString() + r.stderr.toString();
 const tarList = (tgz: string) => Bun.spawnSync(['tar', '-tzf', tgz], { timeout: 10_000 }).stdout.toString();
 const heartbeat = (tgz: string) => {
