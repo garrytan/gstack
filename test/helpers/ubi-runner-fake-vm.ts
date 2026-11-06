@@ -5,6 +5,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isChildSubreaper } from './process-reaping';
 
 export const ROOT = resolve(import.meta.dir, '../..');
 export const DIR = join(ROOT, 'scripts/ubicloud');
@@ -31,6 +32,7 @@ export const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
  * make-<target>.sh from the fixture root. No network, no VM.
  */
 export function fakeVm(opts: { listed?: string; refuse?: string } = {}) {
+  if (isChildSubreaper()) throw new Error('this bun process is a child subreaper (an earlier test called prctl PR_SET_CHILD_SUBREAPER in-process, as lib/land-merged-checks.ts runMergedChecks does), so the fake VM\'s detached phases would stay unreaped zombies and run cases would hang (GST-1613)');
   const root = mkdtempSync(join(tmpdir(), 'ubi-run-'));
   const bin = join(root, 'bin'), state = join(root, 'state'), log = join(root, 'calls.log'), sshLog = join(root, 'ssh.log'), record = join(root, 'vms.tsv');
   const vm = join(root, 'vm'), vmbin = join(root, 'vmbin'), srcDir = join(root, 'src'), checkpoints = join(root, 'checkpoints');

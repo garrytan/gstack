@@ -132,6 +132,7 @@ const BASELINE = [
   'test/ios-qa-stateserver-hardening.test.ts',
   'test/ios-qa-swift-build.test.ts',
   'test/jargon-list.test.ts',
+  'test/land-direct-recovery-isolation.test.ts', // GST-1613: runs test/ship-queue-land-direct.test.ts and test/ubicloud-runner-recovery.test.ts in one bun process; the product code is what those two files run
   'test/llm-judge-frontier.test.ts',
   'test/llm-judge-stream.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/memory-cache-injection.test.ts',
