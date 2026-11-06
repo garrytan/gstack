@@ -30,17 +30,23 @@ export function unseededWarning(unseeded: string[]): string | null {
     + `Fix: run \`${SEED_REFRESH_COMMAND}\` and commit scripts/free-test-durations.json. See ${SEED_DOCS_ANCHOR}.`;
 }
 
-export interface ShardTiming { shard: number; predictedMs: number; elapsedMs: number }
+/** `predictedMs` is the shard's serial seed sum; `elapsedMs` is wall time across its `jobs` parallel sub-shards. */
+export interface ShardTiming { shard: number; predictedMs: number; elapsedMs: number; jobs?: number }
+
+const expectedWallMs = ({ predictedMs, jobs }: ShardTiming) => predictedMs / Math.max(1, jobs ?? 1);
 
 export function shardOverruns(timings: ShardTiming[]): ShardTiming[] {
-  return timings.filter(({ predictedMs, elapsedMs }) =>
-    elapsedMs > predictedMs * SHARD_OVERRUN_FACTOR && elapsedMs - predictedMs >= SHARD_OVERRUN_FLOOR_MS);
+  return timings.filter((timing) => {
+    const expectedMs = expectedWallMs(timing);
+    return timing.elapsedMs > expectedMs * SHARD_OVERRUN_FACTOR && timing.elapsedMs - expectedMs >= SHARD_OVERRUN_FLOOR_MS;
+  });
 }
 
 export function overrunWarning(overruns: ShardTiming[]): string | null {
   if (overruns.length === 0) return null;
-  const listed = overruns.map(({ shard, predictedMs, elapsedMs }) =>
-    `shard ${shard} took ${seconds(elapsedMs)} vs ${seconds(predictedMs)} predicted`).join('; ');
+  const listed = overruns.map((timing) =>
+    `shard ${timing.shard} took ${seconds(timing.elapsedMs)} vs ${seconds(expectedWallMs(timing))} predicted`
+    + ((timing.jobs ?? 1) > 1 ? ` across ${timing.jobs} parallel jobs` : '')).join('; ');
   return `WARNING: ${overruns.length} shard(s) exceeded ${SHARD_OVERRUN_FACTOR}x their predicted duration (${listed}). `
     + `A file in them is slower than its seed entry or unseeded. Fix: run \`${SEED_REFRESH_COMMAND}\` `
     + `and commit scripts/free-test-durations.json; split any file over ${seconds(SEED_CEILING_MS)}. See ${SEED_DOCS_ANCHOR}.`;
@@ -50,8 +56,8 @@ export function overrunWarning(overruns: ShardTiming[]): string | null {
 export function ciHealthSummary(plan: FreeCiPlan, results: FreeCiResult[]): string[] {
   const ordered = [...results].sort((a, b) => a.outcome.shard - b.outcome.shard);
   const overruns = shardOverruns(ordered.flatMap(({ outcome }) => {
-    const predictedMs = plan.shards[outcome.shard - 1]?.predictedMs;
-    return predictedMs === undefined ? [] : [{ shard: outcome.shard, predictedMs, elapsedMs: outcome.elapsedMs }];
+    const planned = plan.shards[outcome.shard - 1];
+    return planned === undefined ? [] : [{ shard: outcome.shard, predictedMs: planned.predictedMs, elapsedMs: outcome.elapsedMs, jobs: planned.jobs }];
   }));
   const warning = overrunWarning(overruns);
   return warning ? [warning] : [];
