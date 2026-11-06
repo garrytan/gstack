@@ -7,122 +7,77 @@ designer, QA lead, release engineer, debugger, and more.
 ## Available skills
 
 Skills live in `.agents/skills/` (or `~/.claude/skills/gstack/` on Claude Code).
-Invoke them by name (e.g., `/office-hours`).
+Invoke them by name (e.g., `/office-hours`). This index lists names only; what each
+skill does, with examples, is in [docs/skills.md](docs/skills.md). The iOS companion
+CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are in
+[docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md).
 
-### Plan-mode reviews
-
-| Skill | What it does |
-|-------|-------------|
-| `/office-hours` | Start here. Reframes your product idea before you write code. |
-| `/plan-ceo-review` | CEO-level review: find the 10-star product in the request. |
-| `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
-| `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
-| `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
-| `/plan-tune` | Self-tune AskUserQuestion sensitivity per question. |
-| `/autoplan` | One command runs CEO → design → DX → eng review (eng always last). |
-| `/design-consultation` | Build a complete design system from scratch. |
-| `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
-
-### Implementation + review
-
-| Skill | What it does |
-|-------|-------------|
-| `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod; lists every gate edit for gate integrity. |
-| `/deslop-shared-libs` | Find worthwhile shared-code extractions in recent work. Recommendations only. |
-| `/write-skill` | Write or improve an agent skill without bloat: edit ladder, size per level (`gstack-skill-bill`), skill-to-bin drift check, full diets with a before/after test. |
-| `/test-audit` | Sweep existing tests for low-value, implementation-coupled or duplicate tests. Report-only unless you approve a batch. |
-| `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. Available outside the Codex harness. |
-| `/claude-code` | Second opinion via Claude Code. Review, challenge, or consult modes. Available outside the Claude Code harness. |
-| `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
-| `/verify` | Build-and-verify loop while you code: the repo's checks plus the tests pregate selects, fix, repeat, then hand off to `/ship`. Never green on an unmapped change. |
-| `/design-review` | Live-site visual audit + fix loop with atomic commits. |
-| `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
-| `/design-html` | Generate production-quality Pretext-native HTML/CSS. |
-| `/design-motion` | Turn an approved design into a showcase loop: MP4 for X, website GIF, 800×500 GIF, with seam, rest and overflow checks. |
-| `/devex-review` | Live developer experience audit (TTHW measured against the real flow). |
-| `/qa` | Test browser, API, CLI, job, worker and webhook behavior; reproduce bugs, fix them and re-verify. |
-| `/qa-only` | The same surface-aware QA, reporting findings and proposed tests without changing product code or tests. |
-| `/scrape` | Pull data from a web page in your Aside browser, with your real logged-in state. Read-only. On the fallback browser a codified browser-skill answers a repeat intent in ~200ms. |
-| `/skillify` | Codify the most recent successful `/scrape` flow into a permanent browser-skill (fallback browser only). |
-
-### Release + deploy
-
-| Skill | What it does |
-|-------|-------------|
-| `/ship` | Run tests, review, gate integrity, push, open PR. Workspace-aware version queue. |
-| `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
-| `/modernize` | Bring an aging PR onto its current base and decide MODERNIZE, REWORK or CLOSE, with `git range-diff` proof before a pinned-lease push. Never closes a PR itself. |
-| `/canary` | Post-deploy monitoring loop in your Aside browser (or gstack's own when Aside is absent). |
-| `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |
-| `/document-release` | Audit relevant docs before final verification on every ship; also supports standalone documentation updates. |
-| `/document-generate` | Generate Diataxis docs (tutorial / how-to / reference / explanation) from code. |
-| `/setup-deploy` | One-time deploy config detection (Fly.io, Render, Vercel, etc.). |
-| `/gstack-upgrade` | Update gstack to the latest version. |
-
-### Operational + memory
-
-| Skill | What it does |
-|-------|-------------|
-| `/context-save` | Save working context (git state, decisions, remaining work). |
-| `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
-| `/learn` | Manage what gstack learned across sessions. |
-| `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
-| `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
-| `/captain` | Run a crew from one controller: READY contract, merge trains, digest, approvals shapes, daily flaky pass. Also `/crew`. Templates in `captain/templates/`, team guide in `docs/captain.md`. |
-| `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
-| `/ubicloud` | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs with a reaper, quota preflight, hang watchdog, one committed verify per repository. |
-| `/runaway-stopper` | Find runaway Capy threads and subagents (own tokens past 500M, active past 3 days, subagent past 100M, empty wakes, review rounds past 2), stop or rotate them at a clean point, and prevent the pattern. |
-| `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini, plus particle-1 and DeepSeek V4.1 Flash through OpenRouter, side-by-side). |
-| `/eval-plan` | Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it for $0, pilot three priced items, then approve the spend. |
-| `/cso` | Supported security findings with explicit coverage. Static assessment remains available without catalog profiles. Contained runtime and scanner execution needs Docker and a matching qualified profile. The runtime catalog qualifies ten images: Node 24.4.0, Bun 1.3.10, Python 3.13.4 with uv 0.8.0, Rails on Ruby 3.4.4, and PostgreSQL 17.2, each for linux/amd64 and linux/arm64. The scanner catalog qualifies twelve: gitleaks, OSV-Scanner, Schemathesis, Semgrep, Trivy and zizmor on both platforms. Without Docker, or where no profile matches (native Windows Docker, for example), `/cso` runs static assessment only. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
-| `/setup-gbrain` | Set up gbrain for cross-machine session memory sync. |
-| `/sync-gbrain` | Keep gbrain current with this repo's code; refresh agent search guidance in CLAUDE.md. |
-
-### Browser + agent integration
-
-Every browser skill drives the Aside AI browser first (macOS 15+, aside.com) —
-the user's real browser with their real sessions, through `aside repl` scripts;
-gstack never installs it. When Aside is not installed or not running (Linux,
-Windows, a closed Aside app) the same skills fall back automatically to gstack's
-own headless Chromium (`$B`), which is where the three skills under `/browse` apply.
-
-| Skill | What it does |
-|-------|-------------|
-| `/browse` | Drive a browser: open a page, read it, click through a flow, screenshots, console errors. Aside first; gstack's own Chromium (~100ms/command) as the fallback. Every other browser skill stands on it. |
-| `/open-gstack-browser` | Launch the visible GStack Browser with sidebar + stealth — the headed face of the fallback engine. |
-| `/setup-browser-cookies` | Import cookies from your real browser into the fallback engine for authenticated testing. Unnecessary on Aside. |
-| `/pair-agent` | Pair a remote AI agent (OpenClaw, Codex, etc.) with gstack's own browser over a scoped tunnel. |
-
-### iOS QA — drive real iPhones over USB or Tailscale (v1.43.0.0+)
-
-| Skill | What it does |
-|-------|-------------|
-| `/ios-qa` | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Optionally exposes the device over Tailscale so remote agents can drive it. |
-| `/ios-fix` | Autonomous iOS bug fixer with regression snapshot capture. |
-| `/ios-design-review` | Designer's-eye QA on a real iPhone — 10-dimension Apple HIG rubric. |
-| `/ios-clean` | Convenience: strip DebugBridge + #if DEBUG wiring before a Release build. |
-| `/ios-sync` | Regenerate the iOS debug bridge against the latest upstream templates. |
-
-Companion CLIs (run on the Mac that's plugged into the device):
-
-| Command | What it does |
-|---------|-------------|
-| `gstack-ios-qa-daemon` | Mac-side broker. Loopback by default; `--tailnet` adds a Tailscale-facing listener with capability tiers and audit logging. |
-| `gstack-ios-qa-mint` | Owner-grant CLI for the tailnet allowlist (`grant`/`revoke`/`list`). |
-| `gstack-ios-qa-regen` | Regenerate the canonical local DebugBridge package and typed accessors (`--app-source` / `--bridge-dir`). |
-
-End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md).
-
-### Safety + scoping
-
-| Skill | What it does |
-|-------|-------------|
-| `/careful` | Warn before destructive commands (rm -rf, DROP TABLE, force-push). |
-| `/freeze` | Lock edits to one directory. Hard block, not just a warning. |
-| `/guard` | Activate both careful + freeze at once. |
-| `/unfreeze` | Remove directory edit restrictions. |
-| `/make-pdf` | Turn any markdown file into a publication-quality PDF. Renders through Aside, or gstack's own browser when Aside is absent. |
-| `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. Renders through Aside, or gstack's own browser when Aside is absent. |
+| Skill | Area |
+|-------|------|
+| `/office-hours` | plan |
+| `/plan-ceo-review` | plan |
+| `/plan-eng-review` | plan |
+| `/plan-design-review` | plan |
+| `/plan-devex-review` | plan |
+| `/plan-tune` | plan |
+| `/autoplan` | plan |
+| `/design-consultation` | plan |
+| `/spec` | plan |
+| `/review` | build + review |
+| `/deslop-shared-libs` | build + review |
+| `/write-skill` | build + review |
+| `/test-audit` | build + review |
+| `/codex` | build + review |
+| `/claude-code` | build + review |
+| `/investigate` | build + review |
+| `/verify` | build + review |
+| `/design-review` | build + review |
+| `/design-shotgun` | build + review |
+| `/design-html` | build + review |
+| `/design-motion` | build + review |
+| `/devex-review` | build + review |
+| `/qa` | build + review |
+| `/qa-only` | build + review |
+| `/scrape` | build + review |
+| `/skillify` | build + review |
+| `/ship` | release + deploy |
+| `/land-and-deploy` | release + deploy |
+| `/modernize` | release + deploy |
+| `/canary` | release + deploy |
+| `/landing-report` | release + deploy |
+| `/document-release` | release + deploy |
+| `/document-generate` | release + deploy |
+| `/setup-deploy` | release + deploy |
+| `/gstack-upgrade` | release + deploy |
+| `/context-save` | operational + memory |
+| `/context-restore` | operational + memory |
+| `/learn` | operational + memory |
+| `/retro` | operational + memory |
+| `/health` | operational + memory |
+| `/captain` | operational + memory |
+| `/benchmark` | operational + memory |
+| `/ubicloud` | operational + memory |
+| `/runaway-stopper` | operational + memory |
+| `/benchmark-models` | operational + memory |
+| `/eval-plan` | operational + memory |
+| `/cso` | operational + memory |
+| `/setup-gbrain` | operational + memory |
+| `/sync-gbrain` | operational + memory |
+| `/browse` | browser |
+| `/open-gstack-browser` | browser |
+| `/setup-browser-cookies` | browser |
+| `/pair-agent` | browser |
+| `/ios-qa` | iOS QA |
+| `/ios-fix` | iOS QA |
+| `/ios-design-review` | iOS QA |
+| `/ios-clean` | iOS QA |
+| `/ios-sync` | iOS QA |
+| `/careful` | safety + scoping |
+| `/freeze` | safety + scoping |
+| `/guard` | safety + scoping |
+| `/unfreeze` | safety + scoping |
+| `/make-pdf` | safety + scoping |
+| `/diagram` | safety + scoping |
 
 ## Validation discipline
 

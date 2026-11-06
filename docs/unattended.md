@@ -192,7 +192,8 @@ A parent reads many lanes, so length is a cost it pays per lane. A READY block
 holds its required lines plus at most 150 words; a completion report holds at
 most 300 words; a subagent brief names the files to read instead of pasting
 them. Evidence goes in files the report points to. Waits go on operations,
-never on polling wakes.
+never on polling wakes, except a crew lane's warm wait under about 30 minutes
+([captain.md](captain.md#lane-context)).
 
 ### Token caps and fresh-context handoffs
 
