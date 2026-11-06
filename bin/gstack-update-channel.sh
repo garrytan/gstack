@@ -10,10 +10,13 @@
 #           forward along main's first-parent history by the release workflow
 #
 # The config key update_channel (bin/gstack-config) is auto | stable | main.
-# auto, the default, is stable when team_mode is true and main otherwise, so a
-# team install follows releases and a contributor install follows main with
-# nothing to migrate. GSTACK_UPDATE_CHANNEL overrides the config (tests, a
-# one-off command). Any other value counts as auto.
+# ./setup records it once, on a fresh state root (gstack_update_channel_initial):
+# stable for a user's checkout, the GSTACK_UPDATE_CHANNEL value when one is set,
+# and nothing for a contributor checkout. auto, which every install set up
+# before that record existed still has, is stable when team_mode is true and
+# main otherwise, so an existing install keeps the branch it followed.
+# GSTACK_UPDATE_CHANNEL overrides the config (tests, a one-off command, Capy
+# sessions: bin/gstack-capy-session pins main). Any other value counts as auto.
 #
 # Functions (never fail; a broken config means main, the behaviour before
 # channels existed):
@@ -27,7 +30,14 @@
 #                                                (no release cut yet): callers
 #                                                fall back to main
 #
+#   gstack_update_channel_initial <install dir> <state root>
+#                                                setup's first-install choice:
+#                                                prints `<stable|main|auto> <why>`
+#                                                (auto records nothing), or
+#                                                nothing for an existing install
+#
 # CLI (the /gstack-upgrade skill): `bash bin/gstack-update-channel.sh [--fetch-ref] [<install dir>]`
+#   (./setup: `--initial <state root> <install dir>` prints gstack_update_channel_initial)
 #   prints the channel; --fetch-ref fetches the channel ref from origin and
 #   prints the revision to fast-forward to (origin/stable or origin/main),
 #   falling back to origin/main only when origin has no stable yet. Any other
@@ -57,12 +67,36 @@ gstack_update_channel_missing() {
   printf '%s' "${1:-}" | grep -qiE "couldn't find remote ref|no such ref was fetched|invalid refspec" 2>/dev/null
 }
 
+# A state root that holds a setup marker or a config is an existing install:
+# it keeps auto, so nothing changes under it. A contributor checkout keeps
+# auto too: gstack.contributor (bin/dev-setup) or GSTACK_CONTRIBUTOR=1, CI, a
+# checkout that is not its own git repository, a detached HEAD, a branch other
+# than origin's default, no upstream, or commits the upstream does not have.
+gstack_update_channel_initial() {
+  _uc_dir=$1 _uc_state=$2
+  if [ -e "$_uc_state/.last-setup-version" ] || [ -e "$_uc_state/config.yaml" ] || [ -e "$HOME/.gstack/.last-setup-version" ]; then return 0; fi
+  case "${GSTACK_UPDATE_CHANNEL:-}" in stable|main) printf '%s set by GSTACK_UPDATE_CHANNEL at install\n' "$GSTACK_UPDATE_CHANNEL"; return 0 ;; esac
+  if [ "${GSTACK_CONTRIBUTOR:-}" = 1 ] || [ "$(git -C "$_uc_dir" config --bool --get gstack.contributor 2>/dev/null)" = true ]; then
+    printf 'auto contributor checkout: gstack.contributor is set\n'; return 0
+  fi
+  [ -z "${CI:-}" ] || { printf 'auto contributor checkout: CI\n'; return 0; }
+  _uc_top=$(git -C "$_uc_dir" rev-parse --show-toplevel 2>/dev/null) && _uc_top=$(cd "$_uc_top" && pwd -P) || _uc_top=""
+  [ -n "$_uc_top" ] && [ "$_uc_top" = "$(cd "$_uc_dir" && pwd -P)" ] || { printf 'auto not a git checkout of its own\n'; return 0; }
+  _uc_branch=$(git -C "$_uc_dir" symbolic-ref -q --short HEAD 2>/dev/null) || { printf 'auto contributor checkout: HEAD is detached\n'; return 0; }
+  _uc_default=$(git -C "$_uc_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || _uc_default=origin/main
+  [ "$_uc_branch" = "${_uc_default#origin/}" ] || { printf 'auto contributor checkout: on branch %s\n' "$_uc_branch"; return 0; }
+  _uc_up=$(git -C "$_uc_dir" rev-parse -q --verify '@{upstream}' 2>/dev/null) || { printf 'auto contributor checkout: no upstream branch\n'; return 0; }
+  [ "$(git -C "$_uc_dir" rev-list --count "$_uc_up..HEAD" 2>/dev/null)" = 0 ] || { printf 'auto contributor checkout: local commits\n'; return 0; }
+  printf 'stable new install\n'
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   _uc_fetch=0 _uc_arg=""
+  [ "${1:-}" = --initial ] && { gstack_update_channel_initial "${3:-$(cd "$(dirname "$0")/.." && pwd)}" "${2:?--initial needs <state root>}"; exit 0; }
   for _uc_a in "$@"; do
     case "$_uc_a" in
       --fetch-ref) _uc_fetch=1 ;;
-      -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) _uc_arg=$_uc_a ;;
     esac
   done

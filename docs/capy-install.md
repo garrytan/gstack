@@ -4,7 +4,7 @@ Three layers, each owned by gstack:
 
 | Layer | Where | Job |
 |---|---|---|
-| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 4 a fresh clone or the floor fast-forward follows `stable` instead when the update channel resolves to it and `stable` meets that minimum, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
+| Bootstrapper | `capy/skill/gstack/scripts/install.sh` (copied once into the owner's Drive skill folder; frozen) | clone when absent; fetch origin's default branch and read the supported minimum from `FETCH_HEAD:capy/support.env` (from wrapper 5 a fresh clone or the floor fast-forward follows `stable` instead only when `GSTACK_UPDATE_CHANNEL=stable` and `stable` meets that minimum; Capy crews otherwise stay on main, see [releases.md](releases.md#channels)); in install mode fast-forward a clean, unpinned checkout below it; exec the full wrapper |
 | Full wrapper | `bin/gstack-capy-session` (moves with the checkout) | map the session start onto the installer: `--check` certifies (and reports a checkout behind origin), otherwise fast-forward a checkout behind origin (`bin/gstack-upgrade --ff-only-no-reinstall`), then install or repair |
 | Installer | `bin/gstack-capy-install` | Bun, both host profiles, the doctor, the install verdict, the launch line, the trailer |
 
@@ -613,7 +613,14 @@ other call), so the minimum is 3: every older Drive copy prints the owner
 action until the owner recopies `capy/skill/gstack/`. Wrapper 4 only adds the
 update-channel choice for the clone and the floor fast-forward
 (`GSTACK_UPDATE_CHANNEL=stable|main`, else the checkout's channel, else main);
-the minimum stays 3, so a copy at 3 keeps working.
+the minimum stays 3, so a copy at 3 keeps working. Wrapper 5 drops the
+checkout's channel from that choice, so a Capy machine follows main unless
+`GSTACK_UPDATE_CHANNEL=stable` (new installs elsewhere default to stable, and
+Capy crews must not inherit that). The minimum still stays 3: the checkout's
+`bin/gstack-capy-session` pins `GSTACK_UPDATE_CHANNEL=main` for every
+bootstrapper revision, so an older copy differs only when the machine's own
+config says stable, where its clone or floor fast-forward can land on the
+release until the next session's self-upgrade moves it to main.
 
 ## Exit codes
 

@@ -42,6 +42,7 @@ const below = (a: string, b: string) => {
 const STUB_INSTALLER = [
   '#!/usr/bin/env bash',
   'echo "installer $* lock=${GSTACK_CAPY_LOCK_HELD:-} rev=${GSTACK_CAPY_WRAPPER_REV:-} min=${GSTACK_CAPY_REMOTE_MIN:-} from=${GSTACK_CAPY_UPGRADED_FROM:-}" >> "$WRAP_LOG"',
+  'echo "channel=${GSTACK_UPDATE_CHANNEL:-}" >> "$WRAP_LOG.channel"',
   'cd "$(dirname "$0")/.."',
   'if [ "${1:-}" != --check ] && [ -f "$WRAP_FAIL_ONCE" ]; then rm -f "$WRAP_FAIL_ONCE"; echo "gstack: fail claude"; exit 1; fi',
   'echo "GSTACK_LAUNCH: GSTACK_SESSION_KIND=unattended GSTACK_CAPY=1"',
@@ -62,9 +63,11 @@ const UPGRADE_DEPS = [
  * cloneAt 'B': the clone sits at B, AT the minimum, and the remote moves on to
  * C (1.0.2, minimum unchanged): behind origin but not below the floor.
  * next: the remote moves on to C for a clone at A too. stable: origin's stable
- * branch (the release, docs/releases.md) at that commit.
+ * branch (the release, docs/releases.md) at that commit. configStable: B and later
+ * carry a bin/gstack-config stub whose update_channel is stable (a machine whose
+ * own config, or team mode, would follow the release).
  */
-function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolean; stable?: 'A' | 'B' | 'C' } = {}) {
+function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolean; stable?: 'A' | 'B' | 'C'; configStable?: boolean } = {}) {
   const host = capyHost({ systemBun: '1.4.2' });
   hosts.push(host);
   const git = (args: string[], cwd: string) => {
@@ -93,6 +96,7 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolea
     if (fs.existsSync(path.join(REPO, rel))) write(path.join(seed, rel), fs.readFileSync(path.join(REPO, rel), 'utf8'), 0o755);
   }
   write(path.join(seed, 'bin/gstack-capy-install'), STUB_INSTALLER, 0o755);
+  if (opts.configStable) write(path.join(seed, 'bin/gstack-config'), '#!/usr/bin/env bash\n[ "$1 $2" = "get update_channel" ] && echo stable\nexit 0\n', 0o755);
   git(['add', '-A'], seed);
   git(['commit', '-qm', 'B'], seed);
   const b = git(['rev-parse', 'HEAD'], seed);
@@ -115,6 +119,7 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolea
   return {
     host, root, bare, a, b, c, run, git: (args: string[]) => git(args, root),
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [],
+    channels: () => fs.existsSync(log + '.channel') ? fs.readFileSync(log + '.channel', 'utf8').trim().split('\n').filter(Boolean) : [],
   };
 }
 
@@ -145,13 +150,13 @@ describe('capy skill bootstrapper (capy/skill/gstack/scripts/install.sh)', () =>
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     expect(f.git(['rev-parse', '--is-shallow-repository'])).toBe('true');
     expect(install.last).toBe('gstack: ok 1.0.1 for=autoplan');
-    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=4 min=1.0.1 from=1.0.0`]);
+    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=5 min=1.0.1 from=1.0.0`]);
 
     const next = f.run(['--check', '--for', 'autoplan']);
     expect(next.status, next.stdout + next.stderr).toBe(0);
     expect(next.stdout).not.toContain('upgraded');
     expect(next.last).toBe('gstack: ok 1.0.1 for=autoplan');
-    expect(f.calls().at(-1)).toBe(`installer --check --root ${f.root} --for autoplan lock= rev=4 min=1.0.1 from=`);
+    expect(f.calls().at(-1)).toBe(`installer --check --root ${f.root} --for autoplan lock= rev=5 min=1.0.1 from=`);
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
   });
 
@@ -268,7 +273,7 @@ describe('capy skill: always current when online (the minimum is the floor, not 
     expect(r.stdout).toMatch(/^SELF_UPGRADE: done 1\.0\.1 -> 1\.0\.2$/m);
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
     expect(r.last).toBe('gstack: ok 1.0.2 for=autoplan');
-    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=4 min=1.0.1 from=1.0.1`]);
+    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=5 min=1.0.1 from=1.0.1`]);
     expect(fs.existsSync(path.join(f.root, '.git/gstack-upgrade.pending'))).toBe(false);
 
     const next = f.run(['--for', 'autoplan']);
@@ -276,7 +281,7 @@ describe('capy skill: always current when online (the minimum is the floor, not 
     expect(next.stdout).toMatch(/^SELF_UPGRADE: none \(current\)$/m);
     expect(next.stdout).not.toContain('SELF_UPGRADE: done');
     expect(next.last).toBe('gstack: ok 1.0.2 for=autoplan');
-    expect(f.calls().at(-1)).toBe(`installer --root ${f.root} --for autoplan lock=1 rev=4 min=1.0.1 from=`);
+    expect(f.calls().at(-1)).toBe(`installer --root ${f.root} --for autoplan lock=1 rev=5 min=1.0.1 from=`);
   });
 
   test('--check mode never moves a behind checkout: it names the gap and the fast-forwarding command, then certifies the installed revision', () => {
@@ -287,7 +292,7 @@ describe('capy skill: always current when online (the minimum is the floor, not 
     expect(r.stdout).not.toContain('SELF_UPGRADE');
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     expect(r.last).toBe('gstack: ok 1.0.1 for=autoplan');
-    expect(f.calls()).toEqual([`installer --check --root ${f.root} --for autoplan lock= rev=4 min=1.0.1 from=`]);
+    expect(f.calls()).toEqual([`installer --check --root ${f.root} --for autoplan lock= rev=5 min=1.0.1 from=`]);
   });
 
   test('a dirty behind checkout is skipped with gstack-upgrade\'s reason and still ends ok: above the floor, the trailer is the doctor\'s', () => {
@@ -300,7 +305,7 @@ describe('capy skill: always current when online (the minimum is the floor, not 
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     expect(fs.readFileSync(path.join(f.root, 'README.md'), 'utf8')).toBe('local edit\n');
     expect(r.last).toBe('gstack: ok 1.0.1 for=autoplan');
-    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=4 min=1.0.1 from=`]);
+    expect(f.calls()).toEqual([`installer --root ${f.root} --for autoplan lock=1 rev=5 min=1.0.1 from=`]);
   });
 
   test('GSTACK_CAPY_SELF_UPGRADE=off and GSTACK_CAPY_AUTO_UPGRADE=0 each disable the fast-forward by name and leave HEAD where it is', () => {
@@ -364,6 +369,40 @@ describe('capy skill bootstrapper: the update channel (wrapper 4, docs/releases.
     expect(o.status, o.stdout + o.stderr).toBe(0);
     expect(o.stdout).toContain('gstack-capy-skill: channel stable is at 1.0.0, below the supported minimum 1.0.1; following main');
     expect(old.git(['rev-parse', 'HEAD'])).toBe(old.c);
+  });
+});
+
+describe('capy skill bootstrapper: Capy crews stay on main (wrapper 5, docs/releases.md#channels)', () => {
+  // Value: protects=a fresh Capy machine clones main and runs the installer (./setup's first-install record) under GSTACK_UPDATE_CHANNEL=main even when
+  // the checkout's config would pick stable; fails_when=a Capy clone lands on the release, or setup on a fresh machine records stable; why_new=GST-1642
+  // makes stable the default for new installs, which Capy crews must not inherit; seam=a gstack-config stub saying stable; no_claim=GitHub's stable branch
+  test('a fresh machine clones main and installs under the main pin, whatever the machine config says', () => {
+    const f = fixture({ cloneAt: 'B', stable: 'B', configStable: true });
+    fs.rmSync(f.root, { recursive: true, force: true });
+    const r = f.run(['--for', 'autoplan']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.lines[0]).toStartWith('gstack-capy-skill: wrapper 5 ');
+    expect(r.stdout).not.toContain('channel stable');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+    expect(f.channels()).toEqual(['channel=main']);
+  });
+
+  // Value: protects=an existing checkout behind origin self-upgrades to main's tip under the main pin although its config names stable, and
+  // GSTACK_UPDATE_CHANNEL=stable still keeps it on the release; fails_when=an existing Capy checkout parks at the release or the override is ignored;
+  // why_new=GST-1642; seam=a gstack-config stub saying stable; no_claim=a Drive copy older than wrapper 5 (the checkout half pins main for it too)
+  test('an existing checkout self-upgrades to main, not the release its config names; GSTACK_UPDATE_CHANNEL=stable still follows stable', () => {
+    const f = fixture({ cloneAt: 'B', stable: 'B', configStable: true });
+    const r = f.run(['--for', 'autoplan']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('SELF_UPGRADE: done 1.0.1 -> 1.0.2');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.c);
+    expect(f.channels()).toEqual(['channel=main']);
+
+    const pinned = fixture({ cloneAt: 'B', stable: 'B', configStable: true });
+    const s = pinned.run(['--for', 'autoplan'], { GSTACK_UPDATE_CHANNEL: 'stable' });
+    expect(s.status, s.stdout + s.stderr).toBe(0);
+    expect(pinned.git(['rev-parse', 'HEAD'])).toBe(pinned.b);
+    expect(pinned.channels()).toEqual(['channel=stable']);
   });
 });
 

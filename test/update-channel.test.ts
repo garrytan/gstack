@@ -372,3 +372,80 @@ describe.skipIf(process.platform === 'win32')('gstack-update-check on the stable
     expect(fs.readFileSync(path.join(state, 'last-update-check'), 'utf8')).toMatch(/^CHECK_FAILED 1\.0\.0 /);
   });
 });
+
+describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: the channel ./setup records at first install', () => {
+  // Value: protects=a fresh state root on a user's checkout (default branch, upstream, no local commits, no contributor marker) gets stable, an explicit
+  // GSTACK_UPDATE_CHANNEL is recorded as given, every contributor signal and every existing install (setup marker, config.yaml, legacy marker) records
+  // nothing so auto keeps following main; fails_when=a contributor checkout or an existing install is switched to stable, or a plain clone is not;
+  // why_new=the first-install record is new (GST-1642); seam=the helper's CLI, which ./setup calls; no_claim=setup's own call (update-channel-setup.test.ts)
+  function checkout() {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-channel-initial-'));
+    bases.push(base);
+    const origin = path.join(base, 'origin.git'), seed = path.join(base, 'seed'), home = path.join(base, 'home'), state = path.join(base, 'state');
+    fs.mkdirSync(home);
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    fs.mkdirSync(seed);
+    git(seed, 'init', '-q', '-b', 'main');
+    write(path.join(seed, 'VERSION'), '1.0.0\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'A');
+    git(seed, 'push', '-q', origin, 'main');
+    const clone = (name: string, ...flags: string[]) => {
+      const dir = path.join(base, name);
+      execFileSync('git', ['clone', '-q', ...flags, 'file://' + origin, dir], { timeout: 30_000, env: { ...process.env, ...GIT_ENV, HOME: home } });
+      return dir;
+    };
+    const initial = (dir: string, extra: Record<string, string> = {}) => spawnSync('bash', [HELPER, '--initial', state, dir], {
+      encoding: 'utf8', timeout: 10_000,
+      env: { ...process.env, ...GIT_ENV, HOME: home, GSTACK_UPDATE_CHANNEL: '', GSTACK_CONTRIBUTOR: '', CI: '', ...extra },
+    }).stdout.trim();
+    return { base, home, state, clone, initial };
+  }
+
+  test('a plain clone (full or the README depth-1 one) on a fresh state root records stable; an explicit GSTACK_UPDATE_CHANNEL is recorded as given', () => {
+    const c = checkout();
+    expect(c.initial(c.clone('full'))).toBe('stable new install');
+    const shallow = c.clone('shallow', '--single-branch', '--depth', '1');
+    expect(c.initial(shallow)).toBe('stable new install');
+    expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'main' })).toBe('main set by GSTACK_UPDATE_CHANNEL at install');
+    expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'stable', CI: 'true' })).toBe('stable set by GSTACK_UPDATE_CHANNEL at install');
+    expect(c.initial(shallow, { GSTACK_UPDATE_CHANNEL: 'weekly' })).toBe('stable new install');
+  });
+
+  test('an existing install records nothing: a setup marker or config.yaml in the state root, or the legacy ~/.gstack marker', () => {
+    const c = checkout();
+    const dir = c.clone('full');
+    for (const marker of [path.join(c.state, '.last-setup-version'), path.join(c.state, 'config.yaml'), path.join(c.home, '.gstack', '.last-setup-version')]) {
+      write(marker, '1.0.0\n');
+      expect(c.initial(dir), marker).toBe('');
+      expect(c.initial(dir, { GSTACK_UPDATE_CHANNEL: 'main' }), marker).toBe('');
+      fs.rmSync(marker);
+    }
+    expect(c.initial(dir)).toBe('stable new install');
+  });
+
+  test('a contributor checkout records nothing (auto): the marker, CI, another branch, local commits, a detached HEAD, no upstream, a nested directory', () => {
+    const c = checkout();
+    const dir = c.clone('full');
+    expect(c.initial(dir, { GSTACK_CONTRIBUTOR: '1' })).toBe('auto contributor checkout: gstack.contributor is set');
+    expect(c.initial(dir, { CI: 'true' })).toBe('auto contributor checkout: CI');
+    git(dir, 'config', 'gstack.contributor', 'true');
+    expect(c.initial(dir)).toBe('auto contributor checkout: gstack.contributor is set');
+    git(dir, 'config', '--unset', 'gstack.contributor');
+    fs.mkdirSync(path.join(dir, 'sub'));
+    expect(c.initial(path.join(dir, 'sub'))).toBe('auto not a git checkout of its own');
+    git(dir, 'checkout', '-q', '-b', 'work');
+    expect(c.initial(dir)).toBe('auto contributor checkout: on branch work');
+    git(dir, 'checkout', '-q', 'main');
+    write(path.join(dir, 'VERSION'), '1.0.0-mine\n');
+    git(dir, 'commit', '-q', '-am', 'mine');
+    expect(c.initial(dir)).toBe('auto contributor checkout: local commits');
+    git(dir, 'checkout', '-q', '--detach', 'HEAD~1');
+    expect(c.initial(dir)).toBe('auto contributor checkout: HEAD is detached');
+    const lone = path.join(c.base, 'lone');
+    fs.mkdirSync(lone);
+    git(lone, 'init', '-q', '-b', 'main');
+    git(lone, 'commit', '-q', '--allow-empty', '-m', 'x');
+    expect(c.initial(lone)).toBe('auto contributor checkout: no upstream branch');
+  });
+});

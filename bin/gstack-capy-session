@@ -65,6 +65,11 @@ for a in "$@"; do
   prev="$a"
 done
 [ "$SKILL" = none ] && CHECK=1
+# Capy crews follow every merge (docs/releases.md#channels): main for all this
+# session runs (the self-upgrade, ./setup's first-install record, the
+# installer), whatever the machine's config says, unless GSTACK_UPDATE_CHANNEL
+# names a channel.
+case "${GSTACK_UPDATE_CHANNEL:-}" in stable|main) ;; *) export GSTACK_UPDATE_CHANNEL=main ;; esac
 INSTALLER="$ROOT/bin/gstack-capy-install"
 if [ ! -x "$INSTALLER" ]; then
   echo "gstack: fail installer — $INSTALLER is missing; fix: bash ${GSTACK_CAPY_WRAPPER_PATH:-<skill>/scripts/install.sh} (re-clones or fast-forwards)"

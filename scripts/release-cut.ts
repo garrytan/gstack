@@ -241,7 +241,7 @@ export function releaseNotes(n: NotesInput): string {
       ? 'First tagged release: the ' + span.length + ' version' + plural + (n.prevVersion ? ' since v' + n.prevVersion + ' (the week before it)' : '') + ', one line each; the [full changelog](' + changelogUrl + ') has every earlier one.'
       : span.length + ' version' + plural + ' since v' + n.prevVersion + ', one line each. ' + compare + 'the [full changelog](' + changelogUrl + ').',
     '',
-    'Team-mode installs follow the stable branch, which now points here; gstack-config set update_channel main follows every merge instead ([docs/releases.md](https://github.com/' + n.repo + '/blob/v' + n.version + '/docs/releases.md)).',
+    'New installs and team-mode installs follow the stable branch, which now points here; gstack-config set update_channel main follows every merge instead ([docs/releases.md](https://github.com/' + n.repo + '/blob/v' + n.version + '/docs/releases.md)).',
     '',
   ].join('\n');
   const bullets = span.map(e => '- **' + e.version + '**' + (e.date ? ' (' + e.date + ')' : '') + ': ' + (e.headline || 'see CHANGELOG.md'));
