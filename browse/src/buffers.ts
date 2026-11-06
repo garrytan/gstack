@@ -15,6 +15,8 @@
  *   totalAdded keeps incrementing past capacity (flush cursor)
  */
 
+import { redactUrl } from './audit';
+
 // ─── CircularBuffer ─────────────────────────────────────────
 
 export class CircularBuffer<T> {
@@ -137,6 +139,10 @@ export function addDialogEntry(entry: DialogEntry) {
 }
 
 /** One browse-dialog.log line. The prompt response is text the agent typed (dialog-accept), so it never reaches disk. */
+export function formatNetworkLogLine(e: NetworkEntry): string {
+  return `[${new Date(e.timestamp).toISOString()}] ${e.method} ${redactUrl(e.url)} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`;
+}
+
 export function formatDialogLogLine(e: DialogEntry): string {
   const response = e.response ? ' "[REDACTED]"' : '';
   return `[${new Date(e.timestamp).toISOString()}] [${e.type}] "${e.message}" → ${e.action}${response}`;

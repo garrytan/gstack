@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initAuditLog, writeAuditEntry } from '../src/audit';
-import { formatDialogLogLine } from '../src/buffers';
+import { formatDialogLogLine, formatNetworkLogLine } from '../src/buffers';
 import { handleMetaCommand } from '../src/meta-commands';
 
 // GST-1631: the audit log is plain JSONL in the state dir, so every value a
@@ -25,12 +25,12 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function write(cmd: string, args: string[], error?: string) {
+function write(cmd: string, args: string[], error?: string, origin = 'https://example.com/login') {
   writeAuditEntry({
     ts: '2026-11-06T00:00:00.000Z',
     cmd,
     args,
-    origin: 'https://example.com/login',
+    origin,
     durationMs: 1,
     status: error ? 'error' : 'ok',
     error,
@@ -230,6 +230,67 @@ describe('error text is scrubbed of the typed values', () => {
     expect(line().error).toBe('type [REDACTED]: failed at [REDACTED] step');
     write('fill', ['#otp', '5000'], 'locator.fill: Timeout 5000ms exceeded; value 5000 rejected');
     expect(line().error).toBe('locator.fill: Timeout 5000ms exceeded; value [REDACTED] rejected');
+  });
+});
+
+describe('short value pieces in error text (GST-1635)', () => {
+  it('scrubs a 3-digit piece of a js expression, such as a CVV, as a whole token', () => {
+    write('js', ["pay('4111111111111111', '123')"], 'Error: card 4111111111111111 cvv 123 rejected at eval:1:5');
+    expect(line().error).toBe('Error: card [REDACTED] cvv [REDACTED] rejected at eval:1:5');
+  });
+
+  it('scrubs a 2-digit piece but never one inside a longer number', () => {
+    write('fill', ['#exp', '07 / 29'], 'invalid expiry 07/29, year 2029');
+    expect(line().error).toBe('invalid expiry [REDACTED]/[REDACTED], year 2029');
+  });
+
+  it('leaves short word pieces and single digits alone, so ordinary error text survives', () => {
+    write('js', ['go(a, 1).is.of'], 'TypeError: a is not a function at eval:1:9; go to page 1');
+    expect(line().error).toBe('TypeError: a is not a function at eval:1:9; go to page 1');
+  });
+});
+
+describe('audit origin keeps scheme, host and path (GST-1635)', () => {
+  it('redacts every query value a GET form put in the page URL', () => {
+    write('click', ['@e3'], undefined, 'https://example.com/login?user=a&password=hunter2pw&cvv=123');
+    expect(raw()).not.toMatch(/hunter2pw|cvv=123|user=a\b/);
+    expect(line().origin).toBe('https://example.com/login?user=[REDACTED]&password=[REDACTED]&cvv=[REDACTED]');
+  });
+
+  it('drops a fragment and userinfo, and redacts a bare query piece', () => {
+    write('click', ['@e3'], undefined, 'https://bob:s3cretpw@example.com/cb?hunter2pw#access_token=tok_abcdef');
+    expect(raw()).not.toMatch(/s3cretpw|hunter2pw|tok_abcdef|bob/);
+    expect(line().origin).toBe('https://example.com/cb?[REDACTED]');
+  });
+
+  it('keeps a URL without a query as it was', () => {
+    write('click', ['@e3'], undefined, 'https://example.com/a/b');
+    expect(line().origin).toBe('https://example.com/a/b');
+    write('click', ['@e3'], undefined, 'about:blank');
+    expect(line().origin).toBe('about:blank');
+  });
+
+  it('cuts an unparseable origin at its query', () => {
+    write('click', ['@e3'], undefined, 'not a url?token=hunter2pw');
+    expect(line().origin).toBe('not a url');
+  });
+});
+
+describe('network log line (browse-network.log, GST-1635)', () => {
+  it('redacts query values of page-issued request URLs', () => {
+    const out = formatNetworkLogLine({ timestamp: 0, method: 'GET', url: 'https://api.example.com/v1/me?access_token=tok_abcdef&page=2', status: 200, duration: 5, size: 10 });
+    expect(out).not.toContain('tok_abcdef');
+    expect(out).toBe('[1970-01-01T00:00:00.000Z] GET https://api.example.com/v1/me?access_token=[REDACTED]&page=[REDACTED] → 200 (5ms, 10B)');
+  });
+
+  it('keeps the pending and unknown placeholders', () => {
+    expect(formatNetworkLogLine({ timestamp: 0, method: 'POST', url: 'https://api.example.com/v1/login' }))
+      .toBe('[1970-01-01T00:00:00.000Z] POST https://api.example.com/v1/login → pending (?ms, ?B)');
+  });
+
+  it('is what the server flush writes', () => {
+    const src = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf8');
+    expect(src).toContain('appendSecureFile(NETWORK_LOG_PATH, entries.map(formatNetworkLogLine)');
   });
 });
 

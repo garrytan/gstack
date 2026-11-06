@@ -5,7 +5,8 @@
  * ring buffers (console, network, dialog), the audit log persists across server
  * restarts and is never truncated by the server. Each entry records:
  *
- *   - timestamp, command, args (typed values redacted, then truncated), page origin
+ *   - timestamp, command, args (typed values redacted, then truncated), page
+ *     origin (scheme, host and path, with every query value redacted)
  *   - duration, status (ok/error), error message if any
  *   - whether cookies were imported (elevated security context)
  *   - connection mode (headless/headed)
@@ -14,7 +15,8 @@
  * value, typed text, a js expression, a prompt answer, a cookie, header,
  * storage or skill-arg value) is replaced with [REDACTED] before truncation,
  * and the error text is scrubbed of the same values. Navigation and click
- * args are kept as typed.
+ * args are kept as typed. The page origin keeps its query parameter names but
+ * not their values, since a GET form puts whatever the user typed there.
  *
  * All writes are best-effort — audit failures never cause command failures.
  */
@@ -138,9 +140,34 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
 }
 
 /**
- * Remove every redacted value, its JSON-escaped form and each 4+ char piece of it
- * (split on whitespace and on punctuation, since a js error echoes a bare
- * identifier) from text. Needles under 6 chars match only as whole tokens, so a
+ * Keep a URL's scheme, host and path and its query parameter names. Userinfo
+ * and the fragment are dropped and every query value becomes [REDACTED]: page
+ * and request URLs carry GET form fields and tokens under names no list covers.
+ */
+export function redactUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw.split(/[?#]/)[0];
+  }
+  const query = url.search.slice(1).split('&').filter(Boolean).map(piece => {
+    const eq = piece.indexOf('=');
+    return eq > 0 ? piece.slice(0, eq + 1) + REDACTED : REDACTED;
+  });
+  url.username = '';
+  url.password = '';
+  url.hash = '';
+  url.search = '';
+  return query.length ? `${url.href}?${query.join('&')}` : url.href;
+}
+
+/**
+ * Remove every redacted value, its JSON-escaped form and each piece of it (split
+ * on whitespace and on punctuation, since a js error echoes a bare identifier)
+ * from text. A piece counts when it has 4+ chars, or 2-3 chars with a digit (a
+ * CVV, an expiry month); shorter word pieces like "a" or "is" would shred
+ * ordinary error prose. Needles under 6 chars match only as whole tokens, so a
  * short value neither shreds the error nor shows through the text around it.
  */
 export function scrubSecrets(text: string, secrets: string[]): string {
@@ -150,7 +177,7 @@ export function scrubSecrets(text: string, secrets: string[]): string {
     needles.add(secret);
     needles.add(JSON.stringify(secret).slice(1, -1));
     for (const piece of [...secret.split(/\s+/), ...secret.split(/[^A-Za-z0-9_$.-]+/)]) {
-      if (piece.length >= 4) {
+      if (piece.length >= 4 || (piece.length >= 2 && /\d/.test(piece))) {
         needles.add(piece);
         needles.add(JSON.stringify(piece).slice(1, -1));
       }
@@ -187,7 +214,7 @@ export function writeAuditEntry(entry: AuditEntry): void {
       ts: entry.ts,
       cmd: entry.cmd,
       args: truncatedArgs,
-      origin: entry.origin,
+      origin: redactUrl(entry.origin),
       durationMs: entry.durationMs,
       status: entry.status,
       hasCookies: entry.hasCookies,
