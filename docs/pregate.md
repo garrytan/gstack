@@ -1148,7 +1148,10 @@ these holds (`lib/remote-gate-stand-in.ts`, GST-1688):
 - its `pregate.json/remote_gate` obligation holds the gate's own report,
   `remote-gate tree=<HEAD's tree> tests=<n>` with n above 0 (from
   `gstack-pregate --remote` or `clear --receipt`), run on that tree rather than
-  accepted from a stamp-only predecessor, with the time it was cleared.
+  accepted from a stamp-only predecessor, cleared within the last 24 hours;
+- that record's `base` and `policy` both name `origin/<base>@`: the pregate
+  run was against the same base branch, under that branch's own
+  `.gstack/pregate.json`, the policy whose `ship_lanes_from` maps the lane.
 
 Then the ledger records the lane as `source=remote_gate` with that receipt and
 the gate's test count, timed at the clear, and accept prints
@@ -1160,6 +1163,11 @@ lists it, since no CI run carried it. Otherwise the lane stops as before, and a
 says which rule failed: a gate for an earlier tree, a receipt that names
 another tree, a record `verify` refuses, or none at all. Other refusals
 (`inventory_uncovered`, `no_tests`, …) never fall back to the gate.
+
+One limit: the record cannot say whether the gate ran the whole suite or only
+the files pregate selected and handed it (`PREGATE_FILES_FILE`; gbrain's gate
+runs its whole corpus either way). The receipt carries a test count, not a file
+list, so a gate that ran only the selection can stand in for a full-suite lane.
 
 A run whose `tree.json` lists no files, which is what a rerun of only the
 failed jobs uploads, refuses as `no_tests` and says to dispatch a fresh full

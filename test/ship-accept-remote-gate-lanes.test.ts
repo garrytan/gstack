@@ -130,6 +130,26 @@ describe('accept: a cleared remote gate for the identical tree satisfies a lane 
     expect(out.stdout).toMatch(/STOP: lane unit was not carried from the green run/);
   });
 
+  // Value: protects=the gate stands in only under the base policy that maps the lane, and only while fresh (GST-1688 fix-check: OV2
+  //   and Low 4); fails_when=a pregate run against another base or under another policy, or a clear past the 24h evidence age, stands
+  //   in; seam=lib/remote-gate-stand-in.ts under gstack-evidence record-ci
+  test.each([
+    ['a record against another base branch', (rec: Record<string, any>) => { rec.base = String(rec.base).replace(/^origin\/main@/, 'origin/release@'); }, /\.gstack\/tmp\/pregate\.json was recorded against origin\/release@[0-9a-f]{12}, not origin\/main$/],
+    ['a record under a user-owned policy', (rec: Record<string, any>) => { rec.policy = 'user /home/fx/.gstack/pregate.json'; }, /\.gstack\/tmp\/pregate\.json ran under policy user \/home\/fx\/\.gstack\/pregate\.json, not origin\/main's \.gstack\/pregate\.json$/],
+    ['a clear older than 24h', (rec: Record<string, any>) => { for (const o of rec.requires_remote) if (o.lane === 'pregate.json/remote_gate') o.cleared_by = `gstack-pregate --remote ${new Date(Date.now() - 25 * 3600_000).toISOString()}`; }, /its clear at \S+ is not within the last 24h; rerun the remote gate$/],
+  ] as const)('negative control: %s does not stand in', (_name, mutate, why) => {
+    const f = pushed();
+    gate(f);
+    const file = path.join(f.work, '.gstack/tmp/pregate.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    mutate(rec);
+    fs.writeFileSync(file, JSON.stringify(rec));
+    const out = accept(f);
+    expect(out.status).not.toBe(0);
+    expect(lineOf(out.stdout, 'CARRY_DIAGNOSIS'), out.stdout).toMatch(why);
+    expect(out.stdout).toMatch(/STOP: lane unit was not carried from the green run/);
+  });
+
   // Value: protects=record-ci's own last record line decides the reading: a look-alike remote_gate line in the per_file remainder's
   //   output never turns a CI carry into a stand-in; fails_when=recordCiResult searches all of stderr for the remote_gate line; seam=none
   test('a look-alike remote_gate line before the real source=ci record line reads as the CI carry', () => {

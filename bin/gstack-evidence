@@ -755,7 +755,7 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const elsewhere = grants.filter((g) => g.head !== head).map((g) => `${g.approval} at ${g.head.slice(0, 12)}`);
   if (!v.ok && v.reason === "inventory_failed" && standIn) {
     const { remoteGateStandIn } = await import("../lib/remote-gate-stand-in");
-    const gate = remoteGateStandIn(git(["rev-parse", "--show-toplevel"]) ?? cwd, tree);
+    const gate = remoteGateStandIn(git(["rev-parse", "--show-toplevel"]) ?? cwd, tree, base);
     if (!gate.ok) return none(v.reason, v.detail, [`no cleared pregate.json/remote_gate stands in: ${gate.why}`]);
     let gatePaths: ReturnType<typeof ledgerPath>;
     try {
