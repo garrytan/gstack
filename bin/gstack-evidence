@@ -743,22 +743,28 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   if (!head || !tree) return none("no_head", "HEAD is unreadable");
   const wtree = () => { const fp = wtreeFingerprint({ cwd, timeoutMs: 30000 }); return "tree" in fp ? fp.tree : null; };
   const grants = readTestLaneExceptions(cwd);
-  const grant = grants.find((g) => g.head === head);
-  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd), ...(grant ? { excepted: grant } : {}) });
+  const atHead = grants.filter((g) => g.head === head);
+  const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd), ...(atHead.length ? { excepted: atHead } : {}) });
   const elsewhere = grants.filter((g) => g.head !== head).map((g) => `${g.approval} at ${g.head.slice(0, 12)}`);
-  if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !grant && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
+  if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !atHead.length && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
   let exception: BoundLaneException | undefined;
+  const grant = atHead.find((g) => g.approval === v.exceptedBy);
   if (v.excepted?.length && grant) {
     const preLabel = `${label}.excepted`;
-    const preCommand = perFileCommand(m.per_file!, v.excepted);
-    console.error(`gstack-evidence record-ci: test-lane exception ${grant.approval}: preflighting ${v.excepted.length} uncovered file(s) here at ${head.slice(0, 12)} (label=${preLabel})`);
-    const exit = await cmdRun(["--label", preLabel, "--", preCommand]);
-    let rows: EvidenceRecord[] = [];
-    try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
-    const n = rows.findLast((r) => r.label === preLabel && r.source === undefined && r.cmd_sha256 === sha256(preCommand) && r.wtree === tree)?.tests_ran ?? "unknown";
-    if (exit !== 0 || typeof n !== "number" || n <= 0) return none("exception_preflight_failed", `test-lane exception ${grant.approval}'s preflight of ${v.excepted.join(", ")} ${exit !== 0 ? `exited ${exit}` : `ran ${n} tests`} here (label=${preLabel}); the exception binds only when exactly those files pass at HEAD`);
-    exception = { ...grant, preflight: { label: preLabel, tests_ran: n } };
+    console.error(`gstack-evidence record-ci: test-lane exception ${grant.approval}: preflighting ${v.excepted.length} uncovered file(s) here at ${head.slice(0, 12)}, one at a time (label=${preLabel})`);
+    let ran = 0;
+    for (const file of v.excepted) {
+      const preCommand = perFileCommand(m.per_file!, [file]);
+      const exit = await cmdRun(["--label", preLabel, "--", preCommand]);
+      let rows: EvidenceRecord[] = [];
+      try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { rows = []; }
+      const n = rows.findLast((r) => r.label === preLabel && r.source === undefined && r.cmd_sha256 === sha256(preCommand) && r.wtree === tree)?.tests_ran ?? "unknown";
+      if (exit !== 0 || typeof n !== "number" || n <= 0) return none("exception_preflight_failed", `test-lane exception ${grant.approval}'s preflight of ${file} ${exit !== 0 ? `exited ${exit}` : `ran ${n} tests`} here (label=${preLabel}); the exception binds only when each of ${v.excepted.join(", ")} runs and passes at HEAD`);
+      ran += n;
+    }
+    exception = { ...grant, preflight: { label: preLabel, tests_ran: ran } };
   }
+  const testsRan = exception && typeof v.tests === "number" ? v.tests + v.excepted!.length : v.tests;
   let here: EvidenceRecord["skipped_here"];
   if (v.remainder?.length) {
     const hereLabel = `${label}.skipped`;
@@ -798,10 +804,10 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: v.tests, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}),
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: testsRan, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
+  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${testsRan}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
   if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
   if (exception) console.error(`TEST_LANE_EXCEPTION: ${testLaneExceptionText(exception)}`);
   return 0;

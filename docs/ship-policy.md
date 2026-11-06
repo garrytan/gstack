@@ -1666,8 +1666,10 @@ any grant while this checkout holds an open /ship run's marker, and `add` refuse
 the scope, so the lane's own runner cannot write one; a row by gstack is ignored
 wherever it came from. `gstack-evidence record-ci` binds a grant only when its
 head is HEAD and its files are exactly the uncovered set, and only after a local
-preflight of exactly those files with the lane's `per_file` runner passes at that
-head (a lane with no `per_file` runner cannot use one). Nothing about it is
+preflight of each of those files, one at a time, with the lane's `per_file` runner
+passes with a counted test at that head (a lane with no `per_file` runner cannot
+use one). Grants are kept per head and file set (the newest wins), so two lanes at
+one head each bind their own. Nothing about it is
 hidden: `accept` prints `TEST_LANE_EXCEPTION: …` and names the body line in its
 `NEXT:`, the receipt's `ci_carried` entry records `exception` (head, files, by,
 reason, time, approval id and the preflight's label and test count),

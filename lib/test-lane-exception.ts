@@ -23,16 +23,17 @@ export const TEST_LANE_EXCEPTION_SCOPE = /^\s*test_lane_exception\b/;
 export const testLaneExceptionRow = (head: string, files: string[], reason: string) =>
   ({ scope: `test_lane_exception ${head} ${files.join(',')}`, ask: `test_lane_exception at ${head}: ${files.join(',')}: ${reason}` });
 
-/** The approved grants, one per head (the newest wins). */
+/** The approved grants, one per head and file set (the newest wins), so each lane at a head keeps its own grant. */
 export function testLaneExceptions(rows: readonly ApprovalRow[]): TestLaneException[] {
-  const byHead = new Map<string, TestLaneException>();
+  const byGrant = new Map<string, TestLaneException>();
   for (const r of rows) {
     const scope = SCOPE.exec(r.scope), ask = ASK.exec(r.ask);
     if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || GSTACK_ACTOR.test(r.by)) continue;
-    byHead.delete(scope[1]!);
-    byHead.set(scope[1]!, { head: scope[1]!, files: scope[2]!.split(',').filter(Boolean).sort(), by: r.by, reason: ask[3]!, at: r.recorded_at, approval: r.id });
+    const files = scope[2]!.split(',').filter(Boolean).sort(), key = `${scope[1]} ${files.join(',')}`;
+    byGrant.delete(key);
+    byGrant.set(key, { head: scope[1]!, files, by: r.by, reason: ask[3]!, at: r.recorded_at, approval: r.id });
   }
-  return [...byHead.values()];
+  return [...byGrant.values()];
 }
 
 /** The grants in the checked-out branch's approval record (and its mirror). */

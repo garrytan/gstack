@@ -41,7 +41,7 @@ export type CarryRefused = { ok: false; reason: CarryRefusal; detail: string; di
  * without either (the whole run carried) the runs' test count. `remainder`: inventory files every run skipped entirely
  * (tree.json `skipped_files`), which the caller must run here with the lane's per_file runner before the lane counts.
  */
-export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; notOwed?: string; remainder?: string[]; excepted?: string[]; receipt: string } | CarryRefused;
+export type CarryVerdict = { ok: true; runs: RunEvidence[]; tests: number | 'n/a'; unit?: 'files'; notOwed?: string; remainder?: string[]; excepted?: string[]; exceptedBy?: string; receipt: string } | CarryRefused;
 
 /** How many of HEAD's runs per workflow are tried, newest first. */
 const CANDIDATES = 10;
@@ -66,16 +66,17 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, head:
  * The CI evidence for HEAD's tree under `profiles` (one verified run each), or why there is none. `wtree` reads the
  * working-tree fingerprint (before the lookup and after it); `inventory` lists the files the runs must cover, or `jobs`
  * names the jobs that must have succeeded in each run's newest attempt (a lane with no test files; no test count needed).
- * `excepted` is the owner's test-lane exception at HEAD (lib/test-lane-exception.ts): when the inventory files no run lists
- * are exactly its files, they come back as `excepted` for the caller to preflight here with the per_file runner instead of
- * refusing the lane (GST-1595).
+ * `excepted` holds the owner's test-lane exceptions at HEAD (lib/test-lane-exception.ts): when the inventory files no run lists
+ * are exactly one grant's files, they come back as `excepted` (with that grant's `exceptedBy`) for the caller to preflight here
+ * with the per_file runner instead of refusing the lane (GST-1595).
  */
 export function findCarry(src: RunSource, o: { profiles: string[]; head: string; tree: string; wtree: () => string | null; inventory?: () => string[] | { error: string }; jobs?: string[]; perFile?: boolean;
-  importers?: (missing: string[], listed: string[]) => string[]; excepted?: { files: string[]; approval: string } }): CarryVerdict {
+  importers?: (missing: string[], listed: string[]) => string[]; excepted?: { files: string[]; approval: string }[] }): CarryVerdict {
   const jobs = o.jobs ?? [];
   let covered: number | undefined;
   let remainder: string[] = [];
   let excused: string[] = [];
+  let exceptedBy: string | undefined;
   const before = o.wtree();
   if (before !== o.tree) return no('dirty_tree', `the working tree (${before ? before.slice(0, 12) : 'fingerprint unavailable'}) is not HEAD's committed tree ${o.tree.slice(0, 12)}; only a clean, committed tree carries`);
   if (!o.profiles.length) return no('no_profile', 'no run profile is named');
@@ -98,14 +99,16 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
       if (!listed.length) return no('inventory_empty', 'the inventory command printed no files');
       const absent = uncoveredFiles(listed, runs, 'covered');
       const some = (fs: string[]) => `${fs.slice(0, 5).join(', ')}${fs.length > 5 ? ', …' : ''}`;
-      const granted = o.excepted && absent.length && sameFiles(absent, o.excepted.files) ? o.excepted : undefined;
+      const grants = o.excepted ?? [];
+      const granted = absent.length ? grants.find(g => sameFiles(absent, g.files)) : undefined;
       if (absent.length && (!granted || !o.perFile)) {
-        const grant = !o.excepted ? '' : granted ? `; test-lane exception ${granted.approval} names them, but the lane declares no per_file runner to preflight them here`
-          : `; test-lane exception ${o.excepted.approval} names ${some(o.excepted.files)}, not exactly these`;
+        const grant = !grants.length ? '' : granted ? `; test-lane exception ${granted.approval} names them, but the lane declares no per_file runner to preflight them here`
+          : `; test-lane exception ${grants.map(g => `${g.approval} names ${some(g.files)}`).join('; ')}, not exactly these`;
         const diagnosis = o.importers?.(absent, listed) ?? [];
         return { ...no('inventory_uncovered', `${absent.length} of ${listed.length} inventory file(s) are in no run's tree.json: ${some(absent)}${grant}`), ...(diagnosis.length ? { diagnosis } : {}) };
       }
       excused = absent;
+      exceptedBy = granted?.approval;
       remainder = uncoveredFiles(listed, runs, 'uncovered').filter(f => !excused.includes(f));
       if (remainder.length && !o.perFile) return no('inventory_skipped', `${remainder.length} of ${listed.length} inventory file(s) skipped every test in CI and the lane declares no per_file runner: ${some(remainder)}`);
       covered = new Set(listed.map(normalPath)).size - remainder.length - excused.length;
@@ -125,7 +128,7 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
     const notOwed = allSkipped ? `CI skipped at this tree (gate job ${gates.join(', ')}, workflow unchanged)` : undefined;
     return { ok: true, runs, tests: 'n/a', ...(notOwed ? { notOwed } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} jobs=${jobs.join(',')}${notOwed ? ` not_owed=${gates.join(',')}` : ''} ${runReceiptFields(runs, src.now)}` };
   }
-  if (covered !== undefined) return { ok: true, runs, tests: covered, unit: 'files', ...(remainder.length ? { remainder } : {}), ...(excused.length ? { excepted: excused } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} files=${covered}${remainder.length ? ` skipped_here=${remainder.length}` : ''}${excused.length ? ` excepted=${excused.length} approval=${o.excepted!.approval}` : ''} ${runReceiptFields(runs, src.now)}` };
+  if (covered !== undefined) return { ok: true, runs, tests: covered, unit: 'files', ...(remainder.length ? { remainder } : {}), ...(excused.length ? { excepted: excused, exceptedBy } : {}), receipt: `ci-carry tree=${o.tree.slice(0, 12)} files=${covered}${remainder.length ? ` skipped_here=${remainder.length}` : ''}${excused.length ? ` excepted=${excused.length} approval=${exceptedBy}` : ''} ${runReceiptFields(runs, src.now)}` };
   const tests = runs.reduce((n, e) => n + (e.tests ?? e.files.length), 0);
   return { ok: true, runs, tests, receipt: `ci-carry tree=${o.tree.slice(0, 12)} tests=${tests} ${runReceiptFields(runs, src.now)}` };
 }

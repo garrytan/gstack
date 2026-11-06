@@ -28,7 +28,7 @@ const HELPERS = 'test/helpers.test.ts';
 const PASSING = "import { expect, test } from 'bun:test';\ntest('helpers', () => expect(1).toBe(1));\n";
 const FAILING = "import { expect, test } from 'bun:test';\ntest('helpers', () => expect(1).toBe(2));\n";
 const BASE = {
-  '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: `printf 'test/a.test.ts\\n${HELPERS}\\n'`, per_file: 'bun --no-env-file test {files}' } } }, null, 2) + '\n',
+  '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: 'ls test/*.test.ts', per_file: 'bun --no-env-file test {files}' } } }, null, 2) + '\n',
   '.github/workflows/free.yml': 'name: Free\non: [pull_request, workflow_dispatch]\njobs:\n  suite:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n',
   'test/a.test.ts': "import './helpers.test';\nimport { expect, test } from 'bun:test';\ntest('a', () => expect(1).toBe(1));\n",
   [HELPERS]: PASSING,
@@ -37,14 +37,14 @@ const NO_MIRROR = { GSTACK_APPROVALS_MIRROR: '0' };
 const BUN_PLACED = `CARRY_DIAGNOSIS: bun registers ${HELPERS} under test/a.test.ts; its JUnit suite won't appear`;
 
 /** A pushed branch whose green CI run's tree.json lists test/a.test.ts only: bun put the helpers' suite under it. */
-function fx(feat: Record<string, string> = {}): { f: ShipFx; head: string } {
+function fx(feat: Record<string, string> = {}, ciFiles = ['test/a.test.ts']): { f: ShipFx; head: string } {
   const f = shipFixture(BASE, { 'src/b.ts': 'export const b = 2;\n', ...feat });
   fixtures.push(f);
   const head = f.git('rev-parse', 'HEAD').stdout.trim();
   const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
   const run = { id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: head, path: '.github/workflows/free.yml', created_at: at(20), run_started_at: at(20), updated_at: at(5), repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
   const w: FakeWorld = { runs: [run] as FakeWorld['runs'], jobs: { 7: [{ name: 'suite', conclusion: 'success', completed_at: at(5) }] },
-    trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree: f.git('rev-parse', 'HEAD^{tree}').stdout.trim(), files: ['test/a.test.ts'], tests: 2, os: 'Linux' } } };
+    trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree: f.git('rev-parse', 'HEAD^{tree}').stdout.trim(), files: ciFiles, tests: 2, os: 'Linux' } } };
   fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify(w));
   f.gh(fakeGhScript(path.join(f.root, 'world.json')));
   expect(f.run(RELEASE, ['push', '--branch', 'feat', '--early', '--base', 'main'], { GSTACK_SESSION_KIND: 'unattended' }).status).toBe(0);
@@ -93,7 +93,7 @@ describe('an owner-granted test-lane exception (GST-1595)', () => {
     const { f, head } = fx();
     expect(grant(f, head).status).toBe(0);
     const ok = accept(f);
-    expect([ok.status, lineOf(ok.stdout, 'LANE')], ok.stdout).toEqual([0, 'LANE: free carried run=7/1 tests_ran=1 (files)']);
+    expect([ok.status, lineOf(ok.stdout, 'LANE')], ok.stdout).toEqual([0, 'LANE: free carried run=7/1 tests_ran=2 (files)']);
     const line = lineOf(ok.stdout, 'TEST_LANE_EXCEPTION');
     expect(line).toMatch(new RegExp(`^TEST_LANE_EXCEPTION: ${HELPERS} at ${head.slice(0, 12)}: preflight free\\.excepted ran 1 test\\(s\\) here; granted by Garry \\(via GStack Minder\\) at \\S+Z: bun registers the helpers suite under test/a\\.test\\.ts \\(approval a-[0-9a-f]{12}\\)$`));
     const bodyLine = `Test-lane exception: ${line.slice('TEST_LANE_EXCEPTION: '.length)}`;
@@ -112,6 +112,33 @@ describe('an owner-granted test-lane exception (GST-1595)', () => {
     expect(receipt.errors).toEqual([]);
     expect(receipt.receipt?.ci_carried).toEqual([expect.objectContaining({ lane: 'free', run: 7, attempt: 1,
       exception: expect.objectContaining({ head, files: [HELPERS], by: 'Garry (via GStack Minder)', preflight: { label: 'free.excepted', tests_ran: 1 } }) })]);
+  });
+
+  // Value: protects=each excepted file must run and pass on its own, a lane CI covered none of still counts its preflighted files, and two
+  //   grants at one head each keep their own file set; fails_when=a passing file masks a zero-test one in one aggregate run, a fully excepted
+  //   lane grades ZERO-RUN, or a later grant at the same head replaces the one that matches; seam=record-ci's preflight and testLaneExceptions
+  test('a zero-test excepted file refuses even beside a passing one', () => {
+    const { f, head } = fx({ 'test/empty.test.ts': 'export const empty = true;\n' });
+    expect(grant(f, head, `${HELPERS},test/empty.test.ts`).status).toBe(0);
+    const out = accept(f);
+    expect([out.status, lineOf(out.stdout, 'CI_CARRY')], out.stdout).toEqual([3, expect.stringMatching(/exception_preflight_failed: test-lane exception a-[0-9a-f]{12}'s preflight of test\/empty\.test\.ts (exited \d+|ran 0 tests) here/)]);
+    expect(lineOf(out.stdout, 'TEST_LANE_EXCEPTION')).toBe('');
+  });
+
+  test('a lane whose every inventory file is excepted carries with its preflighted files counted', () => {
+    const { f, head } = fx({}, ['test/other.test.ts']);
+    expect(grant(f, head, `test/a.test.ts,${HELPERS}`).status).toBe(0);
+    const ok = accept(f);
+    expect([ok.status, lineOf(ok.stdout, 'LANE'), lineOf(ok.stdout, 'EVIDENCE')], ok.stdout).toEqual([0, 'LANE: free carried run=7/1 tests_ran=2 (files)', expect.stringMatching(/^EVIDENCE: FRESH label=free /)]);
+  });
+
+  test('a later grant at the same head for another file set leaves the matching grant bound', () => {
+    const { f, head } = fx();
+    const first = grant(f, head);
+    expect(first.status).toBe(0);
+    expect(grant(f, head, `${HELPERS},test/other.test.ts`).status).toBe(0);
+    const ok = accept(f);
+    expect([ok.status, lineOf(ok.stdout, 'TEST_LANE_EXCEPTION')], ok.stdout).toEqual([0, expect.stringContaining(`(approval ${JSON.parse(first.stdout).added[0]})`)]);
   });
 
   // Value: protects=the grant binds one head, one exact file set and a passing preflight only; fails_when=a grant made at an earlier head, a grant

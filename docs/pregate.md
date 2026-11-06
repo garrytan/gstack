@@ -1228,11 +1228,13 @@ record-ci`, `gstack-ship-preflight` and `accept`; the remote gate's
 `inventory_uncovered` reason carries the same words. The fix is usually to move
 the shared code out of the `.test.` file. When that can't happen in this PR,
 the owner can grant a [test-lane exception](ship-policy.md#test-lane-exceptions)
-for exactly those files at the pushed head: `record-ci` then runs them here
-with the entry's `per_file` runner (label `<lane>.excepted`) and carries the
-lane only when that run passes with a counted test. A failed or zero-test run
-refuses with `exception_preflight_failed`, and a grant at another head or for
-another file set binds nothing. The CI row and the receipt's `ci_carried` entry
+for exactly those files at the pushed head: `record-ci` then runs each of them
+here, one file at a time, with the entry's `per_file` runner (label
+`<lane>.excepted`) and carries the lane only when every file's run passes with a
+counted test; the lane's `tests_ran` counts those files beside the ones CI
+covered. A failed or zero-test run of any file refuses with
+`exception_preflight_failed`, and a grant at another head or for another file
+set binds nothing. The CI row and the receipt's `ci_carried` entry
 keep the grant and the preflight (`exception`), and `accept` prints
 `TEST_LANE_EXCEPTION: <files> at <head12>: preflight <label> ran <n> test(s)
 here; granted by <who> at <time>: <reason> (approval <id>)`.

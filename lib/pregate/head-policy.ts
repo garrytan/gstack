@@ -100,7 +100,7 @@ export function lanesOnlyHeadPolicy(repoRoot: string, base: string): { head: boo
   if (!lists(refDeps) || !lists(headDeps)) return keep('has a dependencies entry that is not a list of test files');
   const { loosens, adds } = headPolicyDiff({ dependencies: refDeps } as PregateConfig, { dependencies: headDeps } as PregateConfig, ref.slice(7));
   if (loosens.length) return keep(loosens.join('; '));
-  if (show(ref, GENERATED_PATH) !== read(GENERATED_PATH)) return keep(`comes with a changed ${GENERATED_PATH}`);
+  if ((fork ? show(fork, GENERATED_PATH) : show(ref, GENERATED_PATH)) !== read(GENERATED_PATH)) return keep(`comes with a changed ${GENERATED_PATH}`);
   const n = Object.keys(adds).length;
   return { head: true, line: `POLICY: head (unreviewed) ${PREGATE_CONFIG_PATH}: adds ${n} test lane${n === 1 ? '' : 's'} over ${ref} and changes nothing else, so the gate is only stricter` };
 }
