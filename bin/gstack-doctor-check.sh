@@ -482,7 +482,7 @@ _dc_check_revision() {
 # project rule, never a security minimum, so the row is PASS, SKIP or WARN
 # and never fails the run (the supported minimum is _dc_check_min_revision).
 _dc_check_floor() {
-  local project="$CHECK_PROJECT" file flat floor installed fix
+  local project="$CHECK_PROJECT" file flat floor installed fix running known as stable
   if [ -z "$project" ]; then
     project=$(git rev-parse --show-toplevel 2>/dev/null)
     [ -n "$project" ] && [ "$(cd "$project" && pwd -P)" = "$ROOT_REAL" ] && project=""
@@ -510,16 +510,57 @@ _dc_check_floor() {
     return
   fi
   installed=$(clamp '0-9A-Za-z.+-' 40 2>/dev/null <"$ROOT/VERSION")
-  if _dc_version_below "${installed:-0}" "$floor"; then
+  # The version this checkout reads policies as, the one validatePolicy compares
+  # (runningGstackVersion): VERSION, or the newest policy key it knows when that
+  # is later, so an unstamped main checkout that already reads a key is not told
+  # to upgrade to read it. lib/ship-policy-keys.ts writes every newer key in the
+  # `_KEY_VERSION = '<version>'` form its stamp pattern moves.
+  running="${installed:-0}"
+  for known in $(sed -n "s/.*_KEYS\{0,1\}_VERSION = '\([0-9][0-9.]*\)'.*/\1/p" "$ROOT/lib/ship-policy-keys.ts" 2>/dev/null); do
+    _dc_version_below "$running" "$known" && running="$known"
+  done
+  as=""
+  [ "$running" != "${installed:-0}" ] && as=", reads policies as $running"
+  if _dc_version_below "$running" "$floor"; then
+    stable=$(_dc_newest_stable)
+    if [ -n "$stable" ] && _dc_version_below "$stable" "$floor"; then
+      _dc_row WARN floor "installed ${installed:-unknown}$as is below the floor $floor that $file declares ($GSTACK_PROJECT_FLOOR_FIELD), and no release meets this floor yet: the newest stable gstack is $stable, so upgrading or rerunning the install cannot clear this row" "fix: none here; the project lowers $GSTACK_PROJECT_FLOOR_FIELD to $stable or below (gstack-ship-policy validate refuses a floor above stable)" PROJECT_FLOOR_UNMET
+      return
+    fi
     if [ -n "${GSTACK_CAPY_WRAPPER_PATH:-}" ]; then
       fix="bash $GSTACK_CAPY_WRAPPER_PATH${CHECK_FOR:+ --for $CHECK_FOR} (fast-forwards a clean checkout to origin and reinstalls), or $SRC/bin/gstack-upgrade"
     else
       fix="$SRC/bin/gstack-upgrade (fast-forwards to the remote default branch, then reinstalls; interactive: /gstack-upgrade)"
     fi
-    _dc_row WARN floor "installed ${installed:-unknown} is below the floor $floor that $file declares ($GSTACK_PROJECT_FLOOR_FIELD)" "fix: $fix" PROJECT_FLOOR_UNMET
+    _dc_row WARN floor "installed ${installed:-unknown}$as is below the floor $floor that $file declares ($GSTACK_PROJECT_FLOOR_FIELD)" "fix: $fix" PROJECT_FLOOR_UNMET
     return
   fi
-  _dc_row PASS floor "$floor declared by $file (installed ${installed:-unknown})"
+  _dc_row PASS floor "$floor declared by $file (installed ${installed:-unknown}$as)"
+}
+
+# _dc_newest_stable — the newest stable gstack release, as lib/stable-release.ts
+# resolves it: the highest v<version> release tag origin lists (one bounded
+# ls-remote), else the higher of VERSION at the stable ref (origin/stable, then
+# stable) and the highest local release tag. Prints nothing when none resolves.
+_dc_newest_stable() {
+  local repo="${GSTACK_STABLE_REPO:-$ROOT_REAL}" best="" v ref listed
+  _dc_higher() { [ -z "$best" ] || _dc_version_below "$best" "$1" && best="$1"; }
+  if command -v timeout >/dev/null 2>&1; then
+    listed=$(GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$repo" ls-remote --tags --refs origin 'v[0-9]*' 2>/dev/null)
+  else
+    listed=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote --tags --refs origin 'v[0-9]*' 2>/dev/null)
+  fi
+  for v in $(printf '%s\n' "$listed" | sed -n 's|.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$|\1|p'); do _dc_higher "$v"; done
+  if [ -z "$best" ]; then
+    for ref in refs/remotes/origin/stable refs/heads/stable; do
+      git -C "$repo" rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 || continue
+      v=$(git -C "$repo" show "$ref:VERSION" 2>/dev/null | head -1 | clamp '0-9.' 32)
+      case "$v" in [0-9]*.[0-9]*.[0-9]*) _dc_higher "$v" ;; esac
+      break
+    done
+    for v in $(git -C "$repo" tag --list 'v[0-9]*' 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$/\1/p'); do _dc_higher "$v"; done
+  fi
+  printf '%s' "$best"
 }
 
 # _dc_wrapper_rev FILE — the GSTACK_CAPY_WRAPPER revision a Capy skill copy

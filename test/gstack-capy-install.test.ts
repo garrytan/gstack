@@ -338,6 +338,17 @@ describe('gstack-capy-install', () => {
     expect(lastLine(run(f, [], { STUB_DOCTOR_EXTRA: row, STUB_DOCTOR_FAIL: '1' }).stdout)).toBe('gstack: fail codex');
   });
 
+  // Value: protects=sessions from rerunning an install that cannot clear the floor (GST-1637); fails_when=the trailer offers the fast-forward when no release meets the floor; seam=bin/gstack-capy-install; no_claim=-
+  test('a WARN floor row saying no release meets the floor adds the floor note without a fix; behind keeps its own fix', () => {
+    const f = fixture();
+    const row = 'WARN floor — installed 1.2.3 is below the floor 1.2.9 that /p/.gstack/ship-policy.json declares (min_gstack_version), and no release meets this floor yet: the newest stable gstack is 1.2.5, so upgrading or rerunning the install cannot clear this row; fix: none here; the project lowers min_gstack_version to 1.2.5 or below (gstack-ship-policy validate refuses a floor above stable) (PROJECT_FLOOR_UNMET; d)';
+    const alone = run(f, ['--for', 'autoplan'], { STUB_DOCTOR_EXTRA: row, GSTACK_CAPY_WRAPPER_PATH: '/s/install.sh' });
+    expect(alone.status, alone.stdout + alone.stderr).toBe(0);
+    expect(lastLine(alone.stdout)).toBe('gstack: ok 1.2.3 for=autoplan (floor=1.2.9 (/p/.gstack/ship-policy.json; no release meets this floor yet))');
+    const behind = run(f, [], { STUB_DOCTOR_EXTRA: row, GSTACK_CAPY_BEHIND: '5', GSTACK_CAPY_BEHIND_TO: '1.2.9', GSTACK_CAPY_BEHIND_FIX: 'bash /s/install.sh --for autoplan' });
+    expect(lastLine(behind.stdout)).toBe('gstack: ok 1.2.3 for=autoplan (behind=5 (latest: 1.2.9); floor=1.2.9 (/p/.gstack/ship-policy.json; no release meets this floor yet); fix: bash /s/install.sh --for autoplan)');
+  });
+
   test('--for none certifies nothing and installs nothing: ok not-needed, exit 0, no setup, no verdict, with or without a checkout', () => {
     const f = fixture();
     const r = run(f, ['--for', 'none']);

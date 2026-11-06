@@ -264,6 +264,13 @@ Two stages with separate clocks, both printed:
   this branch` when the merge-base file lacks the marker. The policy has no
   waiver key, so neither a base nor a pushed `pregate.json` can widen it.
 
+- `policy-floor`: on a branch that changes `.gstack/ship-policy.json`, a
+  `min_gstack_version` above the newest stable gstack release fails
+  (`POLICY_FLOOR_ABOVE_STABLE`, naming the floor and the release), since every
+  stable-channel lane would refuse that policy; when the release cannot be
+  resolved (no release tag on gstack's origin, no local stable ref or tag) it
+  warns (`STABLE_RELEASE_UNKNOWN`). The same rule as `gstack-ship-policy
+  validate` ([ship-policy.md](ship-policy.md)).
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
   `TIMING_ASSERTION: <file>:<line> <pattern>` and a
