@@ -214,6 +214,16 @@ describe('error text is scrubbed of the typed values', () => {
     expect(raw()).not.toContain('sk_live_abcdef123');
   });
 
+  it('an empty quoted selector in pipe form cannot shift the value into a kept position', () => {
+    write('chain', ['fill "" "my-super-secret" | type --selector "" "my-super-secret" | storage set "" "my-super-secret"']);
+    expect(raw()).not.toContain('my-super-secret');
+  });
+
+  it('a tab or newline inside a pipe-form segment never leaves the value in plain text', () => {
+    write('chain', ['goto https://x | fill #pw\nhunter2secret | fill\t#pw\thunter2secret | tab-each fill\t#pw\thunter2secret'], 'Unknown command: fill\t#pw\thunter2secret');
+    expect(raw()).not.toContain('hunter2secret');
+  });
+
   it('matches a short value only as a whole token', () => {
     write('type', ['a'], 'type a: failed at a step');
     expect(line().error).toBe('type [REDACTED]: failed at [REDACTED] step');

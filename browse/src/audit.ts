@@ -19,7 +19,7 @@
  * All writes are best-effort — audit failures never cause command failures.
  */
 
-import { canonicalizeCommand, tokenizePipeSegment } from './commands';
+import { ALL_COMMANDS, canonicalizeCommand, tokenizePipeSegment } from './commands';
 import { appendSecureFile } from './file-permissions';
 
 export interface AuditEntry {
@@ -60,6 +60,7 @@ function redactChain(flow: string): RedactedArgs {
   const secrets: string[] = [];
   const redactStep = (step: string[]) => {
     const [name, ...rest] = step;
+    if (!ALL_COMMANDS.has(canonicalizeCommand(name))) { secrets.push(step.join(' ')); return [REDACTED]; }
     const r = redactCommandArgs(name, rest);
     secrets.push(...r.secrets);
     return [name, ...r.args];
@@ -85,7 +86,7 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
   const cmd = canonicalizeCommand(rawCmd);
   switch (cmd) {
     case 'fill':
-      if (args.length < 2) return { args, secrets: [] };
+      if (args.length < 2) return { args: [REDACTED], secrets: [args.join(' ')] };
       return { args: [args[0], REDACTED], secrets: [args.slice(1).join(' ')] };
     case 'type': {
       const kept: string[] = [];
@@ -93,7 +94,7 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
       if (args[i] === '--selector') { kept.push(...args.slice(i, i + 2)); i += 2; }
       if (args[i] === '--') { kept.push('--'); i += 1; }
       const text = args.slice(i);
-      if (text.length === 0) return { args, secrets: [] };
+      if (text.length === 0) return { args: [REDACTED], secrets: [args.join(' ')] };
       return { args: [...kept, REDACTED], secrets: [text.join(' ')] };
     }
     case 'js': {
@@ -114,7 +115,8 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
     case 'header':
       return redactAfterSeparator(args, ':');
     case 'storage':
-      if (args[0] !== 'set' || args.length < 3) return { args, secrets: [] };
+      if (args[0] !== 'set' || args.length < 2) return { args, secrets: [] };
+      if (args.length < 3) return { args: [args[0], REDACTED], secrets: [args[1]] };
       return { args: [args[0], args[1], REDACTED], secrets: [args.slice(2).join(' ')] };
     case 'skill': {
       if (args[0] !== 'run' || args.length < 3) return { args, secrets: [] };
@@ -129,6 +131,7 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
       return { args: out, secrets };
     }
     case 'tab-each': {
+      if (!ALL_COMMANDS.has(canonicalizeCommand(args[0]))) return { args: [REDACTED], secrets: [args.join(' ')] };
       const inner = redactCommandArgs(args[0], args.slice(1));
       return { args: [args[0], ...inner.args], secrets: inner.secrets };
     }
