@@ -55,10 +55,11 @@ function mergeMain(f: ShipFx, resolved: Record<string, string>) {
 }
 
 /** founderstar#563: the base took SAVE_VERSION 83 under the branch's 84, and moved a block next to the branch's vesting hunk. */
-function founderstar(resolvedSave = 84) {
+function founderstar(resolvedSave = 84, baseBlock = 0) {
   const x = reviewedBranch({ [GAME]: game(82), [VESTING]: vesting(), [SCORE]: 'var score := 1\n' }, { [GAME]: game(84), [VESTING]: vesting(BRANCH_VESTING) });
-  x.f.advanceBase({ [GAME]: game(83), [VESTING]: vesting(BASE_VESTING) });
-  mergeMain(x.f, { [GAME]: game(resolvedSave), [VESTING]: vesting({ ...BASE_VESTING, ...BRANCH_VESTING }) });
+  const moved = { 4: [BASE_VESTING[4], ...Array.from({ length: baseBlock }, (_, i) => `var base${i} := ${i}`)].join('\n') };
+  x.f.advanceBase({ [GAME]: game(83), [VESTING]: vesting(moved) });
+  mergeMain(x.f, { [GAME]: game(resolvedSave), [VESTING]: vesting({ ...moved, ...BRANCH_VESTING }) });
   const head = x.f.git('rev-parse', 'HEAD').stdout.trim();
   const sides = { reviewedBase: x.reviewedBase, reviewed: x.from, currentBase: x.f.git('merge-base', 'origin/main', 'HEAD').stdout.trim(), current: head };
   return { ...x, head, sides };
@@ -117,9 +118,9 @@ describe('carry: the founderstar#563 shape takes one scoped reader, then binds',
 });
 
 describe('carry: a changed path plus context paths compose into one bounded re-check (GST-1561 ask 1)', () => {
-  const composed = (scoreLines = 1) => {
-    const x = founderstar();
-    x.f.write({ [SCORE]: Array.from({ length: scoreLines }, (_, i) => `var score${i} := ${i + 2}`).join('\n') + '\n' }); x.f.commit('fix: score');
+  const composed = (baseBlock = 0) => {
+    const x = founderstar(84, baseBlock);
+    x.f.write({ [SCORE]: 'var score0 := 2\n' }); x.f.commit('fix: score');
     return { ...x, head: x.f.git('rev-parse', 'HEAD').stdout.trim() };
   };
 
@@ -146,10 +147,10 @@ describe('carry: a changed path plus context paths compose into one bounded re-c
   });
 
   test('past the size cap it refuses as before: RECEIPT_CARRY_PRODUCT_CHANGED, re-check not eligible', () => {
-    const { carry } = composed(RECHECK_RANGE_DIFF_CAP / 2);
+    const { carry } = composed(RECHECK_RANGE_DIFF_CAP);
     const r = carry();
     expect([r.status, r.stdout.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
-    expect(r.stderr).toMatch(/RECHECK: not eligible \([^)]*over the scoped re-check cap/);
+    expect(r.stderr).toMatch(/RECHECK: not eligible \(the packet is \d+ lines, over the scoped re-check cap/);
     expect(eligible(r.stderr)).toBeNull();
   });
 

@@ -50,7 +50,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { planRecheck, readRecheck, recheckPacket } from '../lib/ship-recheck';
+import { planRecheck, readRecheck, recheckPacket, recheckRecordTemplate } from '../lib/ship-recheck';
 import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
@@ -843,21 +843,24 @@ function cmdCarry(rest: string[], json: boolean): number {
       const fullRange = rangeRaw.status === 0 && inter?.status === 0 ? `${rangeRaw.stdout.trim()}\n${inter.stdout.trim()}` : null;
       const numstat = named.length ? spawnSync('git', ['diff', '--numstat', from, head, '--', ...named.map(p => `:(literal)${p}`)], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }) : null;
       const binary = numstat?.status !== 0 || (numstat?.stdout ?? '').split('\n').some(l => l.startsWith('-\t-\t'));
-      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: contextPaths.length, binary });
+      // Moved base context composes into the same packet, bound to range_base (GST-1561).
+      const context = contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : undefined;
+      const bound = context ? { rangeBase, context: context.text } : {};
+      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: contextPaths.length, context, binary });
       const record = flag(rest, '--recheck');
       if (!r.ok) process.stderr.write(`RECHECK: not eligible (${r.reason}); run /ship on ${head.slice(0, 12)}\n`);
       else if (record) {
-        const read = readRecheck(record, { from, head, sha256: r.sha256 });
+        const read = readRecheck(record, { from, head, sha256: r.sha256, ...bound });
         if (!read.ok) return refused('RECEIPT_CARRY_REFUSED', `--recheck: ${read.message}`);
-        recheck = `scoped re-check by ${read.record.reader} (range-diff ${r.lines} lines)`;
+        recheck = `scoped re-check by ${read.record.reader} (range-diff ${r.lines} lines${context ? `; base context moved in ${contextPaths.join(', ')}; range_base ${rangeBase.slice(0, 12)}` : ''})`;
       } else {
         let where = 'not written (dry run)';
         if (!rest.includes('--dry-run')) {
           const packet = path.resolve(repoRoot, git(['rev-parse', '--git-path', `gstack/recheck-${head.slice(0, 12)}.md`], repoRoot) ?? `.git/gstack/recheck-${head.slice(0, 12)}.md`);
-          try { fs.mkdirSync(path.dirname(packet), { recursive: true }); fs.writeFileSync(packet, recheckPacket({ from, head, plan: r, rangeDiff: fullRange! })); where = packet; }
+          try { fs.mkdirSync(path.dirname(packet), { recursive: true }); fs.writeFileSync(packet, recheckPacket({ from, head, plan: r, rangeDiff: fullRange!, ...bound })); where = packet; }
           catch (e) { where = `unwritable: ${(e as Error).message.split('\n')[0]}`; }
         }
-        process.stderr.write(`RECHECK: eligible range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader reads it, then carry --recheck <record.json> ({"from":"${from}","head":"${head}","range_diff_sha256":"${r.sha256}","reader":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}\n`);
+        process.stderr.write(`RECHECK: eligible range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader reads it, then carry --recheck <record.json> (${recheckRecordTemplate({ from, head, sha256: r.sha256, ...bound })}); a blocking finding means /ship on ${head.slice(0, 12)}\n`);
       }
     }
     plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(recheck ? { recheck } : {}) });

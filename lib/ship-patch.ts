@@ -9,7 +9,10 @@
  *   base merge only shifted line numbers; patch-ids ignore positions, so a block moved to an identical
  *   context elsewhere is changed);
  * - context: the +/- lines match hunk for hunk, and each hunk sits where the base's own
- *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ.
+ *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ;
+ *   or a hunk's added lines match byte for byte and its removed lines are the base's own edit of
+ *   the lines the reviewed hunk replaced (founderstar#563: the base took SAVE_VERSION 83 under the
+ *   branch's 84, GST-1561), which the scoped review reads too.
  *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
  *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
  * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
@@ -122,10 +125,22 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const c0 = zeroHunks(pathDiff(repoRoot, s.currentBase, s.current, rel, 0) ?? '');
   if (ids[0] === ids[1] && r0 === null) return 'same';
   const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
-  if (!r0?.length || !c0 || !b0 || r0.length !== c0.length || r0.some((h, i) => h.body !== c0[i]!.body)) return 'changed';
+  if (!r0?.length || !c0 || !b0 || r0.length !== c0.length) return 'changed';
   const map = mapper(b0);
-  if (!r0.every((h, i) => sameSpot(h, c0[i]!, map))) return 'changed';
-  return ids[0] === ids[1] ? 'same' : 'context';
+  if (!r0.every((h, i) => h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : baseEditOnly(h, c0[i]!, map))) return 'changed';
+  return ids[0] === ids[1] && r0.every((h, i) => h.body === c0[i]!.body) ? 'same' : 'context';
+}
+
+/**
+ * Whether a hunk whose body changed since review differs only by the base's edit of the lines it replaces: the added
+ * lines are the reviewed ones byte for byte, and the lines just outside the reviewed hunk's removed range are lines the
+ * base kept, landing just outside the current hunk's range, so the current removed lines are the base's version of the
+ * reviewed ones. A hunk that now removes another line, or adds anything else, is not.
+ */
+function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): boolean {
+  const added = (h: ZeroHunk) => h.body.split('\n').filter((l, i, all) => l.startsWith('+') || (l.startsWith('\\') && all[i - 1]?.startsWith('+'))).join('\n');
+  const start = (h: ZeroHunk) => (h.oldCount > 0 ? h.oldStart : h.oldStart + 1);
+  return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(start(r) + r.oldCount) === start(c) + c.oldCount;
 }
 
 /**
@@ -178,7 +193,7 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
   const late = Object.keys(bounded).sort();
   const sides = `reviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}.`;
   const parts = [paths.length || !late.length
-    ? `# Scoped review: base context moved next to the reviewed hunks\n\n${sides} The branch's +/- lines are unchanged; read whether the merge kept their meaning next to the base's edit. Report clean, or findings at the blocking floor.\n`
+    ? `# Scoped review: base context moved next to the reviewed hunks\n\n${sides} The branch's added lines are unchanged, and a removed line differs only where the base edited the line the branch replaces; read whether the merge kept their meaning next to the base's edit (a version or number the base also took). Report clean, or findings at the blocking floor.\n`
     : `# Scoped review: edits that landed after the review bound\n\n${sides}\n`];
   if (late.length) parts.push(`Bounded edits since review in ${late.map(p => `${p} (${bounded[p]})`).join(', ')}: each landed after the review bound, and its kind was proven from the diff; this one read replaces another review round (docs/review-policy.md#bounded-post-review-edits). Read every line under "Changed since review" as gate code. Audit prose is policy text agents follow: flag any change to what a gate, cap, reviewer, approval or exception does. A lanes edit maps files to tests: flag a glob that marks files covered by tests that do not exercise them. A bookkeeping row is an exemption or a limit: flag a row that moves an exemption onto code it should not cover, or raises a limit without a reason in the diff. Read them through the targeted brief at the end for money, gate, auth and secret wording. Report clean, or findings at the blocking floor.\n`);
   if (tests.length) parts.push(`Test code changed since review in ${tests.join(', ')}: read whether each test still checks what it did (no weakened or bypassed assertion, early return, new exemption, skip or mock). Report clean, or findings at the blocking floor.\n`);

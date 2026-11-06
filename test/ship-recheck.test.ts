@@ -2,8 +2,8 @@
  * J1 (GSTA-258 L4): a scoped re-check after a refused receipt carry. Each refusal reason that does or does not qualify,
  * the record binding, and the carry end to end: a bounded product change prints RECHECK: eligible and writes the packet,
  * a clean record bound to that packet carries the receipt with the reader named, and a changed risk class, a legacy
- * receipt, more paths than the walk names and moved base context never take the re-check (the /ship p1 red-team and
- * security findings).
+ * receipt and more paths than the walk names never take the re-check (the /ship p1 red-team and security findings).
+ * Moved base context joins the packet instead (GST-1561; test/ship-receipt-carry-mixed.test.ts).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -32,7 +32,8 @@ describe('planRecheck: which refusals qualify', () => {
     ['legacy receipt', { ...OK, legacy: true }, 'no review_depth'],
     ['walk cut at the named-path limit', { ...OK, walkCut: true }, 'more changed product paths'],
     ['unnamed product path', { ...OK, unnamedPaths: true }, 'could not be named'],
-    ['base context moved', { ...OK, contextPaths: 1 }, 'base context'],
+    ['base context moved without its sections', { ...OK, contextPaths: 1 }, 'base context'],
+    ['base context over its section cap', { ...OK, contextPaths: 1, context: { text: '## src/c.ts', over: ['src/c.ts'] } }, 'section cap'],
     ['binary product path', { ...OK, binary: true }, 'binary'],
     ['wide packet over the byte cap', { ...OK, rangeDiff: 'x'.repeat(RECHECK_PACKET_BYTES + 1) }, 'bytes'],
     ['range-diff failed', { ...OK, rangeDiff: null }, 'failed or timed out'],
@@ -138,7 +139,7 @@ describe('carry with a scoped re-check (CLI)', () => {
     expect(runBin(bin.repo, 'gstack-ship-receipt', ['carry', '--body', bin.body], bin.env).err).toContain('RECHECK: not eligible (a changed product path is binary');
   }, 90_000);
 
-  test('base context moved next to a reviewed hunk plus a product edit elsewhere is not eligible (red-team p1 repro)', () => {
+  test('base context moved next to a reviewed hunk plus a product edit elsewhere composes the context hunks into the packet (red-team p1 repro, GST-1561)', () => {
     const lines = (n: number, edits: Record<number, string> = {}) => Array.from({ length: 10 }, (_, i) => edits[i + 1] ?? `line ${i + 1}`).join('\n') + '\n';
     const repo = makeFixtureRepo({ prefix: 'ship-recheck-ctx-' }); repos.push(repo);
     fs.mkdirSync(path.join(repo.work, 'src'), { recursive: true });
@@ -161,6 +162,11 @@ describe('carry with a scoped re-check (CLI)', () => {
     repo.git('commit', '-qam', 'fix: app');
     const r = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], env);
     expect(r.status).toBe(EXIT.refused);
-    expect(r.err).toContain('RECHECK: not eligible (base context also moved');
+    const m = eligible(r.err);
+    expect(m, r.err).not.toBeNull();
+    const packet = fs.readFileSync(m![3]!, 'utf8');
+    expect(packet).toContain('export const a = 2;');
+    expect(packet).toContain('## src/c.ts');
+    expect(packet).toContain('main line 4');
   }, 60_000);
 });
