@@ -1,1 +1,0 @@
-- **`mechanical_retake` and `test_code` now name 1.97.0.0 as the gstack release that introduced them.** Their key constants said 1.96.1.0, a version the next release skips: its fragments carry `bump: minor`, so `gstack-release-stamp open` stamps 1.96.0.0 -> 1.97.0.0. A policy that declares either key, or `ci_record_timeout_s`, sets `min_gstack_version` to 1.97.0.0.
